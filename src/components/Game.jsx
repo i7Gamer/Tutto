@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Undo2, ChevronRight, Check, X } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { playBuzzer, playSuccess } from '../utils/soundEffects';
@@ -33,6 +33,13 @@ export default function Game({ game }) {
   } = game;
 
   const [scoreInput, setScoreInput] = useState("");
+
+  useEffect(() => {
+    if (currentCard === "Feuerwerk" || currentCard === "Kleeblatt") {
+      confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+      playSuccess();
+    }
+  }, [currentCard]);
 
   const handleNextTurn = () => {
     nextTurn(parseInt(scoreInput) || 0, false);
