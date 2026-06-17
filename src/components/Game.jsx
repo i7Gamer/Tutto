@@ -35,7 +35,7 @@ export default function Game({ game }) {
   const [scoreInput, setScoreInput] = useState("");
 
   useEffect(() => {
-    if (currentCard === "Feuerwerk" || currentCard === "Kleeblatt") {
+    if (currentCard === "Feuerwerk") {
       confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
       playSuccess();
     }
@@ -47,7 +47,7 @@ export default function Game({ game }) {
   };
 
   const handleYesNo = (isSuccess) => {
-    if (isSuccess && currentCard === "Kniffel") {
+    if (isSuccess && (currentCard === "Kniffel" || currentCard === "Kleeblatt")) {
       confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
       playSuccess();
     }
