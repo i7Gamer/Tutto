@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Undo2, ChevronRight, Check, X } from 'lucide-react';
+import confetti from 'canvas-confetti';
+import { playBuzzer, playSuccess } from '../utils/soundEffects';
 
 const CARD_IMAGE_MAP = {
   "200": "200.png",
@@ -38,6 +40,22 @@ export default function Game({ game }) {
   };
 
   const handleYesNo = (isSuccess) => {
+    if (isSuccess && currentCard === "Kniffel") {
+      confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+      playSuccess();
+    }
+
+    if (isSuccess && currentCard === "Plus_Minus") {
+      // Check if current player is already a leader
+      const topScore = Math.max(...game.players.map(p => p.score));
+      if (currentPlayer.score < topScore) {
+        // Points will be deducted from leaders
+        playBuzzer();
+      } else {
+        playSuccess();
+      }
+    }
+
     nextTurn(0, isSuccess);
     setScoreInput("");
   };
