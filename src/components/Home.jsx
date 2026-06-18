@@ -100,12 +100,18 @@ export default function Home({ game, mode, setMode, onShowStats }) {
                 <div className="table-responsive" style={{ marginTop: '1rem' }}>
                   <table>
                     <tbody>
-                      {players.map(p => (
+                      {players.map((p, idx) => (
                         <tr key={p.name}>
                           <td style={{ fontWeight: 600 }}>{p.name}</td>
-                          <td style={{ width: '50px', textAlign: 'center' }}>
-                            <button className="btn btn-outline" style={{ padding: '0.4rem', border: 'none', color: 'var(--danger)' }} onClick={() => removePlayer(p.name)}>
-                              <Trash2 size={18} />
+                          <td style={{ width: '130px', textAlign: 'right' }}>
+                            <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.2rem' }} onClick={() => handleMoveUp(idx)} disabled={idx === 0}>
+                              <ChevronUp size={16} />
+                            </button>
+                            <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.5rem' }} onClick={() => handleMoveDown(idx)} disabled={idx === players.length - 1}>
+                              <ChevronDown size={16} />
+                            </button>
+                            <button className="btn btn-outline" style={{ padding: '0.2rem', color: 'var(--danger)' }} onClick={() => removePlayer(p.name)}>
+                              <Trash2 size={16} />
                             </button>
                           </td>
                         </tr>
@@ -127,6 +133,11 @@ export default function Home({ game, mode, setMode, onShowStats }) {
                 <div className="input-group">
                   <label>Winning Score</label>
                   <input type="number" value={winningScore} onChange={(e) => setWinningScore(parseInt(e.target.value) || 0)} />
+                </div>
+
+                <div className="input-group" style={{ flexDirection: 'row', alignItems: 'center', marginTop: '1rem' }}>
+                  <input type="checkbox" id="localRandomOrder" checked={randomOrder ?? true} onChange={(e) => setRandomOrder(e.target.checked)} style={{ width: 'auto', marginRight: '0.5rem' }} />
+                  <label htmlFor="localRandomOrder" style={{ marginBottom: 0 }}>Random Order</label>
                 </div>
 
                 <h4 style={{ marginTop: '1.5rem', marginBottom: '1rem' }}>Cards in Deck</h4>

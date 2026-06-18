@@ -38,6 +38,7 @@ export function useGameLogic() {
   const [round, setRound] = useState(1);
   const [winningScore, setWinningScore] = useState(6000);
   const [finished, setFinished] = useState(false);
+  const [randomOrder, setRandomOrder] = useState(true);
   
   // Timer
   const [gameTimeInSeconds, setGameTimeInSeconds] = useState(0);
@@ -68,6 +69,8 @@ export function useGameLogic() {
         setChartNames(JSON.parse(localStorage.getItem('chartNames')) || []);
         setChartLabels(JSON.parse(localStorage.getItem('chartLabels')) || []);
         setFinished(JSON.parse(localStorage.getItem('finished')) || false);
+        const savedRandomOrder = localStorage.getItem('randomOrder');
+        if (savedRandomOrder !== null) setRandomOrder(JSON.parse(savedRandomOrder));
       }
     }
   }, []);
@@ -95,7 +98,8 @@ export function useGameLogic() {
     localStorage.setItem('chartNames', JSON.stringify(chartNames));
     localStorage.setItem('chartLabels', JSON.stringify(chartLabels));
     localStorage.setItem('finished', JSON.stringify(finished));
-  }, [players, currentPlayerIndex, round, currentCard, gameTimeInSeconds, cards, chartValues, chartNames, chartLabels, finished]);
+    localStorage.setItem('randomOrder', JSON.stringify(randomOrder));
+  }, [players, currentPlayerIndex, round, currentCard, gameTimeInSeconds, cards, chartValues, chartNames, chartLabels, finished, randomOrder]);
 
   const addPlayer = (name) => {
     setPlayers((prev) => [...prev, createInitialPlayer(name)]);
@@ -103,6 +107,11 @@ export function useGameLogic() {
 
   const removePlayer = (name) => {
     setPlayers((prev) => prev.filter(p => p.name !== name));
+  };
+
+  const reorderPlayers = (newPlayers) => {
+    setPlayers(newPlayers);
+    setRandomOrder(false);
   };
 
   const shuffleArray = (array) => {
@@ -152,8 +161,12 @@ export function useGameLogic() {
 
   const startGame = () => {
     const resetPlayers = players.map(p => createInitialPlayer(p.name));
-    const shuffledPlayers = shuffleArray(resetPlayers);
-    setPlayers(shuffledPlayers);
+    let nextPlayers = resetPlayers;
+    if (randomOrder) {
+      nextPlayers = shuffleArray(resetPlayers);
+    }
+    
+    setPlayers(nextPlayers);
     setRound(1);
     setGameTimeInSeconds(0);
     setFinished(false);
@@ -164,7 +177,7 @@ export function useGameLogic() {
     setPreviousScore(null);
     setPreviousLeaders(null);
 
-    createChartValues(shuffledPlayers);
+    createChartValues(nextPlayers);
 
     const initialDeck = shuffleCards();
     drawCard(initialDeck);
@@ -389,11 +402,14 @@ export function useGameLogic() {
     setWinningScore,
     initialCards,
     setInitialCards,
+    randomOrder,
+    setRandomOrder,
     gameTimeInSeconds,
     formattedTime: formatTime(gameTimeInSeconds),
     finished,
     addPlayer,
     removePlayer,
+    reorderPlayers,
     startGame,
     endGame,
     nextTurn,
