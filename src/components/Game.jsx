@@ -94,6 +94,9 @@ export default function Game({ game }) {
     }
   }
 
+  const roundProgress = players?.length ? (currentPlayerIndex / players.length) * 100 : 0;
+  const scoreProgress = winningScore ? Math.min((currentPlayer.score / winningScore) * 100, 100) : 0;
+
   return (
     <div className="container" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingBottom: '5rem' }}>
       <div className="game-stats">
@@ -103,13 +106,19 @@ export default function Game({ game }) {
             {isOnline && isMyTurn ? `You (${currentPlayer.name})` : currentPlayer.name}
           </div>
         </div>
-        <div className={`stat-box ${animateRound ? 'animate-pulse-round' : ''}`} style={{ flex: 1 }}>
-          <div className="label">Round</div>
-          <div className="value">{round}</div>
+        <div className={`stat-box ${animateRound ? 'animate-pulse-round' : ''}`} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: `${roundProgress}%`, backgroundColor: 'var(--primary)', opacity: 0.15, zIndex: 0, transition: 'height 0.3s ease' }}></div>
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <div className="label">Round</div>
+            <div className="value">{round}</div>
+          </div>
         </div>
-        <div className="stat-box" style={{ flex: 1 }}>
-          <div className="label">Score</div>
-          <div className="value">{currentPlayer.score}</div>
+        <div className="stat-box" style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: `${scoreProgress}%`, backgroundColor: 'var(--success)', opacity: 0.15, zIndex: 0, transition: 'height 0.3s ease' }}></div>
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <div className="label">Score</div>
+            <div className="value">{currentPlayer.score}</div>
+          </div>
         </div>
         <div className="stat-box" style={{ flex: 1 }}>
           <div className="label">Playtime</div>
