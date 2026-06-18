@@ -53,6 +53,14 @@ export function useOnlineGame(deviceId) {
     });
   };
 
+  const leaveRoom = () => {
+    socket.emit('leaveRoom');
+    setRoomId(null);
+    setGameState(null);
+    setIsHost(false);
+    setMyName(null);
+  };
+
   const updateConfig = (winningScore, initialCards) => {
     socket.emit('updateConfig', { roomId, winningScore, initialCards });
   };
@@ -338,6 +346,7 @@ export function useOnlineGame(deviceId) {
     roomId,
     myName,
     joinRoom,
+    leaveRoom,
     updateConfig,
     socket,
     

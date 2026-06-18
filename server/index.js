@@ -114,11 +114,9 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => {
+  const handlePlayerLeave = () => {
     if (currentRoom && rooms[currentRoom]) {
       const room = rooms[currentRoom];
-      // Note: We don't remove players on disconnect during a game, to allow reconnecting!
-      // But for simplicity in this version, if lobby, we remove them.
       if (room.state.status === 'lobby') {
         room.state.players = room.state.players.filter(p => p.socketId !== socket.id);
         if (room.state.players.length === 0) {
@@ -130,10 +128,20 @@ io.on('connection', (socket) => {
           emitRoomState(currentRoom);
         }
       } else {
-        // If playing, we just notify they disconnected, but keep them in state
         io.to(currentRoom).emit('playerDisconnected', username);
       }
     }
+  };
+
+  socket.on('leaveRoom', () => {
+    handlePlayerLeave();
+    socket.leave(currentRoom);
+    currentRoom = null;
+    username = null;
+  });
+
+  socket.on('disconnect', () => {
+    handlePlayerLeave();
   });
 });
 

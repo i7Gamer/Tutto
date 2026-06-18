@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { UserPlus, Trash2, Settings, Play, Globe, User } from 'lucide-react';
 
 export default function Home({ game, mode, setMode }) {
-  const { players, addPlayer, removePlayer, startGame, winningScore, setWinningScore, initialCards, setInitialCards, isOnline, isHost, joinRoom, roomId, myName } = game;
+  const { players, addPlayer, removePlayer, startGame, winningScore, setWinningScore, initialCards, setInitialCards, isOnline, isHost, joinRoom, leaveRoom, roomId, myName } = game;
   const [newPlayerName, setNewPlayerName] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [inputRoomCode, setInputRoomCode] = useState("");
-  const [inputName, setInputName] = useState("");
+  const [inputRoomCode, setInputRoomCode] = useState(() => localStorage.getItem('tutto_last_room') || "");
+  const [inputName, setInputName] = useState(() => localStorage.getItem('tutto_last_name') || "");
   const [errorMsg, setErrorMsg] = useState("");
 
   const handleAddPlayer = () => {
@@ -25,6 +25,20 @@ export default function Home({ game, mode, setMode }) {
     const res = await joinRoom(inputRoomCode, inputName);
     if (res && res.error) {
       setErrorMsg(res.error);
+    } else {
+      localStorage.setItem('tutto_last_room', inputRoomCode);
+      localStorage.setItem('tutto_last_name', inputName);
+    }
+  };
+
+  const handleModeChange = (newMode) => {
+    if (newMode === 'local' && roomId) {
+      if (window.confirm("Do you really want to leave the room?")) {
+        leaveRoom();
+        setMode('local');
+      }
+    } else {
+      setMode(newMode);
     }
   };
 
@@ -34,10 +48,10 @@ export default function Home({ game, mode, setMode }) {
         <h1>Tutto</h1>
 
         <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', justifyContent: 'center' }}>
-          <button className={`btn ${mode === 'local' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setMode('local')}>
+          <button className={`btn ${mode === 'local' ? 'btn-primary' : 'btn-outline'}`} onClick={() => handleModeChange('local')}>
             <User size={18} /> Local Play
           </button>
-          <button className={`btn ${mode === 'online' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setMode('online')}>
+          <button className={`btn ${mode === 'online' ? 'btn-primary' : 'btn-outline'}`} onClick={() => handleModeChange('online')}>
             <Globe size={18} /> Online Play
           </button>
         </div>
@@ -131,7 +145,14 @@ export default function Home({ game, mode, setMode }) {
               </div>
             ) : (
               <div style={{ marginBottom: '2rem' }}>
-                <h3>Room: {roomId}</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3>Room: {roomId}</h3>
+                  <button className="btn btn-outline" style={{ color: 'var(--danger)', padding: '0.5rem 1rem' }} onClick={() => {
+                    if(window.confirm("Do you really want to leave the room?")) leaveRoom();
+                  }}>
+                    Leave Room
+                  </button>
+                </div>
                 <p>You are: <strong>{myName}</strong> {isHost ? "(Host)" : ""}</p>
                 
                 <h4>Players in Lobby:</h4>
