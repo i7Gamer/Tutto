@@ -191,11 +191,13 @@ export default function Game({ game }) {
         </div>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '1rem' }}>
-        <button className="btn btn-outline" style={{ color: 'var(--danger)' }} onClick={endGame} disabled={isOnline && !game.isHost}>
-          Abort Game
-        </button>
-      </div>
+      {(!isOnline || game.isHost) && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: '1rem' }}>
+          <button className="btn btn-outline" style={{ color: 'var(--danger)' }} onClick={endGame}>
+            Abort Game
+          </button>
+        </div>
+      )}
     </div>
   );
 }

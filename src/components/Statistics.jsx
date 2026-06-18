@@ -101,11 +101,11 @@ export default function Statistics({ deviceId, onBack }) {
   return (
     <div className="container">
       <div className="glass-card" style={{ maxWidth: '800px', margin: '0 auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2rem' }}>
-          <button className="btn btn-outline" onClick={onBack} style={{ padding: '0.5rem', marginRight: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2rem', position: 'relative' }}>
+          <button className="btn btn-outline" onClick={onBack} style={{ padding: '0.5rem', position: 'absolute', left: 0 }}>
             <ArrowLeft size={20} />
           </button>
-          <h1 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <h1 style={{ margin: '0 auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <BarChart2 size={32} color="var(--primary)" /> Statistics
           </h1>
         </div>

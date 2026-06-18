@@ -70,11 +70,13 @@ export default function Home({ game, mode, setMode, onShowStats }) {
           </button>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '2rem' }}>
-          <button className="btn btn-outline" onClick={onShowStats} style={{ width: '100%', maxWidth: '300px' }}>
-            <BarChart2 size={18} /> View Statistics
-          </button>
-        </div>
+        {!(mode === 'online' && roomId) && (
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '2rem' }}>
+            <button className="btn btn-outline" onClick={onShowStats} style={{ width: '100%', maxWidth: '300px' }}>
+              <BarChart2 size={18} /> View Statistics
+            </button>
+          </div>
+        )}
 
         {mode === 'local' ? (
           <>
