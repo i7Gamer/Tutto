@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 
 let socket;
@@ -119,7 +119,20 @@ export function useOnlineGame(deviceId) {
     if (!isHost) return;
     const s = { ...gameState };
     
-    const resetPlayers = s.players.map(p => ({ ...p, score: 0 }));
+    const resetPlayers = s.players.map(p => ({
+      ...p,
+      score: 0,
+      times1000PointsDeducted: 0,
+      timesPlusMinusCompleted: 0,
+      timesPlusMinusFailed: 0,
+      timesKniffelCompleted: 0,
+      timesKniffelFailed: 0,
+      timesSkipped: 0,
+      timesFeuerwerkReceived: 0,
+      timesKleeblattFailed: 0,
+      timesKleeblattCompleted: 0,
+      timesx2Received: 0
+    }));
     if (s.randomOrder) {
       s.players = shuffleArray(resetPlayers);
     } else {
@@ -196,7 +209,6 @@ export function useOnlineGame(deviceId) {
       currentPlayer.score = 999999;
       s.finished = true;
       pushState(s);
-      sendStats(s);
       return;
     } else if (s.currentCard === "Kleeblatt") {
       currentPlayer.timesKleeblattFailed++;
@@ -232,7 +244,6 @@ export function useOnlineGame(deviceId) {
       s.finished = true;
       s.currentPlayerIndex = null;
       pushState(s);
-      sendStats(s);
     } else {
       s.currentPlayerIndex = nextIndex;
       let currentDeck = [...s.cards];
@@ -377,6 +388,16 @@ export function useOnlineGame(deviceId) {
       }).catch(console.error);
     }
   };
+
+  const hasSentStats = useRef(false);
+  useEffect(() => {
+    if (gameState?.finished && !hasSentStats.current) {
+      hasSentStats.current = true;
+      sendStats(gameState);
+    } else if (gameState && !gameState.finished) {
+      hasSentStats.current = false;
+    }
+  }, [gameState?.finished]);
 
   if (!gameState) return { socket, joinRoom };
 

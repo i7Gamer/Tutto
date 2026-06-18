@@ -42,7 +42,8 @@ export default function EndScreen({ game, theme, mode, deviceId, setMode }) {
     endGame,
     chartLabels,
     chartNames,
-    chartValues
+    chartValues,
+    leaveRoom
   } = game;
 
   const [deviceStats, setDeviceStats] = useState(null);
@@ -113,8 +114,13 @@ export default function EndScreen({ game, theme, mode, deviceId, setMode }) {
               </button>
             </>
           ) : (
-            <div style={{ color: 'var(--primary)', fontWeight: 'bold' }}>
-              Waiting for host to restart...
+            <div className="flex-center" style={{ flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ color: 'var(--primary)', fontWeight: 'bold' }}>
+                Waiting for host to restart...
+              </div>
+              <button className="btn btn-outline" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={leaveRoom}>
+                Leave Game
+              </button>
             </div>
           )}
         </div>
