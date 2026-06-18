@@ -43,6 +43,7 @@ io.on('connection', (socket) => {
             Plus_Minus: 5, x2: 5, 200: 5, 300: 5, 400: 5, 500: 5, 600: 5,
           },
           winningScore: 6000,
+          randomOrder: true,
           currentCard: null,
           cards: [],
           round: 1,
@@ -91,11 +92,36 @@ io.on('connection', (socket) => {
     emitRoomState(roomId);
   });
 
-  socket.on('updateConfig', ({ roomId, winningScore, initialCards }) => {
+  socket.on('updateConfig', ({ roomId, winningScore, initialCards, randomOrder }) => {
     if (rooms[roomId] && rooms[roomId].host === socket.id) {
-      rooms[roomId].state.winningScore = winningScore;
-      rooms[roomId].state.initialCards = initialCards;
+      if (winningScore !== undefined) rooms[roomId].state.winningScore = winningScore;
+      if (initialCards !== undefined) rooms[roomId].state.initialCards = initialCards;
+      if (randomOrder !== undefined) rooms[roomId].state.randomOrder = randomOrder;
       emitRoomState(roomId);
+    }
+  });
+
+  socket.on('reorderPlayers', ({ roomId, newPlayers }) => {
+    if (rooms[roomId] && rooms[roomId].host === socket.id) {
+      rooms[roomId].state.players = newPlayers;
+      rooms[roomId].state.randomOrder = false;
+      emitRoomState(roomId);
+    }
+  });
+
+  socket.on('kickPlayer', (targetSocketId) => {
+    if (currentRoom && rooms[currentRoom] && rooms[currentRoom].host === socket.id) {
+      const room = rooms[currentRoom];
+      
+      io.to(targetSocketId).emit('kicked');
+      
+      room.state.players = room.state.players.filter(p => p.socketId !== targetSocketId);
+      emitRoomState(currentRoom);
+      
+      const targetSocket = io.sockets.sockets.get(targetSocketId);
+      if (targetSocket) {
+        targetSocket.leave(currentRoom);
+      }
     }
   });
 

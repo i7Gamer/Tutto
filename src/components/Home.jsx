@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { UserPlus, Trash2, Settings, Play, Globe, User } from 'lucide-react';
+import { UserPlus, Trash2, Settings, Play, Globe, User, Crown, ChevronUp, ChevronDown, UserMinus } from 'lucide-react';
 
 export default function Home({ game, mode, setMode }) {
-  const { players, addPlayer, removePlayer, startGame, winningScore, setWinningScore, initialCards, setInitialCards, isOnline, isHost, joinRoom, leaveRoom, roomId, myName } = game;
+  const { players, addPlayer, removePlayer, startGame, winningScore, setWinningScore, initialCards, setInitialCards, isOnline, isHost, hostId, joinRoom, leaveRoom, roomId, myName, kickPlayer, reorderPlayers, randomOrder, setRandomOrder } = game;
   const [newPlayerName, setNewPlayerName] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [inputRoomCode, setInputRoomCode] = useState(() => localStorage.getItem('tutto_last_room') || "");
@@ -29,6 +29,20 @@ export default function Home({ game, mode, setMode }) {
       localStorage.setItem('tutto_last_room', inputRoomCode);
       localStorage.setItem('tutto_last_name', inputName);
     }
+  };
+
+  const handleMoveUp = (index) => {
+    if (index === 0) return;
+    const newPlayers = [...players];
+    [newPlayers[index - 1], newPlayers[index]] = [newPlayers[index], newPlayers[index - 1]];
+    reorderPlayers(newPlayers);
+  };
+
+  const handleMoveDown = (index) => {
+    if (index === players.length - 1) return;
+    const newPlayers = [...players];
+    [newPlayers[index + 1], newPlayers[index]] = [newPlayers[index], newPlayers[index + 1]];
+    reorderPlayers(newPlayers);
   };
 
   const handleModeChange = (newMode) => {
@@ -159,9 +173,26 @@ export default function Home({ game, mode, setMode }) {
                 <div className="table-responsive" style={{ marginTop: '1rem' }}>
                   <table>
                     <tbody>
-                      {players && players.map(p => (
+                      {players && players.map((p, idx) => (
                         <tr key={p.name}>
-                          <td style={{ fontWeight: 600 }}>{p.name}</td>
+                          <td style={{ fontWeight: 600 }}>
+                            {p.name} {p.socketId === hostId ? <Crown size={16} color="gold" style={{ marginLeft: 8, verticalAlign: 'middle' }} /> : null}
+                          </td>
+                          {isHost && (
+                            <td style={{ width: '130px', textAlign: 'right' }}>
+                              <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.2rem' }} onClick={() => handleMoveUp(idx)} disabled={idx === 0}>
+                                <ChevronUp size={16} />
+                              </button>
+                              <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.5rem' }} onClick={() => handleMoveDown(idx)} disabled={idx === players.length - 1}>
+                                <ChevronDown size={16} />
+                              </button>
+                              {p.socketId !== hostId && (
+                                <button className="btn btn-outline" style={{ padding: '0.2rem', color: 'var(--danger)' }} onClick={() => kickPlayer(p.socketId)}>
+                                  <UserMinus size={16} />
+                                </button>
+                              )}
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -181,6 +212,11 @@ export default function Home({ game, mode, setMode }) {
                         <div className="input-group">
                           <label>Winning Score</label>
                           <input type="number" value={winningScore} onChange={(e) => setWinningScore(parseInt(e.target.value) || 0)} />
+                        </div>
+
+                        <div className="input-group" style={{ flexDirection: 'row', alignItems: 'center', marginTop: '1rem' }}>
+                          <input type="checkbox" id="randomOrder" checked={randomOrder ?? true} onChange={(e) => setRandomOrder(e.target.checked)} style={{ width: 'auto', marginRight: '0.5rem' }} />
+                          <label htmlFor="randomOrder" style={{ marginBottom: 0 }}>Random Order</label>
                         </div>
 
                         <h4 style={{ marginTop: '1.5rem', marginBottom: '1rem' }}>Cards in Deck</h4>

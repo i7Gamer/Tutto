@@ -7,6 +7,7 @@ export function useOnlineGame(deviceId) {
   const [gameState, setGameState] = useState(null);
   const [roomId, setRoomId] = useState(null);
   const [isHost, setIsHost] = useState(false);
+  const [hostId, setHostId] = useState(null);
   const [myName, setMyName] = useState(null);
   const [socketId, setSocketId] = useState(null);
 
@@ -20,8 +21,18 @@ export function useOnlineGame(deviceId) {
       setGameState(state);
     });
 
-    socket.on('hostId', (hostId) => {
-      setIsHost(hostId === socket.id);
+    socket.on('hostId', (hostSocketId) => {
+      setIsHost(hostSocketId === socket.id);
+      setHostId(hostSocketId);
+    });
+
+    socket.on('kicked', () => {
+      alert("You were kicked from the room by the host.");
+      setRoomId(null);
+      setGameState(null);
+      setIsHost(false);
+      setHostId(null);
+      setMyName(null);
     });
 
     socket.on('connect', () => {
@@ -32,6 +43,7 @@ export function useOnlineGame(deviceId) {
       socket.off('gameState');
       socket.off('hostId');
       socket.off('connect');
+      socket.off('kicked');
     };
   }, []);
 
@@ -61,8 +73,20 @@ export function useOnlineGame(deviceId) {
     setMyName(null);
   };
 
-  const updateConfig = (winningScore, initialCards) => {
-    socket.emit('updateConfig', { roomId, winningScore, initialCards });
+  const updateConfig = (winningScore, initialCards, randomOrder) => {
+    socket.emit('updateConfig', { roomId, winningScore, initialCards, randomOrder });
+  };
+
+  const kickPlayer = (targetSocketId) => {
+    if (isHost) {
+      socket.emit('kickPlayer', targetSocketId);
+    }
+  };
+
+  const reorderPlayers = (newPlayers) => {
+    if (isHost) {
+      socket.emit('reorderPlayers', { roomId, newPlayers });
+    }
   };
 
   const shuffleArray = (array) => {
@@ -96,7 +120,11 @@ export function useOnlineGame(deviceId) {
     const s = { ...gameState };
     
     const resetPlayers = s.players.map(p => ({ ...p, score: 0 }));
-    s.players = shuffleArray(resetPlayers);
+    if (s.randomOrder) {
+      s.players = shuffleArray(resetPlayers);
+    } else {
+      s.players = resetPlayers;
+    }
     s.round = 1;
     s.gameTimeInSeconds = 0;
     s.finished = false;
@@ -343,11 +371,14 @@ export function useOnlineGame(deviceId) {
   return {
     isOnline: true,
     isHost,
+    hostId,
     roomId,
     myName,
     joinRoom,
     leaveRoom,
     updateConfig,
+    kickPlayer,
+    reorderPlayers,
     socket,
     
     // Mapping to match useGameLogic
@@ -359,9 +390,11 @@ export function useOnlineGame(deviceId) {
     cards: gameState.cards,
     round: gameState.round,
     winningScore: gameState.winningScore,
-    setWinningScore: (val) => updateConfig(val, gameState.initialCards),
+    setWinningScore: (val) => updateConfig(val, gameState.initialCards, gameState.randomOrder),
     initialCards: gameState.initialCards,
-    setInitialCards: (val) => updateConfig(gameState.winningScore, val),
+    setInitialCards: (val) => updateConfig(gameState.winningScore, val, gameState.randomOrder),
+    randomOrder: gameState.randomOrder,
+    setRandomOrder: (val) => updateConfig(gameState.winningScore, gameState.initialCards, val),
     gameTimeInSeconds: gameState.gameTimeInSeconds,
     formattedTime: formatTime(gameState.gameTimeInSeconds),
     finished: gameState.finished,
