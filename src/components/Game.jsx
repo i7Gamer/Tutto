@@ -74,14 +74,8 @@ export default function Game({ game }) {
   if (!currentPlayer) return null;
 
   return (
-    <div className="container" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      <div className="header-actions">
-        <button className="btn btn-outline" style={{ color: 'var(--danger)' }} onClick={endGame}>
-          Abort Game
-        </button>
-      </div>
-
-      <div className="flex-between">
+    <div className="container" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingBottom: '5rem' }}>
+      <div className="game-stats">
         <div className="stat-box" style={{ flex: 1 }}>
           <div className="label">Current Player</div>
           <div className="value" style={{ color: 'var(--primary)' }}>{currentPlayer.name}</div>
@@ -181,6 +175,12 @@ export default function Game({ game }) {
             </table>
           </div>
         </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '1rem' }}>
+        <button className="btn btn-outline" style={{ color: 'var(--danger)' }} onClick={endGame}>
+          Abort Game
+        </button>
       </div>
     </div>
   );

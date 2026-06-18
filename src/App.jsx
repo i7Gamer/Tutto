@@ -30,8 +30,8 @@ export default function App() {
 
   return (
     <>
-      <div style={{ position: 'absolute', top: '1rem', right: '1rem', zIndex: 100 }}>
-        <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme">
+      <div style={{ position: 'fixed', bottom: '1rem', right: '1rem', zIndex: 100 }}>
+        <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme" style={{ background: 'var(--card-bg)', boxShadow: 'var(--shadow-md)' }}>
           {theme === 'light' ? <Moon size={24} /> : <Sun size={24} />}
         </button>
       </div>
