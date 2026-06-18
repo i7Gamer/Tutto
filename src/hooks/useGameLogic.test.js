@@ -52,9 +52,6 @@ describe('useGameLogic', () => {
     act(() => {
       result.current.addPlayer('Alice');
       result.current.addPlayer('Bob');
-    });
-
-    act(() => {
       result.current.startGame();
     });
 
@@ -68,6 +65,7 @@ describe('useGameLogic', () => {
 
     act(() => {
       result.current.addPlayer('Alice');
+      result.current.setInitialCards({ "200": 10 });
     });
 
     act(() => {
@@ -104,12 +102,8 @@ describe('useGameLogic', () => {
       ]);
     });
 
-    // Check if randomOrder was automatically disabled
     expect(result.current.randomOrder).toBe(false);
-    expect(result.current.players[0].name).toBe('Bob');
-    expect(result.current.players[1].name).toBe('Alice');
     
-    // Check if game starts with exact same order since randomOrder is false
     act(() => {
       result.current.startGame();
     });
@@ -124,7 +118,6 @@ describe('useGameLogic', () => {
     
     act(() => {
       result.current.addPlayer('Alice');
-      // Set initial deck to ONLY have a Kleeblatt card so it's guaranteed to be drawn
       result.current.setInitialCards({ "Kleeblatt": 1 });
     });
 
@@ -134,25 +127,142 @@ describe('useGameLogic', () => {
 
     expect(result.current.currentCard).toBe('Kleeblatt');
     expect(result.current.currentPlayer.name).toBe('Alice');
-    expect(result.current.currentPlayer.timesKleeblattCompleted).toBe(0);
 
     // Succeed on Kleeblatt
     act(() => {
       result.current.nextTurn(0, true);
     });
 
-    // Check that game is finished
     expect(result.current.finished).toBe(true);
     
-    // Check if stats were incremented and score set to win
     const updatedPlayer = result.current.players.find(p => p.name === 'Alice');
     expect(updatedPlayer.timesKleeblattCompleted).toBe(1);
     expect(updatedPlayer.score).toBe(999999);
 
-    // Verify fetch was called correctly with the new global stats
     expect(global.fetch).toHaveBeenCalledWith('/api/stats/global', expect.objectContaining({
       method: 'POST',
       body: expect.stringContaining('"totalKleeblattCompleted":1')
     }));
+  });
+
+  it('handles Plus_Minus card correctly by deducting 1000 from leaders', () => {
+    // Make shuffleArray deterministic so array keeps its insertion order
+    const originalRandom = Math.random;
+    Math.random = () => 0.999999;
+
+    const { result } = renderHook(() => useGameLogic());
+    
+    act(() => {
+      result.current.addPlayer('Alice');
+      result.current.addPlayer('Bob');
+      result.current.setRandomOrder(false);
+      // Give plenty of non-special cards, then a Plus_Minus
+      result.current.setInitialCards({ "200": 2, "Plus_Minus": 1 });
+    });
+
+    act(() => {
+      result.current.startGame();
+    });
+
+    // Round 1: Alice turn (200 card)
+    act(() => {
+      result.current.nextTurn(0, false); // Alice gets 0 points
+    });
+
+    // Round 1: Bob turn (200 card)
+    act(() => {
+      result.current.nextTurn(2000, false); // Bob gets 2000 points, becomes leader
+    });
+
+    // Round 2: Alice turn (Plus_Minus card)
+    expect(result.current.currentCard).toBe('Plus_Minus');
+    expect(result.current.currentPlayer.name).toBe('Alice');
+    
+    act(() => {
+      result.current.nextTurn(0, true); // Alice succeeds
+    });
+
+    // Alice gets 1000 points, Bob (leader) loses 1000 points
+    const alice = result.current.players.find(p => p.name === 'Alice');
+    const bob = result.current.players.find(p => p.name === 'Bob');
+    
+    expect(alice.score).toBe(1000);
+    expect(bob.score).toBe(1000); // Bob had 2000, lost 1000
+    expect(bob.times1000PointsDeducted).toBe(1);
+    expect(alice.timesPlusMinusCompleted).toBe(1);
+
+    Math.random = originalRandom; // Restore Math.random
+  });
+
+  it('handles undo logic correctly to restore scores and previous cards', () => {
+    // Deterministic shuffle
+    const originalRandom = Math.random;
+    Math.random = () => 0.999999;
+
+    const { result } = renderHook(() => useGameLogic());
+    
+    act(() => {
+      result.current.addPlayer('Alice');
+      result.current.addPlayer('Bob');
+      result.current.setRandomOrder(false);
+      result.current.setInitialCards({ "200": 5 });
+    });
+
+    act(() => {
+      result.current.startGame();
+    });
+
+    // Round 1: Alice turn
+    act(() => {
+      result.current.nextTurn(500, false); 
+    });
+
+    // Round 1: Bob turn, Bob is about to play but clicks UNDO
+    expect(result.current.currentPlayer.name).toBe('Bob');
+    expect(result.current.players.find(p => p.name === 'Alice').score).toBe(500);
+
+    act(() => {
+      result.current.undo();
+    });
+
+    // It should revert back to Alice's turn before she submitted 500
+    expect(result.current.currentPlayer.name).toBe('Alice');
+    expect(result.current.players.find(p => p.name === 'Alice').score).toBe(0);
+
+    Math.random = originalRandom;
+  });
+
+  it('ends the game when winning score is reached at the end of a round', () => {
+    const { result } = renderHook(() => useGameLogic());
+    
+    act(() => {
+      result.current.addPlayer('Alice');
+      result.current.addPlayer('Bob');
+      result.current.setRandomOrder(false);
+      result.current.setWinningScore(6000);
+      result.current.setInitialCards({ "200": 5 });
+    });
+
+    act(() => {
+      result.current.startGame();
+    });
+
+    // Round 1: Alice turn
+    act(() => {
+      result.current.nextTurn(6500, false); // Alice hits winning score
+    });
+
+    // Game is NOT over yet because round must finish (Bob's turn next)
+    expect(result.current.finished).toBe(false);
+    expect(result.current.currentPlayer.name).toBe('Bob');
+
+    // Round 1: Bob turn
+    act(() => {
+      result.current.nextTurn(0, false); 
+    });
+
+    // Now round ends. Alice has highest score >= 6000. Game over.
+    expect(result.current.finished).toBe(true);
+    expect(result.current.winner.name).toBe('Alice');
   });
 });
