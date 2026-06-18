@@ -10,8 +10,15 @@ export default function Home({ game, mode, setMode, onShowStats }) {
   const [errorMsg, setErrorMsg] = useState("");
 
   const handleAddPlayer = () => {
-    if (newPlayerName.trim() === "") return;
-    addPlayer(newPlayerName.trim());
+    const trimmedName = newPlayerName.trim();
+    if (trimmedName === "") return;
+    
+    if (players.some(p => p.name.toLowerCase() === trimmedName.toLowerCase())) {
+      alert("A player with this name already exists!");
+      return;
+    }
+    
+    addPlayer(trimmedName);
     setNewPlayerName("");
   };
 
