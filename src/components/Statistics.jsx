@@ -125,7 +125,7 @@ export default function Statistics({ deviceId, onBack }) {
               Online Lifetime Record (This Device)
             </h3>
             
-            {!personalStats || personalStats.gamesPlayed === 0 ? (
+            {!personalStats || !personalStats.gamesPlayed ? (
               <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>You haven't played any online games on this device yet!</p>
             ) : (
               <>
@@ -185,7 +185,7 @@ export default function Statistics({ deviceId, onBack }) {
             </h3>
             <p style={{ textAlign: 'center', color: 'var(--text-muted)', marginBottom: '2rem' }}>Aggregated across all local and online games played.</p>
             
-            {!globalStats || globalStats.totalGamesPlayed === 0 ? (
+            {!globalStats || !globalStats.totalGamesPlayed ? (
               <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No games have been played on the server yet!</p>
             ) : (
               <>
