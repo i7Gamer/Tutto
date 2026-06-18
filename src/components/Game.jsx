@@ -29,9 +29,12 @@ export default function Game({ game }) {
     previousCard,
     currentCardHasInput,
     currentCardHasYesNo,
-    endGame
+    endGame,
+    isOnline,
+    myName
   } = game;
 
+  const isMyTurn = !isOnline || (currentPlayer && currentPlayer.name === myName);
   const [scoreInput, setScoreInput] = useState("");
 
   useEffect(() => {
@@ -53,10 +56,8 @@ export default function Game({ game }) {
     }
 
     if (isSuccess && currentCard === "Plus_Minus") {
-      // Check if current player is already a leader
       const topScore = Math.max(...game.players.map(p => p.score));
       if (currentPlayer.score < topScore) {
-        // Points will be deducted from leaders
         playBuzzer();
       } else {
         playSuccess();
@@ -113,11 +114,12 @@ export default function Game({ game }) {
                   value={scoreInput}
                   onChange={(e) => setScoreInput(e.target.value)}
                   placeholder="Score"
+                  disabled={!isMyTurn}
                   style={{ fontSize: '1.5rem', textAlign: 'center', maxWidth: '200px', marginBottom: '1rem' }}
                 />
                 <div className="score-buttons">
                   {[50, 100, 200, 300, 400, 500, 600, 1000].map(val => (
-                    <button key={val} className="btn btn-outline" style={{ padding: '0.5rem 1rem' }} onClick={() => addScore(val)}>
+                    <button key={val} className="btn btn-outline" style={{ padding: '0.5rem 1rem' }} onClick={() => addScore(val)} disabled={!isMyTurn}>
                       {val}
                     </button>
                   ))}
@@ -125,12 +127,18 @@ export default function Game({ game }) {
               </div>
             )}
 
+            {!isMyTurn && isOnline && (
+              <div style={{ textAlign: 'center', margin: '1rem 0', fontWeight: 'bold' }}>
+                Waiting for {currentPlayer.name}...
+              </div>
+            )}
+
             {currentCardHasYesNo && (
               <div className="flex-center" style={{ margin: '1.5rem 0' }}>
-                <button className="btn btn-success" style={{ padding: '1rem 2rem', fontSize: '1.25rem' }} onClick={() => handleYesNo(true)}>
+                <button className="btn btn-success" style={{ padding: '1rem 2rem', fontSize: '1.25rem' }} onClick={() => handleYesNo(true)} disabled={!isMyTurn}>
                   <Check /> Yes
                 </button>
-                <button className="btn btn-danger" style={{ padding: '1rem 2rem', fontSize: '1.25rem' }} onClick={() => handleYesNo(false)}>
+                <button className="btn btn-danger" style={{ padding: '1rem 2rem', fontSize: '1.25rem' }} onClick={() => handleYesNo(false)} disabled={!isMyTurn}>
                   <X /> No
                 </button>
               </div>
@@ -138,14 +146,20 @@ export default function Game({ game }) {
 
             <div className="flex-center" style={{ marginTop: '2rem' }}>
               {previousCard && previousCard !== "Stop" && (
-                <button className="btn btn-secondary" onClick={undo}>
+                <button className="btn btn-secondary" onClick={undo} disabled={!isMyTurn}>
                   <Undo2 /> Undo
                 </button>
               )}
               
-              {!currentCardHasYesNo && (
-                <button className="btn btn-primary" onClick={handleNextTurn}>
+              {!currentCardHasYesNo && currentCardHasInput && (
+                <button className="btn btn-primary" onClick={handleNextTurn} disabled={!isMyTurn}>
                   Next Turn <ChevronRight />
+                </button>
+              )}
+
+              {!currentCardHasYesNo && !currentCardHasInput && (
+                <button className="btn btn-primary" onClick={() => nextTurn(0, false)} disabled={!isMyTurn}>
+                  Continue <ChevronRight />
                 </button>
               )}
             </div>
@@ -178,7 +192,7 @@ export default function Game({ game }) {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'center', marginTop: '1rem' }}>
-        <button className="btn btn-outline" style={{ color: 'var(--danger)' }} onClick={endGame}>
+        <button className="btn btn-outline" style={{ color: 'var(--danger)' }} onClick={endGame} disabled={isOnline && !game.isHost}>
           Abort Game
         </button>
       </div>
