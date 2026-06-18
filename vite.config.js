@@ -30,6 +30,7 @@ export default defineConfig({
     })
   ],
   server: {
+    allowedHosts: ["tutto.rzipas.win"],
     proxy: {
       '/api': 'http://localhost:3001',
       '/socket.io': {
@@ -37,6 +38,9 @@ export default defineConfig({
         ws: true
       }
     }
+  },
+  preview: {
+    allowedHosts: ["tutto.rzipas.win"]
   },
   test: {
     environment: 'jsdom',
