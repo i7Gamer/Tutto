@@ -46,7 +46,7 @@ export default function Statistics({ deviceId, onBack }) {
       "Kniffel": (stats.kniffelCompleted || 0) + (stats.kniffelFailed || 0),
       "Stop": stats.skipped || 0,
       "Feuerwerk": stats.feuerwerkReceived || 0,
-      "Kleeblatt": stats.kleeblattFailed || 0,
+      "Kleeblatt": (stats.kleeblattFailed || 0) + (stats.kleeblattCompleted || 0),
       "x2": stats.x2Received || 0
     };
     
@@ -173,6 +173,23 @@ export default function Statistics({ deviceId, onBack }) {
                     </div>
                   </div>
                 </div>
+
+                <div className="grid-cols-2" style={{ marginTop: '1.5rem' }}>
+                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <Trophy size={32} color="var(--success)" />
+                    <div>
+                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{personalStats.kleeblattCompleted || 0}</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Kleeblatt Instant Wins</div>
+                    </div>
+                  </div>
+                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <Star size={32} color="var(--primary)" />
+                    <div>
+                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{personalStats.kniffelCompleted || 0}</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Kniffels Completed</div>
+                    </div>
+                  </div>
+                </div>
               </>
             )}
           </div>
@@ -213,6 +230,23 @@ export default function Statistics({ deviceId, onBack }) {
                     <div>
                       <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{gDerived.mostPicked}</div>
                       <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Most Drawn Card ({gDerived.maxCount}x)</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid-cols-2" style={{ marginTop: '1.5rem' }}>
+                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <Trophy size={32} color="var(--success)" />
+                    <div>
+                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{globalStats.totalKleeblattCompleted || 0}</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Total Kleeblatt Instant Wins</div>
+                    </div>
+                  </div>
+                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <Star size={32} color="var(--primary)" />
+                    <div>
+                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{globalStats.totalKniffel || 0}</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Total Kniffels</div>
                     </div>
                   </div>
                 </div>

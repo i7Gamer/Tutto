@@ -22,6 +22,7 @@ const createInitialPlayer = (name) => ({
   timesPlusMinusCompleted: 0,
   timesKniffelFailed: 0,
   timesKleeblattFailed: 0,
+  timesKleeblattCompleted: 0,
   timesPlusMinusFailed: 0,
   timesFeuerwerkReceived: 0,
   timesSkipped: 0,
@@ -210,16 +211,16 @@ export function useGameLogic() {
   };
 
   const sendGlobalStats = (finalPlayers, finalTime, finalCard) => {
-    let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0, totalKleeblatt = 0, totalx2 = 0;
+    let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0, totalKleeblatt = 0, totalKleeblattCompleted = 0, totalx2 = 0;
     finalPlayers.forEach(p => {
       totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
       totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
       totalStop += p.timesSkipped;
       totalFeuerwerk += p.timesFeuerwerkReceived;
-      totalKleeblatt += p.timesKleeblattFailed;
+      totalKleeblatt += (p.timesKleeblattFailed + (p.timesKleeblattCompleted || 0));
+      totalKleeblattCompleted += (p.timesKleeblattCompleted || 0);
       totalx2 += p.timesx2Received;
     });
-    if (finalCard === "Kleeblatt") totalKleeblatt += 1;
 
     fetch('/api/stats/global', {
       method: 'POST',
@@ -227,7 +228,7 @@ export function useGameLogic() {
       body: JSON.stringify({
         gamesPlayed: 1,
         totalPlaytime: finalTime,
-        totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalx2
+        totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2
       })
     }).catch(console.error);
   };
@@ -268,6 +269,7 @@ export function useGameLogic() {
     }
 
     if (currentCard === "Kleeblatt" && isSuccess) {
+      currentPlayer.timesKleeblattCompleted = (currentPlayer.timesKleeblattCompleted || 0) + 1;
       currentPlayer.score = 999999;
       setPlayers(newPlayers);
       setFinished(true);

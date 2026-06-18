@@ -192,6 +192,7 @@ export function useOnlineGame(deviceId) {
     }
 
     if (s.currentCard === "Kleeblatt" && isSuccess) {
+      currentPlayer.timesKleeblattCompleted = (currentPlayer.timesKleeblattCompleted || 0) + 1;
       currentPlayer.score = 999999;
       s.finished = true;
       pushState(s);
@@ -342,23 +343,22 @@ export function useOnlineGame(deviceId) {
         skipped: me.timesSkipped,
         feuerwerkReceived: me.timesFeuerwerkReceived,
         kleeblattFailed: me.timesKleeblattFailed,
+        kleeblattCompleted: me.timesKleeblattCompleted || 0,
         x2Received: me.timesx2Received
       }
     });
 
     if (isHost) {
-      let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0, totalKleeblatt = 0, totalx2 = 0;
+      let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0, totalKleeblatt = 0, totalKleeblattCompleted = 0, totalx2 = 0;
       s.players.forEach(p => {
         totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
         totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
         totalStop += p.timesSkipped;
         totalFeuerwerk += p.timesFeuerwerkReceived;
-        totalKleeblatt += p.timesKleeblattFailed;
+        totalKleeblatt += (p.timesKleeblattFailed + (p.timesKleeblattCompleted || 0));
+        totalKleeblattCompleted += (p.timesKleeblattCompleted || 0);
         totalx2 += p.timesx2Received;
       });
-
-      // If someone won with Kleeblatt, add 1 to total Kleeblatts drawn
-      if (s.currentCard === "Kleeblatt") totalKleeblatt += 1;
 
       fetch('/api/stats/global', {
         method: 'POST',
@@ -371,6 +371,7 @@ export function useOnlineGame(deviceId) {
           totalStop,
           totalFeuerwerk,
           totalKleeblatt,
+          totalKleeblattCompleted,
           totalx2
         })
       }).catch(console.error);
