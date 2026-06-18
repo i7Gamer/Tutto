@@ -31,11 +31,23 @@ export default function Game({ game }) {
     currentCardHasYesNo,
     endGame,
     isOnline,
-    myName
+    myName,
+    winningScore,
+    players,
+    currentPlayerIndex
   } = game;
 
   const isMyTurn = !isOnline || (currentPlayer && currentPlayer.name === myName);
   const [scoreInput, setScoreInput] = useState("");
+  const [animateRound, setAnimateRound] = useState(false);
+
+  useEffect(() => {
+    if (round > 0) {
+      setAnimateRound(true);
+      const timer = setTimeout(() => setAnimateRound(false), 800);
+      return () => clearTimeout(timer);
+    }
+  }, [round]);
 
   useEffect(() => {
     if (currentCard === "Feuerwerk") {
@@ -74,14 +86,24 @@ export default function Game({ game }) {
 
   if (!currentPlayer) return null;
 
+  let turnsLeft = null;
+  if (isOnline && !isMyTurn && players && players.length > 0 && currentPlayerIndex !== null && currentPlayerIndex !== undefined) {
+    const myIndex = players.findIndex(p => p.name === myName);
+    if (myIndex !== -1) {
+      turnsLeft = (myIndex - currentPlayerIndex + players.length) % players.length;
+    }
+  }
+
   return (
     <div className="container" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingBottom: '5rem' }}>
       <div className="game-stats">
         <div className="stat-box" style={{ flex: 1 }}>
           <div className="label">Current Player</div>
-          <div className="value" style={{ color: 'var(--primary)' }}>{currentPlayer.name}</div>
+          <div className="value" style={{ color: 'var(--primary)' }}>
+            {isOnline && isMyTurn ? `You (${currentPlayer.name})` : currentPlayer.name}
+          </div>
         </div>
-        <div className="stat-box" style={{ flex: 1 }}>
+        <div className={`stat-box ${animateRound ? 'animate-pulse-round' : ''}`} style={{ flex: 1 }}>
           <div className="label">Round</div>
           <div className="value">{round}</div>
         </div>
@@ -107,19 +129,18 @@ export default function Game({ game }) {
           </div>
 
           <div style={{ marginTop: '1.5rem' }}>
-            {currentCardHasInput && (
+            {isMyTurn && currentCardHasInput && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 <input 
                   type="number" 
                   value={scoreInput}
                   onChange={(e) => setScoreInput(e.target.value)}
                   placeholder="Score"
-                  disabled={!isMyTurn}
                   style={{ fontSize: '1.5rem', textAlign: 'center', maxWidth: '200px', marginBottom: '1rem' }}
                 />
                 <div className="score-buttons">
                   {[50, 100, 200, 300, 400, 500, 600, 1000].map(val => (
-                    <button key={val} className="btn btn-outline" style={{ padding: '0.5rem 1rem' }} onClick={() => addScore(val)} disabled={!isMyTurn}>
+                    <button key={val} className="btn btn-outline" style={{ padding: '0.5rem 1rem' }} onClick={() => addScore(val)}>
                       {val}
                     </button>
                   ))}
@@ -128,41 +149,48 @@ export default function Game({ game }) {
             )}
 
             {!isMyTurn && isOnline && (
-              <div style={{ textAlign: 'center', margin: '1rem 0', fontWeight: 'bold' }}>
-                Waiting for {currentPlayer.name}...
+              <div style={{ textAlign: 'center', margin: '1rem 0' }}>
+                <div style={{ fontWeight: 'bold' }}>Waiting for {currentPlayer.name}...</div>
+                {turnsLeft !== null && (
+                  <div style={{ fontSize: '0.9rem', color: 'var(--text-color)', opacity: 0.7, marginTop: '0.3rem', fontWeight: '500' }}>
+                    {turnsLeft === 1 ? "1 turn left until it's your turn again" : `${turnsLeft} turns left until it's your turn again`}
+                  </div>
+                )}
               </div>
             )}
 
-            {currentCardHasYesNo && (
+            {isMyTurn && currentCardHasYesNo && (
               <div className="flex-center" style={{ margin: '1.5rem 0' }}>
-                <button className="btn btn-success" style={{ padding: '1rem 2rem', fontSize: '1.25rem' }} onClick={() => handleYesNo(true)} disabled={!isMyTurn}>
+                <button className="btn btn-success" style={{ padding: '1rem 2rem', fontSize: '1.25rem' }} onClick={() => handleYesNo(true)}>
                   <Check /> Yes
                 </button>
-                <button className="btn btn-danger" style={{ padding: '1rem 2rem', fontSize: '1.25rem' }} onClick={() => handleYesNo(false)} disabled={!isMyTurn}>
+                <button className="btn btn-danger" style={{ padding: '1rem 2rem', fontSize: '1.25rem' }} onClick={() => handleYesNo(false)}>
                   <X /> No
                 </button>
               </div>
             )}
 
-            <div className="flex-center" style={{ marginTop: '2rem' }}>
-              {previousCard && previousCard !== "Stop" && (
-                <button className="btn btn-secondary" onClick={undo} disabled={!isMyTurn}>
-                  <Undo2 /> Undo
-                </button>
-              )}
-              
-              {!currentCardHasYesNo && currentCardHasInput && (
-                <button className="btn btn-primary" onClick={handleNextTurn} disabled={!isMyTurn}>
-                  Next Turn <ChevronRight />
-                </button>
-              )}
+            {isMyTurn && (
+              <div className="flex-center" style={{ marginTop: '2rem' }}>
+                {previousCard && previousCard !== "Stop" && (
+                  <button className="btn btn-secondary" onClick={undo}>
+                    <Undo2 /> Undo
+                  </button>
+                )}
+                
+                {!currentCardHasYesNo && currentCardHasInput && (
+                  <button className="btn btn-primary" onClick={handleNextTurn}>
+                    Next Turn <ChevronRight />
+                  </button>
+                )}
 
-              {!currentCardHasYesNo && !currentCardHasInput && (
-                <button className="btn btn-primary" onClick={() => nextTurn(0, false)} disabled={!isMyTurn}>
-                  Continue <ChevronRight />
-                </button>
-              )}
-            </div>
+                {!currentCardHasYesNo && !currentCardHasInput && (
+                  <button className="btn btn-primary" onClick={() => nextTurn(0, false)}>
+                    Continue <ChevronRight />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -188,6 +216,11 @@ export default function Game({ game }) {
               </tbody>
             </table>
           </div>
+          {winningScore && (
+            <div style={{ marginTop: '1rem', textAlign: 'center', fontSize: '0.9rem', opacity: 0.8, borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
+              Goal: First to reach <strong>{winningScore}</strong> points at the end of a round wins!
+            </div>
+          )}
         </div>
       </div>
 
