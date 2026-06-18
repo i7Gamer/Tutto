@@ -333,6 +333,7 @@ export function useOnlineGame(deviceId) {
       stats: {
         gamesPlayed: 1,
         wins: didIWin,
+        totalPlaytime: s.gameTimeInSeconds,
         pointsDeducted: me.times1000PointsDeducted,
         plusMinusCompleted: me.timesPlusMinusCompleted,
         plusMinusFailed: me.timesPlusMinusFailed,
@@ -344,6 +345,36 @@ export function useOnlineGame(deviceId) {
         x2Received: me.timesx2Received
       }
     });
+
+    if (isHost) {
+      let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0, totalKleeblatt = 0, totalx2 = 0;
+      s.players.forEach(p => {
+        totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
+        totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
+        totalStop += p.timesSkipped;
+        totalFeuerwerk += p.timesFeuerwerkReceived;
+        totalKleeblatt += p.timesKleeblattFailed;
+        totalx2 += p.timesx2Received;
+      });
+
+      // If someone won with Kleeblatt, add 1 to total Kleeblatts drawn
+      if (s.currentCard === "Kleeblatt") totalKleeblatt += 1;
+
+      fetch('/api/stats/global', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gamesPlayed: 1,
+          totalPlaytime: s.gameTimeInSeconds,
+          totalPlusMinus,
+          totalKniffel,
+          totalStop,
+          totalFeuerwerk,
+          totalKleeblatt,
+          totalx2
+        })
+      }).catch(console.error);
+    }
   };
 
   if (!gameState) return { socket, joinRoom };

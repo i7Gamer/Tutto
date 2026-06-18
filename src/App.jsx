@@ -6,6 +6,7 @@ import { useOnlineGame } from './hooks/useOnlineGame';
 import Home from './components/Home';
 import Game from './components/Game';
 import EndScreen from './components/EndScreen';
+import Statistics from './components/Statistics';
 import './index.css';
 
 export default function App() {
@@ -23,6 +24,7 @@ export default function App() {
   });
 
   const [mode, setMode] = useState('local');
+  const [showStats, setShowStats] = useState(false);
 
   const localGame = useGameLogic();
   const onlineGame = useOnlineGame(deviceId);
@@ -49,12 +51,14 @@ export default function App() {
         </button>
       </div>
 
-      {game.finished && game.winner ? (
+      {showStats ? (
+        <Statistics deviceId={deviceId} onBack={() => setShowStats(false)} />
+      ) : game.finished && game.winner ? (
         <EndScreen game={game} theme={theme} mode={mode} setMode={setMode} deviceId={deviceId} />
       ) : game.currentPlayerIndex != null ? (
         <Game game={game} />
       ) : (
-        <Home game={game} mode={mode} setMode={setMode} />
+        <Home game={game} mode={mode} setMode={setMode} onShowStats={() => setShowStats(true)} />
       )}
     </>
   );

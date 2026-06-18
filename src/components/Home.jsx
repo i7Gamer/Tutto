@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { UserPlus, Trash2, Settings, Play, Globe, User, Crown, ChevronUp, ChevronDown, UserMinus } from 'lucide-react';
+import { UserPlus, Trash2, Settings, Play, Globe, User, Crown, ChevronUp, ChevronDown, UserMinus, BarChart2 } from 'lucide-react';
 
-export default function Home({ game, mode, setMode }) {
+export default function Home({ game, mode, setMode, onShowStats }) {
   const { players, addPlayer, removePlayer, startGame, winningScore, setWinningScore, initialCards, setInitialCards, isOnline, isHost, hostId, joinRoom, leaveRoom, roomId, myName, kickPlayer, reorderPlayers, randomOrder, setRandomOrder } = game;
   const [newPlayerName, setNewPlayerName] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -67,6 +67,12 @@ export default function Home({ game, mode, setMode }) {
           </button>
           <button className={`btn ${mode === 'online' ? 'btn-primary' : 'btn-outline'}`} onClick={() => handleModeChange('online')}>
             <Globe size={18} /> Online Play
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '2rem' }}>
+          <button className="btn btn-outline" onClick={onShowStats} style={{ width: '100%', maxWidth: '300px' }}>
+            <BarChart2 size={18} /> View Statistics
           </button>
         </div>
 

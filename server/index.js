@@ -3,7 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const path = require('path');
-const { getDeviceStats, updateDeviceStats } = require('./database');
+const { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } = require('./database');
 
 const app = express();
 app.use(cors());
@@ -169,6 +169,25 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     handlePlayerLeave();
   });
+});
+
+app.get('/api/stats/global', async (req, res) => {
+  try {
+    const stats = await getGlobalStats();
+    res.json(stats || {});
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/stats/global', async (req, res) => {
+  try {
+    const stats = req.body;
+    await updateGlobalStats(stats);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 app.get('/api/stats/:deviceId', async (req, res) => {
