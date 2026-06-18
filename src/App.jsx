@@ -51,7 +51,7 @@ export default function App() {
 
       {game.finished && game.winner ? (
         <EndScreen game={game} theme={theme} mode={mode} setMode={setMode} deviceId={deviceId} />
-      ) : game.currentPlayerIndex !== null ? (
+      ) : game.currentPlayerIndex != null ? (
         <Game game={game} />
       ) : (
         <Home game={game} mode={mode} setMode={setMode} />
