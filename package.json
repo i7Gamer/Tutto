@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
@@ -15,7 +16,9 @@
     "lucide-react": "^1.20.0",
     "react": "^19.2.6",
     "react-chartjs-2": "^5.3.1",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "socket.io-client": "^4.8.3",
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

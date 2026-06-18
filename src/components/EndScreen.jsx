@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -32,7 +32,7 @@ const colors = [
   '#06b6d4', // cyan
 ];
 
-export default function EndScreen({ game, theme }) {
+export default function EndScreen({ game, theme, mode, deviceId, setMode }) {
   const { 
     winner, 
     round, 
@@ -44,6 +44,17 @@ export default function EndScreen({ game, theme }) {
     chartNames,
     chartValues
   } = game;
+
+  const [deviceStats, setDeviceStats] = useState(null);
+
+  useEffect(() => {
+    if (mode === 'online' && deviceId) {
+      fetch(`/api/stats/${deviceId}`)
+        .then(res => res.json())
+        .then(data => setDeviceStats(data))
+        .catch(err => console.error("Could not fetch device stats", err));
+    }
+  }, [mode, deviceId]);
 
   if (!winner) return null;
 
@@ -92,14 +103,46 @@ export default function EndScreen({ game, theme }) {
         </div>
 
         <div className="flex-center">
-          <button className="btn btn-primary" onClick={startGame}>
-            <RotateCcw /> Play Again
-          </button>
-          <button className="btn btn-outline" onClick={endGame}>
-            New Game Config
-          </button>
+          {(!game.isOnline || game.isHost) ? (
+            <>
+              <button className="btn btn-primary" onClick={startGame}>
+                <RotateCcw /> Play Again
+              </button>
+              <button className="btn btn-outline" onClick={endGame}>
+                New Game Config
+              </button>
+            </>
+          ) : (
+            <div style={{ color: 'var(--primary)', fontWeight: 'bold' }}>
+              Waiting for host to restart...
+            </div>
+          )}
         </div>
       </div>
+
+      {deviceStats && deviceStats.gamesPlayed > 0 && (
+        <div className="glass-card">
+          <h3 style={{ textAlign: 'center', marginBottom: '1.5rem' }}>Your Lifetime Statistics</h3>
+          <div className="flex-between" style={{ justifyContent: 'space-around', textAlign: 'center' }}>
+            <div>
+              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--primary)' }}>{deviceStats.gamesPlayed}</div>
+              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>Games Played</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--success)' }}>{deviceStats.wins}</div>
+              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>Total Wins</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--danger)' }}>{deviceStats.pointsDeducted}</div>
+              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>-1000 Points Eaten</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--secondary)' }}>{deviceStats.kniffelCompleted}</div>
+              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>Kniffels Completed</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="glass-card">
         <h3>Game Statistics</h3>

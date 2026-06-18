@@ -29,6 +29,15 @@ export default defineConfig({
       }
     })
   ],
+  server: {
+    proxy: {
+      '/api': 'http://localhost:3001',
+      '/socket.io': {
+        target: 'ws://localhost:3001',
+        ws: true
+      }
+    }
+  },
   test: {
     environment: 'jsdom',
     globals: true

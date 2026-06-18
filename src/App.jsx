@@ -1,25 +1,40 @@
 import React, { useState, useEffect } from 'react';
+import { Sun, Moon } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
 import { useGameLogic } from './hooks/useGameLogic';
+import { useOnlineGame } from './hooks/useOnlineGame';
 import Home from './components/Home';
 import Game from './components/Game';
 import EndScreen from './components/EndScreen';
-import { Moon, Sun } from 'lucide-react';
+import Statistics from './components/Statistics';
 import './index.css';
 
 export default function App() {
-  const game = useGameLogic();
-  const [theme, setTheme] = useState('light');
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem('tutto-theme') || 'light';
+  });
+
+  const [deviceId] = useState(() => {
+    let id = localStorage.getItem('tutto_device_id');
+    if (!id) {
+      id = uuidv4();
+      localStorage.setItem('tutto_device_id', id);
+    }
+    return id;
+  });
+
+  const [mode, setMode] = useState('local');
+  const [showStats, setShowStats] = useState(false);
+
+  const localGame = useGameLogic();
+  const onlineGame = useOnlineGame(deviceId);
+
+  const game = mode === 'local' ? localGame : onlineGame;
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme) {
-      setTheme(savedTheme);
-      document.documentElement.setAttribute('data-theme', savedTheme);
-    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      setTheme('dark');
-      document.documentElement.setAttribute('data-theme', 'dark');
-    }
-  }, []);
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('tutto-theme', theme);
+  }, [theme]);
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
@@ -36,12 +51,14 @@ export default function App() {
         </button>
       </div>
 
-      {game.finished && game.winner ? (
-        <EndScreen game={game} theme={theme} />
-      ) : game.currentPlayerIndex !== null ? (
+      {showStats ? (
+        <Statistics deviceId={deviceId} onBack={() => setShowStats(false)} />
+      ) : game.finished && game.winner ? (
+        <EndScreen game={game} theme={theme} mode={mode} setMode={setMode} deviceId={deviceId} />
+      ) : game.currentPlayerIndex != null ? (
         <Game game={game} />
       ) : (
-        <Home game={game} />
+        <Home game={game} mode={mode} setMode={setMode} onShowStats={() => setShowStats(true)} />
       )}
     </>
   );

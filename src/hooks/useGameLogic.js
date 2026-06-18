@@ -22,6 +22,7 @@ const createInitialPlayer = (name) => ({
   timesPlusMinusCompleted: 0,
   timesKniffelFailed: 0,
   timesKleeblattFailed: 0,
+  timesKleeblattCompleted: 0,
   timesPlusMinusFailed: 0,
   timesFeuerwerkReceived: 0,
   timesSkipped: 0,
@@ -38,6 +39,7 @@ export function useGameLogic() {
   const [round, setRound] = useState(1);
   const [winningScore, setWinningScore] = useState(6000);
   const [finished, setFinished] = useState(false);
+  const [randomOrder, setRandomOrder] = useState(true);
   
   // Timer
   const [gameTimeInSeconds, setGameTimeInSeconds] = useState(0);
@@ -68,6 +70,8 @@ export function useGameLogic() {
         setChartNames(JSON.parse(localStorage.getItem('chartNames')) || []);
         setChartLabels(JSON.parse(localStorage.getItem('chartLabels')) || []);
         setFinished(JSON.parse(localStorage.getItem('finished')) || false);
+        const savedRandomOrder = localStorage.getItem('randomOrder');
+        if (savedRandomOrder !== null) setRandomOrder(JSON.parse(savedRandomOrder));
       }
     }
   }, []);
@@ -95,7 +99,8 @@ export function useGameLogic() {
     localStorage.setItem('chartNames', JSON.stringify(chartNames));
     localStorage.setItem('chartLabels', JSON.stringify(chartLabels));
     localStorage.setItem('finished', JSON.stringify(finished));
-  }, [players, currentPlayerIndex, round, currentCard, gameTimeInSeconds, cards, chartValues, chartNames, chartLabels, finished]);
+    localStorage.setItem('randomOrder', JSON.stringify(randomOrder));
+  }, [players, currentPlayerIndex, round, currentCard, gameTimeInSeconds, cards, chartValues, chartNames, chartLabels, finished, randomOrder]);
 
   const addPlayer = (name) => {
     setPlayers((prev) => [...prev, createInitialPlayer(name)]);
@@ -103,6 +108,11 @@ export function useGameLogic() {
 
   const removePlayer = (name) => {
     setPlayers((prev) => prev.filter(p => p.name !== name));
+  };
+
+  const reorderPlayers = (newPlayers) => {
+    setPlayers(newPlayers);
+    setRandomOrder(false);
   };
 
   const shuffleArray = (array) => {
@@ -152,8 +162,12 @@ export function useGameLogic() {
 
   const startGame = () => {
     const resetPlayers = players.map(p => createInitialPlayer(p.name));
-    const shuffledPlayers = shuffleArray(resetPlayers);
-    setPlayers(shuffledPlayers);
+    let nextPlayers = resetPlayers;
+    if (randomOrder) {
+      nextPlayers = shuffleArray(resetPlayers);
+    }
+    
+    setPlayers(nextPlayers);
     setRound(1);
     setGameTimeInSeconds(0);
     setFinished(false);
@@ -164,7 +178,7 @@ export function useGameLogic() {
     setPreviousScore(null);
     setPreviousLeaders(null);
 
-    createChartValues(shuffledPlayers);
+    createChartValues(nextPlayers);
 
     const initialDeck = shuffleCards();
     drawCard(initialDeck);
@@ -194,6 +208,29 @@ export function useGameLogic() {
     if (!sorted.length) return [];
     const topScore = sorted[0].score;
     return sorted.filter(p => p.score === topScore);
+  };
+
+  const sendGlobalStats = (finalPlayers, finalTime, finalCard) => {
+    let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0, totalKleeblatt = 0, totalKleeblattCompleted = 0, totalx2 = 0;
+    finalPlayers.forEach(p => {
+      totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
+      totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
+      totalStop += p.timesSkipped;
+      totalFeuerwerk += p.timesFeuerwerkReceived;
+      totalKleeblatt += (p.timesKleeblattFailed + (p.timesKleeblattCompleted || 0));
+      totalKleeblattCompleted += (p.timesKleeblattCompleted || 0);
+      totalx2 += p.timesx2Received;
+    });
+
+    fetch('/api/stats/global', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        gamesPlayed: 1,
+        totalPlaytime: finalTime,
+        totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2
+      })
+    }).catch(console.error);
   };
 
   const nextTurn = (scoreInput, isSuccess = false) => {
@@ -232,9 +269,11 @@ export function useGameLogic() {
     }
 
     if (currentCard === "Kleeblatt" && isSuccess) {
+      currentPlayer.timesKleeblattCompleted = (currentPlayer.timesKleeblattCompleted || 0) + 1;
       currentPlayer.score = 999999;
       setPlayers(newPlayers);
       setFinished(true);
+      sendGlobalStats(newPlayers, gameTimeInSeconds, "Kleeblatt");
       return;
     } else if (currentCard === "Kleeblatt") {
       currentPlayer.timesKleeblattFailed++;
@@ -274,6 +313,7 @@ export function useGameLogic() {
     if (isGameOver) {
       setFinished(true);
       setCurrentPlayerIndex(null);
+      sendGlobalStats(newPlayers, gameTimeInSeconds, currentCard);
     } else {
       setCurrentPlayerIndex(nextIndex);
       setRound(nextRound);
@@ -364,11 +404,14 @@ export function useGameLogic() {
     setWinningScore,
     initialCards,
     setInitialCards,
+    randomOrder,
+    setRandomOrder,
     gameTimeInSeconds,
     formattedTime: formatTime(gameTimeInSeconds),
     finished,
     addPlayer,
     removePlayer,
+    reorderPlayers,
     startGame,
     endGame,
     nextTurn,
