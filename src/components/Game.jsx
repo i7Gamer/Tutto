@@ -95,7 +95,10 @@ export default function Game({ game }) {
   }
 
   const roundProgress = players?.length ? (currentPlayerIndex / players.length) * 100 : 0;
-  const scoreProgress = winningScore ? Math.min((currentPlayer.score / winningScore) * 100, 100) : 0;
+  
+  const displayPlayer = isOnline ? (players?.find(p => p.name === myName) || currentPlayer) : currentPlayer;
+  const displayScore = displayPlayer ? displayPlayer.score : 0;
+  const scoreProgress = winningScore ? Math.min((displayScore / winningScore) * 100, 100) : 0;
 
   return (
     <div className="container" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingBottom: '5rem' }}>
@@ -116,8 +119,8 @@ export default function Game({ game }) {
         <div className="stat-box" style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: `${scoreProgress}%`, backgroundColor: 'var(--success)', opacity: 0.15, zIndex: 0, transition: 'height 0.3s ease' }}></div>
           <div style={{ position: 'relative', zIndex: 1 }}>
-            <div className="label">Score</div>
-            <div className="value">{currentPlayer.score}</div>
+            <div className="label">{isOnline ? "Your Score" : "Score"}</div>
+            <div className="value">{displayScore}</div>
           </div>
         </div>
         <div className="stat-box" style={{ flex: 1 }}>
