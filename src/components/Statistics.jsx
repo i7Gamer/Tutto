@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Trophy, Clock, XCircle, Star, BarChart2, Globe, User, TrendingDown, Target, Zap, Hash } from 'lucide-react';
+import { ArrowLeft, Trophy, Clock, XCircle, Star, BarChart2, Globe, User, TrendingDown, TrendingUp, Target, Zap, Hash, Repeat } from 'lucide-react';
 
 export default function Statistics({ deviceId, onBack }) {
   const [tab, setTab] = useState('personal');
@@ -132,7 +132,7 @@ export default function Statistics({ deviceId, onBack }) {
 
   return (
     <div className="container" style={{ display: 'flex', justifyContent: 'center' }}>
-      <div className="glass-card" style={{ width: '100%', maxWidth: '800px', margin: '0 auto' }}>
+      <div className="glass-card" style={{ width: '100%', maxWidth: '600px', margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2rem', position: 'relative' }}>
           <button className="btn btn-outline" onClick={onBack} style={{ padding: '0.5rem', position: 'absolute', left: 0 }}>
             <ArrowLeft size={20} />
@@ -178,7 +178,7 @@ export default function Statistics({ deviceId, onBack }) {
                 </div>
 
                 <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
-                  <StatTile icon={<Hash size={28} color="var(--text-muted)" />} value={p.totalTurns || 0} label="Total Turns" />
+                  <StatTile icon={<Repeat size={28} color="var(--text-muted)" />} value={p.totalTurns || 0} label="Total Turns" />
                   <StatTile icon={<Clock size={28} color="var(--text-muted)" />} value={formatTime(p.totalPlaytime)} label="Total Playtime" />
                 </div>
 
@@ -237,8 +237,8 @@ export default function Statistics({ deviceId, onBack }) {
                 </div>
 
                 <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
-                  <StatTile icon={<Hash size={28} color="var(--text-muted)" />} value={g.totalTurns || 0} label="Total Turns Played" />
-                  <StatTile icon={<Target size={28} color="var(--warning)" />} value={gAvgScorePerTurn} label="Avg Score / Turn" color="var(--warning)" />
+                  <StatTile icon={<Repeat size={28} color="var(--text-muted)" />} value={g.totalTurns || 0} label="Total Turns Played" />
+                  <StatTile icon={<TrendingUp size={28} color="var(--warning)" />} value={gAvgScorePerTurn} label="Avg Score / Turn" color="var(--warning)" />
                 </div>
 
                 {/* Card Breakdown */}
