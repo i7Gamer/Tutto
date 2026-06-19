@@ -1,16 +1,41 @@
-# React + Vite
+# Tutto Multi-Device
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Tutto Multi-Device is a dynamic web application that allows you to play the board game Tutto! with friends online in real-time or locally on the same device. It features modern UI design, real-time multiplayer synchronization using WebSockets, dynamic animations, and comprehensive statistics tracking.
 
-Currently, two official plugins are available:
+## Tech Stack
+- **Frontend**: React, Vite, CSS variables for theming, Chart.js for stats
+- **Backend**: Node.js, Express, Socket.IO
+- **Database**: SQLite (for global and personal statistics)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Installation & Setup
 
-## React Compiler
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/i7Gamer/TuttoNeu.git
+   cd TuttoNeu
+   ```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+2. **Install dependencies:**
+   Running `npm install` in the root folder will automatically install both the frontend dependencies and the backend dependencies (via the `postinstall` script).
+   ```bash
+   npm install
+   ```
 
-## Expanding the ESLint configuration
+## Running the Application
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+You can launch both the frontend (Vite dev server) and the backend (Express + Socket.IO server) simultaneously with a single command:
+
+```bash
+npm run start
+```
+
+This will run them concurrently. By default:
+- The frontend app will be available at `http://localhost:5173`
+- The backend API and WebSocket server runs at `http://localhost:3000`
+
+### Additional Scripts
+
+- **`npm run dev`**: Starts only the Vite frontend dev server.
+- **`npm run server`**: Starts only the Node.js backend server.
+- **`npm run build`**: Builds the frontend app for production.
+- **`npm run test`**: Runs the unit test suite.
