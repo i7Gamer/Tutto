@@ -112,13 +112,13 @@ describe('useGameLogic', () => {
     expect(result.current.players[1].name).toBe('Alice');
   });
 
-  it('should increment timesKleeblattCompleted and send it via fetch when succeeding on Kleeblatt', () => {
+  it('handles Kleeblatt success and failure statistics', () => {
     vi.useFakeTimers();
     const { result } = renderHook(() => useGameLogic());
     
     act(() => {
       result.current.addPlayer('Alice');
-      result.current.setInitialCards({ "Kleeblatt": 1 });
+      result.current.setInitialCards({ "Kleeblatt": 2 });
     });
 
     act(() => {
@@ -126,18 +126,28 @@ describe('useGameLogic', () => {
     });
 
     expect(result.current.currentCard).toBe('Kleeblatt');
-    expect(result.current.currentPlayer.name).toBe('Alice');
+    
+    // Fail on first Kleeblatt
+    act(() => {
+      result.current.nextTurn(0, false);
+    });
+    
+    let alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.timesKleeblattFailed).toBe(1);
+    expect(alice.timesKleeblattCompleted).toBe(0);
 
-    // Succeed on Kleeblatt
+    // Succeed on second Kleeblatt
+    expect(result.current.currentCard).toBe('Kleeblatt');
     act(() => {
       result.current.nextTurn(0, true);
     });
 
     expect(result.current.finished).toBe(true);
     
-    const updatedPlayer = result.current.players.find(p => p.name === 'Alice');
-    expect(updatedPlayer.timesKleeblattCompleted).toBe(1);
-    expect(updatedPlayer.score).toBe(999999);
+    alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.timesKleeblattFailed).toBe(1);
+    expect(alice.timesKleeblattCompleted).toBe(1);
+    expect(alice.score).toBe(999999);
 
     expect(global.fetch).toHaveBeenCalledWith('/api/stats/global', expect.objectContaining({
       method: 'POST',
@@ -145,7 +155,7 @@ describe('useGameLogic', () => {
     }));
   });
 
-  it('handles Plus_Minus card correctly by deducting 1000 from leaders', () => {
+  it('handles Plus_Minus card success and failure statistics', () => {
     // Make shuffleArray deterministic so array keeps its insertion order
     const originalRandom = Math.random;
     Math.random = () => 0.999999;
@@ -156,8 +166,7 @@ describe('useGameLogic', () => {
       result.current.addPlayer('Alice');
       result.current.addPlayer('Bob');
       result.current.setRandomOrder(false);
-      // Give plenty of non-special cards, then a Plus_Minus
-      result.current.setInitialCards({ "200": 2, "Plus_Minus": 1 });
+      result.current.setInitialCards({ "200": 2, "Plus_Minus": 2 });
     });
 
     act(() => {
@@ -176,20 +185,66 @@ describe('useGameLogic', () => {
 
     // Round 2: Alice turn (Plus_Minus card)
     expect(result.current.currentCard).toBe('Plus_Minus');
-    expect(result.current.currentPlayer.name).toBe('Alice');
-    
     act(() => {
-      result.current.nextTurn(0, true); // Alice succeeds
+      result.current.nextTurn(0, false); // Alice fails
     });
 
-    // Alice gets 1000 points, Bob (leader) loses 1000 points
-    const alice = result.current.players.find(p => p.name === 'Alice');
-    const bob = result.current.players.find(p => p.name === 'Bob');
+    let alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.timesPlusMinusFailed).toBe(1);
+    expect(alice.timesPlusMinusCompleted).toBe(0);
+
+    // Round 2: Bob turn (Plus_Minus card)
+    act(() => {
+      result.current.nextTurn(0, true); // Bob succeeds
+    });
+
+    // Bob is leader, so nobody loses 1000, but Bob gets 1000 points and a completion stat
+    let bob = result.current.players.find(p => p.name === 'Bob');
+    expect(bob.timesPlusMinusCompleted).toBe(1);
+    expect(bob.timesPlusMinusFailed).toBe(0);
+    expect(bob.score).toBe(3000); // 2000 + 1000
+
+    Math.random = originalRandom; // Restore Math.random
+  });
+
+  it('handles Kniffel card success and failure statistics', () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0.999999;
+
+    const { result } = renderHook(() => useGameLogic());
     
-    expect(alice.score).toBe(1000);
-    expect(bob.score).toBe(1000); // Bob had 2000, lost 1000
-    expect(bob.times1000PointsDeducted).toBe(1);
-    expect(alice.timesPlusMinusCompleted).toBe(1);
+    act(() => {
+      result.current.addPlayer('Alice');
+      result.current.setRandomOrder(false);
+      result.current.setInitialCards({ "Kniffel": 2 });
+    });
+
+    act(() => {
+      result.current.startGame();
+    });
+
+    expect(result.current.currentCard).toBe('Kniffel');
+    
+    // Fail first Kniffel
+    act(() => {
+      result.current.nextTurn(0, false); 
+    });
+
+    let alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.timesKniffelFailed).toBe(1);
+    expect(alice.timesKniffelCompleted).toBe(0);
+    expect(alice.score).toBe(0);
+
+    // Succeed second Kniffel
+    expect(result.current.currentCard).toBe('Kniffel');
+    act(() => {
+      result.current.nextTurn(0, true); 
+    });
+
+    alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.timesKniffelFailed).toBe(1);
+    expect(alice.timesKniffelCompleted).toBe(1);
+    expect(alice.score).toBe(2000); // Kniffel success gives 2000 points
 
     Math.random = originalRandom; // Restore Math.random
   });
