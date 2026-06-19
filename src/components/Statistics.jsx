@@ -233,12 +233,12 @@ export default function Statistics({ deviceId, onBack }) {
 
                 <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
                   <StatTile icon={<Clock size={28} color="var(--success)" />} value={formatTime(gAvgDuration)} label="Avg Game Duration" />
-                  <StatTile icon={<Target size={28} color="var(--warning)" />} value={gAvgScorePerTurn} label="Avg Score / Turn" color="var(--warning)" />
+                  <StatTile icon={<Zap size={28} color="var(--primary)" />} value={g.totalScore || 0} label="Total Points Scored" color="var(--primary)" />
                 </div>
 
                 <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
                   <StatTile icon={<Hash size={28} color="var(--text-muted)" />} value={g.totalTurns || 0} label="Total Turns Played" />
-                  <StatTile icon={<Zap size={28} color="var(--primary)" />} value={g.totalScore || 0} label="Total Points Scored" color="var(--primary)" />
+                  <StatTile icon={<Target size={28} color="var(--warning)" />} value={gAvgScorePerTurn} label="Avg Score / Turn" color="var(--warning)" />
                 </div>
 
                 {/* Card Breakdown */}
