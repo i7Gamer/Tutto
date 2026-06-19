@@ -102,7 +102,7 @@ export default function Statistics({ deviceId, onBack }) {
   const StatTile = ({ icon, value, label, color = 'var(--primary)' }) => (
     <div className="stat-box" style={{ 
       background: 'var(--bg-color)', padding: '1.25rem', borderRadius: '12px',
-      display: 'flex', alignItems: 'center', gap: '0.75rem'
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: '0.5rem'
     }}>
       {icon}
       <div>
@@ -198,8 +198,22 @@ export default function Statistics({ deviceId, onBack }) {
                     color="var(--primary)"
                   />
                   <CardRow label="Stop" icon="🛑" count={p.skipped || 0} color="var(--danger)" />
-                  <CardRow label="Feuerwerk" icon="🎆" count={p.feuerwerkReceived || 0} color="var(--primary)" />
-                  <CardRow label="x2" icon="✖️" count={p.x2Received || 0} color="var(--primary)" />
+                  <div style={{ position: 'relative' }}>
+                    <CardRow label="Feuerwerk" icon="🎆" count={p.feuerwerkReceived || 0} color="var(--primary)" />
+                    {p.feuerwerkReceived > 0 && (
+                      <div style={{ textAlign: 'right', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '-8px', marginBottom: '8px', marginRight: '1rem' }}>
+                        Avg: {Math.round((p.feuerwerkPointsScored || 0) / p.feuerwerkReceived)} pts/card
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ position: 'relative' }}>
+                    <CardRow label="x2" icon="✖️" count={p.x2Received || 0} color="var(--primary)" />
+                    {p.x2Received > 0 && (
+                      <div style={{ textAlign: 'right', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '-8px', marginBottom: '8px', marginRight: '1rem' }}>
+                        Avg: {Math.round((p.x2PointsScored || 0) / p.x2Received)} pts/card
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -260,8 +274,22 @@ export default function Statistics({ deviceId, onBack }) {
                     color="var(--primary)"
                   />
                   <CardRow label="Stop" icon="🛑" count={g.totalStop || 0} color="var(--danger)" />
-                  <CardRow label="Feuerwerk" icon="🎆" count={g.totalFeuerwerk || 0} color="var(--primary)" />
-                  <CardRow label="x2" icon="✖️" count={g.totalx2 || 0} color="var(--primary)" />
+                  <div style={{ position: 'relative' }}>
+                    <CardRow label="Feuerwerk" icon="🎆" count={g.totalFeuerwerk || 0} color="var(--primary)" />
+                    {g.totalFeuerwerk > 0 && (
+                      <div style={{ textAlign: 'right', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '-8px', marginBottom: '8px', marginRight: '1rem' }}>
+                        Avg: {Math.round((g.totalFeuerwerkPoints || 0) / g.totalFeuerwerk)} pts/card
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ position: 'relative' }}>
+                    <CardRow label="x2" icon="✖️" count={g.totalx2 || 0} color="var(--primary)" />
+                    {g.totalx2 > 0 && (
+                      <div style={{ textAlign: 'right', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '-8px', marginBottom: '8px', marginRight: '1rem' }}>
+                        Avg: {Math.round((g.totalx2Points || 0) / g.totalx2)} pts/card
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}

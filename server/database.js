@@ -46,10 +46,10 @@ db.serialize(() => {
   `);
 
   db.run("ALTER TABLE global_statistics ADD COLUMN totalKleeblattCompleted INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE global_statistics ADD COLUMN totalTurns INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE global_statistics ADD COLUMN totalScore INTEGER DEFAULT 0", () => {});
   db.run("ALTER TABLE global_statistics ADD COLUMN totalPlusMinusCompleted INTEGER DEFAULT 0", () => {});
   db.run("ALTER TABLE global_statistics ADD COLUMN totalKniffelCompleted INTEGER DEFAULT 0", () => {});
+  db.run("ALTER TABLE global_statistics ADD COLUMN totalFeuerwerkPoints INTEGER DEFAULT 0", () => {});
+  db.run("ALTER TABLE global_statistics ADD COLUMN totalx2Points INTEGER DEFAULT 0", () => {});
 
   db.run(`INSERT OR IGNORE INTO global_statistics (id) VALUES (1)`);
 });
@@ -138,7 +138,9 @@ const updateGlobalStats = (stats) => {
         totalTurns = totalTurns + ?,
         totalScore = totalScore + ?,
         totalPlusMinusCompleted = totalPlusMinusCompleted + ?,
-        totalKniffelCompleted = totalKniffelCompleted + ?
+        totalKniffelCompleted = totalKniffelCompleted + ?,
+        totalFeuerwerkPoints = totalFeuerwerkPoints + ?,
+        totalx2Points = totalx2Points + ?
       WHERE id = 1
     `, [
       stats.gamesPlayed || 0,
@@ -153,7 +155,9 @@ const updateGlobalStats = (stats) => {
       stats.totalTurns || 0,
       stats.totalScore || 0,
       stats.totalPlusMinusCompleted || 0,
-      stats.totalKniffelCompleted || 0
+      stats.totalKniffelCompleted || 0,
+      stats.totalFeuerwerkPoints || 0,
+      stats.totalx2Points || 0
     ], function(err) {
       if (err) return reject(err);
       resolve(this.changes);

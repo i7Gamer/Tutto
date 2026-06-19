@@ -29,6 +29,8 @@ const createInitialPlayer = (name) => ({
   timesx2Received: 0,
   totalTurns: 0,
   busts: 0,
+  feuerwerkPointsScored: 0,
+  x2PointsScored: 0,
   position: 0,
 });
 
@@ -216,6 +218,7 @@ export function useGameLogic() {
     let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0, totalKleeblatt = 0, totalKleeblattCompleted = 0, totalx2 = 0;
     let totalTurns = 0, totalScore = 0;
     let totalPlusMinusCompleted = 0, totalKniffelCompleted = 0;
+    let totalFeuerwerkPoints = 0, totalx2Points = 0;
     finalPlayers.forEach(p => {
       totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
       totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
@@ -228,6 +231,8 @@ export function useGameLogic() {
       totalScore += p.score;
       totalPlusMinusCompleted += p.timesPlusMinusCompleted;
       totalKniffelCompleted += p.timesKniffelCompleted;
+      totalFeuerwerkPoints += (p.feuerwerkPointsScored || 0);
+      totalx2Points += (p.x2PointsScored || 0);
     });
 
     fetch('/api/stats/global', {
@@ -237,7 +242,7 @@ export function useGameLogic() {
         gamesPlayed: 1,
         totalPlaytime: finalTime,
         totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2,
-        totalTurns, totalScore, totalPlusMinusCompleted, totalKniffelCompleted
+        totalTurns, totalScore, totalPlusMinusCompleted, totalKniffelCompleted, totalFeuerwerkPoints, totalx2Points
       })
     }).catch(console.error);
   };
@@ -272,8 +277,14 @@ export function useGameLogic() {
       currentPlayer.timesPlusMinusFailed++;
     }
 
-    if (currentCard === "x2") currentPlayer.timesx2Received++;
-    if (currentCard === "Feuerwerk") currentPlayer.timesFeuerwerkReceived++;
+    if (currentCard === "x2") {
+      currentPlayer.timesx2Received++;
+      currentPlayer.x2PointsScored = (currentPlayer.x2PointsScored || 0) + turnScore;
+    }
+    if (currentCard === "Feuerwerk") {
+      currentPlayer.timesFeuerwerkReceived++;
+      currentPlayer.feuerwerkPointsScored = (currentPlayer.feuerwerkPointsScored || 0) + turnScore;
+    }
     if (currentCard === "Stop") currentPlayer.timesSkipped++;
 
     if (currentCard === "Kniffel" && isSuccess) {

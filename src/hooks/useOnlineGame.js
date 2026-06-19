@@ -133,7 +133,9 @@ export function useOnlineGame(deviceId) {
       timesKleeblattCompleted: 0,
       timesx2Received: 0,
       totalTurns: 0,
-      busts: 0
+      busts: 0,
+      feuerwerkPointsScored: 0,
+      x2PointsScored: 0
     }));
     if (s.randomOrder) {
       s.players = shuffleArray(resetPlayers);
@@ -201,8 +203,14 @@ export function useOnlineGame(deviceId) {
       currentPlayer.timesPlusMinusFailed++;
     }
 
-    if (s.currentCard === "x2") currentPlayer.timesx2Received++;
-    if (s.currentCard === "Feuerwerk") currentPlayer.timesFeuerwerkReceived++;
+      if (s.currentCard === 'x2') {
+        s.players[s.currentPlayerIndex].timesx2Received++;
+        s.players[s.currentPlayerIndex].x2PointsScored = (s.players[s.currentPlayerIndex].x2PointsScored || 0) + turnScore;
+      }
+      if (s.currentCard === 'Feuerwerk') {
+        s.players[s.currentPlayerIndex].timesFeuerwerkReceived++;
+        s.players[s.currentPlayerIndex].feuerwerkPointsScored = (s.players[s.currentPlayerIndex].feuerwerkPointsScored || 0) + turnScore;
+      }
     if (s.currentCard === "Stop") currentPlayer.timesSkipped++;
 
     if (s.currentCard === "Kniffel" && isSuccess) {
@@ -373,6 +381,7 @@ export function useOnlineGame(deviceId) {
       let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0, totalKleeblatt = 0, totalKleeblattCompleted = 0, totalx2 = 0;
       let totalTurns = 0, totalScore = 0;
       let totalPlusMinusCompleted = 0, totalKniffelCompleted = 0;
+      let totalFeuerwerkPoints = 0, totalx2Points = 0;
       s.players.forEach(p => {
         totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
         totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
@@ -385,6 +394,8 @@ export function useOnlineGame(deviceId) {
         totalScore += p.score;
         totalPlusMinusCompleted += p.timesPlusMinusCompleted;
         totalKniffelCompleted += p.timesKniffelCompleted;
+        totalFeuerwerkPoints += (p.feuerwerkPointsScored || 0);
+        totalx2Points += (p.x2PointsScored || 0);
       });
 
       fetch('/api/stats/global', {
@@ -403,7 +414,9 @@ export function useOnlineGame(deviceId) {
           totalTurns,
           totalScore,
           totalPlusMinusCompleted,
-          totalKniffelCompleted
+          totalKniffelCompleted,
+          totalFeuerwerkPoints,
+          totalx2Points
         })
       }).catch(console.error);
     }
