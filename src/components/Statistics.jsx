@@ -110,13 +110,13 @@ export default function Statistics({ deviceId, onBack }) {
   const StatTile = ({ icon, value, label, color = 'var(--primary)' }) => (
     <div className="stat-box" style={{ 
       background: 'var(--bg-color)', padding: '1.25rem', borderRadius: '12px',
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: '0.5rem'
+      position: 'relative', textAlign: 'left'
     }}>
-      {icon}
-      <div>
-        <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color }}>{value}</div>
-        <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
+      <div style={{ position: 'absolute', top: '1rem', right: '1rem', opacity: 0.8 }}>
+        {icon}
       </div>
+      <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color, marginTop: '0.25rem' }}>{value}</div>
+      <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: '0.25rem', paddingRight: '2rem' }}>{label}</div>
     </div>
   );
 
