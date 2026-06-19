@@ -123,8 +123,8 @@ export default function Statistics({ deviceId, onBack }) {
   );
 
   return (
-    <div className="container">
-      <div className="glass-card" style={{ maxWidth: '800px', margin: '0 auto' }}>
+    <div className="container" style={{ display: 'flex', justifyContent: 'center' }}>
+      <div className="glass-card" style={{ width: '100%', maxWidth: '800px', margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2rem', position: 'relative' }}>
           <button className="btn btn-outline" onClick={onBack} style={{ padding: '0.5rem', position: 'absolute', left: 0 }}>
             <ArrowLeft size={20} />
@@ -144,7 +144,7 @@ export default function Statistics({ deviceId, onBack }) {
         </div>
 
         {tab === 'personal' && (
-          <div className="animate-fade-in">
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <h3 style={{ marginBottom: '1.5rem', textAlign: 'center', color: 'var(--text-color)' }}>
               Online Lifetime Record (This Device)
             </h3>
@@ -152,7 +152,7 @@ export default function Statistics({ deviceId, onBack }) {
             {!p || !p.gamesPlayed ? (
               <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>You haven't played any online games on this device yet!</p>
             ) : (
-              <>
+              <div style={{ width: '100%' }}>
                 {/* Overview */}
                 <div className="grid-cols-2" style={{ marginBottom: '1rem' }}>
                   <BigStatTile value={p.gamesPlayed} label="Games Played" color="var(--primary)" />
@@ -175,38 +175,40 @@ export default function Statistics({ deviceId, onBack }) {
                 </div>
 
                 {/* Card Breakdown */}
-                <h4 style={{ marginBottom: '0.75rem', color: 'var(--text-color)', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                <h4 style={{ marginBottom: '0.75rem', color: 'var(--text-color)', borderTop: '1px solid var(--border-color)', paddingTop: '1rem', textAlign: 'center' }}>
                   🃏 Card Breakdown
                 </h4>
-                <CardRow
-                  label="Plus/Minus" icon="±"
-                  count={(p.plusMinusCompleted || 0) + (p.plusMinusFailed || 0)}
-                  wins={p.plusMinusCompleted || 0} fails={p.plusMinusFailed || 0}
-                  color="var(--primary)"
-                />
-                <CardRow
-                  label="Kniffel" icon="🎲"
-                  count={(p.kniffelCompleted || 0) + (p.kniffelFailed || 0)}
-                  wins={p.kniffelCompleted || 0} fails={p.kniffelFailed || 0}
-                  color="var(--secondary)"
-                />
-                <CardRow
-                  label="Kleeblatt" icon="🍀"
-                  count={(p.kleeblattCompleted || 0) + (p.kleeblattFailed || 0)}
-                  wins={p.kleeblattCompleted || 0} fails={p.kleeblattFailed || 0}
-                  color="var(--success)"
-                />
-                <CardRow label="Stop" icon="🛑" count={p.skipped || 0} color="var(--danger)" />
-                <CardRow label="Feuerwerk" icon="🎆" count={p.feuerwerkReceived || 0} color="var(--warning)" />
-                <CardRow label="x2" icon="✖️" count={p.x2Received || 0} color="var(--primary)" />
-              </>
+                <div style={{ maxWidth: '500px', margin: '0 auto' }}>
+                  <CardRow
+                    label="Plus/Minus" icon="±"
+                    count={(p.plusMinusCompleted || 0) + (p.plusMinusFailed || 0)}
+                    wins={p.plusMinusCompleted || 0} fails={p.plusMinusFailed || 0}
+                    color="var(--primary)"
+                  />
+                  <CardRow
+                    label="Kniffel" icon="🎲"
+                    count={(p.kniffelCompleted || 0) + (p.kniffelFailed || 0)}
+                    wins={p.kniffelCompleted || 0} fails={p.kniffelFailed || 0}
+                    color="var(--primary)"
+                  />
+                  <CardRow
+                    label="Kleeblatt" icon="🍀"
+                    count={(p.kleeblattCompleted || 0) + (p.kleeblattFailed || 0)}
+                    wins={p.kleeblattCompleted || 0} fails={p.kleeblattFailed || 0}
+                    color="var(--primary)"
+                  />
+                  <CardRow label="Stop" icon="🛑" count={p.skipped || 0} color="var(--danger)" />
+                  <CardRow label="Feuerwerk" icon="🎆" count={p.feuerwerkReceived || 0} color="var(--primary)" />
+                  <CardRow label="x2" icon="✖️" count={p.x2Received || 0} color="var(--primary)" />
+                </div>
+              </div>
             )}
           </div>
         )}
 
         {tab === 'global' && (
-          <div className="animate-fade-in">
-            <h3 style={{ marginBottom: '1.5rem', textAlign: 'center', color: 'var(--text-color)' }}>
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <h3 style={{ marginBottom: '0.5rem', textAlign: 'center', color: 'var(--text-color)' }}>
               Global Community Statistics
             </h3>
             <p style={{ textAlign: 'center', color: 'var(--text-muted)', marginBottom: '2rem' }}>Aggregated across all local and online games played.</p>
@@ -214,7 +216,7 @@ export default function Statistics({ deviceId, onBack }) {
             {!g || !g.totalGamesPlayed ? (
               <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No games have been played on the server yet!</p>
             ) : (
-              <>
+              <div style={{ width: '100%' }}>
                 {/* Overview */}
                 <div className="grid-cols-2" style={{ marginBottom: '1rem' }}>
                   <BigStatTile value={g.totalGamesPlayed} label="Total Games" color="var(--primary)" />
@@ -232,22 +234,36 @@ export default function Statistics({ deviceId, onBack }) {
                 </div>
 
                 {/* Card Breakdown */}
-                <h4 style={{ marginBottom: '0.75rem', color: 'var(--text-color)', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                <h4 style={{ marginBottom: '0.75rem', color: 'var(--text-color)', borderTop: '1px solid var(--border-color)', paddingTop: '1rem', textAlign: 'center' }}>
                   🃏 Card Breakdown
                 </h4>
-                <CardRow label="Plus/Minus" icon="±" count={g.totalPlusMinus || 0} color="var(--primary)" />
-                <CardRow label="Kniffel" icon="🎲" count={g.totalKniffel || 0} color="var(--secondary)" />
-                <CardRow
-                  label="Kleeblatt" icon="🍀"
-                  count={g.totalKleeblatt || 0}
-                  wins={g.totalKleeblattCompleted || 0}
-                  fails={(g.totalKleeblatt || 0) - (g.totalKleeblattCompleted || 0)}
-                  color="var(--success)"
-                />
-                <CardRow label="Stop" icon="🛑" count={g.totalStop || 0} color="var(--danger)" />
-                <CardRow label="Feuerwerk" icon="🎆" count={g.totalFeuerwerk || 0} color="var(--warning)" />
-                <CardRow label="x2" icon="✖️" count={g.totalx2 || 0} color="var(--primary)" />
-              </>
+                <div style={{ maxWidth: '500px', margin: '0 auto' }}>
+                  <CardRow 
+                    label="Plus/Minus" icon="±" 
+                    count={g.totalPlusMinus || 0} 
+                    wins={g.totalPlusMinusCompleted || 0}
+                    fails={(g.totalPlusMinus || 0) - (g.totalPlusMinusCompleted || 0)}
+                    color="var(--primary)" 
+                  />
+                  <CardRow 
+                    label="Kniffel" icon="🎲" 
+                    count={g.totalKniffel || 0} 
+                    wins={g.totalKniffelCompleted || 0}
+                    fails={(g.totalKniffel || 0) - (g.totalKniffelCompleted || 0)}
+                    color="var(--primary)" 
+                  />
+                  <CardRow
+                    label="Kleeblatt" icon="🍀"
+                    count={g.totalKleeblatt || 0}
+                    wins={g.totalKleeblattCompleted || 0}
+                    fails={(g.totalKleeblatt || 0) - (g.totalKleeblattCompleted || 0)}
+                    color="var(--primary)"
+                  />
+                  <CardRow label="Stop" icon="🛑" count={g.totalStop || 0} color="var(--danger)" />
+                  <CardRow label="Feuerwerk" icon="🎆" count={g.totalFeuerwerk || 0} color="var(--primary)" />
+                  <CardRow label="x2" icon="✖️" count={g.totalx2 || 0} color="var(--primary)" />
+                </div>
+              </div>
             )}
           </div>
         )}

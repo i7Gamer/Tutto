@@ -215,6 +215,7 @@ export function useGameLogic() {
   const sendGlobalStats = (finalPlayers, finalTime, finalCard) => {
     let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0, totalKleeblatt = 0, totalKleeblattCompleted = 0, totalx2 = 0;
     let totalTurns = 0, totalScore = 0;
+    let totalPlusMinusCompleted = 0, totalKniffelCompleted = 0;
     finalPlayers.forEach(p => {
       totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
       totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
@@ -225,6 +226,8 @@ export function useGameLogic() {
       totalx2 += p.timesx2Received;
       totalTurns += (p.totalTurns || 0);
       totalScore += p.score;
+      totalPlusMinusCompleted += p.timesPlusMinusCompleted;
+      totalKniffelCompleted += p.timesKniffelCompleted;
     });
 
     fetch('/api/stats/global', {
@@ -234,7 +237,7 @@ export function useGameLogic() {
         gamesPlayed: 1,
         totalPlaytime: finalTime,
         totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2,
-        totalTurns, totalScore
+        totalTurns, totalScore, totalPlusMinusCompleted, totalKniffelCompleted
       })
     }).catch(console.error);
   };

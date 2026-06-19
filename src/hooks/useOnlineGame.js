@@ -372,6 +372,7 @@ export function useOnlineGame(deviceId) {
     if (isHost) {
       let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0, totalKleeblatt = 0, totalKleeblattCompleted = 0, totalx2 = 0;
       let totalTurns = 0, totalScore = 0;
+      let totalPlusMinusCompleted = 0, totalKniffelCompleted = 0;
       s.players.forEach(p => {
         totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
         totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
@@ -382,6 +383,8 @@ export function useOnlineGame(deviceId) {
         totalx2 += p.timesx2Received;
         totalTurns += (p.totalTurns || 0);
         totalScore += p.score;
+        totalPlusMinusCompleted += p.timesPlusMinusCompleted;
+        totalKniffelCompleted += p.timesKniffelCompleted;
       });
 
       fetch('/api/stats/global', {
@@ -398,7 +401,9 @@ export function useOnlineGame(deviceId) {
           totalKleeblattCompleted,
           totalx2,
           totalTurns,
-          totalScore
+          totalScore,
+          totalPlusMinusCompleted,
+          totalKniffelCompleted
         })
       }).catch(console.error);
     }

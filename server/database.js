@@ -48,6 +48,8 @@ db.serialize(() => {
   db.run("ALTER TABLE global_statistics ADD COLUMN totalKleeblattCompleted INTEGER DEFAULT 0", () => {});
   db.run("ALTER TABLE global_statistics ADD COLUMN totalTurns INTEGER DEFAULT 0", () => {});
   db.run("ALTER TABLE global_statistics ADD COLUMN totalScore INTEGER DEFAULT 0", () => {});
+  db.run("ALTER TABLE global_statistics ADD COLUMN totalPlusMinusCompleted INTEGER DEFAULT 0", () => {});
+  db.run("ALTER TABLE global_statistics ADD COLUMN totalKniffelCompleted INTEGER DEFAULT 0", () => {});
 
   db.run(`INSERT OR IGNORE INTO global_statistics (id) VALUES (1)`);
 });
@@ -134,7 +136,9 @@ const updateGlobalStats = (stats) => {
         totalKleeblattCompleted = totalKleeblattCompleted + ?,
         totalx2 = totalx2 + ?,
         totalTurns = totalTurns + ?,
-        totalScore = totalScore + ?
+        totalScore = totalScore + ?,
+        totalPlusMinusCompleted = totalPlusMinusCompleted + ?,
+        totalKniffelCompleted = totalKniffelCompleted + ?
       WHERE id = 1
     `, [
       stats.gamesPlayed || 0,
@@ -147,7 +151,9 @@ const updateGlobalStats = (stats) => {
       stats.totalKleeblattCompleted || 0,
       stats.totalx2 || 0,
       stats.totalTurns || 0,
-      stats.totalScore || 0
+      stats.totalScore || 0,
+      stats.totalPlusMinusCompleted || 0,
+      stats.totalKniffelCompleted || 0
     ], function(err) {
       if (err) return reject(err);
       resolve(this.changes);
