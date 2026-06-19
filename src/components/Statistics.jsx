@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Trophy, Clock, XCircle, Star, BarChart2, Globe, User } from 'lucide-react';
+import { ArrowLeft, Trophy, Clock, XCircle, Star, BarChart2, Globe, User, TrendingDown, TrendingUp, Target, Zap, Hash, Repeat } from 'lucide-react';
 
 export default function Statistics({ deviceId, onBack }) {
   const [tab, setTab] = useState('personal');
@@ -36,55 +36,10 @@ export default function Statistics({ deviceId, onBack }) {
     return `${m}m ${s}s`;
   };
 
-  const getDerivedPersonal = (stats) => {
-    if (!stats || !stats.gamesPlayed) return null;
-    const winRate = ((stats.wins / stats.gamesPlayed) * 100).toFixed(1);
-    const avgDuration = stats.totalPlaytime / stats.gamesPlayed;
-    
-    const cardCounts = {
-      "Plus/Minus": (stats.plusMinusCompleted || 0) + (stats.plusMinusFailed || 0),
-      "Kniffel": (stats.kniffelCompleted || 0) + (stats.kniffelFailed || 0),
-      "Stop": stats.skipped || 0,
-      "Feuerwerk": stats.feuerwerkReceived || 0,
-      "Kleeblatt": (stats.kleeblattFailed || 0) + (stats.kleeblattCompleted || 0),
-      "x2": stats.x2Received || 0
-    };
-    
-    let mostPicked = "None";
-    let maxCount = 0;
-    Object.entries(cardCounts).forEach(([card, count]) => {
-      if (count > maxCount) {
-        maxCount = count;
-        mostPicked = card;
-      }
-    });
-
-    return { winRate, avgDuration, mostPicked, maxCount };
-  };
-
-  const getDerivedGlobal = (stats) => {
-    if (!stats || !stats.totalGamesPlayed) return null;
-    const avgDuration = stats.totalPlaytime / stats.totalGamesPlayed;
-    
-    const cardCounts = {
-      "Plus/Minus": stats.totalPlusMinus || 0,
-      "Kniffel": stats.totalKniffel || 0,
-      "Stop": stats.totalStop || 0,
-      "Feuerwerk": stats.totalFeuerwerk || 0,
-      "Kleeblatt": stats.totalKleeblatt || 0,
-      "x2": stats.totalx2 || 0
-    };
-    
-    let mostPicked = "None";
-    let maxCount = 0;
-    Object.entries(cardCounts).forEach(([card, count]) => {
-      if (count > maxCount) {
-        maxCount = count;
-        mostPicked = card;
-      }
-    });
-
-    return { avgDuration, mostPicked, maxCount };
+  const getWinLoseRate = (wins, fails) => {
+    const total = wins + fails;
+    if (total === 0) return "—";
+    return `${((wins / total) * 100).toFixed(0)}%`;
   };
 
   if (loading) {
@@ -95,12 +50,91 @@ export default function Statistics({ deviceId, onBack }) {
     );
   }
 
-  const pDerived = getDerivedPersonal(personalStats);
-  const gDerived = getDerivedGlobal(globalStats);
+  const p = personalStats;
+  const g = globalStats;
+
+  const pWinRate = p?.gamesPlayed ? ((p.wins / p.gamesPlayed) * 100).toFixed(1) : "0";
+  const pAvgDuration = p?.gamesPlayed ? p.totalPlaytime / p.gamesPlayed : 0;
+  const pBustRate = p?.totalTurns ? ((p.busts / p.totalTurns) * 100).toFixed(1) : "0";
+
+  const gAvgDuration = g?.totalGamesPlayed ? g.totalPlaytime / g.totalGamesPlayed : 0;
+  const gAvgScorePerTurn = g?.totalTurns ? Math.round(g.totalScore / g.totalTurns) : 0;
+
+  // Card breakdown helper
+  const CardRow = ({ label, icon, count, wins, fails, avgPoints, color, hideRate, failsLabel }) => (
+    <div style={{ 
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '0.75rem 1rem', borderRadius: '10px',
+      background: 'var(--bg-color)', marginBottom: '0.5rem'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1 }}>
+        <span style={{ fontSize: '1.25rem' }}>{icon}</span>
+        <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{label}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+        <div style={{ textAlign: 'center', minWidth: '40px' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color }}>{count}</div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total</div>
+        </div>
+        {wins !== undefined && (
+          <>
+            <div style={{ textAlign: 'center', minWidth: '40px' }}>
+              <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'var(--success)' }}>{wins}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Won</div>
+            </div>
+            <div style={{ textAlign: 'center', minWidth: '40px' }}>
+              <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'var(--danger)' }}>{fails}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{failsLabel || "Lost"}</div>
+            </div>
+            {!hideRate && (
+              <div style={{ textAlign: 'center', minWidth: '50px' }}>
+                <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'var(--primary)' }}>
+                  {getWinLoseRate(wins, fails)}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Rate</div>
+              </div>
+            )}
+          </>
+        )}
+        {avgPoints !== undefined && (
+          <div style={{ textAlign: 'center', minWidth: '50px' }}>
+            <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'var(--primary)' }}>
+              {count > 0 ? Math.round(avgPoints / count) : 0}
+            </div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Avg Pts</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  // Stat tile helper
+  const StatTile = ({ icon, value, label, color = 'var(--primary)' }) => (
+    <div className="stat-box" style={{ 
+      background: 'var(--bg-color)', padding: '1.25rem', borderRadius: '12px',
+      position: 'relative', textAlign: 'left'
+    }}>
+      <div style={{ position: 'absolute', top: '1rem', right: '1rem', opacity: 0.8 }}>
+        {icon}
+      </div>
+      <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color, marginTop: '0.25rem' }}>{value}</div>
+      <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: '0.25rem', paddingRight: '2rem' }}>{label}</div>
+    </div>
+  );
+
+  // Big stat tile helper
+  const BigStatTile = ({ value, label, color = 'var(--primary)' }) => (
+    <div className="stat-box" style={{ 
+      background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', textAlign: 'center'
+    }}>
+      <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color }}>{value}</div>
+      <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>{label}</div>
+    </div>
+  );
 
   return (
-    <div className="container">
-      <div className="glass-card" style={{ maxWidth: '800px', margin: '0 auto' }}>
+    <div className="container" style={{ display: 'flex', justifyContent: 'center' }}>
+      <div className="glass-card" style={{ width: '100%', maxWidth: '600px', margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2rem', position: 'relative' }}>
           <button className="btn btn-outline" onClick={onBack} style={{ padding: '0.5rem', position: 'absolute', left: 0 }}>
             <ArrowLeft size={20} />
@@ -120,137 +154,162 @@ export default function Statistics({ deviceId, onBack }) {
         </div>
 
         {tab === 'personal' && (
-          <div className="animate-fade-in">
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <h3 style={{ marginBottom: '1.5rem', textAlign: 'center', color: 'var(--text-color)' }}>
               Online Lifetime Record (This Device)
             </h3>
             
-            {!personalStats || !personalStats.gamesPlayed ? (
+            {!p || !p.gamesPlayed ? (
               <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>You haven't played any online games on this device yet!</p>
             ) : (
-              <>
-                <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--primary)' }}>{personalStats.gamesPlayed}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Games Played</div>
-                  </div>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--success)' }}>{personalStats.wins}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Games Won</div>
-                  </div>
+              <div style={{ width: '100%' }}>
+                {/* Overview */}
+                <div className="grid-cols-2" style={{ marginBottom: '1rem' }}>
+                  <BigStatTile value={p.gamesPlayed} label="Games Played" color="var(--primary)" />
+                  <BigStatTile value={p.wins} label="Games Won" color="var(--success)" />
+                </div>
+
+                <div className="grid-cols-2" style={{ marginBottom: '1rem' }}>
+                  <StatTile icon={<Trophy size={28} color="gold" />} value={`${pWinRate}%`} label="Win Rate" color="gold" />
+                  <StatTile icon={<Clock size={28} color="var(--primary)" />} value={formatTime(pAvgDuration)} label="Avg Duration" />
                 </div>
 
                 <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Trophy size={32} color="gold" />
-                    <div>
-                      <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{pDerived.winRate}%</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Win Rate</div>
-                    </div>
-                  </div>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Clock size={32} color="var(--primary)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{formatTime(pDerived.avgDuration)}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Average Duration</div>
-                    </div>
-                  </div>
+                  <StatTile icon={<TrendingDown size={28} color="var(--danger)" />} value={`${pBustRate}%`} label="Bust Rate" color="var(--danger)" />
+                  <StatTile icon={<XCircle size={28} color="var(--danger)" />} value={p.pointsDeducted || 0} label="-1000 Pts Eaten" color="var(--danger)" />
                 </div>
 
-                <div className="grid-cols-2">
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Star size={32} color="var(--warning)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{pDerived.mostPicked}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Most Drawn Special Card ({pDerived.maxCount}x)</div>
-                    </div>
-                  </div>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <XCircle size={32} color="var(--danger)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{personalStats.pointsDeducted}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Times 1000 Points Deducted</div>
-                    </div>
-                  </div>
+                <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
+                  <StatTile icon={<Repeat size={28} color="var(--text-muted)" />} value={p.totalTurns || 0} label="Total Turns" />
+                  <StatTile icon={<Clock size={28} color="var(--text-muted)" />} value={formatTime(p.totalPlaytime)} label="Total Playtime" />
                 </div>
 
-                <div className="grid-cols-2" style={{ marginTop: '1.5rem' }}>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Trophy size={32} color="var(--success)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{personalStats.kleeblattCompleted || 0}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Kleeblatt Instant Wins</div>
-                    </div>
-                  </div>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Star size={32} color="var(--primary)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{personalStats.kniffelCompleted || 0}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Kniffels Completed</div>
-                    </div>
-                  </div>
+                {/* Card Breakdown */}
+                <h4 style={{ marginBottom: '0.75rem', color: 'var(--text-color)', borderTop: '1px solid var(--border-color)', paddingTop: '1rem', textAlign: 'center' }}>
+                  🃏 Card Breakdown
+                </h4>
+                <div style={{ maxWidth: '500px', margin: '0 auto' }}>
+                  <CardRow
+                    label="Plus/Minus" icon="±"
+                    count={(p.plusMinusCompleted || 0) + (p.plusMinusFailed || 0)}
+                    wins={p.plusMinusCompleted || 0} fails={p.plusMinusFailed || 0}
+                    color="var(--primary)"
+                  />
+                  <CardRow
+                    label="Kniffel" icon="🎲"
+                    count={(p.kniffelCompleted || 0) + (p.kniffelFailed || 0)}
+                    wins={p.kniffelCompleted || 0} fails={p.kniffelFailed || 0}
+                    color="var(--primary)"
+                  />
+                  <CardRow
+                    label="Kleeblatt" icon="🍀"
+                    count={(p.kleeblattCompleted || 0) + (p.kleeblattFailed || 0)}
+                    wins={p.kleeblattCompleted || 0} fails={p.kleeblattFailed || 0}
+                    color="var(--primary)"
+                  />
+                  <CardRow label="Stop" icon="🛑" count={p.skipped || 0} color="var(--danger)" />
+                  <CardRow 
+                    label="Feuerwerk" icon="🎆" 
+                    count={p.feuerwerkReceived || 0} 
+                    wins={(p.feuerwerkReceived || 0) - (p.feuerwerkBusts || 0)} 
+                    fails={p.feuerwerkBusts || 0} 
+                    failsLabel="Busts"
+                    hideRate={true}
+                    avgPoints={p.feuerwerkPointsScored || 0} 
+                    color="var(--primary)" 
+                  />
+                  <CardRow 
+                    label="x2" icon="✖️" 
+                    count={p.x2Received || 0} 
+                    wins={(p.x2Received || 0) - (p.x2Busts || 0)} 
+                    fails={p.x2Busts || 0} 
+                    failsLabel="Busts"
+                    hideRate={true}
+                    avgPoints={p.x2PointsScored || 0} 
+                    color="var(--primary)" 
+                  />
                 </div>
-              </>
+              </div>
             )}
           </div>
         )}
 
         {tab === 'global' && (
-          <div className="animate-fade-in">
-            <h3 style={{ marginBottom: '1.5rem', textAlign: 'center', color: 'var(--text-color)' }}>
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <h3 style={{ marginBottom: '0.5rem', textAlign: 'center', color: 'var(--text-color)' }}>
               Global Community Statistics
             </h3>
             <p style={{ textAlign: 'center', color: 'var(--text-muted)', marginBottom: '2rem' }}>Aggregated across all local and online games played.</p>
             
-            {!globalStats || !globalStats.totalGamesPlayed ? (
+            {!g || !g.totalGamesPlayed ? (
               <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No games have been played on the server yet!</p>
             ) : (
-              <>
+              <div style={{ width: '100%' }}>
+                {/* Overview */}
+                <div className="grid-cols-2" style={{ marginBottom: '1rem' }}>
+                  <BigStatTile value={g.totalGamesPlayed} label="Total Games" color="var(--primary)" />
+                  <BigStatTile value={formatTime(g.totalPlaytime)} label="Total Playtime" color="var(--primary)" />
+                </div>
+
                 <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--primary)' }}>{globalStats.totalGamesPlayed}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Games Played</div>
-                  </div>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--primary)' }}>{formatTime(globalStats.totalPlaytime)}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Time Played</div>
-                  </div>
+                  <StatTile icon={<Clock size={28} color="var(--success)" />} value={formatTime(gAvgDuration)} label="Avg Game Duration" />
+                  <StatTile icon={<Zap size={28} color="var(--primary)" />} value={g.totalScore || 0} label="Total Points Scored" color="var(--primary)" />
                 </div>
 
-                <div className="grid-cols-2">
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Clock size={32} color="var(--success)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{formatTime(gDerived.avgDuration)}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Average Game Duration</div>
-                    </div>
-                  </div>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Star size={32} color="var(--warning)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{gDerived.mostPicked}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Most Drawn Card ({gDerived.maxCount}x)</div>
-                    </div>
-                  </div>
+                <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
+                  <StatTile icon={<Repeat size={28} color="var(--text-muted)" />} value={g.totalTurns || 0} label="Total Turns Played" />
+                  <StatTile icon={<TrendingUp size={28} color="var(--warning)" />} value={gAvgScorePerTurn} label="Avg Score / Turn" color="var(--warning)" />
                 </div>
 
-                <div className="grid-cols-2" style={{ marginTop: '1.5rem' }}>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Trophy size={32} color="var(--success)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{globalStats.totalKleeblattCompleted || 0}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Total Kleeblatt Instant Wins</div>
-                    </div>
-                  </div>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Star size={32} color="var(--primary)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{globalStats.totalKniffel || 0}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Total Kniffels</div>
-                    </div>
-                  </div>
+                {/* Card Breakdown */}
+                <h4 style={{ marginBottom: '0.75rem', color: 'var(--text-color)', borderTop: '1px solid var(--border-color)', paddingTop: '1rem', textAlign: 'center' }}>
+                  🃏 Card Breakdown
+                </h4>
+                <div style={{ maxWidth: '500px', margin: '0 auto' }}>
+                  <CardRow 
+                    label="Plus/Minus" icon="±" 
+                    count={g.totalPlusMinus || 0} 
+                    wins={g.totalPlusMinusCompleted || 0}
+                    fails={(g.totalPlusMinus || 0) - (g.totalPlusMinusCompleted || 0)}
+                    color="var(--primary)" 
+                  />
+                  <CardRow 
+                    label="Kniffel" icon="🎲" 
+                    count={g.totalKniffel || 0} 
+                    wins={g.totalKniffelCompleted || 0}
+                    fails={(g.totalKniffel || 0) - (g.totalKniffelCompleted || 0)}
+                    color="var(--primary)" 
+                  />
+                  <CardRow
+                    label="Kleeblatt" icon="🍀"
+                    count={g.totalKleeblatt || 0}
+                    wins={g.totalKleeblattCompleted || 0}
+                    fails={(g.totalKleeblatt || 0) - (g.totalKleeblattCompleted || 0)}
+                    color="var(--primary)"
+                  />
+                  <CardRow label="Stop" icon="🛑" count={g.totalStop || 0} color="var(--danger)" />
+                  <CardRow 
+                    label="Feuerwerk" icon="🎆" 
+                    count={g.totalFeuerwerk || 0} 
+                    wins={(g.totalFeuerwerk || 0) - (g.totalFeuerwerkBusts || 0)} 
+                    fails={g.totalFeuerwerkBusts || 0} 
+                    failsLabel="Busts"
+                    hideRate={true}
+                    avgPoints={Math.round((g.totalFeuerwerkPoints || 0) / Math.max(1, g.totalFeuerwerk || 1))} 
+                    color="var(--primary)" 
+                  />
+                  <CardRow 
+                    label="x2" icon="✖️" 
+                    count={g.totalx2 || 0} 
+                    wins={(g.totalx2 || 0) - (g.totalx2Busts || 0)} 
+                    fails={g.totalx2Busts || 0} 
+                    failsLabel="Busts"
+                    hideRate={true}
+                    avgPoints={Math.round((g.totalx2Points || 0) / Math.max(1, g.totalx2 || 1))} 
+                    color="var(--primary)" 
+                  />
                 </div>
-              </>
+              </div>
             )}
           </div>
         )}

@@ -9,6 +9,19 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
+        // Don't cache the HTML entry point — always fetch it fresh from network
+        navigateFallbackDenylist: [],
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: { cacheName: 'google-fonts-cache', expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 } }
+          }
+        ]
+      },
       manifest: {
         name: 'Tutto Game',
         short_name: 'Tutto',
@@ -30,6 +43,7 @@ export default defineConfig({
     })
   ],
   server: {
+    allowedHosts: ["tutto.rzipas.win"],
     proxy: {
       '/api': 'http://localhost:3001',
       '/socket.io': {
@@ -37,6 +51,9 @@ export default defineConfig({
         ws: true
       }
     }
+  },
+  preview: {
+    allowedHosts: ["tutto.rzipas.win"]
   },
   test: {
     environment: 'jsdom',

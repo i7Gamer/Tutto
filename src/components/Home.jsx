@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { UserPlus, Trash2, Settings, Play, Globe, User, Crown, ChevronUp, ChevronDown, UserMinus, BarChart2 } from 'lucide-react';
 
 export default function Home({ game, mode, setMode, onShowStats }) {
-  const { players, addPlayer, removePlayer, startGame, winningScore, setWinningScore, initialCards, setInitialCards, isOnline, isHost, hostId, joinRoom, leaveRoom, roomId, myName, kickPlayer, reorderPlayers, randomOrder, setRandomOrder } = game;
+  const { players, addPlayer, removePlayer, startGame, winningScore, setWinningScore, initialCards, setInitialCards, isOnline, isHost, hostId, joinRoom, leaveRoom, roomId, myName, kickPlayer, reorderPlayers, randomOrder, setRandomOrder, changePlayerColor, changeMyColor } = game;
   const [newPlayerName, setNewPlayerName] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [inputRoomCode, setInputRoomCode] = useState(() => localStorage.getItem('tutto_last_room') || "");
@@ -109,14 +109,26 @@ export default function Home({ game, mode, setMode, onShowStats }) {
                     <tbody>
                       {players.map((p, idx) => (
                         <tr key={p.name}>
-                          <td style={{ fontWeight: 600 }}>{p.name}</td>
+                          <td style={{ fontWeight: 600, color: p.color || 'var(--text-color)' }}>
+                            <input 
+                              type="color" 
+                              value={p.color || '#ffffff'} 
+                              onChange={(e) => changePlayerColor(p.name, e.target.value)}
+                              style={{ width: '25px', height: '25px', padding: 0, border: 'none', background: 'transparent', verticalAlign: 'middle', marginRight: '10px', cursor: 'pointer' }}
+                            />
+                            {p.name}
+                          </td>
                           <td style={{ width: '130px', textAlign: 'right' }}>
-                            <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.2rem' }} onClick={() => handleMoveUp(idx)} disabled={idx === 0}>
-                              <ChevronUp size={16} />
-                            </button>
-                            <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.5rem' }} onClick={() => handleMoveDown(idx)} disabled={idx === players.length - 1}>
-                              <ChevronDown size={16} />
-                            </button>
+                            {idx > 0 && (
+                              <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.2rem' }} onClick={() => handleMoveUp(idx)}>
+                                <ChevronUp size={16} />
+                              </button>
+                            )}
+                            {idx < players.length - 1 && (
+                              <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.5rem' }} onClick={() => handleMoveDown(idx)}>
+                                <ChevronDown size={16} />
+                              </button>
+                            )}
                             <button className="btn btn-outline" style={{ padding: '0.2rem', color: 'var(--danger)' }} onClick={() => removePlayer(p.name)}>
                               <Trash2 size={16} />
                             </button>
@@ -200,18 +212,32 @@ export default function Home({ game, mode, setMode, onShowStats }) {
                   <table>
                     <tbody>
                       {players && players.map((p, idx) => (
-                        <tr key={p.name}>
-                          <td style={{ fontWeight: 600 }}>
+                        <tr key={p.name} style={p.name === myName ? { backgroundColor: 'rgba(255, 255, 255, 0.05)' } : {}}>
+                          <td style={{ fontWeight: 600, color: p.color || 'var(--text-color)' }}>
+                            {p.name === myName ? (
+                              <input 
+                                type="color" 
+                                value={p.color || '#ffffff'} 
+                                onChange={(e) => changeMyColor(e.target.value)}
+                                style={{ width: '25px', height: '25px', padding: 0, border: 'none', background: 'transparent', verticalAlign: 'middle', marginRight: '10px', cursor: 'pointer' }}
+                              />
+                            ) : (
+                              <span style={{ display: 'inline-block', width: '15px', height: '15px', borderRadius: '50%', backgroundColor: p.color || '#ffffff', verticalAlign: 'middle', marginRight: '10px' }}></span>
+                            )}
                             {p.name} {p.socketId === hostId ? <Crown size={16} color="gold" style={{ marginLeft: 8, verticalAlign: 'middle' }} /> : null}
                           </td>
                           {isHost && (
                             <td style={{ width: '130px', textAlign: 'right' }}>
-                              <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.2rem' }} onClick={() => handleMoveUp(idx)} disabled={idx === 0}>
-                                <ChevronUp size={16} />
-                              </button>
-                              <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.5rem' }} onClick={() => handleMoveDown(idx)} disabled={idx === players.length - 1}>
-                                <ChevronDown size={16} />
-                              </button>
+                              {idx > 0 && (
+                                <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.2rem' }} onClick={() => handleMoveUp(idx)}>
+                                  <ChevronUp size={16} />
+                                </button>
+                              )}
+                              {idx < players.length - 1 && (
+                                <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.5rem' }} onClick={() => handleMoveDown(idx)}>
+                                  <ChevronDown size={16} />
+                                </button>
+                              )}
                               {p.socketId !== hostId && (
                                 <button className="btn btn-outline" style={{ padding: '0.2rem', color: 'var(--danger)' }} onClick={() => kickPlayer(p.socketId)}>
                                   <UserMinus size={16} />

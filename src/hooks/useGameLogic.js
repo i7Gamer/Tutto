@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 
+export const PLAYER_COLORS = [
+  '#FF5733', '#33FF57', '#3357FF', '#F033FF', '#33FFF0',
+  '#FFD700', '#FF33A1', '#8D33FF', '#33FF8D', '#FF8D33'
+];
+
 const INITIAL_CARDS = {
   Kleeblatt: 1,
   Feuerwerk: 5,
@@ -27,6 +32,12 @@ const createInitialPlayer = (name) => ({
   timesFeuerwerkReceived: 0,
   timesSkipped: 0,
   timesx2Received: 0,
+  totalTurns: 0,
+  busts: 0,
+  feuerwerkBusts: 0,
+  x2Busts: 0,
+  feuerwerkPointsScored: 0,
+  x2PointsScored: 0,
   position: 0,
 });
 
@@ -56,23 +67,29 @@ export function useGameLogic() {
 
   // Load from local storage on mount
   useEffect(() => {
-    const savedPlayers = localStorage.getItem('players');
-    if (savedPlayers) {
-      setPlayers(JSON.parse(savedPlayers));
-      const savedIndex = localStorage.getItem('currentPlayerIndex');
-      if (savedIndex !== "null" && savedIndex !== null) {
-        setCurrentPlayerIndex(JSON.parse(savedIndex));
-        setRound(JSON.parse(localStorage.getItem('currentRound')) || 1);
-        setCurrentCard(localStorage.getItem('currentCard'));
-        setGameTimeInSeconds(JSON.parse(localStorage.getItem('gameTimeInSeconds')) || 0);
-        setCards(JSON.parse(localStorage.getItem('cards')) || []);
-        setChartValues(JSON.parse(localStorage.getItem('chartValues')) || []);
-        setChartNames(JSON.parse(localStorage.getItem('chartNames')) || []);
-        setChartLabels(JSON.parse(localStorage.getItem('chartLabels')) || []);
-        setFinished(JSON.parse(localStorage.getItem('finished')) || false);
-        const savedRandomOrder = localStorage.getItem('randomOrder');
-        if (savedRandomOrder !== null) setRandomOrder(JSON.parse(savedRandomOrder));
+    try {
+      const savedPlayers = localStorage.getItem('players');
+      if (savedPlayers) {
+        setPlayers(JSON.parse(savedPlayers));
+        const savedIndex = localStorage.getItem('currentPlayerIndex');
+        if (savedIndex !== "null" && savedIndex !== null) {
+          setCurrentPlayerIndex(JSON.parse(savedIndex));
+          setRound(JSON.parse(localStorage.getItem('currentRound')) || 1);
+          setCurrentCard(localStorage.getItem('currentCard'));
+          setGameTimeInSeconds(JSON.parse(localStorage.getItem('gameTimeInSeconds')) || 0);
+          setCards(JSON.parse(localStorage.getItem('cards')) || []);
+          setChartValues(JSON.parse(localStorage.getItem('chartValues')) || []);
+          setChartNames(JSON.parse(localStorage.getItem('chartNames')) || []);
+          setChartLabels(JSON.parse(localStorage.getItem('chartLabels')) || []);
+          setFinished(JSON.parse(localStorage.getItem('finished')) || false);
+          const savedRandomOrder = localStorage.getItem('randomOrder');
+          if (savedRandomOrder !== null) setRandomOrder(JSON.parse(savedRandomOrder));
+        }
       }
+    } catch (error) {
+      console.error("Failed to parse game state from localStorage. Resetting game.", error);
+      localStorage.removeItem('players');
+      localStorage.removeItem('currentPlayerIndex');
     }
   }, []);
 
@@ -103,7 +120,19 @@ export function useGameLogic() {
   }, [players, currentPlayerIndex, round, currentCard, gameTimeInSeconds, cards, chartValues, chartNames, chartLabels, finished, randomOrder]);
 
   const addPlayer = (name) => {
-    setPlayers((prev) => [...prev, createInitialPlayer(name)]);
+    setPlayers((prev) => {
+      const usedColors = prev.map(p => p.color);
+      let color = PLAYER_COLORS.find(c => !usedColors.includes(c));
+      if (!color) color = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
+      
+      const newPlayer = createInitialPlayer(name);
+      newPlayer.color = color;
+      return [...prev, newPlayer];
+    });
+  };
+
+  const changePlayerColor = (name, color) => {
+    setPlayers((prev) => prev.map(p => p.name === name ? { ...p, color } : p));
   };
 
   const removePlayer = (name) => {
@@ -161,7 +190,7 @@ export function useGameLogic() {
   };
 
   const startGame = () => {
-    const resetPlayers = players.map(p => createInitialPlayer(p.name));
+    const resetPlayers = players.map(p => ({ ...createInitialPlayer(p.name), color: p.color }));
     let nextPlayers = resetPlayers;
     if (randomOrder) {
       nextPlayers = shuffleArray(resetPlayers);
@@ -212,6 +241,10 @@ export function useGameLogic() {
 
   const sendGlobalStats = (finalPlayers, finalTime, finalCard) => {
     let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0, totalKleeblatt = 0, totalKleeblattCompleted = 0, totalx2 = 0;
+    let totalTurns = 0, totalScore = 0;
+    let totalPlusMinusCompleted = 0, totalKniffelCompleted = 0;
+    let totalFeuerwerkPoints = 0, totalx2Points = 0;
+    let totalFeuerwerkBusts = 0, totalx2Busts = 0;
     finalPlayers.forEach(p => {
       totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
       totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
@@ -220,7 +253,26 @@ export function useGameLogic() {
       totalKleeblatt += (p.timesKleeblattFailed + (p.timesKleeblattCompleted || 0));
       totalKleeblattCompleted += (p.timesKleeblattCompleted || 0);
       totalx2 += p.timesx2Received;
+      totalTurns += (p.totalTurns || 0);
+      totalScore += p.score;
+      totalPlusMinusCompleted += p.timesPlusMinusCompleted;
+      totalKniffelCompleted += p.timesKniffelCompleted;
+      totalFeuerwerkPoints += (p.feuerwerkPointsScored || 0);
+      totalx2Points += (p.x2PointsScored || 0);
+      totalFeuerwerkBusts += (p.feuerwerkBusts || 0);
+      totalx2Busts += (p.x2Busts || 0);
     });
+
+    const isDefaultGame = (() => {
+      if (winningScore !== 6000) return false;
+      for (const key in INITIAL_CARDS) {
+        if (initialCards[key] !== INITIAL_CARDS[key]) return false;
+      }
+      for (const key in initialCards) {
+        if (initialCards[key] !== INITIAL_CARDS[key]) return false;
+      }
+      return true;
+    })();
 
     fetch('/api/stats/global', {
       method: 'POST',
@@ -228,7 +280,10 @@ export function useGameLogic() {
       body: JSON.stringify({
         gamesPlayed: 1,
         totalPlaytime: finalTime,
-        totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2
+        totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2,
+        totalTurns, totalScore, totalPlusMinusCompleted, totalKniffelCompleted, totalFeuerwerkPoints, totalx2Points,
+        totalFeuerwerkBusts, totalx2Busts,
+        isDefaultGame
       })
     }).catch(console.error);
   };
@@ -238,6 +293,14 @@ export function useGameLogic() {
     let newPlayers = [...players];
     let currentPlayer = newPlayers[currentPlayerIndex];
     let snapshotLeaders = null;
+
+    // Track turns and busts (bust = 0 points on a non-Stop card)
+    currentPlayer.totalTurns++;
+    if (turnScore === 0 && currentCard !== "Stop" && !isSuccess) {
+      currentPlayer.busts++;
+      if (currentCard === "Feuerwerk") currentPlayer.feuerwerkBusts = (currentPlayer.feuerwerkBusts || 0) + 1;
+      if (currentCard === "x2") currentPlayer.x2Busts = (currentPlayer.x2Busts || 0) + 1;
+    }
 
     if (currentCard === "Plus_Minus" && isSuccess) {
       turnScore = 1000;
@@ -257,8 +320,14 @@ export function useGameLogic() {
       currentPlayer.timesPlusMinusFailed++;
     }
 
-    if (currentCard === "x2") currentPlayer.timesx2Received++;
-    if (currentCard === "Feuerwerk") currentPlayer.timesFeuerwerkReceived++;
+    if (currentCard === "x2") {
+      currentPlayer.timesx2Received++;
+      currentPlayer.x2PointsScored = (currentPlayer.x2PointsScored || 0) + turnScore;
+    }
+    if (currentCard === "Feuerwerk") {
+      currentPlayer.timesFeuerwerkReceived++;
+      currentPlayer.feuerwerkPointsScored = (currentPlayer.feuerwerkPointsScored || 0) + turnScore;
+    }
     if (currentCard === "Stop") currentPlayer.timesSkipped++;
 
     if (currentCard === "Kniffel" && isSuccess) {
@@ -412,6 +481,7 @@ export function useGameLogic() {
     addPlayer,
     removePlayer,
     reorderPlayers,
+    changePlayerColor,
     startGame,
     endGame,
     nextTurn,

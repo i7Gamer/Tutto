@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 
 let socket;
@@ -89,6 +89,10 @@ export function useOnlineGame(deviceId) {
     }
   };
 
+  const changeMyColor = (newColor) => {
+    socket.emit('updatePlayerColor', { roomId, color: newColor });
+  };
+
   const shuffleArray = (array) => {
     const newArray = [...array];
     for (let i = newArray.length - 1; i > 0; i--) {
@@ -119,7 +123,24 @@ export function useOnlineGame(deviceId) {
     if (!isHost) return;
     const s = { ...gameState };
     
-    const resetPlayers = s.players.map(p => ({ ...p, score: 0 }));
+    const resetPlayers = s.players.map(p => ({
+      ...p,
+      score: 0,
+      times1000PointsDeducted: 0,
+      timesPlusMinusCompleted: 0,
+      timesPlusMinusFailed: 0,
+      timesKniffelCompleted: 0,
+      timesKniffelFailed: 0,
+      timesSkipped: 0,
+      timesFeuerwerkReceived: 0,
+      timesKleeblattFailed: 0,
+      timesKleeblattCompleted: 0,
+      timesx2Received: 0,
+      totalTurns: 0,
+      busts: 0,
+      feuerwerkPointsScored: 0,
+      x2PointsScored: 0
+    }));
     if (s.randomOrder) {
       s.players = shuffleArray(resetPlayers);
     } else {
@@ -162,6 +183,14 @@ export function useOnlineGame(deviceId) {
     let currentPlayer = s.players[s.currentPlayerIndex];
     let snapshotLeaders = null;
 
+    // Track turns and busts (bust = 0 points on a non-Stop card)
+    currentPlayer.totalTurns = (currentPlayer.totalTurns || 0) + 1;
+    if (turnScore === 0 && s.currentCard !== "Stop" && !isSuccess) {
+      currentPlayer.busts = (currentPlayer.busts || 0) + 1;
+      if (s.currentCard === "Feuerwerk") currentPlayer.feuerwerkBusts = (currentPlayer.feuerwerkBusts || 0) + 1;
+      if (s.currentCard === "x2") currentPlayer.x2Busts = (currentPlayer.x2Busts || 0) + 1;
+    }
+
     if (s.currentCard === "Plus_Minus" && isSuccess) {
       turnScore = 1000;
       const leaders = getLeaders(s.players);
@@ -180,8 +209,14 @@ export function useOnlineGame(deviceId) {
       currentPlayer.timesPlusMinusFailed++;
     }
 
-    if (s.currentCard === "x2") currentPlayer.timesx2Received++;
-    if (s.currentCard === "Feuerwerk") currentPlayer.timesFeuerwerkReceived++;
+      if (s.currentCard === 'x2') {
+        s.players[s.currentPlayerIndex].timesx2Received++;
+        s.players[s.currentPlayerIndex].x2PointsScored = (s.players[s.currentPlayerIndex].x2PointsScored || 0) + turnScore;
+      }
+      if (s.currentCard === 'Feuerwerk') {
+        s.players[s.currentPlayerIndex].timesFeuerwerkReceived++;
+        s.players[s.currentPlayerIndex].feuerwerkPointsScored = (s.players[s.currentPlayerIndex].feuerwerkPointsScored || 0) + turnScore;
+      }
     if (s.currentCard === "Stop") currentPlayer.timesSkipped++;
 
     if (s.currentCard === "Kniffel" && isSuccess) {
@@ -196,7 +231,6 @@ export function useOnlineGame(deviceId) {
       currentPlayer.score = 999999;
       s.finished = true;
       pushState(s);
-      sendStats(s);
       return;
     } else if (s.currentCard === "Kleeblatt") {
       currentPlayer.timesKleeblattFailed++;
@@ -232,7 +266,6 @@ export function useOnlineGame(deviceId) {
       s.finished = true;
       s.currentPlayerIndex = null;
       pushState(s);
-      sendStats(s);
     } else {
       s.currentPlayerIndex = nextIndex;
       let currentDeck = [...s.cards];
@@ -344,12 +377,18 @@ export function useOnlineGame(deviceId) {
         feuerwerkReceived: me.timesFeuerwerkReceived,
         kleeblattFailed: me.timesKleeblattFailed,
         kleeblattCompleted: me.timesKleeblattCompleted || 0,
-        x2Received: me.timesx2Received
+        x2Received: me.timesx2Received,
+        totalTurns: me.totalTurns || 0,
+        busts: me.busts || 0
       }
     });
 
     if (isHost) {
       let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0, totalKleeblatt = 0, totalKleeblattCompleted = 0, totalx2 = 0;
+      let totalTurns = 0, totalScore = 0;
+      let totalPlusMinusCompleted = 0, totalKniffelCompleted = 0;
+      let totalFeuerwerkPoints = 0, totalx2Points = 0;
+      let totalFeuerwerkBusts = 0, totalx2Busts = 0;
       s.players.forEach(p => {
         totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
         totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
@@ -358,7 +397,30 @@ export function useOnlineGame(deviceId) {
         totalKleeblatt += (p.timesKleeblattFailed + (p.timesKleeblattCompleted || 0));
         totalKleeblattCompleted += (p.timesKleeblattCompleted || 0);
         totalx2 += p.timesx2Received;
+        totalTurns += (p.totalTurns || 0);
+        totalScore += p.score;
+        totalPlusMinusCompleted += p.timesPlusMinusCompleted;
+        totalKniffelCompleted += p.timesKniffelCompleted;
+        totalFeuerwerkPoints += (p.feuerwerkPointsScored || 0);
+        totalx2Points += (p.x2PointsScored || 0);
+        totalFeuerwerkBusts += (p.feuerwerkBusts || 0);
+        totalx2Busts += (p.x2Busts || 0);
       });
+
+      const isDefaultGame = (() => {
+        if (s.winningScore !== 6000) return false;
+        const INITIAL_CARDS = {
+          Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5,
+          x2: 5, 200: 5, 300: 5, 400: 5, 500: 5, 600: 5
+        };
+        for (const key in INITIAL_CARDS) {
+          if (s.initialCards[key] !== INITIAL_CARDS[key]) return false;
+        }
+        for (const key in s.initialCards) {
+          if (s.initialCards[key] !== INITIAL_CARDS[key]) return false;
+        }
+        return true;
+      })();
 
       fetch('/api/stats/global', {
         method: 'POST',
@@ -366,17 +428,24 @@ export function useOnlineGame(deviceId) {
         body: JSON.stringify({
           gamesPlayed: 1,
           totalPlaytime: s.gameTimeInSeconds,
-          totalPlusMinus,
-          totalKniffel,
-          totalStop,
-          totalFeuerwerk,
-          totalKleeblatt,
-          totalKleeblattCompleted,
-          totalx2
+          totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2,
+          totalTurns, totalScore, totalPlusMinusCompleted, totalKniffelCompleted, totalFeuerwerkPoints, totalx2Points,
+          totalFeuerwerkBusts, totalx2Busts,
+          isDefaultGame
         })
       }).catch(console.error);
     }
   };
+
+  const hasSentStats = useRef(false);
+  useEffect(() => {
+    if (gameState?.finished && !hasSentStats.current) {
+      hasSentStats.current = true;
+      sendStats(gameState);
+    } else if (gameState && !gameState.finished) {
+      hasSentStats.current = false;
+    }
+  }, [gameState?.finished]);
 
   if (!gameState) return { socket, joinRoom };
 
@@ -434,6 +503,7 @@ export function useOnlineGame(deviceId) {
     endGame,
     nextTurn,
     undo,
+    changeMyColor,
     previousCard: gameState.previousCard,
     chartValues: gameState.chartValues,
     chartNames: gameState.chartNames,

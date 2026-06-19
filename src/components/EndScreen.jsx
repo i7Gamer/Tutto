@@ -42,7 +42,8 @@ export default function EndScreen({ game, theme, mode, deviceId, setMode }) {
     endGame,
     chartLabels,
     chartNames,
-    chartValues
+    chartValues,
+    leaveRoom
   } = game;
 
   const [deviceStats, setDeviceStats] = useState(null);
@@ -113,8 +114,13 @@ export default function EndScreen({ game, theme, mode, deviceId, setMode }) {
               </button>
             </>
           ) : (
-            <div style={{ color: 'var(--primary)', fontWeight: 'bold' }}>
-              Waiting for host to restart...
+            <div className="flex-center" style={{ flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ color: 'var(--primary)', fontWeight: 'bold' }}>
+                Waiting for host to restart...
+              </div>
+              <button className="btn btn-outline" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={leaveRoom}>
+                Leave Game
+              </button>
             </div>
           )}
         </div>
@@ -164,6 +170,18 @@ export default function EndScreen({ game, theme, mode, deviceId, setMode }) {
                 {sortedPlayers.map(p => <td key={p.name} style={{ fontWeight: 600 }}>{p.score}</td>)}
               </tr>
               <tr>
+                <td>Total Turns</td>
+                {sortedPlayers.map(p => <td key={p.name}>{p.totalTurns}</td>)}
+              </tr>
+              <tr>
+                <td>Busts</td>
+                {sortedPlayers.map(p => <td key={p.name}>{p.busts}</td>)}
+              </tr>
+              <tr>
+                <td>Avg Pts / Round</td>
+                {sortedPlayers.map(p => <td key={p.name}>{Math.round(p.score / Math.max(1, round))}</td>)}
+              </tr>
+              <tr>
                 <td>-1000 Points</td>
                 {sortedPlayers.map(p => <td key={p.name}>{p.times1000PointsDeducted}</td>)}
               </tr>
@@ -180,16 +198,16 @@ export default function EndScreen({ game, theme, mode, deviceId, setMode }) {
                 {sortedPlayers.map(p => <td key={p.name}>{p.timesSkipped}</td>)}
               </tr>
               <tr>
-                <td>Feuerwerk</td>
-                {sortedPlayers.map(p => <td key={p.name}>{p.timesFeuerwerkReceived}</td>)}
+                <td>Feuerwerk (Received / Pts)</td>
+                {sortedPlayers.map(p => <td key={p.name}>{p.timesFeuerwerkReceived} / {p.feuerwerkPointsScored || 0}</td>)}
               </tr>
               <tr>
                 <td>Kleeblatt (Fail)</td>
                 {sortedPlayers.map(p => <td key={p.name}>{p.timesKleeblattFailed}</td>)}
               </tr>
               <tr>
-                <td>x2</td>
-                {sortedPlayers.map(p => <td key={p.name}>{p.timesx2Received}</td>)}
+                <td>x2 (Received / Pts)</td>
+                {sortedPlayers.map(p => <td key={p.name}>{p.timesx2Received} / {p.x2PointsScored || 0}</td>)}
               </tr>
             </tbody>
           </table>
