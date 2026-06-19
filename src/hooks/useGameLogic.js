@@ -27,6 +27,8 @@ const createInitialPlayer = (name) => ({
   timesFeuerwerkReceived: 0,
   timesSkipped: 0,
   timesx2Received: 0,
+  totalTurns: 0,
+  busts: 0,
   position: 0,
 });
 
@@ -212,6 +214,7 @@ export function useGameLogic() {
 
   const sendGlobalStats = (finalPlayers, finalTime, finalCard) => {
     let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0, totalKleeblatt = 0, totalKleeblattCompleted = 0, totalx2 = 0;
+    let totalTurns = 0, totalScore = 0;
     finalPlayers.forEach(p => {
       totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
       totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
@@ -220,6 +223,8 @@ export function useGameLogic() {
       totalKleeblatt += (p.timesKleeblattFailed + (p.timesKleeblattCompleted || 0));
       totalKleeblattCompleted += (p.timesKleeblattCompleted || 0);
       totalx2 += p.timesx2Received;
+      totalTurns += (p.totalTurns || 0);
+      totalScore += p.score;
     });
 
     fetch('/api/stats/global', {
@@ -228,7 +233,8 @@ export function useGameLogic() {
       body: JSON.stringify({
         gamesPlayed: 1,
         totalPlaytime: finalTime,
-        totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2
+        totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2,
+        totalTurns, totalScore
       })
     }).catch(console.error);
   };
@@ -238,6 +244,12 @@ export function useGameLogic() {
     let newPlayers = [...players];
     let currentPlayer = newPlayers[currentPlayerIndex];
     let snapshotLeaders = null;
+
+    // Track turns and busts (bust = 0 points on a non-Stop card)
+    currentPlayer.totalTurns++;
+    if (turnScore === 0 && currentCard !== "Stop" && !isSuccess) {
+      currentPlayer.busts++;
+    }
 
     if (currentCard === "Plus_Minus" && isSuccess) {
       turnScore = 1000;

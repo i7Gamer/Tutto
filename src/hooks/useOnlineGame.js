@@ -131,7 +131,9 @@ export function useOnlineGame(deviceId) {
       timesFeuerwerkReceived: 0,
       timesKleeblattFailed: 0,
       timesKleeblattCompleted: 0,
-      timesx2Received: 0
+      timesx2Received: 0,
+      totalTurns: 0,
+      busts: 0
     }));
     if (s.randomOrder) {
       s.players = shuffleArray(resetPlayers);
@@ -174,6 +176,12 @@ export function useOnlineGame(deviceId) {
     let turnScore = scoreInput || 0;
     let currentPlayer = s.players[s.currentPlayerIndex];
     let snapshotLeaders = null;
+
+    // Track turns and busts (bust = 0 points on a non-Stop card)
+    currentPlayer.totalTurns = (currentPlayer.totalTurns || 0) + 1;
+    if (turnScore === 0 && s.currentCard !== "Stop" && !isSuccess) {
+      currentPlayer.busts = (currentPlayer.busts || 0) + 1;
+    }
 
     if (s.currentCard === "Plus_Minus" && isSuccess) {
       turnScore = 1000;
@@ -355,12 +363,15 @@ export function useOnlineGame(deviceId) {
         feuerwerkReceived: me.timesFeuerwerkReceived,
         kleeblattFailed: me.timesKleeblattFailed,
         kleeblattCompleted: me.timesKleeblattCompleted || 0,
-        x2Received: me.timesx2Received
+        x2Received: me.timesx2Received,
+        totalTurns: me.totalTurns || 0,
+        busts: me.busts || 0
       }
     });
 
     if (isHost) {
       let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0, totalKleeblatt = 0, totalKleeblattCompleted = 0, totalx2 = 0;
+      let totalTurns = 0, totalScore = 0;
       s.players.forEach(p => {
         totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
         totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
@@ -369,6 +380,8 @@ export function useOnlineGame(deviceId) {
         totalKleeblatt += (p.timesKleeblattFailed + (p.timesKleeblattCompleted || 0));
         totalKleeblattCompleted += (p.timesKleeblattCompleted || 0);
         totalx2 += p.timesx2Received;
+        totalTurns += (p.totalTurns || 0);
+        totalScore += p.score;
       });
 
       fetch('/api/stats/global', {
@@ -383,7 +396,9 @@ export function useOnlineGame(deviceId) {
           totalFeuerwerk,
           totalKleeblatt,
           totalKleeblattCompleted,
-          totalx2
+          totalx2,
+          totalTurns,
+          totalScore
         })
       }).catch(console.error);
     }

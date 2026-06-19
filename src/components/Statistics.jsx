@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Trophy, Clock, XCircle, Star, BarChart2, Globe, User } from 'lucide-react';
+import { ArrowLeft, Trophy, Clock, XCircle, Star, BarChart2, Globe, User, TrendingDown, Target, Zap, Hash } from 'lucide-react';
 
 export default function Statistics({ deviceId, onBack }) {
   const [tab, setTab] = useState('personal');
@@ -36,55 +36,10 @@ export default function Statistics({ deviceId, onBack }) {
     return `${m}m ${s}s`;
   };
 
-  const getDerivedPersonal = (stats) => {
-    if (!stats || !stats.gamesPlayed) return null;
-    const winRate = ((stats.wins / stats.gamesPlayed) * 100).toFixed(1);
-    const avgDuration = stats.totalPlaytime / stats.gamesPlayed;
-    
-    const cardCounts = {
-      "Plus/Minus": (stats.plusMinusCompleted || 0) + (stats.plusMinusFailed || 0),
-      "Kniffel": (stats.kniffelCompleted || 0) + (stats.kniffelFailed || 0),
-      "Stop": stats.skipped || 0,
-      "Feuerwerk": stats.feuerwerkReceived || 0,
-      "Kleeblatt": (stats.kleeblattFailed || 0) + (stats.kleeblattCompleted || 0),
-      "x2": stats.x2Received || 0
-    };
-    
-    let mostPicked = "None";
-    let maxCount = 0;
-    Object.entries(cardCounts).forEach(([card, count]) => {
-      if (count > maxCount) {
-        maxCount = count;
-        mostPicked = card;
-      }
-    });
-
-    return { winRate, avgDuration, mostPicked, maxCount };
-  };
-
-  const getDerivedGlobal = (stats) => {
-    if (!stats || !stats.totalGamesPlayed) return null;
-    const avgDuration = stats.totalPlaytime / stats.totalGamesPlayed;
-    
-    const cardCounts = {
-      "Plus/Minus": stats.totalPlusMinus || 0,
-      "Kniffel": stats.totalKniffel || 0,
-      "Stop": stats.totalStop || 0,
-      "Feuerwerk": stats.totalFeuerwerk || 0,
-      "Kleeblatt": stats.totalKleeblatt || 0,
-      "x2": stats.totalx2 || 0
-    };
-    
-    let mostPicked = "None";
-    let maxCount = 0;
-    Object.entries(cardCounts).forEach(([card, count]) => {
-      if (count > maxCount) {
-        maxCount = count;
-        mostPicked = card;
-      }
-    });
-
-    return { avgDuration, mostPicked, maxCount };
+  const getWinLoseRate = (wins, fails) => {
+    const total = wins + fails;
+    if (total === 0) return "—";
+    return `${((wins / total) * 100).toFixed(0)}%`;
   };
 
   if (loading) {
@@ -95,8 +50,77 @@ export default function Statistics({ deviceId, onBack }) {
     );
   }
 
-  const pDerived = getDerivedPersonal(personalStats);
-  const gDerived = getDerivedGlobal(globalStats);
+  const p = personalStats;
+  const g = globalStats;
+
+  const pWinRate = p?.gamesPlayed ? ((p.wins / p.gamesPlayed) * 100).toFixed(1) : "0";
+  const pAvgDuration = p?.gamesPlayed ? p.totalPlaytime / p.gamesPlayed : 0;
+  const pBustRate = p?.totalTurns ? ((p.busts / p.totalTurns) * 100).toFixed(1) : "0";
+
+  const gAvgDuration = g?.totalGamesPlayed ? g.totalPlaytime / g.totalGamesPlayed : 0;
+  const gAvgScorePerTurn = g?.totalTurns ? Math.round(g.totalScore / g.totalTurns) : 0;
+
+  // Card breakdown helper
+  const CardRow = ({ label, icon, count, wins, fails, color }) => (
+    <div style={{ 
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '0.75rem 1rem', borderRadius: '10px',
+      background: 'var(--bg-color)', marginBottom: '0.5rem'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1 }}>
+        <span style={{ fontSize: '1.25rem' }}>{icon}</span>
+        <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{label}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+        <div style={{ textAlign: 'center', minWidth: '40px' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color }}>{count}</div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total</div>
+        </div>
+        {wins !== undefined && (
+          <>
+            <div style={{ textAlign: 'center', minWidth: '40px' }}>
+              <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'var(--success)' }}>{wins}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Won</div>
+            </div>
+            <div style={{ textAlign: 'center', minWidth: '40px' }}>
+              <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'var(--danger)' }}>{fails}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Lost</div>
+            </div>
+            <div style={{ textAlign: 'center', minWidth: '50px' }}>
+              <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'var(--primary)' }}>
+                {getWinLoseRate(wins, fails)}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Rate</div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  // Stat tile helper
+  const StatTile = ({ icon, value, label, color = 'var(--primary)' }) => (
+    <div className="stat-box" style={{ 
+      background: 'var(--bg-color)', padding: '1.25rem', borderRadius: '12px',
+      display: 'flex', alignItems: 'center', gap: '0.75rem'
+    }}>
+      {icon}
+      <div>
+        <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color }}>{value}</div>
+        <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
+      </div>
+    </div>
+  );
+
+  // Big stat tile helper
+  const BigStatTile = ({ value, label, color = 'var(--primary)' }) => (
+    <div className="stat-box" style={{ 
+      background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', textAlign: 'center'
+    }}>
+      <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color }}>{value}</div>
+      <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>{label}</div>
+    </div>
+  );
 
   return (
     <div className="container">
@@ -125,71 +149,56 @@ export default function Statistics({ deviceId, onBack }) {
               Online Lifetime Record (This Device)
             </h3>
             
-            {!personalStats || !personalStats.gamesPlayed ? (
+            {!p || !p.gamesPlayed ? (
               <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>You haven't played any online games on this device yet!</p>
             ) : (
               <>
-                <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--primary)' }}>{personalStats.gamesPlayed}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Games Played</div>
-                  </div>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--success)' }}>{personalStats.wins}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Games Won</div>
-                  </div>
+                {/* Overview */}
+                <div className="grid-cols-2" style={{ marginBottom: '1rem' }}>
+                  <BigStatTile value={p.gamesPlayed} label="Games Played" color="var(--primary)" />
+                  <BigStatTile value={p.wins} label="Games Won" color="var(--success)" />
+                </div>
+
+                <div className="grid-cols-2" style={{ marginBottom: '1rem' }}>
+                  <StatTile icon={<Trophy size={28} color="gold" />} value={`${pWinRate}%`} label="Win Rate" color="gold" />
+                  <StatTile icon={<Clock size={28} color="var(--primary)" />} value={formatTime(pAvgDuration)} label="Avg Duration" />
                 </div>
 
                 <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Trophy size={32} color="gold" />
-                    <div>
-                      <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{pDerived.winRate}%</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Win Rate</div>
-                    </div>
-                  </div>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Clock size={32} color="var(--primary)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{formatTime(pDerived.avgDuration)}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Average Duration</div>
-                    </div>
-                  </div>
+                  <StatTile icon={<TrendingDown size={28} color="var(--danger)" />} value={`${pBustRate}%`} label="Bust Rate" color="var(--danger)" />
+                  <StatTile icon={<XCircle size={28} color="var(--danger)" />} value={p.pointsDeducted || 0} label="-1000 Pts Eaten" color="var(--danger)" />
                 </div>
 
-                <div className="grid-cols-2">
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Star size={32} color="var(--warning)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{pDerived.mostPicked}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Most Drawn Special Card ({pDerived.maxCount}x)</div>
-                    </div>
-                  </div>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <XCircle size={32} color="var(--danger)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{personalStats.pointsDeducted}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Times 1000 Points Deducted</div>
-                    </div>
-                  </div>
+                <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
+                  <StatTile icon={<Hash size={28} color="var(--text-muted)" />} value={p.totalTurns || 0} label="Total Turns" />
+                  <StatTile icon={<Clock size={28} color="var(--text-muted)" />} value={formatTime(p.totalPlaytime)} label="Total Playtime" />
                 </div>
 
-                <div className="grid-cols-2" style={{ marginTop: '1.5rem' }}>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Trophy size={32} color="var(--success)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{personalStats.kleeblattCompleted || 0}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Kleeblatt Instant Wins</div>
-                    </div>
-                  </div>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Star size={32} color="var(--primary)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{personalStats.kniffelCompleted || 0}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Kniffels Completed</div>
-                    </div>
-                  </div>
-                </div>
+                {/* Card Breakdown */}
+                <h4 style={{ marginBottom: '0.75rem', color: 'var(--text-color)', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                  🃏 Card Breakdown
+                </h4>
+                <CardRow
+                  label="Plus/Minus" icon="±"
+                  count={(p.plusMinusCompleted || 0) + (p.plusMinusFailed || 0)}
+                  wins={p.plusMinusCompleted || 0} fails={p.plusMinusFailed || 0}
+                  color="var(--primary)"
+                />
+                <CardRow
+                  label="Kniffel" icon="🎲"
+                  count={(p.kniffelCompleted || 0) + (p.kniffelFailed || 0)}
+                  wins={p.kniffelCompleted || 0} fails={p.kniffelFailed || 0}
+                  color="var(--secondary)"
+                />
+                <CardRow
+                  label="Kleeblatt" icon="🍀"
+                  count={(p.kleeblattCompleted || 0) + (p.kleeblattFailed || 0)}
+                  wins={p.kleeblattCompleted || 0} fails={p.kleeblattFailed || 0}
+                  color="var(--success)"
+                />
+                <CardRow label="Stop" icon="🛑" count={p.skipped || 0} color="var(--danger)" />
+                <CardRow label="Feuerwerk" icon="🎆" count={p.feuerwerkReceived || 0} color="var(--warning)" />
+                <CardRow label="x2" icon="✖️" count={p.x2Received || 0} color="var(--primary)" />
               </>
             )}
           </div>
@@ -202,54 +211,42 @@ export default function Statistics({ deviceId, onBack }) {
             </h3>
             <p style={{ textAlign: 'center', color: 'var(--text-muted)', marginBottom: '2rem' }}>Aggregated across all local and online games played.</p>
             
-            {!globalStats || !globalStats.totalGamesPlayed ? (
+            {!g || !g.totalGamesPlayed ? (
               <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No games have been played on the server yet!</p>
             ) : (
               <>
+                {/* Overview */}
+                <div className="grid-cols-2" style={{ marginBottom: '1rem' }}>
+                  <BigStatTile value={g.totalGamesPlayed} label="Total Games" color="var(--primary)" />
+                  <BigStatTile value={formatTime(g.totalPlaytime)} label="Total Playtime" color="var(--primary)" />
+                </div>
+
                 <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--primary)' }}>{globalStats.totalGamesPlayed}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Games Played</div>
-                  </div>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--primary)' }}>{formatTime(globalStats.totalPlaytime)}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Time Played</div>
-                  </div>
+                  <StatTile icon={<Clock size={28} color="var(--success)" />} value={formatTime(gAvgDuration)} label="Avg Game Duration" />
+                  <StatTile icon={<Target size={28} color="var(--warning)" />} value={gAvgScorePerTurn} label="Avg Score / Turn" color="var(--warning)" />
                 </div>
 
-                <div className="grid-cols-2">
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Clock size={32} color="var(--success)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{formatTime(gDerived.avgDuration)}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Average Game Duration</div>
-                    </div>
-                  </div>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Star size={32} color="var(--warning)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{gDerived.mostPicked}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Most Drawn Card ({gDerived.maxCount}x)</div>
-                    </div>
-                  </div>
+                <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
+                  <StatTile icon={<Hash size={28} color="var(--text-muted)" />} value={g.totalTurns || 0} label="Total Turns Played" />
+                  <StatTile icon={<Zap size={28} color="var(--primary)" />} value={g.totalScore || 0} label="Total Points Scored" color="var(--primary)" />
                 </div>
 
-                <div className="grid-cols-2" style={{ marginTop: '1.5rem' }}>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Trophy size={32} color="var(--success)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{globalStats.totalKleeblattCompleted || 0}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Total Kleeblatt Instant Wins</div>
-                    </div>
-                  </div>
-                  <div className="stat-box" style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Star size={32} color="var(--primary)" />
-                    <div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>{globalStats.totalKniffel || 0}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Total Kniffels</div>
-                    </div>
-                  </div>
-                </div>
+                {/* Card Breakdown */}
+                <h4 style={{ marginBottom: '0.75rem', color: 'var(--text-color)', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                  🃏 Card Breakdown
+                </h4>
+                <CardRow label="Plus/Minus" icon="±" count={g.totalPlusMinus || 0} color="var(--primary)" />
+                <CardRow label="Kniffel" icon="🎲" count={g.totalKniffel || 0} color="var(--secondary)" />
+                <CardRow
+                  label="Kleeblatt" icon="🍀"
+                  count={g.totalKleeblatt || 0}
+                  wins={g.totalKleeblattCompleted || 0}
+                  fails={(g.totalKleeblatt || 0) - (g.totalKleeblattCompleted || 0)}
+                  color="var(--success)"
+                />
+                <CardRow label="Stop" icon="🛑" count={g.totalStop || 0} color="var(--danger)" />
+                <CardRow label="Feuerwerk" icon="🎆" count={g.totalFeuerwerk || 0} color="var(--warning)" />
+                <CardRow label="x2" icon="✖️" count={g.totalx2 || 0} color="var(--primary)" />
               </>
             )}
           </div>

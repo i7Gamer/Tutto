@@ -27,6 +27,8 @@ db.serialize(() => {
     // Ignore error if column already exists
   });
   db.run("ALTER TABLE device_statistics ADD COLUMN kleeblattCompleted INTEGER DEFAULT 0", () => {});
+  db.run("ALTER TABLE device_statistics ADD COLUMN totalTurns INTEGER DEFAULT 0", () => {});
+  db.run("ALTER TABLE device_statistics ADD COLUMN busts INTEGER DEFAULT 0", () => {});
 
   db.run(`
     CREATE TABLE IF NOT EXISTS global_statistics (
@@ -44,6 +46,8 @@ db.serialize(() => {
   `);
 
   db.run("ALTER TABLE global_statistics ADD COLUMN totalKleeblattCompleted INTEGER DEFAULT 0", () => {});
+  db.run("ALTER TABLE global_statistics ADD COLUMN totalTurns INTEGER DEFAULT 0", () => {});
+  db.run("ALTER TABLE global_statistics ADD COLUMN totalScore INTEGER DEFAULT 0", () => {});
 
   db.run(`INSERT OR IGNORE INTO global_statistics (id) VALUES (1)`);
 });
@@ -63,9 +67,10 @@ const updateDeviceStats = (deviceId, stats) => {
       INSERT INTO device_statistics (
         deviceId, gamesPlayed, wins, pointsDeducted, plusMinusCompleted, 
         plusMinusFailed, kniffelCompleted, kniffelFailed, skipped, 
-        feuerwerkReceived, kleeblattFailed, kleeblattCompleted, x2Received, totalPlaytime
+        feuerwerkReceived, kleeblattFailed, kleeblattCompleted, x2Received, totalPlaytime,
+        totalTurns, busts
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(deviceId) DO UPDATE SET
         gamesPlayed = gamesPlayed + excluded.gamesPlayed,
         wins = wins + excluded.wins,
@@ -79,7 +84,9 @@ const updateDeviceStats = (deviceId, stats) => {
         kleeblattFailed = kleeblattFailed + excluded.kleeblattFailed,
         kleeblattCompleted = kleeblattCompleted + excluded.kleeblattCompleted,
         x2Received = x2Received + excluded.x2Received,
-        totalPlaytime = totalPlaytime + excluded.totalPlaytime
+        totalPlaytime = totalPlaytime + excluded.totalPlaytime,
+        totalTurns = totalTurns + excluded.totalTurns,
+        busts = busts + excluded.busts
     `, [
       deviceId,
       stats.gamesPlayed || 0,
@@ -94,7 +101,9 @@ const updateDeviceStats = (deviceId, stats) => {
       stats.kleeblattFailed || 0,
       stats.kleeblattCompleted || 0,
       stats.x2Received || 0,
-      stats.totalPlaytime || 0
+      stats.totalPlaytime || 0,
+      stats.totalTurns || 0,
+      stats.busts || 0
     ], function(err) {
       if (err) return reject(err);
       resolve(this.lastID);
@@ -123,7 +132,9 @@ const updateGlobalStats = (stats) => {
         totalFeuerwerk = totalFeuerwerk + ?,
         totalKleeblatt = totalKleeblatt + ?,
         totalKleeblattCompleted = totalKleeblattCompleted + ?,
-        totalx2 = totalx2 + ?
+        totalx2 = totalx2 + ?,
+        totalTurns = totalTurns + ?,
+        totalScore = totalScore + ?
       WHERE id = 1
     `, [
       stats.gamesPlayed || 0,
@@ -134,7 +145,9 @@ const updateGlobalStats = (stats) => {
       stats.totalFeuerwerk || 0,
       stats.totalKleeblatt || 0,
       stats.totalKleeblattCompleted || 0,
-      stats.totalx2 || 0
+      stats.totalx2 || 0,
+      stats.totalTurns || 0,
+      stats.totalScore || 0
     ], function(err) {
       if (err) return reject(err);
       resolve(this.changes);
