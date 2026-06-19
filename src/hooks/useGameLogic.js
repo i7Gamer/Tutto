@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 
+export const PLAYER_COLORS = [
+  '#FF5733', '#33FF57', '#3357FF', '#F033FF', '#33FFF0',
+  '#FFD700', '#FF33A1', '#8D33FF', '#33FF8D', '#FF8D33'
+];
+
 const INITIAL_CARDS = {
   Kleeblatt: 1,
   Feuerwerk: 5,
@@ -109,7 +114,19 @@ export function useGameLogic() {
   }, [players, currentPlayerIndex, round, currentCard, gameTimeInSeconds, cards, chartValues, chartNames, chartLabels, finished, randomOrder]);
 
   const addPlayer = (name) => {
-    setPlayers((prev) => [...prev, createInitialPlayer(name)]);
+    setPlayers((prev) => {
+      const usedColors = prev.map(p => p.color);
+      let color = PLAYER_COLORS.find(c => !usedColors.includes(c));
+      if (!color) color = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
+      
+      const newPlayer = createInitialPlayer(name);
+      newPlayer.color = color;
+      return [...prev, newPlayer];
+    });
+  };
+
+  const changePlayerColor = (name, color) => {
+    setPlayers((prev) => prev.map(p => p.name === name ? { ...p, color } : p));
   };
 
   const removePlayer = (name) => {
@@ -458,6 +475,7 @@ export function useGameLogic() {
     addPlayer,
     removePlayer,
     reorderPlayers,
+    changePlayerColor,
     startGame,
     endGame,
     nextTurn,

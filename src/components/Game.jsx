@@ -105,7 +105,7 @@ export default function Game({ game }) {
       <div className="game-stats">
         <div className="stat-box" style={{ flex: 1 }}>
           <div className="label">Current Player</div>
-          <div className="value" style={{ color: 'var(--primary)' }}>
+          <div className="value" style={{ color: currentPlayer.color || 'var(--primary)' }}>
             {isOnline && isMyTurn ? `You (${currentPlayer.name})` : currentPlayer.name}
           </div>
         </div>
@@ -221,7 +221,10 @@ export default function Game({ game }) {
                 {sortedPlayers.map(p => (
                   <tr key={p.name} className={p.name === currentPlayer.name ? "active-player" : ""}>
                     <td>{p.position}.</td>
-                    <td>{p.name}</td>
+                    <td style={{ fontWeight: 600, color: p.color || 'var(--text-color)' }}>
+                      <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', backgroundColor: p.color || '#ffffff', verticalAlign: 'middle', marginRight: '8px' }}></span>
+                      {p.name}
+                    </td>
                     <td style={{ fontWeight: 600 }}>{p.score}</td>
                   </tr>
                 ))}

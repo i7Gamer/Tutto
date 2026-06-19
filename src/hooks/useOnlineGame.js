@@ -89,6 +89,10 @@ export function useOnlineGame(deviceId) {
     }
   };
 
+  const changeMyColor = (newColor) => {
+    socket.emit('updatePlayerColor', { roomId, color: newColor });
+  };
+
   const shuffleArray = (array) => {
     const newArray = [...array];
     for (let i = newArray.length - 1; i > 0; i--) {
@@ -499,6 +503,7 @@ export function useOnlineGame(deviceId) {
     endGame,
     nextTurn,
     undo,
+    changeMyColor,
     previousCard: gameState.previousCard,
     chartValues: gameState.chartValues,
     chartNames: gameState.chartNames,

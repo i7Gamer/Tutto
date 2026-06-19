@@ -17,6 +17,11 @@ const io = new Server(server, {
   cors: { origin: '*' }
 });
 
+const PLAYER_COLORS = [
+  '#FF5733', '#33FF57', '#3357FF', '#F033FF', '#33FFF0',
+  '#FFD700', '#FF33A1', '#8D33FF', '#33FF8D', '#FF8D33'
+];
+
 const rooms = {};
 
 const emitRoomState = (roomId) => {
@@ -31,7 +36,7 @@ io.on('connection', (socket) => {
   let currentRoom = null;
   let username = null;
 
-  socket.on('joinRoom', ({ roomId, name, deviceId }, callback) => {
+  socket.on('joinRoom', ({ roomId, name, deviceId, color }, callback) => {
     if (!rooms[roomId]) {
       rooms[roomId] = {
         host: socket.id,
@@ -70,6 +75,10 @@ io.on('connection', (socket) => {
     currentRoom = roomId;
     username = name;
 
+    const usedColors = room.state.players.map(p => p.color);
+    let assignedColor = color || PLAYER_COLORS.find(c => !usedColors.includes(c));
+    if (!assignedColor) assignedColor = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
+
     const newPlayer = {
       name,
       deviceId,
@@ -85,6 +94,7 @@ io.on('connection', (socket) => {
       timesSkipped: 0,
       timesx2Received: 0,
       position: 0,
+      color: assignedColor,
     };
     room.state.players.push(newPlayer);
     
@@ -106,6 +116,16 @@ io.on('connection', (socket) => {
       rooms[roomId].state.players = newPlayers;
       rooms[roomId].state.randomOrder = false;
       emitRoomState(roomId);
+    }
+  });
+
+  socket.on('updatePlayerColor', ({ roomId, color }) => {
+    if (rooms[roomId]) {
+      const player = rooms[roomId].state.players.find(p => p.socketId === socket.id);
+      if (player) {
+        player.color = color;
+        emitRoomState(roomId);
+      }
     }
   });
 
