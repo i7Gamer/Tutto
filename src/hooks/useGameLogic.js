@@ -190,7 +190,7 @@ export function useGameLogic() {
   };
 
   const startGame = () => {
-    const resetPlayers = players.map(p => createInitialPlayer(p.name));
+    const resetPlayers = players.map(p => ({ ...createInitialPlayer(p.name), color: p.color }));
     let nextPlayers = resetPlayers;
     if (randomOrder) {
       nextPlayers = shuffleArray(resetPlayers);
