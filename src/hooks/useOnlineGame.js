@@ -398,6 +398,21 @@ export function useOnlineGame(deviceId) {
         totalx2Points += (p.x2PointsScored || 0);
       });
 
+      const isDefaultGame = (() => {
+        if (s.winningScore !== 6000) return false;
+        const INITIAL_CARDS = {
+          Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5,
+          x2: 5, 200: 5, 300: 5, 400: 5, 500: 5, 600: 5
+        };
+        for (const key in INITIAL_CARDS) {
+          if (s.initialCards[key] !== INITIAL_CARDS[key]) return false;
+        }
+        for (const key in s.initialCards) {
+          if (s.initialCards[key] !== INITIAL_CARDS[key]) return false;
+        }
+        return true;
+      })();
+
       fetch('/api/stats/global', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -416,7 +431,8 @@ export function useOnlineGame(deviceId) {
           totalPlusMinusCompleted,
           totalKniffelCompleted,
           totalFeuerwerkPoints,
-          totalx2Points
+          totalx2Points,
+          isDefaultGame
         })
       }).catch(console.error);
     }

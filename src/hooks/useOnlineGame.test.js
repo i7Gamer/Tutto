@@ -147,5 +147,55 @@ describe('useOnlineGame', () => {
       method: 'POST',
       body: expect.stringContaining('"totalKleeblattCompleted":1')
     }));
+    
+    // Check that it identified as a custom game
+    const fetchCall1 = global.fetch.mock.calls.find(call => call[0] === '/api/stats/global');
+    const payload1 = JSON.parse(fetchCall1[1].body);
+    expect(payload1.isDefaultGame).toBe(false);
+  });
+
+  it('identifies default online game settings', () => {
+    global.fetch.mockClear();
+    mockOn.mockClear();
+    mockEmit.mockClear();
+    const { result } = renderHook(() => useOnlineGame('device456'));
+    
+    act(() => {
+      result.current.joinRoom('1234', 'HostAlice');
+      const joinCall = mockEmit.mock.calls.find(call => call[0] === 'joinRoom');
+      joinCall[2]({ success: true, isHost: true, gameState: null, hostId: 'socket-123' });
+    });
+
+    const defaultFinishedState = {
+      players: [
+        { name: 'HostAlice', score: 6000, timesKleeblattCompleted: 0, timesKleeblattFailed: 0, timesPlusMinusCompleted: 0, timesPlusMinusFailed: 0, timesKniffelCompleted: 0, timesKniffelFailed: 0, timesSkipped: 0, timesFeuerwerkReceived: 0, timesx2Received: 0, times1000PointsDeducted: 0 }
+      ],
+      currentPlayerIndex: 0,
+      currentCard: 'Stop',
+      cards: [],
+      round: 1,
+      finished: true,
+      gameTimeInSeconds: 30,
+      initialCards: {
+        Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5,
+        x2: 5, 200: 5, 300: 5, 400: 5, 500: 5, 600: 5
+      },
+      randomOrder: false,
+      winningScore: 6000,
+      chartValues: [[]],
+      chartNames: ['HostAlice'],
+      chartLabels: []
+    };
+
+    act(() => {
+      const gameStateCallback = mockOn.mock.calls.find(call => call[0] === 'gameState')?.[1];
+      if (gameStateCallback) {
+        gameStateCallback({ ...defaultFinishedState, finished: false });
+        gameStateCallback(defaultFinishedState);
+      }
+    });
+
+    const fetchCall2 = global.fetch.mock.calls.find(call => call[0] === '/api/stats/global' && JSON.parse(call[1].body).isDefaultGame === true);
+    expect(fetchCall2).toBeDefined();
   });
 });

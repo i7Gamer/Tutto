@@ -399,4 +399,48 @@ describe('useGameLogic', () => {
     expect(alice.totalTurns).toBe(0);
     expect(alice.busts).toBe(0);
   });
+
+  it('correctly tracks default game settings', () => {
+    const { result } = renderHook(() => useGameLogic());
+    
+    act(() => {
+      result.current.addPlayer('Alice');
+    });
+
+    act(() => {
+      result.current.startGame();
+    });
+
+    act(() => {
+      result.current.nextTurn(6000, true);
+    });
+    
+    let fetchCall = global.fetch.mock.calls.find(call => call[0] === '/api/stats/global');
+    expect(fetchCall).toBeDefined();
+    let payload = JSON.parse(fetchCall[1].body);
+    expect(payload.isDefaultGame).toBe(true);
+  });
+
+  it('correctly tracks custom game settings', () => {
+    global.fetch.mockClear();
+    const { result } = renderHook(() => useGameLogic());
+
+    act(() => {
+      result.current.addPlayer('Bob');
+      result.current.setInitialCards({ Kleeblatt: 99 });
+    });
+
+    act(() => {
+      result.current.startGame();
+    });
+
+    act(() => {
+      result.current.nextTurn(6000, true);
+    });
+    
+    let fetchCall = global.fetch.mock.calls.find(call => call[0] === '/api/stats/global');
+    expect(fetchCall).toBeDefined();
+    let payload = JSON.parse(fetchCall[1].body);
+    expect(payload.isDefaultGame).toBe(false);
+  });
 });

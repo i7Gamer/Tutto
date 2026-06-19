@@ -235,6 +235,17 @@ export function useGameLogic() {
       totalx2Points += (p.x2PointsScored || 0);
     });
 
+    const isDefaultGame = (() => {
+      if (winningScore !== 6000) return false;
+      for (const key in INITIAL_CARDS) {
+        if (initialCards[key] !== INITIAL_CARDS[key]) return false;
+      }
+      for (const key in initialCards) {
+        if (initialCards[key] !== INITIAL_CARDS[key]) return false;
+      }
+      return true;
+    })();
+
     fetch('/api/stats/global', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -242,7 +253,8 @@ export function useGameLogic() {
         gamesPlayed: 1,
         totalPlaytime: finalTime,
         totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2,
-        totalTurns, totalScore, totalPlusMinusCompleted, totalKniffelCompleted, totalFeuerwerkPoints, totalx2Points
+        totalTurns, totalScore, totalPlusMinusCompleted, totalKniffelCompleted, totalFeuerwerkPoints, totalx2Points,
+        isDefaultGame
       })
     }).catch(console.error);
   };
