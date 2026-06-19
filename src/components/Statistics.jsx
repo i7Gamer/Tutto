@@ -61,7 +61,7 @@ export default function Statistics({ deviceId, onBack }) {
   const gAvgScorePerTurn = g?.totalTurns ? Math.round(g.totalScore / g.totalTurns) : 0;
 
   // Card breakdown helper
-  const CardRow = ({ label, icon, count, wins, fails, avgPoints, color }) => (
+  const CardRow = ({ label, icon, count, wins, fails, avgPoints, color, hideRate, failsLabel }) => (
     <div style={{ 
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       padding: '0.75rem 1rem', borderRadius: '10px',
@@ -84,14 +84,16 @@ export default function Statistics({ deviceId, onBack }) {
             </div>
             <div style={{ textAlign: 'center', minWidth: '40px' }}>
               <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'var(--danger)' }}>{fails}</div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Lost</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{failsLabel || "Lost"}</div>
             </div>
-            <div style={{ textAlign: 'center', minWidth: '50px' }}>
-              <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'var(--primary)' }}>
-                {getWinLoseRate(wins, fails)}
+            {!hideRate && (
+              <div style={{ textAlign: 'center', minWidth: '50px' }}>
+                <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'var(--primary)' }}>
+                  {getWinLoseRate(wins, fails)}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Rate</div>
               </div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Rate</div>
-            </div>
+            )}
           </>
         )}
         {avgPoints !== undefined && (
@@ -211,6 +213,8 @@ export default function Statistics({ deviceId, onBack }) {
                     count={p.feuerwerkReceived || 0} 
                     wins={(p.feuerwerkReceived || 0) - (p.feuerwerkBusts || 0)} 
                     fails={p.feuerwerkBusts || 0} 
+                    failsLabel="Busts"
+                    hideRate={true}
                     avgPoints={p.feuerwerkPointsScored || 0} 
                     color="var(--primary)" 
                   />
@@ -219,6 +223,8 @@ export default function Statistics({ deviceId, onBack }) {
                     count={p.x2Received || 0} 
                     wins={(p.x2Received || 0) - (p.x2Busts || 0)} 
                     fails={p.x2Busts || 0} 
+                    failsLabel="Busts"
+                    hideRate={true}
                     avgPoints={p.x2PointsScored || 0} 
                     color="var(--primary)" 
                   />
@@ -287,6 +293,8 @@ export default function Statistics({ deviceId, onBack }) {
                     count={g.totalFeuerwerk || 0} 
                     wins={(g.totalFeuerwerk || 0) - (g.totalFeuerwerkBusts || 0)} 
                     fails={g.totalFeuerwerkBusts || 0} 
+                    failsLabel="Busts"
+                    hideRate={true}
                     avgPoints={Math.round((g.totalFeuerwerkPoints || 0) / Math.max(1, g.totalFeuerwerk || 1))} 
                     color="var(--primary)" 
                   />
@@ -295,6 +303,8 @@ export default function Statistics({ deviceId, onBack }) {
                     count={g.totalx2 || 0} 
                     wins={(g.totalx2 || 0) - (g.totalx2Busts || 0)} 
                     fails={g.totalx2Busts || 0} 
+                    failsLabel="Busts"
+                    hideRate={true}
                     avgPoints={Math.round((g.totalx2Points || 0) / Math.max(1, g.totalx2 || 1))} 
                     color="var(--primary)" 
                   />

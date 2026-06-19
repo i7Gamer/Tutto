@@ -446,6 +446,7 @@ describe('useGameLogic', () => {
   });
 
   it('correctly tracks default game settings', () => {
+    global.fetch.mockClear();
     const { result } = renderHook(() => useGameLogic());
     
     act(() => {
