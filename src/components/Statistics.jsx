@@ -206,8 +206,22 @@ export default function Statistics({ deviceId, onBack }) {
                     color="var(--primary)"
                   />
                   <CardRow label="Stop" icon="🛑" count={p.skipped || 0} color="var(--danger)" />
-                  <CardRow label="Feuerwerk" icon="🎆" count={p.feuerwerkReceived || 0} avgPoints={p.feuerwerkPointsScored || 0} color="var(--primary)" />
-                  <CardRow label="x2" icon="✖️" count={p.x2Received || 0} avgPoints={p.x2PointsScored || 0} color="var(--primary)" />
+                  <CardRow 
+                    label="Feuerwerk" icon="🎆" 
+                    count={p.feuerwerkReceived || 0} 
+                    wins={(p.feuerwerkReceived || 0) - (p.feuerwerkBusts || 0)} 
+                    fails={p.feuerwerkBusts || 0} 
+                    avgPoints={p.feuerwerkPointsScored || 0} 
+                    color="var(--primary)" 
+                  />
+                  <CardRow 
+                    label="x2" icon="✖️" 
+                    count={p.x2Received || 0} 
+                    wins={(p.x2Received || 0) - (p.x2Busts || 0)} 
+                    fails={p.x2Busts || 0} 
+                    avgPoints={p.x2PointsScored || 0} 
+                    color="var(--primary)" 
+                  />
                 </div>
               </div>
             )}
@@ -268,8 +282,22 @@ export default function Statistics({ deviceId, onBack }) {
                     color="var(--primary)"
                   />
                   <CardRow label="Stop" icon="🛑" count={g.totalStop || 0} color="var(--danger)" />
-                  <CardRow label="Feuerwerk" icon="🎆" count={g.totalFeuerwerk || 0} avgPoints={g.totalFeuerwerkPoints || 0} color="var(--primary)" />
-                  <CardRow label="x2" icon="✖️" count={g.totalx2 || 0} avgPoints={g.totalx2Points || 0} color="var(--primary)" />
+                  <CardRow 
+                    label="Feuerwerk" icon="🎆" 
+                    count={g.totalFeuerwerk || 0} 
+                    wins={(g.totalFeuerwerk || 0) - (g.totalFeuerwerkBusts || 0)} 
+                    fails={g.totalFeuerwerkBusts || 0} 
+                    avgPoints={Math.round((g.totalFeuerwerkPoints || 0) / Math.max(1, g.totalFeuerwerk || 1))} 
+                    color="var(--primary)" 
+                  />
+                  <CardRow 
+                    label="x2" icon="✖️" 
+                    count={g.totalx2 || 0} 
+                    wins={(g.totalx2 || 0) - (g.totalx2Busts || 0)} 
+                    fails={g.totalx2Busts || 0} 
+                    avgPoints={Math.round((g.totalx2Points || 0) / Math.max(1, g.totalx2 || 1))} 
+                    color="var(--primary)" 
+                  />
                 </div>
               </div>
             )}

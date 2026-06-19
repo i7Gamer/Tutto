@@ -29,6 +29,8 @@ const createInitialPlayer = (name) => ({
   timesx2Received: 0,
   totalTurns: 0,
   busts: 0,
+  feuerwerkBusts: 0,
+  x2Busts: 0,
   feuerwerkPointsScored: 0,
   x2PointsScored: 0,
   position: 0,
@@ -219,6 +221,7 @@ export function useGameLogic() {
     let totalTurns = 0, totalScore = 0;
     let totalPlusMinusCompleted = 0, totalKniffelCompleted = 0;
     let totalFeuerwerkPoints = 0, totalx2Points = 0;
+    let totalFeuerwerkBusts = 0, totalx2Busts = 0;
     finalPlayers.forEach(p => {
       totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
       totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
@@ -233,6 +236,8 @@ export function useGameLogic() {
       totalKniffelCompleted += p.timesKniffelCompleted;
       totalFeuerwerkPoints += (p.feuerwerkPointsScored || 0);
       totalx2Points += (p.x2PointsScored || 0);
+      totalFeuerwerkBusts += (p.feuerwerkBusts || 0);
+      totalx2Busts += (p.x2Busts || 0);
     });
 
     const isDefaultGame = (() => {
@@ -254,6 +259,7 @@ export function useGameLogic() {
         totalPlaytime: finalTime,
         totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2,
         totalTurns, totalScore, totalPlusMinusCompleted, totalKniffelCompleted, totalFeuerwerkPoints, totalx2Points,
+        totalFeuerwerkBusts, totalx2Busts,
         isDefaultGame
       })
     }).catch(console.error);
@@ -269,6 +275,8 @@ export function useGameLogic() {
     currentPlayer.totalTurns++;
     if (turnScore === 0 && currentCard !== "Stop" && !isSuccess) {
       currentPlayer.busts++;
+      if (currentCard === "Feuerwerk") currentPlayer.feuerwerkBusts = (currentPlayer.feuerwerkBusts || 0) + 1;
+      if (currentCard === "x2") currentPlayer.x2Busts = (currentPlayer.x2Busts || 0) + 1;
     }
 
     if (currentCard === "Plus_Minus" && isSuccess) {

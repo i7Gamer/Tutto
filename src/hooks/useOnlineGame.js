@@ -183,6 +183,8 @@ export function useOnlineGame(deviceId) {
     currentPlayer.totalTurns = (currentPlayer.totalTurns || 0) + 1;
     if (turnScore === 0 && s.currentCard !== "Stop" && !isSuccess) {
       currentPlayer.busts = (currentPlayer.busts || 0) + 1;
+      if (s.currentCard === "Feuerwerk") currentPlayer.feuerwerkBusts = (currentPlayer.feuerwerkBusts || 0) + 1;
+      if (s.currentCard === "x2") currentPlayer.x2Busts = (currentPlayer.x2Busts || 0) + 1;
     }
 
     if (s.currentCard === "Plus_Minus" && isSuccess) {
@@ -382,6 +384,7 @@ export function useOnlineGame(deviceId) {
       let totalTurns = 0, totalScore = 0;
       let totalPlusMinusCompleted = 0, totalKniffelCompleted = 0;
       let totalFeuerwerkPoints = 0, totalx2Points = 0;
+      let totalFeuerwerkBusts = 0, totalx2Busts = 0;
       s.players.forEach(p => {
         totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
         totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
@@ -396,6 +399,8 @@ export function useOnlineGame(deviceId) {
         totalKniffelCompleted += p.timesKniffelCompleted;
         totalFeuerwerkPoints += (p.feuerwerkPointsScored || 0);
         totalx2Points += (p.x2PointsScored || 0);
+        totalFeuerwerkBusts += (p.feuerwerkBusts || 0);
+        totalx2Busts += (p.x2Busts || 0);
       });
 
       const isDefaultGame = (() => {
@@ -419,19 +424,9 @@ export function useOnlineGame(deviceId) {
         body: JSON.stringify({
           gamesPlayed: 1,
           totalPlaytime: s.gameTimeInSeconds,
-          totalPlusMinus,
-          totalKniffel,
-          totalStop,
-          totalFeuerwerk,
-          totalKleeblatt,
-          totalKleeblattCompleted,
-          totalx2,
-          totalTurns,
-          totalScore,
-          totalPlusMinusCompleted,
-          totalKniffelCompleted,
-          totalFeuerwerkPoints,
-          totalx2Points,
+          totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2,
+          totalTurns, totalScore, totalPlusMinusCompleted, totalKniffelCompleted, totalFeuerwerkPoints, totalx2Points,
+          totalFeuerwerkBusts, totalx2Busts,
           isDefaultGame
         })
       }).catch(console.error);

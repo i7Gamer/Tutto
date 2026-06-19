@@ -400,6 +400,51 @@ describe('useGameLogic', () => {
     expect(alice.busts).toBe(0);
   });
 
+  it('tracks Feuerwerk and x2 busts correctly', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.9999);
+    const { result } = renderHook(() => useGameLogic());
+    
+    act(() => {
+      result.current.addPlayer('Charlie');
+    });
+
+    act(() => {
+      result.current.setInitialCards({ "Feuerwerk": 1, "x2": 1 });
+    });
+
+    act(() => {
+      result.current.startGame();
+    });
+
+    // We start by drawing Feuerwerk
+    expect(result.current.currentCard).toBe('Feuerwerk');
+    
+    act(() => {
+      // Bust on Feuerwerk
+      result.current.nextTurn(0, false);
+    });
+
+    let charlie = result.current.players.find(p => p.name === 'Charlie');
+    expect(charlie.feuerwerkBusts).toBe(1);
+    expect(charlie.x2Busts).toBe(0);
+    expect(charlie.busts).toBe(1);
+
+    // After nextTurn, it draws the next card which is x2
+    expect(result.current.currentCard).toBe('x2');
+
+    act(() => {
+      // Bust on x2
+      result.current.nextTurn(0, false);
+    });
+
+    charlie = result.current.players.find(p => p.name === 'Charlie');
+    expect(charlie.feuerwerkBusts).toBe(1);
+    expect(charlie.x2Busts).toBe(1);
+    expect(charlie.busts).toBe(2);
+
+    vi.spyOn(Math, 'random').mockRestore();
+  });
+
   it('correctly tracks default game settings', () => {
     const { result } = renderHook(() => useGameLogic());
     
