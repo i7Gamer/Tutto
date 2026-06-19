@@ -55,7 +55,7 @@ export default function App() {
         <Statistics deviceId={deviceId} onBack={() => setShowStats(false)} />
       ) : game.finished && game.winner ? (
         <EndScreen game={game} theme={theme} mode={mode} setMode={setMode} deviceId={deviceId} />
-      ) : game.currentPlayerIndex != null ? (
+      ) : game.currentPlayerIndex != null && game.currentPlayer ? (
         <Game game={game} />
       ) : (
         <Home game={game} mode={mode} setMode={setMode} onShowStats={() => setShowStats(true)} />

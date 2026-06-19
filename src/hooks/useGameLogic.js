@@ -67,23 +67,29 @@ export function useGameLogic() {
 
   // Load from local storage on mount
   useEffect(() => {
-    const savedPlayers = localStorage.getItem('players');
-    if (savedPlayers) {
-      setPlayers(JSON.parse(savedPlayers));
-      const savedIndex = localStorage.getItem('currentPlayerIndex');
-      if (savedIndex !== "null" && savedIndex !== null) {
-        setCurrentPlayerIndex(JSON.parse(savedIndex));
-        setRound(JSON.parse(localStorage.getItem('currentRound')) || 1);
-        setCurrentCard(localStorage.getItem('currentCard'));
-        setGameTimeInSeconds(JSON.parse(localStorage.getItem('gameTimeInSeconds')) || 0);
-        setCards(JSON.parse(localStorage.getItem('cards')) || []);
-        setChartValues(JSON.parse(localStorage.getItem('chartValues')) || []);
-        setChartNames(JSON.parse(localStorage.getItem('chartNames')) || []);
-        setChartLabels(JSON.parse(localStorage.getItem('chartLabels')) || []);
-        setFinished(JSON.parse(localStorage.getItem('finished')) || false);
-        const savedRandomOrder = localStorage.getItem('randomOrder');
-        if (savedRandomOrder !== null) setRandomOrder(JSON.parse(savedRandomOrder));
+    try {
+      const savedPlayers = localStorage.getItem('players');
+      if (savedPlayers) {
+        setPlayers(JSON.parse(savedPlayers));
+        const savedIndex = localStorage.getItem('currentPlayerIndex');
+        if (savedIndex !== "null" && savedIndex !== null) {
+          setCurrentPlayerIndex(JSON.parse(savedIndex));
+          setRound(JSON.parse(localStorage.getItem('currentRound')) || 1);
+          setCurrentCard(localStorage.getItem('currentCard'));
+          setGameTimeInSeconds(JSON.parse(localStorage.getItem('gameTimeInSeconds')) || 0);
+          setCards(JSON.parse(localStorage.getItem('cards')) || []);
+          setChartValues(JSON.parse(localStorage.getItem('chartValues')) || []);
+          setChartNames(JSON.parse(localStorage.getItem('chartNames')) || []);
+          setChartLabels(JSON.parse(localStorage.getItem('chartLabels')) || []);
+          setFinished(JSON.parse(localStorage.getItem('finished')) || false);
+          const savedRandomOrder = localStorage.getItem('randomOrder');
+          if (savedRandomOrder !== null) setRandomOrder(JSON.parse(savedRandomOrder));
+        }
       }
+    } catch (error) {
+      console.error("Failed to parse game state from localStorage. Resetting game.", error);
+      localStorage.removeItem('players');
+      localStorage.removeItem('currentPlayerIndex');
     }
   }, []);
 
