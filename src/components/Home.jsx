@@ -111,12 +111,16 @@ export default function Home({ game, mode, setMode, onShowStats }) {
                         <tr key={p.name}>
                           <td style={{ fontWeight: 600 }}>{p.name}</td>
                           <td style={{ width: '130px', textAlign: 'right' }}>
-                            <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.2rem' }} onClick={() => handleMoveUp(idx)} disabled={idx === 0}>
-                              <ChevronUp size={16} />
-                            </button>
-                            <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.5rem' }} onClick={() => handleMoveDown(idx)} disabled={idx === players.length - 1}>
-                              <ChevronDown size={16} />
-                            </button>
+                            {idx > 0 && (
+                              <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.2rem' }} onClick={() => handleMoveUp(idx)}>
+                                <ChevronUp size={16} />
+                              </button>
+                            )}
+                            {idx < players.length - 1 && (
+                              <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.5rem' }} onClick={() => handleMoveDown(idx)}>
+                                <ChevronDown size={16} />
+                              </button>
+                            )}
                             <button className="btn btn-outline" style={{ padding: '0.2rem', color: 'var(--danger)' }} onClick={() => removePlayer(p.name)}>
                               <Trash2 size={16} />
                             </button>
@@ -206,12 +210,16 @@ export default function Home({ game, mode, setMode, onShowStats }) {
                           </td>
                           {isHost && (
                             <td style={{ width: '130px', textAlign: 'right' }}>
-                              <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.2rem' }} onClick={() => handleMoveUp(idx)} disabled={idx === 0}>
-                                <ChevronUp size={16} />
-                              </button>
-                              <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.5rem' }} onClick={() => handleMoveDown(idx)} disabled={idx === players.length - 1}>
-                                <ChevronDown size={16} />
-                              </button>
+                              {idx > 0 && (
+                                <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.2rem' }} onClick={() => handleMoveUp(idx)}>
+                                  <ChevronUp size={16} />
+                                </button>
+                              )}
+                              {idx < players.length - 1 && (
+                                <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.5rem' }} onClick={() => handleMoveDown(idx)}>
+                                  <ChevronDown size={16} />
+                                </button>
+                              )}
                               {p.socketId !== hostId && (
                                 <button className="btn btn-outline" style={{ padding: '0.2rem', color: 'var(--danger)' }} onClick={() => kickPlayer(p.socketId)}>
                                   <UserMinus size={16} />
