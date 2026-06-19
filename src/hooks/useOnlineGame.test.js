@@ -94,6 +94,8 @@ describe('useOnlineGame', () => {
     const newGameState = startGamePushCall[1].newState;
     // The previous stats should be reset to 0 in the new game state!
     expect(newGameState.players[0].timesKleeblattCompleted).toBe(0);
+    expect(newGameState.players[0].totalTurns).toBe(0);
+    expect(newGameState.players[0].busts).toBe(0);
     expect(newGameState.players[0].score).toBe(0);
     expect(newGameState.finished).toBe(false);
   });
