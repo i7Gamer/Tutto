@@ -183,4 +183,42 @@ describe('DiceGame Integration', () => {
     fireEvent.click(screen.getByText(/Continue/i));
     expect(onComplete).toHaveBeenCalledWith(3000, true);
   });
+
+  it('Kleeblatt: requires two Tuttos to win, first Tutto forces a reroll', async () => {
+    const onComplete = vi.fn();
+    render(<DiceGame currentCard="Kleeblatt" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    // First Roll: Tutto!
+    diceSequence = [1, 1, 1, 5, 5, 5];
+    fireEvent.click(screen.getByText(/Roll 6 Dice/i));
+
+    // Select all 6 dice
+    screen.getAllByText(/1|5/).forEach(d => fireEvent.click(d));
+
+    // UI should indicate 0/2 Tuttos
+    expect(screen.getByText(/Tuttos: 0 \/ 2/i)).toBeInTheDocument();
+
+    // Click "Roll 2nd Tutto"
+    diceSequence = [2, 2, 2, 3, 3, 3]; // Second roll dice
+    fireEvent.click(screen.getByText(/Roll 2nd Tutto/i));
+
+    // We shouldn't have won yet
+    expect(screen.queryByText('Success!')).not.toBeInTheDocument();
+
+    // Now select all 6 dice for the second roll
+    screen.getAllByText(/2|3/).forEach(d => fireEvent.click(d));
+
+    // UI should indicate 1/2 Tuttos
+    expect(screen.getByText(/Tuttos: 1 \/ 2/i)).toBeInTheDocument();
+
+    // Click "Finish Card" to lock in the second Tutto
+    fireEvent.click(screen.getByText(/Finish Card/i));
+
+    // Now we should win!
+    expect(screen.getByText('Success!')).toBeInTheDocument();
+    expect(screen.getByText('Tutto!')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/Continue/i));
+    expect(onComplete).toHaveBeenCalledWith(expect.any(Number), true);
+  });
 });
