@@ -70,7 +70,7 @@ export default function Game({ game }) {
       confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
       playSuccess();
     }
-  }, [currentCard]);
+  }, [currentCard, cards?.length]);
 
   const handleNextTurn = () => {
     let parsedScore = parseInt(scoreInput) || 0;
