@@ -294,9 +294,13 @@ export function useGameLogic() {
     let currentPlayer = newPlayers[currentPlayerIndex];
     let snapshotLeaders = null;
 
-    // Track turns and busts (bust = 0 points on a non-Stop card)
+    // Track turns and busts.
+    // Bust = rolled 0 points on a card that has dice input, and it's not a Yes/No card.
+    // Kleeblatt, Plus_Minus, Kniffel are Yes/No: a "no" is a failure, not a bust.
+    // Stop gives 0 by design, not a bust.
     currentPlayer.totalTurns++;
-    if (turnScore === 0 && currentCard !== "Stop" && !isSuccess) {
+    const isYesNoCard = ["Plus_Minus", "Kniffel", "Kleeblatt"].includes(currentCard);
+    if (turnScore === 0 && currentCard !== "Stop" && !isSuccess && !isYesNoCard) {
       currentPlayer.busts++;
       if (currentCard === "Feuerwerk") currentPlayer.feuerwerkBusts = (currentPlayer.feuerwerkBusts || 0) + 1;
       if (currentCard === "x2") currentPlayer.x2Busts = (currentPlayer.x2Busts || 0) + 1;
@@ -420,7 +424,8 @@ export function useGameLogic() {
 
     // Bug 1 fix: reverse totalTurns and bust counters
     p.totalTurns = Math.max(0, (p.totalTurns || 0) - 1);
-    if (previousScore === 0 && previousCard !== "Stop") {
+    const wasYesNoCard = ["Plus_Minus", "Kniffel", "Kleeblatt"].includes(previousCard);
+    if (previousScore === 0 && previousCard !== "Stop" && !wasYesNoCard) {
       p.busts = Math.max(0, (p.busts || 0) - 1);
       if (previousCard === "Feuerwerk") p.feuerwerkBusts = Math.max(0, (p.feuerwerkBusts || 0) - 1);
       if (previousCard === "x2") p.x2Busts = Math.max(0, (p.x2Busts || 0) - 1);

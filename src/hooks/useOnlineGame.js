@@ -185,9 +185,12 @@ export function useOnlineGame(deviceId) {
     let currentPlayer = s.players[s.currentPlayerIndex];
     let snapshotLeaders = null;
 
-    // Track turns and busts (bust = 0 points on a non-Stop card)
+    // Track turns and busts.
+    // Bust = rolled 0 on a dice-input card; Yes/No cards (Plus_Minus, Kniffel, Kleeblatt)
+    // have failures, not busts. Stop gives 0 by design.
     currentPlayer.totalTurns = (currentPlayer.totalTurns || 0) + 1;
-    if (turnScore === 0 && s.currentCard !== "Stop" && !isSuccess) {
+    const isYesNoCard = ["Plus_Minus", "Kniffel", "Kleeblatt"].includes(s.currentCard);
+    if (turnScore === 0 && s.currentCard !== "Stop" && !isSuccess && !isYesNoCard) {
       currentPlayer.busts = (currentPlayer.busts || 0) + 1;
       if (s.currentCard === "Feuerwerk") currentPlayer.feuerwerkBusts = (currentPlayer.feuerwerkBusts || 0) + 1;
       if (s.currentCard === "x2") currentPlayer.x2Busts = (currentPlayer.x2Busts || 0) + 1;
@@ -302,7 +305,8 @@ export function useOnlineGame(deviceId) {
 
     // Bug 1 fix: reverse totalTurns and bust counters
     p.totalTurns = Math.max(0, (p.totalTurns || 0) - 1);
-    if (s.previousScore === 0 && s.previousCard !== "Stop") {
+    const wasYesNoCard = ["Plus_Minus", "Kniffel", "Kleeblatt"].includes(s.previousCard);
+    if (s.previousScore === 0 && s.previousCard !== "Stop" && !wasYesNoCard) {
       p.busts = Math.max(0, (p.busts || 0) - 1);
       if (s.previousCard === "Feuerwerk") p.feuerwerkBusts = Math.max(0, (p.feuerwerkBusts || 0) - 1);
       if (s.previousCard === "x2") p.x2Busts = Math.max(0, (p.x2Busts || 0) - 1);

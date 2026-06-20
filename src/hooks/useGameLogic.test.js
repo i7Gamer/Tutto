@@ -737,5 +737,73 @@ describe('useGameLogic', () => {
     expect(result.current.currentPlayerIndex).toBeNull();
     expect(result.current.currentPlayer).toBeNull();
   });
+
+  // ─── Bug 8: Yes/No cards (Plus_Minus, Kniffel, Kleeblatt) should not count as busts ──────────────────
+
+  it('[Bug 8] Failing a Yes/No card does not increment busts', () => {
+    const { result } = renderHook(() => useGameLogic());
+
+    act(() => {
+      result.current.addPlayer('Alice');
+      result.current.setRandomOrder(false);
+      result.current.setInitialCards({ 'Plus_Minus': 1, 'Kniffel': 1, 'Kleeblatt': 1 });
+    });
+    act(() => { result.current.startGame(); });
+
+    // Assuming deterministic deck means we draw Kleeblatt first if added last, or Plus_Minus if reversed.
+    // We just check whichever card is drawn.
+    const firstCard = result.current.currentCard;
+    act(() => { result.current.nextTurn(0, false); }); // Fail the card
+
+    let alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.totalTurns).toBe(1);
+    expect(alice.busts).toBe(0); // Should be 0, not 1!
+
+    // Draw the next card
+    const secondCard = result.current.currentCard;
+    act(() => { result.current.nextTurn(0, false); }); // Fail the card
+
+    alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.totalTurns).toBe(2);
+    expect(alice.busts).toBe(0);
+
+    const thirdCard = result.current.currentCard;
+    act(() => { result.current.nextTurn(0, false); }); // Fail the card
+
+    alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.totalTurns).toBe(3);
+    expect(alice.busts).toBe(0);
+
+    // Verify all 3 Yes/No cards were played
+    const playedCards = [firstCard, secondCard, thirdCard].sort();
+    expect(playedCards).toEqual(['Kleeblatt', 'Kniffel', 'Plus_Minus'].sort());
+  });
+
+  it('[Bug 8] Undoing a failed Yes/No card does not decrement busts incorrectly', () => {
+    const { result } = renderHook(() => useGameLogic());
+
+    act(() => {
+      result.current.addPlayer('Alice');
+      result.current.addPlayer('Bob');
+      result.current.setRandomOrder(false);
+      result.current.setInitialCards({ 'Kniffel': 2 });
+    });
+    act(() => { result.current.startGame(); });
+
+    // Alice draws Kniffel and fails it
+    expect(result.current.currentCard).toBe('Kniffel');
+    act(() => { result.current.nextTurn(0, false); });
+
+    let alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.totalTurns).toBe(1);
+    expect(alice.busts).toBe(0);
+
+    // Undo Alice's turn
+    act(() => { result.current.undo(); });
+
+    alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.totalTurns).toBe(0);
+    expect(alice.busts).toBe(0); // Should not become -1
+  });
 });
 
