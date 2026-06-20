@@ -47,6 +47,7 @@ export default function Game({ game }) {
   useEffect(() => {
     let timeout;
     if (isOnline && isMyTurn && currentCard === "Stop") {
+      playBuzzer();
       timeout = setTimeout(() => {
         nextTurn(0, false);
       }, 5000);

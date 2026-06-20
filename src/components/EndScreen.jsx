@@ -172,6 +172,16 @@ export default function EndScreen({ game, theme, mode, deviceId, setMode }) {
               <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>Kniffels Completed</div>
             </div>
           </div>
+          <div className="flex-between" style={{ justifyContent: 'space-around', textAlign: 'center', marginTop: '1.5rem' }}>
+            <div>
+              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--danger)' }}>{deviceStats.busts || 0}</div>
+              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>Total Busts</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--danger)' }}>{((deviceStats.busts || 0) / Math.max(1, deviceStats.gamesPlayed)).toFixed(1)}</div>
+              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>Avg Busts/Game</div>
+            </div>
+          </div>
         </div>
       )}
 
