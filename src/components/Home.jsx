@@ -300,6 +300,20 @@ export default function Home({ game, mode, setMode, onShowStats }) {
             )}
           </>
         )}
+
+        <div style={{ textAlign: 'center', marginTop: '3rem', fontSize: '0.85rem', color: 'var(--text-color)', opacity: 0.8 }}>
+          Not seeing the latest features? <button onClick={() => {
+            if ('caches' in window) {
+              caches.keys().then(names => {
+                Promise.all(names.map(name => caches.delete(name))).then(() => {
+                  window.location.reload(true);
+                });
+              });
+            } else {
+              window.location.reload(true);
+            }
+          }} style={{ background: 'none', border: 'none', color: 'var(--primary)', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>Force Reload & Clear Cache</button>
+        </div>
       </div>
     </div>
   );
