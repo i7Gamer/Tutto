@@ -31,6 +31,8 @@ db.serialize(() => {
   db.run("ALTER TABLE device_statistics ADD COLUMN busts INTEGER DEFAULT 0", () => {});
   db.run("ALTER TABLE device_statistics ADD COLUMN feuerwerkBusts INTEGER DEFAULT 0", () => {});
   db.run("ALTER TABLE device_statistics ADD COLUMN x2Busts INTEGER DEFAULT 0", () => {});
+  db.run("ALTER TABLE device_statistics ADD COLUMN feuerwerkPointsScored INTEGER DEFAULT 0", () => {});
+  db.run("ALTER TABLE device_statistics ADD COLUMN x2PointsScored INTEGER DEFAULT 0", () => {});
 
   db.run(`
     CREATE TABLE IF NOT EXISTS global_statistics (
@@ -77,9 +79,9 @@ const updateDeviceStats = (deviceId, stats) => {
         deviceId, gamesPlayed, wins, pointsDeducted, plusMinusCompleted, 
         plusMinusFailed, kniffelCompleted, kniffelFailed, skipped, 
         feuerwerkReceived, kleeblattFailed, kleeblattCompleted, x2Received, totalPlaytime,
-        totalTurns, busts, feuerwerkBusts, x2Busts
+        totalTurns, busts, feuerwerkBusts, x2Busts, feuerwerkPointsScored, x2PointsScored
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(deviceId) DO UPDATE SET
         gamesPlayed = gamesPlayed + excluded.gamesPlayed,
         wins = wins + excluded.wins,
@@ -97,7 +99,9 @@ const updateDeviceStats = (deviceId, stats) => {
         totalTurns = totalTurns + excluded.totalTurns,
         busts = busts + excluded.busts,
         feuerwerkBusts = feuerwerkBusts + excluded.feuerwerkBusts,
-        x2Busts = x2Busts + excluded.x2Busts
+        x2Busts = x2Busts + excluded.x2Busts,
+        feuerwerkPointsScored = feuerwerkPointsScored + excluded.feuerwerkPointsScored,
+        x2PointsScored = x2PointsScored + excluded.x2PointsScored
     `, [
       deviceId,
       stats.gamesPlayed || 0,
@@ -116,7 +120,9 @@ const updateDeviceStats = (deviceId, stats) => {
       stats.totalTurns || 0,
       stats.busts || 0,
       stats.feuerwerkBusts || 0,
-      stats.x2Busts || 0
+      stats.x2Busts || 0,
+      stats.feuerwerkPointsScored || 0,
+      stats.x2PointsScored || 0
     ], function(err) {
       if (err) return reject(err);
       resolve(this.lastID);

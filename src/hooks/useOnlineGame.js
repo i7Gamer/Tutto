@@ -423,7 +423,11 @@ export function useOnlineGame(deviceId) {
         kleeblattCompleted: me.timesKleeblattCompleted || 0,
         x2Received: me.timesx2Received,
         totalTurns: me.totalTurns || 0,
-        busts: me.busts || 0
+        busts: me.busts || 0,
+        feuerwerkBusts: me.feuerwerkBusts || 0,
+        x2Busts: me.x2Busts || 0,
+        feuerwerkPointsScored: me.feuerwerkPointsScored || 0,
+        x2PointsScored: me.x2PointsScored || 0
       }
     });
 
