@@ -316,7 +316,7 @@ export function useGameLogic() {
         leaders.forEach(l => {
           const p = newPlayers.find(np => np.name === l.name);
           p.times1000PointsDeducted++;
-          p.score -= 1000;
+          p.score = Math.max(0, p.score - 1000);
         });
       }
       currentPlayer.timesPlusMinusCompleted++;
@@ -442,7 +442,7 @@ export function useGameLogic() {
     if (previousCard === "Plus_Minus" && previousLeaders) {
       previousLeaders.forEach(pl => {
         let actual = newPlayers.find(np => np.name === pl.name);
-        actual.score += 1000;
+        actual.score = pl.score;
         actual.times1000PointsDeducted--;
       });
     }

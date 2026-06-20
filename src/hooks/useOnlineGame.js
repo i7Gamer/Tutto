@@ -323,7 +323,7 @@ export function useOnlineGame(deviceId) {
     if (s.previousCard === "Plus_Minus" && s.previousLeaders) {
       s.previousLeaders.forEach(pl => {
         let actual = s.players.find(np => np.name === pl.name);
-        actual.score += 1000;
+        actual.score = pl.score;
         actual.times1000PointsDeducted--;
       });
     }

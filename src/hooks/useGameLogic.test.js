@@ -570,6 +570,45 @@ describe('useGameLogic', () => {
     vi.spyOn(Math, 'random').mockRestore();
   });
 
+  it('bounds Plus_Minus deductions at zero and restores them correctly on undo', () => {
+    const { result } = renderHook(() => useGameLogic());
+    
+    act(() => {
+      result.current.addPlayer('Alice');
+      result.current.addPlayer('Bob');
+      result.current.setInitialCards({ '200': 1, 'Plus_Minus': 10 }); // First card 200, then Plus_Minus
+    });
+
+    act(() => {
+      result.current.startGame();
+    });
+
+    // Alice gets 500 points
+    act(() => {
+      result.current.nextTurn(500, false); 
+    });
+
+    expect(result.current.players[0].score).toBe(500); // Alice has 500
+
+    // Bob plays Plus_Minus and succeeds!
+    act(() => {
+      result.current.nextTurn(0, true); 
+    });
+
+    expect(result.current.players[1].score).toBe(1000); // Bob got 1000
+    // Alice's score should drop to 0 (bounded), NOT -500!
+    expect(result.current.players[0].score).toBe(0);
+
+    // Bob undos his turn
+    act(() => {
+      result.current.undo();
+    });
+
+    expect(result.current.players[1].score).toBe(0); // Bob loses his 1000
+    // Alice's score should be restored to exactly 500!
+    expect(result.current.players[0].score).toBe(500);
+  });
+
   it('correctly tracks custom game settings', () => {
     global.fetch.mockClear();
     const { result } = renderHook(() => useGameLogic());
