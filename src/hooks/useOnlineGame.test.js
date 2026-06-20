@@ -285,4 +285,60 @@ describe('useOnlineGame', () => {
     const fetchCall2 = global.fetch.mock.calls.find(call => call[0] === '/api/stats/global' && JSON.parse(call[1].body).isDefaultGame === true);
     expect(fetchCall2).toBeDefined();
   });
+
+  it('handles undo logic correctly to restore scores and previous cards', () => {
+    const { result } = renderHook(() => useOnlineGame('device789'));
+    
+    act(() => {
+      result.current.joinRoom('1234', 'HostAlice');
+      const joinCall = mockEmit.mock.calls.find(call => call[0] === 'joinRoom');
+      joinCall[2]({ success: true, isHost: true, gameState: null, hostId: 'socket-123' });
+    });
+
+    const stateWithHistory = {
+      players: [
+        { name: 'HostAlice', score: 1000, totalTurns: 1, busts: 1, x2Busts: 1, timesx2Received: 1, x2PointsScored: 0 }
+      ],
+      currentPlayerIndex: 1,
+      currentCard: 'Stop',
+      previousCard: 'x2',
+      previousScore: 0,
+      cards: ['Stop'],
+      round: 1,
+      finished: false,
+      gameTimeInSeconds: 30,
+      initialCards: { "x2": 1, "Stop": 1 },
+      randomOrder: false,
+      winningScore: 6000,
+      chartValues: [[1000]],
+      chartNames: ['HostAlice'],
+      chartLabels: ['1']
+    };
+
+    act(() => {
+      const gameStateCallback = mockOn.mock.calls.find(call => call[0] === 'gameState')?.[1];
+      if (gameStateCallback) {
+        gameStateCallback(stateWithHistory);
+      }
+    });
+
+    // Perform undo
+    act(() => {
+      mockEmit.mockClear();
+      result.current.undo();
+    });
+
+    const pushCall = mockEmit.mock.calls.find(call => call[0] === 'pushState');
+    expect(pushCall).toBeDefined();
+    
+    const undoneState = pushCall[1].newState;
+    expect(undoneState.currentPlayerIndex).toBe(0);
+    expect(undoneState.currentCard).toBe('x2');
+    expect(undoneState.previousCard).toBeNull();
+    expect(undoneState.players[0].score).toBe(1000);
+    expect(undoneState.players[0].totalTurns).toBe(0);
+    expect(undoneState.players[0].busts).toBe(0);
+    expect(undoneState.players[0].x2Busts).toBe(0);
+    expect(undoneState.players[0].timesx2Received).toBe(0);
+  });
 });
