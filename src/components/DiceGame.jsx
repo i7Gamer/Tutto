@@ -14,6 +14,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
   const [bustState, setBustState] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState({ won: false, score: 0, isTutto: false });
+  const [tuttosThisTurn, setTuttosThisTurn] = useState(0);
   
   const selectedRolls = currentRoll.filter(d => d.selected);
   const selectedVals = selectedRolls.map(d => d.val);
@@ -61,7 +62,20 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
       playSuccess();
       
-      if (currentCard !== "Feuerwerk") {
+      if (currentCard === "Kleeblatt") {
+        if (tuttosThisTurn === 0) {
+          setTuttosThisTurn(1);
+          setKeptDice([]);
+          setTurnScore(newTurnScore);
+          setKniffelProgress(newKniffelProgress);
+          roll(6, newKniffelProgress, newTurnScore);
+          return;
+        } else {
+          setSummaryData({ won: true, score: newTurnScore, isTutto: true });
+          setShowSummary(true);
+          return;
+        }
+      } else if (currentCard !== "Feuerwerk") {
         setSummaryData({ won: true, score: newTurnScore, isTutto: true });
         setShowSummary(true);
         return;
@@ -108,7 +122,15 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
     (isMakingTutto || !isSpecialCard);
 
   const isRollAgainApplicable = !(isMakingTutto && currentCard !== "Feuerwerk");
-  const stopButtonText = (isMakingTutto && isSpecialCard) ? "Finish Card" : "Stop & Score";
+  
+  let stopButtonText = "Stop & Score";
+  if (isMakingTutto && isSpecialCard) {
+    if (currentCard === "Kleeblatt" && tuttosThisTurn === 0) {
+      stopButtonText = "Roll 2nd Tutto";
+    } else {
+      stopButtonText = "Finish Card";
+    }
+  }
 
   let displayKeptDice = [...keptDice];
   if (currentCard === "Kniffel" && kniffelProgress.length > 0) {
@@ -151,6 +173,11 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
               <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--primary)' }}>
                 {turnScore + (validation.valid ? validation.score : 0)}
               </div>
+              {currentCard === "Kleeblatt" && (
+                <div style={{ fontSize: '1rem', color: 'var(--success)', marginTop: '0.5rem', fontWeight: 'bold' }}>
+                  Tuttos: {tuttosThisTurn} / 2
+                </div>
+              )}
             </div>
 
             <div style={{ marginBottom: '1rem' }}>

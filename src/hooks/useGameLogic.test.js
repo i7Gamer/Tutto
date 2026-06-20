@@ -547,6 +547,7 @@ describe('useGameLogic', () => {
 
   it('correctly tracks default game settings', () => {
     global.fetch.mockClear();
+    vi.spyOn(Math, 'random').mockReturnValue(0.1); // Ensure we don't draw Stop or Kleeblatt
     const { result } = renderHook(() => useGameLogic());
     
     act(() => {
@@ -565,6 +566,8 @@ describe('useGameLogic', () => {
     expect(fetchCall).toBeDefined();
     let payload = JSON.parse(fetchCall[1].body);
     expect(payload.isDefaultGame).toBe(true);
+
+    vi.spyOn(Math, 'random').mockRestore();
   });
 
   it('correctly tracks custom game settings', () => {
