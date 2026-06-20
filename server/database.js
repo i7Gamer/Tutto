@@ -59,6 +59,8 @@ db.serialize(() => {
   db.run("ALTER TABLE global_statistics ADD COLUMN totalFeuerwerkBusts INTEGER DEFAULT 0", () => {});
   db.run("ALTER TABLE global_statistics ADD COLUMN totalx2Busts INTEGER DEFAULT 0", () => {});
   db.run("ALTER TABLE global_statistics ADD COLUMN totalBusts INTEGER DEFAULT 0", () => {});
+  db.run("ALTER TABLE global_statistics ADD COLUMN totalTurns INTEGER DEFAULT 0", () => {});
+  db.run("ALTER TABLE global_statistics ADD COLUMN totalScore INTEGER DEFAULT 0", () => {});
 
   db.run(`INSERT OR IGNORE INTO global_statistics (id) VALUES (1)`);
 });
