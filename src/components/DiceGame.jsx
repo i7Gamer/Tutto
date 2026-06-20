@@ -39,7 +39,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
       
       setTimeout(() => {
         if (currentCard === "Feuerwerk") {
-          setSummaryData({ won: true, score: currentTurnScore, isTutto: false });
+          setSummaryData({ won: currentTurnScore > 0, score: currentTurnScore, isTutto: false });
         } else {
           setSummaryData({ won: false, score: 0, isTutto: false });
         }

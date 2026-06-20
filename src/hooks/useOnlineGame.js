@@ -11,6 +11,14 @@ export function useOnlineGame(deviceId) {
   const [myName, setMyName] = useState(null);
   const [socketId, setSocketId] = useState(null);
 
+  const roomRef = useRef(null);
+  const nameRef = useRef(null);
+  
+  useEffect(() => {
+    roomRef.current = roomId;
+    nameRef.current = myName;
+  }, [roomId, myName]);
+
   useEffect(() => {
     if (!socket) {
       // In production, it connects to the same origin
@@ -37,6 +45,15 @@ export function useOnlineGame(deviceId) {
 
     socket.on('connect', () => {
       setSocketId(socket.id);
+      if (roomRef.current && nameRef.current) {
+        // Automatically rejoin if reconnected after a drop
+        const savedColor = localStorage.getItem('tutto_color') || null;
+        socket.emit('joinRoom', { roomId: roomRef.current, name: nameRef.current, deviceId, color: savedColor }, (res) => {
+          if (res.success) {
+            setIsHost(res.isHost);
+          }
+        });
+      }
     });
 
     return () => {
@@ -54,7 +71,8 @@ export function useOnlineGame(deviceId) {
 
   const joinRoom = (room, name) => {
     return new Promise((resolve) => {
-      socket.emit('joinRoom', { roomId: room, name, deviceId }, (res) => {
+      const savedColor = localStorage.getItem('tutto_color') || null;
+      socket.emit('joinRoom', { roomId: room, name, deviceId, color: savedColor }, (res) => {
         if (res.success) {
           setRoomId(room);
           setIsHost(res.isHost);
@@ -90,6 +108,7 @@ export function useOnlineGame(deviceId) {
   };
 
   const changeMyColor = (newColor) => {
+    localStorage.setItem('tutto_color', newColor);
     socket.emit('updatePlayerColor', { roomId, color: newColor });
   };
 

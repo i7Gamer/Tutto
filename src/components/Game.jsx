@@ -24,6 +24,7 @@ export default function Game({ game }) {
     sortedPlayers, 
     currentCard, 
     round, 
+    cards,
     formattedTime,
     nextTurn,
     undo,
@@ -53,7 +54,8 @@ export default function Game({ game }) {
       }, 5000);
     }
     return () => clearTimeout(timeout);
-  }, [isOnline, isMyTurn, currentCard, nextTurn]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline, isMyTurn, currentCard]);
 
   useEffect(() => {
     if (round > 0) {
@@ -81,7 +83,7 @@ export default function Game({ game }) {
       }
     }
 
-    nextTurn(parsedScore, false);
+    nextTurn(parsedScore, parsedScore > 0);
     setScoreInput("");
     setApplyBonus(false);
   };
@@ -168,7 +170,7 @@ export default function Game({ game }) {
           <h3 style={{ textAlign: 'center' }}>Current Card</h3>
           <div className="card-image-container">
             {currentCard ? (
-              <img src={`./assets/${CARD_IMAGE_MAP[currentCard]}`} alt={currentCard} className="card-image" />
+              <img key={`${currentCard}-${cards ? cards.length : 0}`} src={`./assets/${CARD_IMAGE_MAP[currentCard]}`} alt={currentCard} className="card-image" />
             ) : (
               <div style={{ padding: '2rem', color: 'var(--text-color)', opacity: 0.5 }}>No card</div>
             )}

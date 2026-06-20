@@ -69,7 +69,7 @@ describe('Game Component Integration', () => {
     fireEvent.click(nextTurnBtn);
 
     // Should multiply 1000 * 2 = 2000
-    expect(mockGame.nextTurn).toHaveBeenCalledWith(2000, false);
+    expect(mockGame.nextTurn).toHaveBeenCalledWith(2000, true);
   });
 
   it('renders "Apply bonus" checkbox for 400 and correctly adds score', () => {
@@ -89,7 +89,7 @@ describe('Game Component Integration', () => {
     fireEvent.click(nextTurnBtn);
 
     // Should add 1000 + 400 = 1400
-    expect(mockGame.nextTurn).toHaveBeenCalledWith(1400, false);
+    expect(mockGame.nextTurn).toHaveBeenCalledWith(1400, true);
   });
 
   it('does not render "Apply bonus" checkbox for normal cards', () => {
