@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Undo2, ChevronRight, Check, X } from 'lucide-react';
+import { Undo2, ChevronRight, Check, X, Dices } from 'lucide-react';
+import DiceGame from './DiceGame';
 import confetti from 'canvas-confetti';
 import { playBuzzer, playSuccess } from '../utils/soundEffects';
 
@@ -40,6 +41,7 @@ export default function Game({ game }) {
   const isMyTurn = !isOnline || (currentPlayer && currentPlayer.name === myName);
   const [scoreInput, setScoreInput] = useState("");
   const [animateRound, setAnimateRound] = useState(false);
+  const [showDiceGame, setShowDiceGame] = useState(false);
 
   useEffect(() => {
     if (round > 0) {
@@ -78,6 +80,15 @@ export default function Game({ game }) {
 
     nextTurn(0, isSuccess);
     setScoreInput("");
+  };
+
+  const handleDiceComplete = (score, isSuccess) => {
+    setShowDiceGame(false);
+    if (currentCardHasYesNo) {
+      handleYesNo(isSuccess);
+    } else {
+      nextTurn(score, isSuccess);
+    }
   };
 
   const addScore = (val) => {
@@ -143,6 +154,14 @@ export default function Game({ game }) {
           <div style={{ marginTop: '1.5rem' }}>
             {isMyTurn && currentCardHasInput && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <button className="btn btn-primary" onClick={() => setShowDiceGame(true)} style={{ padding: '1rem 2rem', fontSize: '1.25rem', marginBottom: '1rem', width: '100%' }}>
+                  <Dices size={24} style={{ marginRight: '8px' }} /> Roll Dice
+                </button>
+                <div style={{ display: 'flex', alignItems: 'center', width: '100%', margin: '1rem 0' }}>
+                  <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border-color)' }}></div>
+                  <div style={{ padding: '0 1rem', color: 'var(--text-color)', opacity: 0.7, fontWeight: 'bold' }}>OR TYPE SCORE</div>
+                  <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border-color)' }}></div>
+                </div>
                 <input 
                   type="number" 
                   value={scoreInput}
@@ -172,13 +191,23 @@ export default function Game({ game }) {
             )}
 
             {isMyTurn && currentCardHasYesNo && (
-              <div className="flex-center" style={{ margin: '1.5rem 0' }}>
-                <button className="btn btn-success" style={{ padding: '1rem 2rem', fontSize: '1.25rem' }} onClick={() => handleYesNo(true)}>
-                  <Check /> Yes
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '1.5rem 0' }}>
+                <button className="btn btn-primary" onClick={() => setShowDiceGame(true)} style={{ padding: '1rem 2rem', fontSize: '1.25rem', marginBottom: '1rem', width: '100%' }}>
+                  <Dices size={24} style={{ marginRight: '8px' }} /> Roll Dice
                 </button>
-                <button className="btn btn-danger" style={{ padding: '1rem 2rem', fontSize: '1.25rem' }} onClick={() => handleYesNo(false)}>
-                  <X /> No
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', width: '100%', margin: '1rem 0' }}>
+                  <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border-color)' }}></div>
+                  <div style={{ padding: '0 1rem', color: 'var(--text-color)', opacity: 0.7, fontWeight: 'bold' }}>OR QUICK FINISH</div>
+                  <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border-color)' }}></div>
+                </div>
+                <div className="flex-center" style={{ width: '100%', gap: '1rem' }}>
+                  <button className="btn btn-success" style={{ flex: 1, padding: '1rem', fontSize: '1.25rem' }} onClick={() => handleYesNo(true)}>
+                    <Check /> Yes
+                  </button>
+                  <button className="btn btn-danger" style={{ flex: 1, padding: '1rem', fontSize: '1.25rem' }} onClick={() => handleYesNo(false)}>
+                    <X /> No
+                  </button>
+                </div>
               </div>
             )}
 
@@ -245,6 +274,14 @@ export default function Game({ game }) {
             Abort Game
           </button>
         </div>
+      )}
+
+      {showDiceGame && (
+        <DiceGame 
+          currentCard={currentCard} 
+          onComplete={handleDiceComplete} 
+          onCancel={() => setShowDiceGame(false)} 
+        />
       )}
     </div>
   );

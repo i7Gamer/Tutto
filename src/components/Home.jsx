@@ -120,12 +120,12 @@ export default function Home({ game, mode, setMode, onShowStats }) {
                           </td>
                           <td style={{ width: '130px', textAlign: 'right' }}>
                             {idx > 0 && (
-                              <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.2rem' }} onClick={() => handleMoveUp(idx)}>
+                              <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.2rem', width: '28px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => handleMoveUp(idx)}>
                                 <ChevronUp size={16} />
                               </button>
                             )}
                             {idx < players.length - 1 && (
-                              <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.5rem' }} onClick={() => handleMoveDown(idx)}>
+                              <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.5rem', width: '28px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => handleMoveDown(idx)}>
                                 <ChevronDown size={16} />
                               </button>
                             )}
@@ -229,12 +229,12 @@ export default function Home({ game, mode, setMode, onShowStats }) {
                           {isHost && (
                             <td style={{ width: '130px', textAlign: 'right' }}>
                               {idx > 0 && (
-                                <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.2rem' }} onClick={() => handleMoveUp(idx)}>
+                                <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.2rem', width: '28px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => handleMoveUp(idx)}>
                                   <ChevronUp size={16} />
                                 </button>
                               )}
                               {idx < players.length - 1 && (
-                                <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.5rem' }} onClick={() => handleMoveDown(idx)}>
+                                <button className="btn btn-outline" style={{ padding: '0.2rem', marginRight: '0.5rem', width: '28px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => handleMoveDown(idx)}>
                                   <ChevronDown size={16} />
                                 </button>
                               )}

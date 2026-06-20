@@ -42,18 +42,36 @@ const createInitialPlayer = (name) => ({
 });
 
 export function useGameLogic() {
-  const [players, setPlayers] = useState([]);
-  const [initialCards, setInitialCards] = useState(INITIAL_CARDS);
-  const [cards, setCards] = useState([]);
-  const [currentPlayerIndex, setCurrentPlayerIndex] = useState(null);
-  const [currentCard, setCurrentCard] = useState(null);
-  const [round, setRound] = useState(1);
-  const [winningScore, setWinningScore] = useState(6000);
-  const [finished, setFinished] = useState(false);
-  const [randomOrder, setRandomOrder] = useState(true);
+  const [players, setPlayers] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('players')) || []; } catch { return []; }
+  });
+  const [initialCards, setInitialCards] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('initialCards')) || INITIAL_CARDS; } catch { return INITIAL_CARDS; }
+  });
+  const [cards, setCards] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('cards')) || []; } catch { return []; }
+  });
+  const [currentPlayerIndex, setCurrentPlayerIndex] = useState(() => {
+    try { const val = localStorage.getItem('currentPlayerIndex'); return (val !== "null" && val !== null) ? JSON.parse(val) : null; } catch { return null; }
+  });
+  const [currentCard, setCurrentCard] = useState(() => localStorage.getItem('currentCard') || null);
+  const [round, setRound] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('currentRound')) || 1; } catch { return 1; }
+  });
+  const [winningScore, setWinningScore] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('winningScore')) || 6000; } catch { return 6000; }
+  });
+  const [finished, setFinished] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('finished')) || false; } catch { return false; }
+  });
+  const [randomOrder, setRandomOrder] = useState(() => {
+    try { const val = localStorage.getItem('randomOrder'); return val !== null ? JSON.parse(val) : true; } catch { return true; }
+  });
   
   // Timer
-  const [gameTimeInSeconds, setGameTimeInSeconds] = useState(0);
+  const [gameTimeInSeconds, setGameTimeInSeconds] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('gameTimeInSeconds')) || 0; } catch { return 0; }
+  });
 
   // Undo state
   const [previousScore, setPreviousScore] = useState(null);
@@ -61,37 +79,15 @@ export function useGameLogic() {
   const [previousLeaders, setPreviousLeaders] = useState(null);
 
   // Chart data
-  const [chartValues, setChartValues] = useState([]);
-  const [chartNames, setChartNames] = useState([]);
-  const [chartLabels, setChartLabels] = useState([]);
-
-  // Load from local storage on mount
-  useEffect(() => {
-    try {
-      const savedPlayers = localStorage.getItem('players');
-      if (savedPlayers) {
-        setPlayers(JSON.parse(savedPlayers));
-        const savedIndex = localStorage.getItem('currentPlayerIndex');
-        if (savedIndex !== "null" && savedIndex !== null) {
-          setCurrentPlayerIndex(JSON.parse(savedIndex));
-          setRound(JSON.parse(localStorage.getItem('currentRound')) || 1);
-          setCurrentCard(localStorage.getItem('currentCard'));
-          setGameTimeInSeconds(JSON.parse(localStorage.getItem('gameTimeInSeconds')) || 0);
-          setCards(JSON.parse(localStorage.getItem('cards')) || []);
-          setChartValues(JSON.parse(localStorage.getItem('chartValues')) || []);
-          setChartNames(JSON.parse(localStorage.getItem('chartNames')) || []);
-          setChartLabels(JSON.parse(localStorage.getItem('chartLabels')) || []);
-          setFinished(JSON.parse(localStorage.getItem('finished')) || false);
-          const savedRandomOrder = localStorage.getItem('randomOrder');
-          if (savedRandomOrder !== null) setRandomOrder(JSON.parse(savedRandomOrder));
-        }
-      }
-    } catch (error) {
-      console.error("Failed to parse game state from localStorage. Resetting game.", error);
-      localStorage.removeItem('players');
-      localStorage.removeItem('currentPlayerIndex');
-    }
-  }, []);
+  const [chartValues, setChartValues] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('chartValues')) || []; } catch { return []; }
+  });
+  const [chartNames, setChartNames] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('chartNames')) || []; } catch { return []; }
+  });
+  const [chartLabels, setChartLabels] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('chartLabels')) || []; } catch { return []; }
+  });
 
   // Timer interval
   useEffect(() => {
@@ -110,6 +106,7 @@ export function useGameLogic() {
     localStorage.setItem('currentPlayerIndex', JSON.stringify(currentPlayerIndex));
     localStorage.setItem('currentRound', JSON.stringify(round));
     if (currentCard) localStorage.setItem('currentCard', currentCard);
+    else localStorage.removeItem('currentCard');
     localStorage.setItem('gameTimeInSeconds', JSON.stringify(gameTimeInSeconds));
     localStorage.setItem('cards', JSON.stringify(cards));
     localStorage.setItem('chartValues', JSON.stringify(chartValues));
@@ -117,7 +114,9 @@ export function useGameLogic() {
     localStorage.setItem('chartLabels', JSON.stringify(chartLabels));
     localStorage.setItem('finished', JSON.stringify(finished));
     localStorage.setItem('randomOrder', JSON.stringify(randomOrder));
-  }, [players, currentPlayerIndex, round, currentCard, gameTimeInSeconds, cards, chartValues, chartNames, chartLabels, finished, randomOrder]);
+    localStorage.setItem('winningScore', JSON.stringify(winningScore));
+    localStorage.setItem('initialCards', JSON.stringify(initialCards));
+  }, [players, currentPlayerIndex, round, currentCard, gameTimeInSeconds, cards, chartValues, chartNames, chartLabels, finished, randomOrder, winningScore, initialCards]);
 
   const addPlayer = (name) => {
     setPlayers((prev) => {
