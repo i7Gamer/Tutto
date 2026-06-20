@@ -571,6 +571,9 @@ describe('useGameLogic', () => {
   });
 
   it('bounds Plus_Minus deductions at zero and restores them correctly on undo', () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0.999999; // Make shuffle deterministic
+
     const { result } = renderHook(() => useGameLogic());
     
     act(() => {
@@ -607,6 +610,8 @@ describe('useGameLogic', () => {
     expect(result.current.players[1].score).toBe(0); // Bob loses his 1000
     // Alice's score should be restored to exactly 500!
     expect(result.current.players[0].score).toBe(500);
+
+    Math.random = originalRandom; // Restore Math.random
   });
 
   it('correctly tracks custom game settings', () => {
@@ -846,6 +851,74 @@ describe('useGameLogic', () => {
     alice = result.current.players.find(p => p.name === 'Alice');
     expect(alice.totalTurns).toBe(0);
     expect(alice.busts).toBe(0); // Should not become -1
+  });
+
+  describe('Missing coverage branches', () => {
+    it('changes player color', () => {
+      const { result } = renderHook(() => useGameLogic());
+      act(() => { result.current.addPlayer('Alice'); });
+      act(() => { result.current.changePlayerColor('Alice', '#FF0000'); });
+      expect(result.current.players[0].color).toBe('#FF0000');
+    });
+
+    it('handles endGame correctly', () => {
+      const { result } = renderHook(() => useGameLogic());
+      act(() => {
+        result.current.addPlayer('Alice');
+      });
+      act(() => { result.current.startGame(); });
+      act(() => { result.current.endGame(); });
+      expect(result.current.finished).toBe(false);
+      expect(result.current.currentPlayerIndex).toBe(null);
+      expect(result.current.gameTimeInSeconds).toBe(0);
+      expect(result.current.round).toBe(1);
+      expect(result.current.currentCard).toBe(null);
+    });
+
+    it('shuffles new deck when deck is empty in drawCard', () => {
+      const { result } = renderHook(() => useGameLogic());
+      act(() => {
+        result.current.addPlayer('Alice');
+        result.current.setInitialCards({ 'Stop': 1 }); // only 1 card
+      });
+      act(() => { result.current.startGame(); });
+      // Alice plays Stop, deck becomes 0. Next player draws, deck should reshuffle.
+      act(() => { result.current.nextTurn(0, false); });
+      expect(result.current.cards.length).toBe(0); // the newly drawn card is removed from the newly shuffled deck of 1
+      expect(result.current.currentCard).toBe('Stop');
+    });
+
+    it('increments game time', () => {
+      vi.useFakeTimers();
+      const { result } = renderHook(() => useGameLogic());
+      act(() => {
+        result.current.addPlayer('Alice');
+      });
+      act(() => { result.current.startGame(); });
+      act(() => { vi.advanceTimersByTime(2500); });
+      expect(result.current.gameTimeInSeconds).toBe(2);
+      vi.useRealTimers();
+    });
+
+    it('undoes Plus_Minus failed', () => {
+      const { result } = renderHook(() => useGameLogic());
+      act(() => {
+        result.current.addPlayer('Alice');
+        result.current.setRandomOrder(false);
+        result.current.setInitialCards({ 'Plus_Minus': 2 });
+      });
+      act(() => { result.current.startGame(); });
+      
+      act(() => { result.current.nextTurn(0, false); }); // Fail plus minus
+      
+      let alice = result.current.players[0];
+      expect(alice.timesPlusMinusFailed).toBe(1);
+      
+      act(() => { result.current.undo(); });
+      
+      alice = result.current.players[0];
+      expect(alice.timesPlusMinusFailed).toBe(0);
+    });
   });
 });
 

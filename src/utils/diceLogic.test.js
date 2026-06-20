@@ -157,6 +157,20 @@ describe('diceLogic', () => {
     it('does nothing for non-bonus cards (like Feuerwerk or Kleeblatt)', () => {
       expect(applyTuttoBonus(1000, "Feuerwerk")).toBe(1000);
       expect(applyTuttoBonus(0, "Kleeblatt")).toBe(0);
+  });
+
+  describe('calculateKniffel - missing branches', () => {
+    it('returns invalid if starting from 6 but the sequence breaks immediately', () => {
+      // Trying to start a sequence from 6, but the dice is [6, 4] instead of [6, 5]
+      const result = checkKniffel([6, 4], []);
+      expect(result.valid).toBe(false);
+    });
+
+    it('returns invalid if continuing a descending sequence but the sequence breaks', () => {
+      // Progress is [6, 5], trying to add [3] instead of [4]
+      const result = checkKniffel([3], [6, 5]);
+      expect(result.valid).toBe(false);
     });
   });
+});
 });

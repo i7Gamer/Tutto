@@ -3,7 +3,7 @@ import database from './database';
 
 describe('Database Statistics Integration', () => {
   it('should store and retrieve all device statistics without SQL errors', async () => {
-    const mockDeviceId = 'test-device-123';
+    const mockDeviceId = 'unique-test-device-' + Date.now();
     const mockStats = {
       gamesPlayed: 1,
       wins: 1,
