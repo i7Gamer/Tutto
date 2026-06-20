@@ -184,6 +184,11 @@ export default function Statistics({ deviceId, onBack }) {
                   <StatTile icon={<Clock size={28} color="var(--text-muted)" />} value={formatTime(p.totalPlaytime)} label="Total Playtime" />
                 </div>
 
+                <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
+                  <StatTile icon={<Hash size={28} color="var(--danger)" />} value={p.busts || 0} label="Total Busts" color="var(--danger)" />
+                  <StatTile icon={<Hash size={28} color="var(--danger)" />} value={p.gamesPlayed ? ((p.busts || 0) / p.gamesPlayed).toFixed(1) : 0} label="Avg Busts / Game" color="var(--danger)" />
+                </div>
+
                 {/* Card Breakdown */}
                 <h4 style={{ marginBottom: '0.75rem', color: 'var(--text-color)', borderTop: '1px solid var(--border-color)', paddingTop: '1rem', textAlign: 'center' }}>
                   🃏 Card Breakdown
@@ -261,6 +266,11 @@ export default function Statistics({ deviceId, onBack }) {
                   <StatTile icon={<TrendingUp size={28} color="var(--warning)" />} value={gAvgScorePerTurn} label="Avg Score / Turn" color="var(--warning)" />
                 </div>
 
+                <div className="grid-cols-2" style={{ marginBottom: '1.5rem' }}>
+                  <StatTile icon={<Hash size={28} color="var(--danger)" />} value={g.totalBusts || 0} label="Total Busts" color="var(--danger)" />
+                  <StatTile icon={<Hash size={28} color="var(--danger)" />} value={g.totalGamesPlayed ? ((g.totalBusts || 0) / g.totalGamesPlayed).toFixed(1) : 0} label="Avg Busts / Game" color="var(--danger)" />
+                </div>
+
                 {/* Card Breakdown */}
                 <h4 style={{ marginBottom: '0.75rem', color: 'var(--text-color)', borderTop: '1px solid var(--border-color)', paddingTop: '1rem', textAlign: 'center' }}>
                   🃏 Card Breakdown
@@ -295,7 +305,7 @@ export default function Statistics({ deviceId, onBack }) {
                     fails={g.totalFeuerwerkBusts || 0} 
                     failsLabel="Busts"
                     hideRate={true}
-                    avgPoints={Math.round((g.totalFeuerwerkPoints || 0) / Math.max(1, g.totalFeuerwerk || 1))} 
+                    avgPoints={g.totalFeuerwerkPoints || 0} 
                     color="var(--primary)" 
                   />
                   <CardRow 
@@ -305,7 +315,7 @@ export default function Statistics({ deviceId, onBack }) {
                     fails={g.totalx2Busts || 0} 
                     failsLabel="Busts"
                     hideRate={true}
-                    avgPoints={Math.round((g.totalx2Points || 0) / Math.max(1, g.totalx2 || 1))} 
+                    avgPoints={g.totalx2Points || 0} 
                     color="var(--primary)" 
                   />
                 </div>

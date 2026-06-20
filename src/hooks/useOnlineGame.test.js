@@ -99,7 +99,92 @@ describe('useOnlineGame', () => {
     expect(newGameState.players[0].score).toBe(0);
     expect(newGameState.players[0].feuerwerkBusts).toBe(0);
     expect(newGameState.players[0].x2Busts).toBe(0);
+    expect(newGameState.players[0].feuerwerkPointsScored).toBe(0);
+    expect(newGameState.players[0].x2PointsScored).toBe(0);
     expect(newGameState.finished).toBe(false);
+  });
+
+  it('tracks Feuerwerk, x2, Stop and Plus/Minus points and busts during gameplay', () => {
+    const { result } = renderHook(() => useOnlineGame('test-device'));
+
+    act(() => {
+      result.current.joinRoom('1234', 'HostAlice');
+      const joinCall = mockEmit.mock.calls.find(call => call[0] === 'joinRoom');
+      joinCall[2]({ success: true, isHost: true, gameState: null, hostId: 'socket-123' });
+    });
+
+    const initialState = {
+      players: [
+        { name: 'HostAlice', score: 0, timesKleeblattCompleted: 0, timesKleeblattFailed: 0, timesPlusMinusCompleted: 0, timesPlusMinusFailed: 0, timesKniffelCompleted: 0, timesKniffelFailed: 0, timesSkipped: 0, timesFeuerwerkReceived: 0, timesx2Received: 0, times1000PointsDeducted: 0, feuerwerkBusts: 0, x2Busts: 0, feuerwerkPointsScored: 0, x2PointsScored: 0, busts: 0, totalTurns: 0 }
+      ],
+      currentPlayerIndex: 0,
+      currentCard: 'Feuerwerk',
+      cards: [],
+      round: 1,
+      finished: false,
+      gameTimeInSeconds: 0,
+      initialCards: { "Feuerwerk": 1 },
+      randomOrder: false,
+      winningScore: 5000,
+      chartValues: [[]],
+      chartNames: ['HostAlice'],
+      chartLabels: []
+    };
+
+    act(() => {
+      const gameStateCallback = mockOn.mock.calls.find(call => call[0] === 'gameState')?.[1];
+      if (gameStateCallback) gameStateCallback(initialState);
+    });
+
+    // 1. Feuerwerk Points
+    act(() => {
+      mockEmit.mockClear();
+      result.current.nextTurn(1500, false);
+    });
+
+    let pushCall = mockEmit.mock.calls.find(call => call[0] === 'pushState');
+    let state = pushCall[1].newState;
+    expect(state.players[0].feuerwerkPointsScored).toBe(1500);
+    expect(state.players[0].timesFeuerwerkReceived).toBe(1);
+    expect(state.players[0].totalTurns).toBe(1);
+
+    // Update local state mock to proceed
+    act(() => {
+      state.currentCard = 'x2'; // Set next card to x2
+      const gameStateCallback = mockOn.mock.calls.find(call => call[0] === 'gameState')?.[1];
+      if (gameStateCallback) gameStateCallback(state);
+    });
+
+    // 2. x2 Bust
+    act(() => {
+      mockEmit.mockClear();
+      result.current.nextTurn(0, false); // Bust on x2
+    });
+
+    pushCall = mockEmit.mock.calls.find(call => call[0] === 'pushState');
+    state = pushCall[1].newState;
+    expect(state.players[0].x2Busts).toBe(1);
+    expect(state.players[0].x2PointsScored).toBe(0);
+    expect(state.players[0].timesx2Received).toBe(1);
+    expect(state.players[0].busts).toBe(1);
+
+    // Update local state mock to proceed
+    act(() => {
+      state.currentCard = 'Stop';
+      const gameStateCallback = mockOn.mock.calls.find(call => call[0] === 'gameState')?.[1];
+      if (gameStateCallback) gameStateCallback(state);
+    });
+
+    // 3. Stop Card
+    act(() => {
+      mockEmit.mockClear();
+      result.current.nextTurn(0, false); // Skip
+    });
+
+    pushCall = mockEmit.mock.calls.find(call => call[0] === 'pushState');
+    state = pushCall[1].newState;
+    expect(state.players[0].timesSkipped).toBe(1);
+    expect(state.players[0].busts).toBe(1); // Stop is not a bust!
   });
 
   it('submits correct statistics for all players when the game ends', () => {

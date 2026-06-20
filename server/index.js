@@ -89,10 +89,17 @@ io.on('connection', (socket) => {
       timesPlusMinusCompleted: 0,
       timesKniffelFailed: 0,
       timesKleeblattFailed: 0,
+      timesKleeblattCompleted: 0,
       timesPlusMinusFailed: 0,
       timesFeuerwerkReceived: 0,
       timesSkipped: 0,
       timesx2Received: 0,
+      totalTurns: 0,      // Bug 5 fix: was missing, caused undefined++ = NaN
+      busts: 0,           // Bug 5 fix
+      feuerwerkBusts: 0,  // Bug 5 fix
+      x2Busts: 0,         // Bug 5 fix
+      feuerwerkPointsScored: 0, // Bug 5 fix
+      x2PointsScored: 0,        // Bug 5 fix
       position: 0,
       color: assignedColor,
     };

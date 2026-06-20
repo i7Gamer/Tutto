@@ -40,8 +40,19 @@ export default function Game({ game }) {
 
   const isMyTurn = !isOnline || (currentPlayer && currentPlayer.name === myName);
   const [scoreInput, setScoreInput] = useState("");
+  const [applyBonus, setApplyBonus] = useState(false);
   const [animateRound, setAnimateRound] = useState(false);
   const [showDiceGame, setShowDiceGame] = useState(false);
+
+  useEffect(() => {
+    let timeout;
+    if (isOnline && isMyTurn && currentCard === "Stop") {
+      timeout = setTimeout(() => {
+        nextTurn(0, false);
+      }, 5000);
+    }
+    return () => clearTimeout(timeout);
+  }, [isOnline, isMyTurn, currentCard, nextTurn]);
 
   useEffect(() => {
     if (round > 0) {
@@ -59,8 +70,19 @@ export default function Game({ game }) {
   }, [currentCard]);
 
   const handleNextTurn = () => {
-    nextTurn(parseInt(scoreInput) || 0, false);
+    let parsedScore = parseInt(scoreInput) || 0;
+    
+    if (applyBonus) {
+      if (["200", "300", "400", "500", "600"].includes(currentCard)) {
+        parsedScore += parseInt(currentCard);
+      } else if (currentCard === "x2") {
+        parsedScore = parsedScore === 0 ? 0 : parsedScore * 2;
+      }
+    }
+
+    nextTurn(parsedScore, false);
     setScoreInput("");
+    setApplyBonus(false);
   };
 
   const handleYesNo = (isSuccess) => {
@@ -162,13 +184,26 @@ export default function Game({ game }) {
                   <div style={{ padding: '0 1rem', color: 'var(--text-color)', opacity: 0.7, fontWeight: 'bold' }}>OR TYPE SCORE</div>
                   <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border-color)' }}></div>
                 </div>
-                <input 
-                  type="number" 
-                  value={scoreInput}
-                  onChange={(e) => setScoreInput(e.target.value)}
-                  placeholder="Score"
-                  style={{ fontSize: '1.5rem', textAlign: 'center', maxWidth: '200px', marginBottom: '1rem' }}
-                />
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                  <input 
+                    type="number" 
+                    value={scoreInput}
+                    onChange={(e) => setScoreInput(e.target.value)}
+                    placeholder="Points (if no dice used)"
+                    style={{ fontSize: '1.5rem', textAlign: 'center', maxWidth: '250px' }}
+                  />
+                  {["200", "300", "400", "500", "600", "x2"].includes(currentCard) && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', opacity: 0.9 }}>
+                      <input 
+                        type="checkbox" 
+                        checked={applyBonus} 
+                        onChange={(e) => setApplyBonus(e.target.checked)} 
+                        style={{ width: 'auto' }}
+                      />
+                      Apply bonus
+                    </label>
+                  )}
+                </div>
                 <div className="score-buttons">
                   {[50, 100, 200, 300, 400, 500, 600, 1000].map(val => (
                     <button key={val} className="btn btn-outline" style={{ padding: '0.5rem 1rem' }} onClick={() => addScore(val)}>

@@ -243,7 +243,7 @@ export function useGameLogic() {
     let totalTurns = 0, totalScore = 0;
     let totalPlusMinusCompleted = 0, totalKniffelCompleted = 0;
     let totalFeuerwerkPoints = 0, totalx2Points = 0;
-    let totalFeuerwerkBusts = 0, totalx2Busts = 0;
+    let totalFeuerwerkBusts = 0, totalx2Busts = 0, totalBusts = 0;
     finalPlayers.forEach(p => {
       totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
       totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
@@ -260,6 +260,7 @@ export function useGameLogic() {
       totalx2Points += (p.x2PointsScored || 0);
       totalFeuerwerkBusts += (p.feuerwerkBusts || 0);
       totalx2Busts += (p.x2Busts || 0);
+      totalBusts += (p.busts || 0);
     });
 
     const isDefaultGame = (() => {
@@ -281,7 +282,7 @@ export function useGameLogic() {
         totalPlaytime: finalTime,
         totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2,
         totalTurns, totalScore, totalPlusMinusCompleted, totalKniffelCompleted, totalFeuerwerkPoints, totalx2Points,
-        totalFeuerwerkBusts, totalx2Busts,
+        totalFeuerwerkBusts, totalx2Busts, totalBusts,
         isDefaultGame
       })
     }).catch(console.error);
@@ -341,6 +342,7 @@ export function useGameLogic() {
       currentPlayer.score = 999999;
       setPlayers(newPlayers);
       setFinished(true);
+      setCurrentPlayerIndex(null); // Bug 6 fix: null out index on Kleeblatt win
       sendGlobalStats(newPlayers, gameTimeInSeconds, "Kleeblatt");
       return;
     } else if (currentCard === "Kleeblatt") {
@@ -413,7 +415,24 @@ export function useGameLogic() {
 
     let p = newPlayers[prevIndex];
 
-    if (currentCard === "Feuerwerk") p.timesFeuerwerkReceived--;
+    // Bug 2 fix: check previousCard (the card that was played), not currentCard
+    if (previousCard === "Feuerwerk") p.timesFeuerwerkReceived--;
+
+    // Bug 1 fix: reverse totalTurns and bust counters
+    p.totalTurns = Math.max(0, (p.totalTurns || 0) - 1);
+    if (previousScore === 0 && previousCard !== "Stop") {
+      p.busts = Math.max(0, (p.busts || 0) - 1);
+      if (previousCard === "Feuerwerk") p.feuerwerkBusts = Math.max(0, (p.feuerwerkBusts || 0) - 1);
+      if (previousCard === "x2") p.x2Busts = Math.max(0, (p.x2Busts || 0) - 1);
+    }
+
+    // Bug 1 fix: reverse special card point counters
+    if (previousCard === "Feuerwerk") {
+      p.feuerwerkPointsScored = Math.max(0, (p.feuerwerkPointsScored || 0) - previousScore);
+    }
+    if (previousCard === "x2") {
+      p.x2PointsScored = Math.max(0, (p.x2PointsScored || 0) - previousScore);
+    }
     
     if (previousCard === "Plus_Minus" && previousLeaders) {
       previousLeaders.forEach(pl => {

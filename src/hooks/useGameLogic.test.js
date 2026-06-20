@@ -446,6 +446,12 @@ describe('useGameLogic', () => {
     expect(alice.totalTurns).toBe(1);
     expect(alice.busts).toBe(1);
 
+    // Let's also add some x2 and Feuerwerk data before resetting
+    alice.feuerwerkBusts = 3;
+    alice.feuerwerkPointsScored = 1500;
+    alice.x2Busts = 2;
+    alice.x2PointsScored = 2000;
+
     // Start a new game — stats should reset
     act(() => {
       result.current.startGame();
@@ -454,49 +460,87 @@ describe('useGameLogic', () => {
     alice = result.current.players.find(p => p.name === 'Alice');
     expect(alice.totalTurns).toBe(0);
     expect(alice.busts).toBe(0);
+    expect(alice.feuerwerkBusts).toBe(0);
+    expect(alice.feuerwerkPointsScored).toBe(0);
+    expect(alice.x2Busts).toBe(0);
+    expect(alice.x2PointsScored).toBe(0);
   });
 
-  it('tracks Feuerwerk and x2 busts correctly', () => {
+  it('tracks Feuerwerk and x2 busts and points correctly', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.9999);
     const { result } = renderHook(() => useGameLogic());
     
+    // Scenario 1: Feuerwerk Bust
     act(() => {
       result.current.addPlayer('Charlie');
+      result.current.setInitialCards({ "Feuerwerk": 1 });
     });
-
-    act(() => {
-      result.current.setInitialCards({ "Feuerwerk": 1, "x2": 1 });
-    });
-
     act(() => {
       result.current.startGame();
     });
 
-    // We start by drawing Feuerwerk
     expect(result.current.currentCard).toBe('Feuerwerk');
     
     act(() => {
-      // Bust on Feuerwerk
-      result.current.nextTurn(0, false);
+      result.current.nextTurn(0, false); // Bust
     });
 
     let charlie = result.current.players.find(p => p.name === 'Charlie');
     expect(charlie.feuerwerkBusts).toBe(1);
-    expect(charlie.x2Busts).toBe(0);
-    expect(charlie.busts).toBe(1);
+    expect(charlie.feuerwerkPointsScored).toBe(0);
 
-    // After nextTurn, it draws the next card which is x2
-    expect(result.current.currentCard).toBe('x2');
-
+    // Scenario 2: x2 Bust
     act(() => {
-      // Bust on x2
-      result.current.nextTurn(0, false);
+      result.current.setInitialCards({ "x2": 1 });
+    });
+    act(() => {
+      result.current.startGame(); // Resets everything!
+    });
+
+    expect(result.current.currentCard).toBe('x2');
+    
+    act(() => {
+      result.current.nextTurn(0, false); // Bust
     });
 
     charlie = result.current.players.find(p => p.name === 'Charlie');
-    expect(charlie.feuerwerkBusts).toBe(1);
     expect(charlie.x2Busts).toBe(1);
-    expect(charlie.busts).toBe(2);
+    expect(charlie.x2PointsScored).toBe(0);
+    expect(charlie.feuerwerkBusts).toBe(0); // Reset verified
+
+    // Scenario 3: Feuerwerk Points
+    act(() => {
+      result.current.setInitialCards({ "Feuerwerk": 1 });
+    });
+    act(() => {
+      result.current.startGame(); // Resets
+    });
+
+    expect(result.current.currentCard).toBe('Feuerwerk');
+    
+    act(() => {
+      result.current.nextTurn(1500, false); 
+    });
+
+    charlie = result.current.players.find(p => p.name === 'Charlie');
+    expect(charlie.feuerwerkPointsScored).toBe(1500);
+
+    // Scenario 4: x2 Points
+    act(() => {
+      result.current.setInitialCards({ "x2": 1 });
+    });
+    act(() => {
+      result.current.startGame(); // Resets
+    });
+
+    expect(result.current.currentCard).toBe('x2');
+    
+    act(() => {
+      result.current.nextTurn(2000, false); 
+    });
+
+    charlie = result.current.players.find(p => p.name === 'Charlie');
+    expect(charlie.x2PointsScored).toBe(2000);
 
     vi.spyOn(Math, 'random').mockRestore();
   });
@@ -545,4 +589,153 @@ describe('useGameLogic', () => {
     let payload = JSON.parse(fetchCall[1].body);
     expect(payload.isDefaultGame).toBe(false);
   });
+
+  // ─── Bug 1 & 2: undo must reverse ALL stat counters ────────────────────────
+
+  it('[Bug 1] undo reverses totalTurns and busts', () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0.999999;
+    const { result } = renderHook(() => useGameLogic());
+
+    act(() => {
+      result.current.addPlayer('Alice');
+      result.current.addPlayer('Bob');
+      result.current.setRandomOrder(false);
+      result.current.setInitialCards({ '200': 2 });
+    });
+    act(() => { result.current.startGame(); });
+
+    // Alice busts on '200' card (score 0)
+    act(() => { result.current.nextTurn(0, false); });
+
+    let alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.totalTurns).toBe(1);
+    expect(alice.busts).toBe(1);
+
+    // Bob undoes Alice's turn
+    act(() => { result.current.undo(); });
+
+    alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.totalTurns).toBe(0);
+    expect(alice.busts).toBe(0);
+
+    Math.random = originalRandom;
+  });
+
+  it('[Bug 1] undo reverses feuerwerkBusts, feuerwerkPointsScored', () => {
+    const { result } = renderHook(() => useGameLogic());
+
+    act(() => {
+      result.current.addPlayer('Alice');
+      result.current.addPlayer('Bob');
+      result.current.setRandomOrder(false);
+      result.current.setInitialCards({ 'Feuerwerk': 2 });
+    });
+    act(() => { result.current.startGame(); });
+
+    // Feuerwerk is the only card — guaranteed
+    expect(result.current.currentCard).toBe('Feuerwerk');
+    act(() => { result.current.nextTurn(0, false); }); // Alice busts
+
+    let alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.feuerwerkBusts).toBe(1);
+    expect(alice.feuerwerkPointsScored).toBe(0);
+    expect(alice.timesFeuerwerkReceived).toBe(1);
+    expect(alice.totalTurns).toBe(1);
+    expect(alice.busts).toBe(1);
+
+    // Bob undoes Alice's turn
+    act(() => { result.current.undo(); });
+
+    alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.feuerwerkBusts).toBe(0);
+    expect(alice.feuerwerkPointsScored).toBe(0);
+    expect(alice.timesFeuerwerkReceived).toBe(0);
+    expect(alice.totalTurns).toBe(0);
+    expect(alice.busts).toBe(0);
+  });
+
+  it('[Bug 1] undo reverses x2Busts and x2PointsScored', () => {
+    const { result } = renderHook(() => useGameLogic());
+
+    act(() => {
+      result.current.addPlayer('Alice');
+      result.current.addPlayer('Bob');
+      result.current.setRandomOrder(false);
+      result.current.setInitialCards({ 'x2': 2 });
+    });
+    act(() => { result.current.startGame(); });
+
+    // x2 is the only card — guaranteed
+    expect(result.current.currentCard).toBe('x2');
+    act(() => { result.current.nextTurn(500, false); }); // Alice scores 500 on x2
+
+    let alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.x2PointsScored).toBe(500);
+    expect(alice.timesx2Received).toBe(1);
+    expect(alice.totalTurns).toBe(1);
+
+    // Bob undoes Alice's turn
+    act(() => { result.current.undo(); });
+
+    alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.x2PointsScored).toBe(0);
+    expect(alice.timesx2Received).toBe(0);
+    expect(alice.totalTurns).toBe(0);
+  });
+
+  it('[Bug 2] undo checks previousCard for Feuerwerk, not currentCard', () => {
+    // Scenario: 2-player game. Alice plays a '200' card. After her turn,
+    // the next card drawn is Feuerwerk (shown to Bob). Bob clicks undo.
+    // Bug 2: the old code checks `currentCard === 'Feuerwerk'` and wrongly
+    // decrements Alice's timesFeuerwerkReceived even though Alice played '200'.
+    const { result } = renderHook(() => useGameLogic());
+
+    act(() => {
+      result.current.addPlayer('Alice');
+      result.current.addPlayer('Bob');
+      result.current.setRandomOrder(false);
+      // Single card type guarantees Alice gets '200', then Feuerwerk is drawn next
+      result.current.setInitialCards({ '200': 1, 'Feuerwerk': 1 });
+    });
+    act(() => { result.current.startGame(); });
+
+    // Whichever card is first, we record it
+    const aliceCard = result.current.currentCard;
+    act(() => { result.current.nextTurn(300, false); }); // Alice plays
+
+    // Capture Alice's timesFeuerwerkReceived immediately after her turn
+    let alice = result.current.players.find(p => p.name === 'Alice');
+    const feuerwerkAfterAlice = alice.timesFeuerwerkReceived;
+    // Should be 1 only if Alice drew Feuerwerk, 0 otherwise
+    expect(feuerwerkAfterAlice).toBe(aliceCard === 'Feuerwerk' ? 1 : 0);
+
+    // Now Bob sees the next card (could be Feuerwerk). Bob clicks undo.
+    act(() => { result.current.undo(); });
+
+    alice = result.current.players.find(p => p.name === 'Alice');
+    // After undo, timesFeuerwerkReceived must equal what it was BEFORE Alice's turn (0)
+    expect(alice.timesFeuerwerkReceived).toBe(0);
+  });
+
+  // ─── Bug 6: Kleeblatt win sets currentPlayerIndex to null ──────────────────
+
+  it('[Bug 6] Kleeblatt win sets currentPlayerIndex to null', () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useGameLogic());
+
+    act(() => {
+      result.current.addPlayer('Alice');
+      result.current.setInitialCards({ 'Kleeblatt': 1 });
+    });
+    act(() => { result.current.startGame(); });
+
+    expect(result.current.currentCard).toBe('Kleeblatt');
+    act(() => { result.current.nextTurn(0, true); }); // Kleeblatt success
+
+    expect(result.current.finished).toBe(true);
+    expect(result.current.currentPlayerIndex).toBeNull();
+    expect(result.current.currentPlayer).toBeNull();
+  });
 });
+

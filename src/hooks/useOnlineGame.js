@@ -211,14 +211,15 @@ export function useOnlineGame(deviceId) {
       currentPlayer.timesPlusMinusFailed++;
     }
 
-      if (s.currentCard === 'x2') {
-        s.players[s.currentPlayerIndex].timesx2Received++;
-        s.players[s.currentPlayerIndex].x2PointsScored = (s.players[s.currentPlayerIndex].x2PointsScored || 0) + turnScore;
-      }
-      if (s.currentCard === 'Feuerwerk') {
-        s.players[s.currentPlayerIndex].timesFeuerwerkReceived++;
-        s.players[s.currentPlayerIndex].feuerwerkPointsScored = (s.players[s.currentPlayerIndex].feuerwerkPointsScored || 0) + turnScore;
-      }
+    // Bug 4 fix: use currentPlayer (single reference) consistently for x2 and Feuerwerk
+    if (s.currentCard === 'x2') {
+      currentPlayer.timesx2Received = (currentPlayer.timesx2Received || 0) + 1;
+      currentPlayer.x2PointsScored = (currentPlayer.x2PointsScored || 0) + turnScore;
+    }
+    if (s.currentCard === 'Feuerwerk') {
+      currentPlayer.timesFeuerwerkReceived = (currentPlayer.timesFeuerwerkReceived || 0) + 1;
+      currentPlayer.feuerwerkPointsScored = (currentPlayer.feuerwerkPointsScored || 0) + turnScore;
+    }
     if (s.currentCard === "Stop") currentPlayer.timesSkipped++;
 
     if (s.currentCard === "Kniffel" && isSuccess) {
@@ -232,6 +233,7 @@ export function useOnlineGame(deviceId) {
       currentPlayer.timesKleeblattCompleted = (currentPlayer.timesKleeblattCompleted || 0) + 1;
       currentPlayer.score = 999999;
       s.finished = true;
+      s.currentPlayerIndex = null; // Bug 6 fix
       pushState(s);
       return;
     } else if (s.currentCard === "Kleeblatt") {
@@ -295,7 +297,24 @@ export function useOnlineGame(deviceId) {
 
     let p = s.players[prevIndex];
 
-    if (s.currentCard === "Feuerwerk") p.timesFeuerwerkReceived--;
+    // Bug 2 fix: check previousCard, not currentCard
+    if (s.previousCard === "Feuerwerk") p.timesFeuerwerkReceived = Math.max(0, (p.timesFeuerwerkReceived || 0) - 1);
+
+    // Bug 1 fix: reverse totalTurns and bust counters
+    p.totalTurns = Math.max(0, (p.totalTurns || 0) - 1);
+    if (s.previousScore === 0 && s.previousCard !== "Stop") {
+      p.busts = Math.max(0, (p.busts || 0) - 1);
+      if (s.previousCard === "Feuerwerk") p.feuerwerkBusts = Math.max(0, (p.feuerwerkBusts || 0) - 1);
+      if (s.previousCard === "x2") p.x2Busts = Math.max(0, (p.x2Busts || 0) - 1);
+    }
+
+    // Bug 1 fix: reverse special card point counters
+    if (s.previousCard === "Feuerwerk") {
+      p.feuerwerkPointsScored = Math.max(0, (p.feuerwerkPointsScored || 0) - s.previousScore);
+    }
+    if (s.previousCard === "x2") {
+      p.x2PointsScored = Math.max(0, (p.x2PointsScored || 0) - s.previousScore);
+    }
     
     if (s.previousCard === "Plus_Minus" && s.previousLeaders) {
       s.previousLeaders.forEach(pl => {
@@ -310,7 +329,7 @@ export function useOnlineGame(deviceId) {
       else p.timesPlusMinusFailed--;
     }
 
-    if (s.previousCard === "x2") p.timesx2Received--;
+    if (s.previousCard === "x2") p.timesx2Received = Math.max(0, (p.timesx2Received || 0) - 1);
     
     if (s.previousCard === "Kniffel") {
       if (s.previousScore === 2000) p.timesKniffelCompleted--;
@@ -390,7 +409,7 @@ export function useOnlineGame(deviceId) {
       let totalTurns = 0, totalScore = 0;
       let totalPlusMinusCompleted = 0, totalKniffelCompleted = 0;
       let totalFeuerwerkPoints = 0, totalx2Points = 0;
-      let totalFeuerwerkBusts = 0, totalx2Busts = 0;
+      let totalFeuerwerkBusts = 0, totalx2Busts = 0, totalBusts = 0;
       s.players.forEach(p => {
         totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
         totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
@@ -407,6 +426,7 @@ export function useOnlineGame(deviceId) {
         totalx2Points += (p.x2PointsScored || 0);
         totalFeuerwerkBusts += (p.feuerwerkBusts || 0);
         totalx2Busts += (p.x2Busts || 0);
+        totalBusts += (p.busts || 0);
       });
 
       const isDefaultGame = (() => {
@@ -432,7 +452,7 @@ export function useOnlineGame(deviceId) {
           totalPlaytime: s.gameTimeInSeconds,
           totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2,
           totalTurns, totalScore, totalPlusMinusCompleted, totalKniffelCompleted, totalFeuerwerkPoints, totalx2Points,
-          totalFeuerwerkBusts, totalx2Busts,
+          totalFeuerwerkBusts, totalx2Busts, totalBusts,
           isDefaultGame
         })
       }).catch(console.error);

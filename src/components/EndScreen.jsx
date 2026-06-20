@@ -49,13 +49,38 @@ export default function EndScreen({ game, theme, mode, deviceId, setMode }) {
   const [deviceStats, setDeviceStats] = useState(null);
 
   useEffect(() => {
-    if (mode === 'online' && deviceId) {
-      fetch(`/api/stats/${deviceId}`)
-        .then(res => res.json())
-        .then(data => setDeviceStats(data))
-        .catch(err => console.error("Could not fetch device stats", err));
+    let isMounted = true;
+    let timerId = null;
+
+    const fetchStats = async (retries = 0) => {
+      if (!isMounted) return;
+      try {
+        const res = await fetch(`/api/stats/${deviceId}`);
+        const data = await res.json();
+        
+        if ((!data || !data.gamesPlayed) && retries < 5) {
+          timerId = setTimeout(() => fetchStats(retries + 1), 1000);
+          return;
+        }
+        
+        if (isMounted) setDeviceStats(data);
+      } catch (err) {
+        console.error("Could not fetch device stats", err);
+        if (retries < 5 && isMounted) {
+          timerId = setTimeout(() => fetchStats(retries + 1), 1000);
+        }
+      }
+    };
+
+    if (deviceId) {
+      timerId = setTimeout(() => fetchStats(0), 500);
     }
-  }, [mode, deviceId]);
+
+    return () => {
+      isMounted = false;
+      if (timerId) clearTimeout(timerId);
+    };
+  }, [deviceId]);
 
   if (!winner) return null;
 
