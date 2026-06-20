@@ -20,6 +20,7 @@ global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resol
 describe('useGameLogic', () => {
   beforeEach(() => {
     localStorageMock.clear();
+    window.localStorage.clear();
     vi.clearAllMocks();
   });
 
@@ -283,6 +284,61 @@ describe('useGameLogic', () => {
     // It should revert back to Alice's turn before she submitted 500
     expect(result.current.currentPlayer.name).toBe('Alice');
     expect(result.current.players.find(p => p.name === 'Alice').score).toBe(0);
+
+    Math.random = originalRandom;
+  });
+
+  it('handles Plus_Minus non-leader completion and undo', () => {
+    // Deterministic shuffle
+    const originalRandom = Math.random;
+    Math.random = () => 0.999999;
+
+    const { result } = renderHook(() => useGameLogic());
+    
+    act(() => {
+      result.current.addPlayer('Alice'); // Player 1
+      result.current.addPlayer('Bob');   // Player 2
+      result.current.setRandomOrder(false);
+      result.current.setInitialCards({ "200": 1, "Plus_Minus": 1 });
+    });
+
+    act(() => {
+      result.current.startGame();
+    });
+
+    // Round 1: Alice turn (200 card)
+    act(() => {
+      result.current.nextTurn(2000, false); // Alice becomes leader with 2000
+    });
+
+    // Round 1: Bob turn (Plus_Minus card)
+    act(() => {
+      result.current.nextTurn(0, true); // Bob succeeds, Bob is NOT leader
+    });
+
+    // Alice should lose 1000 points
+    let alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.score).toBe(1000); // 2000 - 1000
+    expect(alice.times1000PointsDeducted).toBe(1);
+
+    // Bob should gain 1000 points
+    let bob = result.current.players.find(p => p.name === 'Bob');
+    expect(bob.score).toBe(1000); // 0 + 1000
+
+    // Now Round 2 starts. It's Alice's turn again.
+    // Let's UNDO Bob's turn
+    act(() => {
+      result.current.undo();
+    });
+
+    // Alice should get her 1000 points back!
+    alice = result.current.players.find(p => p.name === 'Alice');
+    expect(alice.score).toBe(2000);
+    expect(alice.times1000PointsDeducted).toBe(0);
+
+    // Bob should lose his 1000 points
+    bob = result.current.players.find(p => p.name === 'Bob');
+    expect(bob.score).toBe(0);
 
     Math.random = originalRandom;
   });

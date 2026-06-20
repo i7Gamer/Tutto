@@ -44,8 +44,8 @@ describe('useOnlineGame', () => {
     act(() => {
       const mockState = {
         players: [
-          { name: 'HostAlice', score: 0, timesKleeblattCompleted: 0, timesKleeblattFailed: 0, timesPlusMinusCompleted: 0, timesPlusMinusFailed: 0, timesKniffelCompleted: 0, timesKniffelFailed: 0, timesSkipped: 0, timesFeuerwerkReceived: 0, timesx2Received: 0, times1000PointsDeducted: 0 },
-          { name: 'PlayerBob', score: 0, timesKleeblattCompleted: 0, timesKleeblattFailed: 0, timesPlusMinusCompleted: 0, timesPlusMinusFailed: 0, timesKniffelCompleted: 0, timesKniffelFailed: 0, timesSkipped: 0, timesFeuerwerkReceived: 0, timesx2Received: 0, times1000PointsDeducted: 0 }
+          { name: 'HostAlice', score: 0, timesKleeblattCompleted: 0, timesKleeblattFailed: 0, timesPlusMinusCompleted: 0, timesPlusMinusFailed: 0, timesKniffelCompleted: 0, timesKniffelFailed: 0, timesSkipped: 0, timesFeuerwerkReceived: 0, timesx2Received: 0, times1000PointsDeducted: 0, feuerwerkBusts: 1, x2Busts: 1 },
+          { name: 'PlayerBob', score: 0, timesKleeblattCompleted: 0, timesKleeblattFailed: 0, timesPlusMinusCompleted: 0, timesPlusMinusFailed: 0, timesKniffelCompleted: 0, timesKniffelFailed: 0, timesSkipped: 0, timesFeuerwerkReceived: 0, timesx2Received: 0, times1000PointsDeducted: 0, feuerwerkBusts: 0, x2Busts: 0 }
         ],
         currentPlayerIndex: 0,
         currentCard: 'Kleeblatt',
@@ -97,6 +97,8 @@ describe('useOnlineGame', () => {
     expect(newGameState.players[0].totalTurns).toBe(0);
     expect(newGameState.players[0].busts).toBe(0);
     expect(newGameState.players[0].score).toBe(0);
+    expect(newGameState.players[0].feuerwerkBusts).toBe(0);
+    expect(newGameState.players[0].x2Busts).toBe(0);
     expect(newGameState.finished).toBe(false);
   });
 

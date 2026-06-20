@@ -138,6 +138,8 @@ export function useOnlineGame(deviceId) {
       timesx2Received: 0,
       totalTurns: 0,
       busts: 0,
+      feuerwerkBusts: 0,
+      x2Busts: 0,
       feuerwerkPointsScored: 0,
       x2PointsScored: 0
     }));
