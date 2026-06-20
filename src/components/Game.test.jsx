@@ -160,4 +160,45 @@ describe('Game Component Integration', () => {
 
     expect(mockGame.nextTurn).not.toHaveBeenCalled();
   });
+
+  it('sends isSuccess=false when manually submitting 0 points for x2', () => {
+    mockGame.currentCard = 'x2';
+    render(<Game game={mockGame} />);
+
+    // Do not enter a score (defaults to 0) or explicitly enter 0
+    const scoreInput = screen.getByPlaceholderText('Points (if no dice used)');
+    fireEvent.change(scoreInput, { target: { value: '0' } });
+
+    const nextTurnBtn = screen.getByText('Next Turn');
+    fireEvent.click(nextTurnBtn);
+
+    // Score is 0, so it's a bust (isSuccess = false)
+    expect(mockGame.nextTurn).toHaveBeenCalledWith(0, false);
+  });
+
+  it('sends isSuccess=false when manually submitting 0 points for Feuerwerk', () => {
+    mockGame.currentCard = 'Feuerwerk';
+    render(<Game game={mockGame} />);
+
+    const scoreInput = screen.getByPlaceholderText('Points (if no dice used)');
+    fireEvent.change(scoreInput, { target: { value: '0' } });
+
+    const nextTurnBtn = screen.getByText('Next Turn');
+    fireEvent.click(nextTurnBtn);
+
+    expect(mockGame.nextTurn).toHaveBeenCalledWith(0, false);
+  });
+
+  it('sends isSuccess=true when manually submitting >0 points for Feuerwerk', () => {
+    mockGame.currentCard = 'Feuerwerk';
+    render(<Game game={mockGame} />);
+
+    const scoreInput = screen.getByPlaceholderText('Points (if no dice used)');
+    fireEvent.change(scoreInput, { target: { value: '500' } });
+
+    const nextTurnBtn = screen.getByText('Next Turn');
+    fireEvent.click(nextTurnBtn);
+
+    expect(mockGame.nextTurn).toHaveBeenCalledWith(500, true);
+  });
 });

@@ -89,6 +89,62 @@ describe('DiceGame Integration', () => {
     expect(onComplete).toHaveBeenCalledWith(2000, true);
   });
 
+  it('Feuerwerk: busting on the first roll sends isSuccess=false (failure)', async () => {
+    const onComplete = vi.fn();
+    render(<DiceGame currentCard="Feuerwerk" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    // Roll 1: Bust! (No 1s, 5s, or triplets)
+    diceSequence = [2, 3, 4, 6, 2, 3];
+    fireEvent.click(screen.getByText(/Roll 6 Dice/i));
+
+    expect(screen.getByText(/Bust!/i)).toBeInTheDocument();
+
+    act(() => {
+      vi.runAllTimers(); // Advance the timeout
+    });
+
+    expect(screen.getByText('Bust!')).toBeInTheDocument();
+    
+    fireEvent.click(screen.getByText(/Continue to Next Player/i));
+
+    // Turn score is 0, so it's a failure (isSuccess=false)
+    expect(onComplete).toHaveBeenCalledWith(0, false);
+  });
+
+  it('Feuerwerk: busting after accumulating points sends isSuccess=true', async () => {
+    const onComplete = vi.fn();
+    render(<DiceGame currentCard="Feuerwerk" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    // Roll 1: 5 (50 points)
+    diceSequence = [5, 2, 3, 4, 6, 6];
+    fireEvent.click(screen.getByText(/Roll 6 Dice/i));
+
+    fireEvent.click(screen.getByText('5'));
+
+    // Score is 50
+    expect(screen.getByText('50')).toBeInTheDocument();
+
+    // Roll Again (5 dice remaining)
+    // Roll 2: Bust!
+    diceSequence = [2, 3, 4, 6, 2];
+    fireEvent.click(screen.getByText(/Roll Again/i));
+
+    expect(screen.getByText(/Bust!/i)).toBeInTheDocument();
+
+    act(() => {
+      vi.runAllTimers(); // Advance the timeout
+    });
+
+    // Verify summary shows success because we accumulated 50 points
+    expect(screen.getByText('Success!')).toBeInTheDocument();
+    expect(screen.getByText('50')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/Continue to Next Player/i));
+
+    // Turn score is 50, so it's a success (isSuccess=true)
+    expect(onComplete).toHaveBeenCalledWith(50, true);
+  });
+
   it('200-600 Cards: only applies bonus when all dice are selected (Tutto)', async () => {
     const onComplete = vi.fn();
     render(<DiceGame currentCard="200" onComplete={onComplete} onCancel={vi.fn()} />);
