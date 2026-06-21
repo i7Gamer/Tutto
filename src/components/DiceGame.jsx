@@ -115,6 +115,17 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
     }
   };
 
+  useEffect(() => {
+    let timeout;
+    if (showSummary && bustState) {
+      timeout = setTimeout(() => {
+        finishGame();
+      }, 1500); // 1.5s after summary is shown (which is 1.5s after bust = 3s total)
+    }
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSummary, bustState]);
+
   const isMakingTutto = keptDice.length + selectedRolls.length === 6;
   const isSpecialCard = ["Kniffel", "Plus_Minus", "Kleeblatt"].includes(currentCard);
   
