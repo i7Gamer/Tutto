@@ -229,7 +229,7 @@ export function AdvancedOptionsPanel({
   );
 }
 
-export function StartGameButton({ startGame, playersCount }) {
+export function StartGameButton({ startGame, playersCount, disabled = false }) {
   return (
     <AnimatePresence>
       {playersCount > 0 && (
@@ -240,12 +240,13 @@ export function StartGameButton({ startGame, playersCount }) {
           className="flex justify-center"
         >
           <motion.button 
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="bg-emerald-500 hover:bg-emerald-600 text-white w-full py-4 rounded-xl text-xl font-bold flex justify-center items-center gap-3 shadow-lg shadow-emerald-500/30 transition-colors" 
+            whileHover={!disabled ? { scale: 1.05 } : {}}
+            whileTap={!disabled ? { scale: 0.95 } : {}}
+            className={`w-full py-4 rounded-xl text-xl font-bold flex justify-center items-center gap-3 transition-colors ${disabled ? 'bg-gray-400 text-gray-200 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'}`} 
             onClick={startGame}
+            disabled={disabled}
           >
-            <Play size={24} /> Start Game!
+            <Play size={24} /> {disabled ? "Waiting for players..." : "Start Game!"}
           </motion.button>
         </motion.div>
       )}

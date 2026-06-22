@@ -352,7 +352,11 @@ export const useGameStore = create(immer((set, get) => ({
 
     set((state) => {
       const resetPlayers = state.players.map(p => ({
-        ...createInitialPlayer(p.name), color: p.color
+        ...createInitialPlayer(p.name), 
+        color: p.color,
+        socketId: p.socketId,
+        deviceId: p.deviceId,
+        disconnected: p.disconnected
       }));
       state.players = state.randomOrder ? shuffleArray(resetPlayers) : resetPlayers;
       state.round = 1;

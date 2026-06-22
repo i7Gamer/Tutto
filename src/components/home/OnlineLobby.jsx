@@ -122,7 +122,8 @@ export default function OnlineLobby({ game }) {
           {isHost ? (
             <StartGameButton 
               startGame={startGame} 
-              playersCount={players ? players.length : 0} 
+              playersCount={players ? players.length : 0}
+              disabled={players.length < 2 || players.some(p => p.disconnected)}
             />
           ) : (
             <motion.div 
