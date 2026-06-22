@@ -63,6 +63,7 @@ export default function Statistics({ deviceId, onBack }) {
 
   const gAvgDuration = g?.totalGamesPlayed ? g.totalPlaytime / g.totalGamesPlayed : 0;
   const gAvgScorePerTurn = g?.totalTurns ? Math.round(g.totalScore / g.totalTurns) : 0;
+  const gBustRate = g?.totalTurns ? ((g.totalBusts / g.totalTurns) * 100).toFixed(1) : "0";
 
   const CardRow = ({ label, icon, count, wins, fails, avgPoints, hideRate, failsLabel }) => (
     <motion.div 
@@ -140,6 +141,7 @@ export default function Statistics({ deviceId, onBack }) {
           <button 
             className="absolute left-0 p-3 bg-white dark:bg-slate-800 hover:bg-black/5 dark:bg-white/5 border border-gray-200 dark:border-slate-600 rounded-xl text-gray-600 dark:text-gray-300 transition-colors shadow-sm" 
             onClick={onBack}
+            aria-label="Back"
           >
             <ArrowLeft size={20} />
           </button>
