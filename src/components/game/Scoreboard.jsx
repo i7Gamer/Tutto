@@ -47,7 +47,10 @@ export default function Scoreboard({ game, formattedTime }) {
           className="text-lg md:text-2xl font-extrabold truncate w-full text-center flex flex-col items-center gap-1" 
           style={{ color: currentPlayer.color || '#4f46e5' }}
         >
-          <span>{isOnline && isMyTurn ? `You (${currentPlayer.name})` : currentPlayer.name}</span>
+          <span className="flex items-center justify-center gap-2">
+            {isOnline && game.hostId === currentPlayer.socketId && <span title="Host" className="text-xl leading-none">👑</span>}
+            {isOnline && isMyTurn ? `You (${currentPlayer.name})` : currentPlayer.name}
+          </span>
           {currentPlayer.disconnected && <span className="text-red-500 text-[10px] md:text-xs font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50 leading-tight">Disconnected</span>}
         </div>
       </motion.div>

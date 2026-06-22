@@ -244,6 +244,35 @@ io.on('connection', (socket) => {
         if (isExplicitLeave) {
           // Permanently leave
           room.state.players.splice(playerIndex, 1);
+          
+          if (room.state.currentPlayerIndex !== null) {
+            let curIdx = room.state.currentPlayerIndex;
+            if (playerIndex < curIdx) {
+              room.state.currentPlayerIndex = curIdx - 1;
+            } else if (playerIndex === curIdx) {
+              room.state.currentPlayerIndex = curIdx % Math.max(1, room.state.players.length);
+              room.state.previousCard = null;
+              room.state.previousScore = null;
+              room.state.previousLeaders = null;
+              room.state.round += 1;
+
+              if (room.state.cards && room.state.cards.length > 0) {
+                room.state.currentCard = room.state.cards.shift();
+              } else {
+                const deckConfig = Object.keys(room.state.initialCards || {}).reduce((acc, card) => {
+                  for(let i=0; i<room.state.initialCards[card]; i++) acc.push(card);
+                  return acc;
+                }, []);
+                for (let i = deckConfig.length - 1; i > 0; i--) {
+                  const j = Math.floor(Math.random() * (i + 1));
+                  [deckConfig[i], deckConfig[j]] = [deckConfig[j], deckConfig[i]];
+                }
+                room.state.currentCard = deckConfig.shift() || null;
+                room.state.cards = deckConfig;
+              }
+            }
+          }
+
           if (room.disconnectTimers && room.disconnectTimers[player.deviceId]) {
             clearTimeout(room.disconnectTimers[player.deviceId]);
             delete room.disconnectTimers[player.deviceId];

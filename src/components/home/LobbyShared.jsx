@@ -246,7 +246,7 @@ export function StartGameButton({ startGame, playersCount, disabled = false }) {
             onClick={startGame}
             disabled={disabled}
           >
-            <Play size={24} /> {disabled ? "Waiting for players..." : "Start Game!"}
+            <Play size={24} /> {disabled ? (playersCount < 2 ? "Need at least 2 players" : "Waiting for players to reconnect...") : "Start Game!"}
           </motion.button>
         </motion.div>
       )}

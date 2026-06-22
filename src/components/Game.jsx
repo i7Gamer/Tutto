@@ -161,6 +161,7 @@ export default function Game() {
                       <td className="p-3 font-medium text-gray-600 dark:text-gray-300">{p.position}.</td>
                       <td className="p-3 font-bold flex items-center flex-wrap gap-2" style={{ color: p.color || '#1f2937' }}>
                         <span>{p.name}</span>
+                        {isOnline && game.hostId === p.socketId && <span title="Host" className="text-lg leading-none">👑</span>}
                         {p.disconnected && <span className="text-red-500 text-[10px] sm:text-xs font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50 whitespace-nowrap">Disconnected</span>}
                       </td>
                       <td className="p-3 font-bold text-gray-800 dark:text-gray-100 text-right">{p.score}</td>
