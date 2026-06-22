@@ -14,7 +14,9 @@ app.use(express.static(path.join(__dirname, '../dist')));
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: '*' }
+  cors: { origin: '*' },
+  pingInterval: 4000,
+  pingTimeout: 6000
 });
 
 const PLAYER_COLORS = [
