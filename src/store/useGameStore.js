@@ -55,6 +55,7 @@ export const useGameStore = create(immer((set, get) => ({
   mode: 'local',
   deviceId: null,
   isOnline: false,
+  showReconnectPopup: false,
   roomId: null,
   isHost: false,
   hostId: null,
@@ -213,6 +214,9 @@ export const useGameStore = create(immer((set, get) => ({
             if (prev.turnDuration !== state.turnDuration) prev.toastMessage = `Host changed turn timer to ${state.turnDuration === 0 ? 'Disabled' : state.turnDuration + 's'}`;
             if (prev.reconnectTimeout !== state.reconnectTimeout) prev.toastMessage = `Host changed reconnect timeout to ${state.reconnectTimeout}s`;
           }
+          if (prev.mode === 'online' && prev.status === 'playing' && state.status === 'lobby' && !prev.finished) {
+            prev.toastMessage = "The host ended the game early. Returned to lobby.";
+          }
           // Merge state but keep connection-specific fields untouched
           Object.assign(prev, state);
         });
@@ -233,7 +237,14 @@ export const useGameStore = create(immer((set, get) => ({
         get().setMode('local');
       });
 
+      socket.on('disconnect', () => {
+        if (get().mode === 'online') {
+          set({ showReconnectPopup: true });
+        }
+      });
+
       socket.on('connect', () => {
+        set({ showReconnectPopup: false });
         const { roomId, myName, deviceId } = get();
         if (roomId && myName) {
           const savedColor = localStorage.getItem('tutto_color') || null;
