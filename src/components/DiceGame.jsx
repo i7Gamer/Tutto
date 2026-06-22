@@ -1,20 +1,25 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Dices, Check, X, Hand, RotateCw, Play } from 'lucide-react';
-import { playBuzzer, playSuccess } from '../utils/soundEffects';
+import { playBuzzer, playSuccess, playTone } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
 import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus } from '../utils/diceLogic';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function DiceGame({ currentCard, onComplete, onCancel }) {
   const [keptDice, setKeptDice] = useState([]);
   const [currentRoll, setCurrentRoll] = useState([]);
+  const [displayRoll, setDisplayRoll] = useState([]);
+  const [rollingDiceIndices, setRollingDiceIndices] = useState(new Set());
   const [turnScore, setTurnScore] = useState(0);
   const [kniffelProgress, setKniffelProgress] = useState([]);
+  const [isRolling, setIsRolling] = useState(false);
   
   const [hasRolled, setHasRolled] = useState(false);
   const [bustState, setBustState] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState({ won: false, score: 0, isTutto: false });
   const [tuttosThisTurn, setTuttosThisTurn] = useState(0);
+  const [bustsThisTurn, setBustsThisTurn] = useState(0);
   
   const selectedRolls = currentRoll.filter(d => d.selected);
   const selectedVals = selectedRolls.map(d => d.val);
@@ -23,30 +28,77 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
   
   const activeCount = 6 - keptDice.length;
   
-  const roll = (countToRoll, currentKniffelProgress = kniffelProgress, currentTurnScore = turnScore) => {
-    const newRoll = Array.from({length: countToRoll}, (_, i) => ({
-      id: Date.now() + i,
-      val: rollDie(),
-      selected: false
-    }));
+  const roll = (numDice, kniffelArray = null, scoreSoFar = 0) => {
+    setIsRolling(true);
+    setBustState(false);
     
-    setCurrentRoll(newRoll);
+    playTone(600, "sine", 0.1);
+    
+    const newRollVals = Array.from({length: numDice}, () => rollDie());
+    const finalRolls = newRollVals.map((val, idx) => ({ id: Date.now() + idx, val, selected: false }));
+    
+    setCurrentRoll(finalRolls);
+    setDisplayRoll(finalRolls.map(r => ({ ...r, val: rollDie() })));
     setHasRolled(true);
+
+    const initialRolling = new Set(finalRolls.map(r => r.id));
+    setRollingDiceIndices(initialRolling);
     
-    if (isBust(newRoll.map(d => d.val), currentCard, currentKniffelProgress)) {
-      setBustState(true);
-      playBuzzer();
-      
+    const baseTumbleTime = 400;
+    const staggerDelay = 150;
+    
+    finalRolls.forEach((r, idx) => {
       setTimeout(() => {
-        if (currentCard === "Feuerwerk") {
-          setSummaryData({ won: currentTurnScore > 0, score: currentTurnScore, isTutto: false });
+        setRollingDiceIndices(prev => {
+          const next = new Set(prev);
+          next.delete(r.id);
+          return next;
+        });
+        setDisplayRoll(prev => prev.map(d => d.id === r.id ? { ...d, val: r.val } : d));
+        playTone(400 + (idx * 50), "sine", 0.05);
+      }, baseTumbleTime + (idx * staggerDelay));
+    });
+
+    const totalAnimationTime = baseTumbleTime + ((finalRolls.length - 1) * staggerDelay);
+
+    setTimeout(() => {
+      setIsRolling(false);
+      
+      if (isBust(newRollVals, currentCard, kniffelArray || kniffelProgress)) {
+        setBustState(true);
+        playBuzzer();
+        
+        const newBusts = bustsThisTurn + 1;
+        setBustsThisTurn(newBusts);
+        
+        if (currentCard === "Kleeblatt") {
+          setShowSummary(true);
+          setSummaryData({ won: false, score: 0 });
         } else {
-          setSummaryData({ won: false, score: 0, isTutto: false });
+          setTimeout(() => {
+            if (currentCard === "Feuerwerk") {
+              setSummaryData({ won: scoreSoFar > 0, score: scoreSoFar, isTutto: false });
+            } else {
+              setSummaryData({ won: false, score: 0, isTutto: false });
+            }
+            setShowSummary(true);
+          }, 1500);
         }
-        setShowSummary(true);
-      }, 1500);
-    }
+      }
+    }, totalAnimationTime + 100);
   };
+
+  useEffect(() => {
+    if (rollingDiceIndices.size === 0) return;
+    
+    const interval = setInterval(() => {
+      setDisplayRoll(prev => prev.map(d => 
+        rollingDiceIndices.has(d.id) ? { ...d, val: Math.floor(Math.random() * 6) + 1 } : d
+      ));
+    }, 80);
+    
+    return () => clearInterval(interval);
+  }, [rollingDiceIndices]);
 
   const handleAction = (action) => {
     if (!validation.valid && action !== 'stop') return;
@@ -103,16 +155,12 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
   };
 
   const toggleDie = (id) => {
-    if (bustState || showSummary) return;
+    if (bustState || showSummary || isRolling) return;
     setCurrentRoll(prev => prev.map(d => d.id === id ? { ...d, selected: !d.selected } : d));
   };
 
   const finishGame = () => {
-    if (summaryData.won) {
-      onComplete(summaryData.score, true);
-    } else {
-      onComplete(0, false);
-    }
+    onComplete(summaryData.score || 0, summaryData.won || false);
   };
 
   useEffect(() => {
@@ -120,7 +168,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
     if (showSummary && bustState) {
       timeout = setTimeout(() => {
         finishGame();
-      }, 1500); // 1.5s after summary is shown (which is 1.5s after bust = 3s total)
+      }, 1500);
     }
     return () => clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -129,7 +177,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
   const isMakingTutto = keptDice.length + selectedRolls.length === 6;
   const isSpecialCard = ["Kniffel", "Plus_Minus", "Kleeblatt"].includes(currentCard);
   
-  const canStop = hasRolled && !bustState && validation.valid && currentCard !== "Feuerwerk" &&
+  const canStop = hasRolled && !isRolling && !bustState && validation.valid && currentCard !== "Feuerwerk" &&
     (isMakingTutto || !isSpecialCard);
 
   const isRollAgainApplicable = !(isMakingTutto && currentCard !== "Feuerwerk");
@@ -153,88 +201,144 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
   }
 
   return (
-    <div className="modal-overlay">
-      <div className="glass-card modal-content" style={{ maxWidth: '500px', width: '90%', padding: '2rem' }}>
-        
-        {!showSummary && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-            <h2 style={{ margin: 0 }}>Dice Game</h2>
-            {!hasRolled && <button className="btn btn-outline" style={{ padding: '0.5rem', color: 'var(--danger)' }} onClick={onCancel}><X size={20}/></button>}
-          </div>
-        )}
+    <div className="bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden rounded-3xl flex flex-col items-center">
+      {!showSummary && (
+        <div className="w-full bg-black/5 dark:bg-white/5 border-b border-gray-200 dark:border-slate-600 p-4 flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 m-0">Dice Game</h2>
+          {!hasRolled && (
+            <button 
+              className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors" 
+              onClick={onCancel}
+            >
+              <X size={20}/>
+            </button>
+          )}
+        </div>
+      )}
 
+      <div className="p-8 w-full">
         {showSummary ? (
-          <div style={{ textAlign: 'center' }}>
-            <h2 style={{ color: summaryData.won ? 'var(--success)' : 'var(--danger)' }}>
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="text-center py-10"
+          >
+            <h2 className={`text-4xl font-extrabold mb-4 ${summaryData.won ? 'text-emerald-500' : 'text-red-500'}`}>
               {summaryData.won ? "Success!" : "Bust!"}
             </h2>
-            {summaryData.isTutto && <h3 style={{ color: 'var(--primary)' }}>Tutto!</h3>}
-            {summaryData.won && !["Kniffel", "Plus_Minus", "Kleeblatt"].includes(currentCard) && (
-              <p style={{ fontSize: '1.5rem' }}>Points gained: <strong>{summaryData.score}</strong></p>
+            {summaryData.isTutto && <h3 className="text-3xl font-bold text-indigo-500 mb-4 animate-bounce">Tutto!</h3>}
+            {(summaryData.won || currentCard === "Feuerwerk") && !["Kniffel", "Plus_Minus", "Kleeblatt"].includes(currentCard) && summaryData.score > 0 && (
+              <p className="text-2xl text-gray-700 dark:text-gray-200">Points gained: <strong className="text-indigo-600 font-black">{summaryData.score}</strong></p>
             )}
             
-            <button className="btn btn-primary" style={{ marginTop: '2rem', width: '100%', padding: '1rem' }} onClick={finishGame}>
-              Continue to Next Player <Check size={20} style={{ marginLeft: 8 }} />
+            <button 
+              className="mt-10 bg-indigo-600 hover:bg-indigo-700 text-white w-full py-4 rounded-xl text-xl font-bold flex justify-center items-center gap-2 shadow-lg shadow-indigo-500/30 transition-all" 
+              onClick={finishGame}
+            >
+              Continue to Next Player <Check size={24} />
             </button>
-          </div>
+          </motion.div>
         ) : (
           <>
-            <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-              <div style={{ fontSize: '1.25rem', color: 'var(--text-color)', opacity: 0.8 }}>Current Score</div>
-              <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+            <div className="text-center mb-8">
+              <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1">Current Score</div>
+              <motion.div 
+                key={turnScore + (validation.valid ? validation.score : 0)}
+                initial={{ scale: 1.2 }}
+                animate={{ scale: 1 }}
+                className="text-5xl font-black text-indigo-600 dark:text-indigo-400"
+              >
                 {turnScore + (validation.valid ? validation.score : 0)}
-              </div>
+              </motion.div>
               {currentCard === "Kleeblatt" && (
-                <div style={{ fontSize: '1rem', color: 'var(--success)', marginTop: '0.5rem', fontWeight: 'bold' }}>
+                <div className="text-emerald-500 mt-2 font-bold text-lg bg-emerald-50 inline-block px-4 py-1 rounded-full border border-emerald-200">
                   Tuttos: {tuttosThisTurn} / 2
                 </div>
               )}
             </div>
 
-            <div style={{ marginBottom: '1rem' }}>
-              <h4 style={{ marginBottom: '0.5rem' }}>Kept Dice</h4>
-              <div className="dice-container" style={{ minHeight: '60px', padding: '10px', background: 'rgba(0,0,0,0.1)', borderRadius: '8px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                {displayKeptDice.map((d, i) => (
-                  <div key={`kept-${i}`} className="die kept">
-                    {d.val}
-                  </div>
-                ))}
-                {displayKeptDice.length === 0 && <span style={{ opacity: 0.5 }}>None</span>}
+            <div className="mb-6">
+              <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Kept Dice</h4>
+              <div className="min-h-[80px] p-4 bg-black/5 dark:bg-white/5 rounded-2xl flex gap-3 flex-wrap items-center border border-gray-200 dark:border-slate-600/50 shadow-inner">
+                <AnimatePresence>
+                  {displayKeptDice.map((d, i) => (
+                    <motion.div 
+                      key={`kept-${i}`} 
+                      initial={{ scale: 0, rotate: -180 }}
+                      animate={{ scale: 1, rotate: 0 }}
+                      className="die w-14 h-14 bg-indigo-600 text-white rounded-xl shadow-md flex items-center justify-center text-2xl font-bold border-2 border-indigo-400"
+                    >
+                      {d.val}
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+                {displayKeptDice.length === 0 && <span className="text-gray-400 font-medium italic mx-auto">None</span>}
               </div>
             </div>
 
-            <div style={{ marginBottom: '2rem' }}>
-              <h4 style={{ marginBottom: '0.5rem' }}>Current Roll</h4>
+            <div className="mb-8">
+              <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Current Roll</h4>
               {!hasRolled ? (
-                <div style={{ padding: '2rem', textAlign: 'center' }}>
-                  <button className="btn btn-primary" style={{ padding: '1rem 2rem', fontSize: '1.25rem' }} onClick={() => roll(6)}>
-                    <Dices size={24} style={{ marginRight: 8 }} /> Roll 6 Dice
-                  </button>
+                <div className="py-8 text-center flex justify-center">
+                  <motion.button 
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl text-xl font-bold flex items-center gap-3 shadow-lg shadow-indigo-500/30 transition-all" 
+                    onClick={() => roll(6)}
+                  >
+                    <Dices size={28} /> Roll 6 Dice
+                  </motion.button>
                 </div>
               ) : (
                 <>
-                  <div className="dice-container" style={{ minHeight: '60px', padding: '10px', borderRadius: '8px', display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                    {currentRoll.map(d => (
-                      <div 
-                        key={d.id} 
-                        className={`die ${d.selected ? 'selected' : ''} ${bustState ? 'bust' : ''}`}
-                        onClick={() => toggleDie(d.id)}
-                      >
-                        {d.val}
-                      </div>
-                    ))}
+                  <div className="min-h-[80px] p-4 bg-white dark:bg-slate-800 rounded-2xl flex gap-3 flex-wrap justify-center border border-gray-200 dark:border-slate-600 shadow-sm">
+                    {displayRoll.map(d => {
+                      const isDieTumbling = rollingDiceIndices.has(d.id);
+                      const actualDie = currentRoll.find(cr => cr.id === d.id);
+                      const isSelected = actualDie?.selected || false;
+                      
+                      return (
+                        <motion.div 
+                          key={d.id} 
+                          layout
+                          animate={{ 
+                            rotate: isDieTumbling ? [0, 90, 180, 270, 360] : 0,
+                            y: isDieTumbling ? [0, -20, 0] : 0 
+                          }}
+                          transition={{ 
+                            rotate: { repeat: isDieTumbling ? Infinity : 0, duration: 0.2 },
+                            y: { repeat: isDieTumbling ? Infinity : 0, duration: 0.15 }
+                          }}
+                          className={`die w-14 h-14 rounded-xl flex items-center justify-center text-2xl font-bold transition-all border-2
+                            ${isSelected 
+                              ? 'bg-emerald-100 border-emerald-500 text-emerald-700 shadow-[0_0_15px_rgba(16,185,129,0.3)] scale-110 z-10' 
+                              : bustState 
+                                ? 'bg-red-50 border-red-300 text-red-500 opacity-70' 
+                                : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 text-gray-800 dark:text-gray-100 shadow-sm ' + (isDieTumbling ? '' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50')
+                            }
+                          `}
+                          onClick={() => toggleDie(d.id)}
+                        >
+                          {d.val}
+                        </motion.div>
+                      );
+                    })}
                   </div>
                   
                   {bustState && (
-                    <div style={{ textAlign: 'center', color: 'var(--danger)', fontSize: '1.5rem', fontWeight: 'bold', marginTop: '1rem' }}>
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="text-center text-red-500 text-2xl font-black mt-6 bg-red-50 py-3 rounded-xl border border-red-100"
+                    >
                       Bust! (Volltreffer/Niete)
-                    </div>
+                    </motion.div>
                   )}
                   
                   {!bustState && (
-                    <div style={{ textAlign: 'center', marginTop: '0.5rem', minHeight: '24px' }}>
+                    <div className="text-center mt-3 min-h-[24px]">
                       {!validation.valid && selectedRolls.length > 0 && (
-                        <span style={{ color: 'var(--danger)' }}>Invalid selection</span>
+                        <span className="text-red-500 font-bold bg-red-50 px-3 py-1 rounded-full border border-red-100">Invalid selection</span>
                       )}
                     </div>
                   )}
@@ -242,21 +346,35 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
               )}
             </div>
 
-            {hasRolled && !bustState && (
-              <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-                {canStop && (
-                  <button className="btn btn-success" disabled={!validation.valid} onClick={() => handleAction('stop')} style={{ flex: 1 }}>
-                    <Hand size={18} style={{ marginRight: 8 }} /> {stopButtonText}
-                  </button>
-                )}
-                
-                {isRollAgainApplicable && (
-                  <button className="btn btn-primary" disabled={!validation.valid} onClick={() => handleAction('roll')} style={{ flex: 1 }}>
-                    <RotateCw size={18} style={{ marginRight: 8 }} /> Roll Again
-                  </button>
-                )}
-              </div>
-            )}
+            <AnimatePresence>
+              {hasRolled && !bustState && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex flex-col sm:flex-row gap-4 justify-center mt-8 pt-6 border-t border-gray-100 dark:border-slate-700"
+                >
+                  {canStop && (
+                    <button 
+                      className={`flex-1 flex justify-center items-center gap-2 py-4 rounded-xl font-bold text-lg transition-all ${validation.valid ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`} 
+                      disabled={!validation.valid} 
+                      onClick={() => handleAction('stop')}
+                    >
+                      <Hand size={20} /> {stopButtonText}
+                    </button>
+                  )}
+                  
+                  {isRollAgainApplicable && (
+                    <button 
+                      className={`flex-1 flex justify-center items-center gap-2 py-4 rounded-xl font-bold text-lg transition-all ${validation.valid ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/30' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`} 
+                      disabled={!validation.valid}
+                      onClick={() => handleAction('roll')}
+                    >
+                      <RotateCw size={20} /> Roll Again
+                    </button>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </>
         )}
       </div>

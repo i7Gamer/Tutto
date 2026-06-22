@@ -1,7 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import database from './database';
 
 describe('Database Statistics Integration', () => {
+  beforeAll(async () => {
+    await database.initDb();
+  });
   it('should store and retrieve all device statistics without SQL errors', async () => {
     const mockDeviceId = 'unique-test-device-' + Date.now();
     const mockStats = {
@@ -40,6 +43,8 @@ describe('Database Statistics Integration', () => {
     expect(retrievedStats.feuerwerkPointsScored).toBe(1000);
     expect(retrievedStats.x2PointsScored).toBe(2000);
     expect(retrievedStats.totalTurns).toBe(20);
+    expect(retrievedStats.kleeblattFailed).toBe(1);
+    expect(retrievedStats.kleeblattCompleted).toBe(1);
   });
 
   it('should store and retrieve all global statistics without SQL errors', async () => {
@@ -77,5 +82,77 @@ describe('Database Statistics Integration', () => {
     expect(typeof retrievedStats.totalScore).toBe('number');
     expect(typeof retrievedStats.totalFeuerwerkPoints).toBe('number');
     expect(typeof retrievedStats.totalx2Points).toBe('number');
+    expect(retrievedStats.totalKleeblatt).toBeGreaterThanOrEqual(1);
+    expect(retrievedStats.totalKleeblattCompleted).toBeGreaterThanOrEqual(1);
+  });
+
+  it('should store and retrieve Kleeblatt losses correctly in global statistics', async () => {
+    const mockGlobalStats = {
+      gamesPlayed: 1,
+      totalPlaytime: 600,
+      totalKleeblatt: 1,
+      totalKleeblattCompleted: 0,
+      isDefaultGame: true
+    };
+
+    const initialStats = await database.getGlobalStats() || { totalKleeblatt: 0, totalKleeblattCompleted: 0 };
+    await database.updateGlobalStats(mockGlobalStats);
+    const retrievedStats = await database.getGlobalStats();
+
+    expect(retrievedStats).not.toBeNull();
+    // It should increment totalKleeblatt but NOT totalKleeblattCompleted
+    expect(retrievedStats.totalKleeblatt).toBe(initialStats.totalKleeblatt + 1);
+    expect(retrievedStats.totalKleeblattCompleted).toBe(initialStats.totalKleeblattCompleted);
+  });
+
+  it('should handle edge cases with missing fields gracefully in device stats', async () => {
+    const mockDeviceId = 'edge-case-device-' + Date.now();
+    const emptyStats = {}; // Missing all fields
+
+    // Should not throw
+    await database.updateDeviceStats(mockDeviceId, emptyStats);
+
+    const retrievedStats = await database.getDeviceStats(mockDeviceId);
+    expect(retrievedStats).not.toBeNull();
+    expect(retrievedStats.gamesPlayed).toBe(0);
+    expect(retrievedStats.wins).toBe(0);
+    expect(retrievedStats.totalPlaytime).toBe(0);
+    expect(retrievedStats.totalTurns).toBe(0);
+    expect(retrievedStats.kleeblattCompleted).toBe(0);
+  });
+
+  it('should handle edge cases with missing fields gracefully in global stats', async () => {
+    const emptyGlobalStats = {}; // Missing all fields
+
+    const initialStats = await database.getGlobalStats() || { totalGamesPlayed: 0, totalScore: 0 };
+    
+    // Should not throw
+    await database.updateGlobalStats(emptyGlobalStats);
+
+    const retrievedStats = await database.getGlobalStats();
+    expect(retrievedStats).not.toBeNull();
+    // Values should remain unchanged because they fall back to 0
+    expect(retrievedStats.totalGamesPlayed).toBe(initialStats.totalGamesPlayed);
+    expect(retrievedStats.totalScore).toBe(initialStats.totalScore);
+  });
+
+  it('should correctly accumulate values on multiple updates for global stats', async () => {
+    const initialStats = await database.getGlobalStats() || { totalGamesPlayed: 0, totalScore: 0, totalBusts: 0 };
+    
+    const incrementalStats = {
+      gamesPlayed: 1,
+      totalScore: 5000,
+      totalBusts: 2
+    };
+
+    // First update
+    await database.updateGlobalStats(incrementalStats);
+    // Second update
+    await database.updateGlobalStats(incrementalStats);
+
+    const retrievedStats = await database.getGlobalStats();
+    expect(retrievedStats.totalGamesPlayed).toBe(initialStats.totalGamesPlayed + 2);
+    expect(retrievedStats.totalScore).toBe(initialStats.totalScore + 10000);
+    expect(retrievedStats.totalBusts).toBe(initialStats.totalBusts + 4);
   });
 });

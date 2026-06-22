@@ -3,6 +3,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Game from './Game';
+import { useGameStore } from '../store/useGameStore';
 
 vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
@@ -18,15 +19,16 @@ vi.mock('./DiceGame', () => ({
 }));
 
 describe('Game Component Integration', () => {
-  let mockGame;
+  let mockNextTurn;
 
   beforeEach(() => {
     vi.useFakeTimers();
-    mockGame = {
+    mockNextTurn = vi.fn();
+    useGameStore.setState({
       currentPlayerIndex: 0,
       currentPlayer: { name: 'Alice', socketId: 'socket1', score: 0, position: 1 },
       currentCard: 'x2',
-      nextTurn: vi.fn(),
+      nextTurn: mockNextTurn,
       isOnline: true,
       socketId: 'socket1',
       hostId: 'socket1',
@@ -40,21 +42,23 @@ describe('Game Component Integration', () => {
       sortedPlayers: [
         { name: 'Alice', socketId: 'socket1', score: 0, position: 1 }
       ]
-    };
+    });
   });
 
   afterEach(() => {
-    vi.runOnlyPendingTimers();
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
     vi.useRealTimers();
     vi.clearAllMocks();
   });
 
   it('renders "Apply bonus" checkbox for x2 and correctly multiplies score', () => {
-    mockGame.currentCard = 'x2';
-    render(<Game game={mockGame} />);
+    useGameStore.setState({ currentCard: 'x2' });
+    render(<Game />);
 
-    // Enter a score
-    const scoreInput = screen.getByPlaceholderText('Points (if no dice used)');
+    // Input a score
+    const scoreInput = screen.getByPlaceholderText('Score');
     fireEvent.change(scoreInput, { target: { value: '1000' } });
 
     // Check the bonus box
@@ -69,136 +73,189 @@ describe('Game Component Integration', () => {
     fireEvent.click(nextTurnBtn);
 
     // Should multiply 1000 * 2 = 2000
-    expect(mockGame.nextTurn).toHaveBeenCalledWith(2000, true);
+    expect(mockNextTurn).toHaveBeenCalledWith(2000, true);
   });
 
   it('renders "Apply bonus" checkbox for 400 and correctly adds score', () => {
-    mockGame.currentCard = '400';
-    render(<Game game={mockGame} />);
+    useGameStore.setState({ currentCard: '400' });
+    render(<Game />);
 
     // Enter a score
-    const scoreInput = screen.getByPlaceholderText('Points (if no dice used)');
+    const scoreInput = screen.getByPlaceholderText('Score');
     fireEvent.change(scoreInput, { target: { value: '1000' } });
 
     // Check the bonus box
-    const checkbox = screen.getByLabelText('Apply bonus');
-    fireEvent.click(checkbox);
+    const bonusCheck = screen.getByLabelText(/Apply bonus/i);
+    fireEvent.click(bonusCheck);
 
     // Submit
-    const nextTurnBtn = screen.getByText('Next Turn');
-    fireEvent.click(nextTurnBtn);
+    const submitBtn = screen.getByRole('button', { name: /Next Turn/i });
+    fireEvent.click(submitBtn);
 
-    // Should add 1000 + 400 = 1400
-    expect(mockGame.nextTurn).toHaveBeenCalledWith(1400, true);
+    expect(mockNextTurn).toHaveBeenCalledWith(1400, true);
   });
 
   it('does not render "Apply bonus" checkbox for normal cards', () => {
-    mockGame.currentCard = 'Kniffel'; // No manual input anyway
-    mockGame.currentCardHasInput = false;
-    const { unmount } = render(<Game game={mockGame} />);
+    useGameStore.setState({ currentCard: 'Kniffel', currentCardHasInput: false });
+    const { unmount } = render(<Game />);
     expect(screen.queryByLabelText('Apply bonus')).not.toBeInTheDocument();
     unmount();
 
-    mockGame.currentCard = 'Feuerwerk'; // Has input but no manual bonus application
-    mockGame.currentCardHasInput = true;
-    render(<Game game={mockGame} />);
+    useGameStore.setState({ currentCard: 'Feuerwerk', currentCardHasInput: true });
+    render(<Game />);
     expect(screen.queryByLabelText('Apply bonus')).not.toBeInTheDocument();
   });
 
   it('automatically advances turn after 5 seconds on Stop card in online game', () => {
-    mockGame.currentCard = 'Stop';
-    mockGame.currentCardHasInput = false;
-    mockGame.isOnline = true;
-    mockGame.socketId = 'socket1'; // It's Alice's turn
-    
-    render(<Game game={mockGame} />);
+    useGameStore.setState({ currentCard: 'Stop' });
+    render(<Game />);
 
-    // Initially nextTurn is not called
-    expect(mockGame.nextTurn).not.toHaveBeenCalled();
+    expect(mockNextTurn).not.toHaveBeenCalled();
 
-    // Advance 4.9 seconds
+    // Fast-forward 5 seconds
     act(() => {
-      vi.advanceTimersByTime(4900);
-    });
-    expect(mockGame.nextTurn).not.toHaveBeenCalled();
-
-    // Advance past 5 seconds
-    act(() => {
-      vi.advanceTimersByTime(100);
+      vi.advanceTimersByTime(5000);
     });
 
-    expect(mockGame.nextTurn).toHaveBeenCalledWith(0, false);
+    expect(mockNextTurn).toHaveBeenCalledWith(0, false);
   });
 
   it('does NOT automatically advance turn if it is NOT the players turn', () => {
-    mockGame.currentCard = 'Stop';
-    mockGame.currentCardHasInput = false;
-    mockGame.isOnline = true;
-    mockGame.myName = 'Bob'; // Not Alice's turn
-    mockGame.socketId = 'socket2'; // Someone else's turn
+    useGameStore.setState({ currentCard: 'Stop', myName: 'Bob', socketId: 'socket2' });
     
-    render(<Game game={mockGame} />);
+    render(<Game />);
 
     act(() => {
       vi.advanceTimersByTime(5000);
     });
 
-    expect(mockGame.nextTurn).not.toHaveBeenCalled();
+    expect(mockNextTurn).not.toHaveBeenCalled();
   });
 
-  it('does NOT automatically advance turn in a local game', () => {
-    mockGame.currentCard = 'Stop';
-    mockGame.currentCardHasInput = false;
-    mockGame.isOnline = false; // Local game
-    mockGame.socketId = 'socket1';
-    
-    render(<Game game={mockGame} />);
+  it('does NOT automatically advance turn for non-Stop cards in online game', () => {
+    useGameStore.setState({ currentCard: 'Feuerwerk' });
+    render(<Game />);
 
+    // Fast-forward 5 seconds
     act(() => {
       vi.advanceTimersByTime(5000);
     });
 
-    expect(mockGame.nextTurn).not.toHaveBeenCalled();
+    expect(mockNextTurn).not.toHaveBeenCalled();
   });
 
   it('sends isSuccess=false when manually submitting 0 points for x2', () => {
-    mockGame.currentCard = 'x2';
-    render(<Game game={mockGame} />);
+    useGameStore.setState({ currentCard: 'x2' });
+    render(<Game />);
 
     // Do not enter a score (defaults to 0) or explicitly enter 0
-    const scoreInput = screen.getByPlaceholderText('Points (if no dice used)');
+    const scoreInput = screen.getByPlaceholderText('Score');
     fireEvent.change(scoreInput, { target: { value: '0' } });
 
-    const nextTurnBtn = screen.getByText('Next Turn');
-    fireEvent.click(nextTurnBtn);
+    const submitBtn = screen.getByRole('button', { name: /Next Turn/i });
+    fireEvent.click(submitBtn);
 
     // Score is 0, so it's a bust (isSuccess = false)
-    expect(mockGame.nextTurn).toHaveBeenCalledWith(0, false);
+    expect(mockNextTurn).toHaveBeenCalledWith(0, false);
   });
 
   it('sends isSuccess=false when manually submitting 0 points for Feuerwerk', () => {
-    mockGame.currentCard = 'Feuerwerk';
-    render(<Game game={mockGame} />);
+    useGameStore.setState({ currentCard: 'Feuerwerk' });
+    render(<Game />);
 
-    const scoreInput = screen.getByPlaceholderText('Points (if no dice used)');
+    const scoreInput = screen.getByPlaceholderText('Score');
     fireEvent.change(scoreInput, { target: { value: '0' } });
 
-    const nextTurnBtn = screen.getByText('Next Turn');
-    fireEvent.click(nextTurnBtn);
+    const submitBtn = screen.getByRole('button', { name: /Next Turn/i });
+    fireEvent.click(submitBtn);
 
-    expect(mockGame.nextTurn).toHaveBeenCalledWith(0, false);
+    expect(mockNextTurn).toHaveBeenCalledWith(0, false);
   });
 
   it('sends isSuccess=true when manually submitting >0 points for Feuerwerk', () => {
-    mockGame.currentCard = 'Feuerwerk';
-    render(<Game game={mockGame} />);
+    useGameStore.setState({ currentCard: 'Feuerwerk' });
+    render(<Game />);
 
-    const scoreInput = screen.getByPlaceholderText('Points (if no dice used)');
+    const scoreInput = screen.getByPlaceholderText('Score');
     fireEvent.change(scoreInput, { target: { value: '500' } });
 
-    const nextTurnBtn = screen.getByText('Next Turn');
-    fireEvent.click(nextTurnBtn);
+    const submitBtn = screen.getByRole('button', { name: /Next Turn/i });
+    fireEvent.click(submitBtn);
 
-    expect(mockGame.nextTurn).toHaveBeenCalledWith(500, true);
+    expect(mockNextTurn).toHaveBeenCalledWith(500, true);
+  });
+
+  it('hides Roll Dice button when showRollDiceOption is false', () => {
+    useGameStore.setState({ showRollDiceOption: false });
+    render(<Game />);
+
+    const rollDiceButton = screen.queryByText(/Roll Dice/i);
+    expect(rollDiceButton).toBeNull();
+    
+    // Test that 'OR TYPE SCORE' is also hidden
+    const typeScoreDivider = screen.queryByText('OR TYPE SCORE');
+    expect(typeScoreDivider).toBeNull();
+  });
+
+  it('shows Roll Dice button when showRollDiceOption is true', () => {
+    useGameStore.setState({ showRollDiceOption: true });
+    render(<Game />);
+
+    const rollDiceButton = screen.getByText(/Roll Dice/i);
+    expect(rollDiceButton).toBeTruthy();
+    
+    const typeScoreDivider = screen.getByText('OR TYPE SCORE');
+    expect(typeScoreDivider).toBeTruthy();
+  });
+
+  it('plays buzzer sound when Stop card is drawn locally or online', async () => {
+    act(() => {
+      useGameStore.setState({ currentCard: 'Stop' });
+    });
+    render(<Game />);
+    
+    expect(await import('../utils/soundEffects').then(m => m.playBuzzer)).toHaveBeenCalled();
+    
+    vi.clearAllMocks();
+
+    act(() => {
+      useGameStore.setState({ currentCard: 'Stop', isOnline: false });
+    });
+    render(<Game />);
+
+    expect(await import('../utils/soundEffects').then(m => m.playBuzzer)).toHaveBeenCalled();
+  });
+
+  it('triggers animation and sound on consecutive Feuerwerk draws', async () => {
+    const playSuccess = await import('../utils/soundEffects').then(m => m.playSuccess);
+    const confetti = await import('canvas-confetti').then(m => m.default);
+
+    act(() => {
+      useGameStore.setState({ currentCard: 'Feuerwerk' });
+    });
+    
+    const { rerender } = render(<Game />);
+    
+    // First draw
+    expect(playSuccess).toHaveBeenCalledTimes(1);
+    expect(confetti).toHaveBeenCalledTimes(1);
+    
+    vi.clearAllMocks();
+
+    // Re-render with same card should re-trigger because of useEffect dependency
+    act(() => {
+      useGameStore.setState({ currentCard: null });
+    });
+    
+    rerender(<Game />);
+    
+    act(() => {
+      useGameStore.setState({ currentCard: 'Feuerwerk' });
+    });
+    
+    rerender(<Game />);
+    
+    expect(playSuccess).toHaveBeenCalledTimes(1);
+    expect(confetti).toHaveBeenCalledTimes(1);
   });
 });

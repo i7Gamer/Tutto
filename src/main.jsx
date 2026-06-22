@@ -8,9 +8,9 @@ import { registerSW } from 'virtual:pwa-register'
 const updateSW = registerSW({
   immediate: true,
   onNeedRefresh() {
-    // With autoUpdate and skipWaiting, the SW activates immediately.
-    // We can force a reload here to ensure the user gets the fresh assets.
-    window.location.reload(true);
+    // A new service worker is available.
+    // We intentionally don't force a reload to prevent interrupting active games.
+    console.log('New update available. The app will update on next launch.');
   },
   onOfflineReady() {
     console.log('App is ready to work offline');

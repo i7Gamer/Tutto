@@ -11,6 +11,30 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      window.addEventListener('error', function(e) {
+        var isChunkError = e.message && (e.message.includes('Failed to fetch dynamically imported module') || e.message.includes('Importing a module script failed'));
+        var isScriptError = e.target && e.target.tagName === 'SCRIPT' && e.target.src && e.target.src.includes(window.location.host);
+        
+        if (isChunkError || isScriptError) {
+          var lastReload = localStorage.getItem('tutto_last_reload');
+          var now = Date.now();
+          
+          if (!lastReload || (now - parseInt(lastReload)) > 10000) {
+            localStorage.setItem('tutto_last_reload', now.toString());
+            if ('caches' in window) {
+              caches.keys().then(function(names) {
+                return Promise.all(names.map(function(name) { return caches.delete(name); }));
+              }).then(function() {
+                window.location.reload(true);
+              });
+            } else {
+              window.location.reload(true);
+            }
+          }
+        }
+      }, true);
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

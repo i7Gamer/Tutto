@@ -6,7 +6,8 @@ import DiceGame from './DiceGame';
 
 vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
-  playSuccess: vi.fn()
+  playSuccess: vi.fn(),
+  playTone: vi.fn()
 }));
 
 vi.mock('canvas-confetti', () => ({
@@ -77,7 +78,7 @@ describe('DiceGame Integration', () => {
     expect(screen.getByText(/Bust!/i)).toBeInTheDocument();
 
     act(() => {
-      vi.runAllTimers(); // Advance the 1500ms timeout for bust summary
+      vi.advanceTimersByTime(3000); // Advance the 1500ms timeout for bust summary
     });
 
     // Verify summary shows success for Feuerwerk with aggregated points
@@ -100,7 +101,7 @@ describe('DiceGame Integration', () => {
     expect(screen.getByText(/Bust!/i)).toBeInTheDocument();
 
     act(() => {
-      vi.runAllTimers(); // Advance the timeout
+      vi.advanceTimersByTime(3000); // Advance the timeout
     });
 
     expect(screen.getByText('Bust!')).toBeInTheDocument();
@@ -132,7 +133,7 @@ describe('DiceGame Integration', () => {
     expect(screen.getByText(/Bust!/i)).toBeInTheDocument();
 
     act(() => {
-      vi.runAllTimers(); // Advance the timeout
+      vi.advanceTimersByTime(3000); // Advance the timeout
     });
 
     // Verify summary shows success because we accumulated 50 points
@@ -141,7 +142,7 @@ describe('DiceGame Integration', () => {
 
     fireEvent.click(screen.getByText(/Continue to Next Player/i));
 
-    // Turn score is 50, so it's a success (isSuccess=true)
+    // Turn score is 50, so it's a success (isSuccess=true)? No, it's a bust now!
     expect(onComplete).toHaveBeenCalledWith(50, true);
   });
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
+import { calculateNextTurn, calculateUndo, getLeaders } from '../utils/coreGameEngine';
 
 let socket;
 
@@ -8,8 +9,23 @@ export function useOnlineGame(deviceId) {
   const [roomId, setRoomId] = useState(null);
   const [isHost, setIsHost] = useState(false);
   const [hostId, setHostId] = useState(null);
+  const [error, setError] = useState(null);
   const [myName, setMyName] = useState(null);
-  const [socketId, setSocketId] = useState(null);
+  const [toastMessage, setToastMessage] = useState(null);
+
+  const [showRollDiceOption, setShowRollDiceOption] = useState(() => {
+    const stored = localStorage.getItem('tutto_showRollDice');
+    return stored !== 'false';
+  });
+
+  const handleSetShowRollDice = (val) => {
+    setShowRollDiceOption(val);
+    localStorage.setItem('tutto_showRollDice', val);
+  };
+
+  // Turn timer ref and state
+  const [turnTimeRemaining, setTurnTimeRemaining] = useState(null);
+  const timerIntervalRef = useRef(null);
 
   const roomRef = useRef(null);
   const nameRef = useRef(null);
@@ -26,7 +42,19 @@ export function useOnlineGame(deviceId) {
     }
     
     socket.on('gameState', (state) => {
-      setGameState(state);
+      setGameState(prevState => {
+        // Check for host settings changes
+        if (prevState && prevState.status === 'lobby' && state.status === 'lobby') {
+          if (prevState.winningScore !== state.winningScore) setToastMessage(`Host changed winning score to ${state.winningScore}`);
+          if (prevState.turnDuration !== state.turnDuration) setToastMessage(`Host changed turn timer to ${state.turnDuration === 0 ? 'Disabled' : state.turnDuration + 's'}`);
+          if (prevState.reconnectTimeout !== state.reconnectTimeout) setToastMessage(`Host changed reconnect timeout to ${state.reconnectTimeout}s`);
+        }
+        return state;
+      });
+    });
+
+    socket.on('playerDisconnected', (name) => {
+      setToastMessage(`${name} disconnected! They have ${gameState?.reconnectTimeout || 60} seconds to reconnect.`);
     });
 
     socket.on('hostId', (hostSocketId) => {
@@ -44,7 +72,6 @@ export function useOnlineGame(deviceId) {
     });
 
     socket.on('connect', () => {
-      setSocketId(socket.id);
       if (roomRef.current && nameRef.current) {
         // Automatically rejoin if reconnected after a drop
         const savedColor = localStorage.getItem('tutto_color') || null;
@@ -61,6 +88,7 @@ export function useOnlineGame(deviceId) {
       socket.off('hostId');
       socket.off('connect');
       socket.off('kicked');
+      socket.off('playerDisconnected');
     };
   }, []);
 
@@ -91,8 +119,53 @@ export function useOnlineGame(deviceId) {
     setMyName(null);
   };
 
-  const updateConfig = (winningScore, initialCards, randomOrder) => {
-    socket.emit('updateConfig', { roomId, winningScore, initialCards, randomOrder });
+  useEffect(() => {
+    if (gameState && !gameState.finished && gameState.status === 'playing') {
+      if (gameState.turnDuration > 0) {
+        let multiplier = 1;
+        if (gameState.currentCard === 'Feuerwerk') multiplier = 3;
+        if (gameState.currentCard === 'Kleeblatt') multiplier = 2;
+        let targetDuration = gameState.turnDuration * multiplier;
+
+        setTurnTimeRemaining(targetDuration);
+        
+        if (isHost) {
+          if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+          
+          let timeLeft = targetDuration;
+          timerIntervalRef.current = setInterval(() => {
+            timeLeft--;
+            setTurnTimeRemaining(timeLeft);
+            if (timeLeft <= 0) {
+              clearInterval(timerIntervalRef.current);
+              // Auto bust!
+              nextTurn(0, false);
+            }
+          }, 1000);
+        } else {
+          // Clients just count down visually, but don't enforce (to avoid race conditions)
+          if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+          let timeLeft = targetDuration;
+          timerIntervalRef.current = setInterval(() => {
+            timeLeft--;
+            setTurnTimeRemaining(timeLeft > 0 ? timeLeft : 0);
+          }, 1000);
+        }
+      } else {
+        setTurnTimeRemaining(null);
+      }
+    } else {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      setTurnTimeRemaining(null);
+    }
+    
+    return () => {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, [gameState?.currentPlayerIndex, gameState?.status, gameState?.finished, isHost, gameState?.turnDuration, gameState?.currentCard, gameState?.cards?.length]);
+
+  const updateConfig = (winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout) => {
+    socket.emit('updateConfig', { roomId, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout });
   };
 
   const kickPlayer = (targetSocketId) => {
@@ -167,6 +240,7 @@ export function useOnlineGame(deviceId) {
     } else {
       s.players = resetPlayers;
     }
+    s.status = 'playing';
     s.round = 1;
     s.gameTimeInSeconds = 0;
     s.finished = false;
@@ -189,6 +263,7 @@ export function useOnlineGame(deviceId) {
     if (!isHost) return;
     const s = { ...gameState };
     s.finished = false;
+    s.status = 'lobby';
     s.currentPlayerIndex = null;
     s.gameTimeInSeconds = 0;
     s.round = 1;
@@ -198,173 +273,52 @@ export function useOnlineGame(deviceId) {
 
   const nextTurn = (scoreInput, isSuccess = false) => {
     if (!gameState || gameState.finished) return;
+
+    const result = calculateNextTurn(gameState, scoreInput, isSuccess);
+
     const s = { ...gameState };
-    
-    let turnScore = scoreInput || 0;
-    let currentPlayer = s.players[s.currentPlayerIndex];
-    let snapshotLeaders = null;
+    s.players = result.players;
+    s.previousCard = result.previousCard;
+    s.previousScore = result.previousScore;
+    s.previousLeaders = result.previousLeaders;
 
-    // Track turns and busts.
-    // Bust = rolled 0 on a dice-input card; Yes/No cards (Plus_Minus, Kniffel, Kleeblatt)
-    // have failures, not busts. Stop gives 0 by design.
-    currentPlayer.totalTurns = (currentPlayer.totalTurns || 0) + 1;
-    const isYesNoCard = ["Plus_Minus", "Kniffel", "Kleeblatt"].includes(s.currentCard);
-    if (turnScore === 0 && s.currentCard !== "Stop" && !isSuccess && !isYesNoCard) {
-      currentPlayer.busts = (currentPlayer.busts || 0) + 1;
-      if (s.currentCard === "Feuerwerk") currentPlayer.feuerwerkBusts = (currentPlayer.feuerwerkBusts || 0) + 1;
-      if (s.currentCard === "x2") currentPlayer.x2Busts = (currentPlayer.x2Busts || 0) + 1;
+    if (result.isRoundEnd) {
+      s.chartValues.forEach((vals, i) => vals.push(s.players[i].score));
+      s.chartLabels.push(s.round);
     }
 
-    if (s.currentCard === "Plus_Minus" && isSuccess) {
-      turnScore = 1000;
-      const leaders = getLeaders(s.players);
-      const isLeader = leaders.find(l => l.name === currentPlayer.name);
-      
-      if (!isLeader) {
-        snapshotLeaders = leaders.map(l => ({...l}));
-        leaders.forEach(l => {
-          const p = s.players.find(np => np.name === l.name);
-          p.times1000PointsDeducted++;
-          p.score -= 1000;
-        });
-      }
-      currentPlayer.timesPlusMinusCompleted++;
-    } else if (s.currentCard === "Plus_Minus") {
-      currentPlayer.timesPlusMinusFailed++;
-    }
-
-    // Bug 4 fix: use currentPlayer (single reference) consistently for x2 and Feuerwerk
-    if (s.currentCard === 'x2') {
-      currentPlayer.timesx2Received = (currentPlayer.timesx2Received || 0) + 1;
-      currentPlayer.x2PointsScored = (currentPlayer.x2PointsScored || 0) + turnScore;
-    }
-    if (s.currentCard === 'Feuerwerk') {
-      currentPlayer.timesFeuerwerkReceived = (currentPlayer.timesFeuerwerkReceived || 0) + 1;
-      currentPlayer.feuerwerkPointsScored = (currentPlayer.feuerwerkPointsScored || 0) + turnScore;
-    }
-    if (s.currentCard === "Stop") currentPlayer.timesSkipped++;
-
-    if (s.currentCard === "Kniffel" && isSuccess) {
-      turnScore = 2000;
-      currentPlayer.timesKniffelCompleted++;
-    } else if (s.currentCard === "Kniffel") {
-      currentPlayer.timesKniffelFailed++;
-    }
-
-    if (s.currentCard === "Kleeblatt" && isSuccess) {
-      currentPlayer.timesKleeblattCompleted = (currentPlayer.timesKleeblattCompleted || 0) + 1;
-      currentPlayer.score = 999999;
-      s.finished = true;
-      s.currentPlayerIndex = null; // Bug 6 fix
-      pushState(s);
-      return;
-    } else if (s.currentCard === "Kleeblatt") {
-      currentPlayer.timesKleeblattFailed++;
-    }
-
-    currentPlayer.score += turnScore;
-    
-    s.previousCard = s.currentCard;
-    s.previousScore = turnScore;
-    s.previousLeaders = snapshotLeaders;
-
-    let isGameOver = false;
-    let nextIndex = s.currentPlayerIndex + 1;
-
-    if (nextIndex >= s.players.length) {
-      const currentLeaders = getLeaders(s.players);
-      if (currentLeaders[0].score >= s.winningScore) {
-        if (currentLeaders.length === 1) {
-          isGameOver = true;
-          s.chartValues.forEach((vals, i) => vals.push(s.players[i].score));
-          s.chartLabels.push(s.round);
-        }
-      }
-      if (!isGameOver) {
-        nextIndex = 0;
-        s.chartValues.forEach((vals, i) => vals.push(s.players[i].score));
-        s.chartLabels.push(s.round);
-        s.round++;
-      }
-    }
-
-    if (isGameOver) {
+    if (result.isGameOver) {
       s.finished = true;
       s.currentPlayerIndex = null;
       pushState(s);
     } else {
-      s.currentPlayerIndex = nextIndex;
-      let currentDeck = [...s.cards];
-      if (currentDeck.length === 0) {
-        currentDeck = shuffleCards(s.initialCards);
-      }
-      s.currentCard = currentDeck.shift();
-      s.cards = currentDeck;
+      s.currentPlayerIndex = result.nextIndex;
+      s.round = result.nextRound;
+      s.cards = result.newDeck;
+      s.currentCard = result.drawnCard;
       pushState(s);
     }
   };
 
   const undo = () => {
     if (!gameState || !gameState.previousCard || gameState.previousCard === "Stop") return;
-    const s = { ...gameState };
-
-    let prevIndex = s.currentPlayerIndex - 1;
     
-    if (prevIndex < 0) {
-      prevIndex = s.players.length - 1;
-      s.round--;
+    const result = calculateUndo(gameState);
+    if (!result) return;
+
+    const s = { ...gameState };
+    
+    if (result.isRoundEndUndo) {
       s.chartValues = s.chartValues.map(vals => vals.slice(0, -1));
       s.chartLabels = s.chartLabels.slice(0, -1);
     }
 
-    let p = s.players[prevIndex];
+    s.players = result.players;
+    s.currentPlayerIndex = result.nextIndex;
+    s.round = result.nextRound;
+    s.cards = result.newDeck;
+    s.currentCard = result.drawnCard;
 
-    // Bug 2 fix: check previousCard, not currentCard
-    if (s.previousCard === "Feuerwerk") p.timesFeuerwerkReceived = Math.max(0, (p.timesFeuerwerkReceived || 0) - 1);
-
-    // Bug 1 fix: reverse totalTurns and bust counters
-    p.totalTurns = Math.max(0, (p.totalTurns || 0) - 1);
-    const wasYesNoCard = ["Plus_Minus", "Kniffel", "Kleeblatt"].includes(s.previousCard);
-    if (s.previousScore === 0 && s.previousCard !== "Stop" && !wasYesNoCard) {
-      p.busts = Math.max(0, (p.busts || 0) - 1);
-      if (s.previousCard === "Feuerwerk") p.feuerwerkBusts = Math.max(0, (p.feuerwerkBusts || 0) - 1);
-      if (s.previousCard === "x2") p.x2Busts = Math.max(0, (p.x2Busts || 0) - 1);
-    }
-
-    // Bug 1 fix: reverse special card point counters
-    if (s.previousCard === "Feuerwerk") {
-      p.feuerwerkPointsScored = Math.max(0, (p.feuerwerkPointsScored || 0) - s.previousScore);
-    }
-    if (s.previousCard === "x2") {
-      p.x2PointsScored = Math.max(0, (p.x2PointsScored || 0) - s.previousScore);
-    }
-    
-    if (s.previousCard === "Plus_Minus" && s.previousLeaders) {
-      s.previousLeaders.forEach(pl => {
-        let actual = s.players.find(np => np.name === pl.name);
-        actual.score = pl.score;
-        actual.times1000PointsDeducted--;
-      });
-    }
-
-    if (s.previousCard === "Plus_Minus") {
-      if (s.previousScore === 1000) p.timesPlusMinusCompleted--;
-      else p.timesPlusMinusFailed--;
-    }
-
-    if (s.previousCard === "x2") p.timesx2Received = Math.max(0, (p.timesx2Received || 0) - 1);
-    
-    if (s.previousCard === "Kniffel") {
-      if (s.previousScore === 2000) p.timesKniffelCompleted--;
-      else p.timesKniffelFailed--;
-    }
-
-    p.score -= s.previousScore;
-
-    s.currentPlayerIndex = prevIndex;
-    s.cards = [s.currentCard, ...s.cards];
-    s.currentCard = s.previousCard;
-    
     s.previousCard = null;
     s.previousScore = null;
     s.previousLeaders = null;
@@ -372,21 +326,9 @@ export function useOnlineGame(deviceId) {
     pushState(s);
   };
 
-  // Timer handled by server or client? Just let client handle its own visual timer
   useEffect(() => {
     let interval = null;
-    if (gameState && gameState.currentPlayerIndex !== null && !gameState.finished && isHost) {
-      interval = setInterval(() => {
-        setGameState(prev => {
-          if(!prev) return prev;
-          const updated = {...prev, gameTimeInSeconds: prev.gameTimeInSeconds + 1};
-          // Don't push state every second to avoid flooding. Let it sync occasionally.
-          // Wait, other clients won't see timer tick unless pushed.
-          // Better: pushState only on actions, but all clients run the timer locally if playing!
-          return updated;
-        });
-      }, 1000);
-    } else if (gameState && gameState.currentPlayerIndex !== null && !gameState.finished && !isHost) {
+    if (gameState && gameState.currentPlayerIndex !== null && !gameState.finished && gameState.status === 'playing') {
       interval = setInterval(() => {
         setGameState(prev => {
           if(!prev) return prev;
@@ -395,10 +337,9 @@ export function useOnlineGame(deviceId) {
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [gameState?.currentPlayerIndex, gameState?.finished, isHost]);
+  }, [gameState?.currentPlayerIndex, gameState?.finished, gameState?.status]);
 
   const sendStats = (s) => {
-    // Only send for our own device
     const me = s.players.find(p => p.name === myName);
     if (!me) return;
 
@@ -496,7 +437,16 @@ export function useOnlineGame(deviceId) {
     }
   }, [gameState?.finished]);
 
-  if (!gameState) return { socket, joinRoom };
+  if (!gameState) return { 
+    socket, 
+    joinRoom,
+    isOnline: true,
+    isHost,
+    hostId,
+    roomId,
+    myName,
+    leaveRoom 
+  };
 
   const formatTime = (totalSeconds) => {
     const h = Math.floor(totalSeconds / 3600);
@@ -531,7 +481,6 @@ export function useOnlineGame(deviceId) {
     reorderPlayers,
     socket,
     
-    // Mapping to match useGameLogic
     players: gameState.players,
     sortedPlayers,
     currentPlayerIndex: gameState.currentPlayerIndex,
@@ -540,13 +489,22 @@ export function useOnlineGame(deviceId) {
     cards: gameState.cards,
     round: gameState.round,
     winningScore: gameState.winningScore,
-    setWinningScore: (val) => updateConfig(val, gameState.initialCards, gameState.randomOrder),
+    setWinningScore: (val) => updateConfig(val, gameState.initialCards, gameState.randomOrder, gameState.turnDuration, gameState.reconnectTimeout),
     initialCards: gameState.initialCards,
-    setInitialCards: (val) => updateConfig(gameState.winningScore, val, gameState.randomOrder),
+    setInitialCards: (val) => updateConfig(gameState.winningScore, val, gameState.randomOrder, gameState.turnDuration, gameState.reconnectTimeout),
     randomOrder: gameState.randomOrder,
-    setRandomOrder: (val) => updateConfig(gameState.winningScore, gameState.initialCards, val),
+    setRandomOrder: (val) => updateConfig(gameState.winningScore, gameState.initialCards, val, gameState.turnDuration, gameState.reconnectTimeout),
+    turnDuration: gameState.turnDuration !== undefined ? gameState.turnDuration : 120,
+    setTurnDuration: (val) => updateConfig(gameState.winningScore, gameState.initialCards, gameState.randomOrder, val, gameState.reconnectTimeout),
+    reconnectTimeout: gameState.reconnectTimeout !== undefined ? gameState.reconnectTimeout : 60,
+    setReconnectTimeout: (val) => updateConfig(gameState.winningScore, gameState.initialCards, gameState.randomOrder, gameState.turnDuration, val),
+    showRollDiceOption,
+    setShowRollDiceOption: handleSetShowRollDice,
     gameTimeInSeconds: gameState.gameTimeInSeconds,
     formattedTime: formatTime(gameState.gameTimeInSeconds),
+    turnTimeRemaining,
+    toastMessage,
+    clearToast: () => setToastMessage(null),
     finished: gameState.finished,
     startGame,
     endGame,

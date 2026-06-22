@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   --bg-color: #f4f7f6;
   --text-color: #1a1a1a;
@@ -297,10 +301,10 @@ tr.active-player {
   .grid-cols-2 { grid-template-columns: 1fr; }
   h1 { font-size: 2rem; }
 
-  /* Make stats 2x2 on mobile */
+  /* Make stats wrap properly on mobile */
   .game-stats {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
   }
 
@@ -309,6 +313,40 @@ tr.active-player {
   }
   .stat-box .value {
     font-size: 1.2rem;
+  }
+
+  /* Specific sizing and ordering for mobile rows */
+  .stat-box.cp-mobile {
+    flex: 1 1 45% !important;
+    order: 1;
+  }
+  .stat-box.round-mobile {
+    flex: 1 1 45% !important;
+    order: 2;
+  }
+  .stat-box.score-mobile {
+    flex: 1 1 25% !important;
+    order: 3;
+  }
+  .stat-box.timer-mobile {
+    flex: 1 1 25% !important;
+    order: 4;
+  }
+  .stat-box.time-mobile {
+    flex: 1 1 25% !important;
+    order: 5;
+  }
+  
+  .stat-box.score-mobile .label,
+  .stat-box.timer-mobile .label,
+  .stat-box.time-mobile .label {
+    font-size: 0.65rem;
+  }
+  
+  .stat-box.score-mobile .value,
+  .stat-box.timer-mobile .value,
+  .stat-box.time-mobile .value {
+    font-size: 0.9rem;
   }
 
   /* Make card image smaller */
@@ -462,4 +500,92 @@ tr.active-player {
   color: #94a3b8;
 }
 
+/* Checkbox Toggle Styling */
+.checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
+}
 
+.checkbox-wrapper input[type="checkbox"] {
+  appearance: none;
+  background-color: var(--glass-bg);
+  margin: 0;
+  font: inherit;
+  color: currentColor;
+  width: 1.15em;
+  height: 1.15em;
+  border: 2px solid var(--border-color);
+  border-radius: 0.25em;
+  display: grid;
+  place-content: center;
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.checkbox-wrapper input[type="checkbox"]::before {
+  content: "";
+  width: 0.65em;
+  height: 0.65em;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  transform: scale(0);
+  transform-origin: bottom left;
+  transition: 120ms transform ease-in-out;
+  box-shadow: inset 1em 1em white;
+  background-color: white;
+}
+
+.checkbox-wrapper input[type="checkbox"]:checked {
+  background-color: var(--primary);
+  border-color: var(--primary);
+}
+
+.checkbox-wrapper input[type="checkbox"]:checked::before {
+  transform: scale(1);
+}
+
+.checkbox-wrapper input[type="checkbox"]:focus {
+  outline: max(2px, 0.15em) solid rgba(79, 70, 229, 0.5);
+  outline-offset: max(2px, 0.15em);
+}
+
+/* Toast Notifications */
+.toast-notification {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: var(--card-bg);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  border: 1px solid var(--primary);
+  color: var(--text-color);
+  padding: 1rem 2rem;
+  border-radius: 50px;
+  box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.4);
+  font-weight: 600;
+  z-index: 9999;
+  opacity: 0;
+  animation: slideUpToast 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes slideUpToast {
+  0% { transform: translateX(-50%) translateY(100px); opacity: 0; }
+  100% { transform: translateX(-50%) translateY(0); opacity: 1; }
+}
+
+/* Dice Roll Animation */
+@keyframes diceRoll {
+  0% { transform: rotate(0deg) scale(1) translateY(0); }
+  25% { transform: rotate(90deg) scale(1.1) translateY(-15px); }
+  50% { transform: rotate(180deg) scale(1) translateY(0); }
+  75% { transform: rotate(270deg) scale(1.1) translateY(-10px); }
+  100% { transform: rotate(360deg) scale(1) translateY(0); }
+}
+
+.die.rolling {
+  animation: diceRoll 0.6s cubic-bezier(0.36, 0.07, 0.19, 0.97) forwards;
+  pointer-events: none;
+}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { calculateNextTurn, calculateUndo, getLeaders, buildGlobalStatsPayload, buildDeck, shuffleArray } from '../utils/coreGameEngine';
 
 export const PLAYER_COLORS = [
   '#FF5733', '#33FF57', '#3357FF', '#F033FF', '#33FFF0',
@@ -68,6 +69,15 @@ export function useGameLogic() {
     try { const val = localStorage.getItem('randomOrder'); return val !== null ? JSON.parse(val) : true; } catch { return true; }
   });
   
+  const [showRollDiceOption, setShowRollDiceOption] = useState(() => {
+    try { const val = localStorage.getItem('showRollDiceOption'); return val !== null ? JSON.parse(val) : true; } catch { return true; }
+  });
+
+  const handleSetShowRollDice = (val) => {
+    setShowRollDiceOption(val);
+    localStorage.setItem('showRollDiceOption', JSON.stringify(val));
+  };
+  
   // Timer
   const [gameTimeInSeconds, setGameTimeInSeconds] = useState(() => {
     try { return JSON.parse(localStorage.getItem('gameTimeInSeconds')) || 0; } catch { return 0; }
@@ -114,9 +124,10 @@ export function useGameLogic() {
     localStorage.setItem('chartLabels', JSON.stringify(chartLabels));
     localStorage.setItem('finished', JSON.stringify(finished));
     localStorage.setItem('randomOrder', JSON.stringify(randomOrder));
+    localStorage.setItem('showRollDiceOption', JSON.stringify(showRollDiceOption));
     localStorage.setItem('winningScore', JSON.stringify(winningScore));
     localStorage.setItem('initialCards', JSON.stringify(initialCards));
-  }, [players, currentPlayerIndex, round, currentCard, gameTimeInSeconds, cards, chartValues, chartNames, chartLabels, finished, randomOrder, winningScore, initialCards]);
+  }, [players, currentPlayerIndex, round, currentCard, gameTimeInSeconds, cards, chartValues, chartNames, chartLabels, finished, randomOrder, showRollDiceOption, winningScore, initialCards]);
 
   const addPlayer = (name) => {
     setPlayers((prev) => {
@@ -153,13 +164,7 @@ export function useGameLogic() {
   };
 
   const shuffleCards = useCallback((deckConfig = initialCards) => {
-    const newCards = [];
-    Object.keys(deckConfig).forEach(cardType => {
-      for (let i = 0; i < deckConfig[cardType]; i++) {
-        newCards.push(cardType);
-      }
-    });
-    return shuffleArray(newCards);
+    return buildDeck(deckConfig);
   }, [initialCards]);
 
   const drawCard = (deck) => {
@@ -231,38 +236,7 @@ export function useGameLogic() {
     }
   });
 
-  const getLeaders = (currentPlayers) => {
-    const sorted = [...currentPlayers].sort((a, b) => b.score - a.score);
-    if (!sorted.length) return [];
-    const topScore = sorted[0].score;
-    return sorted.filter(p => p.score === topScore);
-  };
-
   const sendGlobalStats = (finalPlayers, finalTime, finalCard) => {
-    let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0, totalKleeblatt = 0, totalKleeblattCompleted = 0, totalx2 = 0;
-    let totalTurns = 0, totalScore = 0;
-    let totalPlusMinusCompleted = 0, totalKniffelCompleted = 0;
-    let totalFeuerwerkPoints = 0, totalx2Points = 0;
-    let totalFeuerwerkBusts = 0, totalx2Busts = 0, totalBusts = 0;
-    finalPlayers.forEach(p => {
-      totalPlusMinus += (p.timesPlusMinusCompleted + p.timesPlusMinusFailed);
-      totalKniffel += (p.timesKniffelCompleted + p.timesKniffelFailed);
-      totalStop += p.timesSkipped;
-      totalFeuerwerk += p.timesFeuerwerkReceived;
-      totalKleeblatt += (p.timesKleeblattFailed + (p.timesKleeblattCompleted || 0));
-      totalKleeblattCompleted += (p.timesKleeblattCompleted || 0);
-      totalx2 += p.timesx2Received;
-      totalTurns += (p.totalTurns || 0);
-      totalScore += p.score;
-      totalPlusMinusCompleted += p.timesPlusMinusCompleted;
-      totalKniffelCompleted += p.timesKniffelCompleted;
-      totalFeuerwerkPoints += (p.feuerwerkPointsScored || 0);
-      totalx2Points += (p.x2PointsScored || 0);
-      totalFeuerwerkBusts += (p.feuerwerkBusts || 0);
-      totalx2Busts += (p.x2Busts || 0);
-      totalBusts += (p.busts || 0);
-    });
-
     const isDefaultGame = (() => {
       if (winningScore !== 6000) return false;
       for (const key in INITIAL_CARDS) {
@@ -274,200 +248,73 @@ export function useGameLogic() {
       return true;
     })();
 
+    const payload = buildGlobalStatsPayload(finalPlayers, finalTime, isDefaultGame);
+
     fetch('/api/stats/global', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        gamesPlayed: 1,
-        totalPlaytime: finalTime,
-        totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2,
-        totalTurns, totalScore, totalPlusMinusCompleted, totalKniffelCompleted, totalFeuerwerkPoints, totalx2Points,
-        totalFeuerwerkBusts, totalx2Busts, totalBusts,
-        isDefaultGame
-      })
+      body: JSON.stringify(payload)
     }).catch(console.error);
   };
 
   const nextTurn = (scoreInput, isSuccess = false) => {
-    let turnScore = scoreInput || 0;
-    let newPlayers = [...players];
-    let currentPlayer = newPlayers[currentPlayerIndex];
-    let snapshotLeaders = null;
+    const result = calculateNextTurn({
+      players,
+      currentPlayerIndex,
+      currentCard,
+      round,
+      winningScore,
+      cards,
+      initialCards
+    }, scoreInput, isSuccess);
 
-    // Track turns and busts.
-    // Bust = rolled 0 points on a card that has dice input, and it's not a Yes/No card.
-    // Kleeblatt, Plus_Minus, Kniffel are Yes/No: a "no" is a failure, not a bust.
-    // Stop gives 0 by design, not a bust.
-    currentPlayer.totalTurns++;
-    const isYesNoCard = ["Plus_Minus", "Kniffel", "Kleeblatt"].includes(currentCard);
-    if (turnScore === 0 && currentCard !== "Stop" && !isSuccess && !isYesNoCard) {
-      currentPlayer.busts++;
-      if (currentCard === "Feuerwerk") currentPlayer.feuerwerkBusts = (currentPlayer.feuerwerkBusts || 0) + 1;
-      if (currentCard === "x2") currentPlayer.x2Busts = (currentPlayer.x2Busts || 0) + 1;
+    setPreviousCard(result.previousCard);
+    setPreviousScore(result.previousScore);
+    setPreviousLeaders(result.previousLeaders);
+
+    if (result.isRoundEnd) {
+      recordChartData(result.players);
     }
 
-    if (currentCard === "Plus_Minus" && isSuccess) {
-      turnScore = 1000;
-      const leaders = getLeaders(newPlayers);
-      const isLeader = leaders.find(l => l.name === currentPlayer.name);
-      
-      if (!isLeader) {
-        snapshotLeaders = leaders.map(l => ({...l})); // backup
-        leaders.forEach(l => {
-          const p = newPlayers.find(np => np.name === l.name);
-          p.times1000PointsDeducted++;
-          p.score = Math.max(0, p.score - 1000);
-        });
-      }
-      currentPlayer.timesPlusMinusCompleted++;
-    } else if (currentCard === "Plus_Minus") {
-      currentPlayer.timesPlusMinusFailed++;
-    }
+    setPlayers(result.players);
 
-    if (currentCard === "x2") {
-      currentPlayer.timesx2Received++;
-      currentPlayer.x2PointsScored = (currentPlayer.x2PointsScored || 0) + turnScore;
-    }
-    if (currentCard === "Feuerwerk") {
-      currentPlayer.timesFeuerwerkReceived++;
-      currentPlayer.feuerwerkPointsScored = (currentPlayer.feuerwerkPointsScored || 0) + turnScore;
-    }
-    if (currentCard === "Stop") currentPlayer.timesSkipped++;
-
-    if (currentCard === "Kniffel" && isSuccess) {
-      turnScore = 2000;
-      currentPlayer.timesKniffelCompleted++;
-    } else if (currentCard === "Kniffel") {
-      currentPlayer.timesKniffelFailed++;
-    }
-
-    if (currentCard === "Kleeblatt" && isSuccess) {
-      currentPlayer.timesKleeblattCompleted = (currentPlayer.timesKleeblattCompleted || 0) + 1;
-      currentPlayer.score = 999999;
-      setPlayers(newPlayers);
-      setFinished(true);
-      setCurrentPlayerIndex(null); // Bug 6 fix: null out index on Kleeblatt win
-      sendGlobalStats(newPlayers, gameTimeInSeconds, "Kleeblatt");
-      return;
-    } else if (currentCard === "Kleeblatt") {
-      currentPlayer.timesKleeblattFailed++;
-    }
-
-    currentPlayer.score += turnScore;
-    
-    setPreviousCard(currentCard);
-    setPreviousScore(turnScore);
-    setPreviousLeaders(snapshotLeaders);
-
-    // Check winner
-    let isGameOver = false;
-    let nextIndex = currentPlayerIndex + 1;
-    let nextRound = round;
-
-    if (nextIndex >= newPlayers.length) {
-      // Round ended
-      const currentLeaders = getLeaders(newPlayers);
-      if (currentLeaders[0].score >= winningScore) {
-        // If there's a tie for the top score, game continues? Original logic:
-        // if (this.winner.score != this.sortedPlayers[1].score)
-        if (currentLeaders.length === 1) {
-          isGameOver = true;
-          recordChartData(newPlayers);
-        }
-      }
-      if (!isGameOver) {
-        nextIndex = 0;
-        recordChartData(newPlayers);
-        nextRound++;
-      }
-    }
-
-    setPlayers(newPlayers);
-    
-    if (isGameOver) {
+    if (result.isGameOver) {
       setFinished(true);
       setCurrentPlayerIndex(null);
-      sendGlobalStats(newPlayers, gameTimeInSeconds, currentCard);
+      sendGlobalStats(result.players, gameTimeInSeconds, result.previousCard);
     } else {
-      setCurrentPlayerIndex(nextIndex);
-      setRound(nextRound);
-      // Ensure cards are updated correctly from the state, but we need the latest deck
-      let currentDeck = [...cards];
-      if (currentDeck.length === 0) {
-        currentDeck = shuffleCards();
-      }
-      const drawnCard = currentDeck.shift();
-      setCards(currentDeck);
-      setCurrentCard(drawnCard);
+      setCurrentPlayerIndex(result.nextIndex);
+      setRound(result.nextRound);
+      setCards(result.newDeck);
+      setCurrentCard(result.drawnCard);
     }
   };
 
   const undo = () => {
-    if (previousCard === "Stop" || !previousCard) return;
+    const result = calculateUndo({
+      players,
+      currentPlayerIndex,
+      round,
+      previousCard,
+      previousScore,
+      previousLeaders,
+      currentCard,
+      cards
+    });
 
-    let newPlayers = [...players];
-    let prevIndex = currentPlayerIndex - 1;
-    let newRound = round;
-    
-    if (prevIndex < 0) {
-      prevIndex = newPlayers.length - 1;
-      newRound--;
-      // Remove last chart values
+    if (!result) return;
+
+    if (result.isRoundEndUndo) {
       setChartValues(prev => prev.map(vals => vals.slice(0, -1)));
       setChartLabels(prev => prev.slice(0, -1));
     }
 
-    let p = newPlayers[prevIndex];
+    setPlayers(result.players);
+    setCurrentPlayerIndex(result.nextIndex);
+    setRound(result.nextRound);
+    setCards(result.newDeck);
+    setCurrentCard(result.drawnCard);
 
-    // Bug 2 fix: check previousCard (the card that was played), not currentCard
-    if (previousCard === "Feuerwerk") p.timesFeuerwerkReceived--;
-
-    // Bug 1 fix: reverse totalTurns and bust counters
-    p.totalTurns = Math.max(0, (p.totalTurns || 0) - 1);
-    const wasYesNoCard = ["Plus_Minus", "Kniffel", "Kleeblatt"].includes(previousCard);
-    if (previousScore === 0 && previousCard !== "Stop" && !wasYesNoCard) {
-      p.busts = Math.max(0, (p.busts || 0) - 1);
-      if (previousCard === "Feuerwerk") p.feuerwerkBusts = Math.max(0, (p.feuerwerkBusts || 0) - 1);
-      if (previousCard === "x2") p.x2Busts = Math.max(0, (p.x2Busts || 0) - 1);
-    }
-
-    // Bug 1 fix: reverse special card point counters
-    if (previousCard === "Feuerwerk") {
-      p.feuerwerkPointsScored = Math.max(0, (p.feuerwerkPointsScored || 0) - previousScore);
-    }
-    if (previousCard === "x2") {
-      p.x2PointsScored = Math.max(0, (p.x2PointsScored || 0) - previousScore);
-    }
-    
-    if (previousCard === "Plus_Minus" && previousLeaders) {
-      previousLeaders.forEach(pl => {
-        let actual = newPlayers.find(np => np.name === pl.name);
-        actual.score = pl.score;
-        actual.times1000PointsDeducted--;
-      });
-    }
-
-    if (previousCard === "Plus_Minus") {
-      if (previousScore === 1000) p.timesPlusMinusCompleted--;
-      else p.timesPlusMinusFailed--;
-    }
-
-    if (previousCard === "x2") p.timesx2Received--;
-    
-    if (previousCard === "Kniffel") {
-      if (previousScore === 2000) p.timesKniffelCompleted--;
-      else p.timesKniffelFailed--;
-    }
-
-    p.score -= previousScore;
-
-    setPlayers(newPlayers);
-    setCurrentPlayerIndex(prevIndex);
-    setRound(newRound);
-    
-    setCards(prev => [currentCard, ...prev]);
-    setCurrentCard(previousCard);
-    
     setPreviousCard(null);
     setPreviousScore(null);
     setPreviousLeaders(null);
@@ -498,6 +345,8 @@ export function useGameLogic() {
     setInitialCards,
     randomOrder,
     setRandomOrder,
+    showRollDiceOption,
+    setShowRollDiceOption: handleSetShowRollDice,
     gameTimeInSeconds,
     formattedTime: formatTime(gameTimeInSeconds),
     finished,

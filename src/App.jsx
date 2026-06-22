@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Sun, Moon } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import { useGameLogic } from './hooks/useGameLogic';
-import { useOnlineGame } from './hooks/useOnlineGame';
+import { useGameStore } from './store/useGameStore';
 import Home from './components/Home';
 import Game from './components/Game';
 import EndScreen from './components/EndScreen';
@@ -23,13 +22,21 @@ export default function App() {
     return id;
   });
 
-  const [mode, setMode] = useState('local');
   const [showStats, setShowStats] = useState(false);
 
-  const localGame = useGameLogic();
-  const onlineGame = useOnlineGame(deviceId);
+  // Initialize store once
+  useEffect(() => {
+    useGameStore.getState().init(deviceId);
+  }, [deviceId]);
 
-  const game = mode === 'local' ? localGame : onlineGame;
+  // Extract only what App needs to know for routing
+  const finished = useGameStore(state => state.finished);
+  const currentPlayerIndex = useGameStore(state => state.currentPlayerIndex);
+  const players = useGameStore(state => state.players);
+  const mode = useGameStore(state => state.mode);
+
+  const hasWinner = finished && players.length > 0;
+  const isPlaying = currentPlayerIndex !== null && players.length > 0;
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -40,7 +47,6 @@ export default function App() {
     const newTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
     document.documentElement.setAttribute('data-theme', newTheme);
-    localStorage.setItem('theme', newTheme);
   };
 
   return (
@@ -53,12 +59,12 @@ export default function App() {
 
       {showStats ? (
         <Statistics deviceId={deviceId} onBack={() => setShowStats(false)} />
-      ) : game.finished && game.winner ? (
-        <EndScreen game={game} theme={theme} mode={mode} setMode={setMode} deviceId={deviceId} />
-      ) : game.currentPlayerIndex != null && game.currentPlayer ? (
-        <Game game={game} />
+      ) : hasWinner ? (
+        <EndScreen theme={theme} deviceId={deviceId} />
+      ) : isPlaying ? (
+        <Game />
       ) : (
-        <Home game={game} mode={mode} setMode={setMode} onShowStats={() => setShowStats(true)} />
+        <Home onShowStats={() => setShowStats(true)} />
       )}
     </>
   );

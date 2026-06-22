@@ -919,6 +919,17 @@ describe('useGameLogic', () => {
       alice = result.current.players[0];
       expect(alice.timesPlusMinusFailed).toBe(0);
     });
+
+    it('has a configurable showRollDiceOption default to true', () => {
+      const { result } = renderHook(() => useGameLogic());
+      expect(result.current.showRollDiceOption).toBe(true);
+      
+      act(() => {
+        result.current.setShowRollDiceOption(false);
+      });
+      
+      expect(result.current.showRollDiceOption).toBe(false);
+    });
   });
 });
 

@@ -49,6 +49,8 @@ io.on('connection', (socket) => {
           },
           winningScore: 6000,
           randomOrder: true,
+          turnDuration: 120, // 0 means disabled
+          reconnectTimeout: 60, // Default 1 minute
           currentCard: null,
           cards: [],
           round: 1,
@@ -67,6 +69,31 @@ io.on('connection', (socket) => {
 
     const room = rooms[roomId];
     
+    // Reconnect logic
+    const existingPlayer = room.state.players.find(p => p.deviceId === deviceId);
+    if (existingPlayer) {
+      // Re-claim this slot
+      if (room.host === existingPlayer.socketId) {
+        room.host = socket.id;
+      }
+      existingPlayer.socketId = socket.id;
+      existingPlayer.name = name; // Update name just in case
+      existingPlayer.disconnected = false;
+      
+      if (room.disconnectTimers && room.disconnectTimers[deviceId]) {
+        clearTimeout(room.disconnectTimers[deviceId]);
+        delete room.disconnectTimers[deviceId];
+      }
+
+      socket.join(roomId);
+      currentRoom = roomId;
+      username = name;
+      
+      callback({ success: true, isHost: room.host === socket.id, socketId: socket.id });
+      emitRoomState(roomId);
+      return;
+    }
+
     if (room.state.players.find(p => p.name === name)) {
       return callback({ error: 'Username already exists in this room' });
     }
@@ -94,14 +121,15 @@ io.on('connection', (socket) => {
       timesFeuerwerkReceived: 0,
       timesSkipped: 0,
       timesx2Received: 0,
-      totalTurns: 0,      // Bug 5 fix: was missing, caused undefined++ = NaN
-      busts: 0,           // Bug 5 fix
-      feuerwerkBusts: 0,  // Bug 5 fix
-      x2Busts: 0,         // Bug 5 fix
-      feuerwerkPointsScored: 0, // Bug 5 fix
-      x2PointsScored: 0,        // Bug 5 fix
+      totalTurns: 0,
+      busts: 0,
+      feuerwerkBusts: 0,
+      x2Busts: 0,
+      feuerwerkPointsScored: 0,
+      x2PointsScored: 0,
       position: 0,
       color: assignedColor,
+      disconnected: false
     };
     room.state.players.push(newPlayer);
     
@@ -109,11 +137,13 @@ io.on('connection', (socket) => {
     emitRoomState(roomId);
   });
 
-  socket.on('updateConfig', ({ roomId, winningScore, initialCards, randomOrder }) => {
+  socket.on('updateConfig', ({ roomId, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout }) => {
     if (rooms[roomId] && rooms[roomId].host === socket.id) {
       if (winningScore !== undefined) rooms[roomId].state.winningScore = winningScore;
       if (initialCards !== undefined) rooms[roomId].state.initialCards = initialCards;
       if (randomOrder !== undefined) rooms[roomId].state.randomOrder = randomOrder;
+      if (turnDuration !== undefined) rooms[roomId].state.turnDuration = turnDuration;
+      if (reconnectTimeout !== undefined) rooms[roomId].state.reconnectTimeout = reconnectTimeout;
       emitRoomState(roomId);
     }
   });
@@ -167,34 +197,65 @@ io.on('connection', (socket) => {
     }
   });
 
-  const handlePlayerLeave = () => {
+  const handlePlayerLeave = (isExplicitLeave = false) => {
     if (currentRoom && rooms[currentRoom]) {
       const room = rooms[currentRoom];
-      if (room.state.status === 'lobby') {
-        room.state.players = room.state.players.filter(p => p.socketId !== socket.id);
-        if (room.state.players.length === 0) {
-          delete rooms[currentRoom];
-        } else if (room.host === socket.id) {
-          room.host = room.state.players[0].socketId;
+      const playerIndex = room.state.players.findIndex(p => p.socketId === socket.id);
+      
+      if (playerIndex !== -1) {
+        const player = room.state.players[playerIndex];
+
+        if (isExplicitLeave) {
+          // Permanently leave
+          room.state.players.splice(playerIndex, 1);
+          if (room.disconnectTimers && room.disconnectTimers[player.deviceId]) {
+            clearTimeout(room.disconnectTimers[player.deviceId]);
+            delete room.disconnectTimers[player.deviceId];
+          }
+
+          if (room.state.players.length === 0) {
+            delete rooms[currentRoom];
+            return;
+          } else if (room.host === socket.id) {
+            room.host = room.state.players[0].socketId;
+          }
           emitRoomState(currentRoom);
         } else {
+          // Unexpected disconnect in-game
+          player.disconnected = true;
           emitRoomState(currentRoom);
+          io.to(currentRoom).emit('playerDisconnected', username);
+
+          // Set kick timer
+          if (!room.disconnectTimers) room.disconnectTimers = {};
+          const timeoutSecs = room.state.reconnectTimeout || 60;
+          room.disconnectTimers[player.deviceId] = setTimeout(() => {
+            if (rooms[currentRoom]) {
+              rooms[currentRoom].state.players = rooms[currentRoom].state.players.filter(p => p.deviceId !== player.deviceId);
+              if (rooms[currentRoom].state.players.length === 0) {
+                delete rooms[currentRoom];
+              } else {
+                if (rooms[currentRoom].host === socket.id && rooms[currentRoom].state.players.length > 0) {
+                  rooms[currentRoom].host = rooms[currentRoom].state.players[0].socketId;
+                }
+                emitRoomState(currentRoom);
+              }
+            }
+          }, timeoutSecs * 1000);
         }
-      } else {
-        io.to(currentRoom).emit('playerDisconnected', username);
       }
     }
   };
 
   socket.on('leaveRoom', () => {
-    handlePlayerLeave();
+    handlePlayerLeave(true);
     socket.leave(currentRoom);
     currentRoom = null;
     username = null;
   });
 
   socket.on('disconnect', () => {
-    handlePlayerLeave();
+    handlePlayerLeave(false);
   });
 });
 

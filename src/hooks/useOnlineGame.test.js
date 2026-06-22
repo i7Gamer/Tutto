@@ -16,6 +16,7 @@ vi.mock('socket.io-client', () => {
       on: mockOn,
       off: vi.fn(),
       disconnect: vi.fn(),
+      id: 'socket-123',
     }))
   };
 });
@@ -340,5 +341,145 @@ describe('useOnlineGame', () => {
     expect(undoneState.players[0].busts).toBe(0);
     expect(undoneState.players[0].x2Busts).toBe(0);
     expect(undoneState.players[0].timesx2Received).toBe(0);
+  });
+
+  it('deep clones the players array during nextTurn and undo to ensure React detects leaderboard updates', () => {
+    const { result } = renderHook(() => useOnlineGame('device1'));
+    
+    act(() => {
+      // Simulate socket pushState to setup an active game
+      const socketCall = mockOn.mock.calls.find(call => call[0] === 'gameState');
+      const gameStateCallback = socketCall[1];
+      
+      gameStateCallback({
+        players: [{ name: 'Alice', socketId: 'sock1', score: 1000 }, { name: 'Bob', socketId: 'sock2', score: 0 }],
+        currentPlayerIndex: 0,
+        currentCard: '200',
+        cards: ['Stop'],
+        round: 1,
+        finished: false
+      });
+    });
+
+    // Simulate becoming the host so we can perform actions
+    act(() => {
+      const hostCall = mockOn.mock.calls.find(call => call[0] === 'hostId');
+      hostCall[1]('socket_id');
+    });
+
+    const initialPlayersRef = result.current.players;
+    
+    // Perform nextTurn
+    act(() => {
+      result.current.nextTurn(200, true);
+    });
+
+    const pushCall = mockEmit.mock.calls.find(call => call[0] === 'pushState');
+    const newState = pushCall[1].newState;
+    
+    // Ensure the players array reference changed
+    expect(newState.players).not.toBe(initialPlayersRef);
+    // Ensure the individual player object reference changed (deep clone)
+    expect(newState.players[0]).not.toBe(initialPlayersRef[0]);
+    expect(newState.players[0].score).toBe(1200);
+  });
+
+  it('updates config via setters and receives toast notifications', () => {
+    const { result } = renderHook(() => useOnlineGame('test-device'));
+
+    act(() => {
+      const joinPromise = result.current.joinRoom('1234', 'HostAlice');
+      const joinCall = mockEmit.mock.calls.find(call => call[0] === 'joinRoom');
+      joinCall[2]({ success: true, isHost: true });
+    });
+
+    act(() => {
+      const socketCall = mockOn.mock.calls.find(call => call[0] === 'gameState');
+      const gameStateCallback = socketCall[1];
+      gameStateCallback({ winningScore: 5000, initialCards: {}, randomOrder: true, turnDuration: 60, reconnectTimeout: 60, players: [], status: 'lobby' });
+    });
+
+    mockEmit.mockClear();
+
+    // Test setters
+    act(() => result.current.setTurnDuration(45));
+    expect(mockEmit).toHaveBeenCalledWith('updateConfig', expect.objectContaining({ turnDuration: 45 }));
+    
+    mockEmit.mockClear();
+    act(() => result.current.setReconnectTimeout(120));
+    expect(mockEmit).toHaveBeenCalledWith('updateConfig', expect.objectContaining({ reconnectTimeout: 120 }));
+
+    mockEmit.mockClear();
+    act(() => result.current.setWinningScore(7000));
+    expect(mockEmit).toHaveBeenCalledWith('updateConfig', expect.objectContaining({ winningScore: 7000 }));
+    
+    mockEmit.mockClear();
+    act(() => result.current.setInitialCards({ "200": 10 }));
+    expect(mockEmit).toHaveBeenCalledWith('updateConfig', expect.objectContaining({ initialCards: { "200": 10 } }));
+
+    // Test toast message
+    act(() => {
+      const socketCall = mockOn.mock.calls.find(call => call[0] === 'gameState');
+      const gameStateCallback = socketCall[1];
+      // initial was 60, now 30
+      gameStateCallback({ winningScore: 5000, initialCards: {}, randomOrder: true, turnDuration: 30, reconnectTimeout: 60, players: [], status: 'lobby' });
+    });
+    
+    expect(result.current.toastMessage).toContain('Host changed turn timer to 30s');
+
+    act(() => result.current.clearToast());
+    expect(result.current.toastMessage).toBe(null);
+  });
+
+  it('handles turn timer tick down and auto bust', () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useOnlineGame('test-device'));
+
+    act(() => {
+      result.current.joinRoom('1234', 'HostAlice');
+      const joinCall = mockEmit.mock.calls.find(call => call[0] === 'joinRoom');
+      joinCall[2]({ success: true, isHost: true });
+      
+      const hostCall = mockOn.mock.calls.find(call => call[0] === 'hostId');
+      hostCall[1]('socket-123'); // HostAlice is host
+    });
+
+    act(() => {
+      const socketCall = mockOn.mock.calls.find(call => call[0] === 'gameState');
+      const gameStateCallback = socketCall[1];
+      gameStateCallback({ 
+        players: [{ name: 'HostAlice', score: 0 }], 
+        currentPlayerIndex: 0, 
+        turnDuration: 60,
+        gameTimeInSeconds: 0,
+        status: 'playing',
+        cards: [],
+        currentCard: null,
+        initialCards: {},
+        chartValues: [[]],
+        chartLabels: [],
+        chartNames: ['HostAlice']
+      });
+    });
+
+    mockEmit.mockClear();
+
+    expect(result.current.turnTimeRemaining).toBe(60);
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(result.current.turnTimeRemaining).toBe(59);
+
+    // Advance 59 seconds
+    act(() => {
+      vi.advanceTimersByTime(59000);
+    });
+
+    // Should have busted automatically
+    expect(mockEmit).toHaveBeenCalledWith('pushState', expect.any(Object));
+    const pushCall = mockEmit.mock.calls.find(call => call[0] === 'pushState');
+    expect(pushCall[1].newState.currentPlayerIndex).toBe(0); // since it's 1 player it stays 0, but it triggers nextTurn
   });
 });

@@ -10,7 +10,9 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
-import { RotateCcw, Trophy } from 'lucide-react';
+import { RotateCcw, Trophy, Settings } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { useGameStore } from '../store/useGameStore';
 
 ChartJS.register(
   CategoryScale,
@@ -23,28 +25,37 @@ ChartJS.register(
 );
 
 const colors = [
-  '#4f46e5', // primary
-  '#ec4899', // secondary
-  '#10b981', // success
-  '#f59e0b', // warning
-  '#ef4444', // danger
-  '#8b5cf6', // purple
-  '#06b6d4', // cyan
+  '#FF5733', '#33FF57', '#3357FF', '#F033FF', '#33FFF0',
+  '#FFD700', '#FF33A1', '#8D33FF', '#33FF8D', '#FF8D33'
 ];
 
-export default function EndScreen({ game, theme, mode, deviceId, setMode }) {
+export default function EndScreen({ theme, deviceId }) {
+  const game = useGameStore();
   const { 
-    winner, 
+    players,
     round, 
-    formattedTime, 
-    sortedPlayers, 
+    gameTimeInSeconds,
     startGame, 
     endGame,
     chartLabels,
     chartNames,
     chartValues,
-    leaveRoom
+    leaveRoom,
+    isOnline,
+    isHost
   } = game;
+
+  const sortedPlayers = players.map(p => ({...p})).sort((a, b) => b.score - a.score);
+  const winner = sortedPlayers[0];
+  
+  const formatTime = (totalSeconds) => {
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+    if (h > 0) return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+    return `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+  };
+  const formattedTime = formatTime(gameTimeInSeconds);
 
   const [deviceStats, setDeviceStats] = useState(null);
 
@@ -112,146 +123,187 @@ export default function EndScreen({ game, theme, mode, deviceId, setMode }) {
   };
 
   return (
-    <div className="container" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-      <div className="glass-card" style={{ textAlign: 'center' }}>
-        <Trophy size={64} color="var(--primary)" style={{ margin: '0 auto', marginBottom: '1rem' }} />
-        <h1 style={{ marginBottom: '1rem' }}>Winner: {winner.name}</h1>
-        
-        <div className="flex-center" style={{ marginBottom: '2rem' }}>
-          <div className="stat-box" style={{ minWidth: '150px' }}>
-            <div className="label">Played Rounds</div>
-            <div className="value">{round}</div>
+    <div className="container mx-auto px-4 py-8 max-w-3xl flex flex-col gap-8">
+      <motion.div 
+        initial={{ opacity: 0, y: 20, scale: 0.9 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-2xl rounded-3xl p-10 text-center"
+      >
+        <motion.div 
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: 'spring', damping: 10, stiffness: 100, delay: 0.2 }}
+          className="flex justify-center mb-6"
+        >
+          <div className="bg-amber-100 p-6 rounded-full shadow-lg border-4 border-amber-300">
+            <Trophy size={64} className="text-amber-500" />
           </div>
-          <div className="stat-box" style={{ minWidth: '150px' }}>
-            <div className="label">Playtime</div>
-            <div className="value">{formattedTime}</div>
+        </motion.div>
+        
+        <h1 className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-orange-600 mb-8">
+          Winner: {winner.name}
+        </h1>
+        
+        <div className="flex flex-wrap justify-center gap-6 mb-10">
+          <div className="bg-black/5 dark:bg-white/5 border border-gray-200 dark:border-slate-600 rounded-2xl p-6 min-w-[180px] shadow-sm">
+            <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Played Rounds</div>
+            <div className="text-4xl font-black text-indigo-600">{round}</div>
+          </div>
+          <div className="bg-black/5 dark:bg-white/5 border border-gray-200 dark:border-slate-600 rounded-2xl p-6 min-w-[180px] shadow-sm">
+            <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Playtime</div>
+            <div className="text-4xl font-black text-indigo-600">{formattedTime}</div>
           </div>
         </div>
 
-        <div className="flex-center">
+        <div className="flex justify-center">
           {(!game.isOnline || game.isHost) ? (
-            <>
-              <button className="btn btn-primary" onClick={startGame}>
-                <RotateCcw /> Play Again
-              </button>
-              <button className="btn btn-outline" onClick={endGame}>
-                New Game Config
-              </button>
-            </>
+            <div className="flex flex-col sm:flex-row gap-4 w-full max-w-md">
+              <motion.button 
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-4 px-6 rounded-2xl text-xl font-bold flex justify-center items-center gap-2 shadow-lg shadow-emerald-500/30 transition-colors" 
+                onClick={startGame}
+              >
+                <RotateCcw size={24} /> Play Again
+              </motion.button>
+              <motion.button 
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="flex-1 bg-white dark:bg-slate-800 hover:bg-black/5 dark:bg-white/5 text-gray-700 dark:text-gray-200 border-2 border-gray-200 dark:border-slate-600 py-4 px-6 rounded-2xl text-lg font-bold flex justify-center items-center gap-2 shadow-sm transition-colors" 
+                onClick={endGame}
+              >
+                <Settings size={20} /> New Config
+              </motion.button>
+            </div>
           ) : (
-            <div className="flex-center" style={{ flexDirection: 'column', gap: '1rem' }}>
-              <div style={{ color: 'var(--primary)', fontWeight: 'bold' }}>
+            <div className="flex flex-col items-center gap-4 bg-black/5 dark:bg-white/5 p-6 rounded-2xl border border-gray-200 dark:border-slate-600 w-full max-w-md">
+              <div className="text-indigo-600 font-bold text-lg flex items-center gap-3">
+                <div className="w-6 h-6 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
                 Waiting for host to restart...
               </div>
-              <button className="btn btn-outline" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={leaveRoom}>
+              <button 
+                className="text-red-500 hover:text-red-700 hover:bg-red-50 px-6 py-2 rounded-lg font-bold transition-colors border border-red-200" 
+                onClick={leaveRoom}
+              >
                 Leave Game
               </button>
             </div>
           )}
         </div>
-      </div>
+      </motion.div>
 
       {deviceStats && deviceStats.gamesPlayed > 0 && (
-        <div className="glass-card">
-          <h3 style={{ textAlign: 'center', marginBottom: '1.5rem' }}>Your Lifetime Statistics</h3>
-          <div className="flex-between" style={{ justifyContent: 'space-around', textAlign: 'center' }}>
-            <div>
-              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--primary)' }}>{deviceStats.gamesPlayed}</div>
-              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>Games Played</div>
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8"
+        >
+          <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 text-center mb-8">Your Lifetime Statistics</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center mb-8">
+            <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100">
+              <div className="text-4xl font-black text-indigo-600 mb-1">{deviceStats.gamesPlayed}</div>
+              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">Games Played</div>
             </div>
-            <div>
-              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--success)' }}>{deviceStats.wins}</div>
-              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>Total Wins</div>
+            <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100">
+              <div className="text-4xl font-black text-emerald-500 mb-1">{deviceStats.wins}</div>
+              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">Total Wins</div>
             </div>
-            <div>
-              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--danger)' }}>{deviceStats.pointsDeducted}</div>
-              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>-1000 Points Eaten</div>
+            <div className="bg-red-50 rounded-2xl p-4 border border-red-100">
+              <div className="text-4xl font-black text-red-500 mb-1">{deviceStats.pointsDeducted}</div>
+              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">-1000 Pts Eaten</div>
             </div>
-            <div>
-              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--secondary)' }}>{deviceStats.kniffelCompleted}</div>
-              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>Kniffels Completed</div>
-            </div>
-          </div>
-          <div className="flex-between" style={{ justifyContent: 'space-around', textAlign: 'center', marginTop: '1.5rem' }}>
-            <div>
-              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--danger)' }}>{deviceStats.busts || 0}</div>
-              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>Total Busts</div>
-            </div>
-            <div>
-              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--danger)' }}>{((deviceStats.busts || 0) / Math.max(1, deviceStats.gamesPlayed)).toFixed(1)}</div>
-              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>Avg Busts/Game</div>
+            <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100">
+              <div className="text-4xl font-black text-amber-500 mb-1">{deviceStats.kniffelCompleted}</div>
+              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">Kniffels Done</div>
             </div>
           </div>
-        </div>
+          <div className="grid grid-cols-2 gap-6 text-center max-w-md mx-auto">
+            <div className="bg-orange-50 rounded-2xl p-4 border border-orange-100">
+              <div className="text-4xl font-black text-orange-500 mb-1">{deviceStats.busts || 0}</div>
+              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">Total Busts</div>
+            </div>
+            <div className="bg-orange-50 rounded-2xl p-4 border border-orange-100">
+              <div className="text-4xl font-black text-orange-500 mb-1">{((deviceStats.busts || 0) / Math.max(1, deviceStats.gamesPlayed)).toFixed(1)}</div>
+              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">Avg Busts/Game</div>
+            </div>
+          </div>
+        </motion.div>
       )}
 
-      <div className="glass-card">
-        <h3>Game Statistics</h3>
-        <div className="table-responsive">
-          <table>
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+        className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8 overflow-hidden"
+      >
+        <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">Game Statistics</h3>
+        <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-slate-600">
+          <table className="w-full text-left border-collapse bg-white dark:bg-slate-800">
             <thead>
-              <tr>
-                <th>Stat</th>
-                {sortedPlayers.map(p => <th key={p.name}>{p.name}</th>)}
+              <tr className="bg-black/5 dark:bg-white/5 border-b border-gray-200 dark:border-slate-600">
+                <th className="p-4 font-bold text-gray-600 dark:text-gray-300">Stat</th>
+                {sortedPlayers.map(p => (
+                  <th key={p.name} className="p-4 font-bold" style={{ color: p.color || '#4f46e5' }}>{p.name}</th>
+                ))}
               </tr>
             </thead>
-            <tbody>
-              <tr>
-                <td>Position</td>
-                {sortedPlayers.map(p => <td key={p.name}>{p.position}.</td>)}
+            <tbody className="divide-y divide-gray-100">
+              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
+                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Position</td>
+                {sortedPlayers.map(p => <td key={p.name} className="p-4 font-bold">{p.position}.</td>)}
               </tr>
-              <tr>
-                <td>Score</td>
-                {sortedPlayers.map(p => <td key={p.name} style={{ fontWeight: 600 }}>{p.score}</td>)}
+              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
+                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Score</td>
+                {sortedPlayers.map(p => <td key={p.name} className="p-4 font-black text-indigo-600">{p.score}</td>)}
               </tr>
-              <tr>
-                <td>Total Turns</td>
-                {sortedPlayers.map(p => <td key={p.name}>{p.totalTurns}</td>)}
+              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
+                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Total Turns</td>
+                {sortedPlayers.map(p => <td key={p.name} className="p-4">{p.totalTurns}</td>)}
               </tr>
-              <tr>
-                <td>Busts</td>
-                {sortedPlayers.map(p => <td key={p.name}>{p.busts}</td>)}
+              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
+                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Busts</td>
+                {sortedPlayers.map(p => <td key={p.name} className="p-4 text-red-500 font-bold">{p.busts}</td>)}
               </tr>
-              <tr>
-                <td>Avg Pts / Round</td>
-                {sortedPlayers.map(p => <td key={p.name}>{Math.round(p.score / Math.max(1, round))}</td>)}
+              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
+                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Avg Pts / Round</td>
+                {sortedPlayers.map(p => <td key={p.name} className="p-4 font-bold text-emerald-500">{Math.round(p.score / Math.max(1, round))}</td>)}
               </tr>
-              <tr>
-                <td>-1000 Points</td>
-                {sortedPlayers.map(p => <td key={p.name}>{p.times1000PointsDeducted}</td>)}
+              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
+                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">-1000 Points Eaten</td>
+                {sortedPlayers.map(p => <td key={p.name} className="p-4">{p.times1000PointsDeducted}</td>)}
               </tr>
-              <tr>
-                <td>Plus/Minus (Success/Fail)</td>
-                {sortedPlayers.map(p => <td key={p.name}>{p.timesPlusMinusCompleted} / {p.timesPlusMinusFailed}</td>)}
+              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
+                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Plus/Minus (Success/Fail)</td>
+                {sortedPlayers.map(p => <td key={p.name} className="p-4"><span className="text-emerald-500">{p.timesPlusMinusCompleted}</span> / <span className="text-red-500">{p.timesPlusMinusFailed}</span></td>)}
               </tr>
-              <tr>
-                <td>Kniffel (Success/Fail)</td>
-                {sortedPlayers.map(p => <td key={p.name}>{p.timesKniffelCompleted} / {p.timesKniffelFailed}</td>)}
+              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
+                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Kniffel (Success/Fail)</td>
+                {sortedPlayers.map(p => <td key={p.name} className="p-4"><span className="text-emerald-500">{p.timesKniffelCompleted}</span> / <span className="text-red-500">{p.timesKniffelFailed}</span></td>)}
               </tr>
-              <tr>
-                <td>Skipped</td>
-                {sortedPlayers.map(p => <td key={p.name}>{p.timesSkipped}</td>)}
+              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
+                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Skipped</td>
+                {sortedPlayers.map(p => <td key={p.name} className="p-4">{p.timesSkipped}</td>)}
               </tr>
-              <tr>
-                <td>Feuerwerk (Received / Pts)</td>
-                {sortedPlayers.map(p => <td key={p.name}>{p.timesFeuerwerkReceived} / {p.feuerwerkPointsScored || 0}</td>)}
-              </tr>
-              <tr>
-                <td>Kleeblatt (Fail)</td>
-                {sortedPlayers.map(p => <td key={p.name}>{p.timesKleeblattFailed}</td>)}
-              </tr>
-              <tr>
-                <td>x2 (Received / Pts)</td>
-                {sortedPlayers.map(p => <td key={p.name}>{p.timesx2Received} / {p.x2PointsScored || 0}</td>)}
+              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
+                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Feuerwerk (Received/Pts)</td>
+                {sortedPlayers.map(p => <td key={p.name} className="p-4">{p.timesFeuerwerkReceived} / <span className="text-amber-500 font-bold">{p.feuerwerkPointsScored || 0}</span></td>)}
               </tr>
             </tbody>
           </table>
         </div>
-      </div>
+      </motion.div>
 
-      <div className="glass-card" style={{ height: '400px' }}>
-        <Line data={chartData} options={chartOptions} />
-      </div>
+      {chartLabels && chartLabels.length > 0 && (
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8 h-[400px]"
+        >
+          <Line data={chartData} options={chartOptions} />
+        </motion.div>
+      )}
     </div>
   );
 }

@@ -1,197 +1,127 @@
-const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const knexConfig = require('./knexfile.js');
+const knex = require('knex')(knexConfig);
 
-const dbPath = path.join(process.cwd(), 'database.sqlite');
-const db = new sqlite3.Database(dbPath);
-
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS device_statistics (
-      deviceId TEXT PRIMARY KEY,
-      gamesPlayed INTEGER DEFAULT 0,
-      wins INTEGER DEFAULT 0,
-      pointsDeducted INTEGER DEFAULT 0,
-      plusMinusCompleted INTEGER DEFAULT 0,
-      plusMinusFailed INTEGER DEFAULT 0,
-      kniffelCompleted INTEGER DEFAULT 0,
-      kniffelFailed INTEGER DEFAULT 0,
-      skipped INTEGER DEFAULT 0,
-      feuerwerkReceived INTEGER DEFAULT 0,
-      kleeblattFailed INTEGER DEFAULT 0,
-      x2Received INTEGER DEFAULT 0,
-      totalPlaytime INTEGER DEFAULT 0
-    )
-  `);
-
-  db.run("ALTER TABLE device_statistics ADD COLUMN totalPlaytime INTEGER DEFAULT 0", (err) => {
-    // Ignore error if column already exists
-  });
-  db.run("ALTER TABLE device_statistics ADD COLUMN kleeblattCompleted INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE device_statistics ADD COLUMN totalTurns INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE device_statistics ADD COLUMN busts INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE device_statistics ADD COLUMN feuerwerkBusts INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE device_statistics ADD COLUMN x2Busts INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE device_statistics ADD COLUMN feuerwerkPointsScored INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE device_statistics ADD COLUMN x2PointsScored INTEGER DEFAULT 0", () => {});
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS global_statistics (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      totalGamesPlayed INTEGER DEFAULT 0,
-      totalPlaytime INTEGER DEFAULT 0,
-      totalPlusMinus INTEGER DEFAULT 0,
-      totalKniffel INTEGER DEFAULT 0,
-      totalStop INTEGER DEFAULT 0,
-      totalFeuerwerk INTEGER DEFAULT 0,
-      totalKleeblatt INTEGER DEFAULT 0,
-      totalKleeblattCompleted INTEGER DEFAULT 0,
-      totalx2 INTEGER DEFAULT 0
-    )
-  `);
-
-  db.run("ALTER TABLE global_statistics ADD COLUMN totalKleeblattCompleted INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE global_statistics ADD COLUMN totalPlusMinusCompleted INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE global_statistics ADD COLUMN totalKniffelCompleted INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE global_statistics ADD COLUMN totalFeuerwerkPoints INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE global_statistics ADD COLUMN totalx2Points INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE global_statistics ADD COLUMN defaultGamesPlayed INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE global_statistics ADD COLUMN customGamesPlayed INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE global_statistics ADD COLUMN totalFeuerwerkBusts INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE global_statistics ADD COLUMN totalx2Busts INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE global_statistics ADD COLUMN totalBusts INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE global_statistics ADD COLUMN totalTurns INTEGER DEFAULT 0", () => {});
-  db.run("ALTER TABLE global_statistics ADD COLUMN totalScore INTEGER DEFAULT 0", () => {});
-
-  db.run(`INSERT OR IGNORE INTO global_statistics (id) VALUES (1)`);
-});
-
-const getDeviceStats = (deviceId) => {
-  return new Promise((resolve, reject) => {
-    db.get('SELECT * FROM device_statistics WHERE deviceId = ?', [deviceId], (err, row) => {
-      if (err) return reject(err);
-      resolve(row || null);
-    });
-  });
+const initDb = async () => {
+  try {
+    await knex.migrate.latest();
+    console.log('Database migrated to the latest version.');
+  } catch (err) {
+    console.error('Failed to run database migrations:', err);
+    throw err;
+  }
 };
 
-const updateDeviceStats = (deviceId, stats) => {
-  return new Promise((resolve, reject) => {
-    db.run(`
-      INSERT INTO device_statistics (
-        deviceId, gamesPlayed, wins, pointsDeducted, plusMinusCompleted, 
-        plusMinusFailed, kniffelCompleted, kniffelFailed, skipped, 
-        feuerwerkReceived, kleeblattFailed, kleeblattCompleted, x2Received, totalPlaytime,
-        totalTurns, busts, feuerwerkBusts, x2Busts, feuerwerkPointsScored, x2PointsScored
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(deviceId) DO UPDATE SET
-        gamesPlayed = gamesPlayed + excluded.gamesPlayed,
-        wins = wins + excluded.wins,
-        pointsDeducted = pointsDeducted + excluded.pointsDeducted,
-        plusMinusCompleted = plusMinusCompleted + excluded.plusMinusCompleted,
-        plusMinusFailed = plusMinusFailed + excluded.plusMinusFailed,
-        kniffelCompleted = kniffelCompleted + excluded.kniffelCompleted,
-        kniffelFailed = kniffelFailed + excluded.kniffelFailed,
-        skipped = skipped + excluded.skipped,
-        feuerwerkReceived = feuerwerkReceived + excluded.feuerwerkReceived,
-        kleeblattFailed = kleeblattFailed + excluded.kleeblattFailed,
-        kleeblattCompleted = kleeblattCompleted + excluded.kleeblattCompleted,
-        x2Received = x2Received + excluded.x2Received,
-        totalPlaytime = totalPlaytime + excluded.totalPlaytime,
-        totalTurns = totalTurns + excluded.totalTurns,
-        busts = busts + excluded.busts,
-        feuerwerkBusts = feuerwerkBusts + excluded.feuerwerkBusts,
-        x2Busts = x2Busts + excluded.x2Busts,
-        feuerwerkPointsScored = feuerwerkPointsScored + excluded.feuerwerkPointsScored,
-        x2PointsScored = x2PointsScored + excluded.x2PointsScored
-    `, [
-      deviceId,
-      stats.gamesPlayed || 0,
-      stats.wins || 0,
-      stats.pointsDeducted || 0,
-      stats.plusMinusCompleted || 0,
-      stats.plusMinusFailed || 0,
-      stats.kniffelCompleted || 0,
-      stats.kniffelFailed || 0,
-      stats.skipped || 0,
-      stats.feuerwerkReceived || 0,
-      stats.kleeblattFailed || 0,
-      stats.kleeblattCompleted || 0,
-      stats.x2Received || 0,
-      stats.totalPlaytime || 0,
-      stats.totalTurns || 0,
-      stats.busts || 0,
-      stats.feuerwerkBusts || 0,
-      stats.x2Busts || 0,
-      stats.feuerwerkPointsScored || 0,
-      stats.x2PointsScored || 0
-    ], function(err) {
-      if (err) return reject(err);
-      resolve(this.lastID);
-    });
-  });
+// Automatically run migrations on startup if not testing
+if (process.env.NODE_ENV !== 'test' && !process.env.TEST_DB) {
+  initDb();
+}
+
+const getDeviceStats = async (deviceId) => {
+  try {
+    const row = await knex('device_statistics').where({ deviceId }).first();
+    return row || null;
+  } catch (err) {
+    console.error('getDeviceStats error:', err);
+    throw err;
+  }
 };
 
-const getGlobalStats = () => {
-  return new Promise((resolve, reject) => {
-    db.get('SELECT * FROM global_statistics WHERE id = 1', (err, row) => {
-      if (err) return reject(err);
-      resolve(row || null);
-    });
+const updateDeviceStats = async (deviceId, stats) => {
+  const deviceCols = [
+    'gamesPlayed', 'wins', 'pointsDeducted', 'plusMinusCompleted', 
+    'plusMinusFailed', 'kniffelCompleted', 'kniffelFailed', 'skipped', 
+    'feuerwerkReceived', 'kleeblattFailed', 'kleeblattCompleted', 'x2Received', 
+    'totalPlaytime', 'totalTurns', 'busts', 'feuerwerkBusts', 'x2Busts', 
+    'feuerwerkPointsScored', 'x2PointsScored', 'totalScore'
+  ];
+
+  const data = { deviceId };
+  const mergeCols = {};
+
+  deviceCols.forEach(col => {
+    data[col] = stats[col] || 0;
+    mergeCols[col] = knex.raw(`device_statistics.${col} + EXCLUDED.${col}`);
   });
+
+  if (stats.highestTurnScore !== undefined) {
+    data.highestTurnScore = stats.highestTurnScore;
+    mergeCols.highestTurnScore = knex.raw(`MAX(device_statistics.highestTurnScore, EXCLUDED.highestTurnScore)`);
+  }
+  if (stats.fastestWinTurns !== undefined) {
+    data.fastestWinTurns = stats.fastestWinTurns;
+    mergeCols.fastestWinTurns = knex.raw(`MIN(COALESCE(device_statistics.fastestWinTurns, EXCLUDED.fastestWinTurns), EXCLUDED.fastestWinTurns)`);
+  }
+  if (stats.fastestLossTurns !== undefined) {
+    data.fastestLossTurns = stats.fastestLossTurns;
+    mergeCols.fastestLossTurns = knex.raw(`MIN(COALESCE(device_statistics.fastestLossTurns, EXCLUDED.fastestLossTurns), EXCLUDED.fastestLossTurns)`);
+  }
+
+  try {
+    await knex('device_statistics')
+      .insert(data)
+      .onConflict('deviceId')
+      .merge(mergeCols);
+    return true;
+  } catch (err) {
+    console.error('updateDeviceStats error:', err);
+    throw err;
+  }
 };
 
-const updateGlobalStats = (stats) => {
-  return new Promise((resolve, reject) => {
-    db.run(`
-      UPDATE global_statistics SET
-        totalGamesPlayed = totalGamesPlayed + ?,
-        totalPlaytime = totalPlaytime + ?,
-        totalPlusMinus = totalPlusMinus + ?,
-        totalKniffel = totalKniffel + ?,
-        totalStop = totalStop + ?,
-        totalFeuerwerk = totalFeuerwerk + ?,
-        totalKleeblatt = totalKleeblatt + ?,
-        totalKleeblattCompleted = totalKleeblattCompleted + ?,
-        totalx2 = totalx2 + ?,
-        totalTurns = totalTurns + ?,
-        totalScore = totalScore + ?,
-        totalPlusMinusCompleted = totalPlusMinusCompleted + ?,
-        totalKniffelCompleted = totalKniffelCompleted + ?,
-        totalFeuerwerkPoints = totalFeuerwerkPoints + ?,
-        totalx2Points = totalx2Points + ?,
-        defaultGamesPlayed = defaultGamesPlayed + ?,
-        customGamesPlayed = customGamesPlayed + ?,
-        totalFeuerwerkBusts = totalFeuerwerkBusts + ?,
-        totalx2Busts = totalx2Busts + ?,
-        totalBusts = totalBusts + ?
-      WHERE id = 1
-    `, [
-      stats.gamesPlayed || 0,
-      stats.totalPlaytime || 0,
-      stats.totalPlusMinus || 0,
-      stats.totalKniffel || 0,
-      stats.totalStop || 0,
-      stats.totalFeuerwerk || 0,
-      stats.totalKleeblatt || 0,
-      stats.totalKleeblattCompleted || 0,
-      stats.totalx2 || 0,
-      stats.totalTurns || 0,
-      stats.totalScore || 0,
-      stats.totalPlusMinusCompleted || 0,
-      stats.totalKniffelCompleted || 0,
-      stats.totalFeuerwerkPoints || 0,
-      stats.totalx2Points || 0,
-      stats.isDefaultGame ? 1 : 0,
-      stats.isDefaultGame ? 0 : 1,
-      stats.totalFeuerwerkBusts || 0,
-      stats.totalx2Busts || 0,
-      stats.totalBusts || 0
-    ], function(err) {
-      if (err) return reject(err);
-      resolve(this.changes);
-    });
-  });
+const getGlobalStats = async () => {
+  try {
+    const row = await knex('global_statistics').where({ id: 1 }).first();
+    return row || null;
+  } catch (err) {
+    console.error('getGlobalStats error:', err);
+    throw err;
+  }
 };
 
-module.exports = { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats };
+const updateGlobalStats = async (stats) => {
+  const globalMapping = {
+    totalGamesPlayed: stats.gamesPlayed || 0,
+    totalPlaytime: stats.totalPlaytime || 0,
+    totalPlusMinus: stats.totalPlusMinus || 0,
+    totalKniffel: stats.totalKniffel || 0,
+    totalStop: stats.totalStop || 0,
+    totalFeuerwerk: stats.totalFeuerwerk || 0,
+    totalKleeblatt: stats.totalKleeblatt || 0,
+    totalKleeblattCompleted: stats.totalKleeblattCompleted || 0,
+    totalx2: stats.totalx2 || 0,
+    totalTurns: stats.totalTurns || 0,
+    totalScore: stats.totalScore || 0,
+    totalPlusMinusCompleted: stats.totalPlusMinusCompleted || 0,
+    totalKniffelCompleted: stats.totalKniffelCompleted || 0,
+    totalFeuerwerkPoints: stats.totalFeuerwerkPoints || 0,
+    totalx2Points: stats.totalx2Points || 0,
+    defaultGamesPlayed: stats.isDefaultGame ? 1 : 0,
+    customGamesPlayed: stats.isDefaultGame ? 0 : 1,
+    totalFeuerwerkBusts: stats.totalFeuerwerkBusts || 0,
+    totalx2Busts: stats.totalx2Busts || 0,
+    totalBusts: stats.totalBusts || 0
+  };
+
+  const updateData = {};
+  for (const [col, val] of Object.entries(globalMapping)) {
+    updateData[col] = knex.raw(`global_statistics.${col} + ?`, [val]);
+  }
+
+  if (stats.highestTurnScore !== undefined) {
+    updateData.highestTurnScore = knex.raw(`MAX(global_statistics.highestTurnScore, ?)`, [stats.highestTurnScore]);
+  }
+  if (stats.fastestWinTurns !== undefined) {
+    updateData.fastestWinTurns = knex.raw(`MIN(COALESCE(global_statistics.fastestWinTurns, ?), ?)`, [stats.fastestWinTurns, stats.fastestWinTurns]);
+  }
+
+  try {
+    const changes = await knex('global_statistics').where({ id: 1 }).update(updateData);
+    return changes;
+  } catch (err) {
+    console.error('updateGlobalStats error:', err);
+    throw err;
+  }
+};
+
+module.exports = { initDb, getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats, knex };
