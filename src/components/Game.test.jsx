@@ -185,8 +185,8 @@ describe('Game Component Integration', () => {
     expect(mockNextTurn).toHaveBeenCalledWith(500, true);
   });
 
-  it('hides Roll Dice button when showRollDiceOption is false', () => {
-    useGameStore.setState({ showRollDiceOption: false });
+  it('hides Roll Dice button when diceMode is physical', () => {
+    useGameStore.setState({ diceMode: 'physical' });
     render(<Game />);
 
     const rollDiceButton = screen.queryByText(/Roll Dice/i);
@@ -197,15 +197,12 @@ describe('Game Component Integration', () => {
     expect(typeScoreDivider).toBeNull();
   });
 
-  it('shows Roll Dice button when showRollDiceOption is true', () => {
-    useGameStore.setState({ showRollDiceOption: true });
+  it('shows Roll Dice button when diceMode is digital', () => {
+    useGameStore.setState({ diceMode: 'digital' });
     render(<Game />);
 
     const rollDiceButton = screen.getByText(/Roll Dice/i);
     expect(rollDiceButton).toBeTruthy();
-    
-    const typeScoreDivider = screen.getByText('OR TYPE SCORE');
-    expect(typeScoreDivider).toBeTruthy();
   });
 
   it('plays buzzer sound when Stop card is drawn locally or online', async () => {

@@ -2,8 +2,15 @@
 
 Tutto Multi-Device is a dynamic web application that allows you to play the board game Tutto! with friends online in real-time or locally on the same device. It features modern UI design, real-time multiplayer synchronization using WebSockets, dynamic animations, and comprehensive statistics tracking.
 
+## Features
+- **Local & Online Multiplayer:** Play on a single device or host/join an online room.
+- **Physical & Digital Dice Modes:** Use the built-in digital dice with physics-inspired staggered tumbling animations, or track scores using your own physical dice.
+- **Modern UI & Dark Mode:** A fully responsive, polished user interface with seamless dark mode integration.
+- **Advanced Options:** Custom winning scores, customizable card deck counts, optional random player ordering, and turn/kick timers for online play.
+- **Comprehensive Statistics:** Track global and personal device statistics, including Total Score, Total Turns, Busts, Longest Combos, and Most Tuttos per game. View detailed history records for your device.
+
 ## Tech Stack
-- **Frontend**: React, Vite, CSS variables for theming, Chart.js for stats
+- **Frontend**: React, Vite, Tailwind CSS, Framer Motion for animations, Chart.js for stats
 - **Backend**: Node.js, Express, Socket.IO
 - **Database**: SQLite (for global and personal statistics)
 

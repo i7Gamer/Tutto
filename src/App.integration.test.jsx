@@ -29,6 +29,7 @@ describe('App Integration (End-to-End)', () => {
   });
 
   it('plays a full local game with edge cases (Busts, Tuttos) to the EndScreen', async () => {
+    useGameStore.setState({ diceMode: 'digital' });
     // 1. Setup deterministic game environment
     const originalRandom = Math.random;
     Math.random = () => 0.999999; // Keeps deck in original order. 1st card is 'Kleeblatt'

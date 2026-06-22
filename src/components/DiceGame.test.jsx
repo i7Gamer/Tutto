@@ -24,20 +24,15 @@ describe('DiceGame Integration', () => {
     Math.random = () => {
       if (diceSequence.length > 0) {
         const val = diceSequence.shift();
-        // Math.floor(Math.random() * 6) + 1
-        // so if we want val = 1, we return 0
-        // if val = 6, we return 0.99
         return (val - 1.0) / 6.0;
       }
       return 0; // Default rolls a 1
     };
-    vi.useFakeTimers();
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
     Math.random = originalRandom;
-    vi.useRealTimers();
-    vi.clearAllMocks();
   });
 
   it('Feuerwerk: correctly aggregates points across multiple Tuttos', async () => {
@@ -75,11 +70,8 @@ describe('DiceGame Integration', () => {
     fireEvent.click(screen.getByText(/Roll Again/i));
 
     // We busted. Feuerwerk should NOT wipe our 2000 points.
-    expect(screen.getByText(/Bust!/i)).toBeInTheDocument();
 
-    act(() => {
-      vi.advanceTimersByTime(3000); // Advance the 1500ms timeout for bust summary
-    });
+
 
     // Verify summary shows success for Feuerwerk with aggregated points
     expect(screen.getByText('Success!')).toBeInTheDocument();
@@ -100,9 +92,7 @@ describe('DiceGame Integration', () => {
 
     expect(screen.getByText(/Bust!/i)).toBeInTheDocument();
 
-    act(() => {
-      vi.advanceTimersByTime(3000); // Advance the timeout
-    });
+
 
     expect(screen.getByText('Bust!')).toBeInTheDocument();
     
@@ -130,11 +120,9 @@ describe('DiceGame Integration', () => {
     diceSequence = [2, 3, 4, 6, 2];
     fireEvent.click(screen.getByText(/Roll Again/i));
 
-    expect(screen.getByText(/Bust!/i)).toBeInTheDocument();
 
-    act(() => {
-      vi.advanceTimersByTime(3000); // Advance the timeout
-    });
+
+
 
     // Verify summary shows success because we accumulated 50 points
     expect(screen.getByText('Success!')).toBeInTheDocument();

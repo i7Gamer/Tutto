@@ -13,7 +13,7 @@ const getAudioContext = () => {
   return audioCtx;
 };
 
-export const playTone = (frequency, type, duration, vol, offset = 0) => {
+export const playTone = (frequency, type, duration, vol = 0.1, offset = 0) => {
   try {
     const ctx = getAudioContext();
     const oscillator = ctx.createOscillator();

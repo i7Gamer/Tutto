@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Copy, UserMinus, Crown, Play, Loader2, WifiOff } from 'lucide-react';
+import { Copy, Play, Loader2, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton } from './LobbyShared';
+import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList } from './LobbyShared';
 
 export default function OnlineLobby({ game }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -26,23 +26,7 @@ export default function OnlineLobby({ game }) {
     }
   };
 
-  const updateCardCount = (card, count) => {
-    setInitialCards(prev => ({ ...prev, [card]: parseInt(count) || 0 }));
-  };
 
-  const handleMoveUp = (index) => {
-    if (index === 0) return;
-    const newPlayers = [...players];
-    [newPlayers[index - 1], newPlayers[index]] = [newPlayers[index], newPlayers[index - 1]];
-    reorderPlayers(newPlayers);
-  };
-
-  const handleMoveDown = (index) => {
-    if (index === players.length - 1) return;
-    const newPlayers = [...players];
-    [newPlayers[index + 1], newPlayers[index]] = [newPlayers[index], newPlayers[index + 1]];
-    reorderPlayers(newPlayers);
-  };
 
   if (!roomId) {
     return (
@@ -87,7 +71,7 @@ export default function OnlineLobby({ game }) {
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
       <div className="mb-8">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-2xl font-bold text-indigo-900">Room: {roomId}</h3>
+          <h3 className="text-2xl font-bold text-indigo-900 dark:text-indigo-200">Room: {roomId}</h3>
           <button 
             className="text-red-500 hover:bg-red-50 border border-red-200 px-4 py-2 rounded-lg font-medium transition-colors" 
             onClick={() => {
@@ -97,71 +81,21 @@ export default function OnlineLobby({ game }) {
             Leave Room
           </button>
         </div>
-        <p className="mb-6 text-gray-700 dark:text-gray-200 text-lg">You are: <strong className="text-indigo-600">{myName}</strong> {isHost ? <span className="text-amber-500 font-medium">(Host)</span> : ""}</p>
+        <p className="mb-6 text-gray-700 dark:text-gray-200 text-lg">You are: <strong className="text-indigo-600 dark:text-indigo-400">{myName}</strong> {isHost ? <span className="text-amber-500 font-medium">(Host)</span> : ""}</p>
         
         <h4 className="font-bold text-gray-800 dark:text-gray-100 mb-3">Players in Lobby:</h4>
-        <div className="bg-white dark:bg-slate-800/40 rounded-xl overflow-hidden mb-6 border border-gray-100 dark:border-slate-700">
-          <table className="w-full text-left border-collapse">
-            <tbody>
-              <AnimatePresence>
-                {players && players.map((p, idx) => (
-                  <motion.tr 
-                    key={p.name}
-                    layout
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className={`border-b border-gray-100 dark:border-slate-700 last:border-0 hover:bg-white dark:bg-slate-800/50 transition-colors ${p.name === myName ? 'bg-indigo-50/50' : ''}`}
-                  >
-                    <td className="p-3 font-semibold flex items-center gap-2" style={{ color: p.color || '#1f2937' }}>
-                      {p.name === myName ? (
-                        <input 
-                          type="color" 
-                          value={p.color || '#ffffff'} 
-                          onChange={(e) => changeMyColor(e.target.value)}
-                          className="w-6 h-6 p-0 border-0 bg-transparent align-middle cursor-pointer"
-                        />
-                      ) : (
-                        <span className="inline-block w-4 h-4 rounded-full shadow-sm border border-black/10" style={{ backgroundColor: p.color || '#ffffff' }}></span>
-                      )}
-                      {p.name} 
-                      {p.socketId === hostId && <Crown size={16} className="text-amber-500" />}
-                    </td>
-                    {isHost && (
-                      <td className="p-3 whitespace-nowrap w-36">
-                        <div className="flex items-center justify-end gap-1">
-                          <div className="w-8 h-8 flex items-center justify-center">
-                            {idx > 0 && (
-                              <button className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 w-full h-full flex items-center justify-center rounded transition-colors" onClick={() => handleMoveUp(idx)}>
-                                <ChevronUp size={18} />
-                              </button>
-                            )}
-                          </div>
-                          <div className="w-8 h-8 flex items-center justify-center">
-                            {idx < players.length - 1 && (
-                              <button className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 w-full h-full flex items-center justify-center rounded transition-colors" onClick={() => handleMoveDown(idx)}>
-                                <ChevronDown size={18} />
-                              </button>
-                            )}
-                          </div>
-                          <div className="w-8 h-8 flex items-center justify-center ml-1">
-                            {p.socketId !== hostId && (
-                              <button className="text-red-500 hover:bg-red-100 w-full h-full flex items-center justify-center rounded transition-colors" onClick={() => kickPlayer(p.socketId)}>
-                                <UserMinus size={18} />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                    )}
-                  </motion.tr>
-                ))}
-              </AnimatePresence>
-            </tbody>
-          </table>
-        </div>
+        <PlayerList 
+          players={players} 
+          reorderPlayers={reorderPlayers} 
+          isOnline={true} 
+          myName={myName} 
+          hostId={hostId} 
+          isHost={isHost} 
+          changeColor={(p, color) => changeMyColor(color)} 
+          onRemovePlayer={(p) => kickPlayer(p.socketId)} 
+        />
 
-        <div className="flex flex-col justify-center items-center gap-4 mb-8">
+        <div className="flex flex-row flex-wrap justify-center items-center gap-4 mb-8">
           <DiceModeSelector 
             diceMode={game.diceMode} 
             setDiceMode={game.setDiceMode} 
@@ -181,9 +115,6 @@ export default function OnlineLobby({ game }) {
             showAdvanced={showAdvanced} 
             game={game} 
             isOnline={true} 
-            setWinningScore={setWinningScore} 
-            setRandomOrder={setRandomOrder} 
-            updateCardCount={updateCardCount} 
           />
         )}
 

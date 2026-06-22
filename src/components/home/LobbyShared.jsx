@@ -1,6 +1,106 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Play } from 'lucide-react';
+import { Settings, Play, ChevronUp, ChevronDown, Trash2, UserMinus, Crown } from 'lucide-react';
+
+export function PlayerList({
+  players,
+  reorderPlayers,
+  isOnline = false,
+  myName = null,
+  hostId = null,
+  isHost = true,
+  changeColor,
+  onRemovePlayer
+}) {
+  const handleMoveUp = (index) => {
+    if (index === 0) return;
+    const newPlayers = [...players];
+    [newPlayers[index - 1], newPlayers[index]] = [newPlayers[index], newPlayers[index - 1]];
+    if (reorderPlayers) reorderPlayers(newPlayers);
+  };
+
+  const handleMoveDown = (index) => {
+    if (index === players.length - 1) return;
+    const newPlayers = [...players];
+    [newPlayers[index + 1], newPlayers[index]] = [newPlayers[index], newPlayers[index + 1]];
+    if (reorderPlayers) reorderPlayers(newPlayers);
+  };
+
+  if (!players || players.length === 0) return null;
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, height: 0 }} 
+      animate={{ opacity: 1, height: 'auto' }} 
+      exit={{ opacity: 0, height: 0 }}
+      className="bg-white dark:bg-slate-800/40 rounded-xl overflow-hidden mb-6 border border-gray-100 dark:border-slate-700"
+    >
+      <table className="w-full text-left border-collapse">
+        <tbody>
+          <AnimatePresence>
+            {players.map((p, idx) => {
+              const isMe = isOnline ? p.name === myName : true;
+              return (
+                <motion.tr 
+                  key={p.name}
+                  layout
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className={`border-b border-gray-100 dark:border-slate-700 last:border-0 hover:bg-white dark:bg-slate-800/50 transition-colors ${isOnline && isMe ? 'bg-indigo-50/50' : ''}`}
+                >
+                  <td className="p-3 font-semibold flex items-center gap-2" style={{ color: p.color || '#1f2937' }}>
+                    {isMe ? (
+                      <input 
+                        type="color" 
+                        value={p.color || '#ffffff'} 
+                        onChange={(e) => changeColor(p, e.target.value)}
+                        className={`w-6 h-6 p-0 border-0 bg-transparent align-middle cursor-pointer ${!isOnline ? 'mr-1' : ''}`}
+                      />
+                    ) : (
+                      <span className="inline-block w-4 h-4 rounded-full shadow-sm border border-black/10" style={{ backgroundColor: p.color || '#ffffff' }}></span>
+                    )}
+                    {p.name} 
+                    {isOnline && p.socketId === hostId && <Crown size={16} className="text-amber-500" />}
+                  </td>
+                  <td className="p-3 whitespace-nowrap w-36">
+                    <div className="flex items-center justify-end gap-1">
+                      {isHost && (
+                        <>
+                          <div className="w-8 h-8 flex items-center justify-center">
+                            {idx > 0 && (
+                              <button className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 w-full h-full flex items-center justify-center rounded transition-colors" onClick={() => handleMoveUp(idx)}>
+                                <ChevronUp size={18} />
+                              </button>
+                            )}
+                          </div>
+                          <div className="w-8 h-8 flex items-center justify-center">
+                            {idx < players.length - 1 && (
+                              <button className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 w-full h-full flex items-center justify-center rounded transition-colors" onClick={() => handleMoveDown(idx)}>
+                                <ChevronDown size={18} />
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      )}
+                      <div className="w-8 h-8 flex items-center justify-center ml-1">
+                        {(!isOnline || (isHost && p.socketId !== hostId)) && (
+                          <button className="text-red-500 hover:bg-red-100 w-full h-full flex items-center justify-center rounded transition-colors" onClick={() => onRemovePlayer(p)}>
+                            {isOnline ? <UserMinus size={18} /> : <Trash2 size={18} />}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+                </motion.tr>
+              );
+            })}
+          </AnimatePresence>
+        </tbody>
+      </table>
+    </motion.div>
+  );
+}
 
 export function DiceModeSelector({ diceMode, setDiceMode, nameSuffix = "Lobby" }) {
   return (
@@ -43,11 +143,13 @@ export function AdvancedOptionsToggle({ showAdvanced, setShowAdvanced }) {
 export function AdvancedOptionsPanel({ 
   showAdvanced, 
   game, 
-  isOnline = false, 
-  setWinningScore, 
-  setRandomOrder, 
-  updateCardCount 
+  isOnline = false 
 }) {
+  const updateCardCount = (card, count) => {
+    if (game.setInitialCards) {
+      game.setInitialCards(prev => ({ ...prev, [card]: parseInt(count) || 0 }));
+    }
+  };
   return (
     <AnimatePresence>
       {showAdvanced && (
@@ -65,19 +167,8 @@ export function AdvancedOptionsPanel({
                   type="number" 
                   className="bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
                   value={game.winningScore} 
-                  onChange={(e) => setWinningScore(parseInt(e.target.value) || 0)} 
+                  onChange={(e) => game.setWinningScore(parseInt(e.target.value) || 0)} 
                 />
-              </div>
-              
-              <div className={`flex items-center gap-2 pb-2`}>
-                <input 
-                  type="checkbox" 
-                  id={isOnline ? "onlineRandomOrder" : "localRandomOrder"} 
-                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 flex-shrink-0"
-                  checked={game.randomOrder ?? true} 
-                  onChange={(e) => setRandomOrder(e.target.checked)} 
-                />
-                <label htmlFor={isOnline ? "onlineRandomOrder" : "localRandomOrder"} className="font-medium text-sm sm:text-base text-gray-700 dark:text-gray-200 cursor-pointer">Random Order</label>
               </div>
 
               {isOnline && (
@@ -103,6 +194,17 @@ export function AdvancedOptionsPanel({
                   </div>
                 </>
               )}
+
+              <div className={`flex items-center gap-2 pb-2`}>
+                <input 
+                  type="checkbox" 
+                  id={isOnline ? "onlineRandomOrder" : "localRandomOrder"} 
+                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 flex-shrink-0"
+                  checked={game.randomOrder ?? true} 
+                  onChange={(e) => game.setRandomOrder(e.target.checked)} 
+                />
+                <label htmlFor={isOnline ? "onlineRandomOrder" : "localRandomOrder"} className="font-medium text-sm sm:text-base text-gray-700 dark:text-gray-200 cursor-pointer">Random Order</label>
+              </div>
             </div>
 
             <h4 className="font-bold text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-slate-600 pb-2 mb-4">Cards in Deck</h4>

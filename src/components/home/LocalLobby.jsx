@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { UserPlus, Trash2, Settings, Play, ChevronUp, ChevronDown } from 'lucide-react';
+import { UserPlus, Play } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton } from './LobbyShared';
+import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList } from './LobbyShared';
 
 export default function LocalLobby({ game }) {
   const [newPlayerName, setNewPlayerName] = useState("");
@@ -21,23 +21,7 @@ export default function LocalLobby({ game }) {
     setNewPlayerName("");
   };
 
-  const updateCardCount = (card, count) => {
-    setInitialCards(prev => ({ ...prev, [card]: parseInt(count) || 0 }));
-  };
 
-  const handleMoveUp = (index) => {
-    if (index === 0) return;
-    const newPlayers = [...players];
-    [newPlayers[index - 1], newPlayers[index]] = [newPlayers[index], newPlayers[index - 1]];
-    reorderPlayers(newPlayers);
-  };
-
-  const handleMoveDown = (index) => {
-    if (index === players.length - 1) return;
-    const newPlayers = [...players];
-    [newPlayers[index + 1], newPlayers[index]] = [newPlayers[index], newPlayers[index + 1]];
-    reorderPlayers(newPlayers);
-  };
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
@@ -62,69 +46,17 @@ export default function LocalLobby({ game }) {
           </motion.button>
         </div>
 
-        <AnimatePresence>
-          {players && players.length > 0 && (
-            <motion.div 
-              initial={{ opacity: 0, height: 0 }} 
-              animate={{ opacity: 1, height: 'auto' }} 
-              exit={{ opacity: 0, height: 0 }}
-              className="bg-white dark:bg-slate-800/40 rounded-xl overflow-hidden mb-6 border border-gray-100 dark:border-slate-700"
-            >
-              <table className="w-full text-left border-collapse">
-                <tbody>
-                  <AnimatePresence>
-                    {players.map((p, idx) => (
-                      <motion.tr 
-                        key={p.name}
-                        layout
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -20 }}
-                        className="border-b border-gray-100 dark:border-slate-700 last:border-0 hover:bg-white dark:bg-slate-800/50 transition-colors"
-                      >
-                        <td className="p-3 font-semibold" style={{ color: p.color || '#1f2937' }}>
-                          <input 
-                            type="color" 
-                            value={p.color || '#ffffff'} 
-                            onChange={(e) => changePlayerColor(p.name, e.target.value)}
-                            className="w-6 h-6 p-0 border-0 bg-transparent align-middle mr-3 cursor-pointer"
-                          />
-                          {p.name}
-                        </td>
-                        <td className="p-3 whitespace-nowrap w-36">
-                          <div className="flex items-center justify-end gap-1">
-                            <div className="w-8 h-8 flex items-center justify-center">
-                              {idx > 0 && (
-                                <button className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 w-full h-full flex items-center justify-center rounded transition-colors" onClick={() => handleMoveUp(idx)}>
-                                  <ChevronUp size={18} />
-                                </button>
-                              )}
-                            </div>
-                            <div className="w-8 h-8 flex items-center justify-center">
-                              {idx < players.length - 1 && (
-                                <button className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 w-full h-full flex items-center justify-center rounded transition-colors" onClick={() => handleMoveDown(idx)}>
-                                  <ChevronDown size={18} />
-                                </button>
-                              )}
-                            </div>
-                            <div className="w-8 h-8 flex items-center justify-center ml-1">
-                              <button className="text-red-500 hover:bg-red-100 w-full h-full flex items-center justify-center rounded transition-colors" onClick={() => removePlayer(p.name)}>
-                                <Trash2 size={18} />
-                              </button>
-                            </div>
-                          </div>
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </AnimatePresence>
-                </tbody>
-              </table>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <PlayerList 
+          players={players} 
+          reorderPlayers={reorderPlayers} 
+          isOnline={false} 
+          isHost={true} 
+          changeColor={(p, color) => changePlayerColor(p.name, color)} 
+          onRemovePlayer={(p) => removePlayer(p.name)} 
+        />
       </div>
 
-      <div className="flex flex-col justify-center items-center gap-4 mb-8">
+      <div className="flex flex-row flex-wrap justify-center items-center gap-4 mb-8">
         <DiceModeSelector 
           diceMode={game.diceMode} 
           setDiceMode={game.setDiceMode} 
@@ -140,9 +72,6 @@ export default function LocalLobby({ game }) {
         showAdvanced={showAdvanced} 
         game={game} 
         isOnline={false} 
-        setWinningScore={setWinningScore} 
-        setRandomOrder={setRandomOrder} 
-        updateCardCount={updateCardCount} 
       />
 
       <StartGameButton 

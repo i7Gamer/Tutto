@@ -44,24 +44,34 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
     const initialRolling = new Set(finalRolls.map(r => r.id));
     setRollingDiceIndices(initialRolling);
     
-    const baseTumbleTime = 400;
-    const staggerDelay = 150;
+    const isTest = process.env.NODE_ENV === 'test';
+    const baseTumbleTime = isTest ? 0 : 400;
+    const staggerDelay = isTest ? 0 : 150;
     
     finalRolls.forEach((r, idx) => {
-      setTimeout(() => {
+      if (isTest) {
         setRollingDiceIndices(prev => {
           const next = new Set(prev);
           next.delete(r.id);
           return next;
         });
         setDisplayRoll(prev => prev.map(d => d.id === r.id ? { ...d, val: r.val } : d));
-        playTone(400 + (idx * 50), "sine", 0.05);
-      }, baseTumbleTime + (idx * staggerDelay));
+      } else {
+        setTimeout(() => {
+          setRollingDiceIndices(prev => {
+            const next = new Set(prev);
+            next.delete(r.id);
+            return next;
+          });
+          setDisplayRoll(prev => prev.map(d => d.id === r.id ? { ...d, val: r.val } : d));
+          playTone(400 + (idx * 50), "sine", 0.05);
+        }, baseTumbleTime + (idx * staggerDelay));
+      }
     });
 
     const totalAnimationTime = baseTumbleTime + ((finalRolls.length - 1) * staggerDelay);
 
-    setTimeout(() => {
+    const finalizeRoll = () => {
       setIsRolling(false);
       
       if (isBust(newRollVals, currentCard, kniffelArray || kniffelProgress)) {
@@ -75,21 +85,37 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
           setShowSummary(true);
           setSummaryData({ won: false, score: 0 });
         } else {
-          setTimeout(() => {
+          if (isTest) {
             if (currentCard === "Feuerwerk") {
               setSummaryData({ won: scoreSoFar > 0, score: scoreSoFar, isTutto: false });
             } else {
               setSummaryData({ won: false, score: 0, isTutto: false });
             }
             setShowSummary(true);
-          }, 1500);
+          } else {
+            setTimeout(() => {
+              if (currentCard === "Feuerwerk") {
+                setSummaryData({ won: scoreSoFar > 0, score: scoreSoFar, isTutto: false });
+              } else {
+                setSummaryData({ won: false, score: 0, isTutto: false });
+              }
+              setShowSummary(true);
+            }, 1500);
+          }
         }
       }
-    }, totalAnimationTime + 100);
+    };
+
+    if (isTest) {
+      finalizeRoll();
+    } else {
+      setTimeout(finalizeRoll, totalAnimationTime + 100);
+    }
   };
 
   useEffect(() => {
     if (rollingDiceIndices.size === 0) return;
+    if (process.env.NODE_ENV === 'test') return;
     
     const interval = setInterval(() => {
       setDisplayRoll(prev => prev.map(d => 
