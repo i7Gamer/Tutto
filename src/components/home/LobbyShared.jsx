@@ -62,6 +62,7 @@ export function PlayerList({
                     )}
                     {p.name} 
                     {isOnline && p.socketId === hostId && <Crown size={16} className="text-amber-500" />}
+                    {p.disconnected && <span className="text-red-500 text-xs ml-1 font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50">Disconnected</span>}
                   </td>
                   <td className="p-3 whitespace-nowrap w-36">
                     <div className="flex items-center justify-end gap-1">

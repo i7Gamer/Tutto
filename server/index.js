@@ -205,7 +205,7 @@ io.on('connection', (socket) => {
       if (playerIndex !== -1) {
         const player = room.state.players[playerIndex];
 
-        if (isExplicitLeave || room.state.status === 'lobby') {
+        if (isExplicitLeave) {
           // Permanently leave
           room.state.players.splice(playerIndex, 1);
           if (room.disconnectTimers && room.disconnectTimers[player.deviceId]) {
