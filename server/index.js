@@ -94,6 +94,10 @@ io.on('connection', (socket) => {
       return;
     }
 
+    if (room.state.status !== 'lobby') {
+      return callback({ error: 'Game is already running. You cannot join mid-game.' });
+    }
+
     if (room.state.players.find(p => p.name === name)) {
       return callback({ error: 'Username already exists in this room' });
     }
@@ -172,7 +176,21 @@ io.on('connection', (socket) => {
       
       io.to(targetSocketId).emit('kicked');
       
-      room.state.players = room.state.players.filter(p => p.socketId !== targetSocketId);
+      const removedIdx = room.state.players.findIndex(p => p.socketId === targetSocketId);
+      if (removedIdx !== -1) {
+        room.state.players.splice(removedIdx, 1);
+        if (room.state.currentPlayerIndex !== null) {
+          let curIdx = room.state.currentPlayerIndex;
+          if (removedIdx < curIdx) {
+            room.state.currentPlayerIndex = curIdx - 1;
+          } else if (removedIdx === curIdx) {
+            room.state.currentPlayerIndex = curIdx % Math.max(1, room.state.players.length);
+            room.state.previousCard = null;
+            room.state.previousScore = null;
+            room.state.previousLeaders = null;
+          }
+        }
+      }
       emitRoomState(currentRoom);
       
       const targetSocket = io.sockets.sockets.get(targetSocketId);
@@ -231,14 +249,30 @@ io.on('connection', (socket) => {
           const timeoutSecs = room.state.reconnectTimeout || 60;
           room.disconnectTimers[player.deviceId] = setTimeout(() => {
             if (rooms[currentRoom]) {
-              rooms[currentRoom].state.players = rooms[currentRoom].state.players.filter(p => p.deviceId !== player.deviceId);
-              if (rooms[currentRoom].state.players.length === 0) {
-                delete rooms[currentRoom];
-              } else {
-                if (rooms[currentRoom].host === socket.id && rooms[currentRoom].state.players.length > 0) {
-                  rooms[currentRoom].host = rooms[currentRoom].state.players[0].socketId;
+              const removedIdx = rooms[currentRoom].state.players.findIndex(p => p.deviceId === player.deviceId);
+              if (removedIdx !== -1) {
+                rooms[currentRoom].state.players.splice(removedIdx, 1);
+                
+                if (rooms[currentRoom].state.currentPlayerIndex !== null) {
+                  let curIdx = rooms[currentRoom].state.currentPlayerIndex;
+                  if (removedIdx < curIdx) {
+                    rooms[currentRoom].state.currentPlayerIndex = curIdx - 1;
+                  } else if (removedIdx === curIdx) {
+                    rooms[currentRoom].state.currentPlayerIndex = curIdx % Math.max(1, rooms[currentRoom].state.players.length);
+                    rooms[currentRoom].state.previousCard = null;
+                    rooms[currentRoom].state.previousScore = null;
+                    rooms[currentRoom].state.previousLeaders = null;
+                  }
                 }
-                emitRoomState(currentRoom);
+
+                if (rooms[currentRoom].state.players.length === 0) {
+                  delete rooms[currentRoom];
+                } else {
+                  if (rooms[currentRoom].host === socket.id) {
+                    rooms[currentRoom].host = rooms[currentRoom].state.players[0].socketId;
+                  }
+                  emitRoomState(currentRoom);
+                }
               }
             }
           }, timeoutSecs * 1000);
