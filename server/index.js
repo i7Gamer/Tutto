@@ -188,6 +188,22 @@ io.on('connection', (socket) => {
             room.state.previousCard = null;
             room.state.previousScore = null;
             room.state.previousLeaders = null;
+            room.state.round += 1;
+
+            if (room.state.cards && room.state.cards.length > 0) {
+              room.state.currentCard = room.state.cards.shift();
+            } else {
+              const deckConfig = Object.keys(room.state.initialCards || {}).reduce((acc, card) => {
+                for(let i=0; i<room.state.initialCards[card]; i++) acc.push(card);
+                return acc;
+              }, []);
+              for (let i = deckConfig.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [deckConfig[i], deckConfig[j]] = [deckConfig[j], deckConfig[i]];
+              }
+              room.state.currentCard = deckConfig.shift() || null;
+              room.state.cards = deckConfig;
+            }
           }
         }
       }
@@ -262,6 +278,24 @@ io.on('connection', (socket) => {
                     rooms[currentRoom].state.previousCard = null;
                     rooms[currentRoom].state.previousScore = null;
                     rooms[currentRoom].state.previousLeaders = null;
+                    rooms[currentRoom].state.round += 1;
+
+                    // Draw a new card for the next player
+                    if (rooms[currentRoom].state.cards && rooms[currentRoom].state.cards.length > 0) {
+                      rooms[currentRoom].state.currentCard = rooms[currentRoom].state.cards.shift();
+                    } else {
+                      const deckConfig = Object.keys(rooms[currentRoom].state.initialCards || {}).reduce((acc, card) => {
+                        for(let i=0; i<rooms[currentRoom].state.initialCards[card]; i++) acc.push(card);
+                        return acc;
+                      }, []);
+                      // Simple Fisher-Yates shuffle
+                      for (let i = deckConfig.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [deckConfig[i], deckConfig[j]] = [deckConfig[j], deckConfig[i]];
+                      }
+                      rooms[currentRoom].state.currentCard = deckConfig.shift() || null;
+                      rooms[currentRoom].state.cards = deckConfig;
+                    }
                   }
                 }
 
