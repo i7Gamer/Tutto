@@ -260,7 +260,20 @@ export const useGameStore = create(immer((set, get) => ({
 
   leaveRoom: () => {
     if (socket) socket.emit('leaveRoom');
-    set({ roomId: null, isHost: false, myName: null, mode: 'online', isOnline: true });
+    set({ 
+      players: [],
+      currentPlayerIndex: null,
+      currentCard: null,
+      cards: [],
+      round: 1,
+      finished: false,
+      status: 'lobby',
+      roomId: null, 
+      isHost: false, 
+      myName: null, 
+      mode: 'online', 
+      isOnline: true 
+    });
   },
 
   kickPlayer: (targetSocketId) => {
