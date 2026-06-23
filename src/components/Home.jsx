@@ -14,7 +14,7 @@ export default function Home({ onShowStats }) {
 
   const handleModeChange = (newMode) => {
     if (newMode === 'local' && roomId) {
-      if (window.confirm(t('home.leaveRoomConfirm'))) {
+      if (window.confirm(t('lobby.online.leaveConfirm', 'Do you really want to leave the room?'))) {
         leaveRoom();
         setMode('local');
       }

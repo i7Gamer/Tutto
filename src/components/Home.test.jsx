@@ -19,8 +19,7 @@ describe('Home Component (i18n)', () => {
     render(<Home onShowStats={() => {}} />);
     
     // We expect the translated keys because of our global react-i18next mock
-    // If the component uses t('home.leaveRoomConfirm'), it will render 'home.leaveRoomConfirm'
-    
+    // If the component uses t('lobby.online.leaveConfirm'), it will render 'lobby.online.leaveConfirm'
     // Check if the "Clear App Cache" button uses a translation key
     expect(screen.getByText('home.clearCache')).toBeInTheDocument();
     
