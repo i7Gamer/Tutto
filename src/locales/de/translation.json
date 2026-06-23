@@ -86,9 +86,8 @@
   "lobby.disconnected": "Getrennt",
   "lobby.digitalDice": "Digitale Würfel",
   "lobby.physicalDice": "Physische Würfel",
-  "lobby.hide": "Verbergen",
-  "lobby.show": "Anzeigen",
-  "lobby.advancedOptions": "Erweiterte Optionen",
+  "lobby.showAdvancedOptions": "Erweiterte Optionen anzeigen",
+  "lobby.hideAdvancedOptions": "Erweiterte Optionen verbergen",
   "lobby.winningScore": "Siegpunktzahl",
   "lobby.turnTimer": "Zug-Timer (s)",
   "lobby.zeroToDisable": "0 zum Deaktivieren",
@@ -168,5 +167,5 @@
   "home.onlinePlay": "Online-Spiel",
   "home.viewStats": "Statistiken ansehen",
   "home.notSeeingFeatures": "Siehst du nicht die neuesten Funktionen?",
-  "home.clearCache": "Cache leeren"
+  "home.clearCache": "Cache leeren & neu laden"
 }

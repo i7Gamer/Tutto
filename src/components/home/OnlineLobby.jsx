@@ -97,7 +97,7 @@ export default function OnlineLobby({ game }) {
           onRemovePlayer={(p) => kickPlayer(p.socketId)} 
         />
 
-        <div className="flex flex-row flex-wrap justify-center items-center gap-4 mb-8">
+        <div className="flex flex-row flex-wrap justify-center items-stretch gap-4 mb-8">
           <DiceModeSelector 
             diceMode={game.diceMode} 
             setDiceMode={game.setDiceMode} 

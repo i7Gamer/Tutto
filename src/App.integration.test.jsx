@@ -48,7 +48,7 @@ describe('App Integration (End-to-End)', () => {
     fireEvent.click(localButton);
 
     // 2. Change Winning Score to 1000
-    const advancedOptionsButton = screen.getByText(/lobby.advancedOptions/i);
+    const advancedOptionsButton = screen.getByText(/lobby.showAdvancedOptions/i);
     fireEvent.click(advancedOptionsButton);
     
     // The input has label "Winning Score"

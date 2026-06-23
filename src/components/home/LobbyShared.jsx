@@ -103,7 +103,7 @@ export function PlayerList({
 export function DiceModeSelector({ diceMode, setDiceMode, nameSuffix = "Lobby" }) {
   const { t } = useTranslation();
   return (
-    <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 bg-white dark:bg-slate-800/50 px-4 py-3 sm:px-6 rounded-xl border border-gray-200 dark:border-slate-600">
+    <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 bg-white dark:bg-slate-800/50 px-4 py-3 sm:px-6 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px]">
       <label className="radio-wrapper text-gray-700 dark:text-gray-200">
         <input 
           type="radio" 
@@ -130,10 +130,10 @@ export function AdvancedOptionsToggle({ showAdvanced, setShowAdvanced }) {
   const { t } = useTranslation();
   return (
     <button 
-      className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800 px-4 py-2 rounded-lg font-medium transition-colors border border-gray-200 dark:border-slate-600" 
+      className="flex items-center justify-center gap-2 text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800 px-4 py-3 rounded-xl font-medium transition-colors border border-gray-200 dark:border-slate-600 h-full min-h-[50px]" 
       onClick={() => setShowAdvanced(!showAdvanced)}
     >
-      <Settings size={18} /> {showAdvanced ? t('lobby.hide', 'Hide') : t('lobby.show', 'Show')} {t('lobby.advancedOptions', 'Advanced Options')}
+      <Settings size={18} /> {showAdvanced ? t('lobby.hideAdvancedOptions', 'Hide Advanced Options') : t('lobby.showAdvancedOptions', 'Show Advanced Options')}
     </button>
   );
 }
@@ -164,7 +164,7 @@ export function AdvancedOptionsPanel({
                 <label className="text-sm font-medium text-gray-600 dark:text-gray-300">{t('lobby.winningScore', 'Winning Score')}</label>
                 <input 
                   type="number" 
-                  className="bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                  className="bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
                   value={game.winningScore} 
                   onChange={(e) => game.setWinningScore(parseInt(e.target.value) || 0)} 
                 />
@@ -176,7 +176,7 @@ export function AdvancedOptionsPanel({
                     <label className="text-sm font-medium text-gray-600 dark:text-gray-300">{t('lobby.turnTimer', 'Turn Timer (s)')}</label>
                     <input 
                       type="number" 
-                      className="bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                      className="bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
                       value={game.turnDuration} 
                       onChange={(e) => game.setTurnDuration(parseInt(e.target.value) || 0)} 
                       placeholder={t('lobby.zeroToDisable', '0 to disable')} 
@@ -186,7 +186,7 @@ export function AdvancedOptionsPanel({
                     <label className="text-sm font-medium text-gray-600 dark:text-gray-300">{t('lobby.kickTimer', 'Kick Timer (s)')} <span className="text-[10px] italic opacity-70 ml-1">{t('lobby.disconnect', '(disconnect)')}</span></label>
                     <input 
                       type="number" 
-                      className="bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                      className="bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
                       value={game.reconnectTimeout} 
                       onChange={(e) => game.setReconnectTimeout(parseInt(e.target.value) || 0)} 
                     />
@@ -194,16 +194,24 @@ export function AdvancedOptionsPanel({
                 </>
               )}
 
-              <div className={`flex items-center gap-2 pb-2`}>
-                <label htmlFor={isOnline ? "onlineRandomOrder" : "localRandomOrder"} className="checkbox-wrapper text-gray-700 dark:text-gray-200">
-                  <input 
-                    type="checkbox" 
-                    id={isOnline ? "onlineRandomOrder" : "localRandomOrder"} 
-                    checked={game.randomOrder ?? true} 
-                    onChange={(e) => game.setRandomOrder(e.target.checked)} 
-                  />
-                  <span className="font-medium text-sm sm:text-base">{t('lobby.randomOrder', 'Random Order')}</span>
-                </label>
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium opacity-0 select-none" aria-hidden="true">&nbsp;</label>
+                <div 
+                  onClick={() => game.setRandomOrder(!game.randomOrder)} 
+                  className="flex items-center gap-3 bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors h-[50px]"
+                >
+                  <div className={`w-10 h-5 rounded-full flex items-center p-0.5 transition-colors ${game.randomOrder !== false ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-slate-600'}`}>
+                    <motion.div 
+                      layout 
+                      transition={{ type: "spring", stiffness: 700, damping: 30 }}
+                      className="w-4 h-4 bg-white rounded-full shadow-sm" 
+                      style={{ marginLeft: game.randomOrder !== false ? '20px' : '0px' }} 
+                    />
+                  </div>
+                  <span className="font-medium text-gray-700 dark:text-gray-200 select-none whitespace-nowrap">
+                    {t('lobby.randomOrder', 'Random Order')}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -214,7 +222,7 @@ export function AdvancedOptionsPanel({
                   <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{card.replace("_", "/")}</label>
                   <input 
                     type="number" 
-                    className="bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-md px-2 py-1 text-center focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                    className="bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-2 py-1 text-center focus:outline-none focus:ring-2 focus:ring-indigo-500" 
                     value={game.initialCards[card]} 
                     onChange={(e) => updateCardCount(card, e.target.value)} 
                   />
