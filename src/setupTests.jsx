@@ -1,83 +1,104 @@
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 
-// Mock window.scrollTo
-window.scrollTo = vi.fn();
-
-// Mock window.matchMedia
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: vi.fn().mockImplementation(query => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
-});
-
-// Mock AudioContext
-class MockAudioContext {
-  constructor() {
-    this.state = 'suspended';
-  }
-  resume() {
-    this.state = 'running';
-    return Promise.resolve();
-  }
-  createOscillator() {
+vi.mock('react-i18next', () => ({
+  useTranslation: () => {
     return {
-      type: 'sine',
-      frequency: { value: 0 },
-      connect: vi.fn(),
-      start: vi.fn(),
-      stop: vi.fn(),
-    };
-  }
-  createGain() {
-    return {
-      gain: {
-        value: 1,
-        exponentialRampToValueAtTime: vi.fn(),
-        setValueAtTime: vi.fn(),
+      t: (key) => key,
+      i18n: {
+        changeLanguage: () => new Promise(() => {}),
       },
-      connect: vi.fn(),
     };
+  },
+  initReactI18next: {
+    type: '3rdParty',
+    init: () => {},
   }
-}
+}));
 
-window.AudioContext = MockAudioContext;
-window.webkitAudioContext = MockAudioContext;
+if (typeof window !== 'undefined') {
+  // Mock window.scrollTo
+  window.scrollTo = vi.fn();
 
-// Mock Audio (HTML5 Audio)
-class MockAudio {
-  play() { return Promise.resolve(); }
-  pause() {}
+  // Mock window.matchMedia
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation(query => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+
+  // Mock AudioContext
+  class MockAudioContext {
+    constructor() {
+      this.state = 'suspended';
+    }
+    resume() {
+      this.state = 'running';
+      return Promise.resolve();
+    }
+    createOscillator() {
+      return {
+        type: 'sine',
+        frequency: { value: 0 },
+        connect: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn(),
+      };
+    }
+    createGain() {
+      return {
+        gain: {
+          value: 1,
+          exponentialRampToValueAtTime: vi.fn(),
+          setValueAtTime: vi.fn(),
+        },
+        connect: vi.fn(),
+      };
+    }
+  }
+
+  window.AudioContext = MockAudioContext;
+  window.webkitAudioContext = MockAudioContext;
+
+  // Mock Audio (HTML5 Audio)
+  class MockAudio {
+    play() { return Promise.resolve(); }
+    pause() {}
+  }
+  window.Audio = MockAudio;
 }
-window.Audio = MockAudio;
 
 // Global fetch mock
-global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));
+global.fetch = vi.fn((url) => {
+  if (url === '/api/stats/global') {
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ gamesPlayed: 10, totalScore: 50000 })
+    });
+  }
+  if (url.startsWith('/api/stats/')) {
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ gamesPlayed: 5, wins: 2 })
+    });
+  }
+  return Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve({})
+  });
+});
 
-// Mock window.prompt
-window.prompt = vi.fn();
-
-// Mock react-chartjs-2 to prevent canvas errors in JSDOM
-vi.mock('react-chartjs-2', () => ({
-  Line: () => <div data-testid="mock-chart">Chart</div>
-}));
-
-// Mock socket.io-client
-global.mockEmit = vi.fn();
-global.mockOn = vi.fn();
-vi.mock('socket.io-client', () => ({
-  io: vi.fn(() => ({
-    emit: global.mockEmit,
-    on: global.mockOn,
-    off: vi.fn(),
-    disconnect: vi.fn(),
-  }))
-}));
+// Mock ResizeObserver
+global.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};

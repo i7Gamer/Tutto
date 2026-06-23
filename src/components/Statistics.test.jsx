@@ -24,7 +24,7 @@ describe('Statistics Component', () => {
   it('renders loading state initially', () => {
     global.fetch = vi.fn(() => new Promise(() => {})); // Never resolves
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
-    expect(screen.getByText(/Loading Statistics.../i)).toBeTruthy();
+    expect(screen.getByText('statistics.loading')).toBeInTheDocument();
   });
 
   it('fetches and displays personal and global statistics', async () => {
@@ -86,29 +86,29 @@ describe('Statistics Component', () => {
 
     // Wait for loading to finish
     await waitFor(() => {
-      expect(screen.queryByText(/Loading Statistics.../i)).toBeNull();
+      expect(screen.queryByText('statistics.loading')).toBeNull();
     });
 
     // Check Personal Stats Tab
-    expect(screen.getByText(/Games Played/i)).toBeTruthy();
-    expect(screen.getByText('10')).toBeTruthy(); // Games played value
-    expect(screen.getByText('60.0%')).toBeTruthy(); // Win rate
+    expect(screen.getByText('statistics.gamesPlayed')).toBeInTheDocument();
+    expect(screen.getByText('10')).toBeInTheDocument(); // Games played value
+    expect(screen.getByText('60.0%')).toBeInTheDocument(); // Win rate
     
     // Check personal averages
-    expect(screen.getByText(/Avg Points\/Turn/i)).toBeTruthy();
-    expect(screen.getByText('400')).toBeTruthy(); // 40000 / 100
+    expect(screen.getByText('statistics.avgPointsPerTurn')).toBeInTheDocument();
+    expect(screen.getByText('400')).toBeInTheDocument(); // 40000 / 100
 
     // Switch to Global Tab
-    const globalTabButton = screen.getByRole('button', { name: /Global Community/i });
+    const globalTabButton = screen.getByRole('button', { name: 'statistics.globalCommunity' });
     fireEvent.click(globalTabButton);
 
     // Check Global Stats Tab
     await waitFor(() => {
-      expect(screen.getByText('100')).toBeTruthy(); // Global Games played
+      expect(screen.getByText('100')).toBeInTheDocument(); // Global Games played
     });
     
     // Click Back
-    const backButton = screen.getByRole('button', { name: /Back/i });
+    const backButton = screen.getByRole('button', { name: 'common.back' });
     fireEvent.click(backButton);
     expect(onBackMock).toHaveBeenCalled();
   });
@@ -122,11 +122,11 @@ describe('Statistics Component', () => {
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.queryByText(/Loading Statistics.../i)).toBeNull();
+      expect(screen.queryByText('statistics.loading')).toBeNull();
     });
 
     // It should render empty states or zeros
-    expect(screen.getByText(/You haven't played any online games on this device yet!/i)).toBeTruthy();
+    expect(screen.getByText('statistics.noPersonalGames')).toBeInTheDocument();
     
     consoleSpy.mockRestore();
   });

@@ -1,8 +1,11 @@
 import React from 'react';
 import { User, Globe, BarChart2 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 export default function ModeSelector({ mode, onModeChange, onShowStats, hasActiveRoom }) {
+  const { t } = useTranslation();
+
   return (
     <div className="flex flex-col items-center mb-8">
       <div className="flex gap-4 mb-4">
@@ -16,7 +19,7 @@ export default function ModeSelector({ mode, onModeChange, onShowStats, hasActiv
           }`}
           onClick={() => onModeChange('local')}
         >
-          <User size={20} /> Local Play
+          <User size={20} /> {t('home.localPlay', 'Local Play')}
         </motion.button>
         <motion.button
           whileHover={{ scale: 1.05 }}
@@ -28,7 +31,7 @@ export default function ModeSelector({ mode, onModeChange, onShowStats, hasActiv
           }`}
           onClick={() => onModeChange('online')}
         >
-          <Globe size={20} /> Online Play
+          <Globe size={20} /> {t('home.onlinePlay', 'Online Play')}
         </motion.button>
       </div>
 
@@ -39,7 +42,7 @@ export default function ModeSelector({ mode, onModeChange, onShowStats, hasActiv
           className="flex items-center gap-2 px-6 py-2 rounded-lg bg-white dark:bg-slate-800/40 hover:bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 text-gray-700 dark:text-gray-200 font-medium transition-all w-full max-w-xs justify-center"
           onClick={onShowStats}
         >
-          <BarChart2 size={18} /> View Statistics
+          <BarChart2 size={18} /> {t('home.viewStats', 'View Statistics')}
         </motion.button>
       )}
     </div>

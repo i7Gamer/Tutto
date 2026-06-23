@@ -551,29 +551,54 @@ tr.active-player {
   outline-offset: max(2px, 0.15em);
 }
 
-/* Toast Notifications */
-.toast-notification {
-  position: fixed;
-  bottom: 2rem;
-  left: 50%;
-  transform: translateX(-50%) translateY(100px);
-  background: var(--card-bg);
-  backdrop-filter: var(--backdrop-blur);
-  -webkit-backdrop-filter: var(--backdrop-blur);
-  border: 1px solid var(--primary);
-  color: var(--text-color);
-  padding: 1rem 2rem;
-  border-radius: 50px;
-  box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.4);
-  font-weight: 600;
-  z-index: 9999;
-  opacity: 0;
-  animation: slideUpToast 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+/* Radio Button Styling */
+.radio-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
 }
 
-@keyframes slideUpToast {
-  0% { transform: translateX(-50%) translateY(100px); opacity: 0; }
-  100% { transform: translateX(-50%) translateY(0); opacity: 1; }
+.radio-wrapper input[type="radio"] {
+  appearance: none;
+  background-color: var(--glass-bg);
+  margin: 0;
+  font: inherit;
+  color: currentColor;
+  width: 1.15em;
+  height: 1.15em;
+  border: 2px solid var(--border-color);
+  border-radius: 50%;
+  display: grid;
+  place-content: center;
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.radio-wrapper input[type="radio"]::before {
+  content: "";
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  transform: scale(0);
+  transition: 120ms transform ease-in-out;
+  box-shadow: inset 1em 1em white;
+  background-color: white;
+}
+
+.radio-wrapper input[type="radio"]:checked {
+  background-color: var(--primary);
+  border-color: var(--primary);
+}
+
+.radio-wrapper input[type="radio"]:checked::before {
+  transform: scale(1);
+}
+
+.radio-wrapper input[type="radio"]:focus {
+  outline: max(2px, 0.15em) solid rgba(79, 70, 229, 0.5);
+  outline-offset: max(2px, 0.15em);
 }
 
 /* Dice Roll Animation */

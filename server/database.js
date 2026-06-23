@@ -50,11 +50,23 @@ const updateDeviceStats = async (deviceId, stats) => {
   }
   if (stats.fastestWinTurns !== undefined) {
     data.fastestWinTurns = stats.fastestWinTurns;
-    mergeCols.fastestWinTurns = knex.raw(`MIN(COALESCE(device_statistics.fastestWinTurns, EXCLUDED.fastestWinTurns), EXCLUDED.fastestWinTurns)`);
+    mergeCols.fastestWinTurns = knex.raw(`
+      CASE 
+        WHEN EXCLUDED.fastestWinTurns IS NULL THEN device_statistics.fastestWinTurns
+        WHEN device_statistics.fastestWinTurns IS NULL THEN EXCLUDED.fastestWinTurns
+        ELSE MIN(device_statistics.fastestWinTurns, EXCLUDED.fastestWinTurns)
+      END
+    `);
   }
   if (stats.fastestLossTurns !== undefined) {
     data.fastestLossTurns = stats.fastestLossTurns;
-    mergeCols.fastestLossTurns = knex.raw(`MIN(COALESCE(device_statistics.fastestLossTurns, EXCLUDED.fastestLossTurns), EXCLUDED.fastestLossTurns)`);
+    mergeCols.fastestLossTurns = knex.raw(`
+      CASE 
+        WHEN EXCLUDED.fastestLossTurns IS NULL THEN device_statistics.fastestLossTurns
+        WHEN device_statistics.fastestLossTurns IS NULL THEN EXCLUDED.fastestLossTurns
+        ELSE MIN(device_statistics.fastestLossTurns, EXCLUDED.fastestLossTurns)
+      END
+    `);
   }
 
   try {
@@ -112,7 +124,13 @@ const updateGlobalStats = async (stats) => {
     updateData.highestTurnScore = knex.raw(`MAX(global_statistics.highestTurnScore, ?)`, [stats.highestTurnScore]);
   }
   if (stats.fastestWinTurns !== undefined) {
-    updateData.fastestWinTurns = knex.raw(`MIN(COALESCE(global_statistics.fastestWinTurns, ?), ?)`, [stats.fastestWinTurns, stats.fastestWinTurns]);
+    updateData.fastestWinTurns = knex.raw(`
+      CASE 
+        WHEN ? IS NULL THEN global_statistics.fastestWinTurns
+        WHEN global_statistics.fastestWinTurns IS NULL THEN ?
+        ELSE MIN(global_statistics.fastestWinTurns, ?)
+      END
+    `, [stats.fastestWinTurns, stats.fastestWinTurns, stats.fastestWinTurns]);
   }
 
   try {

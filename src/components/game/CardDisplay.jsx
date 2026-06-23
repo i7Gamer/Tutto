@@ -1,5 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 const CARD_IMAGE_MAP = {
   "200": "200.png",
@@ -16,9 +17,10 @@ const CARD_IMAGE_MAP = {
 };
 
 export default function CardDisplay({ currentCard, cards }) {
+  const { t } = useTranslation();
+
   return (
-    <div className="flex flex-col items-center justify-center p-6 bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-3xl shadow-xl relative overflow-hidden mb-6 min-h-[350px] md:min-h-[400px]">
-      <h3 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 uppercase tracking-wider">Current Card</h3>
+    <div className="flex flex-col items-center justify-center p-2 bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-3xl shadow-xl relative overflow-hidden h-full w-full min-h-[300px] md:min-h-[340px]">
       
       <div className="relative w-[180px] md:w-[200px] lg:w-[220px] h-[280px] md:h-[310px] lg:h-[340px] perspective-[1000px]">
         <AnimatePresence mode="wait">
@@ -33,7 +35,7 @@ export default function CardDisplay({ currentCard, cards }) {
             >
               <img 
                 src={`./assets/${CARD_IMAGE_MAP[currentCard]}`} 
-                alt={currentCard} 
+                alt={t(`game.cards.${currentCard}`, currentCard)} 
                 className="w-full h-full object-cover"
               />
             </motion.div>
@@ -45,15 +47,14 @@ export default function CardDisplay({ currentCard, cards }) {
               exit={{ opacity: 0 }}
               className="absolute w-full h-full border-2 border-dashed border-gray-300 dark:border-slate-500 rounded-2xl flex items-center justify-center bg-black/5 dark:bg-white/5"
             >
-              <div className="text-gray-400 font-medium rotate-[-15deg] opacity-70">No Card</div>
+              <div className="text-gray-400 font-medium rotate-[-15deg] opacity-70">
+                {t('game.noCard', 'No Card')}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      <div className="absolute -bottom-10 -right-10 text-[200px] text-indigo-50 opacity-[0.03] rotate-[-15deg] pointer-events-none select-none">
-        {currentCard ? currentCard[0] : '?'}
-      </div>
     </div>
   );
 }

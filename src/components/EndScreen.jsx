@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -30,6 +31,7 @@ const colors = [
 ];
 
 export default function EndScreen({ theme, deviceId }) {
+  const { t } = useTranslation();
   const game = useGameStore();
   const { 
     players,
@@ -114,7 +116,7 @@ export default function EndScreen({ theme, deviceId }) {
     maintainAspectRatio: false,
     plugins: {
       legend: { position: 'top', labels: { color: textColor } },
-      title: { display: true, text: 'Score per Round', color: textColor },
+      title: { display: true, text: t('end.scorePerRound', 'Score per Round'), color: textColor },
     },
     scales: {
       y: { ticks: { color: textColor }, grid: { color: gridColor } },
@@ -141,16 +143,16 @@ export default function EndScreen({ theme, deviceId }) {
         </motion.div>
         
         <h1 className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-orange-600 mb-8">
-          Winner: {winner.name}
+          {t('end.winner', 'Winner:')} {winner.name}
         </h1>
         
         <div className="flex flex-wrap justify-center gap-6 mb-10">
           <div className="bg-black/5 dark:bg-white/5 border border-gray-200 dark:border-slate-600 rounded-2xl p-6 min-w-[180px] shadow-sm">
-            <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Played Rounds</div>
+            <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('end.playedRounds', 'Played Rounds')}</div>
             <div className="text-4xl font-black text-indigo-600">{round}</div>
           </div>
           <div className="bg-black/5 dark:bg-white/5 border border-gray-200 dark:border-slate-600 rounded-2xl p-6 min-w-[180px] shadow-sm">
-            <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Playtime</div>
+            <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('end.playtime', 'Playtime')}</div>
             <div className="text-4xl font-black text-indigo-600">{formattedTime}</div>
           </div>
         </div>
@@ -164,7 +166,7 @@ export default function EndScreen({ theme, deviceId }) {
                 className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-4 px-6 rounded-2xl text-xl font-bold flex justify-center items-center gap-2 shadow-lg shadow-emerald-500/30 transition-colors" 
                 onClick={startGame}
               >
-                <RotateCcw size={24} /> Play Again
+                <RotateCcw size={24} /> {t('end.playAgain', 'Play Again')}
               </motion.button>
               <motion.button 
                 whileHover={{ scale: 1.05 }}
@@ -172,20 +174,20 @@ export default function EndScreen({ theme, deviceId }) {
                 className="flex-1 bg-white dark:bg-slate-800 hover:bg-black/5 dark:bg-white/5 text-gray-700 dark:text-gray-200 border-2 border-gray-200 dark:border-slate-600 py-4 px-6 rounded-2xl text-lg font-bold flex justify-center items-center gap-2 shadow-sm transition-colors" 
                 onClick={endGame}
               >
-                <Settings size={20} /> New Config
+                <Settings size={20} /> {t('end.newConfig', 'New Config')}
               </motion.button>
             </div>
           ) : (
             <div className="flex flex-col items-center gap-4 bg-black/5 dark:bg-white/5 p-6 rounded-2xl border border-gray-200 dark:border-slate-600 w-full max-w-md">
               <div className="text-indigo-600 font-bold text-lg flex items-center gap-3">
                 <div className="w-6 h-6 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-                Waiting for host to restart...
+                {t('end.waitingForHost', 'Waiting for host to restart...')}
               </div>
               <button 
                 className="text-red-500 hover:text-red-700 hover:bg-red-50 px-6 py-2 rounded-lg font-bold transition-colors border border-red-200" 
                 onClick={leaveRoom}
               >
-                Leave Game
+                {t('end.leaveGame', 'Leave Game')}
               </button>
             </div>
           )}
@@ -199,33 +201,33 @@ export default function EndScreen({ theme, deviceId }) {
           transition={{ delay: 0.2 }}
           className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8"
         >
-          <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 text-center mb-8">Your Lifetime Statistics</h3>
+          <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 text-center mb-8">{t('end.lifetimeStats', 'Your Lifetime Statistics')}</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center mb-8">
             <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100">
               <div className="text-4xl font-black text-indigo-600 mb-1">{deviceStats.gamesPlayed}</div>
-              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">Games Played</div>
+              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.gamesPlayed', 'Games Played')}</div>
             </div>
             <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100">
               <div className="text-4xl font-black text-emerald-500 mb-1">{deviceStats.wins}</div>
-              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">Total Wins</div>
+              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.totalWins', 'Total Wins')}</div>
             </div>
             <div className="bg-red-50 rounded-2xl p-4 border border-red-100">
               <div className="text-4xl font-black text-red-500 mb-1">{deviceStats.pointsDeducted}</div>
-              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">-1000 Pts Eaten</div>
+              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.pointsEaten', '-1000 Pts Eaten')}</div>
             </div>
             <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100">
               <div className="text-4xl font-black text-amber-500 mb-1">{deviceStats.kniffelCompleted}</div>
-              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">Kniffels Done</div>
+              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.kniffelsDone', 'Kniffels Done')}</div>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-6 text-center max-w-md mx-auto">
             <div className="bg-orange-50 rounded-2xl p-4 border border-orange-100">
               <div className="text-4xl font-black text-orange-500 mb-1">{deviceStats.busts || 0}</div>
-              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">Total Busts</div>
+              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.totalBusts', 'Total Busts')}</div>
             </div>
             <div className="bg-orange-50 rounded-2xl p-4 border border-orange-100">
               <div className="text-4xl font-black text-orange-500 mb-1">{((deviceStats.busts || 0) / Math.max(1, deviceStats.gamesPlayed)).toFixed(1)}</div>
-              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">Avg Busts/Game</div>
+              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.avgBustsPerGame', 'Avg Busts/Game')}</div>
             </div>
           </div>
         </motion.div>
@@ -237,60 +239,58 @@ export default function EndScreen({ theme, deviceId }) {
         transition={{ delay: 0.3 }}
         className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8 overflow-hidden"
       >
-        <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">Game Statistics</h3>
+        <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">{t('end.gameStats', 'Game Statistics')}</h3>
         <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-slate-600">
-          <table className="w-full text-left border-collapse bg-white dark:bg-slate-800">
-            <thead>
-              <tr className="bg-black/5 dark:bg-white/5 border-b border-gray-200 dark:border-slate-600">
-                <th className="p-4 font-bold text-gray-600 dark:text-gray-300">Stat</th>
-                {sortedPlayers.map(p => (
-                  <th key={p.name} className="p-4 font-bold" style={{ color: p.color || '#4f46e5' }}>{p.name}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
-                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Position</td>
-                {sortedPlayers.map(p => <td key={p.name} className="p-4 font-bold">{p.position}.</td>)}
-              </tr>
-              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
-                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Score</td>
-                {sortedPlayers.map(p => <td key={p.name} className="p-4 font-black text-indigo-600">{p.score}</td>)}
-              </tr>
-              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
-                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Total Turns</td>
-                {sortedPlayers.map(p => <td key={p.name} className="p-4">{p.totalTurns}</td>)}
-              </tr>
-              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
-                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Busts</td>
-                {sortedPlayers.map(p => <td key={p.name} className="p-4 text-red-500 font-bold">{p.busts}</td>)}
-              </tr>
-              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
-                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Avg Pts / Round</td>
-                {sortedPlayers.map(p => <td key={p.name} className="p-4 font-bold text-emerald-500">{Math.round(p.score / Math.max(1, round))}</td>)}
-              </tr>
-              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
-                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">-1000 Points Eaten</td>
-                {sortedPlayers.map(p => <td key={p.name} className="p-4">{p.times1000PointsDeducted}</td>)}
-              </tr>
-              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
-                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Plus/Minus (Success/Fail)</td>
-                {sortedPlayers.map(p => <td key={p.name} className="p-4"><span className="text-emerald-500">{p.timesPlusMinusCompleted}</span> / <span className="text-red-500">{p.timesPlusMinusFailed}</span></td>)}
-              </tr>
-              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
-                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Kniffel (Success/Fail)</td>
-                {sortedPlayers.map(p => <td key={p.name} className="p-4"><span className="text-emerald-500">{p.timesKniffelCompleted}</span> / <span className="text-red-500">{p.timesKniffelFailed}</span></td>)}
-              </tr>
-              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
-                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Skipped</td>
-                {sortedPlayers.map(p => <td key={p.name} className="p-4">{p.timesSkipped}</td>)}
-              </tr>
-              <tr className="hover:bg-black/5 dark:bg-white/5 transition-colors">
-                <td className="p-4 font-medium text-gray-600 dark:text-gray-300">Feuerwerk (Received/Pts)</td>
-                {sortedPlayers.map(p => <td key={p.name} className="p-4">{p.timesFeuerwerkReceived} / <span className="text-amber-500 font-bold">{p.feuerwerkPointsScored || 0}</span></td>)}
-              </tr>
-            </tbody>
-          </table>
+          <div className="flex flex-col rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 min-w-max">
+            <div className="flex border-b border-gray-200 dark:border-slate-600 bg-black/5 dark:bg-white/5">
+              <div className="p-4 w-56 flex-shrink-0 font-bold text-gray-600 dark:text-gray-300">{t('end.stat', 'Stat')}</div>
+              {sortedPlayers.map(p => (
+                <div key={p.name} className="p-4 w-32 flex-shrink-0 font-bold text-center" style={{ color: p.color || 'var(--text-color, #4f46e5)' }}>{p.name}</div>
+              ))}
+            </div>
+            <div className="flex flex-col">
+              <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.position', 'Position')}</div>
+                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 font-bold text-center">{p.position}.</div>)}
+              </div>
+              <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.score', 'Score')}</div>
+                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 font-black text-indigo-600 text-center">{p.score}</div>)}
+              </div>
+              <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.totalTurns', 'Total Turns')}</div>
+                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 text-center">{p.totalTurns}</div>)}
+              </div>
+              <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.busts', 'Busts')}</div>
+                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 text-red-500 font-bold text-center">{p.busts}</div>)}
+              </div>
+              <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.avgPtsPerRound', 'Avg Pts / Round')}</div>
+                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 font-bold text-emerald-500 text-center">{Math.round(p.score / Math.max(1, round))}</div>)}
+              </div>
+              <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.pointsEatenStat', '-1000 Points Eaten')}</div>
+                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 text-center">{p.times1000PointsDeducted}</div>)}
+              </div>
+              <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.plusMinusStat', 'Plus/Minus (Success/Fail)')}</div>
+                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 text-center"><span className="text-emerald-500">{p.timesPlusMinusCompleted}</span> / <span className="text-red-500">{p.timesPlusMinusFailed}</span></div>)}
+              </div>
+              <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.kniffelStat', 'Kniffel (Success/Fail)')}</div>
+                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 text-center"><span className="text-emerald-500">{p.timesKniffelCompleted}</span> / <span className="text-red-500">{p.timesKniffelFailed}</span></div>)}
+              </div>
+              <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.skipped', 'Skipped')}</div>
+                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 text-center">{p.timesSkipped}</div>)}
+              </div>
+              <div className="flex hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.feuerwerkStat', 'Feuerwerk (Received/Pts)')}</div>
+                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 text-center">{p.timesFeuerwerkReceived} / <span className="text-amber-500 font-bold">{p.feuerwerkPointsScored || 0}</span></div>)}
+              </div>
+            </div>
+          </div>
         </div>
       </motion.div>
 

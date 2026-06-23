@@ -167,7 +167,7 @@ describe('useOnlineGame', () => {
     expect(state.players[0].x2Busts).toBe(1);
     expect(state.players[0].x2PointsScored).toBe(0);
     expect(state.players[0].timesx2Received).toBe(1);
-    expect(state.players[0].busts).toBe(1);
+    expect(state.players[0].busts).toBe(2);
 
     // Update local state mock to proceed
     act(() => {
@@ -185,7 +185,7 @@ describe('useOnlineGame', () => {
     pushCall = mockEmit.mock.calls.find(call => call[0] === 'pushState');
     state = pushCall[1].newState;
     expect(state.players[0].timesSkipped).toBe(1);
-    expect(state.players[0].busts).toBe(1); // Stop is not a bust!
+    expect(state.players[0].busts).toBe(2); // Stop is not a bust!
   });
 
   it('submits correct statistics for all players when the game ends', () => {

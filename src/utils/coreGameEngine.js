@@ -85,7 +85,7 @@ export const calculateNextTurn = (gameState, scoreInput, isSuccess = false) => {
   // Track turns and busts.
   currentPlayer.totalTurns = (currentPlayer.totalTurns || 0) + 1;
   const isYesNoCard = ["Plus_Minus", "Kniffel", "Kleeblatt"].includes(currentCard);
-  if (turnScore === 0 && currentCard !== "Stop" && !isSuccess && !isYesNoCard) {
+  if (!isSuccess && !isYesNoCard && currentCard !== "Stop") {
     currentPlayer.busts = (currentPlayer.busts || 0) + 1;
     if (currentCard === "Feuerwerk") currentPlayer.feuerwerkBusts = (currentPlayer.feuerwerkBusts || 0) + 1;
     if (currentCard === "x2") currentPlayer.x2Busts = (currentPlayer.x2Busts || 0) + 1;

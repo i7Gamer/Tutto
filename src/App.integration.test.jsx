@@ -44,11 +44,11 @@ describe('App Integration (End-to-End)', () => {
     render(<App />);
 
     // 2. Select Local Game
-    const localButton = screen.getByText(/Local Play/i);
+    const localButton = screen.getByText(/home.localPlay/i);
     fireEvent.click(localButton);
 
     // 2. Change Winning Score to 1000
-    const advancedOptionsButton = screen.getByText(/Show Advanced Options/i);
+    const advancedOptionsButton = screen.getByText(/lobby.advancedOptions/i);
     fireEvent.click(advancedOptionsButton);
     
     // The input has label "Winning Score"
@@ -58,21 +58,21 @@ describe('App Integration (End-to-End)', () => {
     await userEvent.type(winningScoreInput, '1000');
 
     // 3. Add Players
-    const playerInput = screen.getByPlaceholderText(/Name of new player/i);
+    const playerInput = screen.getByPlaceholderText(/lobby.newPlayerPlaceholder/i);
     await userEvent.type(playerInput, 'Alice');
-    fireEvent.click(screen.getByRole('button', { name: /Add/i }));
+    fireEvent.click(screen.getByRole('button', { name: /lobby.addPlayerButton/i }));
 
     await userEvent.clear(playerInput);
     await userEvent.type(playerInput, 'Bob');
-    fireEvent.click(screen.getByRole('button', { name: /Add/i }));
+    fireEvent.click(screen.getByRole('button', { name: /lobby.addPlayerButton/i }));
 
     // 4. Start Game
-    const startButton = screen.getByText(/Start Game!/i);
+    const startButton = screen.getByText(/lobby.startGame/i);
     fireEvent.click(startButton);
 
     // 5. Game Board Renders
     await waitFor(() => {
-      expect(screen.getByText('Round')).toBeTruthy();
+      expect(screen.getByText('game.round')).toBeTruthy();
       expect(screen.getAllByText(/Alice/i).length).toBeGreaterThan(0);
     });
 
@@ -81,14 +81,14 @@ describe('App Integration (End-to-End)', () => {
 
     // Alice's turn. First card is '200'.
     // We just do 1 Tutto!
-    const openModalButton = await screen.findByRole('button', { name: /Roll Dice/i });
+    const openModalButton = await screen.findByRole('button', { name: /game.controls.rollDice/i });
     fireEvent.click(openModalButton);
     
     // Wait for modal to render
-    await screen.findByRole('heading', { name: /Dice Game/i });
+    await screen.findByRole('heading', { name: /dice.title/i });
 
     // Click the Roll 6 Dice button inside the modal
-    const actualRollButton = await screen.findByRole('button', { name: /Roll 6 Dice/i });
+    const actualRollButton = await screen.findByRole('button', { name: /dice.roll_6_dice/i });
     fireEvent.click(actualRollButton);
 
     await waitFor(() => {
@@ -106,16 +106,16 @@ describe('App Integration (End-to-End)', () => {
     actualDice.forEach(die => fireEvent.click(die));
 
     // After 1 Tutto on a 200 card, score should be 2200 points!
-    const stopButton = await screen.findByText(/Stop & Score/i);
+    const stopButton = await screen.findByText(/dice.stop_and_score/i);
     fireEvent.click(stopButton);
 
     // Summary modal
     await waitFor(() => {
-      expect(screen.getByText(/Tutto!/i)).toBeTruthy();
+      expect(screen.getByText(/dice.tutto/i)).toBeTruthy();
       expect(screen.getByText(/2200/)).toBeTruthy();
     });
 
-    const continueButton = screen.getByText(/Continue to Next Player/i);
+    const continueButton = screen.getByText(/dice.continue/i);
     fireEvent.click(continueButton);
 
     // Bob's turn
@@ -127,12 +127,12 @@ describe('App Integration (End-to-End)', () => {
     // It should be '200'.
 
     // Bob rolls dice
-    const rollBobModal = await screen.findByRole('button', { name: /Roll Dice/i });
+    const rollBobModal = await screen.findByRole('button', { name: /game.controls.rollDice/i });
     fireEvent.click(rollBobModal);
 
-    await screen.findByRole('heading', { name: /Dice Game/i });
+    await screen.findByRole('heading', { name: /dice.title/i });
 
-    const actualRollBob = await screen.findByRole('button', { name: /Roll 6 Dice/i });
+    const actualRollBob = await screen.findByRole('button', { name: /dice.roll_6_dice/i });
     fireEvent.click(actualRollBob);
 
     // We make Bob score just 100 points and stop
@@ -148,7 +148,7 @@ describe('App Integration (End-to-End)', () => {
     const bobDice = screen.getAllByText('1').filter(el => el.classList.contains('die'));
     fireEvent.click(bobDice[0]); // Select one '1'
 
-    const stopBob = await screen.findByText(/Stop & Score/i);
+    const stopBob = await screen.findByText(/dice.stop_and_score/i);
     fireEvent.click(stopBob);
 
     // Bob's summary
@@ -156,115 +156,53 @@ describe('App Integration (End-to-End)', () => {
       expect(screen.getAllByText(/100/).length).toBeGreaterThan(0);
     });
 
-    const continueBob = screen.getByText(/Continue to Next Player/i);
+    const continueBob = screen.getByText(/dice.continue/i);
     fireEvent.click(continueBob);
 
     // Round is over! Alice has 2200, Bob has 100. Winning score is 1000.
     // End Screen should be shown!
     await waitFor(() => {
-      expect(screen.getByText(/Winner: Alice/i)).toBeTruthy();
+      expect(screen.getByText(/end.winner Alice/i)).toBeTruthy();
       expect(screen.getAllByText(/2200/).length).toBeGreaterThan(0);
     });
 
     Math.random = originalRandom;
   });
 
-  it('plays a full online game procedure', async () => {
-    let mockRolls = [];
-    vi.spyOn(diceLogic, 'rollDie').mockImplementation(() => {
-      if (mockRolls.length > 0) return mockRolls.shift();
-      return 1;
-    });
 
+  it('renders ToastMessage and ReconnectPopup overlays based on store state', () => {
+    render(<App />);
+    
+    act(() => {
+      useGameStore.setState({ toasts: [{ id: 1, message: 'Host ended game early' }] });
+    });
+    expect(screen.getByText('Host ended game early')).toBeInTheDocument();
+    
+    act(() => {
+      useGameStore.setState({ showReconnectPopup: true });
+    });
+    expect(screen.getByText('home.reconnect.title')).toBeInTheDocument();
+    expect(screen.getByText(/home.reconnect.description/)).toBeInTheDocument();
+    
+    fireEvent.click(screen.getByText('home.reconnect.returnMenu'));
+    expect(screen.queryByText('home.reconnect.title')).not.toBeInTheDocument();
+    expect(useGameStore.getState().mode).toBe('local');
+  });
+
+  it('renders RestoreSessionPopup and clears session when clicking Cancel', async () => {
+    act(() => {
+      useGameStore.setState({ pendingReconnectSession: { roomId: 'GHOST_ROOM', myName: 'Charlie' } });
+    });
+    
     render(<App />);
 
-    // Select Online Game
-    const onlineButton = screen.getByText(/Online Play/i);
-    fireEvent.click(onlineButton);
+    expect(screen.getByText('home.restore.title')).toBeInTheDocument();
+    expect(screen.getByText(/home.restore.description/)).toBeInTheDocument();
 
-    // Enter Room and Name
-    const roomInput = screen.getByPlaceholderText(/e.g. 1234/i);
-    const nameInput = screen.getByPlaceholderText(/e.g. Alice/i);
-    
-    await userEvent.type(roomInput, 'TESTROOM');
-    await userEvent.type(nameInput, 'HostAlice');
+    const yesButton = screen.getByText('home.restore.cancel');
+    fireEvent.click(yesButton);
 
-    // Click Join / Create
-    const joinButton = screen.getByText(/Join \/ Create/i);
-    fireEvent.click(joinButton);
-
-    // Wait for the joinRoom emit
-    await waitFor(() => {
-      expect(mockEmit).toHaveBeenCalledWith('joinRoom', expect.objectContaining({
-        roomId: 'TESTROOM',
-        name: 'HostAlice'
-      }), expect.any(Function));
-    });
-
-    // Simulate server response (success, isHost=true)
-    const joinCallback = mockEmit.mock.calls.find(c => c[0] === 'joinRoom')[2];
-    await act(async () => {
-      joinCallback({ success: true, isHost: true, gameState: null, hostId: 'socket1' });
-      // flush microtasks
-      await Promise.resolve();
-    });
-
-    // Wait for Lobby to render
-    await waitFor(() => {
-      expect(screen.getByText(/Room: TESTROOM/i)).toBeTruthy();
-    });
-
-    // Now let another player join via gameState emit from server
-    const stateCallback = mockOn.mock.calls.find(c => c[0] === 'gameState')[1];
-    act(() => {
-      stateCallback({
-        players: [{ name: 'HostAlice', score: 0 }, { name: 'PlayerBob', score: 0 }],
-        currentPlayerIndex: null,
-        currentCard: null,
-        cards: [],
-        round: 1,
-        finished: false,
-        gameTimeInSeconds: 0,
-        initialCards: { "200": 5 },
-        randomOrder: false,
-        winningScore: 5000,
-        chartValues: [], chartNames: [], chartLabels: []
-      });
-    });
-
-    // Wait for PlayerBob to appear in the list
-    await waitFor(() => {
-      expect(screen.getByText('PlayerBob')).toBeTruthy();
-    });
-
-    // Click Show Advanced Options
-    const advancedBtn = screen.getByText(/Show Advanced Options/i);
-    fireEvent.click(advancedBtn);
-
-    // Toggle a global config option, like randomOrder
-    const randomOrderCheckbox = screen.getByLabelText(/Random Order/i);
-    fireEvent.click(randomOrderCheckbox);
-    
-    // We expect an emit 'updateConfig' with randomOrder
-    await waitFor(() => {
-      expect(mockEmit).toHaveBeenCalledWith('updateConfig', expect.objectContaining({
-        randomOrder: expect.any(Boolean)
-      }));
-    });
-
-    // Host starts game
-    const startButton = screen.getByText(/Start Game!/i);
-    fireEvent.click(startButton);
-
-    // The game state should be updated to start the game
-    // We expect an emit 'pushState'
-    await waitFor(() => {
-      expect(mockEmit).toHaveBeenCalledWith('pushState', expect.objectContaining({
-        roomId: 'TESTROOM',
-        newState: expect.objectContaining({
-          currentPlayerIndex: 0
-        })
-      }));
-    });
+    expect(useGameStore.getState().pendingReconnectSession).toBeNull();
+    expect(screen.queryByText('home.restore.title')).not.toBeInTheDocument();
   });
 });

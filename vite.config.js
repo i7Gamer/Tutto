@@ -61,7 +61,7 @@ export default defineConfig({
     setupFiles: ['./src/setupTests.jsx'],
     exclude: ['node_modules', 'dist', '.idea', '.git', '.cache', 'e2e/**', 'server/node_modules/**'],
     env: {
-      TEST_DB: '1'
+      TEST_DB: 'true'
     }
   }
 })

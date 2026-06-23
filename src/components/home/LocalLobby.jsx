@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { UserPlus, Play } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList } from './LobbyShared';
 
 export default function LocalLobby({ game }) {
+  const { t } = useTranslation();
   const [newPlayerName, setNewPlayerName] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const { players, addPlayer, removePlayer, startGame, winningScore, setWinningScore, initialCards, setInitialCards, reorderPlayers, randomOrder, setRandomOrder, changePlayerColor } = game;
@@ -13,7 +15,7 @@ export default function LocalLobby({ game }) {
     if (trimmedName === "") return;
     
     if (players.some(p => p.name.toLowerCase() === trimmedName.toLowerCase())) {
-      alert("A player with this name already exists!");
+      alert(t('lobby.playerExistsAlert', 'A player with this name already exists!'));
       return;
     }
     
@@ -26,11 +28,11 @@ export default function LocalLobby({ game }) {
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
       <div className="mb-8">
-        <h3 className="text-xl font-bold mb-4">Players</h3>
+        <h3 className="text-xl font-bold mb-4">{t('lobby.playersTitle', 'Players')}</h3>
         <div className="flex items-center gap-3 mb-6">
           <input 
             type="text" 
-            placeholder="Name of new player" 
+            placeholder={t('lobby.newPlayerPlaceholder', 'Name of new player')} 
             value={newPlayerName} 
             onChange={(e) => setNewPlayerName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleAddPlayer()}
@@ -42,7 +44,7 @@ export default function LocalLobby({ game }) {
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-3 rounded-lg font-semibold flex items-center gap-2 transition-colors" 
             onClick={handleAddPlayer}
           >
-            <UserPlus size={18} /> Add
+            <UserPlus size={18} /> <span className="hidden sm:inline">{t('lobby.addPlayerButton', 'Add')}</span>
           </motion.button>
         </div>
 

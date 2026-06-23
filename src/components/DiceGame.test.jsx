@@ -44,7 +44,7 @@ describe('DiceGame Integration', () => {
     // Total for this roll = 1200.
     diceSequence = [1, 1, 1, 2, 2, 2];
     
-    fireEvent.click(screen.getByText(/Roll 6 Dice/i));
+    fireEvent.click(screen.getByText('dice.roll_6_dice'));
 
     let dice = screen.getAllByText(/1|2/);
     dice.forEach(d => fireEvent.click(d)); // Select all 6 dice
@@ -55,7 +55,7 @@ describe('DiceGame Integration', () => {
     // Roll Again (Since it's a Tutto on Feuerwerk, it rolls 6 new dice)
     // Roll 2: 5, 5, 5, 3, 3, 3 -> 500 + 300 = 800 points.
     diceSequence = [5, 5, 5, 3, 3, 3];
-    fireEvent.click(screen.getByText(/Roll Again/i));
+    fireEvent.click(screen.getByText('dice.roll_again'));
 
     // Turn score is now 1200. Current roll valid score is 800.
     // Total should be 2000.
@@ -67,17 +67,17 @@ describe('DiceGame Integration', () => {
     // Roll Again (Another Tutto!)
     // Roll 3: Bust!
     diceSequence = [2, 3, 4, 6, 2, 3];
-    fireEvent.click(screen.getByText(/Roll Again/i));
+    fireEvent.click(screen.getByText('dice.roll_again'));
 
     // We busted. Feuerwerk should NOT wipe our 2000 points.
 
 
 
     // Verify summary shows success for Feuerwerk with aggregated points
-    expect(screen.getByText('Success!')).toBeInTheDocument();
+    expect(screen.getByText('dice.success')).toBeInTheDocument();
     expect(screen.getByText('2000')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText(/Continue to Next Player/i));
+    fireEvent.click(screen.getByText('dice.continue'));
 
     expect(onComplete).toHaveBeenCalledWith(2000, true);
   });
@@ -88,15 +88,13 @@ describe('DiceGame Integration', () => {
 
     // Roll 1: Bust! (No 1s, 5s, or triplets)
     diceSequence = [2, 3, 4, 6, 2, 3];
-    fireEvent.click(screen.getByText(/Roll 6 Dice/i));
-
-    expect(screen.getByText(/Bust!/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('dice.roll_6_dice'));
 
 
 
-    expect(screen.getByText('Bust!')).toBeInTheDocument();
+    expect(screen.getByText('dice.bust')).toBeInTheDocument();
     
-    fireEvent.click(screen.getByText(/Continue to Next Player/i));
+    fireEvent.click(screen.getByText('dice.continue'));
 
     // Turn score is 0, so it's a failure (isSuccess=false)
     expect(onComplete).toHaveBeenCalledWith(0, false);
@@ -108,7 +106,7 @@ describe('DiceGame Integration', () => {
 
     // Roll 1: 5 (50 points)
     diceSequence = [5, 2, 3, 4, 6, 6];
-    fireEvent.click(screen.getByText(/Roll 6 Dice/i));
+    fireEvent.click(screen.getByText('dice.roll_6_dice'));
 
     fireEvent.click(screen.getByText('5'));
 
@@ -118,17 +116,17 @@ describe('DiceGame Integration', () => {
     // Roll Again (5 dice remaining)
     // Roll 2: Bust!
     diceSequence = [2, 3, 4, 6, 2];
-    fireEvent.click(screen.getByText(/Roll Again/i));
+    fireEvent.click(screen.getByText('dice.roll_again'));
 
 
 
 
 
     // Verify summary shows success because we accumulated 50 points
-    expect(screen.getByText('Success!')).toBeInTheDocument();
+    expect(screen.getByText('dice.success')).toBeInTheDocument();
     expect(screen.getByText('50')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText(/Continue to Next Player/i));
+    fireEvent.click(screen.getByText('dice.continue'));
 
     // Turn score is 50, so it's a success (isSuccess=true)? No, it's a bust now!
     expect(onComplete).toHaveBeenCalledWith(50, true);
@@ -140,7 +138,7 @@ describe('DiceGame Integration', () => {
 
     // Roll 1: Three 1s, and some junk.
     diceSequence = [1, 1, 1, 2, 3, 4];
-    fireEvent.click(screen.getByText(/Roll 6 Dice/i));
+    fireEvent.click(screen.getByText('dice.roll_6_dice'));
 
     const ones = screen.getAllByText('1');
     ones.forEach(d => fireEvent.click(d));
@@ -151,7 +149,7 @@ describe('DiceGame Integration', () => {
 
     // Roll Again for the remaining 3 dice
     diceSequence = [5, 5, 5];
-    fireEvent.click(screen.getByText(/Roll Again/i));
+    fireEvent.click(screen.getByText('dice.roll_again'));
 
     // Select the three 5s (500 points).
     const fives = screen.getAllByText('5');
@@ -173,15 +171,15 @@ describe('DiceGame Integration', () => {
     // Total selected + kept = 6.
     // To trigger the Tutto bonus, the user must click "Stop & Score" (which becomes "Finish Card" for special cards, but "Stop & Score" for 200).
     
-    fireEvent.click(screen.getByText(/Stop/i));
+    fireEvent.click(screen.getByText('dice.stop_and_score'));
 
     // The game finishes, bonus should be applied!
     // Base 1000 (kept) + 500 (current) = 1500. Bonus = 200. Total = 1700.
-    expect(screen.getByText('Success!')).toBeInTheDocument();
-    expect(screen.getByText('Tutto!')).toBeInTheDocument();
+    expect(screen.getByText('dice.success')).toBeInTheDocument();
+    expect(screen.getByText('dice.tutto')).toBeInTheDocument();
     expect(screen.getByText('1700')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText(/Continue to Next Player/i));
+    fireEvent.click(screen.getByText('dice.continue'));
     expect(onComplete).toHaveBeenCalledWith(1700, true);
   });
 
@@ -190,7 +188,7 @@ describe('DiceGame Integration', () => {
     render(<DiceGame currentCard="x2" onComplete={onComplete} onCancel={vi.fn()} />);
 
     diceSequence = [5, 2, 3, 4, 6, 6];
-    fireEvent.click(screen.getByText(/Roll 6 Dice/i));
+    fireEvent.click(screen.getByText('dice.roll_6_dice'));
 
     // Select the 5 (50 points)
     fireEvent.click(screen.getByText('5'));
@@ -199,11 +197,11 @@ describe('DiceGame Integration', () => {
     expect(screen.getByText('50')).toBeInTheDocument();
     
     // Stop early without Tutto
-    fireEvent.click(screen.getByText(/Stop/i));
+    fireEvent.click(screen.getByText('dice.stop_and_score'));
 
     // Should finish with 50 points, no multiplier.
     expect(screen.getByText('50')).toBeInTheDocument();
-    fireEvent.click(screen.getByText(/Continue/i));
+    fireEvent.click(screen.getByText('dice.continue'));
     expect(onComplete).toHaveBeenCalledWith(50, true);
   });
 
@@ -212,20 +210,20 @@ describe('DiceGame Integration', () => {
     render(<DiceGame currentCard="x2" onComplete={onComplete} onCancel={vi.fn()} />);
 
     diceSequence = [1, 1, 1, 5, 5, 5]; // 1000 + 500 = 1500 points
-    fireEvent.click(screen.getByText(/Roll 6 Dice/i));
+    fireEvent.click(screen.getByText('dice.roll_6_dice'));
 
     // Select all 6 dice
     screen.getAllByText(/1|5/).forEach(d => fireEvent.click(d));
 
     // Score is 1500 currently selected, not kept yet.
     // Click Stop to apply Tutto
-    fireEvent.click(screen.getByText(/Stop/i));
+    fireEvent.click(screen.getByText('dice.stop_and_score'));
 
     // Multiplier applied: 1500 * 2 = 3000
     expect(screen.getByText('3000')).toBeInTheDocument();
-    expect(screen.getByText('Tutto!')).toBeInTheDocument();
+    expect(screen.getByText('dice.tutto')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText(/Continue/i));
+    fireEvent.click(screen.getByText('dice.continue'));
     expect(onComplete).toHaveBeenCalledWith(3000, true);
   });
 
@@ -235,35 +233,35 @@ describe('DiceGame Integration', () => {
 
     // First Roll: Tutto!
     diceSequence = [1, 1, 1, 5, 5, 5];
-    fireEvent.click(screen.getByText(/Roll 6 Dice/i));
+    fireEvent.click(screen.getByText('dice.roll_6_dice'));
 
     // Select all 6 dice
     screen.getAllByText(/1|5/).forEach(d => fireEvent.click(d));
 
     // UI should indicate 0/2 Tuttos
-    expect(screen.getByText(/Tuttos: 0 \/ 2/i)).toBeInTheDocument();
+    expect(screen.getByText('dice.tuttos_count')).toBeInTheDocument();
 
     // Click "Roll 2nd Tutto"
     diceSequence = [2, 2, 2, 3, 3, 3]; // Second roll dice
-    fireEvent.click(screen.getByText(/Roll 2nd Tutto/i));
+    fireEvent.click(screen.getByText('dice.roll_2nd_tutto'));
 
     // We shouldn't have won yet
-    expect(screen.queryByText('Success!')).not.toBeInTheDocument();
+    expect(screen.queryByText('dice.success')).not.toBeInTheDocument();
 
     // Now select all 6 dice for the second roll
     screen.getAllByText(/2|3/).forEach(d => fireEvent.click(d));
 
     // UI should indicate 1/2 Tuttos
-    expect(screen.getByText(/Tuttos: 1 \/ 2/i)).toBeInTheDocument();
+    expect(screen.getByText('dice.tuttos_count')).toBeInTheDocument();
 
     // Click "Finish Card" to lock in the second Tutto
-    fireEvent.click(screen.getByText(/Finish Card/i));
+    fireEvent.click(screen.getByText('dice.finish_card'));
 
     // Now we should win!
-    expect(screen.getByText('Success!')).toBeInTheDocument();
-    expect(screen.getByText('Tutto!')).toBeInTheDocument();
+    expect(screen.getByText('dice.success')).toBeInTheDocument();
+    expect(screen.getByText('dice.tutto')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText(/Continue/i));
+    fireEvent.click(screen.getByText('dice.continue'));
     expect(onComplete).toHaveBeenCalledWith(expect.any(Number), true);
   });
 });

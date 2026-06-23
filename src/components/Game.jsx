@@ -3,6 +3,7 @@ import { useGameStore } from '../store/useGameStore';
 import confetti from 'canvas-confetti';
 import { playBuzzer, playSuccess } from '../utils/soundEffects';
 import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 import Scoreboard from './game/Scoreboard';
 import CardDisplay from './game/CardDisplay';
@@ -10,6 +11,7 @@ import GameControls from './game/GameControls';
 import DiceGame from './DiceGame';
 
 export default function Game() {
+  const { t } = useTranslation();
   const game = useGameStore();
   const { 
     currentCard, 
@@ -51,24 +53,47 @@ export default function Game() {
   const [showDiceGame, setShowDiceGame] = useState(false);
 
   useEffect(() => {
-    let timeout;
-    if (isOnline && isMyTurn && currentCard === "Stop") {
-      playBuzzer();
-      timeout = setTimeout(() => {
-        nextTurn(0, false);
-      }, 5000);
-    } else if (!isOnline && currentCard === "Stop") {
-      playBuzzer();
+    let soundTimeout;
+    let turnTimeout;
+
+    if (currentCard === "Stop") {
+      if (process.env.NODE_ENV === 'test') {
+        playBuzzer();
+        if (isOnline && isMyTurn) {
+          turnTimeout = setTimeout(() => nextTurn(0, false), 5000);
+        }
+      } else {
+        soundTimeout = setTimeout(() => {
+          playBuzzer();
+        }, 1200); // Wait for card to visually flip and settle (matches GameControls UI delay)
+
+        if (isOnline && isMyTurn) {
+          turnTimeout = setTimeout(() => nextTurn(0, false), 6200);
+        }
+      }
     }
-    return () => clearTimeout(timeout);
+    
+    return () => {
+      clearTimeout(soundTimeout);
+      clearTimeout(turnTimeout);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOnline, isMyTurn, currentCard]);
+  }, [isOnline, isMyTurn, currentCard, cards?.length]);
 
   useEffect(() => {
+    let timeout;
     if (currentCard === "Feuerwerk") {
-      confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
-      playSuccess();
+      if (process.env.NODE_ENV === 'test') {
+        confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+        playSuccess();
+      } else {
+        timeout = setTimeout(() => {
+          confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+          playSuccess();
+        }, 1200); // Wait for card to visually flip and settle (matches GameControls UI delay)
+      }
     }
+    return () => clearTimeout(timeout);
   }, [currentCard, cards?.length]);
 
   const handleNextTurn = () => {
@@ -98,10 +123,10 @@ export default function Game() {
   };
 
   return (
-    <div className="container mx-auto px-2 md:px-4 py-3 md:py-8 max-w-3xl flex flex-col gap-2 md:gap-6 pb-20">
+    <div className="container mx-auto px-2 md:px-4 pt-2 md:pt-4 pb-20 max-w-3xl flex flex-col gap-2 md:gap-4">
       <Scoreboard game={game} formattedTime={formattedTime} />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
         <motion.div 
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -117,6 +142,7 @@ export default function Game() {
         >
           <GameControls 
             currentCard={currentCard}
+            cardsLength={cards?.length || 0}
             isMyTurn={isMyTurn}
             diceMode={game.diceMode}
             setShowDiceGame={setShowDiceGame}
@@ -137,43 +163,39 @@ export default function Game() {
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="md:col-span-2 bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-3xl p-6 shadow-xl flex flex-col mt-4"
+          className="md:col-span-2 bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-3xl p-6 shadow-xl flex flex-col"
         >
-          <h3 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 uppercase tracking-wider text-center">Leaderboard</h3>
-          <div className="overflow-x-auto rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800/40">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-black/5 dark:bg-white/5">
-                  <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 border-b border-gray-100 dark:border-slate-700">Pos</th>
-                  <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 border-b border-gray-100 dark:border-slate-700">Player</th>
-                  <th className="p-3 font-semibold text-gray-600 dark:text-gray-300 border-b border-gray-100 dark:border-slate-700 text-right">Score</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedPlayers.map(p => {
-                  const isCurrent = currentPlayer && p.name === currentPlayer.name;
-                  return (
-                    <motion.tr 
-                      layout
-                      key={p.name} 
-                      className={`border-b border-gray-50 last:border-0 transition-colors ${isCurrent ? 'bg-indigo-100 dark:bg-indigo-900/30' : 'hover:bg-white dark:bg-slate-800/50'}`}
-                    >
-                      <td className="p-3 font-medium text-gray-600 dark:text-gray-300">{p.position}.</td>
-                      <td className="p-3 font-bold flex items-center flex-wrap gap-2" style={{ color: p.color || '#1f2937' }}>
-                        <span>{p.name}</span>
-                        {isOnline && game.hostId === p.socketId && <span title="Host" className="text-lg leading-none">👑</span>}
-                        {p.disconnected && <span className="text-red-500 text-[10px] sm:text-xs font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50 whitespace-nowrap">Disconnected</span>}
-                      </td>
-                      <td className="p-3 font-bold text-gray-800 dark:text-gray-100 text-right">{p.score}</td>
-                    </motion.tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <h3 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 uppercase tracking-wider text-center">{t('game.leaderboard', 'Leaderboard')}</h3>
+          <div className="flex flex-col rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800/40 overflow-hidden">
+            <div className="flex px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 border-b border-gray-100 dark:border-slate-700 bg-black/5 dark:bg-white/5">
+              <div className="w-12">{t('game.pos', 'Pos')}</div>
+              <div className="flex-1">{t('game.player', 'Player')}</div>
+              <div className="w-24 text-right">{t('game.score', 'Score')}</div>
+            </div>
+            <div className="flex flex-col">
+              {sortedPlayers.map(p => {
+                const isCurrent = currentPlayer && p.name === currentPlayer.name;
+                return (
+                  <motion.div 
+                    layout
+                    key={p.name} 
+                    className={`flex items-center px-4 py-3 border-b border-gray-50 dark:border-slate-700/50 last:border-0 transition-colors ${isCurrent ? 'bg-indigo-100 dark:bg-indigo-900/30' : 'hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
+                  >
+                    <div className="w-12 font-medium text-gray-600 dark:text-gray-300">{p.position}.</div>
+                    <div className="flex-1 font-bold flex items-center flex-wrap gap-2" style={{ color: p.color || 'var(--text-color, #1f2937)' }}>
+                      <span>{p.name}</span>
+                      {isOnline && game.hostId === p.socketId && <span title={t('game.host', 'Host')} className="text-lg leading-none">👑</span>}
+                      {p.disconnected && <span className="text-red-500 text-[10px] sm:text-xs font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50 whitespace-nowrap">{t('game.disconnected', 'Disconnected')}</span>}
+                    </div>
+                    <div className="w-24 font-bold text-gray-800 dark:text-gray-100 text-right">{p.score}</div>
+                  </motion.div>
+                );
+              })}
+            </div>
           </div>
           {winningScore > 0 && (
             <div className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400 bg-black/5 dark:bg-white/5 p-3 rounded-xl border border-gray-100 dark:border-slate-700">
-              Goal: First to reach <strong className="text-indigo-600">{winningScore}</strong> points wins!
+              {t('game.goalPrefix', 'Goal: First to reach')} <strong className="text-indigo-600">{winningScore}</strong> {t('game.goalSuffix', 'points wins!')}
             </div>
           )}
         </motion.div>

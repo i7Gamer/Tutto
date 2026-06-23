@@ -1,6 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useGameStore } from './useGameStore';
 
+let mockOnHandlers = {};
+const mockDisconnect = vi.fn();
+
+vi.mock('socket.io-client', () => {
+  return {
+    io: vi.fn(() => ({
+      on: (event, handler) => {
+        mockOnHandlers[event] = handler;
+      },
+      emit: vi.fn(),
+      off: vi.fn(),
+      disconnect: mockDisconnect,
+      id: 'socket-123',
+    }))
+  };
+});
+
 describe('useGameStore', () => {
   beforeEach(() => {
     // Reset state before each test
@@ -10,6 +27,8 @@ describe('useGameStore', () => {
   afterEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    sessionStorage.clear();
+    mockOnHandlers = {};
   });
 
   it('initializes with default local state', () => {
@@ -125,6 +144,110 @@ describe('useGameStore', () => {
     // It should revert back to P1
     expect(state.currentPlayerIndex).toBe(0);
     expect(state.previousCard).toBeNull();
+  });
+
+  describe('local game stats saving', () => {
+    it('saves both global and personal stats when a local game ends', () => {
+      global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));
+      
+      const store = useGameStore.getState();
+      store.addPlayer('Alice');
+      store.startGame();
+      
+      // Simulate winning condition so calculateNextTurn returns isGameOver: true
+      const state = useGameStore.getState();
+      state.nextTurn(6000, false);
+      
+      expect(useGameStore.getState().finished).toBe(true);
+      
+      expect(global.fetch).toHaveBeenCalledWith('/api/stats/global', expect.any(Object));
+      expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/stats/'), expect.any(Object));
+      
+      global.fetch.mockRestore();
+    });
+  });
+
+  describe('socket disconnect behavior', () => {
+    it('sets showReconnectPopup when disconnected unexpectedly while online', () => {
+      // Connect to online mode
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+
+      // Ensure the 'disconnect' handler was registered
+      expect(mockOnHandlers['disconnect']).toBeDefined();
+
+      // Trigger unexpected disconnect
+      mockOnHandlers['disconnect']();
+
+      expect(useGameStore.getState().showReconnectPopup).toBe(true);
+    });
+
+    it('does NOT set showReconnectPopup when intentionally disconnecting by setting local mode', () => {
+      // Connect to online mode
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+
+      // Intentional disconnect (e.g. clicking "Leave" sets mode to local)
+      useGameStore.getState().setMode('local');
+
+      // Ensure mockDisconnect was called
+      expect(mockDisconnect).toHaveBeenCalled();
+
+      // Trigger 'disconnect' event (simulating what socket.io would do after disconnect() is called)
+      if (mockOnHandlers['disconnect']) {
+        mockOnHandlers['disconnect']();
+      }
+
+      // showReconnectPopup should be false because mode is local
+      expect(useGameStore.getState().showReconnectPopup).toBe(false);
+    });
+  });
+
+  describe('online session recovery', () => {
+    it('restores pendingReconnectSession from sessionStorage on init', () => {
+      sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'TEST_ROOM', myName: 'Alice' }));
+      useGameStore.getState().init('dev-123');
+      
+      const state = useGameStore.getState();
+      expect(state.pendingReconnectSession).toEqual({ roomId: 'TEST_ROOM', myName: 'Alice' });
+    });
+
+    it('clears sessionStorage when leaving a room intentionally', () => {
+      sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'TEST_ROOM', myName: 'Alice' }));
+      useGameStore.getState().leaveRoom();
+      
+      expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+    });
+
+    it('clears sessionStorage when kicked from a room', () => {
+      sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'TEST_ROOM', myName: 'Alice' }));
+      
+      // Connect to online mode
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+
+      // Trigger 'kicked'
+      if (mockOnHandlers['kicked']) {
+        // mock window.alert
+        const originalAlert = window.alert;
+        window.alert = vi.fn();
+        
+        mockOnHandlers['kicked']();
+        
+        expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+        window.alert = originalAlert;
+      }
+    });
+
+    it('clears pendingReconnectSession when clearPendingReconnect is called', () => {
+      sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'TEST_ROOM', myName: 'Alice' }));
+      useGameStore.setState({ pendingReconnectSession: { roomId: 'TEST_ROOM', myName: 'Alice' } });
+      
+      useGameStore.getState().clearPendingReconnect();
+      
+      expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+      expect(useGameStore.getState().pendingReconnectSession).toBeNull();
+    });
   });
 
 });

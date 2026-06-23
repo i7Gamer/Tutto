@@ -1,18 +1,20 @@
 import React from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 import ModeSelector from './home/ModeSelector';
 import LocalLobby from './home/LocalLobby';
 import OnlineLobby from './home/OnlineLobby';
 
 export default function Home({ onShowStats }) {
+  const { t } = useTranslation();
   const game = useGameStore();
   const { mode, setMode, roomId, leaveRoom } = game;
 
   const handleModeChange = (newMode) => {
     if (newMode === 'local' && roomId) {
-      if (window.confirm("Do you really want to leave the room?")) {
+      if (window.confirm(t('home.leaveRoomConfirm'))) {
         leaveRoom();
         setMode('local');
       }
@@ -47,7 +49,7 @@ export default function Home({ onShowStats }) {
           animate={{ scale: 1 }}
           className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-pink-500 text-center mb-8 tracking-tight"
         >
-          Tutto
+          {t('app.title', 'Tutto')}
         </motion.h1>
 
         <ModeSelector 
@@ -66,7 +68,13 @@ export default function Home({ onShowStats }) {
         </div>
 
         <div className="text-center mt-10 text-sm text-gray-500 dark:text-gray-400 font-medium">
-          Not seeing the latest features? <button onClick={handleClearCache} className="text-indigo-600 hover:text-indigo-800 underline transition-colors cursor-pointer ml-1">Clear Cache & Reload</button>
+          {t('home.notSeeingFeatures', 'Not seeing the latest features? ')}
+          <button 
+            onClick={handleClearCache}
+            className="text-indigo-600 hover:text-indigo-800 underline transition-colors cursor-pointer ml-1"
+          >
+            {t('home.clearCache', 'Clear Cache & Reload')}
+          </button>
         </div>
       </motion.div>
     </div>

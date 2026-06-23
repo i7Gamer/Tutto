@@ -1,3 +1,5 @@
+process.env.TEST_DB = 'true';
+
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import database from './database';
 
@@ -84,6 +86,50 @@ describe('Database Statistics Integration', () => {
     expect(typeof retrievedStats.totalx2Points).toBe('number');
     expect(retrievedStats.totalKleeblatt).toBeGreaterThanOrEqual(1);
     expect(retrievedStats.totalKleeblattCompleted).toBeGreaterThanOrEqual(1);
+  });
+
+  it('should not overwrite fastestWinTurns or fastestLossTurns with null', async () => {
+    const mockDeviceId = 'test-null-device-' + Date.now();
+    
+    // First, play a game and win in 10 turns.
+    await database.updateDeviceStats(mockDeviceId, {
+      gamesPlayed: 1,
+      fastestWinTurns: 10,
+      fastestLossTurns: null
+    });
+    
+    let stats = await database.getDeviceStats(mockDeviceId);
+    expect(stats.fastestWinTurns).toBe(10);
+    expect(stats.fastestLossTurns).toBeNull();
+    
+    // Then, play another game and lose in 20 turns. fastestWinTurns is passed as null.
+    await database.updateDeviceStats(mockDeviceId, {
+      gamesPlayed: 1,
+      fastestWinTurns: null,
+      fastestLossTurns: 20
+    });
+    
+    stats = await database.getDeviceStats(mockDeviceId);
+    // fastestWinTurns should still be 10, not null
+    expect(stats.fastestWinTurns).toBe(10);
+    expect(stats.fastestLossTurns).toBe(20);
+
+    // Test global stats similarly
+    await database.updateGlobalStats({
+      gamesPlayed: 1,
+      fastestWinTurns: 5
+    });
+    
+    let globalStats = await database.getGlobalStats();
+    const currentFastestGlobal = globalStats.fastestWinTurns;
+    
+    await database.updateGlobalStats({
+      gamesPlayed: 1,
+      fastestWinTurns: null
+    });
+    
+    globalStats = await database.getGlobalStats();
+    expect(globalStats.fastestWinTurns).toBe(currentFastestGlobal);
   });
 
   it('should store and retrieve Kleeblatt losses correctly in global statistics', async () => {

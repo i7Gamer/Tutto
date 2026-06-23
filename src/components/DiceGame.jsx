@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dices, Check, X, Hand, RotateCw, Play } from 'lucide-react';
 import { playBuzzer, playSuccess, playTone } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
@@ -6,6 +7,7 @@ import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus } from '../util
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function DiceGame({ currentCard, onComplete, onCancel }) {
+  const { t } = useTranslation();
   const [keptDice, setKeptDice] = useState([]);
   const [currentRoll, setCurrentRoll] = useState([]);
   const [displayRoll, setDisplayRoll] = useState([]);
@@ -208,12 +210,12 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
 
   const isRollAgainApplicable = !(isMakingTutto && currentCard !== "Feuerwerk");
   
-  let stopButtonText = "Stop & Score";
+  let stopButtonText = t('dice.stop_and_score', "Stop & Score");
   if (isMakingTutto && isSpecialCard) {
     if (currentCard === "Kleeblatt" && tuttosThisTurn === 0) {
-      stopButtonText = "Roll 2nd Tutto";
+      stopButtonText = t('dice.roll_2nd_tutto', "Roll 2nd Tutto");
     } else {
-      stopButtonText = "Finish Card";
+      stopButtonText = t('dice.finish_card', "Finish Card");
     }
   }
 
@@ -230,7 +232,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
     <div className="bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden rounded-3xl flex flex-col items-center">
       {!showSummary && (
         <div className="w-full bg-black/5 dark:bg-white/5 border-b border-gray-200 dark:border-slate-600 p-4 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 m-0">Dice Game</h2>
+          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 m-0">{t('dice.title', 'Dice Game')}</h2>
           {!hasRolled && (
             <button 
               className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors" 
@@ -250,24 +252,24 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
             className="text-center py-10"
           >
             <h2 className={`text-4xl font-extrabold mb-4 ${summaryData.won ? 'text-emerald-500' : 'text-red-500'}`}>
-              {summaryData.won ? "Success!" : "Bust!"}
+              {summaryData.won ? t('dice.success', "Success!") : t('dice.bust', "Bust!")}
             </h2>
-            {summaryData.isTutto && <h3 className="text-3xl font-bold text-indigo-500 mb-4 animate-bounce">Tutto!</h3>}
+            {summaryData.isTutto && <h3 className="text-3xl font-bold text-indigo-500 mb-4 animate-bounce">{t('dice.tutto', 'Tutto!')}</h3>}
             {(summaryData.won || currentCard === "Feuerwerk") && !["Kniffel", "Plus_Minus", "Kleeblatt"].includes(currentCard) && summaryData.score > 0 && (
-              <p className="text-2xl text-gray-700 dark:text-gray-200">Points gained: <strong className="text-indigo-600 font-black">{summaryData.score}</strong></p>
+              <p className="text-2xl text-gray-700 dark:text-gray-200">{t('dice.points_gained', 'Points gained: ')}<strong className="text-indigo-600 font-black">{summaryData.score}</strong></p>
             )}
             
             <button 
               className="mt-10 bg-indigo-600 hover:bg-indigo-700 text-white w-full py-4 rounded-xl text-xl font-bold flex justify-center items-center gap-2 shadow-lg shadow-indigo-500/30 transition-all" 
               onClick={finishGame}
             >
-              Continue to Next Player <Check size={24} />
+              {t('dice.continue', 'Continue to Next Player')} <Check size={24} />
             </button>
           </motion.div>
         ) : (
           <>
             <div className="text-center mb-8">
-              <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1">Current Score</div>
+              <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1">{t('dice.current_score', 'Current Score')}</div>
               <motion.div 
                 key={turnScore + (validation.valid ? validation.score : 0)}
                 initial={{ scale: 1.2 }}
@@ -278,13 +280,13 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
               </motion.div>
               {currentCard === "Kleeblatt" && (
                 <div className="text-emerald-500 mt-2 font-bold text-lg bg-emerald-50 inline-block px-4 py-1 rounded-full border border-emerald-200">
-                  Tuttos: {tuttosThisTurn} / 2
+                  {t('dice.tuttos_count', 'Tuttos: {{count}} / 2', { count: tuttosThisTurn })}
                 </div>
               )}
             </div>
 
             <div className="mb-6">
-              <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Kept Dice</h4>
+              <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{t('dice.kept_dice', 'Kept Dice')}</h4>
               <div className="min-h-[80px] p-4 bg-black/5 dark:bg-white/5 rounded-2xl flex gap-3 flex-wrap items-center border border-gray-200 dark:border-slate-600/50 shadow-inner">
                 <AnimatePresence>
                   {displayKeptDice.map((d, i) => (
@@ -298,12 +300,12 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
                     </motion.div>
                   ))}
                 </AnimatePresence>
-                {displayKeptDice.length === 0 && <span className="text-gray-400 font-medium italic mx-auto">None</span>}
+                {displayKeptDice.length === 0 && <span className="text-gray-400 font-medium italic mx-auto">{t('dice.none', 'None')}</span>}
               </div>
             </div>
 
             <div className="mb-8">
-              <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Current Roll</h4>
+              <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{t('dice.current_roll', 'Current Roll')}</h4>
               {!hasRolled ? (
                 <div className="py-8 text-center flex justify-center">
                   <motion.button 
@@ -312,7 +314,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
                     className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl text-xl font-bold flex items-center gap-3 shadow-lg shadow-indigo-500/30 transition-all" 
                     onClick={() => roll(6)}
                   >
-                    <Dices size={28} /> Roll 6 Dice
+                    <Dices size={28} /> {t('dice.roll_6_dice', 'Roll 6 Dice')}
                   </motion.button>
                 </div>
               ) : (
@@ -357,14 +359,14 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
                       animate={{ opacity: 1, y: 0 }}
                       className="text-center text-red-500 text-2xl font-black mt-6 bg-red-50 py-3 rounded-xl border border-red-100"
                     >
-                      Bust! (Volltreffer/Niete)
+                      {t('dice.bust_description', 'Bust! (Volltreffer/Niete)')}
                     </motion.div>
                   )}
                   
                   {!bustState && (
                     <div className="text-center mt-3 min-h-[24px]">
                       {!validation.valid && selectedRolls.length > 0 && (
-                        <span className="text-red-500 font-bold bg-red-50 px-3 py-1 rounded-full border border-red-100">Invalid selection</span>
+                        <span className="text-red-500 font-bold bg-red-50 px-3 py-1 rounded-full border border-red-100">{t('dice.invalid_selection', 'Invalid selection')}</span>
                       )}
                     </div>
                   )}
@@ -395,7 +397,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
                       disabled={!validation.valid}
                       onClick={() => handleAction('roll')}
                     >
-                      <RotateCw size={20} /> Roll Again
+                      <RotateCw size={20} /> {t('dice.roll_again', 'Roll Again')}
                     </button>
                   )}
                 </motion.div>

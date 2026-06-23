@@ -404,7 +404,7 @@ describe('useGameLogic', () => {
 
     // Turn 2: Alice scores 500 → not a bust
     act(() => {
-      result.current.nextTurn(500, false);
+      result.current.nextTurn(500, true);
     });
 
     alice = result.current.players.find(p => p.name === 'Alice');

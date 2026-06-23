@@ -60,7 +60,7 @@ export const useGameStore = create(immer((set, get) => ({
   isHost: false,
   hostId: null,
   myName: null,
-  toastMessage: null,
+  toasts: [],
 
   // Load from localStorage for local mode
   ...initialLocalState,
@@ -74,8 +74,15 @@ export const useGameStore = create(immer((set, get) => ({
       isHost: false,
       hostId: null,
       myName: null,
-      toastMessage: null
+      toasts: [],
+      showReconnectPopup: false,
+      pendingReconnectSession: null
     });
+  },
+
+  clearPendingReconnect: () => {
+    sessionStorage.removeItem('tutto_online_session');
+    set({ pendingReconnectSession: null });
   },
 
   init: (deviceId) => {
@@ -92,6 +99,13 @@ export const useGameStore = create(immer((set, get) => ({
       if (parsed) {
         Object.assign(state, parsed);
       }
+      
+      try {
+        const session = sessionStorage.getItem('tutto_online_session');
+        if (session) {
+          state.pendingReconnectSession = JSON.parse(session);
+        }
+      } catch (e) {}
     });
 
     // Load visual settings
@@ -104,10 +118,6 @@ export const useGameStore = create(immer((set, get) => ({
   setMode: (mode) => {
     let parsed = null;
     if (mode === 'local') {
-      if (socket) {
-        socket.disconnect();
-        socket = null;
-      }
       try {
         const stored = localStorage.getItem('tutto_local_game');
         if (stored) parsed = JSON.parse(stored);
@@ -123,6 +133,10 @@ export const useGameStore = create(immer((set, get) => ({
     });
     
     if (mode === 'local') {
+      if (socket) {
+        socket.disconnect();
+        socket = null;
+      }
       get().stopOnlineTimers();
       get().startLocalTimers();
     } else {
@@ -130,7 +144,12 @@ export const useGameStore = create(immer((set, get) => ({
     }
   },
 
-  clearToast: () => set({ toastMessage: null }),
+  addToast: (message) => set((state) => {
+    state.toasts.push({ id: Date.now() + Math.random(), message });
+  }),
+  removeToast: (id) => set((state) => {
+    state.toasts = state.toasts.filter(t => t.id !== id);
+  }),
 
   // --- SETTINGS ---
   setDiceMode: (val) => {
@@ -210,12 +229,13 @@ export const useGameStore = create(immer((set, get) => ({
       socket.on('gameState', (state) => {
         set((prev) => {
           if (prev.mode === 'online' && prev.status === 'lobby' && state.status === 'lobby') {
-            if (prev.winningScore !== state.winningScore) prev.toastMessage = `Host changed winning score to ${state.winningScore}`;
-            if (prev.turnDuration !== state.turnDuration) prev.toastMessage = `Host changed turn timer to ${state.turnDuration === 0 ? 'Disabled' : state.turnDuration + 's'}`;
-            if (prev.reconnectTimeout !== state.reconnectTimeout) prev.toastMessage = `Host changed reconnect timeout to ${state.reconnectTimeout}s`;
+            if (prev.winningScore !== state.winningScore) prev.toasts.push({ id: Date.now()+Math.random(), message: `Winning score: ${state.winningScore}` });
+            if (prev.turnDuration !== state.turnDuration) prev.toasts.push({ id: Date.now()+Math.random(), message: `Turn timer: ${state.turnDuration === 0 ? 'Off' : state.turnDuration + 's'}` });
+            if (prev.reconnectTimeout !== state.reconnectTimeout) prev.toasts.push({ id: Date.now()+Math.random(), message: `Kick timer: ${state.reconnectTimeout}s` });
+            if (JSON.stringify(prev.initialCards) !== JSON.stringify(state.initialCards)) prev.toasts.push({ id: Date.now()+Math.random(), message: `Deck composition changed` });
           }
           if (prev.mode === 'online' && prev.status === 'playing' && state.status === 'lobby' && !prev.finished) {
-            prev.toastMessage = "The host ended the game early. Returned to lobby.";
+            prev.toasts.push({ id: Date.now()+Math.random(), message: "Host ended game early" });
           }
           // Merge state but keep connection-specific fields untouched
           Object.assign(prev, state);
@@ -224,7 +244,7 @@ export const useGameStore = create(immer((set, get) => ({
       });
 
       socket.on('playerDisconnected', (name) => {
-        set({ toastMessage: `${name} disconnected! They have ${get().reconnectTimeout || 60} seconds to reconnect.` });
+        get().addToast(`${name} disconnected!`);
       });
 
       socket.on('hostId', (hostSocketId) => {
@@ -232,8 +252,9 @@ export const useGameStore = create(immer((set, get) => ({
       });
 
       socket.on('kicked', () => {
-        alert("You were kicked from the room by the host.");
+        get().addToast("You were kicked by the host");
         set({ roomId: null, isHost: false, hostId: null, myName: null });
+        sessionStorage.removeItem('tutto_online_session');
         get().setMode('local');
       });
 
@@ -263,6 +284,7 @@ export const useGameStore = create(immer((set, get) => ({
       socket.emit('joinRoom', { roomId: room, name, deviceId: get().deviceId, color: savedColor }, (res) => {
         if (res.success) {
           set({ roomId: room, isHost: res.isHost, myName: name, mode: 'online', isOnline: true });
+          sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: room, myName: name }));
         }
         resolve(res);
       });
@@ -271,6 +293,7 @@ export const useGameStore = create(immer((set, get) => ({
 
   leaveRoom: () => {
     if (socket) socket.emit('leaveRoom');
+    sessionStorage.removeItem('tutto_online_session');
     set({ 
       players: [],
       currentPlayerIndex: null,
@@ -308,8 +331,8 @@ export const useGameStore = create(immer((set, get) => ({
     if (gameTimerInterval) clearInterval(gameTimerInterval);
     gameTimerInterval = setInterval(() => {
       const state = get();
-      if (state.mode === 'local' && state.currentPlayerIndex !== null && !state.finished) {
-        set({ gameTimeInSeconds: state.gameTimeInSeconds + 1 });
+      if (state.mode === 'local' && state.currentPlayerIndex !== null && !state.finished && state.gameStartTime) {
+        set({ gameTimeInSeconds: Math.floor((Date.now() - state.gameStartTime) / 1000) });
       }
     }, 1000);
   },
@@ -325,7 +348,12 @@ export const useGameStore = create(immer((set, get) => ({
 
     if (state.mode === 'online' && !state.finished && state.status === 'playing' && state.currentPlayerIndex !== null) {
       gameTimerInterval = setInterval(() => {
-        set(s => { s.gameTimeInSeconds++ });
+        const s = get();
+        if (s.gameStartTime) {
+          set({ gameTimeInSeconds: Math.floor((Date.now() - s.gameStartTime) / 1000) });
+        } else {
+          set(draft => { draft.gameTimeInSeconds++ });
+        }
       }, 1000);
 
       if (state.turnDuration > 0) {
@@ -371,6 +399,7 @@ export const useGameStore = create(immer((set, get) => ({
       }));
       state.players = state.randomOrder ? shuffleArray(resetPlayers) : resetPlayers;
       state.round = 1;
+      state.gameStartTime = Date.now();
       state.gameTimeInSeconds = 0;
       state.finished = false;
       state.chartValues = state.players.map(() => []);
@@ -435,13 +464,8 @@ export const useGameStore = create(immer((set, get) => ({
       if (result.isGameOver) {
         state.finished = true;
         state.currentPlayerIndex = null;
-        if (!state.isOnline) {
-          // Send local stats
-          fetch('/api/stats/global', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(get().buildGlobalStatsPayload())
-          }).catch(console.error);
+        if (state.gameStartTime) {
+          state.gameTimeInSeconds = Math.floor((Date.now() - state.gameStartTime) / 1000);
         }
       } else {
         state.currentPlayerIndex = result.nextIndex;
@@ -450,6 +474,55 @@ export const useGameStore = create(immer((set, get) => ({
         state.currentCard = result.drawnCard;
       }
     });
+
+    if (result.isGameOver) {
+      if (!get().isOnline) {
+        // Send global stats using the updated state
+        fetch('/api/stats/global', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(get().buildGlobalStatsPayload())
+        }).catch(console.error);
+        
+        // Send personal stats for the local device
+        const finalState = get();
+        const me = finalState.players[0]; // In local games, just save the stats of the first player to the device
+        if (me) {
+          const leaders = getLeaders(finalState.players);
+          const didIWin = leaders.some(l => l.name === me.name) ? 1 : 0;
+          
+          fetch(`/api/stats/${finalState.deviceId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              gamesPlayed: 1,
+              wins: didIWin,
+              totalPlaytime: finalState.gameTimeInSeconds,
+              pointsDeducted: me.times1000PointsDeducted || 0,
+              plusMinusCompleted: me.timesPlusMinusCompleted || 0,
+              plusMinusFailed: me.timesPlusMinusFailed || 0,
+              kniffelCompleted: me.timesKniffelCompleted || 0,
+              kniffelFailed: me.timesKniffelFailed || 0,
+              skipped: me.timesSkipped || 0,
+              feuerwerkReceived: me.timesFeuerwerkReceived || 0,
+              kleeblattFailed: me.timesKleeblattFailed || 0,
+              kleeblattCompleted: me.timesKleeblattCompleted || 0,
+              x2Received: me.timesx2Received || 0,
+              totalTurns: me.totalTurns || 0,
+              busts: me.busts || 0,
+              feuerwerkBusts: me.feuerwerkBusts || 0,
+              x2Busts: me.x2Busts || 0,
+              feuerwerkPointsScored: me.feuerwerkPointsScored || 0,
+              x2PointsScored: me.x2PointsScored || 0,
+              totalScore: me.score || 0,
+              highestTurnScore: me.highestTurnScore || 0,
+              fastestWinTurns: didIWin ? (me.totalTurns || 0) : null,
+              fastestLossTurns: !didIWin ? (me.totalTurns || 0) : null
+            })
+          }).catch(console.error);
+        }
+      }
+    }
 
     if (get().isOnline) {
       get().pushState();

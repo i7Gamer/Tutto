@@ -347,8 +347,10 @@ io.on('connection', (socket) => {
   };
 
   socket.on('leaveRoom', () => {
+    if (currentRoom) {
+      socket.leave(currentRoom);
+    }
     handlePlayerLeave(true);
-    socket.leave(currentRoom);
     currentRoom = null;
     username = null;
   });
@@ -381,6 +383,16 @@ app.get('/api/stats/:deviceId', async (req, res) => {
   try {
     const stats = await getDeviceStats(req.params.deviceId);
     res.json(stats || {});
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+app.post('/api/stats/:deviceId', async (req, res) => {
+  try {
+    const stats = req.body;
+    await updateDeviceStats(req.params.deviceId, stats);
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
   }
