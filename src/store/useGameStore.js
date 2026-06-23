@@ -227,6 +227,7 @@ export const useGameStore = create(immer((set, get) => ({
       socket = io(window.location.origin);
 
       socket.on('gameState', (state) => {
+        const wasFinished = get().finished;
         set((prev) => {
           if (prev.mode === 'online' && prev.status === 'lobby' && state.status === 'lobby') {
             if (prev.winningScore !== state.winningScore) prev.toasts.push({ id: Date.now()+Math.random(), message: `Winning score: ${state.winningScore}` });
@@ -241,6 +242,10 @@ export const useGameStore = create(immer((set, get) => ({
           Object.assign(prev, state);
         });
         get().syncOnlineTimers();
+        
+        if (!wasFinished && get().finished) {
+          get().sendOnlineStats();
+        }
       });
 
       socket.on('playerDisconnected', (name) => {
@@ -447,6 +452,7 @@ export const useGameStore = create(immer((set, get) => ({
     const s = get();
     if (s.finished) return;
 
+    const wasFinished = s.finished;
     const result = calculateNextTurn(s, scoreInput, isSuccess);
 
     set((state) => {
@@ -475,7 +481,7 @@ export const useGameStore = create(immer((set, get) => ({
       }
     });
 
-    if (result.isGameOver) {
+    if (!wasFinished && get().finished) {
       if (!get().isOnline) {
         // Send global stats using the updated state
         fetch('/api/stats/global', {
@@ -521,15 +527,14 @@ export const useGameStore = create(immer((set, get) => ({
             })
           }).catch(console.error);
         }
+      } else {
+        get().sendOnlineStats();
       }
     }
 
     if (get().isOnline) {
       get().pushState();
       get().syncOnlineTimers();
-      if (get().finished && get().isHost) {
-        get().sendOnlineStats();
-      }
     }
   },
 

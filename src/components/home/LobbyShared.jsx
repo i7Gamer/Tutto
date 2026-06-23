@@ -141,12 +141,13 @@ export function AdvancedOptionsToggle({ showAdvanced, setShowAdvanced }) {
 export function AdvancedOptionsPanel({ 
   showAdvanced, 
   game, 
-  isOnline = false 
+  isOnline = false,
+  readOnly = false
 }) {
   const { t } = useTranslation();
   const updateCardCount = (card, count) => {
     if (game.setInitialCards) {
-      game.setInitialCards({ ...game.initialCards, [card]: parseInt(count) || 0 });
+      game.setInitialCards({ ...game.initialCards, [card]: Math.max(0, parseInt(count) || 0) });
     }
   };
   return (
@@ -158,78 +159,122 @@ export function AdvancedOptionsPanel({
           exit={{ opacity: 0, height: 0 }}
           className="overflow-hidden mb-8"
         >
-          <div className="bg-white dark:bg-slate-800/40 p-4 sm:p-6 rounded-xl border border-gray-200 dark:border-slate-600">
+          {readOnly ? (
+            <div className="bg-white dark:bg-slate-800/40 p-4 sm:p-5 rounded-xl border border-gray-200 dark:border-slate-600">
+              <div className="flex flex-wrap gap-2 mb-4">
+                <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
+                  {t('lobby.winningScore', 'Winning Score')}: <strong>{game.winningScore}</strong>
+                </span>
+                {isOnline && (
+                  <>
+                    <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
+                      {t('lobby.turnTimer', 'Turn Timer')}: <strong>{game.turnDuration > 0 ? `${game.turnDuration}s` : t('common.disabled', 'Disabled')}</strong>
+                    </span>
+                    <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
+                      {t('lobby.kickTimer', 'Kick Timer')}: <strong>{game.reconnectTimeout > 0 ? `${game.reconnectTimeout}s` : t('common.disabled', 'Disabled')}</strong>
+                    </span>
+                  </>
+                )}
+                <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
+                  {t('lobby.randomOrder', 'Random Order')}: <strong>{game.randomOrder !== false ? t('game.controls.yes', 'Yes') : t('game.controls.no', 'No')}</strong>
+                </span>
+              </div>
+              
+              <div className="pt-4 border-t border-gray-200 dark:border-slate-600">
+                <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{t('lobby.cardsInDeck', 'Cards in Deck')}</h4>
+                <div className="flex flex-wrap gap-2">
+                  {game.initialCards && Object.entries(game.initialCards).map(([card, count]) => (
+                    <span key={card} className="px-2.5 py-1 bg-gray-100 dark:bg-slate-700/50 text-gray-700 dark:text-gray-300 rounded-md text-sm font-medium border border-gray-200 dark:border-slate-600">
+                      {card.replace("_", "/")}: <strong>{count}</strong>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-slate-800/40 p-4 sm:p-6 rounded-xl border border-gray-200 dark:border-slate-600">
             <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-6 items-end`}>
-              <div className="flex flex-col gap-1">
-                <label className="text-sm font-medium text-gray-600 dark:text-gray-300">{t('lobby.winningScore', 'Winning Score')}</label>
+              <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-3 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
+                <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.winningScore', 'Winning Score')}</span>
                 <input 
                   type="number" 
-                  className="bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                  min="0"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium" 
                   value={game.winningScore} 
-                  onChange={(e) => game.setWinningScore(parseInt(e.target.value) || 0)} 
+                  onChange={(e) => game.setWinningScore(Math.max(0, parseInt(e.target.value) || 0))} 
                 />
-              </div>
+              </label>
 
               {isOnline && (
                 <>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-sm font-medium text-gray-600 dark:text-gray-300">{t('lobby.turnTimer', 'Turn Timer (s)')}</label>
+                  <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-3 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
+                    <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.turnTimer', 'Turn Timer (s)')}</span>
                     <input 
                       type="number" 
-                      className="bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                      min="0"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium" 
                       value={game.turnDuration} 
-                      onChange={(e) => game.setTurnDuration(parseInt(e.target.value) || 0)} 
-                      placeholder={t('lobby.zeroToDisable', '0 to disable')} 
+                      onChange={(e) => game.setTurnDuration(Math.max(0, parseInt(e.target.value) || 0))} 
+                      placeholder="0" 
                     />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-sm font-medium text-gray-600 dark:text-gray-300">{t('lobby.kickTimer', 'Kick Timer (s)')} <span className="text-[10px] italic opacity-70 ml-1">{t('lobby.disconnect', '(disconnect)')}</span></label>
+                  </label>
+                  <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-3 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
+                    <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.kickTimer', 'Kick Timer (s)')}</span>
                     <input 
                       type="number" 
-                      className="bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                      min="0"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium" 
                       value={game.reconnectTimeout} 
-                      onChange={(e) => game.setReconnectTimeout(parseInt(e.target.value) || 0)} 
+                      onChange={(e) => game.setReconnectTimeout(Math.max(0, parseInt(e.target.value) || 0))} 
+                      placeholder="0" 
                     />
-                  </div>
+                  </label>
                 </>
               )}
 
-              <div className="flex flex-col gap-1">
-                <label className="text-sm font-medium opacity-0 select-none" aria-hidden="true">&nbsp;</label>
-                <div 
-                  onClick={() => game.setRandomOrder(!game.randomOrder)} 
-                  className="flex items-center gap-3 bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors h-[50px]"
-                >
-                  <div className={`w-10 h-5 rounded-full flex items-center p-0.5 transition-colors ${game.randomOrder !== false ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-slate-600'}`}>
-                    <motion.div 
-                      layout 
-                      transition={{ type: "spring", stiffness: 700, damping: 30 }}
-                      className="w-4 h-4 bg-white rounded-full shadow-sm" 
-                      style={{ marginLeft: game.randomOrder !== false ? '20px' : '0px' }} 
-                    />
-                  </div>
-                  <span className="font-medium text-gray-700 dark:text-gray-200 select-none whitespace-nowrap">
-                    {t('lobby.randomOrder', 'Random Order')}
-                  </span>
+              <div 
+                onClick={() => game.setRandomOrder(!game.randomOrder)} 
+                className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">
+                  {t('lobby.randomOrder', 'Random Order')}
+                </span>
+                <div className={`w-10 h-5 rounded-full flex items-center p-0.5 transition-colors ${game.randomOrder !== false ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-slate-600'}`}>
+                  <motion.div 
+                    layout 
+                    transition={{ type: "spring", stiffness: 700, damping: 30 }}
+                    className="w-4 h-4 bg-white rounded-full shadow-sm" 
+                    style={{ marginLeft: game.randomOrder !== false ? '20px' : '0px' }} 
+                  />
                 </div>
               </div>
             </div>
 
             <h4 className="font-bold text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-slate-600 pb-2 mb-4">{t('lobby.cardsInDeck', 'Cards in Deck')}</h4>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
               {game.initialCards && Object.keys(game.initialCards).map(card => (
-                <div className="flex flex-col gap-1" key={card}>
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{card.replace("_", "/")}</label>
+                <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text" key={card}>
+                  <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{card.replace("_", "/")}</span>
                   <input 
                     type="number" 
-                    className="bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-2 py-1 text-center focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                    min="0"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-20 py-1 text-gray-900 dark:text-white font-medium text-base" 
                     value={game.initialCards[card]} 
                     onChange={(e) => updateCardCount(card, e.target.value)} 
                   />
-                </div>
+                </label>
               ))}
             </div>
-          </div>
+            </div>
+          )}
         </motion.div>
       )}
     </AnimatePresence>

@@ -92,7 +92,7 @@
   "lobby.turnTimer": "Zug-Timer (s)",
   "lobby.zeroToDisable": "0 zum Deaktivieren",
   "lobby.kickTimer": "Kick-Timer (s)",
-  "lobby.disconnect": "(trennen)",
+  "lobby.disconnect": "(bei Verbindungsabbruch)",
   "lobby.randomOrder": "Zufällige Reihenfolge",
   "lobby.cardsInDeck": "Karten im Deck",
   "lobby.needAtLeast2Players": "Mindestens 2 Spieler erforderlich",

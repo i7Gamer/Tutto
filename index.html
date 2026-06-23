@@ -14,7 +14,8 @@
     <script>
       window.addEventListener('error', function(e) {
         var isChunkError = e.message && (e.message.includes('Failed to fetch dynamically imported module') || e.message.includes('Importing a module script failed'));
-        var isScriptError = e.target && e.target.tagName === 'SCRIPT' && e.target.src && e.target.src.includes(window.location.host);
+        var isAppScript = e.target && e.target.src && (e.target.src.includes('/assets/') || e.target.src.includes('/src/'));
+        var isScriptError = e.target && e.target.tagName === 'SCRIPT' && isAppScript && !e.target.src.includes('socket.io');
         
         if (isChunkError || isScriptError) {
           var lastReload = localStorage.getItem('tutto_last_reload');

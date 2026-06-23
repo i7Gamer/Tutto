@@ -1,48 +1,84 @@
 # Tutto Multi-Device
 
-Tutto Multi-Device is a dynamic web application that allows you to play the board game Tutto! with friends online in real-time or locally on the same device. It features modern UI design, real-time multiplayer synchronization using WebSockets, dynamic animations, and comprehensive statistics tracking.
+Tutto Multi-Device is a dynamic web application that allows you to play the popular board game **Tutto!** with friends online in real-time or locally on the same device. It features modern UI design, real-time multiplayer synchronization using WebSockets, dynamic animations, multi-language support, and comprehensive statistics tracking.
 
 ## Features
-- **Local & Online Multiplayer:** Play on a single device or host/join an online room.
-- **Physical & Digital Dice Modes:** Use the built-in digital dice with physics-inspired staggered tumbling animations, or track scores using your own physical dice.
-- **Modern UI & Dark Mode:** A fully responsive, polished user interface with seamless dark mode integration.
-- **Advanced Options:** Custom winning scores, customizable card deck counts, optional random player ordering, and turn/kick timers for online play.
-- **Comprehensive Statistics:** Track global and personal device statistics, including Total Score, Total Turns, Busts, Longest Combos, and Most Tuttos per game. View detailed history records for your device.
+
+- **Local & Online Multiplayer:** Play on a single device with friends, or host/join an online room and play over the internet in real-time.
+- **Advanced Statistics & Leaderboards:** Track both global and personal device statistics. View advanced metrics such as total turns played, most busts, fastest wins, fastest losses, highest turn scores, and the success rates of resolving challenging cards like Kniffel, Plus/Minus, and Kleeblatt.
+- **Physical & Digital Dice Modes:** Use the built-in digital dice with physics-inspired staggered tumbling animations, or track scores using your own physical dice on the table.
+- **Modern UI & Dark Mode:** A fully responsive, polished user interface built with TailwindCSS, featuring seamless dark mode integration, glassmorphism, floating labels, and dynamic micro-animations via Framer Motion.
+- **Advanced Options:** Highly customizable game modes! Set custom winning scores, customize the card deck counts, randomize player turn orders, and configure precise turn/kick timers for online play.
+- **Multi-Language Support (i18n):** Full support for English and German out of the box, with an extensible i18n configuration allowing for easy addition of more languages.
+- **Robust Sync & Reconnects:** Online mode features robust state synchronization ensuring fair play. If you accidentally close your tab or lose connection, you'll be able to reconnect automatically within your configured reconnect timeout.
 
 ## Tech Stack
-- **Frontend**: React, Vite, Tailwind CSS, Framer Motion for animations, Chart.js for stats
-- **Backend**: Node.js, Express, Socket.IO
-- **Database**: SQLite (for global and personal statistics)
+
+- **Frontend**: React, Vite, Tailwind CSS, Framer Motion for animations, Chart.js for stats, React-i18next for localization.
+- **Backend**: Node.js, Express, Socket.IO.
+- **Database**: SQLite, powered by Knex.js for migrations (for robust tracking of global and personal statistics).
+- **Testing**: Vitest for unit and integration testing.
+
+## How to Play Tutto!
+
+The objective of the game is to be the first player to reach the winning score (default is 6,000 points).
+
+### The Basics
+1. On your turn, you must first draw a card from the deck.
+2. After drawing, you roll the dice to score points. You must score at least some points on every roll (either single 1s/5s or triples of the same number).
+3. If you roll and score **nothing**, you "Bust" (also called a "Null"). You lose all points accumulated in this turn, and your turn ends immediately.
+4. If you manage to score points with all 6 dice, you achieve a **"Tutto!"**. You can then roll all 6 dice again to keep accumulating points.
+
+### The Cards
+The drawn card dictates specific bonuses or rules for your turn:
+- **x2**: If you roll a Tutto, your turn's score is doubled.
+- **Plus/Minus**: If you roll a Tutto, you deduct 1,000 points from the current leader's score! If you bust, you lose 1,000 points.
+- **Stop**: You cannot roll. Your turn ends immediately.
+- **Feuerwerk**: You must keep rolling as long as you score points! You can't bank your score manually. You only stop when you bust, but you get to keep all points earned before busting.
+- **Kleeblatt**: Roll two Tuttos in a row to instantly win the game!
+- **Bonus Cards (200, 300, 400, 500, 600)**: If you roll a Tutto, you receive these bonus points added to your turn's score.
 
 ## Installation & Setup
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/i7Gamer/TuttoNeu.git
-   cd TuttoNeu
+   git clone <repository_url>
+   cd tutto
    ```
 
 2. **Install dependencies:**
-   Running `npm install` in the root folder will automatically install both the frontend dependencies and the backend dependencies (via the `postinstall` script).
    ```bash
    npm install
    ```
 
-## Running the Application
+3. **Database Setup:**
+   Migrations will run automatically when you start the server. The SQLite database is stored locally in the `server` directory.
 
-You can launch both the frontend (Vite dev server) and the backend (Express + Socket.IO server) simultaneously with a single command:
+4. **Start the Development Server:**
+   ```bash
+   npm run dev
+   ```
+   This command starts both the Vite frontend server and the Node.js backend server simultaneously.
 
+5. **Open in Browser:**
+   Navigate to `http://localhost:5173` in your browser.
+
+## Testing
+
+The project has comprehensive test coverage ranging from unit tests for the core game engine, to React component tests, and end-to-end integration tests.
+
+To run the tests:
 ```bash
-npm run start
+npm run test
 ```
 
-This will run them concurrently. By default:
-- The frontend app will be available at `http://localhost:5173`
-- The backend API and WebSocket server runs at `http://localhost:3000`
+## Advanced Options Explained
 
-### Additional Scripts
+In the lobby, you can tweak the following:
+- **Winning Score**: Change it from 6000 to shorter or longer games.
+- **Turn Timer**: Limit how long a player has to take their turn online.
+- **Kick Timer**: Limit how long the room waits for a disconnected player to return before they are automatically kicked.
+- **Deck Customization**: Add more `x2` cards, remove `Stop` cards, or tweak the deck composition to your liking.
 
-- **`npm run dev`**: Starts only the Vite frontend dev server.
-- **`npm run server`**: Starts only the Node.js backend server.
-- **`npm run build`**: Builds the frontend app for production.
-- **`npm run test`**: Runs the unit test suite.
+---
+*Created with love for board games!*

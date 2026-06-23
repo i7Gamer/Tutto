@@ -97,4 +97,20 @@ describe('AdvancedOptionsPanel', () => {
       Stop: 10
     });
   });
+  it('prevents negative values for number inputs', () => {
+    const mockSetWinningScore = vi.fn();
+    const game = {
+      winningScore: 50,
+      setWinningScore: mockSetWinningScore,
+      initialCards: {}
+    };
+
+    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={false} />);
+
+    const input = screen.getByDisplayValue('50');
+    fireEvent.change(input, { target: { value: '-10' } });
+
+    // Should clamp -10 to 0
+    expect(mockSetWinningScore).toHaveBeenCalledWith(0);
+  });
 });

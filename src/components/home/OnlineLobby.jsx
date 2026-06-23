@@ -104,21 +104,18 @@ export default function OnlineLobby({ game }) {
             nameSuffix="Online" 
           />
 
-          {isHost && (
-            <AdvancedOptionsToggle 
-              showAdvanced={showAdvanced} 
-              setShowAdvanced={setShowAdvanced} 
-            />
-          )}
+          <AdvancedOptionsToggle 
+            showAdvanced={showAdvanced} 
+            setShowAdvanced={setShowAdvanced} 
+          />
         </div>
 
-        {isHost && (
-          <AdvancedOptionsPanel 
-            showAdvanced={showAdvanced} 
-            game={game} 
-            isOnline={true} 
-          />
-        )}
+        <AdvancedOptionsPanel 
+          showAdvanced={showAdvanced} 
+          game={game} 
+          isOnline={true} 
+          readOnly={!isHost}
+        />
 
         <AnimatePresence>
           {isHost ? (
