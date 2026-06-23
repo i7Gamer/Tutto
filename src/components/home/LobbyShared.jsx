@@ -70,25 +70,21 @@ export function PlayerList({
                   <div className="flex items-center justify-end gap-1">
                     {isHost && (
                         <div className="w-[68px] flex items-center justify-center gap-1">
-                          {idx > 0 ? (
-                            <button className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 w-8 h-8 flex items-center justify-center rounded transition-colors" onClick={() => handleMoveUp(idx)}>
+                          {idx > 0 && (
+                            <button className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600 w-8 h-8 flex items-center justify-center rounded transition-colors" onClick={() => handleMoveUp(idx)}>
                               <ChevronUp size={18} />
                             </button>
-                          ) : (
-                            <div className="w-8 h-8" />
                           )}
-                          {idx < players.length - 1 ? (
-                            <button className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 w-8 h-8 flex items-center justify-center rounded transition-colors" onClick={() => handleMoveDown(idx)}>
+                          {idx < players.length - 1 && (
+                            <button className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600 w-8 h-8 flex items-center justify-center rounded transition-colors" onClick={() => handleMoveDown(idx)}>
                               <ChevronDown size={18} />
                             </button>
-                          ) : (
-                            <div className="w-8 h-8" />
                           )}
                         </div>
                     )}
                     <div className="w-8 h-8 flex items-center justify-center ml-1">
                       {(!isOnline || (isHost && p.socketId !== hostId)) && (
-                        <button className="text-red-500 hover:bg-red-100 w-full h-full flex items-center justify-center rounded transition-colors" onClick={() => onRemovePlayer(p)}>
+                        <button className="text-red-500 hover:bg-red-100 active:bg-red-200 dark:hover:bg-red-900/40 dark:active:bg-red-900/60 w-full h-full flex items-center justify-center rounded transition-colors" onClick={() => onRemovePlayer(p)}>
                           {isOnline ? <UserMinus size={18} /> : <Trash2 size={18} />}
                         </button>
                       )}
