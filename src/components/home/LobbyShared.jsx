@@ -19,14 +19,14 @@ export function PlayerList({
     if (index === 0) return;
     const newPlayers = [...players];
     [newPlayers[index - 1], newPlayers[index]] = [newPlayers[index], newPlayers[index - 1]];
-    if (reorderPlayers) reorderPlayers(newPlayers);
+    if (reorderPlayers) setTimeout(() => reorderPlayers(newPlayers), 50);
   };
 
   const handleMoveDown = (index) => {
     if (index === players.length - 1) return;
     const newPlayers = [...players];
     [newPlayers[index + 1], newPlayers[index]] = [newPlayers[index], newPlayers[index + 1]];
-    if (reorderPlayers) reorderPlayers(newPlayers);
+    if (reorderPlayers) setTimeout(() => reorderPlayers(newPlayers), 50);
   };
 
   if (!players || players.length === 0) return null;
@@ -70,16 +70,20 @@ export function PlayerList({
                   <div className="flex items-center justify-end gap-1">
                     {isHost && (
                         <div className="w-[68px] flex items-center justify-center gap-1">
-                          {idx > 0 && (
-                            <button className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600 w-8 h-8 flex items-center justify-center rounded transition-colors" onClick={() => handleMoveUp(idx)}>
-                              <ChevronUp size={18} />
-                            </button>
-                          )}
-                          {idx < players.length - 1 && (
-                            <button className="text-gray-500 dark:text-gray-400 hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600 w-8 h-8 flex items-center justify-center rounded transition-colors" onClick={() => handleMoveDown(idx)}>
-                              <ChevronDown size={18} />
-                            </button>
-                          )}
+                          <button 
+                            className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded transition-colors ${idx === 0 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`} 
+                            onClick={(e) => { e.currentTarget.blur(); if (idx > 0) handleMoveUp(idx); }}
+                            aria-hidden={idx === 0}
+                          >
+                            <ChevronUp size={18} />
+                          </button>
+                          <button 
+                            className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded transition-colors ${idx === players.length - 1 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`} 
+                            onClick={(e) => { e.currentTarget.blur(); if (idx < players.length - 1) handleMoveDown(idx); }}
+                            aria-hidden={idx === players.length - 1}
+                          >
+                            <ChevronDown size={18} />
+                          </button>
                         </div>
                     )}
                     <div className="w-8 h-8 flex items-center justify-center ml-1">

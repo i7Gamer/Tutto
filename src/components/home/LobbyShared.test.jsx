@@ -49,11 +49,15 @@ describe('PlayerList', () => {
     const downButtons = container.querySelectorAll('.lucide-chevron-down');
     const upButtons = container.querySelectorAll('.lucide-chevron-up');
 
-    // Bob (middle) should have both Up and Down.
-    // Charlie (last) should have only Up.
-    // So total up = 2 (Bob, Charlie), total down = 2 (Alice, Bob)
-    expect(downButtons.length).toBe(2);
-    expect(upButtons.length).toBe(2);
+    // Since we now render all buttons to prevent focus shifting on mobile,
+    // total up = 3, total down = 3
+    expect(downButtons.length).toBe(3);
+    expect(upButtons.length).toBe(3);
+    
+    // But the first Up button should be invisible
+    expect(upButtons[0].closest('button').className).toContain('opacity-0');
+    // And the last Down button should be invisible
+    expect(downButtons[2].closest('button').className).toContain('opacity-0');
   });
 
   it('renders flex div structure instead of table to avoid transform bugs', () => {
