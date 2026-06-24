@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const path = require('path');
 const { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } = require('./database');
+const { sanitizeStats } = require('./sanitize');
 
 const app = express();
 app.use(cors());
@@ -25,6 +26,49 @@ const PLAYER_COLORS = [
 ];
 
 const rooms = {};
+
+// Build a fresh, shuffled deck from a card-count config (Fisher-Yates).
+const buildShuffledDeck = (initialCards) => {
+  const deck = Object.keys(initialCards || {}).reduce((acc, card) => {
+    for (let i = 0; i < initialCards[card]; i++) acc.push(card);
+    return acc;
+  }, []);
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  return deck;
+};
+
+// Draw the next card for a room, rebuilding/reshuffling the deck if exhausted.
+const drawNextCardForRoom = (state) => {
+  if (state.cards && state.cards.length > 0) {
+    state.currentCard = state.cards.shift();
+  } else {
+    const deck = buildShuffledDeck(state.initialCards);
+    state.currentCard = deck.shift() || null;
+    state.cards = deck;
+  }
+};
+
+// Adjust turn ownership after a player is spliced out of the players array.
+// `removedIdx` is the index the player occupied *before* removal.
+const handleActivePlayerRemoved = (state, removedIdx) => {
+  if (state.currentPlayerIndex === null) return;
+  const curIdx = state.currentPlayerIndex;
+  if (removedIdx < curIdx) {
+    state.currentPlayerIndex = curIdx - 1;
+  } else if (removedIdx === curIdx) {
+    // The active player left mid-turn: hand the turn to the next player and
+    // deal them a fresh card so they don't inherit the departed player's card.
+    state.currentPlayerIndex = curIdx % Math.max(1, state.players.length);
+    state.previousCard = null;
+    state.previousScore = null;
+    state.previousLeaders = null;
+    state.round += 1;
+    drawNextCardForRoom(state);
+  }
+};
 
 const emitRoomState = (roomId) => {
   if (rooms[roomId]) {
@@ -181,33 +225,7 @@ io.on('connection', (socket) => {
       const removedIdx = room.state.players.findIndex(p => p.socketId === targetSocketId);
       if (removedIdx !== -1) {
         room.state.players.splice(removedIdx, 1);
-        if (room.state.currentPlayerIndex !== null) {
-          let curIdx = room.state.currentPlayerIndex;
-          if (removedIdx < curIdx) {
-            room.state.currentPlayerIndex = curIdx - 1;
-          } else if (removedIdx === curIdx) {
-            room.state.currentPlayerIndex = curIdx % Math.max(1, room.state.players.length);
-            room.state.previousCard = null;
-            room.state.previousScore = null;
-            room.state.previousLeaders = null;
-            room.state.round += 1;
-
-            if (room.state.cards && room.state.cards.length > 0) {
-              room.state.currentCard = room.state.cards.shift();
-            } else {
-              const deckConfig = Object.keys(room.state.initialCards || {}).reduce((acc, card) => {
-                for(let i=0; i<room.state.initialCards[card]; i++) acc.push(card);
-                return acc;
-              }, []);
-              for (let i = deckConfig.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [deckConfig[i], deckConfig[j]] = [deckConfig[j], deckConfig[i]];
-              }
-              room.state.currentCard = deckConfig.shift() || null;
-              room.state.cards = deckConfig;
-            }
-          }
-        }
+        handleActivePlayerRemoved(room.state, removedIdx);
       }
       emitRoomState(currentRoom);
       
@@ -219,15 +237,28 @@ io.on('connection', (socket) => {
   });
 
   socket.on('pushState', ({ roomId, newState }) => {
-    if (rooms[roomId]) {
-      rooms[roomId].state = newState;
-      emitRoomState(roomId);
-    }
+    const room = rooms[roomId];
+    if (!room || !newState) return;
+
+    // Only the host (start/end game, host-side turn-timer auto-bust) or the
+    // player whose turn it currently is may push authoritative game state.
+    // This is evaluated against the *current* (pre-push) state.
+    const isHost = room.host === socket.id;
+    const activePlayer = (room.state.currentPlayerIndex !== null && room.state.players)
+      ? room.state.players[room.state.currentPlayerIndex]
+      : null;
+    const isActivePlayer = activePlayer && activePlayer.socketId === socket.id;
+
+    if (!isHost && !isActivePlayer) return;
+
+    room.state = newState;
+    emitRoomState(roomId);
   });
 
   socket.on('endGameStats', async ({ deviceId, stats }) => {
+    if (!deviceId) return;
     try {
-      await updateDeviceStats(deviceId, stats);
+      await updateDeviceStats(deviceId, sanitizeStats(stats));
     } catch (err) {
       console.error(err);
     }
@@ -244,34 +275,7 @@ io.on('connection', (socket) => {
         if (isExplicitLeave) {
           // Permanently leave
           room.state.players.splice(playerIndex, 1);
-          
-          if (room.state.currentPlayerIndex !== null) {
-            let curIdx = room.state.currentPlayerIndex;
-            if (playerIndex < curIdx) {
-              room.state.currentPlayerIndex = curIdx - 1;
-            } else if (playerIndex === curIdx) {
-              room.state.currentPlayerIndex = curIdx % Math.max(1, room.state.players.length);
-              room.state.previousCard = null;
-              room.state.previousScore = null;
-              room.state.previousLeaders = null;
-              room.state.round += 1;
-
-              if (room.state.cards && room.state.cards.length > 0) {
-                room.state.currentCard = room.state.cards.shift();
-              } else {
-                const deckConfig = Object.keys(room.state.initialCards || {}).reduce((acc, card) => {
-                  for(let i=0; i<room.state.initialCards[card]; i++) acc.push(card);
-                  return acc;
-                }, []);
-                for (let i = deckConfig.length - 1; i > 0; i--) {
-                  const j = Math.floor(Math.random() * (i + 1));
-                  [deckConfig[i], deckConfig[j]] = [deckConfig[j], deckConfig[i]];
-                }
-                room.state.currentCard = deckConfig.shift() || null;
-                room.state.cards = deckConfig;
-              }
-            }
-          }
+          handleActivePlayerRemoved(room.state, playerIndex);
 
           if (room.disconnectTimers && room.disconnectTimers[player.deviceId]) {
             clearTimeout(room.disconnectTimers[player.deviceId]);
@@ -299,36 +303,7 @@ io.on('connection', (socket) => {
               const removedIdx = rooms[currentRoom].state.players.findIndex(p => p.deviceId === player.deviceId);
               if (removedIdx !== -1) {
                 rooms[currentRoom].state.players.splice(removedIdx, 1);
-                
-                if (rooms[currentRoom].state.currentPlayerIndex !== null) {
-                  let curIdx = rooms[currentRoom].state.currentPlayerIndex;
-                  if (removedIdx < curIdx) {
-                    rooms[currentRoom].state.currentPlayerIndex = curIdx - 1;
-                  } else if (removedIdx === curIdx) {
-                    rooms[currentRoom].state.currentPlayerIndex = curIdx % Math.max(1, rooms[currentRoom].state.players.length);
-                    rooms[currentRoom].state.previousCard = null;
-                    rooms[currentRoom].state.previousScore = null;
-                    rooms[currentRoom].state.previousLeaders = null;
-                    rooms[currentRoom].state.round += 1;
-
-                    // Draw a new card for the next player
-                    if (rooms[currentRoom].state.cards && rooms[currentRoom].state.cards.length > 0) {
-                      rooms[currentRoom].state.currentCard = rooms[currentRoom].state.cards.shift();
-                    } else {
-                      const deckConfig = Object.keys(rooms[currentRoom].state.initialCards || {}).reduce((acc, card) => {
-                        for(let i=0; i<rooms[currentRoom].state.initialCards[card]; i++) acc.push(card);
-                        return acc;
-                      }, []);
-                      // Simple Fisher-Yates shuffle
-                      for (let i = deckConfig.length - 1; i > 0; i--) {
-                        const j = Math.floor(Math.random() * (i + 1));
-                        [deckConfig[i], deckConfig[j]] = [deckConfig[j], deckConfig[i]];
-                      }
-                      rooms[currentRoom].state.currentCard = deckConfig.shift() || null;
-                      rooms[currentRoom].state.cards = deckConfig;
-                    }
-                  }
-                }
+                handleActivePlayerRemoved(rooms[currentRoom].state, removedIdx);
 
                 if (rooms[currentRoom].state.players.length === 0) {
                   delete rooms[currentRoom];
@@ -371,8 +346,7 @@ app.get('/api/stats/global', async (req, res) => {
 
 app.post('/api/stats/global', async (req, res) => {
   try {
-    const stats = req.body;
-    await updateGlobalStats(stats);
+    await updateGlobalStats(sanitizeStats(req.body));
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
@@ -390,8 +364,7 @@ app.get('/api/stats/:deviceId', async (req, res) => {
 
 app.post('/api/stats/:deviceId', async (req, res) => {
   try {
-    const stats = req.body;
-    await updateDeviceStats(req.params.deviceId, stats);
+    await updateDeviceStats(req.params.deviceId, sanitizeStats(req.body));
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Database error' });

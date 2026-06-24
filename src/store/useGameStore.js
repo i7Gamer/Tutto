@@ -249,7 +249,8 @@ export const useGameStore = create(immer((set, get) => ({
       });
 
       socket.on('playerDisconnected', (name) => {
-        get().addToast(`${name} disconnected!`);
+        const seconds = get().reconnectTimeout || 60;
+        get().addToast(`${name} disconnected! They have ${seconds} seconds to reconnect.`);
       });
 
       socket.on('hostId', (hostSocketId) => {

@@ -1,5 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { getLeaders, buildGlobalStatsPayload, shuffleArray } from './coreGameEngine';
+import { getLeaders, buildGlobalStatsPayload, shuffleArray, calculateNextTurn, calculateUndo } from './coreGameEngine';
+
+const makePlayer = (name, overrides = {}) => ({
+  name, score: 0, times1000PointsDeducted: 0, timesKniffelCompleted: 0,
+  timesPlusMinusCompleted: 0, timesKniffelFailed: 0, timesKleeblattFailed: 0,
+  timesKleeblattCompleted: 0, timesPlusMinusFailed: 0, timesFeuerwerkReceived: 0,
+  timesSkipped: 0, timesx2Received: 0, totalTurns: 0, busts: 0,
+  feuerwerkBusts: 0, x2Busts: 0, feuerwerkPointsScored: 0, x2PointsScored: 0,
+  ...overrides
+});
+
+const makeState = (overrides = {}) => ({
+  players: [makePlayer('Alice'), makePlayer('Bob')],
+  currentPlayerIndex: 0,
+  currentCard: '200',
+  round: 1,
+  winningScore: 6000,
+  cards: ['200', '200'],
+  initialCards: { '200': 5 },
+  previousCard: null,
+  previousScore: null,
+  previousLeaders: null,
+  ...overrides
+});
 
 describe('coreGameEngine', () => {
   describe('shuffleArray', () => {
@@ -83,6 +106,290 @@ describe('coreGameEngine', () => {
         fastestWinTurns: 3,
         isDefaultGame: true
       });
+    });
+  });
+
+  // Direct unit tests for the shared turn engine. Previously this logic was
+  // only covered indirectly through the (now removed) useGameLogic /
+  // useOnlineGame hooks; these tests exercise calculateNextTurn / calculateUndo
+  // — the functions the live zustand store actually calls.
+  describe('calculateNextTurn', () => {
+    it('adds the score to the current player and advances to the next player', () => {
+      const result = calculateNextTurn(makeState(), 500, true);
+      expect(result.players[0].score).toBe(500);
+      expect(result.players[0].totalTurns).toBe(1);
+      expect(result.isGameOver).toBe(false);
+      expect(result.nextIndex).toBe(1);
+      expect(result.drawnCard).toBe('200');
+    });
+
+    it('counts a 0-point result on a regular card as a bust', () => {
+      const result = calculateNextTurn(makeState(), 0, false);
+      expect(result.players[0].busts).toBe(1);
+      expect(result.players[0].totalTurns).toBe(1);
+    });
+
+    it('a successful turn is not a bust', () => {
+      const result = calculateNextTurn(makeState(), 500, true);
+      expect(result.players[0].busts).toBe(0);
+    });
+
+    it('Stop card is skipped, not a bust', () => {
+      const result = calculateNextTurn(makeState({ currentCard: 'Stop' }), 0, false);
+      expect(result.players[0].timesSkipped).toBe(1);
+      expect(result.players[0].busts).toBe(0);
+    });
+
+    it.each(['Plus_Minus', 'Kniffel', 'Kleeblatt'])(
+      'failing the Yes/No card %s does not count as a bust',
+      (card) => {
+        const result = calculateNextTurn(makeState({ currentCard: card }), 0, false);
+        expect(result.players[0].totalTurns).toBe(1);
+        expect(result.players[0].busts).toBe(0);
+      }
+    );
+
+    it('Kleeblatt success wins the game, sets score to 999999 and nextIndex null', () => {
+      const result = calculateNextTurn(makeState({ currentCard: 'Kleeblatt' }), 0, true);
+      expect(result.players[0].score).toBe(999999);
+      expect(result.players[0].timesKleeblattCompleted).toBe(1);
+      expect(result.isGameOver).toBe(true);
+      expect(result.nextIndex).toBeNull();
+    });
+
+    it('Kleeblatt failure increments timesKleeblattFailed and continues', () => {
+      const result = calculateNextTurn(makeState({ currentCard: 'Kleeblatt' }), 0, false);
+      expect(result.players[0].timesKleeblattFailed).toBe(1);
+      expect(result.isGameOver).toBe(false);
+    });
+
+    it('Plus_Minus success by a non-leader deducts 1000 from the leader (bounded at 0)', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 2000 }), makePlayer('Bob', { score: 0 })],
+        currentPlayerIndex: 1,
+        currentCard: 'Plus_Minus',
+      });
+      const result = calculateNextTurn(state, 0, true);
+      expect(result.players[0].score).toBe(1000); // Alice 2000 - 1000
+      expect(result.players[0].times1000PointsDeducted).toBe(1);
+      expect(result.players[1].score).toBe(1000); // Bob 0 + 1000
+      expect(result.players[1].timesPlusMinusCompleted).toBe(1);
+      expect(result.previousLeaders).toEqual([expect.objectContaining({ name: 'Alice', score: 2000 })]);
+    });
+
+    it('Plus_Minus deduction never takes the leader below zero', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 500 }), makePlayer('Bob', { score: 0 })],
+        currentPlayerIndex: 1,
+        currentCard: 'Plus_Minus',
+      });
+      const result = calculateNextTurn(state, 0, true);
+      expect(result.players[0].score).toBe(0); // max(0, 500 - 1000)
+    });
+
+    it('Plus_Minus success by the current leader deducts from no one', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 2000 }), makePlayer('Bob', { score: 0 })],
+        currentPlayerIndex: 0,
+        currentCard: 'Plus_Minus',
+      });
+      const result = calculateNextTurn(state, 0, true);
+      expect(result.players[0].score).toBe(3000); // 2000 + 1000, no self-deduction
+      expect(result.previousLeaders).toBeNull();
+    });
+
+    it('Plus_Minus failure increments timesPlusMinusFailed', () => {
+      const result = calculateNextTurn(makeState({ currentCard: 'Plus_Minus' }), 0, false);
+      expect(result.players[0].timesPlusMinusFailed).toBe(1);
+    });
+
+    it('Kniffel success scores 2000', () => {
+      const result = calculateNextTurn(makeState({ currentCard: 'Kniffel' }), 0, true);
+      expect(result.players[0].score).toBe(2000);
+      expect(result.players[0].timesKniffelCompleted).toBe(1);
+    });
+
+    it('Kniffel failure scores nothing and increments timesKniffelFailed', () => {
+      const result = calculateNextTurn(makeState({ currentCard: 'Kniffel' }), 0, false);
+      expect(result.players[0].score).toBe(0);
+      expect(result.players[0].timesKniffelFailed).toBe(1);
+    });
+
+    it('tracks x2 received and points scored', () => {
+      const result = calculateNextTurn(makeState({ currentCard: 'x2' }), 500, true);
+      expect(result.players[0].timesx2Received).toBe(1);
+      expect(result.players[0].x2PointsScored).toBe(500);
+    });
+
+    it('tracks an x2 bust', () => {
+      const result = calculateNextTurn(makeState({ currentCard: 'x2' }), 0, false);
+      expect(result.players[0].x2Busts).toBe(1);
+      expect(result.players[0].busts).toBe(1);
+      expect(result.players[0].x2PointsScored).toBe(0);
+    });
+
+    it('tracks Feuerwerk received, points and busts', () => {
+      const scored = calculateNextTurn(makeState({ currentCard: 'Feuerwerk' }), 1500, false);
+      expect(scored.players[0].feuerwerkPointsScored).toBe(1500);
+      expect(scored.players[0].timesFeuerwerkReceived).toBe(1);
+
+      const busted = calculateNextTurn(makeState({ currentCard: 'Feuerwerk' }), 0, false);
+      expect(busted.players[0].feuerwerkBusts).toBe(1);
+    });
+
+    it('records the highest turn score', () => {
+      const result = calculateNextTurn(makeState(), 1200, true);
+      expect(result.players[0].highestTurnScore).toBe(1200);
+    });
+
+    it('returns a brand new players array and player objects (so React detects changes)', () => {
+      const state = makeState();
+      const result = calculateNextTurn(state, 200, true);
+      expect(result.players).not.toBe(state.players);
+      expect(result.players[0]).not.toBe(state.players[0]);
+    });
+
+    describe('win condition', () => {
+      it('does not end the game until the round completes', () => {
+        const result = calculateNextTurn(makeState({ currentPlayerIndex: 0 }), 6500, false);
+        expect(result.isGameOver).toBe(false);
+        expect(result.nextIndex).toBe(1);
+      });
+
+      it('ends the game when the sole leader is at/above the winning score at round end', () => {
+        const state = makeState({
+          players: [makePlayer('Alice', { score: 6500 }), makePlayer('Bob', { score: 0 })],
+          currentPlayerIndex: 1,
+        });
+        const result = calculateNextTurn(state, 0, false);
+        expect(result.isRoundEnd).toBe(true);
+        expect(result.isGameOver).toBe(true);
+        expect(result.nextIndex).toBeNull();
+      });
+
+      it('does not end the game on a tie at the winning score', () => {
+        const state = makeState({
+          players: [makePlayer('Alice', { score: 6000 }), makePlayer('Bob', { score: 6000 })],
+          currentPlayerIndex: 1,
+        });
+        const result = calculateNextTurn(state, 0, false);
+        expect(result.isRoundEnd).toBe(true);
+        expect(result.isGameOver).toBe(false);
+        expect(result.nextRound).toBe(2);
+      });
+    });
+
+    it('rebuilds and reshuffles the deck when it is exhausted', () => {
+      const result = calculateNextTurn(makeState({ cards: [] }), 500, true);
+      expect(result.drawnCard).toBe('200');
+      expect(result.newDeck.length).toBe(4); // initialCards { '200': 5 } minus the drawn one
+    });
+  });
+
+  describe('calculateUndo', () => {
+    it('returns null when there is no previous card', () => {
+      expect(calculateUndo(makeState({ previousCard: null }))).toBeNull();
+    });
+
+    it('returns null when the previous card was Stop (cannot be undone)', () => {
+      expect(calculateUndo(makeState({ previousCard: 'Stop' }))).toBeNull();
+    });
+
+    it('reverts score, turn ownership, totalTurns and busts', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 0, totalTurns: 1, busts: 1 }), makePlayer('Bob')],
+        currentPlayerIndex: 1,
+        currentCard: 'Stop',
+        previousCard: '200',
+        previousScore: 0,
+      });
+      const result = calculateUndo(state);
+      expect(result.nextIndex).toBe(0);
+      expect(result.players[0].totalTurns).toBe(0);
+      expect(result.players[0].busts).toBe(0);
+      expect(result.drawnCard).toBe('200');
+    });
+
+    it('reverses Feuerwerk busts, points and received count (Bug 1)', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { totalTurns: 1, busts: 1, feuerwerkBusts: 1, timesFeuerwerkReceived: 1 }), makePlayer('Bob')],
+        currentPlayerIndex: 1,
+        previousCard: 'Feuerwerk',
+        previousScore: 0,
+      });
+      const result = calculateUndo(state);
+      expect(result.players[0].feuerwerkBusts).toBe(0);
+      expect(result.players[0].timesFeuerwerkReceived).toBe(0);
+      expect(result.players[0].busts).toBe(0);
+      expect(result.players[0].totalTurns).toBe(0);
+    });
+
+    it('reverses x2 busts, points and received count (Bug 1)', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 500, totalTurns: 1, timesx2Received: 1, x2PointsScored: 500 }), makePlayer('Bob')],
+        currentPlayerIndex: 1,
+        previousCard: 'x2',
+        previousScore: 500,
+      });
+      const result = calculateUndo(state);
+      expect(result.players[0].x2PointsScored).toBe(0);
+      expect(result.players[0].timesx2Received).toBe(0);
+      expect(result.players[0].score).toBe(0);
+    });
+
+    it('only touches Feuerwerk stats based on previousCard, not currentCard (Bug 2)', () => {
+      // Previous player played '200'; the card now showing is Feuerwerk.
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 300, totalTurns: 1, timesFeuerwerkReceived: 0 }), makePlayer('Bob')],
+        currentPlayerIndex: 1,
+        currentCard: 'Feuerwerk',
+        previousCard: '200',
+        previousScore: 300,
+      });
+      const result = calculateUndo(state);
+      expect(result.players[0].timesFeuerwerkReceived).toBe(0); // untouched
+    });
+
+    it('restores leaders from the Plus_Minus snapshot and bounds the undo correctly', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 1000, times1000PointsDeducted: 1 }), makePlayer('Bob', { score: 1000, totalTurns: 1, timesPlusMinusCompleted: 1 })],
+        currentPlayerIndex: 0, // round 2, Alice's turn again — undo Bob's Plus_Minus
+        previousCard: 'Plus_Minus',
+        previousScore: 1000,
+        previousLeaders: [{ name: 'Alice', score: 2000 }],
+      });
+      const result = calculateUndo(state);
+      expect(result.isRoundEndUndo).toBe(true);
+      expect(result.nextIndex).toBe(1); // wrapped back to Bob
+      expect(result.players[0].score).toBe(2000); // Alice restored
+      expect(result.players[0].times1000PointsDeducted).toBe(0);
+      expect(result.players[1].score).toBe(0); // Bob loses his 1000
+      expect(result.players[1].timesPlusMinusCompleted).toBe(0);
+    });
+
+    it('decrements timesPlusMinusFailed when undoing a failed Plus_Minus', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { totalTurns: 1, timesPlusMinusFailed: 1 }), makePlayer('Bob')],
+        currentPlayerIndex: 1,
+        previousCard: 'Plus_Minus',
+        previousScore: 0,
+      });
+      const result = calculateUndo(state);
+      expect(result.players[0].timesPlusMinusFailed).toBe(0);
+    });
+
+    it('puts the undone cards back on top of the deck', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 500, totalTurns: 1 }), makePlayer('Bob')],
+        currentPlayerIndex: 1,
+        currentCard: 'Stop',
+        cards: ['600'],
+        previousCard: '200',
+        previousScore: 500,
+      });
+      const result = calculateUndo(state);
+      expect(result.newDeck).toEqual(['Stop', '600']);
+      expect(result.drawnCard).toBe('200');
     });
   });
 });

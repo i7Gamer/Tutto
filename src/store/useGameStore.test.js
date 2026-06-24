@@ -19,6 +19,15 @@ vi.mock('socket.io-client', () => {
   };
 });
 
+const makeOnlinePlayer = (name) => ({
+  name, socketId: `sock-${name}`, deviceId: `dev-${name}`, score: 0,
+  times1000PointsDeducted: 0, timesKniffelCompleted: 0, timesPlusMinusCompleted: 0,
+  timesKniffelFailed: 0, timesKleeblattFailed: 0, timesKleeblattCompleted: 0,
+  timesPlusMinusFailed: 0, timesFeuerwerkReceived: 0, timesSkipped: 0,
+  timesx2Received: 0, totalTurns: 0, busts: 0, feuerwerkBusts: 0, x2Busts: 0,
+  feuerwerkPointsScored: 0, x2PointsScored: 0,
+});
+
 describe('useGameStore', () => {
   beforeEach(() => {
     // Reset state before each test
@@ -296,11 +305,124 @@ describe('useGameStore', () => {
     it('clears pendingReconnectSession when clearPendingReconnect is called', () => {
       sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'TEST_ROOM', myName: 'Alice' }));
       useGameStore.setState({ pendingReconnectSession: { roomId: 'TEST_ROOM', myName: 'Alice' } });
-      
+
       useGameStore.getState().clearPendingReconnect();
-      
+
       expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
       expect(useGameStore.getState().pendingReconnectSession).toBeNull();
+    });
+  });
+
+  // Orchestration behaviours that previously lived only in the removed
+  // useOnlineGame / useGameLogic hooks.
+  describe('startGame resets player statistics', () => {
+    it('zeroes accumulated stats from a previous game', () => {
+      const store = useGameStore.getState();
+      store.addPlayer('Alice');
+      // Pollute the player with stale stats.
+      useGameStore.setState((s) => {
+        Object.assign(s.players[0], {
+          score: 5000, totalTurns: 9, busts: 3, feuerwerkBusts: 2,
+          x2Busts: 1, feuerwerkPointsScored: 1500, x2PointsScored: 800,
+          timesKleeblattCompleted: 1,
+        });
+      });
+
+      useGameStore.getState().startGame();
+
+      const p = useGameStore.getState().players[0];
+      expect(p.score).toBe(0);
+      expect(p.totalTurns).toBe(0);
+      expect(p.busts).toBe(0);
+      expect(p.feuerwerkBusts).toBe(0);
+      expect(p.x2Busts).toBe(0);
+      expect(p.feuerwerkPointsScored).toBe(0);
+      expect(p.x2PointsScored).toBe(0);
+      expect(p.timesKleeblattCompleted).toBe(0);
+    });
+  });
+
+  describe('default vs custom game detection (global stats)', () => {
+    const DEFAULT_CARDS = {
+      Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5,
+      x2: 5, 200: 5, 300: 5, 400: 5, 500: 5, 600: 5,
+    };
+
+    it('marks a 6000-point default-deck game as isDefaultGame: true', () => {
+      global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));
+      useGameStore.getState().addPlayer('Alice');
+      useGameStore.setState({ status: 'playing', currentPlayerIndex: 0, winningScore: 6000, initialCards: { ...DEFAULT_CARDS } });
+
+      useGameStore.getState().nextTurn(6000, true); // single player → instant win at round end
+
+      const call = global.fetch.mock.calls.find(c => c[0] === '/api/stats/global');
+      expect(JSON.parse(call[1].body).isDefaultGame).toBe(true);
+      global.fetch.mockRestore();
+    });
+
+    it('marks a tweaked deck as isDefaultGame: false', () => {
+      global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));
+      useGameStore.getState().addPlayer('Alice');
+      useGameStore.setState({ status: 'playing', currentPlayerIndex: 0, winningScore: 6000, initialCards: { ...DEFAULT_CARDS, Kleeblatt: 99 } });
+
+      useGameStore.getState().nextTurn(6000, true);
+
+      const call = global.fetch.mock.calls.find(c => c[0] === '/api/stats/global');
+      expect(JSON.parse(call[1].body).isDefaultGame).toBe(false);
+      global.fetch.mockRestore();
+    });
+  });
+
+  describe('online config-change toasts', () => {
+    it('toasts when the host changes the winning score in the lobby', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({ status: 'lobby', winningScore: 6000 });
+
+      mockOnHandlers['gameState']({ status: 'lobby', winningScore: 8000, players: [] });
+
+      const messages = useGameStore.getState().toasts.map(t => t.message);
+      expect(messages.some(m => m.includes('8000'))).toBe(true);
+    });
+  });
+
+  describe('online turn timer', () => {
+    it('host auto-busts the active player when the turn timer expires', () => {
+      vi.useFakeTimers();
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: true, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
+        players: [makeOnlinePlayer('Alice'), makeOnlinePlayer('Bob')],
+        currentPlayerIndex: 0, status: 'playing', finished: false,
+        turnDuration: 2, currentCard: '200', cards: ['200'], initialCards: { 200: 5 },
+        round: 1, chartValues: [[], []], chartLabels: [], chartNames: ['Alice', 'Bob'],
+      });
+
+      // Kick the turn timer off as syncOnlineTimers would after a state push.
+      useGameStore.getState().syncOnlineTimers();
+      expect(useGameStore.getState().turnTimeRemaining).toBe(2);
+
+      mockEmit.mockClear();
+      vi.advanceTimersByTime(2000);
+
+      // Auto-bust advances the turn and pushes the new state to the server.
+      expect(mockEmit).toHaveBeenCalledWith('pushState', expect.any(Object));
+      expect(useGameStore.getState().currentPlayerIndex).toBe(1);
+      vi.useRealTimers();
+    });
+  });
+
+  describe('disconnect toast', () => {
+    it('includes the reconnect countdown in the toast', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({ reconnectTimeout: 45 });
+
+      mockOnHandlers['playerDisconnected']('Bob');
+
+      const messages = useGameStore.getState().toasts.map(t => t.message);
+      expect(messages.some(m => m.includes('Bob') && m.includes('45 seconds'))).toBe(true);
     });
   });
 

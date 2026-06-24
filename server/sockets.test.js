@@ -109,6 +109,48 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
+  it('ignores pushState from a player who is neither host nor the active player', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host + active player
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — neither
+
+      let bobPushObserved = false;
+      const timeoutId = setTimeout(() => {
+        // No 'hacked' state ever propagated → the malicious push was rejected.
+        expect(bobPushObserved).toBe(false);
+        s1.disconnect();
+        s2.disconnect();
+        resolve();
+      }, 1500);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'E2E_AUTH', name: 'Alice', deviceId: 'dev-a3', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'E2E_AUTH', name: 'Bob', deviceId: 'dev-b3', color: '#00ff00' }, () => {
+            const players = [
+              { name: 'Alice', deviceId: 'dev-a3', socketId: s1.id, disconnected: false, score: 0 },
+              { name: 'Bob', deviceId: 'dev-b3', socketId: s2.id, disconnected: false, score: 0 }
+            ];
+            // Alice (host) legitimately starts the game; it's Alice's turn (index 0).
+            s1.emit('pushState', { roomId: 'E2E_AUTH', newState: { players, status: 'playing', currentPlayerIndex: 0 } });
+
+            setTimeout(() => {
+              // Bob is not host and not the active player → this must be ignored.
+              s2.emit('pushState', { roomId: 'E2E_AUTH', newState: { players: [], status: 'hacked', currentPlayerIndex: 0 } });
+            }, 200);
+          });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (state.status === 'hacked' || (state.players && state.players.length === 0)) {
+          bobPushObserved = true;
+          clearTimeout(timeoutId);
+          reject(new Error('Server accepted pushState from an unauthorized player'));
+        }
+      });
+    });
+  }, 10000);
+
   it('does not send gameState to a player who just left the room intentionally', () => {
     return new Promise((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
