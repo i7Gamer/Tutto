@@ -196,8 +196,8 @@ export function AdvancedOptionsPanel({
             </div>
           ) : (
             <div className="bg-white dark:bg-slate-800/40 p-4 sm:p-6 rounded-xl border border-gray-200 dark:border-slate-600">
-            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-6 items-end`}>
-              <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-3 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
+            <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 mb-6 items-stretch`}>
+              <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                 <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.winningScore', 'Winning Score')}</span>
                 <input 
                   type="number" 
@@ -212,7 +212,7 @@ export function AdvancedOptionsPanel({
 
               {isOnline && (
                 <>
-                  <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-3 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
+                  <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                     <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.turnTimer', 'Turn Timer (s)')}</span>
                     <input 
                       type="number" 
@@ -225,7 +225,7 @@ export function AdvancedOptionsPanel({
                       placeholder="0" 
                     />
                   </label>
-                  <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-3 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
+                  <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                     <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.kickTimer', 'Kick Timer (s)')}</span>
                     <input 
                       type="number" 
@@ -243,9 +243,9 @@ export function AdvancedOptionsPanel({
 
               <div 
                 onClick={() => game.setRandomOrder(!game.randomOrder)} 
-                className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+                className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
               >
-                <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">
+                <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2 py-1">
                   {t('lobby.randomOrder', 'Random Order')}
                 </span>
                 <div className={`w-10 h-5 rounded-full flex items-center p-0.5 transition-colors ${game.randomOrder !== false ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-slate-600'}`}>
