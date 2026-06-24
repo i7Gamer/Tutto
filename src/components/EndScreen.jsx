@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Line } from 'react-chartjs-2';
 import {
@@ -46,8 +46,17 @@ export default function EndScreen({ theme, deviceId }) {
     leaveRoom,
   } = game;
 
+  // Freeze the final player list at mount (game is already finished when EndScreen renders).
+  // We only refresh the snapshot if the incoming players array is at least as large — this
+  // lets late-arriving score-correction packets from the host update displayed positions,
+  // but prevents a player *leaving the room* after game-over from removing them from the results.
+  const snapshotRef = useRef(players);
+  if (players.length >= snapshotRef.current.length) {
+    snapshotRef.current = players;
+  }
+
   const sortedPlayers = (() => {
-    const sorted = players
+    const sorted = snapshotRef.current
       .map(p => ({ ...p }))
       .sort((a, b) => b.score - a.score);
     sorted.forEach((p, i) => {

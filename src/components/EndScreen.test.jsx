@@ -30,13 +30,13 @@ describe('EndScreen Component', () => {
     expect(container.textContent).toContain('end.gameStats');
   });
 
-  it('reflects the current winner reactively when the store updates (late gameState packets)', () => {
+  it('reflects updated scores when the same number of players push a late gameState packet', () => {
     const { getByText } = render(<EndScreen />);
 
     // Initially, Alice is the winner (score 10000 > 5000)
     expect(getByText('end.winner Alice')).toBeInTheDocument();
 
-    // Simulate a late gameState packet arriving: Bob's score is updated to be higher
+    // Simulate a late gameState packet arriving with updated scores (same player count)
     act(() => {
       useGameStore.setState({
         players: [
@@ -46,8 +46,28 @@ describe('EndScreen Component', () => {
       });
     });
 
-    // Now Bob has the highest score — sortedPlayers should react and show Bob as winner
+    // Now Bob has the highest score — late update should be reflected
     expect(getByText('end.winner Bob')).toBeInTheDocument();
+  });
+
+  it('keeps the original winner when a player leaves the room after game-over', () => {
+    const { getByText, queryByText } = render(<EndScreen />);
+
+    // Initially, Alice is the winner (score 10000 > 5000)
+    expect(getByText('end.winner Alice')).toBeInTheDocument();
+
+    // Simulate Alice leaving the room: players array shrinks
+    act(() => {
+      useGameStore.setState({
+        players: [
+          { name: 'Bob', score: 5000, position: 2 }
+        ]
+      });
+    });
+
+    // Bob should NOT become winner — the snapshot is frozen at max player count
+    expect(getByText('end.winner Alice')).toBeInTheDocument();
+    expect(queryByText('end.winner Bob')).toBeNull();
   });
 
   it('assigns correct position values to sorted players', () => {
