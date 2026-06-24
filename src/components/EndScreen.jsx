@@ -45,7 +45,12 @@ export default function EndScreen({ theme, deviceId }) {
     leaveRoom,
   } = game;
 
-  const [sortedPlayers] = useState(() => players.map(p => ({...p})).sort((a, b) => b.score - a.score));
+  const [sortedPlayers] = useState(() =>
+    players
+      .map(p => ({ ...p }))
+      .sort((a, b) => b.score - a.score)
+      .map((p, i) => ({ ...p, position: i + 1 }))
+  );
   const winner = sortedPlayers[0];
   
   const formatTime = (totalSeconds) => {

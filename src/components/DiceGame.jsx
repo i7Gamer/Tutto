@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dices, Check, X, Hand, RotateCw } from 'lucide-react';
 import { playBuzzer, playSuccess, playTone } from '../utils/soundEffects';
@@ -186,9 +186,12 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
     setCurrentRoll(prev => prev.map(d => d.id === id ? { ...d, selected: !d.selected } : d));
   };
 
-  const finishGame = () => {
-    onComplete(summaryData.score || 0, summaryData.won || false);
-  };
+  const summaryDataRef = useRef(summaryData);
+  useEffect(() => { summaryDataRef.current = summaryData; }, [summaryData]);
+
+  const finishGame = useCallback(() => {
+    onComplete(summaryDataRef.current.score || 0, summaryDataRef.current.won || false);
+  }, [onComplete]);
 
   useEffect(() => {
     let timeout;
@@ -198,8 +201,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
       }, 1500);
     }
     return () => clearTimeout(timeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showSummary, bustState]);
+  }, [showSummary, bustState, finishGame]);
 
   const isMakingTutto = keptDice.length + selectedRolls.length === 6;
   const isSpecialCard = ["Kniffel", "Plus_Minus", "Kleeblatt"].includes(currentCard);

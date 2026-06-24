@@ -32,6 +32,7 @@ export const buildGlobalStatsPayload = (finalPlayers, finalTime, isDefaultGame) 
   let totalFeuerwerkBusts = 0, totalx2Busts = 0, totalBusts = 0;
   let highestTurnScore = 0;
   let fastestWinTurns = null;
+  let fastestLossTurns = null;
 
   const leaders = getLeaders(finalPlayers);
   const isWinner = (p) => leaders.some(l => l.name === p.name);
@@ -60,6 +61,10 @@ export const buildGlobalStatsPayload = (finalPlayers, finalTime, isDefaultGame) 
       if (fastestWinTurns === null || p.totalTurns < fastestWinTurns) {
         fastestWinTurns = p.totalTurns;
       }
+    } else {
+      if (fastestLossTurns === null || p.totalTurns < fastestLossTurns) {
+        fastestLossTurns = p.totalTurns;
+      }
     }
   });
 
@@ -69,7 +74,7 @@ export const buildGlobalStatsPayload = (finalPlayers, finalTime, isDefaultGame) 
     totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk, totalKleeblatt, totalKleeblattCompleted, totalx2,
     totalTurns, totalScore, totalPlusMinusCompleted, totalKniffelCompleted, totalFeuerwerkPoints, totalx2Points,
     totalFeuerwerkBusts, totalx2Busts, totalBusts,
-    highestTurnScore, fastestWinTurns,
+    highestTurnScore, fastestWinTurns, fastestLossTurns,
     isDefaultGame
   };
 };
@@ -85,7 +90,8 @@ export const calculateNextTurn = (gameState, scoreInput, isSuccess = false) => {
   // Track turns and busts.
   currentPlayer.totalTurns = (currentPlayer.totalTurns || 0) + 1;
   const isYesNoCard = ["Plus_Minus", "Kniffel", "Kleeblatt"].includes(currentCard);
-  if (!isSuccess && !isYesNoCard && currentCard !== "Stop") {
+  const wasBust = !isSuccess && !isYesNoCard && currentCard !== "Stop";
+  if (wasBust) {
     currentPlayer.busts = (currentPlayer.busts || 0) + 1;
     if (currentCard === "Feuerwerk") currentPlayer.feuerwerkBusts = (currentPlayer.feuerwerkBusts || 0) + 1;
     if (currentCard === "x2") currentPlayer.x2Busts = (currentPlayer.x2Busts || 0) + 1;
@@ -139,6 +145,8 @@ export const calculateNextTurn = (gameState, scoreInput, isSuccess = false) => {
       previousCard: currentCard,
       previousScore: turnScore,
       previousLeaders: snapshotLeaders,
+      previousWasBust: wasBust,
+      previousHighestTurnScore: currentPlayer.highestTurnScore ?? 0,
       newDeck: cards,
       drawnCard: null
     };
@@ -146,6 +154,7 @@ export const calculateNextTurn = (gameState, scoreInput, isSuccess = false) => {
     currentPlayer.timesKleeblattFailed = (currentPlayer.timesKleeblattFailed || 0) + 1;
   }
 
+  const previousHighestTurnScore = currentPlayer.highestTurnScore ?? 0;
   if (turnScore > (currentPlayer.highestTurnScore || 0)) {
     currentPlayer.highestTurnScore = turnScore;
   }
@@ -192,13 +201,15 @@ export const calculateNextTurn = (gameState, scoreInput, isSuccess = false) => {
     previousCard: currentCard,
     previousScore: turnScore,
     previousLeaders: snapshotLeaders,
+    previousWasBust: wasBust,
+    previousHighestTurnScore,
     newDeck,
     drawnCard
   };
 };
 
 export const calculateUndo = (gameState) => {
-  const { players, currentPlayerIndex, round, previousCard, previousScore, previousLeaders, currentCard, cards } = gameState;
+  const { players, currentPlayerIndex, round, previousCard, previousScore, previousLeaders, previousWasBust, previousHighestTurnScore, currentCard, cards } = gameState;
   
   if (!previousCard || previousCard === "Stop") return null;
 
@@ -219,7 +230,7 @@ export const calculateUndo = (gameState) => {
 
   p.totalTurns = Math.max(0, (p.totalTurns || 0) - 1);
   const wasYesNoCard = ["Plus_Minus", "Kniffel", "Kleeblatt"].includes(previousCard);
-  if (previousScore === 0 && previousCard !== "Stop" && !wasYesNoCard) {
+  if (previousWasBust && previousCard !== "Stop" && !wasYesNoCard) {
     p.busts = Math.max(0, (p.busts || 0) - 1);
     if (previousCard === "Feuerwerk") p.feuerwerkBusts = Math.max(0, (p.feuerwerkBusts || 0) - 1);
     if (previousCard === "x2") p.x2Busts = Math.max(0, (p.x2Busts || 0) - 1);
@@ -252,6 +263,18 @@ export const calculateUndo = (gameState) => {
   if (previousCard === "Kniffel") {
     if (previousScore === 2000) p.timesKniffelCompleted = Math.max(0, (p.timesKniffelCompleted || 0) - 1);
     else p.timesKniffelFailed = Math.max(0, (p.timesKniffelFailed || 0) - 1);
+  }
+
+  if (previousCard === "Kleeblatt") {
+    if (previousScore > 0) {
+      p.timesKleeblattCompleted = Math.max(0, (p.timesKleeblattCompleted || 0) - 1);
+    } else {
+      p.timesKleeblattFailed = Math.max(0, (p.timesKleeblattFailed || 0) - 1);
+    }
+  }
+
+  if (previousHighestTurnScore !== undefined) {
+    p.highestTurnScore = previousHighestTurnScore;
   }
 
   p.score -= previousScore;

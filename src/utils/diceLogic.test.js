@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isBust, checkKniffel, checkValidityAndScore, applyTuttoBonus } from './diceLogic';
+import { rollDie, isBust, checkKniffel, checkValidityAndScore, applyTuttoBonus } from './diceLogic';
 
 describe('diceLogic', () => {
 
@@ -37,6 +37,10 @@ describe('diceLogic', () => {
       expect(isBust([3, 4, 5], "Kniffel", [1])).toBe(true); // needs 2, rolled 3, 4, 5
       expect(isBust([4, 3, 2], "Kniffel", [6])).toBe(true); // needs 5, rolled 4, 3, 2
       expect(isBust([6, 5, 4], "Kniffel", [1, 2])).toBe(true); // needs 3
+    });
+
+    it('returns false for all-triplet roll [2,2,2,3,3,3]', () => {
+      expect(isBust([2, 2, 2, 3, 3, 3], "200", [])).toBe(false);
     });
   });
 
@@ -128,6 +132,10 @@ describe('diceLogic', () => {
       expect(checkValidityAndScore([1, 1, 1, 5, 5, 5], "200", []).score).toBe(1500); // 1000 + 500
     });
 
+    it('scores 6-dice Tutto combinations correctly', () => {
+      expect(checkValidityAndScore([2, 2, 2, 3, 3, 3], "200", []).score).toBe(500); // 200 + 300
+    });
+
     it('delegates Kniffel validation to checkKniffel and forces score to 0', () => {
       const res = checkValidityAndScore([1, 2], "Kniffel", []);
       expect(res.valid).toBe(true);
@@ -157,6 +165,18 @@ describe('diceLogic', () => {
     it('does nothing for non-bonus cards (like Feuerwerk or Kleeblatt)', () => {
       expect(applyTuttoBonus(1000, "Feuerwerk")).toBe(1000);
       expect(applyTuttoBonus(0, "Kleeblatt")).toBe(0);
+    });
+  });
+
+  describe('rollDie', () => {
+    it('always returns an integer in [1, 6]', () => {
+      for (let i = 0; i < 100; i++) {
+        const v = rollDie();
+        expect(v).toBeGreaterThanOrEqual(1);
+        expect(v).toBeLessThanOrEqual(6);
+        expect(Number.isInteger(v)).toBe(true);
+      }
+    });
   });
 
   describe('calculateKniffel - missing branches', () => {
@@ -172,5 +192,4 @@ describe('diceLogic', () => {
       expect(result.valid).toBe(false);
     });
   });
-});
 });

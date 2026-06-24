@@ -58,10 +58,23 @@ describe('coreGameEngine', () => {
     });
   });
 
+  describe('buildDeck', () => {
+    it('builds a deck excluding cards with zero count', () => {
+      const initialCards = { '200': 5, 'Stop': 0, 'Kleeblatt': 1 };
+      const { buildDeck } = require('./coreGameEngine');
+      const deck = buildDeck(initialCards);
+      expect(deck.length).toBe(6);
+      expect(deck.includes('Stop')).toBe(false);
+      expect(deck.filter(c => c === 'Kleeblatt').length).toBe(1);
+      expect(deck.filter(c => c === '200').length).toBe(5);
+    });
+  });
+
   describe('buildGlobalStatsPayload', () => {
     it('correctly aggregates stats from multiple players', () => {
       const finalPlayers = [
         {
+          name: 'Alice',
           timesPlusMinusCompleted: 1, timesPlusMinusFailed: 1,
           timesKniffelCompleted: 1, timesKniffelFailed: 0,
           timesSkipped: 2, timesFeuerwerkReceived: 1,
@@ -71,6 +84,7 @@ describe('coreGameEngine', () => {
           feuerwerkBusts: 1, x2Busts: 1, busts: 2
         },
         {
+          name: 'Bob',
           timesPlusMinusCompleted: 0, timesPlusMinusFailed: 0,
           timesKniffelCompleted: 0, timesKniffelFailed: 0,
           timesSkipped: 0, timesFeuerwerkReceived: 0,
@@ -103,7 +117,8 @@ describe('coreGameEngine', () => {
         totalx2Busts: 1,
         totalBusts: 3,
         highestTurnScore: 0,
-        fastestWinTurns: 3,
+        fastestWinTurns: 5,
+        fastestLossTurns: 3,
         isDefaultGame: true
       });
     });
@@ -302,6 +317,7 @@ describe('coreGameEngine', () => {
         currentCard: 'Stop',
         previousCard: '200',
         previousScore: 0,
+        previousWasBust: true,
       });
       const result = calculateUndo(state);
       expect(result.nextIndex).toBe(0);
@@ -316,6 +332,7 @@ describe('coreGameEngine', () => {
         currentPlayerIndex: 1,
         previousCard: 'Feuerwerk',
         previousScore: 0,
+        previousWasBust: true,
       });
       const result = calculateUndo(state);
       expect(result.players[0].feuerwerkBusts).toBe(0);
@@ -330,6 +347,7 @@ describe('coreGameEngine', () => {
         currentPlayerIndex: 1,
         previousCard: 'x2',
         previousScore: 500,
+        previousWasBust: false,
       });
       const result = calculateUndo(state);
       expect(result.players[0].x2PointsScored).toBe(0);
@@ -390,6 +408,55 @@ describe('coreGameEngine', () => {
       const result = calculateUndo(state);
       expect(result.newDeck).toEqual(['Stop', '600']);
       expect(result.drawnCard).toBe('200');
+    });
+
+    it('returns round 1, last player when undoing on round 1, player 0', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { totalTurns: 1 }), makePlayer('Bob')],
+        currentPlayerIndex: 0,
+        round: 1,
+        previousCard: '200',
+        previousScore: 0,
+      });
+      const result = calculateUndo(state);
+      expect(result.nextIndex).toBe(1);
+      expect(result.nextRound).toBe(0);
+      expect(result.isRoundEndUndo).toBe(true);
+    });
+
+    it('restores highestTurnScore', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { highestTurnScore: 2000 }), makePlayer('Bob')],
+        currentPlayerIndex: 1,
+        previousCard: '200',
+        previousScore: 1000,
+        previousHighestTurnScore: 1000,
+      });
+      const result = calculateUndo(state);
+      expect(result.players[0].highestTurnScore).toBe(1000);
+    });
+
+    it('reverses Kleeblatt failure', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { timesKleeblattFailed: 1 }), makePlayer('Bob')],
+        currentPlayerIndex: 1,
+        previousCard: 'Kleeblatt',
+        previousScore: 0,
+      });
+      const result = calculateUndo(state);
+      expect(result.players[0].timesKleeblattFailed).toBe(0);
+    });
+
+    it('reverses Kleeblatt completion', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { timesKleeblattCompleted: 1, score: 999999 }), makePlayer('Bob')],
+        currentPlayerIndex: 1,
+        previousCard: 'Kleeblatt',
+        previousScore: 500,
+      });
+      const result = calculateUndo(state);
+      expect(result.players[0].timesKleeblattCompleted).toBe(0);
+      expect(result.players[0].score).toBe(999999 - 500);
     });
   });
 });

@@ -131,6 +131,15 @@ const updateGlobalStats = async (stats) => {
       END
     `, [stats.fastestWinTurns, stats.fastestWinTurns, stats.fastestWinTurns]);
   }
+  if (stats.fastestLossTurns !== undefined) {
+    updateData.fastestLossTurns = knex.raw(`
+      CASE 
+        WHEN ? IS NULL THEN global_statistics.fastestLossTurns
+        WHEN global_statistics.fastestLossTurns IS NULL THEN ?
+        ELSE MIN(global_statistics.fastestLossTurns, ?)
+      END
+    `, [stats.fastestLossTurns, stats.fastestLossTurns, stats.fastestLossTurns]);
+  }
 
   try {
     const changes = await knex('global_statistics').where({ id: 1 }).update(updateData);

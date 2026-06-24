@@ -49,4 +49,27 @@ describe('EndScreen Component', () => {
     expect(getByText('end.winner Alice')).toBeInTheDocument();
     expect(queryByText('end.winner Bob')).toBeNull();
   });
+
+  it('assigns correct position values to sorted players', () => {
+    useGameStore.setState({
+      players: [
+        { name: 'Charlie', score: 3000 },
+        { name: 'Alice', score: 10000 },
+        { name: 'Bob', score: 5000 }
+      ]
+    });
+    const { getByText } = render(<EndScreen />);
+    
+    // The EndScreen component should render the positions based on sorting by score
+    expect(getByText('1.')).toBeInTheDocument();
+    expect(getByText('2.')).toBeInTheDocument();
+    expect(getByText('3.')).toBeInTheDocument();
+  });
+
+  it('does not render chart section when chartLabels is empty', () => {
+    useGameStore.setState({ chartLabels: [] });
+    const { container } = render(<EndScreen />);
+    // Since we don't have a specific test ID, we can check if a canvas element exists (the chart uses canvas)
+    expect(container.querySelector('canvas')).toBeNull();
+  });
 });

@@ -45,6 +45,8 @@ const initialLocalState = {
   previousScore: null,
   previousCard: null,
   previousLeaders: null,
+  previousWasBust: false,
+  previousHighestTurnScore: 0,
   chartValues: [],
   chartNames: [],
   chartLabels: [],
@@ -324,10 +326,10 @@ export const useGameStore = create(immer((set, get) => ({
     const s = get();
     if (s.isOnline && socket) {
       // Pick game state fields to push
-      const { players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds, previousScore, previousCard, previousLeaders, chartValues, chartNames, chartLabels, status } = s;
+      const { players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds, previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore, chartValues, chartNames, chartLabels, status } = s;
       socket.emit('pushState', { 
         roomId: s.roomId, 
-        newState: { players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds, previousScore, previousCard, previousLeaders, chartValues, chartNames, chartLabels, status }
+        newState: { players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds, previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore, chartValues, chartNames, chartLabels, status }
       });
     }
   },
@@ -414,6 +416,8 @@ export const useGameStore = create(immer((set, get) => ({
       state.previousCard = null;
       state.previousScore = null;
       state.previousLeaders = null;
+      state.previousWasBust = false;
+      state.previousHighestTurnScore = 0;
       state.status = 'playing';
 
       const deckConfig = Object.keys(state.initialCards).reduce((acc, card) => {
@@ -460,6 +464,8 @@ export const useGameStore = create(immer((set, get) => ({
       state.previousCard = result.previousCard;
       state.previousScore = result.previousScore;
       state.previousLeaders = result.previousLeaders;
+      state.previousWasBust = result.previousWasBust;
+      state.previousHighestTurnScore = result.previousHighestTurnScore;
       
       if (result.isRoundEnd) {
         state.chartValues.forEach((vals, i) => vals.push(result.players[i].score));
@@ -487,7 +493,7 @@ export const useGameStore = create(immer((set, get) => ({
         // Send global stats using the updated state
         fetch('/api/stats/global', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-tutto-token': 'tutto-local-dev-token' },
           body: JSON.stringify(get().buildGlobalStatsPayload())
         }).catch(console.error);
         
@@ -500,7 +506,7 @@ export const useGameStore = create(immer((set, get) => ({
           
           fetch(`/api/stats/${finalState.deviceId}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-tutto-token': 'tutto-local-dev-token' },
             body: JSON.stringify({
               gamesPlayed: 1,
               wins: didIWin,
@@ -561,6 +567,8 @@ export const useGameStore = create(immer((set, get) => ({
       state.previousCard = null;
       state.previousScore = null;
       state.previousLeaders = null;
+      state.previousWasBust = false;
+      state.previousHighestTurnScore = 0;
     });
 
     if (get().isOnline) {
@@ -607,7 +615,7 @@ export const useGameStore = create(immer((set, get) => ({
     if (s.isHost) {
       fetch('/api/stats/global', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-tutto-token': 'tutto-local-dev-token' },
         body: JSON.stringify(get().buildGlobalStatsPayload())
       }).catch(console.error);
     }

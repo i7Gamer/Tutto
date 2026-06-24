@@ -236,9 +236,29 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Whitelisted fields that the active player/host may advance
+  const STATE_PUSH_WHITELIST = [
+    'currentCard', 'cards', 'currentPlayerIndex', 'round',
+    'finished', 'previousCard', 'previousScore', 'previousLeaders',
+    'previousWasBust', 'previousHighestTurnScore',
+    'chartValues', 'chartNames', 'chartLabels', 'gameTimeInSeconds',
+    'status', 'winningScore', 'initialCards', 'randomOrder', 
+    'turnDuration', 'reconnectTimeout',
+    // Per-player mutable fields (arrays only — players array shape is preserved)
+    'players',
+  ];
+
+  // Validates that the pushed players array is a same-length permutation of existing players
+  // (same deviceIds, same order is not required, but no new players / no removals)
+  const validatePushedPlayers = (existing, pushed) => {
+    if (!Array.isArray(pushed) || pushed.length !== existing.length) return false;
+    const existingIds = new Set(existing.map(p => p.deviceId));
+    return pushed.every(p => existingIds.has(p.deviceId));
+  };
+
   socket.on('pushState', ({ roomId, newState }) => {
     const room = rooms[roomId];
-    if (!room || !newState) return;
+    if (!room || !newState || typeof newState !== 'object') return;
 
     // Only the host (start/end game, host-side turn-timer auto-bust) or the
     // player whose turn it currently is may push authoritative game state.
@@ -251,7 +271,33 @@ io.on('connection', (socket) => {
 
     if (!isHost && !isActivePlayer) return;
 
-    room.state = newState;
+    // Merge only whitelisted fields
+    for (const key of STATE_PUSH_WHITELIST) {
+      if (!(key in newState)) continue;
+      if (key === 'players') {
+        if (!validatePushedPlayers(room.state.players, newState.players)) continue;
+        // Only copy mutable game stats fields per player; never replace socketId, deviceId
+        const PLAYER_MUTABLE = [
+          'score', 'times1000PointsDeducted', 'timesKniffelCompleted',
+          'timesPlusMinusCompleted', 'timesKniffelFailed', 'timesKleeblattFailed',
+          'timesKleeblattCompleted', 'timesPlusMinusFailed', 'timesFeuerwerkReceived',
+          'timesSkipped', 'timesx2Received', 'totalTurns', 'busts',
+          'feuerwerkBusts', 'x2Busts', 'feuerwerkPointsScored', 'x2PointsScored',
+          'highestTurnScore', 'position', 'color', 'disconnected',
+        ];
+        room.state.players = room.state.players.map(existing => {
+          const pushed = newState.players.find(p => p.deviceId === existing.deviceId);
+          if (!pushed) return existing;
+          const updated = { ...existing };
+          for (const f of PLAYER_MUTABLE) {
+            if (f in pushed) updated[f] = pushed[f];
+          }
+          return updated;
+        });
+      } else {
+        room.state[key] = newState[key];
+      }
+    }
     emitRoomState(roomId);
   });
 
@@ -335,6 +381,15 @@ io.on('connection', (socket) => {
   });
 });
 
+const API_TOKEN = process.env.TUTTO_API_TOKEN || 'tutto-local-dev-token';
+
+const requireToken = (req, res, next) => {
+  if (req.headers['x-tutto-token'] !== API_TOKEN) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  next();
+};
+
 app.get('/api/stats/global', async (req, res) => {
   try {
     const stats = await getGlobalStats();
@@ -344,7 +399,7 @@ app.get('/api/stats/global', async (req, res) => {
   }
 });
 
-app.post('/api/stats/global', async (req, res) => {
+app.post('/api/stats/global', requireToken, async (req, res) => {
   try {
     await updateGlobalStats(sanitizeStats(req.body));
     res.json({ success: true });
@@ -362,7 +417,7 @@ app.get('/api/stats/:deviceId', async (req, res) => {
   }
 });
 
-app.post('/api/stats/:deviceId', async (req, res) => {
+app.post('/api/stats/:deviceId', requireToken, async (req, res) => {
   try {
     await updateDeviceStats(req.params.deviceId, sanitizeStats(req.body));
     res.json({ success: true });
