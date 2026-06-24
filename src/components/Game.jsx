@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import confetti from 'canvas-confetti';
 import { playBuzzer, playSuccess } from '../utils/soundEffects';
@@ -15,7 +15,6 @@ export default function Game() {
   const game = useGameStore();
   const { 
     currentCard, 
-    round, 
     cards,
     nextTurn,
     undo,

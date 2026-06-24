@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Line } from 'react-chartjs-2';
 import {
@@ -43,8 +43,6 @@ export default function EndScreen({ theme, deviceId }) {
     chartNames,
     chartValues,
     leaveRoom,
-    isOnline,
-    isHost
   } = game;
 
   const [sortedPlayers] = useState(() => players.map(p => ({...p})).sort((a, b) => b.score - a.score));

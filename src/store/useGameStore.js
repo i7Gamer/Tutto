@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { io } from 'socket.io-client';
-import { calculateNextTurn, calculateUndo, getLeaders, buildDeck, shuffleArray, buildGlobalStatsPayload } from '../utils/coreGameEngine';
+import { calculateNextTurn, calculateUndo, getLeaders, shuffleArray, buildGlobalStatsPayload } from '../utils/coreGameEngine';
 
 const INITIAL_CARDS = {
   Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5,

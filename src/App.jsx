@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sun, Moon } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
@@ -145,7 +145,6 @@ export default function App() {
   const finished = useGameStore(state => state.finished);
   const currentPlayerIndex = useGameStore(state => state.currentPlayerIndex);
   const players = useGameStore(state => state.players);
-  const mode = useGameStore(state => state.mode);
 
   const hasWinner = finished && players.length > 0;
   const isPlaying = currentPlayerIndex !== null && players.length > 0;

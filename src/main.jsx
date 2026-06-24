@@ -7,7 +7,7 @@ import { ErrorBoundary } from './components/ErrorBoundary.jsx'
 import { registerSW } from 'virtual:pwa-register'
 
 // Auto-update Service Worker
-const updateSW = registerSW({
+registerSW({
   immediate: true,
   onNeedRefresh() {
     // A new service worker is available.

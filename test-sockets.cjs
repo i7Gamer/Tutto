@@ -1,5 +1,4 @@
 const { io } = require("socket.io-client");
-const http = require("http");
 
 async function runTest() {
   const socket1 = io("http://localhost:3001");

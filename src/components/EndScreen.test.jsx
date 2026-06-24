@@ -1,7 +1,6 @@
-import React from 'react';
 import { render, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import EndScreen from './EndScreen';
 import { useGameStore } from '../store/useGameStore';
 

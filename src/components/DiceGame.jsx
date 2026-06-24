@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Dices, Check, X, Hand, RotateCw, Play } from 'lucide-react';
+import { Dices, Check, X, Hand, RotateCw } from 'lucide-react';
 import { playBuzzer, playSuccess, playTone } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
 import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus } from '../utils/diceLogic';
@@ -28,7 +28,6 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
   
   const validation = useMemo(() => checkValidityAndScore(selectedVals, currentCard, kniffelProgress), [selectedVals, currentCard, kniffelProgress]);
   
-  const activeCount = 6 - keptDice.length;
   
   const roll = (numDice, kniffelArray = null, scoreSoFar = 0) => {
     setIsRolling(true);

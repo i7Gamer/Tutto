@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Undo2, ChevronRight, Check, X, Dices } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -29,25 +29,23 @@ export default function GameControls({
   const [prevCardsLength, setPrevCardsLength] = useState(cardsLength);
   const [isFlipping, setIsFlipping] = useState(false);
 
-  // Derived state: update immediately during render to prevent 1-frame flashes
+  // Derived state: update immediately during render to prevent 1-frame flashes.
   if (cardsLength !== prevCardsLength) {
     setPrevCardsLength(cardsLength);
-    setIsFlipping(true);
+    // Skip the flip animation during tests so inputs are immediately available.
+    if (process.env.NODE_ENV !== 'test') setIsFlipping(true);
+  }
+  // If the card is cleared (e.g. game over), reveal immediately.
+  if (!currentCard && isFlipping) {
+    setIsFlipping(false);
   }
 
   useEffect(() => {
     if (isFlipping && currentCard) {
-      // Skip the visual delay during unit tests
-      if (process.env.NODE_ENV === 'test') {
-        setIsFlipping(false);
-        return;
-      }
       const timer = setTimeout(() => {
         setIsFlipping(false);
       }, 1200); // 1200ms to ensure card is fully visible before inputs show
       return () => clearTimeout(timer);
-    } else if (!currentCard) {
-      setIsFlipping(false);
     }
   }, [isFlipping, currentCard]);
 

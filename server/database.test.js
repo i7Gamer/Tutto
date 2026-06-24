@@ -1,6 +1,6 @@
 process.env.TEST_DB = 'true';
 
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import database from './database';
 
 describe('Database Statistics Integration', () => {

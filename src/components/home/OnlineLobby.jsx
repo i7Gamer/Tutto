@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import { Copy, Play, Loader2, WifiOff } from 'lucide-react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList } from './LobbyShared';
@@ -11,7 +10,7 @@ export default function OnlineLobby({ game }) {
   const [inputName, setInputName] = useState(() => localStorage.getItem('tutto_last_name') || "");
   const [errorMsg, setErrorMsg] = useState("");
 
-  const { players, startGame, winningScore, setWinningScore, initialCards, setInitialCards, reorderPlayers, randomOrder, setRandomOrder, changeMyColor, isHost, hostId, joinRoom, leaveRoom, roomId, myName, kickPlayer } = game;
+  const { players, startGame, reorderPlayers, changeMyColor, isHost, hostId, joinRoom, leaveRoom, roomId, myName, kickPlayer } = game;
 
   const handleJoin = async () => {
     if (!inputRoomCode || !inputName) {

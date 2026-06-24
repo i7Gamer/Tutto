@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { UserPlus, Play } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState } from 'react';
+import { UserPlus } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList } from './LobbyShared';
 
@@ -8,7 +8,7 @@ export default function LocalLobby({ game }) {
   const { t } = useTranslation();
   const [newPlayerName, setNewPlayerName] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const { players, addPlayer, removePlayer, startGame, winningScore, setWinningScore, initialCards, setInitialCards, reorderPlayers, randomOrder, setRandomOrder, changePlayerColor } = game;
+  const { players, addPlayer, removePlayer, startGame, reorderPlayers, changePlayerColor } = game;
 
   const handleAddPlayer = () => {
     const trimmedName = newPlayerName.trim();

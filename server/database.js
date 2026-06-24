@@ -1,4 +1,3 @@
-const path = require('path');
 const knexConfig = require('./knexfile.js');
 const knex = require('knex')(knexConfig);
 

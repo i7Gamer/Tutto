@@ -1,7 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import GameControls from './GameControls';
-import React from 'react';
 
 // Mock matchMedia
 window.matchMedia = window.matchMedia || function() {

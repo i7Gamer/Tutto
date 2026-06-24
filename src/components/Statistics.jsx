@@ -1,79 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft, Trophy, Clock, XCircle, BarChart2, Globe, User, TrendingDown, TrendingUp, Zap, Hash, Repeat, FastForward, Skull } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-export default function Statistics({ deviceId, onBack }) {
+const getWinLoseRate = (wins, fails) => {
+  const total = wins + fails;
+  if (total === 0) return "—";
+  return `${((wins / total) * 100).toFixed(0)}%`;
+};
+
+const StatTile = ({ icon, value, label, colorClass = 'text-indigo-600 dark:text-indigo-400', bgClass = 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-500/30' }) => (
+  <div className={`p-6 rounded-2xl border relative text-left overflow-hidden shadow-sm ${bgClass}`}>
+    <div className="absolute top-4 right-4 opacity-50">
+      {icon}
+    </div>
+    <div className={`text-3xl font-black mt-2 ${colorClass}`}>{value}</div>
+    <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-1 pr-8">{label}</div>
+  </div>
+);
+
+const BigStatTile = ({ value, label, colorClass = 'text-indigo-600 dark:text-indigo-400', bgClass = 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-500/30' }) => (
+  <div className={`p-8 rounded-2xl border text-center shadow-sm ${bgClass}`}>
+    <div className={`text-5xl font-black mb-2 ${colorClass}`}>{value}</div>
+    <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{label}</div>
+  </div>
+);
+
+const CardRow = ({ label, icon, count, wins, fails, avgPoints, hideRate, failsLabel }) => {
   const { t } = useTranslation();
-  const [tab, setTab] = useState('personal');
-  const [personalStats, setPersonalStats] = useState(null);
-  const [globalStats, setGlobalStats] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        setLoading(true);
-        const [personalRes, globalRes] = await Promise.all([
-          fetch(`/api/stats/${deviceId}`),
-          fetch(`/api/stats/global`)
-        ]);
-        
-        if (personalRes.ok) setPersonalStats(await personalRes.json());
-        if (globalRes.ok) setGlobalStats(await globalRes.json());
-      } catch (err) {
-        console.error("Failed to load statistics:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchStats();
-  }, [deviceId]);
-
-  const formatTime = (totalSeconds) => {
-    if (!totalSeconds || isNaN(totalSeconds)) return "00:00";
-    const h = Math.floor(totalSeconds / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = Math.floor(totalSeconds % 60);
-    
-    const hStr = t('time.hours_short', 'h');
-    const mStr = t('time.minutes_short', 'm');
-    const sStr = t('time.seconds_short', 's');
-    
-    if (h > 0) return `${h}${hStr} ${m}${mStr} ${s}${sStr}`;
-    return `${m}${mStr} ${s}${sStr}`;
-  };
-
-  const getWinLoseRate = (wins, fails) => {
-    const total = wins + fails;
-    if (total === 0) return "—";
-    return `${((wins / total) * 100).toFixed(0)}%`;
-  };
-
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-full min-h-[500px]">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-          <h2 className="text-xl font-bold text-gray-700 dark:text-gray-200">{t('statistics.loading', 'Loading Statistics...')}</h2>
-        </div>
-      </div>
-    );
-  }
-
-  const p = personalStats;
-  const g = globalStats;
-
-  const pWinRate = p?.gamesPlayed ? ((p.wins / p.gamesPlayed) * 100).toFixed(1) : "0";
-  const pAvgDuration = p?.gamesPlayed ? p.totalPlaytime / p.gamesPlayed : 0;
-  const pBustRate = p?.totalTurns ? ((p.busts / p.totalTurns) * 100).toFixed(1) : "0";
-
-  const gAvgDuration = g?.totalGamesPlayed ? g.totalPlaytime / g.totalGamesPlayed : 0;
-  const gAvgScorePerTurn = g?.totalTurns ? Math.round(g.totalScore / g.totalTurns) : 0;
-  const gBustRate = g?.totalTurns ? ((g.totalBusts / g.totalTurns) * 100).toFixed(1) : "0";
-
-  const CardRow = ({ label, icon, count, wins, fails, avgPoints, hideRate, failsLabel }) => (
-    <motion.div 
+  return (
+    <motion.div
       initial={{ opacity: 0, y: 10 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
@@ -119,23 +75,70 @@ export default function Statistics({ deviceId, onBack }) {
       </div>
     </motion.div>
   );
+};
 
-  const StatTile = ({ icon, value, label, colorClass = 'text-indigo-600 dark:text-indigo-400', bgClass = 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-500/30' }) => (
-    <div className={`p-6 rounded-2xl border relative text-left overflow-hidden shadow-sm ${bgClass}`}>
-      <div className="absolute top-4 right-4 opacity-50">
-        {icon}
+export default function Statistics({ deviceId, onBack }) {
+  const { t } = useTranslation();
+  const [tab, setTab] = useState('personal');
+  const [personalStats, setPersonalStats] = useState(null);
+  const [globalStats, setGlobalStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        setLoading(true);
+        const [personalRes, globalRes] = await Promise.all([
+          fetch(`/api/stats/${deviceId}`),
+          fetch(`/api/stats/global`)
+        ]);
+        
+        if (personalRes.ok) setPersonalStats(await personalRes.json());
+        if (globalRes.ok) setGlobalStats(await globalRes.json());
+      } catch (err) {
+        console.error("Failed to load statistics:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStats();
+  }, [deviceId]);
+
+  const formatTime = (totalSeconds) => {
+    if (!totalSeconds || isNaN(totalSeconds)) return "00:00";
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = Math.floor(totalSeconds % 60);
+    
+    const hStr = t('time.hours_short', 'h');
+    const mStr = t('time.minutes_short', 'm');
+    const sStr = t('time.seconds_short', 's');
+    
+    if (h > 0) return `${h}${hStr} ${m}${mStr} ${s}${sStr}`;
+    return `${m}${mStr} ${s}${sStr}`;
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-full min-h-[500px]">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+          <h2 className="text-xl font-bold text-gray-700 dark:text-gray-200">{t('statistics.loading', 'Loading Statistics...')}</h2>
+        </div>
       </div>
-      <div className={`text-3xl font-black mt-2 ${colorClass}`}>{value}</div>
-      <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-1 pr-8">{label}</div>
-    </div>
-  );
+    );
+  }
 
-  const BigStatTile = ({ value, label, colorClass = 'text-indigo-600 dark:text-indigo-400', bgClass = 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-500/30' }) => (
-    <div className={`p-8 rounded-2xl border text-center shadow-sm ${bgClass}`}>
-      <div className={`text-5xl font-black mb-2 ${colorClass}`}>{value}</div>
-      <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{label}</div>
-    </div>
-  );
+  const p = personalStats;
+  const g = globalStats;
+
+  const pWinRate = p?.gamesPlayed ? ((p.wins / p.gamesPlayed) * 100).toFixed(1) : "0";
+  const pAvgDuration = p?.gamesPlayed ? p.totalPlaytime / p.gamesPlayed : 0;
+  const pBustRate = p?.totalTurns ? ((p.busts / p.totalTurns) * 100).toFixed(1) : "0";
+
+  const gAvgDuration = g?.totalGamesPlayed ? g.totalPlaytime / g.totalGamesPlayed : 0;
+  const gBustRate = g?.totalTurns ? ((g.totalBusts / g.totalTurns) * 100).toFixed(1) : "0";
+
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-3xl flex flex-col items-center">

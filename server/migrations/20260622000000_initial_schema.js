@@ -82,6 +82,6 @@ exports.up = async function(knex) {
   }
 };
 
-exports.down = async function(knex) {
+exports.down = async function(_knex) {
   // We won't drop tables on down, to prevent data loss.
 };
