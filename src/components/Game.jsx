@@ -79,7 +79,7 @@ export default function Game() {
       clearTimeout(turnTimeout);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOnline, isMyTurn, currentCard]);
+  }, [isOnline, isMyTurn, currentCard, cards?.length]);
 
   useEffect(() => {
     confettiFiredRef.current = false;

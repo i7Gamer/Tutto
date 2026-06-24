@@ -54,6 +54,14 @@ const drawNextCardForRoom = (state) => {
 // Adjust turn ownership after a player is spliced out of the players array.
 // `removedIdx` is the index the player occupied *before* removal.
 const handleActivePlayerRemoved = (state, removedIdx) => {
+  // Keep chartValues / chartNames in sync with the players array
+  if (Array.isArray(state.chartValues) && removedIdx < state.chartValues.length) {
+    state.chartValues.splice(removedIdx, 1);
+  }
+  if (Array.isArray(state.chartNames) && removedIdx < state.chartNames.length) {
+    state.chartNames.splice(removedIdx, 1);
+  }
+
   if (state.currentPlayerIndex === null) return;
   const curIdx = state.currentPlayerIndex;
   if (removedIdx < curIdx) {
@@ -196,8 +204,8 @@ io.on('connection', (socket) => {
       if (typeof winningScore === 'number' && winningScore >= 1000) rooms[roomId].state.winningScore = winningScore;
       if (typeof initialCards === 'object' && initialCards !== null) rooms[roomId].state.initialCards = initialCards;
       if (typeof randomOrder === 'boolean') rooms[roomId].state.randomOrder = randomOrder;
-      if (typeof turnDuration === 'number' && turnDuration >= 10) rooms[roomId].state.turnDuration = turnDuration;
-      if (typeof reconnectTimeout === 'number' && reconnectTimeout >= 10) rooms[roomId].state.reconnectTimeout = reconnectTimeout;
+      if (typeof turnDuration === 'number' && (turnDuration === 0 || turnDuration >= 10)) rooms[roomId].state.turnDuration = turnDuration;
+      if (typeof reconnectTimeout === 'number' && (reconnectTimeout === 0 || reconnectTimeout >= 10)) rooms[roomId].state.reconnectTimeout = reconnectTimeout;
       emitRoomState(roomId);
     }
   });

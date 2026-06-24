@@ -351,4 +351,92 @@ describe('Server Socket E2E Simulation', () => {
       });
     });
   });
+
+  it('accepts turnDuration=0 and reconnectTimeout=0 to disable timers', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        reject(new Error('Test timed out — server never broadcast updated config'));
+      }, 3000);
+
+      let joinedRoom = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'TIMER_OFF_ROOM', name: 'Alice', deviceId: 'dev-timer-off', color: '#ff0000' }, () => {
+          joinedRoom = true;
+          // Set timers to a valid value first, then disable them
+          s1.emit('updateConfig', { roomId: 'TIMER_OFF_ROOM', turnDuration: 30, reconnectTimeout: 30 });
+          setTimeout(() => {
+            s1.emit('updateConfig', { roomId: 'TIMER_OFF_ROOM', turnDuration: 0, reconnectTimeout: 0 });
+          }, 200);
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (joinedRoom && state.turnDuration === 0 && state.reconnectTimeout === 0) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          resolve();
+        }
+      });
+    });
+  }, 10000);
+
+  it('shrinks chartValues and chartNames when a player is kicked', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — will be kicked
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        s2.disconnect();
+        reject(new Error('Test timed out'));
+      }, 5000);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'CHART_KICK_ROOM', name: 'Alice', deviceId: 'dev-ck-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'CHART_KICK_ROOM', name: 'Bob', deviceId: 'dev-ck-b', color: '#00ff00' }, () => {
+            // Host pushes initial state with chartValues for 2 players
+            s1.emit('pushState', {
+              roomId: 'CHART_KICK_ROOM',
+              newState: {
+                players: [
+                  { name: 'Alice', deviceId: 'dev-ck-a', socketId: s1.id, disconnected: false, score: 100 },
+                  { name: 'Bob', deviceId: 'dev-ck-b', socketId: s2.id, disconnected: false, score: 200 },
+                ],
+                status: 'playing',
+                currentPlayerIndex: 0,
+                chartValues: [[0, 100], [0, 200]],
+                chartNames: ['Alice', 'Bob'],
+                chartLabels: [1, 2],
+              }
+            });
+
+            // Kick Bob after a short delay
+            setTimeout(() => {
+              s1.emit('kickPlayer', s2.id);
+            }, 300);
+          });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        // After the kick, players should be 1 and chartValues/chartNames should also be length 1
+        // Guard: only check once chartLabels has been pushed (game started) and a player was removed
+        if (state.players && state.players.length === 1 &&
+            Array.isArray(state.chartValues) && state.chartValues.length > 0 &&
+            Array.isArray(state.chartLabels) && state.chartLabels.length > 0) {
+          expect(state.chartValues.length).toBe(1);
+          expect(state.chartNames.length).toBe(1);
+          expect(state.chartValues[0]).toEqual([0, 100]); // Alice's values preserved
+          expect(state.chartNames[0]).toBe('Alice');
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          s2.disconnect();
+          resolve();
+        }
+      });
+    });
+  }, 10000);
 });
