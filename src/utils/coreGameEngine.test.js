@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getLeaders, buildGlobalStatsPayload, shuffleArray, calculateNextTurn, calculateUndo } from './coreGameEngine';
+import { getLeaders, buildGlobalStatsPayload, shuffleArray, calculateNextTurn, calculateUndo, computeRankedPlayers } from './coreGameEngine';
 
 const makePlayer = (name, overrides = {}) => ({
   name, score: 0, times1000PointsDeducted: 0, timesKniffelCompleted: 0,
@@ -32,6 +32,32 @@ describe('coreGameEngine', () => {
       expect(shuffled.length).toBe(arr.length);
       expect([...shuffled].sort()).toEqual([...arr].sort());
       expect(shuffled).not.toBe(arr); // should be a new array
+    });
+  });
+
+  describe('computeRankedPlayers', () => {
+    it('assigns sequential positions when all scores differ', () => {
+      const result = computeRankedPlayers([
+        { name: 'C', score: 3000 }, { name: 'A', score: 10000 }, { name: 'B', score: 5000 }
+      ]);
+      expect(result.map(p => p.position)).toEqual([1, 2, 3]);
+      expect(result[0].name).toBe('A');
+    });
+
+    it('assigns same position to tied players and skips the next rank (1224 competition ranking)', () => {
+      const result = computeRankedPlayers([
+        { name: 'A', score: 10000 }, { name: 'B', score: 10000 }, { name: 'C', score: 5000 }
+      ]);
+      expect(result[0].position).toBe(1);
+      expect(result[1].position).toBe(1);
+      expect(result[2].position).toBe(3);
+    });
+
+    it('returns a new array of copied objects, not the originals', () => {
+      const players = [{ name: 'A', score: 100 }];
+      const result = computeRankedPlayers(players);
+      expect(result).not.toBe(players);
+      expect(result[0]).not.toBe(players[0]);
     });
   });
 

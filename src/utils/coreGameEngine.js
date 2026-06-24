@@ -17,6 +17,18 @@ export const buildDeck = (initialCards) => {
   return shuffleArray(newCards);
 };
 
+export const computeRankedPlayers = (players) => {
+  const sorted = [...players].map(p => ({ ...p })).sort((a, b) => b.score - a.score);
+  sorted.forEach((p, i) => {
+    if (i > 0 && p.score === sorted[i - 1].score) {
+      p.position = sorted[i - 1].position;
+    } else {
+      p.position = i + 1;
+    }
+  });
+  return sorted;
+};
+
 export const getLeaders = (players) => {
   const sorted = [...players].sort((a, b) => b.score - a.score);
   if (!sorted.length) return [];

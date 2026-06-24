@@ -13,6 +13,7 @@ import {
 } from 'chart.js';
 import { Trophy, Clock, Target, Home, RotateCw, RotateCcw, Settings, Trash2, Shield, XCircle, Award, AlertTriangle, Dice5, Crown, Flame, Crosshair } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
+import { computeRankedPlayers } from '../utils/coreGameEngine';
 import { motion } from 'framer-motion';
 import { useGameStore } from '../store/useGameStore';
 
@@ -55,19 +56,7 @@ export default function EndScreen({ theme, deviceId }) {
     snapshotRef.current = players;
   }
 
-  const sortedPlayers = (() => {
-    const sorted = snapshotRef.current
-      .map(p => ({ ...p }))
-      .sort((a, b) => b.score - a.score);
-    sorted.forEach((p, i) => {
-      if (i > 0 && p.score === sorted[i - 1].score) {
-        p.position = sorted[i - 1].position;
-      } else {
-        p.position = i + 1;
-      }
-    });
-    return sorted;
-  })();
+  const sortedPlayers = computeRankedPlayers(snapshotRef.current);
   const winner = sortedPlayers[0];
   
   const formattedTime = formatTime(gameTimeInSeconds);

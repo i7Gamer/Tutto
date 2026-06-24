@@ -3,6 +3,7 @@ import { useGameStore } from '../store/useGameStore';
 import confetti from 'canvas-confetti';
 import { playBuzzer, playSuccess } from '../utils/soundEffects';
 import { isTestEnv } from '../utils/env';
+import { computeRankedPlayers } from '../utils/coreGameEngine';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { formatTime } from '../utils/formatTime';
@@ -32,14 +33,7 @@ export default function Game() {
   const formattedTime = formatTime(gameTimeInSeconds);
 
   const currentPlayer = currentPlayerIndex !== null ? players[currentPlayerIndex] : null;
-  const sortedPlayers = players.map(p => ({...p})).sort((a, b) => b.score - a.score);
-  sortedPlayers.forEach((p, i) => {
-    if (i > 0 && p.score === sortedPlayers[i - 1].score) {
-      p.position = sortedPlayers[i - 1].position;
-    } else {
-      p.position = i + 1;
-    }
-  });
+  const sortedPlayers = computeRankedPlayers(players);
 
   const isMyTurn = !isOnline || (currentPlayer && currentPlayer.name === myName);
   const [scoreInput, setScoreInput] = useState("");

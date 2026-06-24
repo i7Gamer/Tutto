@@ -25,6 +25,29 @@ const PLAYER_COLORS = [
   '#FFD700', '#FF33A1', '#8D33FF', '#33FF8D', '#FF8D33'
 ];
 
+// Fields only the host may push (game config + lifecycle).
+const HOST_ONLY_FIELDS = new Set([
+  'status', 'winningScore', 'initialCards', 'randomOrder',
+  'turnDuration', 'reconnectTimeout',
+]);
+
+// Fields the active player (or host) may push (turn-by-turn game state).
+// 'finished' is intentionally here: the active player runs calculateNextTurn() locally
+// and pushes the result (including finished=true) via pushState. Without this, a non-host
+// player's game-ending turn (e.g. a Kleeblatt win) would never reach the server.
+// This is a deliberate trust boundary — the server does not independently verify win
+// conditions. Removing 'finished' would break game-over for non-host active players.
+const ACTIVE_PLAYER_FIELDS = new Set([
+  'currentCard', 'cards', 'currentPlayerIndex', 'round',
+  'finished', 'previousCard', 'previousScore', 'previousLeaders',
+  'previousWasBust', 'previousHighestTurnScore',
+  'chartValues', 'chartNames', 'chartLabels', 'gameTimeInSeconds',
+  'players',
+]);
+
+// Pre-computed union used by the host path so we don't rebuild it on every pushState.
+const ALL_FIELDS = new Set([...HOST_ONLY_FIELDS, ...ACTIVE_PLAYER_FIELDS]);
+
 const rooms = {};
 
 // Build a fresh, shuffled deck from a card-count config (Fisher-Yates).
@@ -268,21 +291,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Fields only the host may push (game config + lifecycle).
-  const HOST_ONLY_FIELDS = new Set([
-    'status', 'winningScore', 'initialCards', 'randomOrder',
-    'turnDuration', 'reconnectTimeout',
-  ]);
-
-  // Fields the active player (or host) may push (turn-by-turn game state).
-  const ACTIVE_PLAYER_FIELDS = new Set([
-    'currentCard', 'cards', 'currentPlayerIndex', 'round',
-    'finished', 'previousCard', 'previousScore', 'previousLeaders',
-    'previousWasBust', 'previousHighestTurnScore',
-    'chartValues', 'chartNames', 'chartLabels', 'gameTimeInSeconds',
-    'players',
-  ]);
-
   // Validates that the pushed players array is a same-length permutation of existing players
   // (same deviceIds, same order is not required, but no new players / no removals)
   const validatePushedPlayers = (existing, pushed) => {
@@ -307,9 +315,7 @@ io.on('connection', (socket) => {
     if (!isHost && !isActivePlayer) return;
 
     // Merge whitelisted fields; host-only fields are rejected for non-hosts.
-    const allowedFields = isHost
-      ? new Set([...HOST_ONLY_FIELDS, ...ACTIVE_PLAYER_FIELDS])
-      : ACTIVE_PLAYER_FIELDS;
+    const allowedFields = isHost ? ALL_FIELDS : ACTIVE_PLAYER_FIELDS;
 
     for (const key of allowedFields) {
       if (!(key in newState)) continue;
