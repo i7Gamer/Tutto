@@ -37,7 +37,7 @@ export default function Game() {
     if (i > 0 && p.score === sortedPlayers[i - 1].score) {
       p.position = sortedPlayers[i - 1].position;
     } else {
-      p.position = i === 0 ? 1 : sortedPlayers[i - 1].position + 1;
+      p.position = i + 1;
     }
   });
 
@@ -79,7 +79,7 @@ export default function Game() {
       clearTimeout(turnTimeout);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOnline, isMyTurn, currentCard, cards?.length]);
+  }, [isOnline, isMyTurn, currentCard]);
 
   useEffect(() => {
     confettiFiredRef.current = false;

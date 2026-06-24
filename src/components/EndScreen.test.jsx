@@ -66,6 +66,21 @@ describe('EndScreen Component', () => {
     expect(getByText('3.')).toBeInTheDocument();
   });
 
+  it('assigns tied positions when players have equal scores', () => {
+    useGameStore.setState({
+      players: [
+        { name: 'Alice', score: 10000 },
+        { name: 'Bob', score: 10000 },
+        { name: 'Charlie', score: 5000 }
+      ]
+    });
+    const { getAllByText, queryByText } = render(<EndScreen />);
+
+    expect(getAllByText('1.')).toHaveLength(2);
+    expect(queryByText('2.')).toBeNull();
+    expect(queryByText('3.')).toBeInTheDocument();
+  });
+
   it('does not render chart section when chartLabels is empty', () => {
     useGameStore.setState({ chartLabels: [] });
     const { container } = render(<EndScreen />);

@@ -46,12 +46,19 @@ export default function EndScreen({ theme, deviceId }) {
     leaveRoom,
   } = game;
 
-  const [sortedPlayers] = useState(() =>
-    players
+  const [sortedPlayers] = useState(() => {
+    const sorted = players
       .map(p => ({ ...p }))
-      .sort((a, b) => b.score - a.score)
-      .map((p, i) => ({ ...p, position: i + 1 }))
-  );
+      .sort((a, b) => b.score - a.score);
+    sorted.forEach((p, i) => {
+      if (i > 0 && p.score === sorted[i - 1].score) {
+        p.position = sorted[i - 1].position;
+      } else {
+        p.position = i + 1;
+      }
+    });
+    return sorted;
+  });
   const winner = sortedPlayers[0];
   
   const formattedTime = formatTime(gameTimeInSeconds);

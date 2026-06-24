@@ -413,6 +413,9 @@ io.on('connection', (socket) => {
 });
 
 const API_TOKEN = process.env.TUTTO_API_TOKEN || 'tutto-local-dev-token';
+if (process.env.NODE_ENV === 'production' && !process.env.TUTTO_API_TOKEN) {
+  console.warn('[SECURITY] TUTTO_API_TOKEN env var is not set — using the insecure default token. Set this in production.');
+}
 
 const requireToken = (req, res, next) => {
   if (req.headers['x-tutto-token'] !== API_TOKEN) {

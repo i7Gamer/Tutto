@@ -147,6 +147,7 @@ const updateGlobalStats = async (stats) => {
 
   try {
     const changes = await knex('global_statistics').where({ id: 1 }).update(updateData);
+    if (changes === 0) throw new Error('global_statistics row missing — run migrations');
     return changes;
   } catch (err) {
     console.error('updateGlobalStats error:', err);

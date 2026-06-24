@@ -22,6 +22,8 @@ const createInitialPlayer = (name) => ({
   position: 0,
 });
 
+const API_TOKEN = import.meta.env.VITE_API_TOKEN || 'tutto-local-dev-token';
+
 let socket;
 let gameTimerInterval = null;
 let turnTimerInterval = null;
@@ -498,7 +500,6 @@ export const useGameStore = create(immer((set, get) => ({
     const s = get();
     if (s.finished) return;
 
-    const wasFinished = s.finished;
     const result = calculateNextTurn(s, scoreInput, isSuccess);
 
     set((state) => {
@@ -529,12 +530,12 @@ export const useGameStore = create(immer((set, get) => ({
       }
     });
 
-    if (!wasFinished && get().finished) {
+    if (get().finished) {
       if (!get().isOnline) {
         // Send global stats using the updated state
         fetch('/api/stats/global', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-tutto-token': 'tutto-local-dev-token' },
+          headers: { 'Content-Type': 'application/json', 'x-tutto-token': API_TOKEN },
           body: JSON.stringify(get().buildGlobalStatsPayload())
         }).catch(console.error);
         
@@ -547,7 +548,7 @@ export const useGameStore = create(immer((set, get) => ({
           
           fetch(`/api/stats/${finalState.deviceId}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-tutto-token': 'tutto-local-dev-token' },
+            headers: { 'Content-Type': 'application/json', 'x-tutto-token': API_TOKEN },
             body: JSON.stringify({
               gamesPlayed: 1,
               wins: didIWin,
@@ -640,7 +641,7 @@ export const useGameStore = create(immer((set, get) => ({
           plusMinusFailed: me.timesPlusMinusFailed || 0, kniffelCompleted: me.timesKniffelCompleted || 0,
           kniffelFailed: me.timesKniffelFailed || 0, skipped: me.timesSkipped || 0,
           feuerwerkReceived: me.timesFeuerwerkReceived || 0, kleeblattFailed: me.timesKleeblattFailed || 0,
-          kleeblattCompleted: me.timesKleeblattCompleted || 0, x2Received: me.timesx2Received,
+          kleeblattCompleted: me.timesKleeblattCompleted || 0, x2Received: me.timesx2Received || 0,
           totalTurns: me.totalTurns || 0, busts: me.busts || 0,
           feuerwerkBusts: me.feuerwerkBusts || 0, x2Busts: me.x2Busts || 0,
           feuerwerkPointsScored: me.feuerwerkPointsScored || 0, x2PointsScored: me.x2PointsScored || 0,
@@ -655,7 +656,7 @@ export const useGameStore = create(immer((set, get) => ({
     if (s.isHost) {
       fetch('/api/stats/global', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-tutto-token': 'tutto-local-dev-token' },
+        headers: { 'Content-Type': 'application/json', 'x-tutto-token': API_TOKEN },
         body: JSON.stringify(get().buildGlobalStatsPayload())
       }).catch(console.error);
     }
