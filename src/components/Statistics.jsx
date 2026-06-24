@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Trophy, Clock, XCircle, BarChart2, Globe, User, TrendingDown, TrendingUp, Zap, Hash, Repeat, FastForward, Skull } from 'lucide-react';
+import { Trophy, Clock, Target, Hash, Dice5, Flame, AlertTriangle, Play, FastForward, Award, BarChart2, Globe, User, TrendingDown, TrendingUp, Zap, Repeat, Skull, XCircle, ArrowLeft } from 'lucide-react';
+import { formatTime } from '../utils/formatTime';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
@@ -56,7 +57,7 @@ const CardRow = ({ label, icon, count, wins, fails, avgPoints, hideRate, failsLa
             </div>
             {!hideRate && (
               <div className="text-center min-w-[50px]">
-                <div className="font-black text-lg text-indigo-600 dark:text-indigo-400">
+                <div className="font-black text-lg text-indigo-600 dark:indigo-400">
                   {getWinLoseRate(wins, fails)}
                 </div>
                 <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('statistics.rate', 'Rate')}</div>
@@ -104,19 +105,6 @@ export default function Statistics({ deviceId, onBack }) {
     fetchStats();
   }, [deviceId]);
 
-  const formatTime = (totalSeconds) => {
-    if (!totalSeconds || isNaN(totalSeconds)) return "00:00";
-    const h = Math.floor(totalSeconds / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = Math.floor(totalSeconds % 60);
-    
-    const hStr = t('time.hours_short', 'h');
-    const mStr = t('time.minutes_short', 'm');
-    const sStr = t('time.seconds_short', 's');
-    
-    if (h > 0) return `${h}${hStr} ${m}${mStr} ${s}${sStr}`;
-    return `${m}${mStr} ${s}${sStr}`;
-  };
 
   if (loading) {
     return (

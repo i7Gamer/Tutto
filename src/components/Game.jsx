@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import confetti from 'canvas-confetti';
 import { playBuzzer, playSuccess } from '../utils/soundEffects';
+import { isTestEnv } from '../utils/env';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
+import { formatTime } from '../utils/formatTime';
 
 import Scoreboard from './game/Scoreboard';
 import CardDisplay from './game/CardDisplay';
@@ -27,13 +29,6 @@ export default function Game() {
     gameTimeInSeconds
   } = game;
 
-  const formatTime = (totalSeconds) => {
-    const h = Math.floor(totalSeconds / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = totalSeconds % 60;
-    if (h > 0) return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
-    return `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
-  };
   const formattedTime = formatTime(gameTimeInSeconds);
 
   const currentPlayer = currentPlayerIndex !== null ? players[currentPlayerIndex] : null;
@@ -50,13 +45,20 @@ export default function Game() {
   const [scoreInput, setScoreInput] = useState("");
   const [applyBonus, setApplyBonus] = useState(false);
   const [showDiceGame, setShowDiceGame] = useState(false);
+  const confettiFiredRef = useRef(false);
+
+  useEffect(() => {
+    if (!isMyTurn) {
+      setShowDiceGame(false);
+    }
+  }, [isMyTurn]);
 
   useEffect(() => {
     let soundTimeout;
     let turnTimeout;
 
     if (currentCard === "Stop") {
-      if (process.env.NODE_ENV === 'test') {
+      if (isTestEnv()) {
         playBuzzer();
         if (isOnline && isMyTurn) {
           turnTimeout = setTimeout(() => nextTurn(0, false), 5000);
@@ -80,15 +82,23 @@ export default function Game() {
   }, [isOnline, isMyTurn, currentCard, cards?.length]);
 
   useEffect(() => {
+    confettiFiredRef.current = false;
+  }, [currentCard]);
+
+  useEffect(() => {
     let timeout;
-    if (currentCard === "Feuerwerk") {
-      if (process.env.NODE_ENV === 'test') {
+    if (currentCard === "Feuerwerk" && !confettiFiredRef.current) {
+      if (isTestEnv()) {
         confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
         playSuccess();
+        confettiFiredRef.current = true;
       } else {
         timeout = setTimeout(() => {
-          confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
-          playSuccess();
+          if (!confettiFiredRef.current) {
+            confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+            playSuccess();
+            confettiFiredRef.current = true;
+          }
         }, 1200); // Wait for card to visually flip and settle (matches GameControls UI delay)
       }
     }
@@ -96,7 +106,7 @@ export default function Game() {
   }, [currentCard, cards?.length]);
 
   const handleNextTurn = () => {
-    let parsedScore = parseInt(scoreInput) || 0;
+    let parsedScore = Math.max(0, parseInt(scoreInput) || 0);
     
     if (applyBonus) {
       if (currentCard === "200") parsedScore += 200;

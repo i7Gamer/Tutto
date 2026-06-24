@@ -12,7 +12,7 @@ const initDb = async () => {
 };
 
 // Automatically run migrations on startup if not testing
-if (process.env.NODE_ENV !== 'test' && !process.env.TEST_DB) {
+if ((process.env.NODE_ENV !== 'test' && !process.env.TEST_DB) || process.env.FORCE_INIT_DB) {
   initDb();
 }
 

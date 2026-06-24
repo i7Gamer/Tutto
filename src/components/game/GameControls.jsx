@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Undo2, ChevronRight, Check, X, Dices } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
+import { isTestEnv } from '../../utils/env';
 
 export default function GameControls({ 
   currentCard, 
@@ -29,16 +30,20 @@ export default function GameControls({
   const [prevCardsLength, setPrevCardsLength] = useState(cardsLength);
   const [isFlipping, setIsFlipping] = useState(false);
 
-  // Derived state: update immediately during render to prevent 1-frame flashes.
-  if (cardsLength !== prevCardsLength) {
-    setPrevCardsLength(cardsLength);
-    // Skip the flip animation during tests so inputs are immediately available.
-    if (process.env.NODE_ENV !== 'test') setIsFlipping(true);
-  }
-  // If the card is cleared (e.g. game over), reveal immediately.
-  if (!currentCard && isFlipping) {
-    setIsFlipping(false);
-  }
+  useEffect(() => {
+    if (cardsLength !== prevCardsLength) {
+      setPrevCardsLength(cardsLength);
+      // Skip the flip animation during tests so inputs are immediately available.
+      if (!isTestEnv()) setIsFlipping(true);
+    }
+  }, [cardsLength, prevCardsLength]);
+
+  useEffect(() => {
+    // If the card is cleared (e.g. game over), reveal immediately.
+    if (!currentCard && isFlipping) {
+      setIsFlipping(false);
+    }
+  }, [currentCard, isFlipping]);
 
   useEffect(() => {
     if (isFlipping && currentCard) {
@@ -88,8 +93,11 @@ export default function GameControls({
                   {diceMode === 'physical' && (
                     <>
                       <div className="flex flex-row items-center gap-3 mb-4 md:mb-6 w-full max-w-sm">
+                        <label htmlFor="score-input" className="sr-only">Score</label>
                         <input 
+                          id="score-input"
                           type="number" 
+                          min="0"
                           value={scoreInput}
                           onChange={(e) => setScoreInput(e.target.value)}
                           placeholder={t('game.controls.scorePlaceholder', 'Score')}

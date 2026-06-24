@@ -11,7 +11,7 @@ describe('Server Socket E2E Simulation', () => {
   let socket2;
 
   // We will run the server on port 3005 for testing
-  const PORT = 3005;
+  const PORT = '3005';
 
   beforeAll(() => {
     return new Promise((resolve, reject) => {

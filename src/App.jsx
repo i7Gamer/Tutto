@@ -47,6 +47,7 @@ function ToastMessage() {
 
 function ReconnectPopup() {
   const showReconnectPopup = useGameStore(state => state.showReconnectPopup);
+  const cancelReconnect = useGameStore(state => state.cancelReconnect);
   const setMode = useGameStore(state => state.setMode);
   const { t } = useTranslation();
 
@@ -66,7 +67,7 @@ function ReconnectPopup() {
           <button 
             className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-xl transition-colors"
             onClick={() => {
-              useGameStore.setState({ showReconnectPopup: false, roomId: null, isHost: false, hostId: null, myName: null });
+              cancelReconnect();
               setMode('local');
             }}
           >

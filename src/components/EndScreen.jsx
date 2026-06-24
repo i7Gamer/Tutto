@@ -11,7 +11,8 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
-import { RotateCcw, Trophy, Settings } from 'lucide-react';
+import { Trophy, Clock, Target, Home, RotateCw, RotateCcw, Settings, Trash2, Shield, XCircle, Award, AlertTriangle, Dice5, Crown, Flame, Crosshair } from 'lucide-react';
+import { formatTime } from '../utils/formatTime';
 import { motion } from 'framer-motion';
 import { useGameStore } from '../store/useGameStore';
 
@@ -53,13 +54,6 @@ export default function EndScreen({ theme, deviceId }) {
   );
   const winner = sortedPlayers[0];
   
-  const formatTime = (totalSeconds) => {
-    const h = Math.floor(totalSeconds / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = totalSeconds % 60;
-    if (h > 0) return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
-    return `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
-  };
   const formattedTime = formatTime(gameTimeInSeconds);
 
   const [deviceStats, setDeviceStats] = useState(null);

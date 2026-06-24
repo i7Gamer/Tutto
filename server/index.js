@@ -144,7 +144,7 @@ io.on('connection', (socket) => {
       return callback({ error: 'Game is already running. You cannot join mid-game.' });
     }
 
-    if (room.state.players.find(p => p.name === name)) {
+    if (room.state.players.find(p => p.name.toLowerCase() === name.toLowerCase())) {
       return callback({ error: 'Username already exists in this room' });
     }
 
@@ -189,20 +189,27 @@ io.on('connection', (socket) => {
 
   socket.on('updateConfig', ({ roomId, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout }) => {
     if (rooms[roomId] && rooms[roomId].host === socket.id) {
-      if (winningScore !== undefined) rooms[roomId].state.winningScore = winningScore;
-      if (initialCards !== undefined) rooms[roomId].state.initialCards = initialCards;
-      if (randomOrder !== undefined) rooms[roomId].state.randomOrder = randomOrder;
-      if (turnDuration !== undefined) rooms[roomId].state.turnDuration = turnDuration;
-      if (reconnectTimeout !== undefined) rooms[roomId].state.reconnectTimeout = reconnectTimeout;
+      if (typeof winningScore === 'number' && winningScore >= 1000) rooms[roomId].state.winningScore = winningScore;
+      if (typeof initialCards === 'object' && initialCards !== null) rooms[roomId].state.initialCards = initialCards;
+      if (typeof randomOrder === 'boolean') rooms[roomId].state.randomOrder = randomOrder;
+      if (typeof turnDuration === 'number' && turnDuration >= 10) rooms[roomId].state.turnDuration = turnDuration;
+      if (typeof reconnectTimeout === 'number' && reconnectTimeout >= 10) rooms[roomId].state.reconnectTimeout = reconnectTimeout;
       emitRoomState(roomId);
     }
   });
 
   socket.on('reorderPlayers', ({ roomId, newPlayers }) => {
     if (rooms[roomId] && rooms[roomId].host === socket.id) {
-      rooms[roomId].state.players = newPlayers;
-      rooms[roomId].state.randomOrder = false;
-      emitRoomState(roomId);
+      const currentNames = new Set(rooms[roomId].state.players.map(p => p.name));
+      const newNames = new Set(newPlayers.map(p => p.name));
+      const isPermutation = currentNames.size === newNames.size && 
+        newPlayers.every(p => currentNames.has(p.name));
+        
+      if (isPermutation) {
+        rooms[roomId].state.players = newPlayers;
+        rooms[roomId].state.randomOrder = false;
+        emitRoomState(roomId);
+      }
     }
   });
 
@@ -227,7 +234,12 @@ io.on('connection', (socket) => {
         room.state.players.splice(removedIdx, 1);
         handleActivePlayerRemoved(room.state, removedIdx);
       }
-      emitRoomState(currentRoom);
+      
+      if (room.state.players.length === 0) {
+        delete rooms[currentRoom];
+      } else {
+        emitRoomState(currentRoom);
+      }
       
       const targetSocket = io.sockets.sockets.get(targetSocketId);
       if (targetSocket) {
@@ -344,20 +356,23 @@ io.on('connection', (socket) => {
           // Set kick timer
           if (!room.disconnectTimers) room.disconnectTimers = {};
           const timeoutSecs = room.state.reconnectTimeout || 60;
-          room.disconnectTimers[player.deviceId] = setTimeout(() => {
-            if (rooms[currentRoom]) {
-              const removedIdx = rooms[currentRoom].state.players.findIndex(p => p.deviceId === player.deviceId);
-              if (removedIdx !== -1) {
-                rooms[currentRoom].state.players.splice(removedIdx, 1);
-                handleActivePlayerRemoved(rooms[currentRoom].state, removedIdx);
+          const roomIdSnapshot = currentRoom;
+          const hostSocketId = socket.id;
 
-                if (rooms[currentRoom].state.players.length === 0) {
-                  delete rooms[currentRoom];
+          room.disconnectTimers[player.deviceId] = setTimeout(() => {
+            if (rooms[roomIdSnapshot]) {
+              const removedIdx = rooms[roomIdSnapshot].state.players.findIndex(p => p.deviceId === player.deviceId);
+              if (removedIdx !== -1) {
+                rooms[roomIdSnapshot].state.players.splice(removedIdx, 1);
+                handleActivePlayerRemoved(rooms[roomIdSnapshot].state, removedIdx);
+
+                if (rooms[roomIdSnapshot].state.players.length === 0) {
+                  delete rooms[roomIdSnapshot];
                 } else {
-                  if (rooms[currentRoom].host === socket.id) {
-                    rooms[currentRoom].host = rooms[currentRoom].state.players[0].socketId;
+                  if (rooms[roomIdSnapshot].host === hostSocketId) {
+                    rooms[roomIdSnapshot].host = rooms[roomIdSnapshot].state.players[0].socketId;
                   }
-                  emitRoomState(currentRoom);
+                  emitRoomState(roomIdSnapshot);
                 }
               }
             }
@@ -395,6 +410,7 @@ app.get('/api/stats/global', async (req, res) => {
     const stats = await getGlobalStats();
     res.json(stats || {});
   } catch (err) {
+    console.error("DB error in global GET:", err);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -413,6 +429,7 @@ app.get('/api/stats/:deviceId', async (req, res) => {
     const stats = await getDeviceStats(req.params.deviceId);
     res.json(stats || {});
   } catch (err) {
+    console.error("DB error in device GET:", err);
     res.status(500).json({ error: 'Database error' });
   }
 });

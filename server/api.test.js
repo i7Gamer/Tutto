@@ -3,24 +3,30 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'child_process';
+import { initDb } from './database.js';
 
 describe('API Endpoints Token Protection', () => {
   let serverProcess;
-  const PORT = 3006;
+  const PORT = '3006';
   const API_TOKEN = 'tutto-local-dev-token';
 
   beforeAll(() => {
+    if (global.__nativeFetch) {
+      global.fetch = global.__nativeFetch;
+    }
+
     return new Promise((resolve, reject) => {
       serverProcess = spawn('node', ['server/index.js'], {
-        env: { ...process.env, PORT, TUTTO_API_TOKEN: API_TOKEN },
+        env: { ...process.env, PORT, TUTTO_API_TOKEN: API_TOKEN, TEST_DB: 'true', FORCE_INIT_DB: 'true' },
         stdio: 'pipe'
       });
 
       serverProcess.stdout.on('data', (data) => {
-        if (data.toString().includes('Server running on port')) {
+        if (data.toString().includes('Database migrated')) {
           resolve();
         }
       });
+      serverProcess.stderr.on('data', (data) => console.error(data.toString()));
 
       serverProcess.on('error', (err) => reject(err));
     });

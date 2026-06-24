@@ -372,6 +372,7 @@ describe('coreGameEngine', () => {
       const state = makeState({
         players: [makePlayer('Alice', { score: 1000, times1000PointsDeducted: 1 }), makePlayer('Bob', { score: 1000, totalTurns: 1, timesPlusMinusCompleted: 1 })],
         currentPlayerIndex: 0, // round 2, Alice's turn again — undo Bob's Plus_Minus
+        round: 2,
         previousCard: 'Plus_Minus',
         previousScore: 1000,
         previousLeaders: [{ name: 'Alice', score: 2000 }],
@@ -410,7 +411,7 @@ describe('coreGameEngine', () => {
       expect(result.drawnCard).toBe('200');
     });
 
-    it('returns round 1, last player when undoing on round 1, player 0', () => {
+    it('returns null when undoing on round 1, player 0', () => {
       const state = makeState({
         players: [makePlayer('Alice', { totalTurns: 1 }), makePlayer('Bob')],
         currentPlayerIndex: 0,
@@ -419,9 +420,7 @@ describe('coreGameEngine', () => {
         previousScore: 0,
       });
       const result = calculateUndo(state);
-      expect(result.nextIndex).toBe(1);
-      expect(result.nextRound).toBe(0);
-      expect(result.isRoundEndUndo).toBe(true);
+      expect(result).toBeNull();
     });
 
     it('restores highestTurnScore', () => {

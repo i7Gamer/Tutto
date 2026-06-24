@@ -117,11 +117,9 @@ export const calculateNextTurn = (gameState, scoreInput, isSuccess = false) => {
 
   if (currentCard === "x2") {
     currentPlayer.timesx2Received = (currentPlayer.timesx2Received || 0) + 1;
-    currentPlayer.x2PointsScored = (currentPlayer.x2PointsScored || 0) + turnScore;
   }
   if (currentCard === "Feuerwerk") {
     currentPlayer.timesFeuerwerkReceived = (currentPlayer.timesFeuerwerkReceived || 0) + 1;
-    currentPlayer.feuerwerkPointsScored = (currentPlayer.feuerwerkPointsScored || 0) + turnScore;
   }
   if (currentCard === "Stop") {
     currentPlayer.timesSkipped = (currentPlayer.timesSkipped || 0) + 1;
@@ -132,6 +130,13 @@ export const calculateNextTurn = (gameState, scoreInput, isSuccess = false) => {
     currentPlayer.timesKniffelCompleted = (currentPlayer.timesKniffelCompleted || 0) + 1;
   } else if (currentCard === "Kniffel") {
     currentPlayer.timesKniffelFailed = (currentPlayer.timesKniffelFailed || 0) + 1;
+  }
+
+  if (currentCard === "x2") {
+    currentPlayer.x2PointsScored = (currentPlayer.x2PointsScored || 0) + turnScore;
+  }
+  if (currentCard === "Feuerwerk") {
+    currentPlayer.feuerwerkPointsScored = (currentPlayer.feuerwerkPointsScored || 0) + turnScore;
   }
 
   if (currentCard === "Kleeblatt" && isSuccess) {
@@ -219,6 +224,7 @@ export const calculateUndo = (gameState) => {
   let isRoundEndUndo = false;
   
   if (prevIndex < 0) {
+    if (round <= 1) return null;
     prevIndex = newPlayers.length - 1;
     newRound--;
     isRoundEndUndo = true;

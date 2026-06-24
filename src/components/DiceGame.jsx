@@ -4,6 +4,7 @@ import { Dices, Check, X, Hand, RotateCw } from 'lucide-react';
 import { playBuzzer, playSuccess, playTone } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
 import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus } from '../utils/diceLogic';
+import { isTestEnv } from '../utils/env';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function DiceGame({ currentCard, onComplete, onCancel }) {
@@ -21,7 +22,6 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState({ won: false, score: 0, isTutto: false });
   const [tuttosThisTurn, setTuttosThisTurn] = useState(0);
-  const [bustsThisTurn, setBustsThisTurn] = useState(0);
   
   const selectedRolls = currentRoll.filter(d => d.selected);
   const selectedVals = selectedRolls.map(d => d.val);
@@ -45,7 +45,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
     const initialRolling = new Set(finalRolls.map(r => r.id));
     setRollingDiceIndices(initialRolling);
     
-    const isTest = process.env.NODE_ENV === 'test';
+    const isTest = isTestEnv();
     const baseTumbleTime = isTest ? 0 : 400;
     const staggerDelay = isTest ? 0 : 150;
     
@@ -78,9 +78,6 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
       if (isBust(newRollVals, currentCard, kniffelArray || kniffelProgress)) {
         setBustState(true);
         playBuzzer();
-        
-        const newBusts = bustsThisTurn + 1;
-        setBustsThisTurn(newBusts);
         
         if (currentCard === "Kleeblatt") {
           setShowSummary(true);
@@ -116,7 +113,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
 
   useEffect(() => {
     if (rollingDiceIndices.size === 0) return;
-    if (process.env.NODE_ENV === 'test') return;
+    if (isTestEnv()) return;
     
     const interval = setInterval(() => {
       setDisplayRoll(prev => prev.map(d => 
@@ -238,6 +235,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
             <button 
               className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors" 
               onClick={onCancel}
+              aria-label="Cancel dice roll"
             >
               <X size={20}/>
             </button>
@@ -327,7 +325,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
                       const isSelected = actualDie?.selected || false;
                       
                       return (
-                        <motion.div 
+                        <motion.button 
                           key={d.id} 
                           layout
                           animate={{ 
@@ -342,14 +340,17 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
                             ${isSelected 
                               ? 'bg-emerald-100 border-emerald-500 text-emerald-700 shadow-[0_0_15px_rgba(16,185,129,0.3)] scale-110 z-10' 
                               : bustState 
-                                ? 'bg-red-50 border-red-300 text-red-500 opacity-70' 
+                                ? 'bg-red-50 border-red-300 text-red-500 opacity-70 cursor-default' 
                                 : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 text-gray-800 dark:text-gray-100 shadow-sm ' + (isDieTumbling ? '' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50')
                             }
                           `}
                           onClick={() => toggleDie(d.id)}
+                          disabled={bustState || isDieTumbling}
+                          aria-pressed={isSelected}
+                          aria-label={`Die showing ${d.val}, ${isSelected ? 'selected' : 'not selected'}`}
                         >
                           {d.val}
-                        </motion.div>
+                        </motion.button>
                       );
                     })}
                   </div>

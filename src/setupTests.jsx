@@ -77,6 +77,7 @@ if (typeof window !== 'undefined') {
 }
 
 // Global fetch mock
+global.__nativeFetch = global.fetch;
 global.fetch = vi.fn((url) => {
   if (url === '/api/stats/global') {
     return Promise.resolve({

@@ -40,6 +40,7 @@ const initialLocalState = {
   turnDuration: 120,
   reconnectTimeout: 60,
   finished: false,
+  gameStartTime: null,
   gameTimeInSeconds: 0,
   turnTimeRemaining: null,
   previousScore: null,
@@ -79,6 +80,16 @@ export const useGameStore = create(immer((set, get) => ({
       toasts: [],
       showReconnectPopup: false,
       pendingReconnectSession: null
+    });
+  },
+
+  cancelReconnect: () => {
+    set({
+      showReconnectPopup: false,
+      roomId: null,
+      isHost: false,
+      hostId: null,
+      myName: null
     });
   },
 
@@ -301,6 +312,7 @@ export const useGameStore = create(immer((set, get) => ({
 
   leaveRoom: () => {
     if (socket) socket.emit('leaveRoom');
+    get().stopOnlineTimers();
     sessionStorage.removeItem('tutto_online_session');
     set({ 
       players: [],
