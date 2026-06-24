@@ -252,6 +252,82 @@ describe('Server Socket E2E Simulation', () => {
     });
   });
 
+  it('rejects pushState of host-only fields (status, winningScore) from a non-host active player', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — active player, not host
+
+      let badStateObserved = false;
+      const timeoutId = setTimeout(() => {
+        expect(badStateObserved).toBe(false);
+        s1.disconnect();
+        s2.disconnect();
+        resolve();
+      }, 1500);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'E2E_HOSTFIELDS', name: 'Alice', deviceId: 'dev-hf-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'E2E_HOSTFIELDS', name: 'Bob', deviceId: 'dev-hf-b', color: '#00ff00' }, () => {
+            const players = [
+              { name: 'Alice', deviceId: 'dev-hf-a', socketId: s1.id, disconnected: false, score: 0 },
+              { name: 'Bob', deviceId: 'dev-hf-b', socketId: s2.id, disconnected: false, score: 0 },
+            ];
+            // Host starts the game with Bob as the active player (index 1).
+            s1.emit('pushState', { roomId: 'E2E_HOSTFIELDS', newState: { players, status: 'playing', currentPlayerIndex: 1 } });
+
+            setTimeout(() => {
+              // Bob is the active player but NOT the host.
+              // Use sentinel values that could never arise from normal game flow.
+              s2.emit('pushState', { roomId: 'E2E_HOSTFIELDS', newState: { status: 'hacked', winningScore: 1 } });
+            }, 200);
+          });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        // 'hacked' and winningScore===1 are sentinel values that only appear if the
+        // server accepted the malicious push — they cannot arise from normal game flow.
+        if (state.status === 'hacked' || state.winningScore === 1) {
+          badStateObserved = true;
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          s2.disconnect();
+          reject(new Error('Server accepted host-only fields from a non-host active player'));
+        }
+      });
+    });
+  }, 10000);
+
+  it('reorderPlayers preserves server-side player objects, ignoring injected client fields', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        reject(new Error('Test timed out'));
+      }, 3000);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'E2E_REORDER_INJECT', name: 'Alice', deviceId: 'dev-ri-a', color: '#ff0000' }, () => {
+          // Alice tries to reorder with an injected score field.
+          const tampered = [{ name: 'Alice', score: 99999, deviceId: 'FAKE' }];
+          s1.emit('reorderPlayers', { roomId: 'E2E_REORDER_INJECT', newPlayers: tampered });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (state.players && state.players.length === 1) {
+          // The server must have kept the real score (0) and real deviceId, not the injected values.
+          expect(state.players[0].score).toBe(0);
+          expect(state.players[0].deviceId).toBe('dev-ri-a');
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          resolve();
+        }
+      });
+    });
+  }, 10000);
+
   it('rejects reorderPlayers if new order has different length', () => {
     return new Promise((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);

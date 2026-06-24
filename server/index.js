@@ -210,7 +210,10 @@ io.on('connection', (socket) => {
         newPlayers.every(p => currentNames.has(p.name));
         
       if (isPermutation) {
-        rooms[roomId].state.players = newPlayers;
+        // Reorder by mapping existing server-side objects; never trust client field values.
+        rooms[roomId].state.players = newPlayers.map(np =>
+          rooms[roomId].state.players.find(p => p.name === np.name)
+        );
         rooms[roomId].state.randomOrder = false;
         emitRoomState(roomId);
       }
@@ -254,17 +257,20 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Whitelisted fields that the active player/host may advance
-  const STATE_PUSH_WHITELIST = [
+  // Fields only the host may push (game config + lifecycle).
+  const HOST_ONLY_FIELDS = new Set([
+    'status', 'winningScore', 'initialCards', 'randomOrder',
+    'turnDuration', 'reconnectTimeout',
+  ]);
+
+  // Fields the active player (or host) may push (turn-by-turn game state).
+  const ACTIVE_PLAYER_FIELDS = new Set([
     'currentCard', 'cards', 'currentPlayerIndex', 'round',
     'finished', 'previousCard', 'previousScore', 'previousLeaders',
     'previousWasBust', 'previousHighestTurnScore',
     'chartValues', 'chartNames', 'chartLabels', 'gameTimeInSeconds',
-    'status', 'winningScore', 'initialCards', 'randomOrder', 
-    'turnDuration', 'reconnectTimeout',
-    // Per-player mutable fields (arrays only — players array shape is preserved)
     'players',
-  ];
+  ]);
 
   // Validates that the pushed players array is a same-length permutation of existing players
   // (same deviceIds, same order is not required, but no new players / no removals)
@@ -289,8 +295,12 @@ io.on('connection', (socket) => {
 
     if (!isHost && !isActivePlayer) return;
 
-    // Merge only whitelisted fields
-    for (const key of STATE_PUSH_WHITELIST) {
+    // Merge whitelisted fields; host-only fields are rejected for non-hosts.
+    const allowedFields = isHost
+      ? new Set([...HOST_ONLY_FIELDS, ...ACTIVE_PLAYER_FIELDS])
+      : ACTIVE_PLAYER_FIELDS;
+
+    for (const key of allowedFields) {
       if (!(key in newState)) continue;
       if (key === 'players') {
         if (!validatePushedPlayers(room.state.players, newState.players)) continue;

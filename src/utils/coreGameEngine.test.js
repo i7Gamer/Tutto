@@ -172,6 +172,11 @@ describe('coreGameEngine', () => {
       expect(result.nextIndex).toBeNull();
     });
 
+    it('Kleeblatt success sets isRoundEnd so the chart captures the final scores', () => {
+      const result = calculateNextTurn(makeState({ currentCard: 'Kleeblatt' }), 0, true);
+      expect(result.isRoundEnd).toBe(true);
+    });
+
     it('Kleeblatt failure increments timesKleeblattFailed and continues', () => {
       const result = calculateNextTurn(makeState({ currentCard: 'Kleeblatt' }), 0, false);
       expect(result.players[0].timesKleeblattFailed).toBe(1);

@@ -25,6 +25,10 @@ const createInitialPlayer = (name) => ({
 let socket;
 let gameTimerInterval = null;
 let turnTimerInterval = null;
+// Track which player/card the turn timer was started for so that unrelated
+// gameState broadcasts (color changes, config edits) don't reset the countdown.
+let turnTimerPlayerIndex = null;
+let turnTimerCard = null;
 
 // Initial local state template
 const initialLocalState = {
@@ -363,8 +367,9 @@ export const useGameStore = create(immer((set, get) => ({
 
   syncOnlineTimers: () => {
     const state = get();
+
+    // Game-elapsed timer always restarts on any state sync.
     if (gameTimerInterval) clearInterval(gameTimerInterval);
-    if (turnTimerInterval) clearInterval(turnTimerInterval);
 
     if (state.mode === 'online' && !state.finished && state.status === 'playing' && state.currentPlayerIndex !== null) {
       gameTimerInterval = setInterval(() => {
@@ -377,24 +382,46 @@ export const useGameStore = create(immer((set, get) => ({
       }, 1000);
 
       if (state.turnDuration > 0) {
-        let multiplier = 1;
-        if (state.currentCard === 'Feuerwerk') multiplier = 3;
-        if (state.currentCard === 'Kleeblatt') multiplier = 2;
-        let targetDuration = state.turnDuration * multiplier;
-        set({ turnTimeRemaining: targetDuration });
+        const playerChanged = state.currentPlayerIndex !== turnTimerPlayerIndex;
+        const cardChanged = state.currentCard !== turnTimerCard;
 
-        turnTimerInterval = setInterval(() => {
-          const s = get();
-          const timeLeft = s.turnTimeRemaining - 1;
-          set({ turnTimeRemaining: timeLeft > 0 ? timeLeft : 0 });
-          if (timeLeft <= 0 && s.isHost) {
-            get().nextTurn(0, false);
-          }
-        }, 1000);
+        if (playerChanged || cardChanged) {
+          // New turn or new card: reset the countdown and start a fresh interval.
+          if (turnTimerInterval) clearInterval(turnTimerInterval);
+          turnTimerPlayerIndex = state.currentPlayerIndex;
+          turnTimerCard = state.currentCard;
+
+          let multiplier = 1;
+          if (state.currentCard === 'Feuerwerk') multiplier = 3;
+          if (state.currentCard === 'Kleeblatt') multiplier = 2;
+          const targetDuration = state.turnDuration * multiplier;
+          set({ turnTimeRemaining: targetDuration });
+
+          turnTimerInterval = setInterval(() => {
+            const s = get();
+            const timeLeft = s.turnTimeRemaining - 1;
+            set({ turnTimeRemaining: timeLeft > 0 ? timeLeft : 0 });
+            if (timeLeft <= 0 && s.isHost) {
+              // Clear before nextTurn so a slow async round-trip cannot fire a second advance.
+              clearInterval(turnTimerInterval);
+              turnTimerInterval = null;
+              get().nextTurn(0, false);
+            }
+          }, 1000);
+        }
+        // Same player + same card: leave the existing countdown running untouched.
       } else {
+        if (turnTimerInterval) clearInterval(turnTimerInterval);
+        turnTimerInterval = null;
+        turnTimerPlayerIndex = null;
+        turnTimerCard = null;
         set({ turnTimeRemaining: null });
       }
     } else {
+      if (turnTimerInterval) clearInterval(turnTimerInterval);
+      turnTimerInterval = null;
+      turnTimerPlayerIndex = null;
+      turnTimerCard = null;
       set({ turnTimeRemaining: null });
     }
   },
@@ -402,6 +429,8 @@ export const useGameStore = create(immer((set, get) => ({
   stopOnlineTimers: () => {
     if (gameTimerInterval) clearInterval(gameTimerInterval);
     if (turnTimerInterval) clearInterval(turnTimerInterval);
+    turnTimerPlayerIndex = null;
+    turnTimerCard = null;
   },
 
   // --- GAMEPLAY ---
