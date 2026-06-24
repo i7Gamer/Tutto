@@ -101,7 +101,7 @@ export default function EndScreen({ theme, deviceId }) {
     labels: chartLabels,
     datasets: chartNames.map((name, i) => ({
       label: name,
-      data: chartValues[i],
+      data: chartValues[i] ?? [],
       borderColor: colors[i % colors.length],
       backgroundColor: colors[i % colors.length],
       tension: 0.2
@@ -242,45 +242,45 @@ export default function EndScreen({ theme, deviceId }) {
             <div className="flex border-b border-gray-200 dark:border-slate-600 bg-black/5 dark:bg-white/5">
               <div className="p-4 w-56 flex-shrink-0 font-bold text-gray-600 dark:text-gray-300">{t('end.stat', 'Stat')}</div>
               {sortedPlayers.map(p => (
-                <div key={p.name} className="p-4 w-32 flex-shrink-0 font-bold text-center" style={{ color: p.color || 'var(--text-color, #4f46e5)' }}>{p.name}</div>
+                <div key={p.deviceId || p.name} className="p-4 w-32 flex-shrink-0 font-bold text-center" style={{ color: p.color || 'var(--text-color, #4f46e5)' }}>{p.name}</div>
               ))}
             </div>
             <div className="flex flex-col">
               <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                 <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.position', 'Position')}</div>
-                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 font-bold text-center">{p.position}.</div>)}
+                {sortedPlayers.map(p => <div key={p.deviceId || p.name} className="p-4 w-32 flex-shrink-0 font-bold text-center">{p.position}.</div>)}
               </div>
               <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                 <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.score', 'Score')}</div>
-                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 font-black text-indigo-600 text-center">{p.score}</div>)}
+                {sortedPlayers.map(p => <div key={p.deviceId || p.name} className="p-4 w-32 flex-shrink-0 font-black text-indigo-600 text-center">{p.score}</div>)}
               </div>
               <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                 <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.totalTurns', 'Total Turns')}</div>
-                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 text-center">{p.totalTurns}</div>)}
+                {sortedPlayers.map(p => <div key={p.deviceId || p.name} className="p-4 w-32 flex-shrink-0 text-center">{p.totalTurns}</div>)}
               </div>
               <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                 <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.busts', 'Busts')}</div>
-                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 text-red-500 font-bold text-center">{p.busts}</div>)}
+                {sortedPlayers.map(p => <div key={p.deviceId || p.name} className="p-4 w-32 flex-shrink-0 text-red-500 font-bold text-center">{p.busts}</div>)}
               </div>
               <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                 <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.avgPtsPerRound', 'Avg Pts / Round')}</div>
-                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 font-bold text-emerald-500 text-center">{Math.round(p.score / Math.max(1, round))}</div>)}
+                {sortedPlayers.map(p => <div key={p.deviceId || p.name} className="p-4 w-32 flex-shrink-0 font-bold text-emerald-500 text-center">{Math.round(p.score / Math.max(1, round))}</div>)}
               </div>
               <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                 <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.pointsEatenStat', '-1000 Points Eaten')}</div>
-                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 text-center">{p.times1000PointsDeducted}</div>)}
+                {sortedPlayers.map(p => <div key={p.deviceId || p.name} className="p-4 w-32 flex-shrink-0 text-center">{p.times1000PointsDeducted}</div>)}
               </div>
               <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                 <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.plusMinusStat', 'Plus/Minus (Success/Fail)')}</div>
-                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 text-center"><span className="text-emerald-500">{p.timesPlusMinusCompleted}</span> / <span className="text-red-500">{p.timesPlusMinusFailed}</span></div>)}
+                {sortedPlayers.map(p => <div key={p.deviceId || p.name} className="p-4 w-32 flex-shrink-0 text-center"><span className="text-emerald-500">{p.timesPlusMinusCompleted}</span> / <span className="text-red-500">{p.timesPlusMinusFailed}</span></div>)}
               </div>
               <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                 <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.kniffelStat', 'Kniffel (Success/Fail)')}</div>
-                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 text-center"><span className="text-emerald-500">{p.timesKniffelCompleted}</span> / <span className="text-red-500">{p.timesKniffelFailed}</span></div>)}
+                {sortedPlayers.map(p => <div key={p.deviceId || p.name} className="p-4 w-32 flex-shrink-0 text-center"><span className="text-emerald-500">{p.timesKniffelCompleted}</span> / <span className="text-red-500">{p.timesKniffelFailed}</span></div>)}
               </div>
               <div className="flex border-b border-gray-100 dark:border-slate-700/50 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                 <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.skipped', 'Skipped')}</div>
-                {sortedPlayers.map(p => <div key={p.name} className="p-4 w-32 flex-shrink-0 text-center">{p.timesSkipped}</div>)}
+                {sortedPlayers.map(p => <div key={p.deviceId || p.name} className="p-4 w-32 flex-shrink-0 text-center">{p.timesSkipped}</div>)}
               </div>
               <div className="flex hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                 <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{t('end.feuerwerkStat', 'Feuerwerk (Received/Pts)')}</div>

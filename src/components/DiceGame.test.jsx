@@ -263,4 +263,58 @@ describe('DiceGame Integration', () => {
     fireEvent.click(screen.getByText('dice.continue'));
     expect(onComplete).toHaveBeenCalledWith(expect.any(Number), true);
   });
+
+  it('Kleeblatt: busting on the first roll fails the card', async () => {
+    const onComplete = vi.fn();
+    render(<DiceGame currentCard="Kleeblatt" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    diceSequence = [2, 3, 4, 6, 2, 3];
+    fireEvent.click(screen.getByText('dice.roll_6_dice'));
+
+    expect(screen.getByText('dice.bust')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('dice.continue'));
+    expect(onComplete).toHaveBeenCalledWith(0, false);
+  });
+
+  it('Plus_Minus: requires exactly one Tutto', async () => {
+    const onComplete = vi.fn();
+    render(<DiceGame currentCard="Plus_Minus" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    diceSequence = [1, 1, 1, 5, 5, 5];
+    fireEvent.click(screen.getByText('dice.roll_6_dice'));
+    
+    screen.getAllByText(/1|5/).forEach(d => fireEvent.click(d));
+    fireEvent.click(screen.getByText('dice.finish_card'));
+
+    expect(screen.getByText('dice.success')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('dice.continue'));
+    expect(onComplete).toHaveBeenCalledWith(1500, true);
+  });
+
+  it('Kniffel: requires exactly one Tutto', async () => {
+    const onComplete = vi.fn();
+    render(<DiceGame currentCard="Kniffel" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    diceSequence = [1, 2, 3, 4, 5, 6];
+    fireEvent.click(screen.getByText('dice.roll_6_dice'));
+    
+    screen.getAllByRole('button', { name: /^Die showing/ }).forEach(d => fireEvent.click(d));
+    fireEvent.click(screen.getByText('dice.finish_card'));
+
+    expect(screen.getByText('dice.success')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('dice.continue'));
+    expect(onComplete).toHaveBeenCalledWith(0, true);
+  });
+
+  it('Keyboard Accessibility: dice are rendered as interactive buttons', async () => {
+    const onComplete = vi.fn();
+    render(<DiceGame currentCard="200" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    diceSequence = [5, 2, 3, 4, 6, 6];
+    fireEvent.click(screen.getByText('dice.roll_6_dice'));
+
+    const fiveDie = screen.getByText('5');
+    expect(fiveDie.tagName).toBe('BUTTON');
+    expect(fiveDie).not.toHaveAttribute('disabled');
+  });
 });

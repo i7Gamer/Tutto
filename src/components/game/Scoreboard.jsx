@@ -117,6 +117,8 @@ export default function Scoreboard({ game, formattedTime }) {
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
+              role="region"
+              aria-live="polite"
               className={`flex-1 min-w-[100px] md:min-w-[120px] backdrop-blur border rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center transition-colors ${isKickTimerUrgent ? 'bg-amber-50/90 border-amber-200' : 'bg-white dark:bg-slate-800/80 border-white/40'}`}
             >
               <div className={`text-[10px] md:text-sm font-bold uppercase tracking-wider mb-0.5 md:mb-1 text-center ${isKickTimerUrgent ? 'text-amber-600' : 'text-gray-500 dark:text-gray-400'}`}>

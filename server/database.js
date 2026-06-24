@@ -27,6 +27,8 @@ const getDeviceStats = async (deviceId) => {
 };
 
 const updateDeviceStats = async (deviceId, stats) => {
+  if (!stats || Object.keys(stats).length === 0) return true;
+
   const deviceCols = [
     'gamesPlayed', 'wins', 'pointsDeducted', 'plusMinusCompleted', 
     'plusMinusFailed', 'kniffelCompleted', 'kniffelFailed', 'skipped', 
@@ -39,7 +41,7 @@ const updateDeviceStats = async (deviceId, stats) => {
   const mergeCols = {};
 
   deviceCols.forEach(col => {
-    data[col] = stats[col] || 0;
+    data[col] = stats[col] ?? 0;
     mergeCols[col] = knex.raw(`device_statistics.${col} + EXCLUDED.${col}`);
   });
 
@@ -91,27 +93,29 @@ const getGlobalStats = async () => {
 };
 
 const updateGlobalStats = async (stats) => {
+  if (!stats || Object.keys(stats).length === 0) return true;
+
   const globalMapping = {
-    totalGamesPlayed: stats.gamesPlayed || 0,
-    totalPlaytime: stats.totalPlaytime || 0,
-    totalPlusMinus: stats.totalPlusMinus || 0,
-    totalKniffel: stats.totalKniffel || 0,
-    totalStop: stats.totalStop || 0,
-    totalFeuerwerk: stats.totalFeuerwerk || 0,
-    totalKleeblatt: stats.totalKleeblatt || 0,
-    totalKleeblattCompleted: stats.totalKleeblattCompleted || 0,
-    totalx2: stats.totalx2 || 0,
-    totalTurns: stats.totalTurns || 0,
-    totalScore: stats.totalScore || 0,
-    totalPlusMinusCompleted: stats.totalPlusMinusCompleted || 0,
-    totalKniffelCompleted: stats.totalKniffelCompleted || 0,
-    totalFeuerwerkPoints: stats.totalFeuerwerkPoints || 0,
-    totalx2Points: stats.totalx2Points || 0,
+    totalGamesPlayed: stats.gamesPlayed ?? 0,
+    totalPlaytime: stats.totalPlaytime ?? 0,
+    totalPlusMinus: stats.totalPlusMinus ?? 0,
+    totalKniffel: stats.totalKniffel ?? 0,
+    totalStop: stats.totalStop ?? 0,
+    totalFeuerwerk: stats.totalFeuerwerk ?? 0,
+    totalKleeblatt: stats.totalKleeblatt ?? 0,
+    totalKleeblattCompleted: stats.totalKleeblattCompleted ?? 0,
+    totalx2: stats.totalx2 ?? 0,
+    totalTurns: stats.totalTurns ?? 0,
+    totalScore: stats.totalScore ?? 0,
+    totalPlusMinusCompleted: stats.totalPlusMinusCompleted ?? 0,
+    totalKniffelCompleted: stats.totalKniffelCompleted ?? 0,
+    totalFeuerwerkPoints: stats.totalFeuerwerkPoints ?? 0,
+    totalx2Points: stats.totalx2Points ?? 0,
     defaultGamesPlayed: stats.isDefaultGame ? 1 : 0,
     customGamesPlayed: stats.isDefaultGame ? 0 : 1,
-    totalFeuerwerkBusts: stats.totalFeuerwerkBusts || 0,
-    totalx2Busts: stats.totalx2Busts || 0,
-    totalBusts: stats.totalBusts || 0
+    totalFeuerwerkBusts: stats.totalFeuerwerkBusts ?? 0,
+    totalx2Busts: stats.totalx2Busts ?? 0,
+    totalBusts: stats.totalBusts ?? 0
   };
 
   const updateData = {};

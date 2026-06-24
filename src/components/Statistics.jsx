@@ -149,8 +149,10 @@ export default function Statistics({ deviceId, onBack }) {
           </h1>
         </div>
 
-        <div className="flex gap-4 mb-10 justify-center">
+        <div className="flex gap-4 mb-10 justify-center" role="tablist">
           <motion.button 
+            role="tab"
+            aria-selected={tab === 'personal'}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${
@@ -163,6 +165,8 @@ export default function Statistics({ deviceId, onBack }) {
             <User size={18} /> {t('statistics.personal', 'Personal')}
           </motion.button>
           <motion.button 
+            role="tab"
+            aria-selected={tab === 'global'}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${
@@ -180,6 +184,7 @@ export default function Statistics({ deviceId, onBack }) {
           {tab === 'personal' && (
             <motion.div 
               key="personal"
+              role="tabpanel"
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
@@ -275,6 +280,7 @@ export default function Statistics({ deviceId, onBack }) {
           {tab === 'global' && (
             <motion.div 
               key="global"
+              role="tabpanel"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
@@ -328,19 +334,19 @@ export default function Statistics({ deviceId, onBack }) {
                       label={t('cards.plusMinus', 'Plus/Minus')} icon="±" 
                       count={g.totalPlusMinus || 0} 
                       wins={g.totalPlusMinusCompleted || 0}
-                      fails={(g.totalPlusMinus || 0) - (g.totalPlusMinusCompleted || 0)}
+                      fails={Math.max(0, (g.totalPlusMinus || 0) - (g.totalPlusMinusCompleted || 0))}
                     />
                     <CardRow 
                       label={t('cards.kniffel', 'Kniffel')} icon="🎲" 
                       count={g.totalKniffel || 0} 
                       wins={g.totalKniffelCompleted || 0}
-                      fails={(g.totalKniffel || 0) - (g.totalKniffelCompleted || 0)}
+                      fails={Math.max(0, (g.totalKniffel || 0) - (g.totalKniffelCompleted || 0))}
                     />
                     <CardRow
                       label={t('cards.kleeblatt', 'Kleeblatt')} icon="🍀"
                       count={g.totalKleeblatt || 0}
                       wins={g.totalKleeblattCompleted || 0}
-                      fails={(g.totalKleeblatt || 0) - (g.totalKleeblattCompleted || 0)}
+                      fails={Math.max(0, (g.totalKleeblatt || 0) - (g.totalKleeblattCompleted || 0))}
                     />
                     <CardRow label={t('cards.stop', 'Stop')} icon="🛑" count={g.totalStop || 0} />
                     <CardRow 

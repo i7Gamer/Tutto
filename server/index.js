@@ -152,8 +152,12 @@ io.on('connection', (socket) => {
     currentRoom = roomId;
     username = name;
 
+    const colorRe = /^#[0-9a-fA-F]{6}$/i;
+    let assignedColor = color && colorRe.test(color) ? color : null;
     const usedColors = room.state.players.map(p => p.color);
-    let assignedColor = color || PLAYER_COLORS.find(c => !usedColors.includes(c));
+    if (!assignedColor) {
+      assignedColor = PLAYER_COLORS.find(c => !usedColors.includes(c));
+    }
     if (!assignedColor) assignedColor = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
 
     const newPlayer = {
@@ -215,6 +219,8 @@ io.on('connection', (socket) => {
 
   socket.on('updatePlayerColor', ({ roomId, color }) => {
     if (rooms[roomId]) {
+      const colorRe = /^#[0-9a-fA-F]{6}$/i;
+      if (!color || !colorRe.test(color)) return;
       const player = rooms[roomId].state.players.find(p => p.socketId === socket.id);
       if (player) {
         player.color = color;
@@ -444,7 +450,9 @@ app.post('/api/stats/:deviceId', requireToken, async (req, res) => {
 });
 
 app.use((req, res) => {
-  res.sendFile(path.join(__dirname, '../dist/index.html'));
+  res.sendFile(path.join(__dirname, '../dist/index.html'), (err) => {
+    if (err) res.status(404).send('Not found');
+  });
 });
 
 const PORT = process.env.PORT || 3001;

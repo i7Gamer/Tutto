@@ -12,7 +12,8 @@ const CARD_IMAGE_MAP = {
   "Stop": "Stop.png",
   "Kleeblatt": "Kleeblatt.png",
   "Plus_Minus": "plusminus.png",
-  "Kniffel": "Kniffel.png"
+  "Kniffel": "Kniffel.png",
+  "fallback": "logo.png"
 };
 
 export default function CardDisplay({ currentCard, cards }) {
@@ -33,7 +34,7 @@ export default function CardDisplay({ currentCard, cards }) {
               className="absolute w-full h-full shadow-2xl rounded-2xl overflow-hidden preserve-3d"
             >
               <img 
-                src={`./assets/${CARD_IMAGE_MAP[currentCard]}`} 
+                src={`./assets/${CARD_IMAGE_MAP[currentCard] ?? CARD_IMAGE_MAP['fallback']}`} 
                 alt={t(`game.cards.${currentCard}`, currentCard)} 
                 className="w-full h-full object-cover"
               />

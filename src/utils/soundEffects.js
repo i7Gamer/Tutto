@@ -2,20 +2,20 @@
 
 let audioCtx = null;
 
-const getAudioContext = () => {
-  if (!audioCtx) {
+const getAudioContext = async () => {
+  if (!audioCtx || audioCtx.state === 'closed') {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
   // Resume if suspended (browsers often suspend context until user interaction)
   if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
+    await audioCtx.resume();
   }
   return audioCtx;
 };
 
-export const playTone = (frequency, type, duration, vol = 0.1, offset = 0) => {
+export const playTone = async (frequency, type, duration, vol = 0.1, offset = 0) => {
   try {
-    const ctx = getAudioContext();
+    const ctx = await getAudioContext();
     const oscillator = ctx.createOscillator();
     const gainNode = ctx.createGain();
 

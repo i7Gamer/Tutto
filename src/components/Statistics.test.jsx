@@ -98,7 +98,7 @@ describe('Statistics Component', () => {
     expect(screen.getByText('400')).toBeInTheDocument(); // 40000 / 100
 
     // Switch to Global Tab
-    const globalTabButton = screen.getByRole('button', { name: 'statistics.globalCommunity' });
+    const globalTabButton = screen.getByRole('tab', { name: /statistics\.globalCommunity/i });
     fireEvent.click(globalTabButton);
 
     // Check Global Stats Tab

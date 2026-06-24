@@ -15,7 +15,13 @@ const sanitizeStats = (raw) => {
     }
     const n = Number(val);
     if (!Number.isFinite(n)) continue;
-    clean[key] = Math.max(0, Math.min(Math.floor(n), STATS_VALUE_CAP));
+    
+    let minAllowed = 0;
+    if (key === 'fastestWinTurns' || key === 'fastestLossTurns') {
+      minAllowed = 1;
+    }
+    
+    clean[key] = Math.max(minAllowed, Math.min(Math.floor(n), STATS_VALUE_CAP));
   }
   return clean;
 };

@@ -58,4 +58,9 @@ describe('sanitizeStats', () => {
       fastestWinTurns: null,
     });
   });
+
+  it('clamps fastestWinTurns and fastestLossTurns to >= 1', () => {
+    expect(sanitizeStats({ fastestWinTurns: 0 })).toEqual({ fastestWinTurns: 1 });
+    expect(sanitizeStats({ fastestLossTurns: 0 })).toEqual({ fastestLossTurns: 1 });
+  });
 });

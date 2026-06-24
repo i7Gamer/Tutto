@@ -26,11 +26,11 @@ export default function Home({ onShowStats }) {
     if ('caches' in window) {
       caches.keys().then(names => {
         Promise.all(names.map(name => caches.delete(name))).then(() => {
-          window.location.reload(true);
-        });
-      });
+          window.location.reload();
+        }).catch(console.error);
+      }).catch(console.error);
     } else {
-      window.location.reload(true);
+      window.location.reload();
     }
   };
 

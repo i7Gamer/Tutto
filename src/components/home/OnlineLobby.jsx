@@ -6,8 +6,11 @@ import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGam
 export default function OnlineLobby({ game }) {
   const { t } = useTranslation();
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [inputRoomCode, setInputRoomCode] = useState(() => localStorage.getItem('tutto_last_room') || "");
-  const [inputName, setInputName] = useState(() => localStorage.getItem('tutto_last_name') || "");
+  const getStoredValue = (key) => {
+    try { return localStorage.getItem(key) || ""; } catch { return ""; }
+  };
+  const [inputRoomCode, setInputRoomCode] = useState(() => getStoredValue('tutto_last_room'));
+  const [inputName, setInputName] = useState(() => getStoredValue('tutto_last_name'));
   const [errorMsg, setErrorMsg] = useState("");
 
   const { players, startGame, reorderPlayers, changeMyColor, isHost, hostId, joinRoom, leaveRoom, roomId, myName, kickPlayer } = game;
@@ -121,7 +124,7 @@ export default function OnlineLobby({ game }) {
             <StartGameButton 
               startGame={startGame} 
               playersCount={players ? players.length : 0}
-              disabled={players.length < 2 || players.some(p => p.disconnected)}
+              disabled={players.length < 2 || players?.some(p => p.disconnected)}
             />
           ) : (
             <motion.div 

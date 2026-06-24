@@ -203,4 +203,76 @@ describe('Server Socket E2E Simulation', () => {
       });
     });
   }, 10000);
+
+  it('rejects invalid color strings in updatePlayerColor', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      let timeoutId = setTimeout(() => {
+        s1.disconnect();
+        resolve(); // If no invalid color was broadcasted, we pass
+      }, 1000);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'COLOR_ROOM', name: 'Alice', deviceId: 'dev-alice', color: '#ff0000' }, () => {
+          s1.emit('updatePlayerColor', { roomId: 'COLOR_ROOM', color: 'invalid-color' });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (state.players && state.players[0] && state.players[0].color === 'invalid-color') {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          reject(new Error('Server accepted invalid color string'));
+        }
+      });
+    });
+  });
+
+  it('ignores updateConfig with out-of-bounds values', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      let timeoutId = setTimeout(() => {
+        s1.disconnect();
+        resolve(); // If no invalid config was broadcasted, we pass
+      }, 1000);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'CONFIG_ROOM', name: 'Alice', deviceId: 'dev-alice', color: '#ff0000' }, () => {
+          s1.emit('updateConfig', { winningScore: -100, turnDuration: 9999, reconnectTimeout: -5 });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (state.winningScore === -100 || state.turnDuration === 9999 || state.reconnectTimeout === -5) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          reject(new Error('Server accepted out-of-bounds config'));
+        }
+      });
+    });
+  });
+
+  it('rejects reorderPlayers if new order has different length', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      let timeoutId = setTimeout(() => {
+        s1.disconnect();
+        resolve(); // passed
+      }, 1000);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'REORDER_ROOM', name: 'Alice', deviceId: 'dev-alice', color: '#ff0000' }, () => {
+          s1.emit('reorderPlayers', []); // Send empty array when there's 1 player
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (state.players && state.players.length === 0) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          reject(new Error('Server accepted invalid reorderPlayers'));
+        }
+      });
+    });
+  });
 });

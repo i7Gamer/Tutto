@@ -235,9 +235,9 @@ export const useGameStore = create(immer((set, get) => ({
   },
 
   // --- ONLINE SYNC ---
-  connectSocket: () => {
+  connectSocket: (url) => {
     if (!socket) {
-      socket = io(window.location.origin);
+      socket = io(url || window.location.origin);
 
       socket.on('gameState', (state) => {
         const wasFinished = get().finished;
@@ -559,8 +559,7 @@ export const useGameStore = create(immer((set, get) => ({
 
   undo: () => {
     const s = get();
-    if (s.isOnline && !s.previousCard) return;
-    if (!s.isOnline && !s.previousCard) return;
+    if (!s.previousCard) return;
     if (s.previousCard === "Stop") return;
 
     const result = calculateUndo(s);
@@ -607,11 +606,11 @@ export const useGameStore = create(immer((set, get) => ({
         roomId: s.roomId,
         deviceId: s.deviceId,
         stats: {
-          gamesPlayed: 1, wins: didIWin, totalPlaytime: s.gameTimeInSeconds,
-          pointsDeducted: me.times1000PointsDeducted, plusMinusCompleted: me.timesPlusMinusCompleted,
-          plusMinusFailed: me.timesPlusMinusFailed, kniffelCompleted: me.timesKniffelCompleted,
-          kniffelFailed: me.timesKniffelFailed, skipped: me.timesSkipped,
-          feuerwerkReceived: me.timesFeuerwerkReceived, kleeblattFailed: me.timesKleeblattFailed,
+          gamesPlayed: 1, wins: didIWin, totalPlaytime: s.gameTimeInSeconds || 0,
+          pointsDeducted: me.times1000PointsDeducted || 0, plusMinusCompleted: me.timesPlusMinusCompleted || 0,
+          plusMinusFailed: me.timesPlusMinusFailed || 0, kniffelCompleted: me.timesKniffelCompleted || 0,
+          kniffelFailed: me.timesKniffelFailed || 0, skipped: me.timesSkipped || 0,
+          feuerwerkReceived: me.timesFeuerwerkReceived || 0, kleeblattFailed: me.timesKleeblattFailed || 0,
           kleeblattCompleted: me.timesKleeblattCompleted || 0, x2Received: me.timesx2Received,
           totalTurns: me.totalTurns || 0, busts: me.busts || 0,
           feuerwerkBusts: me.feuerwerkBusts || 0, x2Busts: me.x2Busts || 0,

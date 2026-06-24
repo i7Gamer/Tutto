@@ -36,7 +36,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
     playTone(600, "sine", 0.1);
     
     const newRollVals = Array.from({length: numDice}, () => rollDie());
-    const finalRolls = newRollVals.map((val, idx) => ({ id: Date.now() + idx, val, selected: false }));
+    const finalRolls = newRollVals.map((val) => ({ id: crypto.randomUUID(), val, selected: false }));
     
     setCurrentRoll(finalRolls);
     setDisplayRoll(finalRolls.map(r => ({ ...r, val: rollDie() })));
