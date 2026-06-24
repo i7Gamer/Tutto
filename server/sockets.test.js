@@ -439,4 +439,123 @@ describe('Server Socket E2E Simulation', () => {
       });
     });
   }, 10000);
+
+  it('reorderPlayers is blocked when the game is already playing', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob
+
+      const timeoutId = setTimeout(() => {
+        // If no state change was received with reordered players after game start, the test passes
+        s1.disconnect();
+        s2.disconnect();
+        resolve();
+      }, 2000);
+
+      let originalOrder = null;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'REORDER_MIDGAME', name: 'Alice', deviceId: 'dev-rmg-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'REORDER_MIDGAME', name: 'Bob', deviceId: 'dev-rmg-b', color: '#00ff00' }, () => {
+            const players = [
+              { name: 'Alice', deviceId: 'dev-rmg-a', socketId: s1.id, disconnected: false, score: 0 },
+              { name: 'Bob', deviceId: 'dev-rmg-b', socketId: s2.id, disconnected: false, score: 0 },
+            ];
+            // Host starts the game
+            s1.emit('pushState', { roomId: 'REORDER_MIDGAME', newState: { players, status: 'playing', currentPlayerIndex: 0 } });
+
+            setTimeout(() => {
+              originalOrder = ['Alice', 'Bob'];
+              // Attempt to reorder mid-game (Bob first)
+              s1.emit('reorderPlayers', {
+                roomId: 'REORDER_MIDGAME',
+                newPlayers: [{ name: 'Bob' }, { name: 'Alice' }]
+              });
+            }, 300);
+          });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (state.status === 'playing' && originalOrder && state.players?.length === 2) {
+          // If the server accepted the reorder, Bob would now be first — that must not happen
+          if (state.players[0].name === 'Bob') {
+            clearTimeout(timeoutId);
+            s1.disconnect();
+            s2.disconnect();
+            reject(new Error('Server allowed reorderPlayers during a live game'));
+          }
+        }
+      });
+    });
+  }, 10000);
+
+  it('active player cannot spoof scores for other players via pushState', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — active player, will try to tamper
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        s2.disconnect();
+        reject(new Error('Test timed out'));
+      }, 4000);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'SCORE_SPOOF_ROOM', name: 'Alice', deviceId: 'dev-ss-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'SCORE_SPOOF_ROOM', name: 'Bob', deviceId: 'dev-ss-b', color: '#00ff00' }, () => {
+            const players = [
+              { name: 'Alice', deviceId: 'dev-ss-a', socketId: s1.id, disconnected: false, score: 0 },
+              { name: 'Bob', deviceId: 'dev-ss-b', socketId: s2.id, disconnected: false, score: 0 },
+            ];
+            // Host gives Bob the active turn (index 1)
+            s1.emit('pushState', { roomId: 'SCORE_SPOOF_ROOM', newState: { players, status: 'playing', currentPlayerIndex: 1 } });
+
+            setTimeout(() => {
+              // Bob (active player) pushes a state that inflates Alice's score to 99999
+              s2.emit('pushState', {
+                roomId: 'SCORE_SPOOF_ROOM',
+                newState: {
+                  players: [
+                    { name: 'Alice', deviceId: 'dev-ss-a', socketId: s1.id, disconnected: false, score: 99999 },
+                    { name: 'Bob', deviceId: 'dev-ss-b', socketId: s2.id, disconnected: false, score: 500 },
+                  ],
+                  currentPlayerIndex: 0,
+                }
+              });
+            }, 300);
+
+            setTimeout(() => {
+              // After Bob's tamper attempt, Alice's score must still be 0
+              s1.emit('pushState', { roomId: 'SCORE_SPOOF_ROOM', newState: {} }); // no-op, just trigger state read
+            }, 600);
+          });
+        });
+      });
+
+      let gameStarted = false;
+      s1.on('gameState', (state) => {
+        if (state.status === 'playing' && state.players?.length === 2) {
+          gameStarted = true;
+        }
+        if (gameStarted && state.players) {
+          const alice = state.players.find(p => p.name === 'Alice');
+          if (alice && alice.score === 99999) {
+            clearTimeout(timeoutId);
+            s1.disconnect();
+            s2.disconnect();
+            reject(new Error('Server allowed active player to spoof another player\'s score'));
+          }
+          // After Bob's push, Bob should have 500 (own row), Alice stays 0
+          const bob = state.players.find(p => p.name === 'Bob');
+          if (alice && bob && alice.score === 0 && bob.score === 500) {
+            clearTimeout(timeoutId);
+            s1.disconnect();
+            s2.disconnect();
+            resolve();
+          }
+        }
+      });
+    });
+  }, 10000);
 });

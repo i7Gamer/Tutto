@@ -30,24 +30,24 @@ describe('EndScreen Component', () => {
     expect(container.textContent).toContain('end.gameStats');
   });
 
-  it('keeps the same winner and statistics even if the actual winner is removed from the store later', () => {
-    const { getByText, queryByText } = render(<EndScreen />);
+  it('reflects the current winner reactively when the store updates (late gameState packets)', () => {
+    const { getByText } = render(<EndScreen />);
 
-    // Initially, Alice is the winner
+    // Initially, Alice is the winner (score 10000 > 5000)
     expect(getByText('end.winner Alice')).toBeInTheDocument();
 
-    // Simulate Alice leaving the game and being removed from the store's players array
+    // Simulate a late gameState packet arriving: Bob's score is updated to be higher
     act(() => {
       useGameStore.setState({
         players: [
-          { name: 'Bob', score: 5000, position: 2 }
+          { name: 'Alice', score: 10000, position: 1 },
+          { name: 'Bob', score: 15000, position: 1 }
         ]
       });
     });
 
-    // Bob should NOT become the winner, Alice should remain the winner
-    expect(getByText('end.winner Alice')).toBeInTheDocument();
-    expect(queryByText('end.winner Bob')).toBeNull();
+    // Now Bob has the highest score — sortedPlayers should react and show Bob as winner
+    expect(getByText('end.winner Bob')).toBeInTheDocument();
   });
 
   it('assigns correct position values to sorted players', () => {

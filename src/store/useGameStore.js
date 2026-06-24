@@ -430,7 +430,9 @@ export const useGameStore = create(immer((set, get) => ({
 
   stopOnlineTimers: () => {
     if (gameTimerInterval) clearInterval(gameTimerInterval);
+    gameTimerInterval = null;
     if (turnTimerInterval) clearInterval(turnTimerInterval);
+    turnTimerInterval = null;
     turnTimerPlayerIndex = null;
     turnTimerCard = null;
   },

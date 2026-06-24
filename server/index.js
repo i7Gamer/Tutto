@@ -212,6 +212,9 @@ io.on('connection', (socket) => {
 
   socket.on('reorderPlayers', ({ roomId, newPlayers }) => {
     if (rooms[roomId] && rooms[roomId].host === socket.id) {
+      // Reordering is only meaningful before the game starts — prevent mid-game reshuffles
+      if (rooms[roomId].state.status !== 'lobby') return;
+
       const currentNames = new Set(rooms[roomId].state.players.map(p => p.name));
       const newNames = new Set(newPlayers.map(p => p.name));
       const isPermutation = currentNames.size === newNames.size && 
@@ -324,6 +327,9 @@ io.on('connection', (socket) => {
         room.state.players = room.state.players.map(existing => {
           const pushed = newState.players.find(p => p.deviceId === existing.deviceId);
           if (!pushed) return existing;
+          // Non-host active players may only update their own row to prevent
+          // them from spoofing scores for other players.
+          if (!isHost && existing.socketId !== socket.id) return existing;
           const updated = { ...existing };
           for (const f of PLAYER_MUTABLE) {
             if (f in pushed) updated[f] = pushed[f];
