@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import DiceGame from './DiceGame';
@@ -89,11 +89,10 @@ describe('DiceGame Integration', () => {
     diceSequence = [2, 3, 4, 6, 2, 3];
     fireEvent.click(screen.getByText('dice.roll_6_dice'));
 
-
-
     expect(screen.getByText('dice.bust')).toBeInTheDocument();
-    
-    fireEvent.click(screen.getByText('dice.continue'));
+    // Bust auto-continues after 0ms in test env — no Continue button on bust
+    expect(screen.queryByText('dice.continue')).toBeNull();
+    await act(async () => { await new Promise(r => setTimeout(r, 0)); });
 
     // Turn score is 0, so it's a failure (isSuccess=false)
     expect(onComplete).toHaveBeenCalledWith(0, false);
@@ -117,14 +116,10 @@ describe('DiceGame Integration', () => {
     diceSequence = [2, 3, 4, 6, 2];
     fireEvent.click(screen.getByText('dice.roll_again'));
 
-
-
-
-
     // Verify summary shows success because we accumulated 50 points
     expect(screen.getByText('dice.success')).toBeInTheDocument();
     expect(screen.getByText('50')).toBeInTheDocument();
-
+    // Feuerwerk bust-after-scoring has won=true → manual Continue button shown
     fireEvent.click(screen.getByText('dice.continue'));
 
     // Turn score is 50, so it's a success (isSuccess=true)? No, it's a bust now!
@@ -272,7 +267,9 @@ describe('DiceGame Integration', () => {
     fireEvent.click(screen.getByText('dice.roll_6_dice'));
 
     expect(screen.getByText('dice.bust')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('dice.continue'));
+    // Bust auto-continues after 0ms in test env — no Continue button on bust
+    expect(screen.queryByText('dice.continue')).toBeNull();
+    await act(async () => { await new Promise(r => setTimeout(r, 0)); });
     expect(onComplete).toHaveBeenCalledWith(0, false);
   });
 

@@ -22,6 +22,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState({ won: false, score: 0, isTutto: false });
   const [tuttosThisTurn, setTuttosThisTurn] = useState(0);
+  const [bustCountdown, setBustCountdown] = useState(null);
   
   const selectedRolls = currentRoll.filter(d => d.selected);
   const selectedVals = selectedRolls.map(d => d.val);
@@ -192,12 +193,27 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
 
   useEffect(() => {
     let timeout;
-    if (showSummary && bustState) {
+    let countdownInterval;
+    // Only auto-continue on a true bust (score = 0, won = false).
+    // Feuerwerk bust-after-scoring has bustState=true but won=true — keep manual Continue.
+    if (showSummary && bustState && !summaryDataRef.current.won) {
+      const AUTO_CONTINUE_MS = isTestEnv() ? 0 : 3000;
+      setBustCountdown(3);
+      if (!isTestEnv()) {
+        countdownInterval = setInterval(() => {
+          setBustCountdown(prev => (prev !== null && prev > 1 ? prev - 1 : prev));
+        }, 1000);
+      }
       timeout = setTimeout(() => {
+        setBustCountdown(null);
         finishGame();
-      }, 1500);
+      }, AUTO_CONTINUE_MS);
     }
-    return () => clearTimeout(timeout);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(countdownInterval);
+      setBustCountdown(null);
+    };
   }, [showSummary, bustState, finishGame]);
 
   const isMakingTutto = keptDice.length + selectedRolls.length === 6;
@@ -258,12 +274,28 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
               <p className="text-2xl text-gray-700 dark:text-gray-200">{t('dice.points_gained', 'Points gained: ')}<strong className="text-indigo-600 font-black">{summaryData.score}</strong></p>
             )}
             
-            <button 
-              className="mt-10 bg-indigo-600 hover:bg-indigo-700 text-white w-full py-4 rounded-xl text-xl font-bold flex justify-center items-center gap-2 shadow-lg shadow-indigo-500/30 transition-all" 
-              onClick={finishGame}
-            >
-              {t('dice.continue', 'Continue to Next Player')} <Check size={24} />
-            </button>
+            {bustState && !summaryData.won ? (
+              <div className="mt-10 flex flex-col items-center gap-3">
+                <p className="text-red-400 font-semibold text-lg">
+                  {t('dice.auto_continuing', 'Continuing in {{count}}…', { count: bustCountdown ?? 0 })}
+                </p>
+                <div className="w-full bg-red-100 dark:bg-red-900/30 rounded-full h-2 overflow-hidden">
+                  <motion.div
+                    className="h-2 bg-red-500 rounded-full"
+                    initial={{ width: '100%' }}
+                    animate={{ width: '0%' }}
+                    transition={{ duration: isTestEnv() ? 0 : 3, ease: 'linear' }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <button 
+                className="mt-10 bg-indigo-600 hover:bg-indigo-700 text-white w-full py-4 rounded-xl text-xl font-bold flex justify-center items-center gap-2 shadow-lg shadow-indigo-500/30 transition-all" 
+                onClick={finishGame}
+              >
+                {t('dice.continue', 'Continue to Next Player')} <Check size={24} />
+              </button>
+            )}
           </motion.div>
         ) : (
           <>

@@ -15,6 +15,7 @@
   "dice.tutto": "Tutto!",
   "dice.points_gained": "Erhaltene Punkte: ",
   "dice.continue": "Weiter zum nächsten Spieler",
+  "dice.auto_continuing": "Weiter in {{count}}…",
   "dice.current_score": "Aktuelle Punktzahl",
   "dice.tuttos_count": "Tuttos: {{count}} / 2",
   "dice.kept_dice": "Behaltene Würfel",

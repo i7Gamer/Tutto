@@ -15,6 +15,7 @@
   "dice.tutto": "Tutto!",
   "dice.points_gained": "Points gained: ",
   "dice.continue": "Continue to Next Player",
+  "dice.auto_continuing": "Continuing in {{count}}…",
   "dice.current_score": "Current Score",
   "dice.tuttos_count": "Tuttos: {{count}} / 2",
   "dice.kept_dice": "Kept Dice",
