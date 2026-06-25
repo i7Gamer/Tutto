@@ -13,6 +13,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
   const [currentRoll, setCurrentRoll] = useState([]);
   const [displayRoll, setDisplayRoll] = useState([]);
   const [rollingDiceIndices, setRollingDiceIndices] = useState(new Set());
+  const [settledDiceIds, setSettledDiceIds] = useState(new Set());
   const [turnScore, setTurnScore] = useState(0);
   const [kniffelProgress, setKniffelProgress] = useState([]);
   const [isRolling, setIsRolling] = useState(false);
@@ -58,6 +59,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
           next.delete(r.id);
           return next;
         });
+        setSettledDiceIds(prev => new Set(prev).add(r.id));
         setDisplayRoll(prev => prev.map(d => d.id === r.id ? { ...d, val: r.val } : d));
       } else {
         setTimeout(() => {
@@ -66,6 +68,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
             next.delete(r.id);
             return next;
           });
+          setSettledDiceIds(prev => new Set(prev).add(r.id));
           setDisplayRoll(prev => prev.map(d => d.id === r.id ? { ...d, val: r.val } : d));
           playTone(400 + (idx * 50), "sine", 0.05);
         }, baseTumbleTime + (idx * staggerDelay));
@@ -76,7 +79,8 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
 
     const finalizeRoll = () => {
       setIsRolling(false);
-      
+      setSettledDiceIds(new Set());
+
       if (isBust(newRollVals, currentCard, kniffelArray || kniffelProgress)) {
         setBustState(true);
         playBuzzer();
@@ -116,15 +120,17 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
   useEffect(() => {
     if (rollingDiceIndices.size === 0) return;
     if (isTestEnv()) return;
-    
+
     const interval = setInterval(() => {
-      setDisplayRoll(prev => prev.map(d => 
-        rollingDiceIndices.has(d.id) ? { ...d, val: Math.floor(Math.random() * 6) + 1 } : d
+      setDisplayRoll(prev => prev.map(d =>
+        rollingDiceIndices.has(d.id) && !settledDiceIds.has(d.id)
+          ? { ...d, val: Math.floor(Math.random() * 6) + 1 }
+          : d
       ));
     }, 80);
-    
+
     return () => clearInterval(interval);
-  }, [rollingDiceIndices]);
+  }, [rollingDiceIndices, settledDiceIds]);
 
   const handleAction = (action) => {
     if (!validation.valid && action !== 'stop') return;
@@ -190,19 +196,20 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
   useEffect(() => { onStateChangeRef.current = onStateChange; }, [onStateChange]);
 
   // Broadcast settled dice state to observers (online digital-dice turns).
-  // Fires 300 ms after the last change to keptDice, currentRoll, or turnScore
+  // Fires 300 ms after the last change to keptDice, currentRoll, turnScore, or rollingDiceIndices
   // so rapid successive updates (selection + roll) only produce one push.
   useEffect(() => {
     if (!onStateChangeRef.current || !hasRolled) return;
     const timer = setTimeout(() => {
       onStateChangeRef.current({
         turnScore,
-        keptDice: keptDice.map(d => ({ val: d.val })),
-        currentRoll: currentRoll.map(d => ({ val: d.val, selected: d.selected })),
+        keptDice: keptDice.map(d => ({ id: d.id, val: d.val })),
+        currentRoll: currentRoll.map(d => ({ id: d.id, val: d.val, selected: d.selected })),
+        rollingDiceIds: Array.from(rollingDiceIndices),
       });
     }, 300);
     return () => clearTimeout(timer);
-  }, [keptDice, currentRoll, turnScore, hasRolled]);
+  }, [keptDice, currentRoll, turnScore, hasRolled, rollingDiceIndices]);
 
   const summaryDataRef = useRef(summaryData);
   useEffect(() => { summaryDataRef.current = summaryData; }, [summaryData]);
