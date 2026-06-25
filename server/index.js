@@ -380,7 +380,16 @@ io.on('connection', (socket) => {
             delete rooms[currentRoom];
             return;
           } else if (room.host === socket.id) {
-            room.host = room.state.players[0].socketId;
+            const nextHost = room.state.players.find(p => !p.disconnected);
+            if (!nextHost) {
+              // All remaining players are disconnected — close the room
+              for (const p of room.state.players) {
+                io.to(p.socketId).emit('kicked');
+              }
+              delete rooms[currentRoom];
+              return;
+            }
+            room.host = nextHost.socketId;
           }
           emitRoomState(currentRoom);
         } else {

@@ -558,4 +558,104 @@ describe('Server Socket E2E Simulation', () => {
       });
     });
   }, 10000);
+
+  it('closes room when host leaves and all remaining players are disconnected', () => {
+    return new Promise((resolve, reject) => {
+      const roomId = 'HOST_LEAVE_ALL_DISC';
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — disconnects unexpectedly
+      let s3 = null;
+
+      const cleanup = () => { s1.disconnect(); if (s3) s3.disconnect(); };
+      const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 8000);
+
+      let handled = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-hld-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-hld-b', color: '#00ff00' }, () => {
+            s2.disconnect(); // unexpected disconnect — server marks Bob as disconnected
+          });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (handled) return;
+        const bob = state.players.find(p => p.name === 'Bob');
+        if (bob && bob.disconnected) {
+          handled = true;
+          // Emit leaveRoom but do NOT disconnect s1 immediately — the transport must
+          // stay open long enough for the server to receive and process the event.
+          s1.emit('leaveRoom');
+
+          // Wait for the server to process leaveRoom and delete the room, then verify
+          // the same roomId is now a fresh slate (no Bob).
+          setTimeout(() => {
+            s3 = io(`http://127.0.0.1:${PORT}`);
+            s3.emit('joinRoom', { roomId, name: 'Charlie', deviceId: 'dev-hld-c', color: '#0000ff' }, () => {});
+
+            s3.on('gameState', (freshState) => {
+              expect(freshState.players.some(p => p.name === 'Bob')).toBe(false);
+              expect(freshState.players.some(p => p.name === 'Charlie')).toBe(true);
+              clearTimeout(timeoutId);
+              cleanup();
+              resolve();
+            });
+          }, 500);
+        }
+      });
+    });
+  }, 10000);
+
+  it('promotes first connected player to host when host leaves, skipping disconnected players', () => {
+    return new Promise((resolve, reject) => {
+      const roomId = 'HOST_REASSIGN_CONNECTED';
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — disconnects (must NOT become host)
+      const s3 = io(`http://127.0.0.1:${PORT}`); // Charlie — stays connected (must become host)
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        s2.disconnect();
+        s3.disconnect();
+        reject(new Error('Test timed out'));
+      }, 8000);
+
+      let bobDisconnected = false;
+      let resolved = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-hrc-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-hrc-b', color: '#00ff00' }, () => {
+            s3.emit('joinRoom', { roomId, name: 'Charlie', deviceId: 'dev-hrc-c', color: '#0000ff' }, () => {
+              s2.disconnect(); // Bob disconnects unexpectedly
+            });
+          });
+        });
+      });
+
+      // Wait until server marks Bob as disconnected, then Alice leaves.
+      // Do NOT disconnect s1 immediately — the transport must stay open so
+      // the server processes the leaveRoom event before the socket closes.
+      s1.on('gameState', (state) => {
+        const bob = state.players.find(p => p.name === 'Bob');
+        if (bob && bob.disconnected && !bobDisconnected) {
+          bobDisconnected = true;
+          s1.emit('leaveRoom');
+        }
+      });
+
+      // Charlie must receive his own socket ID as the new host
+      s3.on('hostId', (newHostId) => {
+        if (!bobDisconnected || resolved) return;
+        resolved = true;
+        expect(newHostId).toBe(s3.id); // Charlie is the new host
+        clearTimeout(timeoutId);
+        s1.disconnect();
+        s2.disconnect();
+        s3.disconnect();
+        resolve();
+      });
+    });
+  }, 10000);
 });

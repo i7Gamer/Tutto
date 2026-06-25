@@ -112,34 +112,34 @@ export default function OnlineLobby({ game }) {
           />
         </div>
 
-        <AdvancedOptionsPanel 
-          showAdvanced={showAdvanced} 
-          game={game} 
-          isOnline={true} 
+        <AdvancedOptionsPanel
+          showAdvanced={showAdvanced}
+          game={game}
+          isOnline={true}
           readOnly={!isHost}
         />
-
-        <AnimatePresence>
-          {isHost ? (
-            <StartGameButton 
-              startGame={startGame} 
-              playersCount={players ? players.length : 0}
-              disabled={players.length < 2 || players?.some(p => p.disconnected)}
-            />
-          ) : (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-center text-indigo-600 font-bold text-lg p-6 bg-white dark:bg-slate-800/40 rounded-xl border border-indigo-100"
-            >
-              <div className="flex justify-center mb-3">
-                <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-              </div>
-              {t('lobby.online.waitingForHost', 'Waiting for host to start the game...')}
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
+
+      <AnimatePresence>
+        {isHost ? (
+          <StartGameButton
+            startGame={startGame}
+            playersCount={players ? players.length : 0}
+            disabled={players.length < 2 || players?.some(p => p.disconnected)}
+          />
+        ) : (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center text-indigo-600 font-bold text-lg p-6 bg-white dark:bg-slate-800/40 rounded-xl border border-indigo-100"
+          >
+            <div className="flex justify-center mb-3">
+              <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+            </div>
+            {t('lobby.online.waitingForHost', 'Waiting for host to start the game...')}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
