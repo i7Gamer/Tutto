@@ -192,9 +192,12 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
     onComplete(summaryDataRef.current.score || 0, summaryDataRef.current.won || false);
   }, [onComplete]);
 
+  const finishGameRef = useRef(finishGame);
+  useEffect(() => { finishGameRef.current = finishGame; }, [finishGame]);
+
   // Auto-continue on a true bust (won = false). Starts exactly once when
-  // showSummary && bustState flip to true together, guarded by a ref so that
-  // subsequent re-renders caused by setBustCountdown don't re-run the timer.
+  // showSummary && bustState flip to true. Uses finishGameRef so parent
+  // re-renders never cancel the timer by changing the onComplete reference.
   useEffect(() => {
     if (!showSummary || !bustState || summaryDataRef.current.won) return;
     if (bustTimerStarted.current) return;   // already running — don't restart
@@ -205,11 +208,14 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
 
     const timeout = setTimeout(() => {
       setBustCountdown(null);
-      finishGame();
+      finishGameRef.current();
     }, AUTO_CONTINUE_MS);
 
+    // eslint-disable-next-line consistent-return
     return () => clearTimeout(timeout);
-  }, [showSummary, bustState, finishGame]);
+  // finishGame intentionally omitted: we use the ref to avoid re-starting on parent re-renders
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSummary, bustState]);
 
   // Countdown tick: decrements once per second while bustCountdown > 0.
   // Runs independently of the main timer so re-renders don't kill the timeout.

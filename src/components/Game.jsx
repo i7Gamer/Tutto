@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import confetti from 'canvas-confetti';
 import { playBuzzer, playSuccess } from '../utils/soundEffects';
@@ -120,10 +120,10 @@ export default function Game() {
     nextTurn(0, isSuccess);
   };
 
-  const handleDiceComplete = (score, isSuccess) => {
+  const handleDiceComplete = useCallback((score, isSuccess) => {
     setShowDiceGame(false);
     nextTurn(score, isSuccess);
-  };
+  }, [nextTurn]);
 
   return (
     <div className="container mx-auto px-2 md:px-4 pt-2 md:pt-4 pb-20 max-w-3xl flex flex-col gap-2 md:gap-4">
