@@ -647,9 +647,9 @@ describe('Server Socket E2E Simulation', () => {
 
       // Charlie must receive his own socket ID as the new host
       s3.on('hostId', (newHostId) => {
-        if (!bobDisconnected || resolved) return;
+        if (newHostId !== s3.id || resolved) return;
         resolved = true;
-        expect(newHostId).toBe(s3.id); // Charlie is the new host
+        expect(bobDisconnected).toBe(true); // Ensure Bob was disconnected first
         clearTimeout(timeoutId);
         s1.disconnect();
         s2.disconnect();

@@ -254,7 +254,7 @@ describe('Game Component Integration', () => {
     const confetti = await import('canvas-confetti').then(m => m.default);
 
     act(() => {
-      useGameStore.setState({ currentCard: 'Feuerwerk' });
+      useGameStore.setState({ currentCard: 'Feuerwerk', cards: ['Feuerwerk', 'Stop'] });
     });
     
     const { rerender } = render(<Game />);
@@ -265,15 +265,9 @@ describe('Game Component Integration', () => {
     
     vi.clearAllMocks();
 
-    // Re-render with same card should re-trigger because of useEffect dependency
+    // Consecutive draw of Feuerwerk: currentCard stays 'Feuerwerk', cards array length decreases
     act(() => {
-      useGameStore.setState({ currentCard: null });
-    });
-    
-    rerender(<Game />);
-    
-    act(() => {
-      useGameStore.setState({ currentCard: 'Feuerwerk' });
+      useGameStore.setState({ currentCard: 'Feuerwerk', cards: ['Stop'] });
     });
     
     rerender(<Game />);

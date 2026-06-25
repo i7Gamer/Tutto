@@ -34,7 +34,7 @@ export default function CardDisplay({ currentCard, cards }) {
               className="absolute w-full h-full shadow-2xl rounded-2xl overflow-hidden preserve-3d"
             >
               <img 
-                src={`./assets/${CARD_IMAGE_MAP[currentCard] ?? CARD_IMAGE_MAP['fallback']}`} 
+                src={`./assets/${CARD_IMAGE_MAP[currentCard] ?? CARD_IMAGE_MAP['fallback']}?v=2`} 
                 alt={t(`game.cards.${currentCard}`, currentCard)} 
                 className="w-full h-full object-contain"
               />

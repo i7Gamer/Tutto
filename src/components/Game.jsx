@@ -80,7 +80,7 @@ export default function Game() {
 
   useEffect(() => {
     confettiFiredRef.current = false;
-  }, [currentCard]);
+  }, [currentCard, cards?.length]);
 
   useEffect(() => {
     let timeout;
