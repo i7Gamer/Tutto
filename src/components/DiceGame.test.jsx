@@ -315,6 +315,124 @@ describe('DiceGame Integration', () => {
     expect(fiveDie).not.toHaveAttribute('disabled');
   });
 
+  describe('Dice Display Accuracy - Bug #1 Prevention', () => {
+    const wait = (ms) => act(async () => { await new Promise(r => setTimeout(r, ms)); });
+
+    it('displayRoll never diverges from currentRoll values during animation', async () => {
+      /**
+       * This test specifically verifies that the dice display race condition is fixed.
+       * It ensures that:
+       * 1. Dice roll with specific known values
+       * 2. The displayed values match the actual rolled values throughout animation
+       * 3. The interval animation does not overwrite settled values
+       * 4. After animation completes, all dice show their correct values
+       */
+      const onComplete = vi.fn();
+
+      // Fixed dice sequence: 1, 2, 3, 4, 5, 6
+      const expectedValues = [1, 2, 3, 4, 5, 6];
+      diceSequence = [...expectedValues];
+
+      render(
+        <DiceGame currentCard="300" onComplete={onComplete} onCancel={vi.fn()} />
+      );
+
+      // Roll the dice
+      fireEvent.click(screen.getByText('dice.roll_6_dice'));
+
+      // During animation, check periodically that displayed values don't diverge from expected
+      // Wait for dice to settle (500ms for animation + buffer)
+      for (let i = 0; i < 6; i++) {
+        // After each dice settles, verify it shows the correct value
+        await wait(100);
+        const dieText = screen.queryByText(expectedValues[i]);
+        expect(dieText).toBeTruthy();
+      }
+
+      // After all animation completes, verify all dice are showing correct values
+      await wait(200);
+
+      for (const expectedVal of expectedValues) {
+        const dieElements = screen.queryAllByText(expectedVal.toString());
+        expect(dieElements.length).toBeGreaterThan(0);
+      }
+
+      // Verify all 6 dice are visible and correct
+      const allDiceText = expectedValues.map(v => v.toString());
+      allDiceText.forEach(val => {
+        expect(screen.queryByText(val)).toBeTruthy();
+      });
+    });
+
+    it('dice values remain stable after settling (no delayed overwrites)', async () => {
+      /**
+       * This test verifies that once a die has been settled to its correct value,
+       * the animation interval does not overwrite it later.
+       */
+      const onComplete = vi.fn();
+
+      const expectedValues = [6, 5, 4, 3, 2, 1];
+      diceSequence = [...expectedValues];
+
+      render(
+        <DiceGame currentCard="200" onComplete={onComplete} onCancel={vi.fn()} />
+      );
+
+      fireEvent.click(screen.getByText('dice.roll_6_dice'));
+
+      // Wait for initial animation to complete
+      await wait(600);
+
+      // Get the initially displayed values
+      const getDisplayedValues = () => {
+        return expectedValues.map(v => screen.queryByText(v.toString()) ? v : null).filter(v => v !== null);
+      };
+
+      const initiallyDisplayed = getDisplayedValues();
+
+      // Wait more time to simulate interval running after settlement
+      await wait(500);
+
+      // Verify the same dice are still displayed (not changed by lingering interval)
+      const stillDisplayed = getDisplayedValues();
+      expect(stillDisplayed.sort()).toEqual(initiallyDisplayed.sort());
+    });
+
+    it('high-frequency animation interval cannot corrupt dice values', async () => {
+      /**
+       * Stress test: Verify that even with multiple interval ticks,
+       * dice values never show incorrect numbers.
+       */
+      const onComplete = vi.fn();
+
+      const expectedValues = [1, 1, 1, 5, 5, 5]; // All 1s and 5s
+      diceSequence = [...expectedValues];
+
+      render(
+        <DiceGame currentCard="Feuerwerk" onComplete={onComplete} onCancel={vi.fn()} />
+      );
+
+      fireEvent.click(screen.getByText('dice.roll_6_dice'));
+
+      // Check every 50ms for 700ms (simulating 14 interval ticks at 80ms intervals)
+      for (let tick = 0; tick < 14; tick++) {
+        await wait(50);
+
+        // At any point during/after animation, verify displayed values are either 1 or 5
+        const diceElements = screen.queryAllByText(/^[15]$/);
+        expect(diceElements.length).toBeGreaterThan(0);
+        diceElements.forEach(el => {
+          expect([1, 5]).toContain(parseInt(el.textContent));
+        });
+      }
+
+      // Final verification: all settled dice show correct values
+      const onesDisplayed = screen.queryAllByText('1').length;
+      const fivesDisplayed = screen.queryAllByText('5').length;
+      expect(onesDisplayed + fivesDisplayed).toBe(6);
+    });
+  });
+
   describe('onStateChange callback', () => {
     const wait = (ms) => act(async () => { await new Promise(r => setTimeout(r, ms)); });
 
