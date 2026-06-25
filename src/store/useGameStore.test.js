@@ -413,6 +413,55 @@ describe('useGameStore', () => {
     });
   });
 
+  describe('liveTurnState', () => {
+    it('setLiveTurnState stores the snapshot locally', () => {
+      const snapshot = { turnScore: 200, keptDice: [{ val: 1 }], currentRoll: [] };
+      useGameStore.getState().setLiveTurnState(snapshot);
+      expect(useGameStore.getState().liveTurnState).toEqual(snapshot);
+    });
+
+    it('setLiveTurnState triggers pushState when online', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: false, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
+        players: [makeOnlinePlayer('Alice'), makeOnlinePlayer('Bob')],
+        currentPlayerIndex: 0, status: 'playing',
+      });
+      mockEmit.mockClear();
+
+      const snapshot = { turnScore: 350, keptDice: [{ val: 5 }], currentRoll: [{ val: 3, selected: false }] };
+      useGameStore.getState().setLiveTurnState(snapshot);
+
+      expect(mockEmit).toHaveBeenCalledWith('pushState', expect.objectContaining({
+        newState: expect.objectContaining({ liveTurnState: snapshot }),
+      }));
+    });
+
+    it('nextTurn clears liveTurnState', () => {
+      useGameStore.getState().addPlayer('P1');
+      useGameStore.getState().addPlayer('P2');
+      useGameStore.setState({
+        status: 'playing', currentPlayerIndex: 0, round: 1,
+        liveTurnState: { turnScore: 100, keptDice: [], currentRoll: [] },
+      });
+
+      useGameStore.getState().nextTurn(500, true);
+
+      expect(useGameStore.getState().liveTurnState).toBeNull();
+    });
+
+    it('endGame clears liveTurnState', () => {
+      useGameStore.setState({
+        liveTurnState: { turnScore: 100, keptDice: [], currentRoll: [] },
+      });
+
+      useGameStore.getState().endGame();
+
+      expect(useGameStore.getState().liveTurnState).toBeNull();
+    });
+  });
+
   describe('disconnect toast', () => {
     it('includes the reconnect countdown in the toast', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');

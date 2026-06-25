@@ -314,4 +314,72 @@ describe('DiceGame Integration', () => {
     expect(fiveDie.tagName).toBe('BUTTON');
     expect(fiveDie).not.toHaveAttribute('disabled');
   });
+
+  describe('onStateChange callback', () => {
+    const wait = (ms) => act(async () => { await new Promise(r => setTimeout(r, ms)); });
+
+    it('fires with { turnScore, keptDice, currentRoll } snapshot after rolling', async () => {
+      const onStateChange = vi.fn();
+      diceSequence = [1, 5, 3, 3, 3, 2];
+      render(
+        <DiceGame currentCard="300" onComplete={vi.fn()} onCancel={vi.fn()} onStateChange={onStateChange} />
+      );
+
+      fireEvent.click(screen.getByText('dice.roll_6_dice'));
+      await wait(350);
+
+      expect(onStateChange).toHaveBeenCalled();
+      const snapshot = onStateChange.mock.calls.at(-1)[0];
+      expect(snapshot).toMatchObject({
+        turnScore: expect.any(Number),
+        keptDice: expect.any(Array),
+        currentRoll: expect.any(Array),
+      });
+      expect(snapshot.currentRoll.every(d => 'val' in d && 'selected' in d)).toBe(true);
+      expect(snapshot.keptDice.every(d => 'val' in d)).toBe(true);
+    });
+
+    it('snapshot reflects dice selection: selected die has selected=true in currentRoll', async () => {
+      const onStateChange = vi.fn();
+      diceSequence = [1, 5, 5, 5, 3, 2];
+      render(
+        <DiceGame currentCard="300" onComplete={vi.fn()} onCancel={vi.fn()} onStateChange={onStateChange} />
+      );
+
+      fireEvent.click(screen.getByText('dice.roll_6_dice'));
+      await wait(50); // let dice settle before interacting
+
+      onStateChange.mockClear();
+      fireEvent.click(screen.getByRole('button', { name: /Die showing 1/ }));
+      await wait(350);
+
+      expect(onStateChange).toHaveBeenCalled();
+      const snapshot = onStateChange.mock.calls.at(-1)[0];
+      const selectedInRoll = snapshot.currentRoll.filter(d => d.selected);
+      expect(selectedInRoll.length).toBeGreaterThan(0);
+      expect(selectedInRoll[0].val).toBe(1);
+    });
+
+    it('does not fire before the first roll', async () => {
+      const onStateChange = vi.fn();
+      render(
+        <DiceGame currentCard="300" onComplete={vi.fn()} onCancel={vi.fn()} onStateChange={onStateChange} />
+      );
+
+      await wait(400);
+
+      expect(onStateChange).not.toHaveBeenCalled();
+    });
+
+    it('does not crash when onStateChange prop is omitted', async () => {
+      diceSequence = [1, 2, 3, 4, 5, 6];
+      render(
+        <DiceGame currentCard="300" onComplete={vi.fn()} onCancel={vi.fn()} />
+      );
+
+      fireEvent.click(screen.getByText('dice.roll_6_dice'));
+      await wait(350);
+      // passes if no error is thrown
+    });
+  });
 });

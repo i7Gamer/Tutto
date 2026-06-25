@@ -559,6 +559,58 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
+  it('active player can push liveTurnState and it is forwarded to other players', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — active player
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        s2.disconnect();
+        reject(new Error('Timed out waiting for liveTurnState to be forwarded'));
+      }, 8000);
+
+      let gameStarted = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'LIVE_TURN_ROOM', name: 'Alice', deviceId: 'dev-lt-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'LIVE_TURN_ROOM', name: 'Bob', deviceId: 'dev-lt-b', color: '#00ff00' }, () => {
+            const players = [
+              { name: 'Alice', deviceId: 'dev-lt-a', socketId: s1.id, disconnected: false, score: 0 },
+              { name: 'Bob',   deviceId: 'dev-lt-b', socketId: s2.id, disconnected: false, score: 0 },
+            ];
+            // Alice (host) starts game with Bob as active player (index 1)
+            s1.emit('pushState', { roomId: 'LIVE_TURN_ROOM', newState: { players, status: 'playing', currentPlayerIndex: 1 } });
+
+            setTimeout(() => {
+              // Bob pushes a live turn state snapshot
+              s2.emit('pushState', {
+                roomId: 'LIVE_TURN_ROOM',
+                newState: {
+                  liveTurnState: { turnScore: 350, keptDice: [{ val: 1 }], currentRoll: [{ val: 5, selected: false }] },
+                },
+              });
+            }, 200);
+          });
+        });
+      });
+
+      // Alice observes the forwarded liveTurnState
+      s1.on('gameState', (state) => {
+        if (!gameStarted && state.status === 'playing') {
+          gameStarted = true;
+          return;
+        }
+        if (gameStarted && state.liveTurnState && state.liveTurnState.turnScore === 350) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          s2.disconnect();
+          resolve();
+        }
+      });
+    });
+  }, 10000);
+
   it('closes room when host leaves and all remaining players are disconnected', () => {
     return new Promise((resolve, reject) => {
       const roomId = 'HOST_LEAVE_ALL_DISC';
