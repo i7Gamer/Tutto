@@ -4,23 +4,25 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { isTestEnv } from '../../utils/env';
 
-export default function GameControls({ 
-  currentCard, 
+export default function GameControls({
+  currentCard,
   cardsLength,
-  isMyTurn, 
-  diceMode, 
-  setShowDiceGame, 
-  scoreInput, 
-  setScoreInput, 
-  applyBonus, 
-  setApplyBonus, 
-  handleNextTurn, 
-  handleYesNo, 
-  undo, 
+  isMyTurn,
+  diceMode,
+  setShowDiceGame,
+  scoreInput,
+  setScoreInput,
+  applyBonus,
+  setApplyBonus,
+  handleNextTurn,
+  handleYesNo,
+  undo,
   endGame,
   isOnline,
   isHost,
-  leaveRoom
+  leaveRoom,
+  activeTurnState,
+  currentPlayer,
 }) {
   const { t } = useTranslation();
   const currentCardHasInput = !["Stop", "Plus_Minus", "Kniffel", "Kleeblatt"].includes(currentCard);
@@ -193,15 +195,65 @@ export default function GameControls({
           )}
 
           {!isMyTurn && (
-            <motion.div 
+            <motion.div
               key="waiting-controls"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="flex flex-col items-center justify-center w-full text-center"
             >
-              <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
-              <h4 className="text-xl font-bold text-gray-800 dark:text-gray-100">{t('game.controls.waiting', 'Waiting for other player...')}</h4>
+              {diceMode === 'digital' && isOnline && activeTurnState ? (
+                <div className="w-full">
+                  <p className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
+                    {t('game.controls.playerIsPlaying', '{{name}} is playing', { name: currentPlayer?.name ?? '' })}
+                  </p>
+                  <div className="text-4xl font-black text-indigo-600 dark:text-indigo-400 mb-4">
+                    {activeTurnState.turnScore}
+                  </div>
+
+                  {activeTurnState.keptDice.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+                        {t('game.controls.keptDice', 'Kept Dice')}
+                      </p>
+                      <div className="flex gap-2 flex-wrap justify-center">
+                        {activeTurnState.keptDice.map((d, i) => (
+                          <div key={i} className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center text-xl font-bold border-2 border-indigo-400">
+                            {d.val}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {activeTurnState.currentRoll.length > 0 && (
+                    <div>
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+                        {t('game.controls.currentRoll', 'Current Roll')}
+                      </p>
+                      <div className="flex gap-2 flex-wrap justify-center">
+                        {activeTurnState.currentRoll.map((d, i) => (
+                          <div
+                            key={i}
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl font-bold border-2 ${
+                              d.selected
+                                ? 'bg-emerald-100 border-emerald-500 text-emerald-700'
+                                : 'bg-white dark:bg-slate-700 border-gray-300 dark:border-slate-500 text-gray-800 dark:text-gray-100'
+                            }`}
+                          >
+                            {d.val}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
+                  <h4 className="text-xl font-bold text-gray-800 dark:text-gray-100">{t('game.controls.waiting', 'Waiting for other player...')}</h4>
+                </>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

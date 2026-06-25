@@ -79,8 +79,48 @@ describe('GameControls Component', () => {
         isMyTurn={false}
       />
     );
-    
+
     expect(screen.getByText('game.controls.waiting')).toBeInTheDocument();
+  });
+
+  it('renders live dice state when not my turn with activeTurnState (online digital dice)', () => {
+    const activeTurnState = {
+      turnScore: 350,
+      keptDice: [{ val: 1 }, { val: 5 }],
+      currentRoll: [{ val: 3, selected: false }, { val: 6, selected: false }],
+    };
+    render(
+      <GameControls
+        currentCard="300"
+        isMyTurn={false}
+        isOnline={true}
+        diceMode="digital"
+        activeTurnState={activeTurnState}
+        currentPlayer={{ name: 'Alice' }}
+      />
+    );
+
+    expect(screen.getByText('game.controls.playerIsPlaying')).toBeInTheDocument();
+    expect(screen.getByText('350')).toBeInTheDocument();
+    expect(screen.getByText('game.controls.keptDice')).toBeInTheDocument();
+    expect(screen.getByText('game.controls.currentRoll')).toBeInTheDocument();
+    expect(screen.queryByText('game.controls.waiting')).not.toBeInTheDocument();
+  });
+
+  it('still shows spinner when online digital but activeTurnState is null (not yet rolled)', () => {
+    render(
+      <GameControls
+        currentCard="300"
+        isMyTurn={false}
+        isOnline={true}
+        diceMode="digital"
+        activeTurnState={null}
+        currentPlayer={{ name: 'Alice' }}
+      />
+    );
+
+    expect(screen.getByText('game.controls.waiting')).toBeInTheDocument();
+    expect(screen.queryByText('game.controls.playerIsPlaying')).not.toBeInTheDocument();
   });
 
   it('renders footer buttons: End Game and Undo (offline mode)', () => {
