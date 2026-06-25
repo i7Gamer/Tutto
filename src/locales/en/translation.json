@@ -72,6 +72,8 @@
   "game.host": "Host",
   "game.you": "You ({{name}})",
   "game.disconnected": "Disconnected",
+  "game.kick": "Kick",
+  "game.kickPlayer": "Kick Player",
   "game.yourScore": "Your Score",
   "game.score": "Score",
   "game.round": "Round",

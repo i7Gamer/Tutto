@@ -31,6 +31,8 @@ export default function Game() {
     liveTurnState,
     setLiveTurnState,
     diceMode,
+    isHost,
+    kickPlayer,
   } = game;
 
   const formattedTime = formatTime(gameTimeInSeconds);
@@ -191,7 +193,20 @@ export default function Game() {
                     <div className="flex-1 font-bold flex items-center flex-wrap gap-2" style={{ color: p.color || 'var(--text-color, #1f2937)' }}>
                       <span>{p.name}</span>
                       {isOnline && game.hostId === p.socketId && <span title={t('game.host', 'Host')} className="text-lg leading-none">👑</span>}
-                      {p.disconnected && <span className="text-red-500 text-[10px] sm:text-xs font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50 whitespace-nowrap">{t('game.disconnected', 'Disconnected')}</span>}
+                      {p.disconnected && (
+                        <>
+                          <span className="text-red-500 text-[10px] sm:text-xs font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50 whitespace-nowrap">{t('game.disconnected', 'Disconnected')}</span>
+                          {isOnline && isHost && (
+                            <button
+                              onClick={() => kickPlayer(p.socketId)}
+                              className="text-red-600 dark:text-red-400 hover:text-white hover:bg-red-500 dark:hover:bg-red-600 px-2 py-0.5 text-[10px] sm:text-xs font-semibold rounded-full border border-red-200 dark:border-red-800 transition-colors shadow-sm ml-1"
+                              title={t('game.kickPlayer', 'Kick Player')}
+                            >
+                              {t('game.kick', 'Kick')}
+                            </button>
+                          )}
+                        </>
+                      )}
                     </div>
                     <div className="w-24 font-bold text-gray-800 dark:text-gray-100 text-right">{p.score}</div>
                   </motion.div>

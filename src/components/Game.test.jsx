@@ -296,4 +296,28 @@ describe('Game Component Integration', () => {
     expect(screen.getAllByText(/game.goalPrefix/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/game.goalSuffix/).length).toBeGreaterThan(0);
   });
+
+  it('renders a Kick button next to disconnected player when current user is the host', () => {
+    const kickPlayerMock = vi.fn();
+    useGameStore.setState({
+      isOnline: true,
+      isHost: true,
+      kickPlayer: kickPlayerMock,
+      players: [
+        { name: 'Alice', socketId: 'socket-host', score: 0, position: 1 },
+        { name: 'Bob', socketId: 'socket-client', score: 0, position: 2, disconnected: true }
+      ],
+      sortedPlayers: [
+        { name: 'Alice', socketId: 'socket-host', score: 0, position: 1 },
+        { name: 'Bob', socketId: 'socket-client', score: 0, position: 2, disconnected: true }
+      ]
+    });
+    render(<Game />);
+
+    const kickButton = screen.getByRole('button', { name: 'game.kick' });
+    expect(kickButton).toBeInTheDocument();
+    
+    fireEvent.click(kickButton);
+    expect(kickPlayerMock).toHaveBeenCalledWith('socket-client');
+  });
 });

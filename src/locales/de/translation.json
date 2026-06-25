@@ -72,6 +72,8 @@
   "game.host": "Host",
   "game.you": "Du ({{name}})",
   "game.disconnected": "Getrennt",
+  "game.kick": "Kicken",
+  "game.kickPlayer": "Spieler kicken",
   "game.yourScore": "Dein Punktestand",
   "game.score": "Punktestand",
   "game.round": "Runde",
