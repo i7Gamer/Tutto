@@ -23,6 +23,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
   const [summaryData, setSummaryData] = useState({ won: false, score: 0, isTutto: false });
   const [tuttosThisTurn, setTuttosThisTurn] = useState(0);
   const [bustCountdown, setBustCountdown] = useState(null);
+  const bustTimerStarted = useRef(false);
   
   const selectedRolls = currentRoll.filter(d => d.selected);
   const selectedVals = selectedRolls.map(d => d.val);
@@ -191,30 +192,34 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
     onComplete(summaryDataRef.current.score || 0, summaryDataRef.current.won || false);
   }, [onComplete]);
 
+  // Auto-continue on a true bust (won = false). Starts exactly once when
+  // showSummary && bustState flip to true together, guarded by a ref so that
+  // subsequent re-renders caused by setBustCountdown don't re-run the timer.
   useEffect(() => {
-    let timeout;
-    let countdownInterval;
-    // Only auto-continue on a true bust (score = 0, won = false).
-    // Feuerwerk bust-after-scoring has bustState=true but won=true — keep manual Continue.
-    if (showSummary && bustState && !summaryDataRef.current.won) {
-      const AUTO_CONTINUE_MS = isTestEnv() ? 0 : 3000;
-      setBustCountdown(3);
-      if (!isTestEnv()) {
-        countdownInterval = setInterval(() => {
-          setBustCountdown(prev => (prev !== null && prev > 1 ? prev - 1 : prev));
-        }, 1000);
-      }
-      timeout = setTimeout(() => {
-        setBustCountdown(null);
-        finishGame();
-      }, AUTO_CONTINUE_MS);
-    }
-    return () => {
-      clearTimeout(timeout);
-      clearInterval(countdownInterval);
+    if (!showSummary || !bustState || summaryDataRef.current.won) return;
+    if (bustTimerStarted.current) return;   // already running — don't restart
+    bustTimerStarted.current = true;
+
+    const AUTO_CONTINUE_MS = isTestEnv() ? 0 : 3000;
+    setBustCountdown(isTestEnv() ? 0 : 3);
+
+    const timeout = setTimeout(() => {
       setBustCountdown(null);
-    };
+      finishGame();
+    }, AUTO_CONTINUE_MS);
+
+    return () => clearTimeout(timeout);
   }, [showSummary, bustState, finishGame]);
+
+  // Countdown tick: decrements once per second while bustCountdown > 0.
+  // Runs independently of the main timer so re-renders don't kill the timeout.
+  useEffect(() => {
+    if (bustCountdown === null || bustCountdown <= 0 || isTestEnv()) return;
+    const id = setTimeout(() => {
+      setBustCountdown(prev => (prev !== null && prev > 1 ? prev - 1 : prev));
+    }, 1000);
+    return () => clearTimeout(id);
+  }, [bustCountdown]);
 
   const isMakingTutto = keptDice.length + selectedRolls.length === 6;
   const isSpecialCard = ["Kniffel", "Plus_Minus", "Kleeblatt"].includes(currentCard);
