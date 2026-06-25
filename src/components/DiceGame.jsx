@@ -7,7 +7,7 @@ import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus } from '../util
 import { isTestEnv } from '../utils/env';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export default function DiceGame({ currentCard, onComplete, onCancel }) {
+export default function DiceGame({ currentCard, onComplete, onCancel, onStateChange }) {
   const { t } = useTranslation();
   const [keptDice, setKeptDice] = useState([]);
   const [currentRoll, setCurrentRoll] = useState([]);
@@ -184,6 +184,25 @@ export default function DiceGame({ currentCard, onComplete, onCancel }) {
     if (bustState || showSummary || isRolling) return;
     setCurrentRoll(prev => prev.map(d => d.id === id ? { ...d, selected: !d.selected } : d));
   };
+
+  // Keep a stable ref to onStateChange so the effect below never needs it as a dependency.
+  const onStateChangeRef = useRef(onStateChange);
+  useEffect(() => { onStateChangeRef.current = onStateChange; }, [onStateChange]);
+
+  // Broadcast settled dice state to observers (online digital-dice turns).
+  // Fires 300 ms after the last change to keptDice, currentRoll, or turnScore
+  // so rapid successive updates (selection + roll) only produce one push.
+  useEffect(() => {
+    if (!onStateChangeRef.current || !hasRolled) return;
+    const timer = setTimeout(() => {
+      onStateChangeRef.current({
+        turnScore,
+        keptDice: keptDice.map(d => ({ val: d.val })),
+        currentRoll: currentRoll.map(d => ({ val: d.val, selected: d.selected })),
+      });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [keptDice, currentRoll, turnScore, hasRolled]);
 
   const summaryDataRef = useRef(summaryData);
   useEffect(() => { summaryDataRef.current = summaryData; }, [summaryData]);

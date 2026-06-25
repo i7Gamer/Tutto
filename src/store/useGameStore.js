@@ -57,7 +57,8 @@ const initialLocalState = {
   chartValues: [],
   chartNames: [],
   chartLabels: [],
-  status: 'lobby'
+  status: 'lobby',
+  liveTurnState: null,  // { turnScore, keptDice, currentRoll } — synced to observers during digital dice turns
 };
 
 export const useGameStore = create(immer((set, get) => ({
@@ -340,14 +341,19 @@ export const useGameStore = create(immer((set, get) => ({
     if (get().isHost && socket) socket.emit('kickPlayer', targetSocketId);
   },
 
+  setLiveTurnState: (snapshot) => {
+    set({ liveTurnState: snapshot });
+    if (get().isOnline) get().pushState();
+  },
+
   pushState: () => {
     const s = get();
     if (s.isOnline && socket) {
       // Pick game state fields to push
-      const { players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds, previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore, chartValues, chartNames, chartLabels, status } = s;
-      socket.emit('pushState', { 
-        roomId: s.roomId, 
-        newState: { players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds, previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore, chartValues, chartNames, chartLabels, status }
+      const { players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds, previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore, chartValues, chartNames, chartLabels, status, liveTurnState } = s;
+      socket.emit('pushState', {
+        roomId: s.roomId,
+        newState: { players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds, previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore, chartValues, chartNames, chartLabels, status, liveTurnState }
       });
     }
   },
@@ -493,7 +499,8 @@ export const useGameStore = create(immer((set, get) => ({
       gameTimeInSeconds: 0,
       round: 1,
       currentCard: null,
-      turnTimeRemaining: null
+      turnTimeRemaining: null,
+      liveTurnState: null
     });
     if (get().isOnline) get().pushState();
   },
@@ -530,6 +537,7 @@ export const useGameStore = create(immer((set, get) => ({
         state.cards = result.newDeck;
         state.currentCard = result.drawnCard;
       }
+      state.liveTurnState = null;
     });
 
     if (get().finished) {

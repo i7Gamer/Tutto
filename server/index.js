@@ -42,7 +42,7 @@ const ACTIVE_PLAYER_FIELDS = new Set([
   'finished', 'previousCard', 'previousScore', 'previousLeaders',
   'previousWasBust', 'previousHighestTurnScore',
   'chartValues', 'chartNames', 'chartLabels', 'gameTimeInSeconds',
-  'players',
+  'players', 'liveTurnState',
 ]);
 
 // Pre-computed union used by the host path so we don't rebuild it on every pushState.

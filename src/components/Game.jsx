@@ -16,8 +16,8 @@ import DiceGame from './DiceGame';
 export default function Game() {
   const { t } = useTranslation();
   const game = useGameStore();
-  const { 
-    currentCard, 
+  const {
+    currentCard,
     cards,
     nextTurn,
     undo,
@@ -27,7 +27,10 @@ export default function Game() {
     winningScore,
     players,
     currentPlayerIndex,
-    gameTimeInSeconds
+    gameTimeInSeconds,
+    liveTurnState,
+    setLiveTurnState,
+    diceMode,
   } = game;
 
   const formattedTime = formatTime(gameTimeInSeconds);

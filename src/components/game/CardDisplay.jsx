@@ -22,7 +22,7 @@ export default function CardDisplay({ currentCard, cards }) {
   return (
     <div className="flex flex-col items-center justify-center p-2 bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-3xl shadow-xl relative overflow-hidden h-full w-full min-h-[300px] md:min-h-[340px]">
       
-      <div className="relative w-[180px] md:w-[200px] lg:w-[220px] h-[280px] md:h-[310px] lg:h-[340px] perspective-[1000px]">
+      <div className="relative w-[180px] md:w-[200px] lg:w-[220px] h-[252px] md:h-[280px] lg:h-[308px] perspective-[1000px]">
         <AnimatePresence mode="wait">
           {currentCard ? (
             <motion.div
@@ -36,7 +36,7 @@ export default function CardDisplay({ currentCard, cards }) {
               <img 
                 src={`./assets/${CARD_IMAGE_MAP[currentCard] ?? CARD_IMAGE_MAP['fallback']}`} 
                 alt={t(`game.cards.${currentCard}`, currentCard)} 
-                className="w-full h-full object-cover"
+                className="w-full h-full object-contain"
               />
             </motion.div>
           ) : (
