@@ -224,14 +224,15 @@ describe('coreGameEngine', () => {
         expect(result.previousLeaders).toEqual([expect.objectContaining({ name: 'Alice', score: 2000 })]);
       });
 
-      it('Plus_Minus deduction never takes the leader below zero', () => {
+      it('Plus_Minus can take the leader into negative score', () => {
         const state = makeState({
-          players: [makePlayer('Alice', { score: 500 }), makePlayer('Bob', { score: 0 })],
+          players: [makePlayer('Alice', { score: 400 }), makePlayer('Bob', { score: 0 })],
           currentPlayerIndex: 1,
           currentCard: 'Plus_Minus',
         });
         const result = calculateNextTurn(state, 0, true);
-        expect(result.players[0].score).toBe(0); // max(0, 500 - 1000)
+        expect(result.players[0].score).toBe(-600); // 400 - 1000
+        expect(result.players[0].times1000PointsDeducted).toBe(1);
       });
 
       it('Plus_Minus success by the current leader deducts from no one', () => {
@@ -296,6 +297,45 @@ describe('coreGameEngine', () => {
         expect(result.players[1].score).toBe(2000); // Bob untouched (is a leader)
         expect(result.players[0].timesPlusMinusCompleted).toBe(1);
         expect(result.previousLeaders).toBeNull(); // No deduction occurred
+      });
+
+      it('Plus_Minus with low leader score can result in negative score', () => {
+        const state = makeState({
+          players: [
+            makePlayer('Alice', { score: 400 }),
+            makePlayer('Bob', { score: 200 }),
+            makePlayer('Charlie', { score: 0 })
+          ],
+          currentPlayerIndex: 2, // Charlie plays Plus_Minus
+          currentCard: 'Plus_Minus',
+        });
+        const result = calculateNextTurn(state, 0, true);
+        expect(result.players[0].score).toBe(-600); // Alice 400 - 1000
+        expect(result.players[0].times1000PointsDeducted).toBe(1);
+        expect(result.players[2].score).toBe(1000); // Charlie 0 + 1000
+        expect(result.previousLeaders).toEqual([expect.objectContaining({ name: 'Alice', score: 400 })]);
+      });
+
+      it('Plus_Minus with multiple low leaders can result in negative scores for all', () => {
+        const state = makeState({
+          players: [
+            makePlayer('Alice', { score: 300 }),
+            makePlayer('Bob', { score: 300 }),
+            makePlayer('Charlie', { score: 100 })
+          ],
+          currentPlayerIndex: 2, // Charlie plays Plus_Minus
+          currentCard: 'Plus_Minus',
+        });
+        const result = calculateNextTurn(state, 0, true);
+        expect(result.players[0].score).toBe(-700); // Alice 300 - 1000
+        expect(result.players[1].score).toBe(-700); // Bob 300 - 1000
+        expect(result.players[0].times1000PointsDeducted).toBe(1);
+        expect(result.players[1].times1000PointsDeducted).toBe(1);
+        expect(result.players[2].score).toBe(1100); // Charlie 100 + 1000
+        expect(result.previousLeaders).toEqual([
+          expect.objectContaining({ name: 'Alice', score: 300 }),
+          expect.objectContaining({ name: 'Bob', score: 300 })
+        ]);
       });
     });
 
@@ -512,6 +552,51 @@ describe('coreGameEngine', () => {
       expect(result.players[0].score).toBe(2000); // Alice loses her 1000
       expect(result.players[1].score).toBe(2000); // Bob untouched
       expect(result.players[0].timesPlusMinusCompleted).toBe(0);
+    });
+
+    it('reverts Plus_Minus when leader was taken to negative score', () => {
+      const state = makeState({
+        players: [
+          makePlayer('Alice', { score: -600, times1000PointsDeducted: 1 }),
+          makePlayer('Bob', { score: 1000, totalTurns: 1, timesPlusMinusCompleted: 1 })
+        ],
+        currentPlayerIndex: 0, // round 2, undo Bob's Plus_Minus
+        round: 2,
+        previousCard: 'Plus_Minus',
+        previousScore: 1000,
+        previousLeaders: [{ name: 'Alice', score: 400 }],
+      });
+      const result = calculateUndo(state);
+      expect(result.isRoundEndUndo).toBe(true);
+      expect(result.players[0].score).toBe(400); // Alice restored to positive
+      expect(result.players[0].times1000PointsDeducted).toBe(0);
+      expect(result.players[1].score).toBe(0); // Bob loses his 1000
+      expect(result.players[1].timesPlusMinusCompleted).toBe(0);
+    });
+
+    it('reverts Plus_Minus with multiple leaders taken to negative', () => {
+      const state = makeState({
+        players: [
+          makePlayer('Alice', { score: -700, times1000PointsDeducted: 1 }),
+          makePlayer('Bob', { score: -700, times1000PointsDeducted: 1 }),
+          makePlayer('Charlie', { score: 1100, totalTurns: 1, timesPlusMinusCompleted: 1 })
+        ],
+        currentPlayerIndex: 0, // round 2, undo Charlie's Plus_Minus
+        round: 2,
+        previousCard: 'Plus_Minus',
+        previousScore: 1000,
+        previousLeaders: [
+          { name: 'Alice', score: 300 },
+          { name: 'Bob', score: 300 }
+        ],
+      });
+      const result = calculateUndo(state);
+      expect(result.players[0].score).toBe(300); // Alice restored
+      expect(result.players[1].score).toBe(300); // Bob restored
+      expect(result.players[2].score).toBe(100); // Charlie loses his 1000
+      expect(result.players[0].times1000PointsDeducted).toBe(0);
+      expect(result.players[1].times1000PointsDeducted).toBe(0);
+      expect(result.players[2].timesPlusMinusCompleted).toBe(0);
     });
 
     it('decrements timesPlusMinusFailed when undoing a failed Plus_Minus', () => {

@@ -15,13 +15,30 @@
       window.addEventListener('error', function(e) {
         var isChunkError = e.message && (e.message.includes('Failed to fetch dynamically imported module') || e.message.includes('Importing a module script failed'));
         var isAppScript = e.target && e.target.src && (e.target.src.includes('/assets/') || e.target.src.includes('/src/'));
-        var isScriptError = e.target && e.target.tagName === 'SCRIPT' && isAppScript && !e.target.src.includes('socket.io');
-        
+        var isExcluded = e.target && e.target.src && (
+          e.target.src.includes('socket.io') ||
+          e.target.src.includes('google') ||
+          e.target.src.includes('fonts.googleapis') ||
+          e.target.src.includes('cdn') ||
+          e.target.src.includes('analytics')
+        );
+        var isScriptError = e.target && e.target.tagName === 'SCRIPT' && isAppScript && !isExcluded;
+
         if (isChunkError || isScriptError) {
           var lastReload = localStorage.getItem('tutto_last_reload');
           var now = Date.now();
-          
-          if (!lastReload || (now - parseInt(lastReload)) > 10000) {
+
+          console.warn('[Auto-reload Check]', {
+            message: e.message,
+            src: e.target?.src,
+            isChunkError: isChunkError,
+            isScriptError: isScriptError,
+            lastReload: lastReload ? new Date(parseInt(lastReload)).toISOString() : null,
+            timeSinceLastReload: lastReload ? (now - parseInt(lastReload)) + 'ms' : 'never'
+          });
+
+          if (!lastReload || (now - parseInt(lastReload)) > 60000) {
+            console.error('[Auto-reloading] Triggering reload due to:', e.message || e.target?.src);
             localStorage.setItem('tutto_last_reload', now.toString());
             if ('caches' in window) {
               caches.keys().then(function(names) {
@@ -32,6 +49,8 @@
             } else {
               window.location.reload(true);
             }
+          } else {
+            console.log('[Auto-reload skipped] Too soon since last reload');
           }
         }
       }, true);

@@ -119,7 +119,7 @@ export const calculateNextTurn = (gameState, scoreInput, isSuccess = false) => {
       leaders.forEach(l => {
         const p = newPlayers.find(np => np.name === l.name);
         p.times1000PointsDeducted = (p.times1000PointsDeducted || 0) + 1;
-        p.score = Math.max(0, p.score - 1000);
+        p.score = p.score - 1000;
       });
     }
     currentPlayer.timesPlusMinusCompleted = (currentPlayer.timesPlusMinusCompleted || 0) + 1;
