@@ -27,12 +27,12 @@ The objective of the game is to be the first player to reach the winning score (
 1. On your turn, you must first draw a card from the deck.
 2. After drawing, you roll the dice to score points. You must score at least some points on every roll (either single 1s/5s or triples of the same number).
 3. If you roll and score **nothing**, you "Bust" (also called a "Null"). You lose all points accumulated in this turn, and your turn ends immediately.
-4. If you manage to score points with all 6 dice, you achieve a **"Tutto!"**. You can then roll all 6 dice again to keep accumulating points.
+4. If you manage to score points with all 6 dice, you achieve a **"Tutto!"** and get the bonus if the card has one.
 
 ### The Cards
 The drawn card dictates specific bonuses or rules for your turn:
 - **x2**: If you roll a Tutto, your turn's score is doubled.
-- **Plus/Minus**: If you roll a Tutto, you deduct 1,000 points from the current leader's score! If you bust, you lose 1,000 points.
+- **Plus/Minus**: If you roll a Tutto, you deduct 1,000 points from the current leader's score while getting 1,000 points  yourself!
 - **Stop**: You cannot roll. Your turn ends immediately.
 - **Feuerwerk**: You must keep rolling as long as you score points! You can't bank your score manually. You only stop when you bust, but you get to keep all points earned before busting.
 - **Kleeblatt**: Roll two Tuttos in a row to instantly win the game!
@@ -76,7 +76,7 @@ npm run test
 
 In the lobby, you can tweak the following:
 - **Winning Score**: Change it from 6000 to shorter or longer games.
-- **Turn Timer**: Limit how long a player has to take their turn online.
+- **Turn Timer**: Limit how long a player has to take their turn online. (doubled for `Kleeblatt` and tripled for `Feuerwerk`)
 - **Kick Timer**: Limit how long the room waits for a disconnected player to return before they are automatically kicked.
 - **Deck Customization**: Add more `x2` cards, remove `Stop` cards, or tweak the deck composition to your liking.
 

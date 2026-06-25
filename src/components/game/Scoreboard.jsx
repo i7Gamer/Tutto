@@ -35,13 +35,13 @@ export default function Scoreboard({ game, formattedTime }) {
   if (!currentPlayer) return null;
 
   return (
-    <div className="flex flex-col gap-2 md:gap-4 w-full">
-      {/* First Row: Player & Score */}
-      <div className="flex gap-2 md:gap-4 w-full">
+    <div className="flex flex-col gap-2 md:gap-4 w-full phone-landscape:flex-row phone-landscape:flex-wrap">
+      {/* First Row: Player & Score — becomes display:contents in landscape so boxes flow into outer row */}
+      <div className="flex gap-2 md:gap-4 w-full phone-landscape:contents">
         {/* Current Player Stat Box */}
-        <motion.div 
+        <motion.div
           layout
-          className="flex-1 min-w-[100px] md:min-w-[120px] bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center"
+          className="flex-1 min-w-[100px] md:min-w-[120px] phone-landscape:min-w-[75px] bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center"
         >
           <div className="text-[10px] md:text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-0.5 md:mb-1">{t('game.currentPlayer', 'Current Player')}</div>
           <div 
@@ -57,9 +57,9 @@ export default function Scoreboard({ game, formattedTime }) {
         </motion.div>
 
         {/* Score Stat Box */}
-        <motion.div 
+        <motion.div
           layout
-          className="flex-1 min-w-[100px] md:min-w-[120px] bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center relative overflow-hidden"
+          className="flex-1 min-w-[100px] md:min-w-[120px] phone-landscape:min-w-[75px] bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center relative overflow-hidden"
         >
           <motion.div 
             className="absolute bottom-0 left-0 w-full bg-emerald-500/15"
@@ -72,12 +72,12 @@ export default function Scoreboard({ game, formattedTime }) {
         </motion.div>
       </div>
 
-      {/* Second Row: Round, Timers, Game Time */}
-      <div className="flex flex-wrap gap-2 md:gap-4 w-full">
+      {/* Second Row: Round, Timers, Game Time — becomes display:contents in landscape so boxes flow into outer row */}
+      <div className="flex flex-wrap gap-2 md:gap-4 w-full phone-landscape:contents">
         {/* Round Stat Box */}
-        <motion.div 
+        <motion.div
           layout
-          className="flex-1 min-w-[100px] md:min-w-[120px] bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center relative overflow-hidden"
+          className="flex-1 min-w-[100px] md:min-w-[120px] phone-landscape:min-w-[75px] bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center relative overflow-hidden"
         >
           <motion.div 
             className="absolute bottom-0 left-0 w-full bg-indigo-500/15"
@@ -95,7 +95,7 @@ export default function Scoreboard({ game, formattedTime }) {
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
-              className={`flex-1 min-w-[100px] md:min-w-[120px] backdrop-blur border rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center transition-colors ${isTurnTimerUrgent ? 'bg-red-50/90 border-red-200' : 'bg-white dark:bg-slate-800/80 border-white/40'}`}
+              className={`flex-1 min-w-[100px] md:min-w-[120px] phone-landscape:min-w-[75px] backdrop-blur border rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center transition-colors ${isTurnTimerUrgent ? 'bg-red-50/90 border-red-200' : 'bg-white dark:bg-slate-800/80 border-white/40'}`}
             >
               <div className={`text-[10px] md:text-sm font-bold uppercase tracking-wider mb-0.5 md:mb-1 ${isTurnTimerUrgent ? 'text-red-600' : 'text-gray-500 dark:text-gray-400'}`}>{t('game.turnTimer', 'Turn Timer')}</div>
               <motion.div 
@@ -119,7 +119,7 @@ export default function Scoreboard({ game, formattedTime }) {
               exit={{ opacity: 0, scale: 0.8 }}
               role="region"
               aria-live="polite"
-              className={`flex-1 min-w-[100px] md:min-w-[120px] backdrop-blur border rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center transition-colors ${isKickTimerUrgent ? 'bg-amber-50/90 border-amber-200' : 'bg-white dark:bg-slate-800/80 border-white/40'}`}
+              className={`flex-1 min-w-[100px] md:min-w-[120px] phone-landscape:min-w-[75px] backdrop-blur border rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center transition-colors ${isKickTimerUrgent ? 'bg-amber-50/90 border-amber-200' : 'bg-white dark:bg-slate-800/80 border-white/40'}`}
             >
               <div className={`text-[10px] md:text-sm font-bold uppercase tracking-wider mb-0.5 md:mb-1 text-center ${isKickTimerUrgent ? 'text-amber-600' : 'text-gray-500 dark:text-gray-400'}`}>
                 {t('game.disconnectingIn', 'Disconnecting in')}
@@ -137,9 +137,9 @@ export default function Scoreboard({ game, formattedTime }) {
         </AnimatePresence>
 
         {/* Game Time Stat Box */}
-        <motion.div 
+        <motion.div
           layout
-          className="flex-1 min-w-[100px] md:min-w-[120px] bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center"
+          className="flex-1 min-w-[100px] md:min-w-[120px] phone-landscape:min-w-[75px] bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center"
         >
           <div className="text-[10px] md:text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-0.5 md:mb-1">{t('game.time', 'Time')}</div>
           <div className="text-lg md:text-2xl font-bold text-gray-800 dark:text-gray-100 font-mono tracking-tighter">

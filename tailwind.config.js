@@ -9,7 +9,11 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      screens: {
+        'phone-landscape': { raw: '(max-width: 969px) and (orientation: landscape)' },
+      },
+    },
   },
   plugins: [],
 }
