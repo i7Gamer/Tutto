@@ -1,27 +1,13 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-
-const CARD_IMAGE_MAP = {
-  "200": "200.png",
-  "300": "300.png",
-  "400": "400.png",
-  "500": "500.png",
-  "600": "600.png",
-  "x2": "x2.png",
-  "Feuerwerk": "Feuerwerk.png",
-  "Stop": "Stop.png",
-  "Kleeblatt": "Kleeblatt.png",
-  "Plus_Minus": "plusminus.png",
-  "Kniffel": "Kniffel.png",
-  "fallback": "logo.png"
-};
+import CardFace from './cards/CardFace';
 
 export default function CardDisplay({ currentCard, cards }) {
   const { t } = useTranslation();
 
   return (
-    <div className="flex flex-col items-center justify-center p-2 bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-3xl shadow-xl relative overflow-hidden h-full w-full min-h-[300px] md:min-h-[340px]">
-      
+    <div className="flex flex-col items-center justify-center p-2 bg-white/60 dark:bg-slate-800/60 backdrop-blur border border-white/30 dark:border-white/10 rounded-3xl shadow-xl relative overflow-hidden h-full w-full min-h-[300px] md:min-h-[340px]">
+
       <div className="relative w-[180px] md:w-[200px] lg:w-[220px] h-[252px] md:h-[280px] lg:h-[308px] perspective-[1000px]">
         <AnimatePresence mode="wait">
           {currentCard ? (
@@ -31,13 +17,9 @@ export default function CardDisplay({ currentCard, cards }) {
               animate={{ rotateY: 0, opacity: 1, scale: 1 }}
               exit={{ rotateY: 90, opacity: 0, scale: 0.8 }}
               transition={{ duration: 0.5, type: "spring", stiffness: 100 }}
-              className="absolute w-full h-full shadow-2xl rounded-2xl overflow-hidden preserve-3d"
+              className="absolute w-full h-full rounded-[26px] overflow-hidden preserve-3d"
             >
-              <img 
-                src={`./assets/${CARD_IMAGE_MAP[currentCard] ?? CARD_IMAGE_MAP['fallback']}?v=2`} 
-                alt={t(`game.cards.${currentCard}`, currentCard)} 
-                className="w-full h-full object-contain"
-              />
+              <CardFace cardType={currentCard} />
             </motion.div>
           ) : (
             <motion.div
