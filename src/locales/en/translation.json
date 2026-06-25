@@ -167,7 +167,7 @@
   "statistics.busts": "Busts",
   "cards.x2": "x2",
   "statistics.globalCommunityTitle": "Global Community Statistics",
-  "statistics.globalDescription": "Aggregated across all local and online games played.",
+  "statistics.globalDescription": "Aggregated across all online games played.",
   "statistics.noGlobalGames": "No games have been played on the server yet!",
   "statistics.totalGames": "Total Games",
   "statistics.avgGameDuration": "Avg Game Duration",

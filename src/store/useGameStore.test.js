@@ -157,22 +157,19 @@ describe('useGameStore', () => {
   });
 
   describe('local game stats saving', () => {
-    it('saves both global and personal stats when a local game ends', () => {
+    it('does NOT send any stats when a local game ends', () => {
       global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));
-      
+
       const store = useGameStore.getState();
       store.addPlayer('Alice');
       store.startGame();
-      
-      // Simulate winning condition so calculateNextTurn returns isGameOver: true
-      const state = useGameStore.getState();
-      state.nextTurn(6000, false);
-      
+
+      useGameStore.getState().nextTurn(6000, false);
+
       expect(useGameStore.getState().finished).toBe(true);
-      
-      expect(global.fetch).toHaveBeenCalledWith('/api/stats/global', expect.any(Object));
-      expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/stats/'), expect.any(Object));
-      
+      expect(global.fetch).not.toHaveBeenCalledWith('/api/stats/global', expect.any(Object));
+      expect(global.fetch).not.toHaveBeenCalledWith(expect.stringMatching(/\/api\/stats\//), expect.any(Object));
+
       global.fetch.mockRestore();
     });
   });
@@ -342,33 +339,76 @@ describe('useGameStore', () => {
     });
   });
 
-  describe('default vs custom game detection (global stats)', () => {
+  describe('default vs custom game detection (global stats payload)', () => {
     const DEFAULT_CARDS = {
       Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5,
       x2: 5, 200: 5, 300: 5, 400: 5, 500: 5, 600: 5,
     };
 
     it('marks a 6000-point default-deck game as isDefaultGame: true', () => {
-      global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));
       useGameStore.getState().addPlayer('Alice');
-      useGameStore.setState({ status: 'playing', currentPlayerIndex: 0, winningScore: 6000, initialCards: { ...DEFAULT_CARDS } });
+      useGameStore.setState({ winningScore: 6000, initialCards: { ...DEFAULT_CARDS } });
 
-      useGameStore.getState().nextTurn(6000, true); // single player → instant win at round end
-
-      const call = global.fetch.mock.calls.find(c => c[0] === '/api/stats/global');
-      expect(JSON.parse(call[1].body).isDefaultGame).toBe(true);
-      global.fetch.mockRestore();
+      const payload = useGameStore.getState().buildGlobalStatsPayload();
+      expect(payload.isDefaultGame).toBe(true);
     });
 
     it('marks a tweaked deck as isDefaultGame: false', () => {
-      global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));
       useGameStore.getState().addPlayer('Alice');
-      useGameStore.setState({ status: 'playing', currentPlayerIndex: 0, winningScore: 6000, initialCards: { ...DEFAULT_CARDS, Kleeblatt: 99 } });
+      useGameStore.setState({ winningScore: 6000, initialCards: { ...DEFAULT_CARDS, Kleeblatt: 99 } });
 
-      useGameStore.getState().nextTurn(6000, true);
+      const payload = useGameStore.getState().buildGlobalStatsPayload();
+      expect(payload.isDefaultGame).toBe(false);
+    });
 
-      const call = global.fetch.mock.calls.find(c => c[0] === '/api/stats/global');
-      expect(JSON.parse(call[1].body).isDefaultGame).toBe(false);
+    it('marks a non-6000 winning score as isDefaultGame: false', () => {
+      useGameStore.getState().addPlayer('Alice');
+      useGameStore.setState({ winningScore: 8000, initialCards: { ...DEFAULT_CARDS } });
+
+      const payload = useGameStore.getState().buildGlobalStatsPayload();
+      expect(payload.isDefaultGame).toBe(false);
+    });
+  });
+
+  describe('online game global stats', () => {
+    const DEFAULT_CARDS = {
+      Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5,
+      x2: 5, 200: 5, 300: 5, 400: 5, 500: 5, 600: 5,
+    };
+
+    it('host sends global stats when an online game ends', () => {
+      global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));
+
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: true, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
+        players: [{ ...makeOnlinePlayer('Alice'), score: 5500 }],
+        currentPlayerIndex: 0, status: 'playing', finished: false,
+        winningScore: 6000, initialCards: { ...DEFAULT_CARDS },
+      });
+
+      useGameStore.getState().nextTurn(500, true);
+
+      expect(global.fetch).toHaveBeenCalledWith('/api/stats/global', expect.any(Object));
+      global.fetch.mockRestore();
+    });
+
+    it('non-host does NOT send global stats when an online game ends', () => {
+      global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));
+
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: false, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
+        players: [{ ...makeOnlinePlayer('Alice'), score: 5500 }],
+        currentPlayerIndex: 0, status: 'playing', finished: false,
+        winningScore: 6000, initialCards: { ...DEFAULT_CARDS },
+      });
+
+      useGameStore.getState().nextTurn(500, true);
+
+      expect(global.fetch).not.toHaveBeenCalledWith('/api/stats/global', expect.any(Object));
       global.fetch.mockRestore();
     });
   });
