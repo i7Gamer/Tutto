@@ -28,15 +28,17 @@ export default function GameControls({
   const isStopCard = currentCard === "Stop";
 
   const [prevCardsLength, setPrevCardsLength] = useState(cardsLength);
+  const [prevCard, setPrevCard] = useState(currentCard);
   const [isFlipping, setIsFlipping] = useState(false);
 
-  useEffect(() => {
-    if (cardsLength !== prevCardsLength) {
-      setPrevCardsLength(cardsLength);
-      // Skip the flip animation during tests so inputs are immediately available.
-      if (!isTestEnv()) setIsFlipping(true);
+  // Sync state with props during render to prevent a visual flash of the next card's inputs.
+  if (cardsLength !== prevCardsLength || currentCard !== prevCard) {
+    setPrevCardsLength(cardsLength);
+    setPrevCard(currentCard);
+    if (!isTestEnv() && (currentCard || prevCard)) {
+      setIsFlipping(true);
     }
-  }, [cardsLength, prevCardsLength]);
+  }
 
   useEffect(() => {
     // If the card is cleared (e.g. game over), reveal immediately.
