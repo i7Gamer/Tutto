@@ -130,6 +130,11 @@ export default function Game() {
     nextTurn(score, isSuccess);
   }, [nextTurn]);
 
+  const handleCancelDiceGame = useCallback(() => {
+    setShowDiceGame(false);
+    if (isOnline) setLiveTurnState(null);
+  }, [isOnline, setLiveTurnState]);
+
   return (
     <div className="container mx-auto px-2 md:px-4 pt-2 md:pt-4 pb-20 max-w-3xl flex flex-col gap-2 md:gap-4">
       <Scoreboard game={game} formattedTime={formattedTime} />
@@ -148,11 +153,11 @@ export default function Game() {
           animate={{ opacity: 1, x: 0 }}
           className="flex flex-col h-full"
         >
-          <GameControls 
+          <GameControls
             currentCard={currentCard}
             cardsLength={cards?.length || 0}
             isMyTurn={isMyTurn}
-            diceMode={game.diceMode}
+            diceMode={diceMode}
             setShowDiceGame={setShowDiceGame}
             scoreInput={scoreInput}
             setScoreInput={setScoreInput}
@@ -163,8 +168,10 @@ export default function Game() {
             undo={undo}
             endGame={endGame}
             isOnline={isOnline}
-            isHost={game.isHost}
+            isHost={isHost}
             leaveRoom={game.leaveRoom}
+            activeTurnState={liveTurnState}
+            currentPlayer={currentPlayer}
           />
         </motion.div>
 
@@ -232,10 +239,11 @@ export default function Game() {
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
             className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl"
           >
-            <DiceGame 
-              currentCard={currentCard} 
-              onComplete={handleDiceComplete} 
-              onCancel={() => setShowDiceGame(false)} 
+            <DiceGame
+              currentCard={currentCard}
+              onComplete={handleDiceComplete}
+              onCancel={handleCancelDiceGame}
+              onStateChange={isOnline && diceMode === 'digital' ? setLiveTurnState : undefined}
             />
           </motion.div>
         </div>
