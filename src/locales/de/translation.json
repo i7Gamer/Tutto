@@ -74,6 +74,7 @@
   "game.currentPlayer": "Aktueller Spieler",
   "game.host": "Host",
   "game.you": "Du ({{name}})",
+  "game.aborted": "Spiel abgebrochen (Zu wenig Spieler)",
   "game.disconnected": "Getrennt",
   "game.kick": "Kicken",
   "game.kickPlayer": "Spieler kicken",

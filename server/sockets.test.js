@@ -659,6 +659,128 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
+  it('emits gameAborted when a player explicitly leaves during a game and only 1 player remains', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const s2 = io(`http://127.0.0.1:${PORT}`);
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        s2.disconnect();
+        reject(new Error('Test timed out'));
+      }, 5000);
+
+      let abortReceived = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'ABORT_LEAVE_ROOM', name: 'Alice', deviceId: 'dev-al-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'ABORT_LEAVE_ROOM', name: 'Bob', deviceId: 'dev-al-b', color: '#00ff00' }, () => {
+            const players = [
+              { name: 'Alice', deviceId: 'dev-al-a', socketId: s1.id, disconnected: false, score: 0 },
+              { name: 'Bob', deviceId: 'dev-al-b', socketId: s2.id, disconnected: false, score: 0 },
+            ];
+            s1.emit('pushState', { roomId: 'ABORT_LEAVE_ROOM', newState: { players, status: 'playing', currentPlayerIndex: 0 } });
+            setTimeout(() => s2.emit('leaveRoom'), 200);
+          });
+        });
+      });
+
+      s1.on('gameAborted', () => { abortReceived = true; });
+
+      s1.on('gameState', (state) => {
+        if (abortReceived && state.status === 'lobby' && state.players?.length === 1) {
+          expect(state.players[0].name).toBe('Alice');
+          expect(state.currentPlayerIndex).toBeNull();
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          s2.disconnect();
+          resolve();
+        }
+      });
+    });
+  }, 10000);
+
+  it('emits gameAborted when a disconnected player times out and only 1 player remains', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const s2 = io(`http://127.0.0.1:${PORT}`);
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        reject(new Error('Test timed out'));
+      }, 9000);
+
+      let abortReceived = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'ABORT_TIMEOUT_ROOM', name: 'Alice', deviceId: 'dev-at-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'ABORT_TIMEOUT_ROOM', name: 'Bob', deviceId: 'dev-at-b', color: '#00ff00' }, () => {
+            const players = [
+              { name: 'Alice', deviceId: 'dev-at-a', socketId: s1.id, disconnected: false, score: 0 },
+              { name: 'Bob', deviceId: 'dev-at-b', socketId: s2.id, disconnected: false, score: 0 },
+            ];
+            s1.emit('pushState', {
+              roomId: 'ABORT_TIMEOUT_ROOM',
+              newState: { players, status: 'playing', currentPlayerIndex: 0, reconnectTimeout: 1 },
+            });
+            setTimeout(() => s2.disconnect(), 200);
+          });
+        });
+      });
+
+      s1.on('gameAborted', () => { abortReceived = true; });
+
+      s1.on('gameState', (state) => {
+        if (abortReceived && state.status === 'lobby' && state.players?.length === 1) {
+          expect(state.players[0].name).toBe('Alice');
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          resolve();
+        }
+      });
+    });
+  }, 10000);
+
+  it('emits gameAborted when host kicks a player during a game and only 1 player remains', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const s2 = io(`http://127.0.0.1:${PORT}`);
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        s2.disconnect();
+        reject(new Error('Test timed out'));
+      }, 5000);
+
+      let abortReceived = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'ABORT_KICK_ROOM', name: 'Alice', deviceId: 'dev-ak-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'ABORT_KICK_ROOM', name: 'Bob', deviceId: 'dev-ak-b', color: '#00ff00' }, () => {
+            const players = [
+              { name: 'Alice', deviceId: 'dev-ak-a', socketId: s1.id, disconnected: false, score: 0 },
+              { name: 'Bob', deviceId: 'dev-ak-b', socketId: s2.id, disconnected: false, score: 0 },
+            ];
+            s1.emit('pushState', { roomId: 'ABORT_KICK_ROOM', newState: { players, status: 'playing', currentPlayerIndex: 0 } });
+            setTimeout(() => s1.emit('kickPlayer', s2.id), 200);
+          });
+        });
+      });
+
+      s1.on('gameAborted', () => { abortReceived = true; });
+
+      s1.on('gameState', (state) => {
+        if (abortReceived && state.status === 'lobby' && state.players?.length === 1) {
+          expect(state.players[0].name).toBe('Alice');
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          s2.disconnect();
+          resolve();
+        }
+      });
+    });
+  }, 10000);
+
   it('promotes first connected player to host when host leaves, skipping disconnected players', () => {
     return new Promise((resolve, reject) => {
       const roomId = 'HOST_REASSIGN_CONNECTED';

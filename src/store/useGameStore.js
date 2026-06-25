@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { io } from 'socket.io-client';
 import { calculateNextTurn, calculateUndo, getLeaders, shuffleArray, buildGlobalStatsPayload } from '../utils/coreGameEngine';
+import i18n from '../i18n';
 
 const INITIAL_CARDS = {
   Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5,
@@ -255,7 +256,7 @@ export const useGameStore = create(immer((set, get) => ({
             if (prev.reconnectTimeout !== state.reconnectTimeout) prev.toasts.push({ id: Date.now()+Math.random(), message: `Kick timer: ${state.reconnectTimeout}s` });
             if (JSON.stringify(prev.initialCards) !== JSON.stringify(state.initialCards)) prev.toasts.push({ id: Date.now()+Math.random(), message: `Deck composition changed` });
           }
-          if (prev.mode === 'online' && prev.status === 'playing' && state.status === 'lobby' && !prev.finished) {
+          if (prev.mode === 'online' && prev.status === 'playing' && state.status === 'lobby' && !prev.finished && (state.players?.length ?? 0) >= 2) {
             prev.toasts.push({ id: Date.now()+Math.random(), message: "Host ended game early" });
           }
           // Merge state but keep connection-specific fields untouched
@@ -282,6 +283,10 @@ export const useGameStore = create(immer((set, get) => ({
         set({ roomId: null, isHost: false, hostId: null, myName: null });
         sessionStorage.removeItem('tutto_online_session');
         get().setMode('local');
+      });
+
+      socket.on('gameAborted', () => {
+        get().addToast(i18n.t('game.aborted'));
       });
 
       socket.on('disconnect', () => {

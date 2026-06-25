@@ -109,6 +109,18 @@ const emitRoomState = (roomId) => {
   }
 };
 
+const abortGameIfLowPlayers = (room, roomId) => {
+  if (room.state.status === 'playing' && room.state.players.length < 2) {
+    io.to(roomId).emit('gameAborted');
+    room.state.status = 'lobby';
+    room.state.currentCard = null;
+    room.state.currentPlayerIndex = null;
+    room.state.finished = false;
+    return true;
+  }
+  return false;
+};
+
 io.on('connection', (socket) => {
   let currentRoom = null;
   let username = null;
@@ -281,9 +293,10 @@ io.on('connection', (socket) => {
       if (room.state.players.length === 0) {
         delete rooms[currentRoom];
       } else {
+        abortGameIfLowPlayers(room, currentRoom);
         emitRoomState(currentRoom);
       }
-      
+
       const targetSocket = io.sockets.sockets.get(targetSocketId);
       if (targetSocket) {
         targetSocket.leave(currentRoom);
@@ -391,6 +404,7 @@ io.on('connection', (socket) => {
             }
             room.host = nextHost.socketId;
           }
+          abortGameIfLowPlayers(room, currentRoom);
           emitRoomState(currentRoom);
         } else {
           // Unexpected disconnect in-game
@@ -417,6 +431,7 @@ io.on('connection', (socket) => {
                   if (rooms[roomIdSnapshot].host === hostSocketId) {
                     rooms[roomIdSnapshot].host = rooms[roomIdSnapshot].state.players[0].socketId;
                   }
+                  abortGameIfLowPlayers(rooms[roomIdSnapshot], roomIdSnapshot);
                   emitRoomState(roomIdSnapshot);
                 }
               }
