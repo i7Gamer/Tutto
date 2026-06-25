@@ -13,7 +13,6 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
   const [currentRoll, setCurrentRoll] = useState([]);
   const [displayRoll, setDisplayRoll] = useState([]);
   const [rollingDiceIndices, setRollingDiceIndices] = useState(new Set());
-  const [settledDiceIds, setSettledDiceIds] = useState(new Set());
   const [turnScore, setTurnScore] = useState(0);
   const [kniffelProgress, setKniffelProgress] = useState([]);
   const [isRolling, setIsRolling] = useState(false);
@@ -59,7 +58,6 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
           next.delete(r.id);
           return next;
         });
-        setSettledDiceIds(prev => new Set(prev).add(r.id));
         setDisplayRoll(prev => prev.map(d => d.id === r.id ? { ...d, val: r.val } : d));
       } else {
         setTimeout(() => {
@@ -68,7 +66,6 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
             next.delete(r.id);
             return next;
           });
-          setSettledDiceIds(prev => new Set(prev).add(r.id));
           setDisplayRoll(prev => prev.map(d => d.id === r.id ? { ...d, val: r.val } : d));
           playTone(400 + (idx * 50), "sine", 0.05);
         }, baseTumbleTime + (idx * staggerDelay));
@@ -79,7 +76,6 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
 
     const finalizeRoll = () => {
       setIsRolling(false);
-      setSettledDiceIds(new Set());
 
       if (isBust(newRollVals, currentCard, kniffelArray || kniffelProgress)) {
         setBustState(true);
@@ -122,15 +118,20 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
     if (isTestEnv()) return;
 
     const interval = setInterval(() => {
-      setDisplayRoll(prev => prev.map(d =>
-        rollingDiceIndices.has(d.id) && !settledDiceIds.has(d.id)
+      setDisplayRoll(prev => prev.map(d => {
+        // Only flicker if die is still rolling AND hasn't been settled to correct value yet
+        const isDieRolling = rollingDiceIndices.has(d.id);
+        const correctVal = currentRoll.find(cr => cr.id === d.id)?.val;
+        const isSettled = correctVal !== undefined && d.val === correctVal;
+
+        return isDieRolling && !isSettled
           ? { ...d, val: Math.floor(Math.random() * 6) + 1 }
-          : d
-      ));
+          : d;
+      }));
     }, 80);
 
     return () => clearInterval(interval);
-  }, [rollingDiceIndices, settledDiceIds]);
+  }, [rollingDiceIndices, currentRoll]);
 
   const handleAction = (action) => {
     if (!validation.valid && action !== 'stop') return;
