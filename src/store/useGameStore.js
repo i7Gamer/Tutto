@@ -269,6 +269,9 @@ export const useGameStore = create(immer((set, get) => ({
           if (wasDisconnected && state.liveTurnState) {
             prev.justReconnected = true;
           }
+
+          // Clear reconnect popup after detecting reconnection
+          prev.showReconnectPopup = false;
         });
         get().syncOnlineTimers();
         
@@ -304,7 +307,8 @@ export const useGameStore = create(immer((set, get) => ({
       });
 
       socket.on('connect', () => {
-        set({ showReconnectPopup: false });
+        // Don't clear showReconnectPopup here - let gameState handler do it
+        // so we can detect reconnection properly
         const { roomId, myName, deviceId } = get();
         if (roomId && myName) {
           const savedColor = localStorage.getItem('tutto_color') || null;
@@ -412,18 +416,24 @@ export const useGameStore = create(immer((set, get) => ({
       if (state.turnDuration > 0) {
         const playerChanged = state.currentPlayerIndex !== turnTimerPlayerIndex;
         const cardChanged = state.currentCard !== turnTimerCard;
+        const justReconnected = state.justReconnected;
 
-        if (playerChanged || cardChanged) {
-          // New turn or new card: reset the countdown and start a fresh interval.
+        if (playerChanged || cardChanged || justReconnected) {
+          // New turn, new card, or just reconnected: reset the countdown and start a fresh interval.
           if (turnTimerInterval) clearInterval(turnTimerInterval);
           turnTimerPlayerIndex = state.currentPlayerIndex;
           turnTimerCard = state.currentCard;
 
-          let multiplier = 1;
-          if (state.currentCard === 'Feuerwerk') multiplier = 3;
-          if (state.currentCard === 'Kleeblatt') multiplier = 2;
-          const targetDuration = state.turnDuration * multiplier;
-          set({ turnTimeRemaining: targetDuration });
+          // Use server's turnTimeRemaining value (already accurate), or calculate if not available
+          let remaining = state.turnTimeRemaining;
+          if (remaining === null || remaining === undefined) {
+            let multiplier = 1;
+            if (state.currentCard === 'Feuerwerk') multiplier = 3;
+            if (state.currentCard === 'Kleeblatt') multiplier = 2;
+            const targetDuration = state.turnDuration * multiplier;
+            remaining = targetDuration;
+          }
+          set({ turnTimeRemaining: remaining });
 
           turnTimerInterval = setInterval(() => {
             const s = get();
