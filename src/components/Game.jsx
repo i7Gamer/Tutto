@@ -33,6 +33,7 @@ export default function Game() {
     diceMode,
     isHost,
     kickPlayer,
+    justReconnected,
   } = game;
 
   const formattedTime = formatTime(gameTimeInSeconds);
@@ -51,6 +52,19 @@ export default function Game() {
       setShowDiceGame(false);
     }
   }, [isMyTurn]);
+
+  // Auto-open DiceGame on reconnect if turn was in progress
+  useEffect(() => {
+    if (justReconnected && liveTurnState && isMyTurn && diceMode === 'digital') {
+      game.addToast("Resuming your dice game...");
+      const timer = setTimeout(() => {
+        setShowDiceGame(true);
+        // Reset the flag after opening
+        useGameStore.setState({ justReconnected: false });
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [justReconnected, liveTurnState, isMyTurn, diceMode, game]);
 
   useEffect(() => {
     let soundTimeout;

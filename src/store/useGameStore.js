@@ -60,6 +60,7 @@ const initialLocalState = {
   chartLabels: [],
   status: 'lobby',
   liveTurnState: null,  // { turnScore, keptDice, currentRoll } — synced to observers during digital dice turns
+  justReconnected: false,  // Flag to trigger DiceGame auto-open on reconnect
 };
 
 export const useGameStore = create(immer((set, get) => ({
@@ -250,6 +251,8 @@ export const useGameStore = create(immer((set, get) => ({
       socket.on('gameState', (state) => {
         const wasFinished = get().finished;
         set((prev) => {
+          const wasDisconnected = prev.showReconnectPopup;
+
           if (prev.mode === 'online' && prev.status === 'lobby' && state.status === 'lobby') {
             if (prev.winningScore !== state.winningScore) prev.toasts.push({ id: Date.now()+Math.random(), message: `Winning score: ${state.winningScore}` });
             if (prev.turnDuration !== state.turnDuration) prev.toasts.push({ id: Date.now()+Math.random(), message: `Turn timer: ${state.turnDuration === 0 ? 'Off' : state.turnDuration + 's'}` });
@@ -261,6 +264,11 @@ export const useGameStore = create(immer((set, get) => ({
           }
           // Merge state but keep connection-specific fields untouched
           Object.assign(prev, state);
+
+          // Flag reconnection for auto-open DiceGame
+          if (wasDisconnected && state.liveTurnState) {
+            prev.justReconnected = true;
+          }
         });
         get().syncOnlineTimers();
         
@@ -390,7 +398,11 @@ export const useGameStore = create(immer((set, get) => ({
     if (state.mode === 'online' && !state.finished && state.status === 'playing' && state.currentPlayerIndex !== null) {
       gameTimerInterval = setInterval(() => {
         const s = get();
-        if (s.gameStartTime) {
+        // On reconnect, sync gameStartTime to match server's elapsed time
+        if (s.justReconnected && s.gameTimeInSeconds > 0) {
+          const now = Date.now();
+          set({ gameStartTime: now - (s.gameTimeInSeconds * 1000), justReconnected: false });
+        } else if (s.gameStartTime) {
           set({ gameTimeInSeconds: Math.floor((Date.now() - s.gameStartTime) / 1000) });
         } else {
           set(draft => { draft.gameTimeInSeconds++ });
