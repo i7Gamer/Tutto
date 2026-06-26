@@ -42,16 +42,24 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
     const savedState = localStorage.getItem('tutto_dice_turn_state');
     if (savedState) {
       try {
-        const { turnScore, keptDice, currentRoll, rollingDiceIds } = JSON.parse(savedState);
-        setTurnScore(turnScore || 0);
-        setKeptDice(keptDice || []);
-        setCurrentRoll(currentRoll || []);
-        setDisplayRoll(currentRoll || []);
+        const { turnScore: savedScore, keptDice: savedKept, currentRoll: savedRoll, busted } = JSON.parse(savedState);
+        setTurnScore(savedScore || 0);
+        setKeptDice(savedKept || []);
+        setCurrentRoll(savedRoll || []);
+        setDisplayRoll(savedRoll || []);
         setHasRolled(true);
+        if (busted) {
+          setBustState(true);
+          const score = currentCard === 'Feuerwerk' ? (savedScore || 0) : 0;
+          const won = currentCard === 'Feuerwerk' ? score > 0 : false;
+          setSummaryData({ won, score, isTutto: false });
+          setShowSummary(true);
+        }
       } catch (e) {
         // Silently ignore if state is corrupted
       }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selectedRolls = currentRoll.filter(d => d.selected);
@@ -108,7 +116,6 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
 
       if (isBust(newRollVals, currentCard, kniffelArray || kniffelProgress)) {
         setBustState(true);
-        localStorage.removeItem('tutto_dice_turn_state');
         playBuzzer();
         
         if (currentCard === "Kleeblatt") {
@@ -227,10 +234,10 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
   useEffect(() => { onStateChangeRef.current = onStateChange; }, [onStateChange]);
 
   // Broadcast settled dice state to observers (online digital-dice turns).
-  // Fires 300 ms after the last change to keptDice, currentRoll, turnScore, or rollingDiceIndices
-  // so rapid successive updates (selection + roll) only produce one push.
+  // Skipped while rolling or after a bust — the bust useEffect handles that case.
+  // Fires 300 ms after the last settled change so rapid updates only produce one push.
   useEffect(() => {
-    if (!onStateChangeRef.current || !hasRolled) return;
+    if (!onStateChangeRef.current || !hasRolled || isRolling || bustState) return;
     const timer = setTimeout(() => {
       onStateChangeRef.current({
         turnScore,
@@ -240,7 +247,21 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
       });
     }, 300);
     return () => clearTimeout(timer);
-  }, [keptDice, currentRoll, turnScore, hasRolled, rollingDiceIndices]);
+  }, [keptDice, currentRoll, turnScore, hasRolled, rollingDiceIndices, isRolling, bustState]);
+
+  // When bust is detected, immediately save bust snapshot with busted:true flag so
+  // a refresh during/after bust can restore and show the bust summary automatically.
+  useEffect(() => {
+    if (!bustState || !onStateChangeRef.current || !hasRolled) return;
+    onStateChangeRef.current({
+      turnScore,
+      keptDice: keptDice.map(d => ({ id: d.id, val: d.val })),
+      currentRoll: currentRoll.map(d => ({ id: d.id, val: d.val, selected: false })),
+      busted: true,
+    });
+  // turnScore/keptDice/currentRoll are intentionally read at the moment bustState fires
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bustState]);
 
   const summaryDataRef = useRef(summaryData);
   useEffect(() => { summaryDataRef.current = summaryData; }, [summaryData]);
