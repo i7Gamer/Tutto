@@ -408,7 +408,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
                           }}
                           className={`die w-14 h-14 rounded-xl flex items-center justify-center text-2xl font-bold transition-all border-2
                             ${isSelected
-                              ? 'bg-emerald-200 border-emerald-600 text-emerald-900 dark:bg-slate-700 dark:border-emerald-400 dark:text-emerald-100 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-110 z-10'
+                              ? 'bg-emerald-100 border-emerald-500 text-emerald-700 dark:bg-slate-700 dark:border-emerald-400 dark:text-emerald-100 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-110 z-10'
                               : bustState
                                 ? 'bg-red-50 border-red-300 text-red-500 opacity-70 cursor-default'
                                 : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 text-gray-800 dark:text-gray-100 shadow-sm ' + (isDieTumbling ? '' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50')
