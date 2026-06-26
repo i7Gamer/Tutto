@@ -28,6 +28,11 @@ export class ErrorBoundary extends React.Component {
   }
 
   clearCacheAndReload() {
+    localStorage.removeItem('tutto_dice_turn_state');
+    localStorage.removeItem('tutto_local_game');
+    localStorage.removeItem('last_crash_time');
+    sessionStorage.removeItem('tutto_online_session');
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then(function(registrations) {
         for(let registration of registrations) {

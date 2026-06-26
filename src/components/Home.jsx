@@ -23,6 +23,11 @@ export default function Home({ onShowStats }) {
   };
 
   const handleClearCache = () => {
+    localStorage.removeItem('tutto_dice_turn_state');
+    localStorage.removeItem('tutto_local_game');
+    localStorage.removeItem('last_crash_time');
+    sessionStorage.removeItem('tutto_online_session');
+
     if ('caches' in window) {
       caches.keys().then(names => {
         Promise.all(names.map(name => caches.delete(name))).then(() => {
