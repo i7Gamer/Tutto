@@ -338,7 +338,8 @@ export const useGameStore = create(immer((set, get) => ({
     if (socket) socket.emit('leaveRoom');
     get().stopOnlineTimers();
     sessionStorage.removeItem('tutto_online_session');
-    set({ 
+    localStorage.removeItem('tutto_dice_turn_state');
+    set({
       players: [],
       currentPlayerIndex: null,
       currentCard: null,
@@ -346,11 +347,12 @@ export const useGameStore = create(immer((set, get) => ({
       round: 1,
       finished: false,
       status: 'lobby',
-      roomId: null, 
-      isHost: false, 
-      myName: null, 
-      mode: 'online', 
-      isOnline: true 
+      roomId: null,
+      isHost: false,
+      myName: null,
+      mode: 'online',
+      isOnline: true,
+      liveTurnState: null,
     });
   },
 
@@ -513,7 +515,9 @@ export const useGameStore = create(immer((set, get) => ({
       state.currentCard = deck.shift();
       state.cards = deck;
       state.currentPlayerIndex = 0;
+      state.liveTurnState = null;
     });
+    localStorage.removeItem('tutto_dice_turn_state');
 
     if (get().isOnline) {
       get().pushState();
