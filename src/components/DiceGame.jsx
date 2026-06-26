@@ -406,13 +406,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
                             rotate: { repeat: isDieTumbling ? Infinity : 0, duration: 0.2 },
                             y: { repeat: isDieTumbling ? Infinity : 0, duration: 0.15 }
                           }}
-                          className={`die relative rounded-xl flex items-center justify-center text-2xl font-bold transition-all border-2 ${isSelected ? 'w-16 h-16' : 'w-14 h-14'}
-                            ${isSelected
-                              ? 'bg-emerald-50 dark:bg-slate-700 border-emerald-500 dark:border-emerald-400 text-emerald-900 dark:text-emerald-100 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-125 z-10 font-black'
-                              : bustState
-                                ? 'bg-red-50 border-red-300 text-red-500 opacity-70 cursor-default'
-                                : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 text-gray-800 dark:text-gray-100 shadow-sm ' + (isDieTumbling ? '' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50')
-                            }
+                          className={`die relative rounded-xl flex items-center justify-center text-2xl font-bold transition-all ${isSelected ? 'w-16 h-16 border-4 border-emerald-600 bg-white dark:bg-slate-700 dark:border-emerald-400 text-gray-800 dark:text-emerald-100 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-125 z-10 font-black' : 'w-14 h-14 border-2 ' + (bustState ? 'bg-red-50 border-red-300 text-red-500 opacity-70 cursor-default' : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 text-gray-800 dark:text-gray-100 shadow-sm ' + (isDieTumbling ? '' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50'))}
                           `}
                           onClick={() => toggleDie(d.id)}
                           disabled={bustState || isDieTumbling}
