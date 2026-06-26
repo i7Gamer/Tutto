@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Dices, Check, X, Hand, RotateCw } from 'lucide-react';
 import { playBuzzer, playSuccess, playTone } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
-import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus } from '../utils/diceLogic';
+import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from '../utils/diceLogic';
 import { isTestEnv } from '../utils/env';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -234,6 +234,14 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
     setCurrentRoll(prev => prev.map(d => d.id === id ? { ...d, selected: !d.selected } : d));
   };
 
+  // Auto-select every die in the current roll that contributes to a valid score,
+  // replacing any existing selection. Indices map 1:1 onto currentRoll order.
+  const selectAllValid = () => {
+    if (bustState || showSummary || isRolling || !hasRolled) return;
+    const validIndices = new Set(getMaxValidSelection(currentRoll.map(d => d.val), currentCard, kniffelProgress));
+    setCurrentRoll(prev => prev.map((d, i) => ({ ...d, selected: validIndices.has(i) })));
+  };
+
   // Keep a stable ref to onStateChange so the effect below never needs it as a dependency.
   const onStateChangeRef = useRef(onStateChange);
   useEffect(() => { onStateChangeRef.current = onStateChange; }, [onStateChange]);
@@ -431,7 +439,17 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
             </div>
 
             <div className="mb-8">
-              <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{t('dice.current_roll', 'Current Roll')}</h4>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('dice.current_roll', 'Current Roll')}</h4>
+                {hasRolled && !isRolling && !bustState && (
+                  <button
+                    className="text-xs font-bold px-2.5 py-1 rounded-md border border-indigo-300 dark:border-indigo-600 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"
+                    onClick={selectAllValid}
+                  >
+                    {t('dice.select_all_valid', 'Select all')}
+                  </button>
+                )}
+              </div>
               {!hasRolled ? (
                 <div className="py-8 text-center flex justify-center">
                   <motion.button 

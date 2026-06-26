@@ -103,6 +103,54 @@ export const checkValidityAndScore = (vals, card, kniffelProgress) => {
   }
 };
 
+// Greedily collect a consecutive run of dice starting at `startVal` and moving
+// by `step` (+1 ascending, -1 descending). Returns the indices (into rollVals)
+// of the dice that form the run. Each die index is used at most once.
+const collectKniffelRun = (rollVals, startVal, step) => {
+  const used = new Set();
+  const picked = [];
+  let needed = startVal;
+  while (needed >= 1 && needed <= 6) {
+    const idx = rollVals.findIndex((v, i) => v === needed && !used.has(i));
+    if (idx === -1) break;
+    used.add(idx);
+    picked.push(idx);
+    needed += step;
+  }
+  return picked;
+};
+
+// Compute the indices of the maximal valid scoring selection for the current
+// roll. Used by the "Select all valid" helper button. Returns an array of
+// indices into `rollVals`. Returns [] when nothing scores (i.e. a bust).
+export const getMaxValidSelection = (rollVals, card, kniffelProgress = []) => {
+  if (card === "Kniffel") {
+    if (kniffelProgress.length === 0) {
+      // Either start ascending from 1 or descending from 6 — pick the longer run.
+      const ascending = collectKniffelRun(rollVals, 1, 1);
+      const descending = collectKniffelRun(rollVals, 6, -1);
+      return ascending.length >= descending.length ? ascending : descending;
+    }
+    const last = kniffelProgress[kniffelProgress.length - 1];
+    return kniffelProgress[0] === 1
+      ? collectKniffelRun(rollVals, last + 1, 1)
+      : collectKniffelRun(rollVals, last - 1, -1);
+  }
+
+  const byValue = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+  rollVals.forEach((v, i) => byValue[v].push(i));
+
+  const indices = [];
+  // 1s and 5s always score individually.
+  indices.push(...byValue[1], ...byValue[5]);
+  // 2, 3, 4, 6 only score in full triplets — take complete groups of three.
+  for (const v of [2, 3, 4, 6]) {
+    const take = Math.floor(byValue[v].length / 3) * 3;
+    indices.push(...byValue[v].slice(0, take));
+  }
+  return indices;
+};
+
 export const applyTuttoBonus = (scoreSoFar, currentCard) => {
   let newScore = scoreSoFar;
   if (["200", "300", "400", "500", "600"].includes(currentCard)) {

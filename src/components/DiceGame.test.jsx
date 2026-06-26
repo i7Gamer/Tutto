@@ -315,6 +315,65 @@ describe('DiceGame Integration', () => {
     expect(fiveDie).not.toHaveAttribute('disabled');
   });
 
+  describe('Select all valid button', () => {
+    it('is hidden before the first roll and appears after rolling', () => {
+      render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />);
+
+      expect(screen.queryByText('dice.select_all_valid')).toBeNull();
+
+      diceSequence = [1, 5, 2, 2, 2, 3];
+      fireEvent.click(screen.getByText('dice.roll_6_dice'));
+
+      expect(screen.getByText('dice.select_all_valid')).toBeInTheDocument();
+    });
+
+    it('selects all scoring dice (1s, 5s and triplets) and updates the score', () => {
+      render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />);
+
+      // 1 (100) + 5 (50) + three 2s (200) = 350. The lone 3 must stay unselected.
+      diceSequence = [1, 5, 2, 2, 2, 3];
+      fireEvent.click(screen.getByText('dice.roll_6_dice'));
+
+      fireEvent.click(screen.getByText('dice.select_all_valid'));
+
+      expect(screen.getByText('350')).toBeInTheDocument();
+
+      // Five dice selected, one (the 3) left out.
+      const selected = screen.getAllByRole('button', { name: /Die showing.*, selected/ });
+      expect(selected).toHaveLength(5);
+      expect(screen.getByRole('button', { name: /Die showing 3, not selected/ })).toBeInTheDocument();
+    });
+
+    it('replaces any prior selection rather than toggling', () => {
+      render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />);
+
+      diceSequence = [1, 5, 2, 2, 2, 3];
+      fireEvent.click(screen.getByText('dice.roll_6_dice'));
+
+      // Manually select the non-scoring 3 first.
+      fireEvent.click(screen.getByRole('button', { name: /Die showing 3/ }));
+      fireEvent.click(screen.getByText('dice.select_all_valid'));
+
+      // The 3 should now be deselected, score reflects only the valid dice.
+      expect(screen.getByRole('button', { name: /Die showing 3, not selected/ })).toBeInTheDocument();
+      expect(screen.getByText('350')).toBeInTheDocument();
+    });
+
+    it('Kniffel: selects the consecutive run from the start', () => {
+      render(<DiceGame currentCard="Kniffel" onComplete={vi.fn()} onCancel={vi.fn()} />);
+
+      diceSequence = [1, 2, 3, 6, 6, 6];
+      fireEvent.click(screen.getByText('dice.roll_6_dice'));
+
+      fireEvent.click(screen.getByText('dice.select_all_valid'));
+
+      // 1,2,3 form the ascending run; the 6s are not part of it.
+      const selected = screen.getAllByRole('button', { name: /Die showing.*, selected/ });
+      expect(selected).toHaveLength(3);
+      expect(screen.getByText('dice.roll_again')).not.toBeDisabled();
+    });
+  });
+
   describe('Dice Display Accuracy - Bug #1 Prevention', () => {
     const wait = (ms) => act(async () => { await new Promise(r => setTimeout(r, ms)); });
 

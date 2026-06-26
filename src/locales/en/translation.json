@@ -21,6 +21,7 @@
   "dice.kept_dice": "Kept Dice",
   "dice.none": "None",
   "dice.current_roll": "Current Roll",
+  "dice.select_all_valid": "Select all",
   "dice.roll_6_dice": "Roll 6 Dice",
   "dice.bust_description": "Bust! (Volltreffer/Niete)",
   "dice.invalid_selection": "Invalid selection",

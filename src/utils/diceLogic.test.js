@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { rollDie, isBust, checkKniffel, checkValidityAndScore, applyTuttoBonus } from './diceLogic';
+import { rollDie, isBust, checkKniffel, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from './diceLogic';
 
 describe('diceLogic', () => {
 
@@ -165,6 +165,84 @@ describe('diceLogic', () => {
     it('does nothing for non-bonus cards (like Feuerwerk or Kleeblatt)', () => {
       expect(applyTuttoBonus(1000, "Feuerwerk")).toBe(1000);
       expect(applyTuttoBonus(0, "Kleeblatt")).toBe(0);
+    });
+  });
+
+  describe('getMaxValidSelection', () => {
+    // Maps selected indices back to the dice values they point at.
+    const selectedVals = (roll, card, progress = []) =>
+      getMaxValidSelection(roll, card, progress).map(i => roll[i]);
+
+    it('selects all 1s and 5s', () => {
+      expect(selectedVals([1, 5, 1, 5], "200").sort()).toEqual([1, 1, 5, 5]);
+    });
+
+    it('ignores non-scoring 2/3/4/6 singles and pairs', () => {
+      expect(getMaxValidSelection([2, 3, 4, 6], "200")).toEqual([]);
+      expect(getMaxValidSelection([2, 2, 3, 3], "200")).toEqual([]);
+    });
+
+    it('selects complete triplets of 2/3/4/6', () => {
+      expect(selectedVals([2, 2, 2, 4, 6], "200")).toEqual([2, 2, 2]);
+      expect(selectedVals([3, 3, 3, 3, 3, 3], "200")).toEqual([3, 3, 3, 3, 3, 3]);
+    });
+
+    it('selects only complete groups of three, leaving the remainder', () => {
+      // Four 2s -> only the first three are taken (4 % 3 = 1 left out).
+      expect(selectedVals([2, 2, 2, 2, 1, 5].slice(), "200").sort()).toEqual([1, 2, 2, 2, 5]);
+    });
+
+    it('combines singles and triplets into one valid scoring selection', () => {
+      const roll = [1, 5, 2, 2, 2, 3];
+      const sel = selectedVals(roll, "200");
+      expect(sel.sort()).toEqual([1, 2, 2, 2, 5]);
+      // The selection must actually be scoreable.
+      expect(checkValidityAndScore(sel, "200", []).valid).toBe(true);
+    });
+
+    it('returns indices (not values), unique and in range', () => {
+      const roll = [1, 1, 2, 2, 2, 5];
+      const idx = getMaxValidSelection(roll, "200");
+      expect(new Set(idx).size).toBe(idx.length);
+      idx.forEach(i => expect(i).toBeGreaterThanOrEqual(0));
+      idx.forEach(i => expect(i).toBeLessThan(roll.length));
+    });
+
+    it('returns empty selection on a bust roll', () => {
+      expect(getMaxValidSelection([2, 3, 4, 6], "300")).toEqual([]);
+    });
+
+    describe('Kniffel', () => {
+      it('starts an ascending run from 1', () => {
+        expect(selectedVals([1, 2, 3, 6, 6, 6], "Kniffel", [])).toEqual([1, 2, 3]);
+      });
+
+      it('starts a descending run from 6', () => {
+        expect(selectedVals([6, 5, 4, 2, 2, 1], "Kniffel", [])).toEqual([6, 5, 4]);
+      });
+
+      it('picks the longer run when both 1 and 6 are present', () => {
+        // ascending from 1: just [1]; descending from 6: [6,5,4]
+        expect(selectedVals([1, 6, 5, 4, 3, 3], "Kniffel", [])).toEqual([6, 5, 4, 3]);
+      });
+
+      it('continues an ascending sequence from progress', () => {
+        expect(selectedVals([3, 4, 5, 1, 1, 1], "Kniffel", [1, 2])).toEqual([3, 4, 5]);
+      });
+
+      it('continues a descending sequence from progress', () => {
+        expect(selectedVals([4, 3, 6, 6, 6, 6], "Kniffel", [6, 5])).toEqual([4, 3]);
+      });
+
+      it('returns empty when the next needed number is missing', () => {
+        expect(getMaxValidSelection([4, 5, 6], "Kniffel", [1])).toEqual([]); // needs 2
+      });
+
+      it('produces a selection that checkKniffel accepts', () => {
+        const roll = [3, 4, 5, 2, 2, 2];
+        const sel = selectedVals(roll, "Kniffel", [1, 2]);
+        expect(checkKniffel(sel, [1, 2]).valid).toBe(true);
+      });
     });
   });
 
