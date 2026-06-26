@@ -415,6 +415,11 @@ io.on('connection', (socket) => {
     // Clear timers when game ends or returns to lobby
     if (room.state.finished || room.state.status === 'lobby') {
       room.state.turnStartTime = null;
+      // Snapshot authoritative elapsed time before clearing the anchor so that
+      // calculateGameTime's fallback returns the correct final value.
+      if (room.gameActualStartTime) {
+        room.state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / 1000);
+      }
       room.gameActualStartTime = null;
       if (room.turnTimerState) {
         room.turnTimerState.lastCard = null;

@@ -958,8 +958,71 @@ describe('Server Socket E2E Simulation', () => {
             });
           }, 100);
         } else if (state.status === 'lobby' && seenPlaying) {
-          // gameActualStartTime cleared → falls back to stored value (0)
+          // Server snapshots authoritative time before clearing anchor; game ran <1s so value is 0
           expect(state.gameTimeInSeconds).toBe(0);
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          resolve();
+        }
+      });
+    });
+  }, 10000);
+
+  it('gameTimeInSeconds on game-end is the server-calculated elapsed time, not the stale client-pushed value', () => {
+    return new Promise((resolve, reject) => {
+      const roomId = 'GAME_TIME_END_SNAPSHOT';
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        reject(new Error('Test timed out'));
+      }, 8000);
+
+      let seenPlaying = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-gtes-a', color: '#ff0000' }, () => {
+          s1.emit('pushState', {
+            roomId,
+            newState: {
+              status: 'playing',
+              currentCard: '200',
+              cards: [],
+              currentPlayerIndex: 0,
+              round: 1,
+              finished: false,
+              gameTimeInSeconds: 0,
+              players: [{ name: 'Alice', deviceId: 'dev-gtes-a', score: 0 }],
+            }
+          });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (state.status === 'playing' && !seenPlaying) {
+          seenPlaying = true;
+
+          // Wait >1s so the server's authoritative elapsed time is at least 1
+          setTimeout(() => {
+            s1.emit('pushState', {
+              roomId,
+              newState: {
+                status: 'playing',
+                currentCard: '200',
+                cards: [],
+                currentPlayerIndex: 0,
+                round: 1,
+                finished: true,   // Game ends
+                gameTimeInSeconds: 999, // Stale client value — server must snapshot the real time
+                players: [{ name: 'Alice', deviceId: 'dev-gtes-a', score: 100 }],
+              }
+            });
+          }, 1200);
+        } else if (state.finished && seenPlaying) {
+          // Server must have snapshotted the real elapsed time (~1-2s), not the stale 999
+          expect(state.gameTimeInSeconds).toBeGreaterThanOrEqual(1);
+          expect(state.gameTimeInSeconds).toBeLessThan(5);
+
           clearTimeout(timeoutId);
           s1.disconnect();
           resolve();

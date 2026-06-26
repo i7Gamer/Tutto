@@ -110,7 +110,15 @@ export const useGameStore = create(immer((set, get) => ({
     // player's socket is gone. Create a temporary socket, re-join to re-register the
     // socketId, then immediately leave so the server removes them right away.
     const tempSocket = io(window.location.origin);
-    const cleanup = () => tempSocket.disconnect();
+    let cleanedUp = false;
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      clearTimeout(timeoutId);
+      tempSocket.disconnect();
+    };
+    // Failsafe: disconnect if server never fires the joinRoom callback
+    const timeoutId = setTimeout(cleanup, 10000);
 
     tempSocket.on('connect_error', cleanup);
     tempSocket.on('connect', () => {

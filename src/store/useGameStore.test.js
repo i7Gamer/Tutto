@@ -895,6 +895,53 @@ describe('useGameStore', () => {
       expect(mockEmit).not.toHaveBeenCalledWith('leaveRoom');
     });
 
+    it('cancelReconnect disconnects socket after 10s if joinRoom callback never fires', async () => {
+      const { io } = await import('socket.io-client');
+      io.mockClear();
+      mockDisconnect.mockClear();
+
+      vi.useFakeTimers();
+
+      useGameStore.getState().cancelReconnect('ROOM_TIMEOUT', 'Ghost');
+
+      // Socket connects but server never calls the joinRoom callback
+      mockOnHandlers['connect']();
+
+      // Before timeout: not yet disconnected
+      vi.advanceTimersByTime(9999);
+      expect(mockDisconnect).not.toHaveBeenCalled();
+
+      // At 10s: failsafe fires and disconnects
+      vi.advanceTimersByTime(1);
+      expect(mockDisconnect).toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('cancelReconnect clears the timeout when joinRoom callback fires normally', async () => {
+      const { io } = await import('socket.io-client');
+      io.mockClear();
+      mockDisconnect.mockClear();
+
+      vi.useFakeTimers();
+
+      useGameStore.getState().cancelReconnect('ROOM_OK', 'Alice');
+      mockOnHandlers['connect']();
+
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const callback = joinRoomCall[2];
+
+      // Callback fires well before the 10s timeout
+      callback({ success: true });
+      expect(mockDisconnect).toHaveBeenCalledTimes(1);
+
+      // Advancing past 10s must NOT trigger a second disconnect
+      vi.advanceTimersByTime(15000);
+      expect(mockDisconnect).toHaveBeenCalledTimes(1);
+
+      vi.useRealTimers();
+    });
+
     it('cancelReconnect clears showReconnectPopup when called with no roomId', async () => {
       useGameStore.setState({
         showReconnectPopup: true,
