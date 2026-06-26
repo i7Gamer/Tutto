@@ -9,6 +9,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 export default function DiceGame({ currentCard, onComplete, onCancel, onStateChange }) {
   const { t } = useTranslation();
+
+  const getDisplayCardName = (cardName) => {
+    const cardNameMap = {
+      'Plus_Minus': 'Plus/Minus',
+      '200': '200 Bonus',
+      '600': '600 Bonus',
+    };
+    return cardNameMap[cardName] || cardName;
+  };
   const [keptDice, setKeptDice] = useState([]);
   const [currentRoll, setCurrentRoll] = useState([]);
   const [displayRoll, setDisplayRoll] = useState([]);
@@ -284,7 +293,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
     <div className="bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden rounded-3xl flex flex-col items-center">
       {!showSummary && (
         <div className="w-full bg-black/5 dark:bg-white/5 border-b border-gray-200 dark:border-slate-600 p-4 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 m-0">{t('dice.title', 'Dice Game')} - {currentCard}</h2>
+          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 m-0">{t('dice.title', 'Dice Game')} - {getDisplayCardName(currentCard)}</h2>
           {!hasRolled && (
             <button 
               className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors" 
