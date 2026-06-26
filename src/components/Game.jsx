@@ -64,7 +64,7 @@ export default function Game() {
       }, 1500);
       return () => clearTimeout(timer);
     }
-  }, [justReconnected, liveTurnState, isMyTurn, diceMode, game]);
+  }, [justReconnected, liveTurnState, isMyTurn, diceMode]);
 
   useEffect(() => {
     let soundTimeout;

@@ -383,14 +383,28 @@ io.on('connection', (socket) => {
       }
     }
 
-    // Initialize turn start time when a turn is active and not yet set
-    if (room.state.status === 'playing' && room.state.currentPlayerIndex !== null && !room.state.turnStartTime) {
+    // Track turn changes and reset timer on new turn
+    if (!room.turnTimerState) {
+      room.turnTimerState = { lastCard: null, lastPlayerIndex: null };
+    }
+
+    const cardChanged = room.state.currentCard !== room.turnTimerState.lastCard;
+    const playerChanged = room.state.currentPlayerIndex !== room.turnTimerState.lastPlayerIndex;
+
+    // Reset turn start time when card or player changes (new turn)
+    if (room.state.status === 'playing' && room.state.currentPlayerIndex !== null && (cardChanged || playerChanged)) {
       room.state.turnStartTime = Date.now();
+      room.turnTimerState.lastCard = room.state.currentCard;
+      room.turnTimerState.lastPlayerIndex = room.state.currentPlayerIndex;
     }
 
     // Clear turn start time when game ends
     if (room.state.finished || room.state.status === 'lobby') {
       room.state.turnStartTime = null;
+      if (room.turnTimerState) {
+        room.turnTimerState.lastCard = null;
+        room.turnTimerState.lastPlayerIndex = null;
+      }
     }
 
     emitRoomState(roomId);
