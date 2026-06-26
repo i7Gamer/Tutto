@@ -837,6 +837,208 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
+  it('gameTimeInSeconds is server-calculated and increases monotonically across pushState calls', () => {
+    return new Promise((resolve, reject) => {
+      const roomId = 'GAME_TIME_MONOTONIC';
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        reject(new Error('Test timed out'));
+      }, 8000);
+
+      let gameStarted = false;
+      let firstGameTime = null;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-gtm-a', color: '#ff0000' }, () => {
+          s1.emit('pushState', {
+            roomId,
+            newState: {
+              status: 'playing',
+              currentCard: '200',
+              cards: [],
+              currentPlayerIndex: 0,
+              round: 1,
+              finished: false,
+              gameTimeInSeconds: 999, // Client sends stale/wrong value — server must override
+              players: [{ name: 'Alice', deviceId: 'dev-gtm-a', score: 0 }],
+            }
+          });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (state.status !== 'playing') return;
+
+        if (!gameStarted) {
+          gameStarted = true;
+          firstGameTime = state.gameTimeInSeconds;
+
+          // Server should override 999 with its own calculation (~0)
+          expect(firstGameTime).toBeLessThan(5);
+
+          setTimeout(() => {
+            s1.emit('pushState', {
+              roomId,
+              newState: {
+                status: 'playing',
+                currentCard: '300',
+                cards: [],
+                currentPlayerIndex: 0,
+                round: 1,
+                finished: false,
+                gameTimeInSeconds: 999, // Still stale — server must still override
+                players: [{ name: 'Alice', deviceId: 'dev-gtm-a', score: 0 }],
+              }
+            });
+          }, 200);
+        } else {
+          // Second update: still server-calculated (not 999)
+          expect(state.gameTimeInSeconds).toBeLessThan(5);
+          // Monotonically non-decreasing
+          expect(state.gameTimeInSeconds).toBeGreaterThanOrEqual(firstGameTime);
+
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          resolve();
+        }
+      });
+    });
+  }, 10000);
+
+  it('gameTimeInSeconds is reset when game returns to lobby', () => {
+    return new Promise((resolve, reject) => {
+      const roomId = 'GAME_TIME_RESET';
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        reject(new Error('Test timed out'));
+      }, 8000);
+
+      let seenPlaying = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-gtr-a', color: '#ff0000' }, () => {
+          s1.emit('pushState', {
+            roomId,
+            newState: {
+              status: 'playing',
+              currentCard: '200',
+              cards: [],
+              currentPlayerIndex: 0,
+              round: 1,
+              finished: false,
+              gameTimeInSeconds: 0,
+              players: [{ name: 'Alice', deviceId: 'dev-gtr-a', score: 0 }],
+            }
+          });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (state.status === 'playing' && !seenPlaying) {
+          seenPlaying = true;
+          expect(state.gameTimeInSeconds).toBeLessThan(5);
+
+          setTimeout(() => {
+            s1.emit('pushState', {
+              roomId,
+              newState: {
+                status: 'lobby',
+                currentCard: null,
+                cards: [],
+                currentPlayerIndex: null,
+                round: 1,
+                finished: false,
+                gameTimeInSeconds: 0,
+                players: [{ name: 'Alice', deviceId: 'dev-gtr-a', score: 0 }],
+              }
+            });
+          }, 100);
+        } else if (state.status === 'lobby' && seenPlaying) {
+          // gameActualStartTime cleared → falls back to stored value (0)
+          expect(state.gameTimeInSeconds).toBe(0);
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          resolve();
+        }
+      });
+    });
+  }, 10000);
+
+  it('gameTimeInSeconds continues from correct server time on reconnect', () => {
+    return new Promise((resolve, reject) => {
+      const roomId = 'GAME_TIME_RECONNECT';
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Host / active player
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Observer (reconnects)
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        s2.disconnect();
+        reject(new Error('Test timed out'));
+      }, 10000);
+
+      let s2GameTimeAtDisconnect = null;
+      let s2Connected = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-gtr2-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-gtr2-b', color: '#00ff00' }, () => {
+            s1.emit('pushState', {
+              roomId,
+              newState: {
+                status: 'playing',
+                currentCard: '200',
+                cards: [],
+                currentPlayerIndex: 0,
+                round: 1,
+                finished: false,
+                gameTimeInSeconds: 0,
+                players: [
+                  { name: 'Alice', deviceId: 'dev-gtr2-a', score: 0 },
+                  { name: 'Bob', deviceId: 'dev-gtr2-b', score: 0 },
+                ],
+              }
+            });
+          });
+        });
+      });
+
+      s2.on('gameState', (state) => {
+        if (state.status !== 'playing' || s2Connected) return;
+        s2Connected = true;
+
+        // Wait so server game time advances a bit, then disconnect
+        setTimeout(() => {
+          s2GameTimeAtDisconnect = state.gameTimeInSeconds;
+          s2.disconnect();
+
+          setTimeout(() => {
+            const s2New = io(`http://127.0.0.1:${PORT}`);
+            s2New.on('connect', () => {
+              s2New.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-gtr2-b', color: '#00ff00' }, () => {});
+            });
+
+            s2New.on('gameState', (newState) => {
+              if (newState.status !== 'playing') return;
+              // Server-calculated time should be >= what it was at disconnect
+              expect(newState.gameTimeInSeconds).toBeGreaterThanOrEqual(s2GameTimeAtDisconnect);
+              // Should not be the stale client value (e.g. 0 from initial push or 999)
+              expect(newState.gameTimeInSeconds).toBeLessThan(10);
+
+              clearTimeout(timeoutId);
+              s1.disconnect();
+              s2New.disconnect();
+              resolve();
+            });
+          }, 300);
+        }, 200);
+      });
+    });
+  }, 10000);
+
   it('promotes first connected player to host when host leaves, skipping disconnected players', () => {
     return new Promise((resolve, reject) => {
       const roomId = 'HOST_REASSIGN_CONNECTED';

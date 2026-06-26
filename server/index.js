@@ -101,6 +101,13 @@ const handleActivePlayerRemoved = (state, removedIdx) => {
   }
 };
 
+const calculateGameTime = (room) => {
+  if (!room.gameActualStartTime || room.state.status !== 'playing') {
+    return room.state.gameTimeInSeconds;
+  }
+  return Math.floor((Date.now() - room.gameActualStartTime) / 1000);
+};
+
 const calculateRemainingTurnTime = (room) => {
   if (!room.state.turnStartTime || room.state.turnDuration === 0) {
     return null;
@@ -117,9 +124,11 @@ const calculateRemainingTurnTime = (room) => {
 
 const emitRoomState = (roomId) => {
   if (rooms[roomId]) {
+    const room = rooms[roomId];
     const gameState = {
-      ...rooms[roomId].state,
-      turnTimeRemaining: calculateRemainingTurnTime(rooms[roomId])
+      ...room.state,
+      turnTimeRemaining: calculateRemainingTurnTime(room),
+      gameTimeInSeconds: calculateGameTime(room),
     };
     io.to(roomId).emit('gameState', gameState);
     // Also broadcast who the host is
@@ -383,6 +392,11 @@ io.on('connection', (socket) => {
       }
     }
 
+    // Record server-side game start time when game transitions to playing
+    if (room.state.status === 'playing' && !room.gameActualStartTime) {
+      room.gameActualStartTime = Date.now();
+    }
+
     // Track turn changes and reset timer on new turn
     if (!room.turnTimerState) {
       room.turnTimerState = { lastCard: null, lastPlayerIndex: null };
@@ -398,9 +412,10 @@ io.on('connection', (socket) => {
       room.turnTimerState.lastPlayerIndex = room.state.currentPlayerIndex;
     }
 
-    // Clear turn start time when game ends
+    // Clear timers when game ends or returns to lobby
     if (room.state.finished || room.state.status === 'lobby') {
       room.state.turnStartTime = null;
+      room.gameActualStartTime = null;
       if (room.turnTimerState) {
         room.turnTimerState.lastCard = null;
         room.turnTimerState.lastPlayerIndex = null;
