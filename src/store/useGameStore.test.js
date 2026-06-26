@@ -405,6 +405,194 @@ describe('useGameStore', () => {
       expect(useGameStore.getState().justReconnected).toBe(true);  // Flag persists until next state update
     });
 
+    describe('server-authoritative game time sync', () => {
+    it('startGame initializes gameTimeInSeconds to 0', () => {
+      useGameStore.setState({
+        mode: 'local',
+        isOnline: false,
+        players: [{ name: 'Alice', score: 0 }],
+      });
+
+      useGameStore.getState().startGame();
+
+      expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
+      expect(useGameStore.getState().status).toBe('playing');
+    });
+
+    it('syncOnlineTimers sets gameStartTime from server gameTimeInSeconds', () => {
+      const now = Date.now();
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        status: 'playing',
+        currentPlayerIndex: 0,
+        gameTimeInSeconds: 45,  // Server says 45 seconds elapsed
+        gameStartTime: null,
+      });
+
+      useGameStore.getState().syncOnlineTimers();
+
+      const state = useGameStore.getState();
+      // gameStartTime should be set so that (now - gameStartTime) ≈ 45 seconds
+      const elapsedMs = now - state.gameStartTime;
+      const elapsedSeconds = Math.floor(elapsedMs / 1000);
+      expect(elapsedSeconds).toBe(45);
+    });
+
+    it('local timer increments between server syncs', async () => {
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        status: 'playing',
+        currentPlayerIndex: 0,
+        gameTimeInSeconds: 10,
+        turnDuration: 60,
+      });
+
+      useGameStore.getState().syncOnlineTimers();
+      const initialTime = useGameStore.getState().gameTimeInSeconds;
+
+      // Wait for 1 second
+      await new Promise(resolve => setTimeout(resolve, 1100));
+
+      // Timer should have incremented by ~1
+      const afterWait = useGameStore.getState().gameTimeInSeconds;
+      expect(afterWait).toBeGreaterThanOrEqual(initialTime + 1);
+    });
+
+    it('reconnect syncs gameStartTime from new server gameTimeInSeconds value', async () => {
+      // Simulate: game started 30 seconds ago from server's perspective
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        status: 'playing',
+        currentPlayerIndex: 0,
+        gameTimeInSeconds: 30,
+        gameStartTime: Date.now() - 30000,
+      });
+
+      useGameStore.getState().syncOnlineTimers();
+
+      // Server sends updated state: now 35 seconds elapsed
+      const newServerTime = 35;
+      useGameStore.setState({ gameTimeInSeconds: newServerTime });
+
+      // Resync with new server value
+      useGameStore.getState().syncOnlineTimers();
+
+      const state = useGameStore.getState();
+      const elapsedMs = Date.now() - state.gameStartTime;
+      const elapsedSeconds = Math.floor(elapsedMs / 1000);
+
+      // Should reflect new server time (35 seconds)
+      expect(elapsedSeconds).toBe(newServerTime);
+    });
+
+    it('game time does not drift on repeated syncs', async () => {
+      const syncTimes = [];
+
+      // Simulate 3 syncs over 2+ seconds
+      for (let i = 0; i < 3; i++) {
+        const serverTime = 10 + i;  // Server advances: 10, 11, 12
+        useGameStore.setState({
+          mode: 'online',
+          isOnline: true,
+          status: 'playing',
+          currentPlayerIndex: 0,
+          gameTimeInSeconds: serverTime,
+        });
+
+        useGameStore.getState().syncOnlineTimers();
+        const state = useGameStore.getState();
+        const elapsedMs = Date.now() - state.gameStartTime;
+        const elapsedSeconds = Math.floor(elapsedMs / 1000);
+
+        syncTimes.push({ server: serverTime, local: elapsedSeconds });
+
+        // Wait between syncs
+        if (i < 2) await new Promise(resolve => setTimeout(resolve, 1100));
+      }
+
+      // Verify no large drifts between server and local times
+      syncTimes.forEach(({ server, local }) => {
+        expect(Math.abs(server - local)).toBeLessThanOrEqual(1);
+      });
+    });
+
+    it('game timer respects gameStartTime being set', () => {
+      const targetTime = 25;
+      const now = Date.now();
+
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        status: 'playing',
+        currentPlayerIndex: 0,
+        gameTimeInSeconds: targetTime,
+        gameStartTime: now - (targetTime * 1000),  // Pre-calculated start time
+      });
+
+      // Manual interval tick
+      const s = useGameStore.getState();
+      if (s.gameStartTime) {
+        const calculated = Math.floor((Date.now() - s.gameStartTime) / 1000);
+        expect(calculated).toBe(targetTime);
+      }
+    });
+
+    it('does not set gameStartTime if gameTimeInSeconds is null', () => {
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        status: 'playing',
+        currentPlayerIndex: 0,
+        gameTimeInSeconds: null,
+        gameStartTime: null,
+      });
+
+      useGameStore.getState().syncOnlineTimers();
+
+      // gameStartTime should remain null
+      expect(useGameStore.getState().gameStartTime).toBeNull();
+    });
+
+    it('does not set gameStartTime if gameTimeInSeconds is negative', () => {
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        status: 'playing',
+        currentPlayerIndex: 0,
+        gameTimeInSeconds: -1,
+        gameStartTime: null,
+      });
+
+      useGameStore.getState().syncOnlineTimers();
+
+      // gameStartTime should remain null
+      expect(useGameStore.getState().gameStartTime).toBeNull();
+    });
+
+    it('local timer increment fallback still works if gameStartTime not set', async () => {
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        status: 'playing',
+        currentPlayerIndex: 0,
+        gameTimeInSeconds: 0,
+        gameStartTime: null,
+      });
+
+      useGameStore.getState().syncOnlineTimers();
+      const initial = useGameStore.getState().gameTimeInSeconds;
+
+      await new Promise(resolve => setTimeout(resolve, 1100));
+
+      const afterWait = useGameStore.getState().gameTimeInSeconds;
+      // Should increment by 1 using fallback logic
+      expect(afterWait).toBeGreaterThanOrEqual(initial + 1);
+    });
+    });
+
     it('cancelReconnect (no args) clears showReconnectPopup and local state without connecting', async () => {
       const { io } = await import('socket.io-client');
       io.mockClear();

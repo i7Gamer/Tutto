@@ -666,4 +666,147 @@ describe('App Integration (End-to-End)', () => {
       expect(scoreboard).toBeInTheDocument();
     }
   });
+
+  it('Game time syncs from server on start and is maintained during play', async () => {
+    act(() => {
+      useGameStore.setState({
+        mode: 'local',
+        isOnline: false,
+        players: [{ name: 'Alice', score: 0 }],
+        status: 'lobby',
+      });
+    });
+
+    render(<App />);
+
+    // Start game
+    act(() => {
+      useGameStore.getState().startGame();
+    });
+
+    // Game time should initialize to 0
+    expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
+    expect(useGameStore.getState().status).toBe('playing');
+
+    // Wait for timer to tick
+    await new Promise(resolve => setTimeout(resolve, 1100));
+
+    // Game time should have incremented
+    const timeAfterWait = useGameStore.getState().gameTimeInSeconds;
+    expect(timeAfterWait).toBeGreaterThanOrEqual(1);
+  });
+
+  it('Game time resyncs from server without drift on reconnect', async () => {
+    // Simulate player in online game - server time is at 30 seconds
+    useGameStore.setState({
+      mode: 'online',
+      isOnline: true,
+      status: 'playing',
+      currentPlayerIndex: 0,
+      gameTimeInSeconds: 30,
+      gameStartTime: Date.now() - 30000,  // Set up so elapsed time = 30 seconds
+    });
+
+    // First sync establishes baseline
+    useGameStore.getState().syncOnlineTimers();
+    let state = useGameStore.getState();
+    let initialElapsed = Math.floor((Date.now() - state.gameStartTime) / 1000);
+    expect(initialElapsed).toBe(30);
+
+    // Server time advances to 35 seconds (e.g., due to network latency or processing)
+    useGameStore.setState({ gameTimeInSeconds: 35 });
+
+    // Re-sync with new server time
+    useGameStore.getState().syncOnlineTimers();
+
+    state = useGameStore.getState();
+    const resyncElapsed = Math.floor((Date.now() - state.gameStartTime) / 1000);
+
+    // Should now reflect 35 seconds
+    expect(resyncElapsed).toBe(35);
+
+    // Wait a bit and verify time continues to advance from correct reference
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    state = useGameStore.getState();
+    const afterWait = Math.floor((Date.now() - state.gameStartTime) / 1000);
+    // Should be ~35.5 seconds
+    expect(afterWait).toBeGreaterThanOrEqual(35);
+  });
+
+  it('Game time does not drift across multiple server updates', async () => {
+    const measurements = [];
+
+    // Simulate multiple syncs with server time advancing
+    for (let serverTime = 10; serverTime <= 12; serverTime++) {
+      act(() => {
+        useGameStore.setState({
+          mode: 'online',
+          isOnline: true,
+          status: 'playing',
+          currentPlayerIndex: 0,
+          gameTimeInSeconds: serverTime,
+        });
+      });
+
+      useGameStore.getState().syncOnlineTimers();
+
+      const store = useGameStore.getState();
+      const elapsedMs = Date.now() - store.gameStartTime;
+      const elapsedSeconds = Math.floor(elapsedMs / 1000);
+
+      measurements.push({ server: serverTime, local: elapsedSeconds });
+
+      // Wait between measurements
+      if (serverTime < 12) {
+        await new Promise(resolve => setTimeout(resolve, 1100));
+      }
+    }
+
+    // Verify no significant drift
+    measurements.forEach(({ server, local }) => {
+      // Local time should match server time within ±1 second
+      expect(Math.abs(server - local)).toBeLessThanOrEqual(1);
+    });
+  });
+
+  it('Game time sync works for both online and local games', async () => {
+    // Local game
+    act(() => {
+      useGameStore.setState({
+        mode: 'local',
+        isOnline: false,
+        players: [{ name: 'Alice', score: 0 }],
+        status: 'lobby',
+      });
+    });
+
+    useGameStore.getState().startGame();
+    expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
+
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    let localGameTime = useGameStore.getState().gameTimeInSeconds;
+    expect(localGameTime).toBeGreaterThanOrEqual(1);
+
+    // Clean up for online test
+    useGameStore.getState().reset();
+
+    // Online game
+    act(() => {
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        status: 'playing',
+        currentPlayerIndex: 0,
+        gameTimeInSeconds: 0,
+      });
+    });
+
+    useGameStore.getState().syncOnlineTimers();
+    expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
+
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    let onlineGameTime = useGameStore.getState().gameTimeInSeconds;
+    expect(onlineGameTime).toBeGreaterThanOrEqual(1);
+  });
 });

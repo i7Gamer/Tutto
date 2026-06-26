@@ -440,8 +440,9 @@ export const useGameStore = create(immer((set, get) => ({
     if (gameTimerInterval) clearInterval(gameTimerInterval);
 
     if (state.mode === 'online' && !state.finished && state.status === 'playing' && state.currentPlayerIndex !== null) {
-      // Sync gameStartTime immediately on reconnect (server sent accurate gameTimeInSeconds)
-      if (state.justReconnected && state.gameTimeInSeconds > 0) {
+      // Always sync gameStartTime from server's authoritative gameTimeInSeconds.
+      // This ensures local timer increments from the correct reference point.
+      if (state.gameTimeInSeconds !== null && state.gameTimeInSeconds >= 0) {
         set({ gameStartTime: Date.now() - (state.gameTimeInSeconds * 1000) });
       }
 
@@ -543,13 +544,14 @@ export const useGameStore = create(immer((set, get) => ({
       state.previousWasBust = false;
       state.previousHighestTurnScore = 0;
       state.status = 'playing';
+      state.gameTimeInSeconds = 0;  // Reset game timer to 0 at game start
 
       const deckConfig = Object.keys(state.initialCards).reduce((acc, card) => {
         for(let i=0; i<state.initialCards[card]; i++) acc.push(card);
         return acc;
       }, []);
       const deck = shuffleArray(deckConfig);
-      
+
       state.currentCard = deck.shift();
       state.cards = deck;
       state.currentPlayerIndex = 0;
