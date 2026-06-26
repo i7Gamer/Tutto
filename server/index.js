@@ -343,12 +343,16 @@ io.on('connection', (socket) => {
           'feuerwerkBusts', 'x2Busts', 'feuerwerkPointsScored', 'x2PointsScored',
           'highestTurnScore', 'position', 'color', 'disconnected',
         ];
+        // NOTE: Do NOT add per-row score restrictions here (e.g. "non-host may
+        // only update their own row"). The Plus_Minus card legitimately requires
+        // the active non-host player to deduct 1000 pts from the leader's score
+        // and to restore it on undo. A per-row filter silently discards those
+        // changes and breaks the mechanic. Score integrity is enforced by the
+        // game engine running on the active player's client, which is the same
+        // engine the host runs — acceptable for a party game.
         room.state.players = room.state.players.map(existing => {
           const pushed = newState.players.find(p => p.deviceId === existing.deviceId);
           if (!pushed) return existing;
-          // Non-host active players may only update their own row to prevent
-          // them from spoofing scores for other players.
-          if (!isHost && existing.socketId !== socket.id) return existing;
           const updated = { ...existing };
           for (const f of PLAYER_MUTABLE) {
             if (f in pushed) updated[f] = pushed[f];

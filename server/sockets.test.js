@@ -490,10 +490,13 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
-  it('active player cannot spoof scores for other players via pushState', () => {
+  it('non-host active player can deduct Plus_Minus score from the host-leader', () => {
+    // Regression test: the server previously rejected changes to other players' rows
+    // pushed by a non-host, silently discarding the Plus_Minus -1000 deduction from
+    // the leader (host). The per-row restriction has been removed — see server/index.js.
     return new Promise((resolve, reject) => {
-      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
-      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — active player, will try to tamper
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host, current leader at 1000 pts
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — non-host, active player, plays Plus_Minus
 
       const timeoutId = setTimeout(() => {
         s1.disconnect();
@@ -502,58 +505,111 @@ describe('Server Socket E2E Simulation', () => {
       }, 4000);
 
       s1.on('connect', () => {
-        s1.emit('joinRoom', { roomId: 'SCORE_SPOOF_ROOM', name: 'Alice', deviceId: 'dev-ss-a', color: '#ff0000' }, () => {
-          s2.emit('joinRoom', { roomId: 'SCORE_SPOOF_ROOM', name: 'Bob', deviceId: 'dev-ss-b', color: '#00ff00' }, () => {
+        s1.emit('joinRoom', { roomId: 'PM_DEDUCT_ROOM', name: 'Alice', deviceId: 'dev-pm-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'PM_DEDUCT_ROOM', name: 'Bob', deviceId: 'dev-pm-b', color: '#00ff00' }, () => {
+            // Alice leads at 1000; Bob is the active player (index 1, Plus_Minus turn)
             const players = [
-              { name: 'Alice', deviceId: 'dev-ss-a', socketId: s1.id, disconnected: false, score: 0 },
-              { name: 'Bob', deviceId: 'dev-ss-b', socketId: s2.id, disconnected: false, score: 0 },
+              { name: 'Alice', deviceId: 'dev-pm-a', socketId: s1.id, disconnected: false, score: 1000 },
+              { name: 'Bob',   deviceId: 'dev-pm-b', socketId: s2.id, disconnected: false, score: 0 },
             ];
-            // Host gives Bob the active turn (index 1)
-            s1.emit('pushState', { roomId: 'SCORE_SPOOF_ROOM', newState: { players, status: 'playing', currentPlayerIndex: 1 } });
+            s1.emit('pushState', { roomId: 'PM_DEDUCT_ROOM', newState: { players, status: 'playing', currentPlayerIndex: 1 } });
 
             setTimeout(() => {
-              // Bob (active player) pushes a state that inflates Alice's score to 99999
+              // Bob completes Plus_Minus: Alice deducted 1000→0, Bob gains 0→1000
               s2.emit('pushState', {
-                roomId: 'SCORE_SPOOF_ROOM',
+                roomId: 'PM_DEDUCT_ROOM',
                 newState: {
                   players: [
-                    { name: 'Alice', deviceId: 'dev-ss-a', socketId: s1.id, disconnected: false, score: 99999 },
-                    { name: 'Bob', deviceId: 'dev-ss-b', socketId: s2.id, disconnected: false, score: 500 },
+                    { name: 'Alice', deviceId: 'dev-pm-a', socketId: s1.id, disconnected: false, score: 0,    times1000PointsDeducted: 1 },
+                    { name: 'Bob',   deviceId: 'dev-pm-b', socketId: s2.id, disconnected: false, score: 1000, timesPlusMinusCompleted: 1 },
                   ],
                   currentPlayerIndex: 0,
+                  previousCard: 'Plus_Minus',
+                  previousScore: 1000,
+                  previousLeaders: [{ name: 'Alice', score: 1000 }],
                 }
               });
             }, 300);
-
-            setTimeout(() => {
-              // After Bob's tamper attempt, Alice's score must still be 0
-              s1.emit('pushState', { roomId: 'SCORE_SPOOF_ROOM', newState: {} }); // no-op, just trigger state read
-            }, 600);
           });
         });
       });
 
       let gameStarted = false;
       s1.on('gameState', (state) => {
-        if (state.status === 'playing' && state.players?.length === 2) {
-          gameStarted = true;
+        if (state.status === 'playing' && state.players?.length === 2) gameStarted = true;
+        if (!gameStarted) return;
+        const alice = state.players?.find(p => p.name === 'Alice');
+        const bob   = state.players?.find(p => p.name === 'Bob');
+        // Deduction accepted: Alice at 0, Bob at 1000
+        if (alice && bob && alice.score === 0 && bob.score === 1000) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          s2.disconnect();
+          resolve();
         }
-        if (gameStarted && state.players) {
-          const alice = state.players.find(p => p.name === 'Alice');
-          if (alice && alice.score === 99999) {
-            clearTimeout(timeoutId);
-            s1.disconnect();
-            s2.disconnect();
-            reject(new Error('Server allowed active player to spoof another player\'s score'));
-          }
-          // After Bob's push, Bob should have 500 (own row), Alice stays 0
-          const bob = state.players.find(p => p.name === 'Bob');
-          if (alice && bob && alice.score === 0 && bob.score === 500) {
-            clearTimeout(timeoutId);
-            s1.disconnect();
-            s2.disconnect();
-            resolve();
-          }
+      });
+    });
+  }, 10000);
+
+  it('non-host active player undo can restore the previous (host) player score', () => {
+    // Regression test for undo: when a non-host is the current active player and
+    // undoes the previous (host) player's score, the server previously rejected the
+    // host's row change because of the per-row restriction. Now it must be accepted.
+    // Scenario: Alice (host) scored 500, now it's Bob's turn (index 1).
+    // Bob clicks undo → Alice's score is reversed from 500 to 0.
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — non-host, current active player
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        s2.disconnect();
+        reject(new Error('Test timed out'));
+      }, 4000);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'UNDO_HOST_SCORE', name: 'Alice', deviceId: 'dev-uh-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'UNDO_HOST_SCORE', name: 'Bob', deviceId: 'dev-uh-b', color: '#00ff00' }, () => {
+            // Alice scored 500 on her turn; now it's Bob's turn (index 1)
+            const players = [
+              { name: 'Alice', deviceId: 'dev-uh-a', socketId: s1.id, disconnected: false, score: 500 },
+              { name: 'Bob',   deviceId: 'dev-uh-b', socketId: s2.id, disconnected: false, score: 0 },
+            ];
+            s1.emit('pushState', {
+              roomId: 'UNDO_HOST_SCORE',
+              newState: { players, status: 'playing', currentPlayerIndex: 1, previousCard: '200', previousScore: 500 }
+            });
+
+            setTimeout(() => {
+              // Bob (non-host, active player) pushes undo: Alice's 500 reversed, back to Alice's turn
+              s2.emit('pushState', {
+                roomId: 'UNDO_HOST_SCORE',
+                newState: {
+                  players: [
+                    { name: 'Alice', deviceId: 'dev-uh-a', socketId: s1.id, disconnected: false, score: 0 },
+                    { name: 'Bob',   deviceId: 'dev-uh-b', socketId: s2.id, disconnected: false, score: 0 },
+                  ],
+                  currentPlayerIndex: 0,
+                  previousCard: null,
+                }
+              });
+            }, 300);
+          });
+        });
+      });
+
+      let gameStarted = false;
+      s1.on('gameState', (state) => {
+        if (state.status === 'playing' && state.players?.length === 2) gameStarted = true;
+        if (!gameStarted) return;
+        const alice = state.players?.find(p => p.name === 'Alice');
+        const bob   = state.players?.find(p => p.name === 'Bob');
+        // Undo accepted: Alice's score reversed to 0
+        if (alice && bob && alice.score === 0 && bob.score === 0 && state.previousCard === null) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          s2.disconnect();
+          resolve();
         }
       });
     });
