@@ -465,6 +465,37 @@ describe('useGameStore', () => {
       expect(useGameStore.getState().turnTimeRemaining).toBe(25);
     });
 
+    it.each([
+      ['Feuerwerk', 3],
+      ['Kleeblatt', 2],
+      ['200',       1],
+      ['Stop',      1],
+    ])('syncOnlineTimers applies %s turn multiplier (%dx)', (card, multiplier) => {
+      useGameStore.setState({
+        mode: 'online', isOnline: true, status: 'playing',
+        currentPlayerIndex: 0, currentCard: card,
+        turnDuration: 60, justReconnected: false,
+      });
+      useGameStore.getState().syncOnlineTimers();
+      expect(useGameStore.getState().turnTimeRemaining).toBe(60 * multiplier);
+    });
+
+    it('stopOnlineTimers clears both game and turn timer state', () => {
+      useGameStore.setState({
+        mode: 'online', isOnline: true, status: 'playing',
+        currentPlayerIndex: 0, currentCard: 'Kniffel',
+        turnDuration: 60, turnTimeRemaining: 30,
+      });
+      useGameStore.getState().syncOnlineTimers(); // start timers
+      useGameStore.getState().stopOnlineTimers();
+      // turnTimeRemaining is NOT reset by stopOnlineTimers (only by syncOnlineTimers/setMode)
+      // but the internal interval tracking vars should be cleared — verified indirectly:
+      // a subsequent syncOnlineTimers must treat the card as "new" and reset to full duration.
+      useGameStore.setState({ turnTimeRemaining: 5 });
+      useGameStore.getState().syncOnlineTimers();
+      expect(useGameStore.getState().turnTimeRemaining).toBe(60);
+    });
+
     it('syncOnlineTimers uses full turn duration when justReconnected=true but player changed (new turn)', () => {
       useGameStore.setState({
         mode: 'online', isOnline: true, status: 'playing',

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import confetti from 'canvas-confetti';
 import { playBuzzer, playSuccess } from '../utils/soundEffects';
@@ -39,7 +39,7 @@ export default function Game() {
   const formattedTime = formatTime(gameTimeInSeconds);
 
   const currentPlayer = currentPlayerIndex !== null ? players[currentPlayerIndex] : null;
-  const sortedPlayers = computeRankedPlayers(players);
+  const sortedPlayers = useMemo(() => computeRankedPlayers(players), [players]);
 
   const isMyTurn = !isOnline || (currentPlayer && currentPlayer.name === myName);
   const [scoreInput, setScoreInput] = useState("");

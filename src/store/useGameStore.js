@@ -25,6 +25,8 @@ const createInitialPlayer = (name) => ({
 
 const API_TOKEN = import.meta.env.VITE_API_TOKEN || 'tutto-local-dev-token';
 
+const TURN_DURATION_MULTIPLIERS = { Feuerwerk: 3, Kleeblatt: 2 };
+
 let socket;
 let gameTimerInterval = null;
 let turnTimerInterval = null;
@@ -32,6 +34,13 @@ let turnTimerInterval = null;
 // gameState broadcasts (color changes, config edits) don't reset the countdown.
 let turnTimerPlayerIndex = null;
 let turnTimerCard = null;
+
+const clearTurnTimer = () => {
+  if (turnTimerInterval) clearInterval(turnTimerInterval);
+  turnTimerInterval = null;
+  turnTimerPlayerIndex = null;
+  turnTimerCard = null;
+};
 
 // Initial local state template
 const initialLocalState = {
@@ -476,9 +485,7 @@ export const useGameStore = create(immer((set, get) => ({
           if (!isNewTurn && justReconnected && state.turnTimeRemaining !== null && state.turnTimeRemaining !== undefined) {
             remaining = state.turnTimeRemaining;
           } else {
-            let multiplier = 1;
-            if (state.currentCard === 'Feuerwerk') multiplier = 3;
-            if (state.currentCard === 'Kleeblatt') multiplier = 2;
+            const multiplier = TURN_DURATION_MULTIPLIERS[state.currentCard] ?? 1;
             remaining = state.turnDuration * multiplier;
           }
           set({ turnTimeRemaining: remaining });
@@ -497,17 +504,11 @@ export const useGameStore = create(immer((set, get) => ({
         }
         // Same player + same card: leave the existing countdown running untouched.
       } else {
-        if (turnTimerInterval) clearInterval(turnTimerInterval);
-        turnTimerInterval = null;
-        turnTimerPlayerIndex = null;
-        turnTimerCard = null;
+        clearTurnTimer();
         set({ turnTimeRemaining: null });
       }
     } else {
-      if (turnTimerInterval) clearInterval(turnTimerInterval);
-      turnTimerInterval = null;
-      turnTimerPlayerIndex = null;
-      turnTimerCard = null;
+      clearTurnTimer();
       set({ turnTimeRemaining: null });
     }
   },
@@ -515,10 +516,7 @@ export const useGameStore = create(immer((set, get) => ({
   stopOnlineTimers: () => {
     if (gameTimerInterval) clearInterval(gameTimerInterval);
     gameTimerInterval = null;
-    if (turnTimerInterval) clearInterval(turnTimerInterval);
-    turnTimerInterval = null;
-    turnTimerPlayerIndex = null;
-    turnTimerCard = null;
+    clearTurnTimer();
   },
 
   // --- GAMEPLAY ---
