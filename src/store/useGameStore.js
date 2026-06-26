@@ -320,7 +320,11 @@ export const useGameStore = create(immer((set, get) => ({
     }
   },
 
-  joinRoom: (room, name) => {
+  joinRoom: (room, name, isReconnect = false) => {
+    if (!isReconnect) {
+      localStorage.removeItem('tutto_dice_turn_state');
+      set({ liveTurnState: null });
+    }
     return new Promise((resolve) => {
       get().connectSocket();
       const savedColor = localStorage.getItem('tutto_color') || null;
