@@ -348,6 +348,9 @@ export const useGameStore = create(immer((set, get) => ({
 
   setLiveTurnState: (snapshot) => {
     set({ liveTurnState: snapshot });
+    if (snapshot) {
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify(snapshot));
+    }
     if (get().isOnline) get().pushState();
   },
 
@@ -507,6 +510,7 @@ export const useGameStore = create(immer((set, get) => ({
       turnTimeRemaining: null,
       liveTurnState: null
     });
+    localStorage.removeItem('tutto_dice_turn_state');
     if (get().isOnline) get().pushState();
   },
 
@@ -543,6 +547,7 @@ export const useGameStore = create(immer((set, get) => ({
         state.currentCard = result.drawnCard;
       }
       state.liveTurnState = null;
+      localStorage.removeItem('tutto_dice_turn_state');
     });
 
     if (get().finished && get().isOnline) {

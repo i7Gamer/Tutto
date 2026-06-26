@@ -132,6 +132,7 @@ export default function Game() {
 
   const handleCancelDiceGame = useCallback(() => {
     setShowDiceGame(false);
+    localStorage.removeItem('tutto_dice_turn_state');
     if (isOnline) setLiveTurnState(null);
   }, [isOnline, setLiveTurnState]);
 

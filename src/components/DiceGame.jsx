@@ -36,7 +36,24 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
   const [tuttosThisTurn, setTuttosThisTurn] = useState(0);
   const [bustCountdown, setBustCountdown] = useState(null);
   const bustTimerStarted = useRef(false);
-  
+
+  // Restore dice game state from localStorage on component mount
+  useEffect(() => {
+    const savedState = localStorage.getItem('tutto_dice_turn_state');
+    if (savedState) {
+      try {
+        const { turnScore, keptDice, currentRoll, rollingDiceIds } = JSON.parse(savedState);
+        setTurnScore(turnScore || 0);
+        setKeptDice(keptDice || []);
+        setCurrentRoll(currentRoll || []);
+        setDisplayRoll(currentRoll || []);
+        setHasRolled(true);
+      } catch (e) {
+        // Silently ignore if state is corrupted
+      }
+    }
+  }, []);
+
   const selectedRolls = currentRoll.filter(d => d.selected);
   const selectedVals = selectedRolls.map(d => d.val);
   
