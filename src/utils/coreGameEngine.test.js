@@ -210,7 +210,38 @@ describe('coreGameEngine', () => {
     });
 
     describe('Plus_Minus card', () => {
-      it('Plus_Minus success by a non-leader deducts 1000 from the single leader (bounded at 0)', () => {
+      it('Plus_Minus: leader with exactly 1000 pts goes to 0 when non-leader succeeds', () => {
+        const state = makeState({
+          players: [makePlayer('Alice', { score: 1000 }), makePlayer('Bob', { score: 0 })],
+          currentPlayerIndex: 1,
+          currentCard: 'Plus_Minus',
+        });
+        const result = calculateNextTurn(state, 0, true);
+        expect(result.players[0].score).toBe(0);    // Alice: 1000 - 1000 = 0
+        expect(result.players[0].times1000PointsDeducted).toBe(1);
+        expect(result.players[1].score).toBe(1000); // Bob: 0 + 1000
+        expect(result.players[1].timesPlusMinusCompleted).toBe(1);
+        expect(result.previousLeaders).toEqual([expect.objectContaining({ name: 'Alice', score: 1000 })]);
+      });
+
+      it('undo restores leader from 0 back to exactly 1000 after Plus_Minus', () => {
+        const state = makeState({
+          players: [makePlayer('Alice', { score: 0, times1000PointsDeducted: 1 }), makePlayer('Bob', { score: 1000, totalTurns: 1, timesPlusMinusCompleted: 1 })],
+          currentPlayerIndex: 0,
+          round: 2,
+          previousCard: 'Plus_Minus',
+          previousScore: 1000,
+          previousLeaders: [{ name: 'Alice', score: 1000 }],
+        });
+        const result = calculateUndo(state);
+        expect(result.isRoundEndUndo).toBe(true);
+        expect(result.players[0].score).toBe(1000); // Alice restored to exactly 1000
+        expect(result.players[0].times1000PointsDeducted).toBe(0);
+        expect(result.players[1].score).toBe(0);    // Bob loses his 1000
+        expect(result.players[1].timesPlusMinusCompleted).toBe(0);
+      });
+
+      it('Plus_Minus success by a non-leader deducts 1000 from the single leader', () => {
         const state = makeState({
           players: [makePlayer('Alice', { score: 2000 }), makePlayer('Bob', { score: 0 })],
           currentPlayerIndex: 1,

@@ -502,6 +502,107 @@ describe('useGameStore', () => {
     });
   });
 
+  describe('Plus_Minus store integration', () => {
+    const makeP = (name, score = 0) => ({
+      name, score, times1000PointsDeducted: 0, timesKniffelCompleted: 0,
+      timesPlusMinusCompleted: 0, timesKniffelFailed: 0, timesKleeblattFailed: 0,
+      timesKleeblattCompleted: 0, timesPlusMinusFailed: 0, timesFeuerwerkReceived: 0,
+      timesSkipped: 0, timesx2Received: 0, totalTurns: 0, busts: 0,
+      feuerwerkBusts: 0, x2Busts: 0, feuerwerkPointsScored: 0, x2PointsScored: 0,
+      position: 0,
+    });
+
+    it('deducts 1000 from leader with exactly 1000 pts when non-leader plays Plus_Minus', () => {
+      useGameStore.setState({
+        status: 'playing', round: 1, finished: false,
+        currentPlayerIndex: 1, currentCard: 'Plus_Minus',
+        players: [makeP('Alice', 1000), makeP('Bob', 0)],
+        cards: ['200', '300'], chartValues: [[], []], chartLabels: [],
+      });
+
+      useGameStore.getState().nextTurn(0, true);
+
+      const s = useGameStore.getState();
+      expect(s.players[0].score).toBe(0);    // Alice: 1000 - 1000
+      expect(s.players[1].score).toBe(1000); // Bob: 0 + 1000
+      expect(s.players[0].times1000PointsDeducted).toBe(1);
+      expect(s.previousLeaders).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: 'Alice', score: 1000 }),
+      ]));
+      expect(s.previousCard).toBe('Plus_Minus');
+      expect(s.previousScore).toBe(1000);
+    });
+
+    it('undo restores leader from 0 back to exactly 1000 after Plus_Minus', () => {
+      // State after Bob played Plus_Minus: Alice=0, Bob=1000, now Alice's turn (round 2)
+      useGameStore.setState({
+        status: 'playing', round: 2, finished: false,
+        currentPlayerIndex: 0, currentCard: '200',
+        players: [
+          makeP('Alice', 0),
+          { ...makeP('Bob', 1000), totalTurns: 1, timesPlusMinusCompleted: 1 },
+        ],
+        cards: ['300'],
+        chartValues: [[0], [1000]], chartLabels: [1],
+        previousCard: 'Plus_Minus',
+        previousScore: 1000,
+        previousLeaders: [{ name: 'Alice', score: 1000, times1000PointsDeducted: 0, timesKniffelCompleted: 0, timesPlusMinusCompleted: 0, timesKniffelFailed: 0, timesKleeblattFailed: 0, timesKleeblattCompleted: 0, timesPlusMinusFailed: 0, timesFeuerwerkReceived: 0, timesSkipped: 0, timesx2Received: 0, totalTurns: 0, busts: 0, feuerwerkBusts: 0, x2Busts: 0, feuerwerkPointsScored: 0, x2PointsScored: 0, position: 0 }],
+        previousWasBust: false,
+        previousHighestTurnScore: 0,
+      });
+
+      useGameStore.getState().undo();
+
+      const s = useGameStore.getState();
+      expect(s.players[0].score).toBe(1000); // Alice restored to 1000
+      expect(s.players[1].score).toBe(0);    // Bob loses his 1000
+      expect(s.players[0].times1000PointsDeducted).toBe(0);
+      expect(s.players[1].timesPlusMinusCompleted).toBe(0);
+      expect(s.previousCard).toBeNull();
+      expect(s.previousLeaders).toBeNull();
+      expect(s.currentPlayerIndex).toBe(1); // back to Bob's turn
+    });
+
+    it('full nextTurn then undo round-trip for leader at exactly 1000', () => {
+      useGameStore.setState({
+        status: 'playing', round: 1, finished: false,
+        currentPlayerIndex: 1, currentCard: 'Plus_Minus',
+        players: [makeP('Alice', 1000), makeP('Bob', 0)],
+        cards: ['200'], chartValues: [[], []], chartLabels: [],
+        previousCard: null, previousScore: null, previousLeaders: null,
+        previousWasBust: false, previousHighestTurnScore: 0,
+      });
+
+      useGameStore.getState().nextTurn(0, true);
+
+      let s = useGameStore.getState();
+      expect(s.players[0].score).toBe(0);
+      expect(s.players[1].score).toBe(1000);
+
+      useGameStore.getState().undo();
+
+      s = useGameStore.getState();
+      expect(s.players[0].score).toBe(1000); // Alice fully restored
+      expect(s.players[1].score).toBe(0);    // Bob fully reversed
+    });
+
+    it('does NOT deduct when card holder is the leader at exactly 1000', () => {
+      useGameStore.setState({
+        status: 'playing', round: 1, finished: false,
+        currentPlayerIndex: 0, currentCard: 'Plus_Minus',
+        players: [makeP('Alice', 1000), makeP('Bob', 0)],
+        cards: ['200', '300'], chartValues: [[], []], chartLabels: [],
+      });
+
+      useGameStore.getState().nextTurn(0, true);
+
+      const s = useGameStore.getState();
+      expect(s.players[0].score).toBe(2000); // Alice: 1000 + 1000, no deduction
+      expect(s.players[1].score).toBe(0);    // Bob untouched
+      expect(s.previousLeaders).toBeNull();  // no snapshot because no deduction
+    });
+  });
+
   describe('disconnect toast', () => {
     it('includes the reconnect countdown in the toast', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
