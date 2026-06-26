@@ -107,6 +107,38 @@ export const useGameStore = create(immer((set, get) => ({
     set({ pendingReconnectSession: null });
   },
 
+  cancelReconnect: (roomId, name) => {
+    localStorage.removeItem('tutto_dice_turn_state');
+    sessionStorage.removeItem('tutto_online_session');
+    set({ pendingReconnectSession: null, liveTurnState: null, showReconnectPopup: false });
+
+    // When called without a roomId (from the in-game ReconnectPopup), the socket
+    // is still live and setMode('local') handles the disconnect — nothing more to do.
+    if (!roomId) return;
+
+    // When called from RestoreSessionPopup ("No, Cancel") after a page refresh, the
+    // player's socket is gone. Create a temporary socket, re-join to re-register the
+    // socketId, then immediately leave so the server removes them right away.
+    const tempSocket = io(window.location.origin);
+    const cleanup = () => tempSocket.disconnect();
+
+    tempSocket.on('connect_error', cleanup);
+    tempSocket.on('connect', () => {
+      const savedColor = localStorage.getItem('tutto_color') || null;
+      tempSocket.emit('joinRoom', {
+        roomId,
+        name,
+        deviceId: get().deviceId,
+        color: savedColor,
+      }, (res) => {
+        if (res?.success) {
+          tempSocket.emit('leaveRoom');
+        }
+        cleanup();
+      });
+    });
+  },
+
   init: (deviceId) => {
     let parsed = null;
     try {

@@ -308,6 +308,53 @@ describe('useGameStore', () => {
       expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
       expect(useGameStore.getState().pendingReconnectSession).toBeNull();
     });
+
+    it('cancelReconnect (no args) clears showReconnectPopup and local state without connecting', async () => {
+      const { io } = await import('socket.io-client');
+      io.mockClear();
+
+      useGameStore.setState({ showReconnectPopup: true, liveTurnState: { turnScore: 50 } });
+      sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'R1', myName: 'Alice' }));
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 50 }));
+
+      useGameStore.getState().cancelReconnect();
+
+      expect(useGameStore.getState().showReconnectPopup).toBe(false);
+      expect(useGameStore.getState().liveTurnState).toBeNull();
+      expect(useGameStore.getState().pendingReconnectSession).toBeNull();
+      expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
+      expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+      // No temp socket opened — no roomId provided
+      expect(io).not.toHaveBeenCalled();
+    });
+
+    it('cancelReconnect(roomId, name) clears state and opens a temp socket to leave the room', async () => {
+      const { io } = await import('socket.io-client');
+      io.mockClear();
+      mockEmit.mockClear();
+
+      useGameStore.setState({ pendingReconnectSession: { roomId: 'GHOST_ROOM', myName: 'Charlie' }, liveTurnState: { turnScore: 10 } });
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 10 }));
+
+      useGameStore.getState().cancelReconnect('GHOST_ROOM', 'Charlie');
+
+      expect(useGameStore.getState().pendingReconnectSession).toBeNull();
+      expect(useGameStore.getState().liveTurnState).toBeNull();
+      expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
+      // Temp socket was created
+      expect(io).toHaveBeenCalledWith(expect.any(String));
+
+      // Simulate socket connecting and server accepting joinRoom
+      mockOnHandlers['connect']();
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(joinRoomCall).toBeTruthy();
+      expect(joinRoomCall[1]).toMatchObject({ roomId: 'GHOST_ROOM', name: 'Charlie' });
+
+      // Simulate successful joinRoom callback → should emit leaveRoom
+      const joinCallback = joinRoomCall[2];
+      joinCallback({ success: true });
+      expect(mockEmit).toHaveBeenCalledWith('leaveRoom');
+    });
   });
 
   // Orchestration behaviours that previously lived only in the removed

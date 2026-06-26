@@ -82,6 +82,7 @@ function ReconnectPopup() {
 function RestoreSessionPopup() {
   const pendingReconnectSession = useGameStore(state => state.pendingReconnectSession);
   const clearPendingReconnect = useGameStore(state => state.clearPendingReconnect);
+  const cancelReconnect = useGameStore(state => state.cancelReconnect);
   const joinRoom = useGameStore(state => state.joinRoom);
   const { t } = useTranslation();
 
@@ -112,9 +113,7 @@ function RestoreSessionPopup() {
           <button 
             className="w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-200 font-bold py-3 px-4 rounded-xl transition-colors"
             onClick={() => {
-              localStorage.removeItem('tutto_dice_turn_state');
-              useGameStore.setState({ liveTurnState: null });
-              clearPendingReconnect();
+              cancelReconnect(pendingReconnectSession.roomId, pendingReconnectSession.myName);
             }}
           >
             {t('home.restore.cancel', 'No, Cancel')}
