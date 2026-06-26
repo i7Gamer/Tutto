@@ -1039,6 +1039,73 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
+  it('gameActualStartTime is preserved across turn/card changes (not reset on subsequent pushState)', () => {
+    return new Promise((resolve, reject) => {
+      const roomId = 'GAME_TIME_PERSIST';
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        reject(new Error('Test timed out'));
+      }, 8000);
+
+      let firstGameTime = null;
+      let seenFirstState = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-gtp-a', color: '#ff0000' }, () => {
+          s1.emit('pushState', {
+            roomId,
+            newState: {
+              status: 'playing',
+              currentCard: '200',
+              cards: [],
+              currentPlayerIndex: 0,
+              round: 1,
+              finished: false,
+              gameTimeInSeconds: 0,
+              players: [{ name: 'Alice', deviceId: 'dev-gtp-a', score: 0 }],
+            }
+          });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (state.status !== 'playing') return;
+
+        if (!seenFirstState) {
+          seenFirstState = true;
+          firstGameTime = state.gameTimeInSeconds;
+          // Wait > 1 second, then push another state with a different card
+          setTimeout(() => {
+            s1.emit('pushState', {
+              roomId,
+              newState: {
+                status: 'playing',
+                currentCard: '300',  // Different card — should NOT reset gameActualStartTime
+                cards: [],
+                currentPlayerIndex: 0,
+                round: 1,
+                finished: false,
+                gameTimeInSeconds: 999,  // Stale client value — server must override
+                players: [{ name: 'Alice', deviceId: 'dev-gtp-a', score: 0 }],
+              }
+            });
+          }, 1200);
+        } else {
+          // After 1.2s, server time must be >= 1 — proving gameActualStartTime was NOT reset
+          expect(state.gameTimeInSeconds).toBeGreaterThanOrEqual(1);
+          expect(state.gameTimeInSeconds).toBeLessThan(5);
+          expect(state.gameTimeInSeconds).toBeGreaterThan(firstGameTime);
+
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          resolve();
+        }
+      });
+    });
+  }, 10000);
+
   it('promotes first connected player to host when host leaves, skipping disconnected players', () => {
     return new Promise((resolve, reject) => {
       const roomId = 'HOST_REASSIGN_CONNECTED';

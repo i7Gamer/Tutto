@@ -384,7 +384,7 @@ describe('useGameStore', () => {
       expect(useGameStore.getState().turnTimeRemaining).toBe(25);
     });
 
-    it('justReconnected flag resets after timer sync completes', async () => {
+    it('justReconnected flag persists after syncOnlineTimers — reset is handled by Game.jsx effect', () => {
       useGameStore.setState({
         mode: 'online',
         isOnline: true,
@@ -400,9 +400,52 @@ describe('useGameStore', () => {
 
       useGameStore.getState().syncOnlineTimers();
 
-      // justReconnected should be reset to false after timer sync
-      // (This happens via the reconciliation in the next gameState or manual reset)
-      expect(useGameStore.getState().justReconnected).toBe(true);  // Flag persists until next state update
+      // syncOnlineTimers must NOT clear justReconnected — Game.jsx's useEffect does that
+      // after opening the DiceGame (or skipping when liveTurnState is null)
+      expect(useGameStore.getState().justReconnected).toBe(true);
+    });
+
+    it('does NOT set justReconnected on a normal gameState update (not a reconnect)', () => {
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        showReconnectPopup: false,  // Not disconnected — normal steady-state
+        status: 'playing',
+        currentPlayerIndex: 0,
+        justReconnected: false,
+      });
+
+      const newState = {
+        status: 'playing',
+        currentPlayerIndex: 0,
+        players: [makeOnlinePlayer('Alice')],
+        liveTurnState: null,
+        gameTimeInSeconds: 15,
+        turnTimeRemaining: 45,
+      };
+
+      mockOnHandlers['gameState'](newState);
+
+      // Most gameState events are NOT reconnects — justReconnected must stay false
+      expect(useGameStore.getState().justReconnected).toBe(false);
+    });
+
+    it('syncOnlineTimers uses full turn duration when NOT reconnecting (justReconnected=false)', () => {
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        status: 'playing',
+        currentPlayerIndex: 0,
+        currentCard: 'Kniffel',
+        turnDuration: 60,
+        turnTimeRemaining: 5,   // Stale leftover from previous countdown
+        justReconnected: false, // Normal new turn — not a reconnect
+      });
+
+      useGameStore.getState().syncOnlineTimers();
+
+      // Must reset to full duration (60), not re-use the stale 5
+      expect(useGameStore.getState().turnTimeRemaining).toBe(60);
     });
 
     describe('server-authoritative game time sync', () => {
@@ -420,7 +463,6 @@ describe('useGameStore', () => {
     });
 
     it('syncOnlineTimers sets gameStartTime from server gameTimeInSeconds', () => {
-      const now = Date.now();
       useGameStore.setState({
         mode: 'online',
         isOnline: true,
@@ -432,10 +474,9 @@ describe('useGameStore', () => {
 
       useGameStore.getState().syncOnlineTimers();
 
+      // Compute elapsed AFTER sync so both Date.now() calls are nearly simultaneous
       const state = useGameStore.getState();
-      // gameStartTime should be set so that (now - gameStartTime) ≈ 45 seconds
-      const elapsedMs = now - state.gameStartTime;
-      const elapsedSeconds = Math.floor(elapsedMs / 1000);
+      const elapsedSeconds = Math.floor((Date.now() - state.gameStartTime) / 1000);
       expect(elapsedSeconds).toBe(45);
     });
 
@@ -572,7 +613,8 @@ describe('useGameStore', () => {
       expect(useGameStore.getState().gameStartTime).toBeNull();
     });
 
-    it('local timer increment fallback still works if gameStartTime not set', async () => {
+    it('game timer increments correctly via gameStartTime reference', async () => {
+      // gameTimeInSeconds=0 → syncOnlineTimers sets gameStartTime → interval uses that path
       useGameStore.setState({
         mode: 'online',
         isOnline: true,
@@ -588,8 +630,28 @@ describe('useGameStore', () => {
       await new Promise(resolve => setTimeout(resolve, 1100));
 
       const afterWait = useGameStore.getState().gameTimeInSeconds;
-      // Should increment by 1 using fallback logic
       expect(afterWait).toBeGreaterThanOrEqual(initial + 1);
+    });
+
+    it('game timer uses fallback counter when gameStartTime cannot be set (null gameTimeInSeconds)', async () => {
+      // gameTimeInSeconds=null → condition skips gameStartTime → interval uses fallback ++
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        status: 'playing',
+        currentPlayerIndex: 0,
+        gameTimeInSeconds: null,
+        gameStartTime: null,
+      });
+
+      useGameStore.getState().syncOnlineTimers();
+      expect(useGameStore.getState().gameStartTime).toBeNull(); // Confirm fallback path
+
+      await new Promise(resolve => setTimeout(resolve, 1100));
+
+      const afterWait = useGameStore.getState().gameTimeInSeconds;
+      // null++ → 1 on first tick
+      expect(afterWait).toBeGreaterThanOrEqual(1);
     });
     });
 
