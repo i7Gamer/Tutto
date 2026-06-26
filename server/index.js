@@ -101,9 +101,27 @@ const handleActivePlayerRemoved = (state, removedIdx) => {
   }
 };
 
+const calculateRemainingTurnTime = (room) => {
+  if (!room.state.turnStartTime || room.state.turnDuration === 0) {
+    return null;
+  }
+
+  let multiplier = 1;
+  if (room.state.currentCard === 'Feuerwerk') multiplier = 3;
+  if (room.state.currentCard === 'Kleeblatt') multiplier = 2;
+  const targetDuration = room.state.turnDuration * multiplier;
+
+  const elapsedSeconds = Math.floor((Date.now() - room.state.turnStartTime) / 1000);
+  return Math.max(0, targetDuration - elapsedSeconds);
+};
+
 const emitRoomState = (roomId) => {
   if (rooms[roomId]) {
-    io.to(roomId).emit('gameState', rooms[roomId].state);
+    const gameState = {
+      ...rooms[roomId].state,
+      turnTimeRemaining: calculateRemainingTurnTime(rooms[roomId])
+    };
+    io.to(roomId).emit('gameState', gameState);
     // Also broadcast who the host is
     io.to(roomId).emit('hostId', rooms[roomId].host);
   }
@@ -149,6 +167,7 @@ io.on('connection', (socket) => {
           chartNames: [],
           chartLabels: [],
           gameTimeInSeconds: 0,
+          turnStartTime: null,
           previousCard: null,
           previousScore: null,
           previousLeaders: null
@@ -363,6 +382,17 @@ io.on('connection', (socket) => {
         room.state[key] = newState[key];
       }
     }
+
+    // Initialize turn start time when a turn is active and not yet set
+    if (room.state.status === 'playing' && room.state.currentPlayerIndex !== null && !room.state.turnStartTime) {
+      room.state.turnStartTime = Date.now();
+    }
+
+    // Clear turn start time when game ends
+    if (room.state.finished || room.state.status === 'lobby') {
+      room.state.turnStartTime = null;
+    }
+
     emitRoomState(roomId);
   });
 
