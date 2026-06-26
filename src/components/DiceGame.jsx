@@ -395,20 +395,20 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
                       const isSelected = actualDie?.selected || false;
                       
                       return (
-                        <motion.button 
-                          key={d.id} 
+                        <motion.button
+                          key={d.id}
                           layout
-                          animate={{ 
+                          animate={{
                             rotate: isDieTumbling ? [0, 90, 180, 270, 360] : 0,
-                            y: isDieTumbling ? [0, -20, 0] : 0 
+                            y: isDieTumbling ? [0, -20, 0] : 0
                           }}
-                          transition={{ 
+                          transition={{
                             rotate: { repeat: isDieTumbling ? Infinity : 0, duration: 0.2 },
                             y: { repeat: isDieTumbling ? Infinity : 0, duration: 0.15 }
                           }}
-                          className={`die w-14 h-14 rounded-xl flex items-center justify-center text-2xl font-bold transition-all border-2
+                          className={`die relative rounded-xl flex items-center justify-center text-2xl font-bold transition-all border-2 ${isSelected ? 'w-16 h-16' : 'w-14 h-14'}
                             ${isSelected
-                              ? 'bg-emerald-500 border-emerald-700 text-white shadow-[0_0_20px_rgba(16,185,129,0.5)] scale-110 z-10'
+                              ? 'bg-emerald-500 border-emerald-700 text-white shadow-[0_0_25px_rgba(16,185,129,0.7)] scale-125 z-10'
                               : bustState
                                 ? 'bg-red-50 border-red-300 text-red-500 opacity-70 cursor-default'
                                 : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 text-gray-800 dark:text-gray-100 shadow-sm ' + (isDieTumbling ? '' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50')
@@ -420,6 +420,16 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
                           aria-label={`Die showing ${d.val}, ${isSelected ? 'selected' : 'not selected'}`}
                         >
                           {d.val}
+                          {isSelected && (
+                            <motion.div
+                              initial={{ scale: 0, rotate: -90 }}
+                              animate={{ scale: 1, rotate: 0 }}
+                              transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+                              className="absolute -top-2 -right-2 bg-white rounded-full p-0.5 shadow-lg"
+                            >
+                              <Check size={16} className="text-emerald-600" strokeWidth={3} />
+                            </motion.div>
+                          )}
                         </motion.button>
                       );
                     })}
