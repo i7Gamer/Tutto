@@ -4,6 +4,9 @@ import { Dices, Check, X, Hand, RotateCw } from 'lucide-react';
 import { playBuzzer, playSuccess, playTone } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
 import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from '../utils/diceLogic';
+import { parseSavedDiceState, buildDiceSnapshot } from '../utils/diceTurnState';
+import { deriveTurnControls, sortKeptDiceForDisplay } from '../utils/diceTurnControls';
+import { useBustCountdown } from '../hooks/useBustCountdown';
 import { isTestEnv } from '../utils/env';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -34,35 +37,28 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState({ won: false, score: 0, isTutto: false });
   const [tuttosThisTurn, setTuttosThisTurn] = useState(0);
-  const [bustCountdown, setBustCountdown] = useState(null);
-  const bustTimerStarted = useRef(false);
 
   // Restore dice game state from localStorage on component mount.
   // All setState calls here are batched by React into a single render (once-only effect).
   useEffect(() => {
-    const savedState = localStorage.getItem('tutto_dice_turn_state');
-    if (savedState) {
-      try {
-        const { turnScore: savedScore, keptDice: savedKept, currentRoll: savedRoll, busted, kniffelProgress: savedKniffelProgress, tuttosThisTurn: savedTuttosThisTurn } = JSON.parse(savedState);
-        /* eslint-disable react-hooks/set-state-in-effect */
-        setTurnScore(savedScore || 0);
-        setKeptDice(savedKept || []);
-        setCurrentRoll(savedRoll || []);
-        setDisplayRoll(savedRoll || []);
-        setKniffelProgress(savedKniffelProgress || []);
-        setTuttosThisTurn(savedTuttosThisTurn || 0);
-        setHasRolled(true);
-        if (busted) {
-          setBustState(true);
-          const score = currentCard === 'Feuerwerk' ? (savedScore || 0) : 0;
-          const won = currentCard === 'Feuerwerk' ? score > 0 : false;
-          setSummaryData({ won, score, isTutto: false });
-          setShowSummary(true);
-        }
-        /* eslint-enable react-hooks/set-state-in-effect */
-      } catch (e) {
-        // Silently ignore if state is corrupted
+    const restored = parseSavedDiceState(localStorage.getItem('tutto_dice_turn_state'));
+    if (restored) {
+      /* eslint-disable react-hooks/set-state-in-effect */
+      setTurnScore(restored.turnScore);
+      setKeptDice(restored.keptDice);
+      setCurrentRoll(restored.currentRoll);
+      setDisplayRoll(restored.currentRoll);
+      setKniffelProgress(restored.kniffelProgress);
+      setTuttosThisTurn(restored.tuttosThisTurn);
+      setHasRolled(true);
+      if (restored.busted) {
+        setBustState(true);
+        const score = currentCard === 'Feuerwerk' ? restored.turnScore : 0;
+        const won = currentCard === 'Feuerwerk' ? score > 0 : false;
+        setSummaryData({ won, score, isTutto: false });
+        setShowSummary(true);
       }
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -252,14 +248,9 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
   useEffect(() => {
     if (!onStateChangeRef.current || !hasRolled || isRolling || bustState) return;
     const timer = setTimeout(() => {
-      onStateChangeRef.current({
-        turnScore,
-        keptDice: keptDice.map(d => ({ id: d.id, val: d.val })),
-        currentRoll: currentRoll.map(d => ({ id: d.id, val: d.val, selected: d.selected })),
-        rollingDiceIds: Array.from(rollingDiceIndices),
-        kniffelProgress,
-        tuttosThisTurn,
-      });
+      onStateChangeRef.current(buildDiceSnapshot({
+        turnScore, keptDice, currentRoll, kniffelProgress, tuttosThisTurn, rollingDiceIndices,
+      }));
     }, 300);
     return () => clearTimeout(timer);
   }, [keptDice, currentRoll, turnScore, hasRolled, rollingDiceIndices, isRolling, bustState, kniffelProgress, tuttosThisTurn]);
@@ -268,14 +259,9 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
   // a refresh during/after bust can restore and show the bust summary automatically.
   useEffect(() => {
     if (!bustState || !onStateChangeRef.current || !hasRolled) return;
-    onStateChangeRef.current({
-      turnScore,
-      keptDice: keptDice.map(d => ({ id: d.id, val: d.val })),
-      currentRoll: currentRoll.map(d => ({ id: d.id, val: d.val, selected: false })),
-      busted: true,
-      kniffelProgress,
-      tuttosThisTurn,
-    });
+    onStateChangeRef.current(buildDiceSnapshot({
+      turnScore, keptDice, currentRoll, kniffelProgress, tuttosThisTurn, busted: true,
+    }));
   // turnScore/keptDice/currentRoll are intentionally read at the moment bustState fires
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bustState]);
@@ -287,63 +273,26 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
     onComplete(summaryDataRef.current.score || 0, summaryDataRef.current.won || false);
   }, [onComplete]);
 
-  const finishGameRef = useRef(finishGame);
-  useEffect(() => { finishGameRef.current = finishGame; }, [finishGame]);
-
-  // Auto-continue on a true bust (won = false). Starts exactly once when
-  // showSummary && bustState flip to true. Uses finishGameRef so parent
-  // re-renders never cancel the timer by changing the onComplete reference.
-  useEffect(() => {
-    if (!showSummary || !bustState || summaryDataRef.current.won) return;
-    if (bustTimerStarted.current) return;   // already running — don't restart
-    bustTimerStarted.current = true;
-
-    const AUTO_CONTINUE_MS = isTestEnv() ? 0 : 3000;
-    setBustCountdown(isTestEnv() ? 0 : 3);
-
-    const timeout = setTimeout(() => {
-      setBustCountdown(null);
-      finishGameRef.current();
-    }, AUTO_CONTINUE_MS);
-
-    return () => clearTimeout(timeout);
-  }, [showSummary, bustState]);
-
-  // Countdown tick: decrements once per second while bustCountdown > 0.
-  // Runs independently of the main timer so re-renders don't kill the timeout.
-  useEffect(() => {
-    if (bustCountdown === null || bustCountdown <= 0 || isTestEnv()) return;
-    const id = setTimeout(() => {
-      setBustCountdown(prev => (prev !== null && prev > 1 ? prev - 1 : prev));
-    }, 1000);
-    return () => clearTimeout(id);
-  }, [bustCountdown]);
+  // Auto-continue on a true bust (won = false). The hook starts the countdown
+  // once showSummary && bustState are set and the turn was a loss.
+  const bustCountdown = useBustCountdown({
+    shouldStart: showSummary && bustState && !summaryData.won,
+    onElapsed: finishGame,
+  });
 
   const isMakingTutto = keptDice.length + selectedRolls.length === 6;
-  const isSpecialCard = ["Kniffel", "Plus_Minus", "Kleeblatt"].includes(currentCard);
-  
-  const canStop = hasRolled && !isRolling && !bustState && validation.valid && currentCard !== "Feuerwerk" &&
-    (isMakingTutto || !isSpecialCard);
+  const { canStop, isRollAgainApplicable, stopButtonText: stopButtonTextKey } = deriveTurnControls({
+    currentCard,
+    hasRolled,
+    isRolling,
+    bustState,
+    validationValid: validation.valid,
+    isMakingTutto,
+    tuttosThisTurn,
+  });
+  const stopButtonText = t(stopButtonTextKey.key, stopButtonTextKey.fallback);
 
-  const isRollAgainApplicable = !(isMakingTutto && currentCard !== "Feuerwerk");
-  
-  let stopButtonText = t('dice.stop_and_score', "Stop & Score");
-  if (isMakingTutto && isSpecialCard) {
-    if (currentCard === "Kleeblatt" && tuttosThisTurn === 0) {
-      stopButtonText = t('dice.roll_2nd_tutto', "Roll 2nd Tutto");
-    } else {
-      stopButtonText = t('dice.finish_card', "Finish Card");
-    }
-  }
-
-  let displayKeptDice = [...keptDice];
-  if (currentCard === "Kniffel" && kniffelProgress.length > 0) {
-    if (kniffelProgress[0] === 1) {
-      displayKeptDice.sort((a, b) => a.val - b.val);
-    } else {
-      displayKeptDice.sort((a, b) => b.val - a.val);
-    }
-  }
+  const displayKeptDice = sortKeptDiceForDisplay(keptDice, currentCard, kniffelProgress);
 
   return (
     <div className="bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden rounded-3xl flex flex-col items-center">
