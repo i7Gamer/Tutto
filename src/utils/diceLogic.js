@@ -105,15 +105,14 @@ export const checkValidityAndScore = (vals, card, kniffelProgress) => {
 
 // Greedily collect a consecutive run of dice starting at `startVal` and moving
 // by `step` (+1 ascending, -1 descending). Returns the indices (into rollVals)
-// of the dice that form the run. Each die index is used at most once.
+// of the dice that form the run. `needed` is strictly monotonic, so each step
+// looks for a distinct value and no die index can be picked twice.
 const collectKniffelRun = (rollVals, startVal, step) => {
-  const used = new Set();
   const picked = [];
   let needed = startVal;
   while (needed >= 1 && needed <= 6) {
-    const idx = rollVals.findIndex((v, i) => v === needed && !used.has(i));
+    const idx = rollVals.findIndex(v => v === needed);
     if (idx === -1) break;
-    used.add(idx);
     picked.push(idx);
     needed += step;
   }
