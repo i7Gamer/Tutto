@@ -671,4 +671,80 @@ describe('coreGameEngine', () => {
       expect(result.players[0].score).toBe(999999 - 500);
     });
   });
+
+  // End-to-end sequence: plays two turns in order, then undoes, verifying
+  // the deduction and undo chain works correctly for the "leader with less
+  // than 1000 points" case the user reported.
+  describe('Plus_Minus end-to-end sequence', () => {
+    it('beginning of game: leader with 400 pts gets deducted to -600 when another player completes Plus_Minus', () => {
+      // Turn 1: Alice plays a 400-card and scores 400.
+      const t1 = calculateNextTurn(
+        makeState({ currentCard: '400', cards: ['Plus_Minus', '200'], initialCards: { '200': 5, 'Plus_Minus': 1 } }),
+        400, true
+      );
+      expect(t1.players[0].score).toBe(400); // Alice leads
+      expect(t1.drawnCard).toBe('Plus_Minus');
+
+      // Turn 2: Bob draws Plus_Minus and completes it.
+      const t2 = calculateNextTurn({
+        players: t1.players,
+        currentPlayerIndex: t1.nextIndex,   // Bob (index 1)
+        currentCard: t1.drawnCard,
+        round: t1.nextRound,
+        winningScore: 6000,
+        cards: t1.newDeck,
+        initialCards: { '200': 5 },
+        previousCard: t1.previousCard,
+        previousScore: t1.previousScore,
+        previousLeaders: t1.previousLeaders,
+      }, 0, true);
+
+      // Alice (400) should now be at -600; Bob should have +1000
+      expect(t2.players[0].score).toBe(-600);
+      expect(t2.players[0].times1000PointsDeducted).toBe(1);
+      expect(t2.players[1].score).toBe(1000);
+      expect(t2.previousLeaders).toEqual([expect.objectContaining({ name: 'Alice', score: 400 })]);
+
+      // Undo Turn 2: Alice must be restored to 400, Bob back to 0.
+      const u2 = calculateUndo({
+        players: t2.players,
+        currentPlayerIndex: t2.nextIndex,   // Alice again (index 0), round 2
+        currentCard: t2.drawnCard,
+        round: t2.nextRound,
+        winningScore: 6000,
+        cards: t2.newDeck,
+        initialCards: { '200': 5 },
+        previousCard: t2.previousCard,
+        previousScore: t2.previousScore,
+        previousLeaders: t2.previousLeaders,
+        previousWasBust: t2.previousWasBust,
+        previousHighestTurnScore: t2.previousHighestTurnScore,
+      });
+
+      expect(u2.players[0].score).toBe(400);  // Alice restored
+      expect(u2.players[0].times1000PointsDeducted).toBe(0);
+      expect(u2.players[1].score).toBe(0);    // Bob loses his 1000
+      expect(u2.players[1].timesPlusMinusCompleted).toBe(0);
+    });
+
+    it('both physical dice (nextTurn(0,true)) and digital dice (nextTurn(score,true)) paths produce the same result for Plus_Minus', () => {
+      const baseState = makeState({
+        players: [makePlayer('Alice', { score: 400 }), makePlayer('Bob')],
+        currentPlayerIndex: 1,
+        currentCard: 'Plus_Minus',
+      });
+
+      // Physical: handleYesNo(true) → nextTurn(0, true)
+      const physical = calculateNextTurn(baseState, 0, true);
+
+      // Digital: handleDiceComplete(diceScore, true) → nextTurn(diceScore, true)
+      // The engine overrides the dice score to 1000 internally for Plus_Minus.
+      const digital = calculateNextTurn(baseState, 750, true);
+
+      expect(physical.players[0].score).toBe(-600);
+      expect(digital.players[0].score).toBe(-600);
+      expect(physical.players[1].score).toBe(1000);
+      expect(digital.players[1].score).toBe(1000);
+    });
+  });
 });
