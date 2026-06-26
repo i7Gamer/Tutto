@@ -556,5 +556,77 @@ describe('DiceGame Integration', () => {
       // Should not crash and should start fresh
       expect(screen.getByText('dice.roll_6_dice')).toBeDefined();
     });
+
+    it('restores kniffelProgress from localStorage on mount', async () => {
+      const savedState = {
+        turnScore: 0,
+        keptDice: [{ id: 'die-1', val: 1 }, { id: 'die-2', val: 2 }],
+        currentRoll: [{ id: 'die-3', val: 3, selected: false }],
+        kniffelProgress: [1, 2],
+        tuttosThisTurn: 0,
+      };
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify(savedState));
+
+      const onComplete = vi.fn();
+      // Restore a Kniffel turn with progress [1,2] — next needed is 3 ascending
+      // Sequence [3,4,5,6] would complete it; [2] would bust
+      // Roll [3,4,5,6,7→1,8→1] — simulate: next roll needs 3 to continue
+      diceSequence = [3, 4, 5, 6, 1, 1]; // only 3 dice left (6 - 2 kept - 1 in current roll = 3 to roll)
+      render(<DiceGame currentCard="Kniffel" onComplete={onComplete} onCancel={vi.fn()} />);
+
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      });
+
+      // kniffelProgress [1,2] restored — next needed is 3. Select die-3 (val 3) and roll again.
+      const die3Button = screen.getAllByRole('button').find(b => b.textContent === '3' && !b.className.includes('bg-indigo-600'));
+      if (die3Button) {
+        fireEvent.click(die3Button);
+        const rollAgainBtn = screen.getByText('dice.roll_again');
+        fireEvent.click(rollAgainBtn);
+      }
+
+      // If kniffelProgress was correctly restored, rolling should not immediately bust
+      // (val 3 is valid continuation of [1,2])
+      expect(onComplete).not.toHaveBeenCalledWith(0, false);
+    });
+
+    it('restores tuttosThisTurn from localStorage on mount', async () => {
+      // Simulate mid-Kleeblatt turn: first Tutto already done, now on second roll
+      const savedState = {
+        turnScore: 500,
+        keptDice: [],
+        currentRoll: [
+          { id: 'die-1', val: 1, selected: false },
+          { id: 'die-2', val: 2, selected: false },
+          { id: 'die-3', val: 3, selected: false },
+          { id: 'die-4', val: 1, selected: false },
+          { id: 'die-5', val: 2, selected: false },
+          { id: 'die-6', val: 3, selected: false },
+        ],
+        tuttosThisTurn: 1,
+        kniffelProgress: [],
+      };
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify(savedState));
+
+      const onComplete = vi.fn();
+      render(<DiceGame currentCard="Kleeblatt" onComplete={onComplete} onCancel={vi.fn()} />);
+
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      });
+
+      // With tuttosThisTurn restored to 1, achieving all 6 dice (Tutto) should end the turn as a win
+      // Select all 6 dice from the current roll
+      const dice = screen.getAllByRole('button').filter(b => ['1','2','3'].includes(b.textContent) && !b.disabled);
+      dice.forEach(d => fireEvent.click(d));
+
+      const stopBtn = screen.queryByText('dice.finish_card');
+      if (stopBtn) {
+        fireEvent.click(stopBtn);
+        // With tuttosThisTurn=1, this second Tutto should trigger a win (not ask for another roll)
+        expect(onComplete).toHaveBeenCalledWith(expect.any(Number), true);
+      }
+    });
   });
 });

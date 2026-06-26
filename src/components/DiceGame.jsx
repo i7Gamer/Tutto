@@ -42,11 +42,13 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
     const savedState = localStorage.getItem('tutto_dice_turn_state');
     if (savedState) {
       try {
-        const { turnScore: savedScore, keptDice: savedKept, currentRoll: savedRoll, busted } = JSON.parse(savedState);
+        const { turnScore: savedScore, keptDice: savedKept, currentRoll: savedRoll, busted, kniffelProgress: savedKniffelProgress, tuttosThisTurn: savedTuttosThisTurn } = JSON.parse(savedState);
         setTurnScore(savedScore || 0);
         setKeptDice(savedKept || []);
         setCurrentRoll(savedRoll || []);
         setDisplayRoll(savedRoll || []);
+        setKniffelProgress(savedKniffelProgress || []);
+        setTuttosThisTurn(savedTuttosThisTurn || 0);
         setHasRolled(true);
         if (busted) {
           setBustState(true);
@@ -244,6 +246,8 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
         keptDice: keptDice.map(d => ({ id: d.id, val: d.val })),
         currentRoll: currentRoll.map(d => ({ id: d.id, val: d.val, selected: d.selected })),
         rollingDiceIds: Array.from(rollingDiceIndices),
+        kniffelProgress,
+        tuttosThisTurn,
       });
     }, 300);
     return () => clearTimeout(timer);
@@ -258,6 +262,8 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
       keptDice: keptDice.map(d => ({ id: d.id, val: d.val })),
       currentRoll: currentRoll.map(d => ({ id: d.id, val: d.val, selected: false })),
       busted: true,
+      kniffelProgress,
+      tuttosThisTurn,
     });
   // turnScore/keptDice/currentRoll are intentionally read at the moment bustState fires
   // eslint-disable-next-line react-hooks/exhaustive-deps
