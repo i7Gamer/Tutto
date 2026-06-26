@@ -92,16 +92,6 @@ export const useGameStore = create(immer((set, get) => ({
     });
   },
 
-  cancelReconnect: () => {
-    set({
-      showReconnectPopup: false,
-      roomId: null,
-      isHost: false,
-      hostId: null,
-      myName: null
-    });
-  },
-
   clearPendingReconnect: () => {
     sessionStorage.removeItem('tutto_online_session');
     set({ pendingReconnectSession: null });
@@ -440,10 +430,16 @@ export const useGameStore = create(immer((set, get) => ({
     if (gameTimerInterval) clearInterval(gameTimerInterval);
 
     if (state.mode === 'online' && !state.finished && state.status === 'playing' && state.currentPlayerIndex !== null) {
-      // Always sync gameStartTime from server's authoritative gameTimeInSeconds.
-      // This ensures local timer increments from the correct reference point.
+      // Anchor gameStartTime from server's authoritative value on initial sync or when
+      // drift exceeds 2 seconds. Small normal lag (≤1s from Math.floor) is ignored to
+      // prevent the timer from jumping backward 1 second on every opponent turn.
       if (state.gameTimeInSeconds !== null && state.gameTimeInSeconds >= 0) {
-        set({ gameStartTime: Date.now() - (state.gameTimeInSeconds * 1000) });
+        const localElapsed = state.gameStartTime
+          ? Math.floor((Date.now() - state.gameStartTime) / 1000)
+          : null;
+        if (localElapsed === null || Math.abs(localElapsed - state.gameTimeInSeconds) > 2) {
+          set({ gameStartTime: Date.now() - (state.gameTimeInSeconds * 1000) });
+        }
       }
 
       gameTimerInterval = setInterval(() => {
@@ -466,10 +462,12 @@ export const useGameStore = create(immer((set, get) => ({
           turnTimerPlayerIndex = state.currentPlayerIndex;
           turnTimerCard = state.currentCard;
 
-          // On reconnect, use server's pre-calculated remaining time.
-          // On new turn, always start from full duration (turnTimeRemaining still holds old value at this point).
+          // On reconnect to the same ongoing turn (player/card unchanged), use server's
+          // pre-calculated remaining time. For a new turn (player or card changed),
+          // always start from full duration — justReconnected must not override this.
           let remaining;
-          if (justReconnected && state.turnTimeRemaining !== null && state.turnTimeRemaining !== undefined) {
+          const isNewTurn = playerChanged || cardChanged;
+          if (!isNewTurn && justReconnected && state.turnTimeRemaining !== null && state.turnTimeRemaining !== undefined) {
             remaining = state.turnTimeRemaining;
           } else {
             let multiplier = 1;

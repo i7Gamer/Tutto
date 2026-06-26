@@ -359,28 +359,25 @@ describe('useGameStore', () => {
       expect(useGameStore.getState().justReconnected).toBe(false);
     });
 
-    it('timer sync uses server turnTimeRemaining even without liveTurnState', () => {
+    it('timer sync uses server turnTimeRemaining even without liveTurnState (same ongoing turn)', () => {
+      // Prime internal tracking so player=0/card=Kniffel is the "known" turn
       useGameStore.setState({
-        mode: 'online',
-        isOnline: true,
-        status: 'playing',
-        currentPlayerIndex: 0,
-        currentCard: 'Kniffel',
-        turnDuration: 60,
-        gameTimeInSeconds: 30,
-        liveTurnState: null,  // No dice game
-        justReconnected: true,  // Reconnected
-        turnTimeRemaining: null,  // Will be set by sync
+        mode: 'online', isOnline: true, status: 'playing',
+        currentPlayerIndex: 0, currentCard: 'Kniffel',
+        turnDuration: 60, gameTimeInSeconds: 20,
+        liveTurnState: null, justReconnected: false,
       });
+      useGameStore.getState().syncOnlineTimers();
 
-      // Simulate server sending correct remaining turn time
+      // Simulate reconnect: same player, same card, server sends remaining=25
       useGameStore.setState({
+        justReconnected: true,
         turnTimeRemaining: 25,  // Server calculated: 60 - 35 elapsed = 25 remaining
       });
 
       useGameStore.getState().syncOnlineTimers();
 
-      // Timer should use server's value, not recalculate
+      // Same turn + reconnect → timer must use server's remaining time (25), not full 60
       expect(useGameStore.getState().turnTimeRemaining).toBe(25);
     });
 
@@ -445,6 +442,43 @@ describe('useGameStore', () => {
       useGameStore.getState().syncOnlineTimers();
 
       // Must reset to full duration (60), not re-use the stale 5
+      expect(useGameStore.getState().turnTimeRemaining).toBe(60);
+    });
+
+    it('syncOnlineTimers uses server turnTimeRemaining when justReconnected=true AND same player/card (ongoing turn)', () => {
+      // turnTimerPlayerIndex/Card start null, so first call always sets them — we need
+      // to prime the internal state by running a first sync, then simulate a reconnect
+      // where player + card are unchanged.
+      useGameStore.setState({
+        mode: 'online', isOnline: true, status: 'playing',
+        currentPlayerIndex: 0, currentCard: 'Kniffel',
+        turnDuration: 60, turnTimeRemaining: 40,
+        justReconnected: false,
+      });
+      useGameStore.getState().syncOnlineTimers(); // prime internal tracking vars
+
+      // Now simulate reconnect: same player, same card, justReconnected=true
+      useGameStore.setState({ justReconnected: true, turnTimeRemaining: 25 });
+      useGameStore.getState().syncOnlineTimers();
+
+      // Same turn + reconnect → use server's remaining time (25), not full duration (60)
+      expect(useGameStore.getState().turnTimeRemaining).toBe(25);
+    });
+
+    it('syncOnlineTimers uses full turn duration when justReconnected=true but player changed (new turn)', () => {
+      useGameStore.setState({
+        mode: 'online', isOnline: true, status: 'playing',
+        currentPlayerIndex: 0, currentCard: 'Kniffel',
+        turnDuration: 60, turnTimeRemaining: 3, // nearly-expired from previous turn
+        justReconnected: false,
+      });
+      useGameStore.getState().syncOnlineTimers(); // prime: player=0, card=Kniffel
+
+      // New turn starts while justReconnected is still true
+      useGameStore.setState({ currentPlayerIndex: 1, justReconnected: true, turnTimeRemaining: 3 });
+      useGameStore.getState().syncOnlineTimers();
+
+      // playerChanged=true must win over justReconnected → full duration, not 3
       expect(useGameStore.getState().turnTimeRemaining).toBe(60);
     });
 
@@ -611,6 +645,41 @@ describe('useGameStore', () => {
 
       // gameStartTime should remain null
       expect(useGameStore.getState().gameStartTime).toBeNull();
+    });
+
+    it('does not reset gameStartTime when server lag is ≤2s (prevents backward timer jump on opponent turns)', () => {
+      // Client has been running for 46s locally; server sends 45 (1s behind due to Math.floor)
+      const originalStart = Date.now() - 46000;
+      useGameStore.setState({
+        mode: 'online', isOnline: true, status: 'playing',
+        currentPlayerIndex: 0,
+        gameTimeInSeconds: 45, // server value: 1s behind client
+        gameStartTime: originalStart,
+      });
+
+      useGameStore.getState().syncOnlineTimers();
+
+      // Drift is 1s ≤ 2s threshold → gameStartTime must NOT be reset
+      expect(useGameStore.getState().gameStartTime).toBe(originalStart);
+    });
+
+    it('resets gameStartTime when drift exceeds 2s (reconnect or true clock divergence)', () => {
+      // Client has stale gameStartTime showing 10s; server says 45s (reconnect scenario)
+      const staleStart = Date.now() - 10000;
+      useGameStore.setState({
+        mode: 'online', isOnline: true, status: 'playing',
+        currentPlayerIndex: 0,
+        gameTimeInSeconds: 45, // server value: 35s ahead of stale local
+        gameStartTime: staleStart,
+      });
+
+      useGameStore.getState().syncOnlineTimers();
+
+      // Drift is 35s > 2s threshold → gameStartTime must be updated
+      const newStart = useGameStore.getState().gameStartTime;
+      expect(newStart).not.toBe(staleStart);
+      const newElapsed = Math.floor((Date.now() - newStart) / 1000);
+      expect(newElapsed).toBe(45);
     });
 
     it('game timer increments correctly via gameStartTime reference', async () => {
