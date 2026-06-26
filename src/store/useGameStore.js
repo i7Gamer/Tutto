@@ -400,13 +400,14 @@ export const useGameStore = create(immer((set, get) => ({
     if (gameTimerInterval) clearInterval(gameTimerInterval);
 
     if (state.mode === 'online' && !state.finished && state.status === 'playing' && state.currentPlayerIndex !== null) {
+      // Sync gameStartTime immediately on reconnect (server sent accurate gameTimeInSeconds)
+      if (state.justReconnected && state.gameTimeInSeconds > 0) {
+        set({ gameStartTime: Date.now() - (state.gameTimeInSeconds * 1000) });
+      }
+
       gameTimerInterval = setInterval(() => {
         const s = get();
-        // On reconnect, sync gameStartTime to match server's elapsed time
-        if (s.justReconnected && s.gameTimeInSeconds > 0) {
-          const now = Date.now();
-          set({ gameStartTime: now - (s.gameTimeInSeconds * 1000), justReconnected: false });
-        } else if (s.gameStartTime) {
+        if (s.gameStartTime) {
           set({ gameTimeInSeconds: Math.floor((Date.now() - s.gameStartTime) / 1000) });
         } else {
           set(draft => { draft.gameTimeInSeconds++ });

@@ -108,6 +108,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
 
       if (isBust(newRollVals, currentCard, kniffelArray || kniffelProgress)) {
         setBustState(true);
+        localStorage.removeItem('tutto_dice_turn_state');
         playBuzzer();
         
         if (currentCard === "Kleeblatt") {

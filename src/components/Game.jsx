@@ -55,15 +55,11 @@ export default function Game() {
 
   // Auto-open DiceGame on reconnect if turn was in progress
   useEffect(() => {
-    if (justReconnected && liveTurnState && isMyTurn && diceMode === 'digital') {
-      game.addToast("Resuming your dice game...");
-      const timer = setTimeout(() => {
-        setShowDiceGame(true);
-        // Reset the flag after opening
-        useGameStore.setState({ justReconnected: false });
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
+    if (!justReconnected || !liveTurnState || !isMyTurn || diceMode !== 'digital') return;
+    // Clear flag synchronously before any side effects to prevent StrictMode double-fire
+    useGameStore.setState({ justReconnected: false });
+    setShowDiceGame(true);
+    game.addToast("Resuming your dice game...");
   }, [justReconnected, liveTurnState, isMyTurn, diceMode]);
 
   useEffect(() => {
