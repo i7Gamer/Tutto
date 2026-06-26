@@ -46,6 +46,7 @@ export default function Game() {
   const [applyBonus, setApplyBonus] = useState(false);
   const [showDiceGame, setShowDiceGame] = useState(false);
   const confettiFiredRef = useRef(false);
+  const reconnectHandledRef = useRef(false);
 
   useEffect(() => {
     if (!isMyTurn) {
@@ -55,8 +56,17 @@ export default function Game() {
 
   // Auto-open DiceGame on reconnect if turn was in progress
   useEffect(() => {
-    if (!justReconnected || !liveTurnState || !isMyTurn || diceMode !== 'digital') return;
-    // Clear flag synchronously before any side effects to prevent StrictMode double-fire
+    // Reset guard when justReconnected goes false (ready for next reconnect)
+    if (!justReconnected) {
+      reconnectHandledRef.current = false;
+      return;
+    }
+    if (!liveTurnState || !isMyTurn || diceMode !== 'digital') return;
+    // Ref guard prevents StrictMode double-invoke from showing the toast twice.
+    // StrictMode re-runs effects synchronously before the store re-render propagates,
+    // so useGameStore.setState alone isn't enough to block the second invocation.
+    if (reconnectHandledRef.current) return;
+    reconnectHandledRef.current = true;
     useGameStore.setState({ justReconnected: false });
     setShowDiceGame(true);
     game.addToast("Resuming your dice game...");
