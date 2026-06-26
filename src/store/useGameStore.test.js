@@ -410,6 +410,87 @@ describe('useGameStore', () => {
       const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
       expect(joinRoomCall[1]).toMatchObject({ color: '#FF5733' });
     });
+
+    it('cancelReconnect handles missing deviceId gracefully', async () => {
+      const { io } = await import('socket.io-client');
+      io.mockClear();
+      mockEmit.mockClear();
+      mockDisconnect.mockClear();
+
+      // Temporarily clear deviceId to test edge case
+      const originalDeviceId = useGameStore.getState().deviceId;
+      useGameStore.setState({ deviceId: null });
+
+      useGameStore.getState().cancelReconnect('ROOM_XYZ', 'TestUser');
+
+      mockOnHandlers['connect']();
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      // Should still emit joinRoom even with null deviceId
+      expect(joinRoomCall).toBeTruthy();
+      expect(joinRoomCall[1]).toMatchObject({
+        roomId: 'ROOM_XYZ',
+        name: 'TestUser',
+        deviceId: null,
+      });
+
+      // Restore original deviceId
+      useGameStore.setState({ deviceId: originalDeviceId });
+    });
+
+    it('cancelReconnect called multiple times creates multiple io socket attempts', async () => {
+      const { io } = await import('socket.io-client');
+      io.mockClear();
+
+      const store = useGameStore.getState();
+
+      // First call with roomId - creates temp socket
+      store.cancelReconnect('ROOM_1', 'Alice');
+      expect(io).toHaveBeenCalledTimes(1);
+
+      // Second call with roomId - creates another temp socket
+      store.cancelReconnect('ROOM_2', 'Bob');
+      expect(io).toHaveBeenCalledTimes(2);
+
+      // Call without roomId - does NOT create temp socket
+      store.cancelReconnect();
+      expect(io).toHaveBeenCalledTimes(2);
+
+      // Verify handlers were registered for both socket attempts
+      expect(mockOnHandlers['connect_error']).toBeDefined();
+    });
+
+    it('cancelReconnect cleans up socket after joinRoom callback with error', async () => {
+      const { io } = await import('socket.io-client');
+      io.mockClear();
+      mockEmit.mockClear();
+      mockDisconnect.mockClear();
+
+      useGameStore.getState().cancelReconnect('ROOM_FAIL', 'FailUser');
+
+      mockOnHandlers['connect']();
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const callback = joinRoomCall[2];
+
+      // Simulate error in callback (e.g., room no longer exists)
+      callback({ success: false, error: 'Room not found' });
+
+      // Should still disconnect even on error
+      expect(mockDisconnect).toHaveBeenCalled();
+      // Should not emit leaveRoom on failure
+      expect(mockEmit).not.toHaveBeenCalledWith('leaveRoom');
+    });
+
+    it('cancelReconnect clears showReconnectPopup when called with no roomId', async () => {
+      useGameStore.setState({
+        showReconnectPopup: true,
+        liveTurnState: { turnScore: 100 },
+      });
+
+      useGameStore.getState().cancelReconnect();
+
+      expect(useGameStore.getState().showReconnectPopup).toBe(false);
+      expect(useGameStore.getState().liveTurnState).toBeNull();
+    });
   });
 
   // Orchestration behaviours that previously lived only in the removed

@@ -357,4 +357,180 @@ describe('App Integration (End-to-End)', () => {
     // (io call count should not increase beyond initial calls)
     expect(ioMock.mock.calls.length).toBe(initialIOCallCount);
   });
+
+  it('RestoreSessionPopup Cancel explicitly calls cancelReconnect with roomId and name', async () => {
+    const cancelReconnectSpy = vi.spyOn(useGameStore.getState(), 'cancelReconnect');
+
+    act(() => {
+      useGameStore.setState({
+        pendingReconnectSession: { roomId: 'SPY_ROOM', myName: 'SpyUser' },
+      });
+    });
+
+    render(<App />);
+    const cancelButton = screen.getByText('home.restore.cancel');
+    fireEvent.click(cancelButton);
+
+    // Verify cancelReconnect was called with the correct roomId and name
+    expect(cancelReconnectSpy).toHaveBeenCalledWith('SPY_ROOM', 'SpyUser');
+    expect(cancelReconnectSpy).toHaveBeenCalledTimes(1);
+
+    cancelReconnectSpy.mockRestore();
+  });
+
+  it('ReconnectPopup Return button calls cancelReconnect with no arguments', async () => {
+    const cancelReconnectSpy = vi.spyOn(useGameStore.getState(), 'cancelReconnect');
+
+    act(() => {
+      useGameStore.setState({ showReconnectPopup: true });
+    });
+
+    render(<App />);
+    const returnButton = screen.getByText('home.reconnect.returnMenu');
+    fireEvent.click(returnButton);
+
+    // Verify cancelReconnect was called with no roomId/name (in-game disconnect)
+    expect(cancelReconnectSpy).toHaveBeenCalledWith();
+    expect(cancelReconnectSpy).toHaveBeenCalledTimes(1);
+
+    cancelReconnectSpy.mockRestore();
+  });
+
+  it('RestoreSessionPopup Cancel handles socket timeout gracefully', async () => {
+    const { io } = await import('socket.io-client');
+    let connectHandler = null;
+    let connectErrorHandler = null;
+
+    mockSocketInstance = {
+      on: vi.fn((event, handler) => {
+        if (event === 'connect') {
+          connectHandler = handler;
+        }
+        if (event === 'connect_error') {
+          connectErrorHandler = handler;
+        }
+      }),
+      emit: vi.fn(),
+      disconnect: vi.fn(),
+      id: 'temp-socket-timeout',
+    };
+
+    act(() => {
+      useGameStore.setState({
+        pendingReconnectSession: { roomId: 'TIMEOUT_ROOM', myName: 'TimeoutUser' },
+      });
+    });
+
+    render(<App />);
+    const cancelButton = screen.getByText('home.restore.cancel');
+    fireEvent.click(cancelButton);
+
+    // Simulate connect error after a delay (simulating timeout)
+    await new Promise(resolve => setTimeout(resolve, 20));
+    if (connectErrorHandler) {
+      connectErrorHandler();
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Should have called disconnect to clean up
+    expect(mockSocketInstance.disconnect).toHaveBeenCalled();
+    // Should not have attempted joinRoom
+    const joinRoomCalls = mockSocketInstance.emit.mock.calls.filter(c => c[0] === 'joinRoom');
+    expect(joinRoomCalls.length).toBe(0);
+
+    mockSocketInstance = null;
+  });
+
+  it('RestoreSessionPopup Cancel propagates localStorage/sessionStorage cleanup on cancel', async () => {
+    act(() => {
+      useGameStore.setState({
+        pendingReconnectSession: { roomId: 'CLEANUP_ROOM', myName: 'CleanupUser' },
+        liveTurnState: { turnScore: 75 },
+      });
+    });
+
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 75 }));
+    localStorage.setItem('tutto_color', '#FF5733');
+    sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'CLEANUP_ROOM', myName: 'CleanupUser' }));
+
+    render(<App />);
+
+    // Verify data exists before cancel
+    expect(localStorage.getItem('tutto_dice_turn_state')).toBeTruthy();
+    expect(sessionStorage.getItem('tutto_online_session')).toBeTruthy();
+
+    const cancelButton = screen.getByText('home.restore.cancel');
+    fireEvent.click(cancelButton);
+
+    // Allow async operations
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Game state should be cleared
+    expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
+    expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+    expect(useGameStore.getState().liveTurnState).toBeNull();
+    expect(useGameStore.getState().pendingReconnectSession).toBeNull();
+
+    // But user preferences should remain
+    expect(localStorage.getItem('tutto_color')).toBe('#FF5733');
+
+    mockSocketInstance = null;
+  });
+
+  it('RestoreSessionPopup Cancel with multiple state mutations maintains consistency', async () => {
+    let connectHandler = null;
+
+    mockSocketInstance = {
+      on: vi.fn((event, handler) => {
+        if (event === 'connect') {
+          connectHandler = handler;
+          setTimeout(() => handler(), 5);
+        }
+      }),
+      emit: vi.fn((event, ...args) => {
+        if (event === 'joinRoom') {
+          const callback = args[args.length - 1];
+          if (typeof callback === 'function') {
+            setTimeout(() => callback({ success: true }), 10);
+          }
+        }
+      }),
+      disconnect: vi.fn(),
+      id: 'temp-socket-consistency',
+    };
+
+    // Set up complex state
+    act(() => {
+      useGameStore.setState({
+        pendingReconnectSession: { roomId: 'CONSISTENCY_ROOM', myName: 'ConsistencyUser' },
+        liveTurnState: { turnScore: 200, keptDice: [1, 2, 3] },
+        showReconnectPopup: false,
+      });
+    });
+
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 200, keptDice: [1, 2, 3] }));
+    sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'CONSISTENCY_ROOM', myName: 'ConsistencyUser' }));
+
+    render(<App />);
+    const cancelButton = screen.getByText('home.restore.cancel');
+
+    fireEvent.click(cancelButton);
+
+    // Allow all async operations
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // All game state should be cleared consistently
+    const state = useGameStore.getState();
+    expect(state.pendingReconnectSession).toBeNull();
+    expect(state.liveTurnState).toBeNull();
+    expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
+    expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+
+    // Temp socket should have properly left
+    expect(mockSocketInstance.emit).toHaveBeenCalledWith('leaveRoom');
+    expect(mockSocketInstance.disconnect).toHaveBeenCalled();
+
+    mockSocketInstance = null;
+  });
 });
