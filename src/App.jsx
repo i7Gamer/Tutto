@@ -101,6 +101,8 @@ function RestoreSessionPopup() {
           <button 
             className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3 px-4 rounded-xl transition-colors"
             onClick={() => {
+              // Signal reconnect so gameState handler can detect it and auto-open DiceGame
+              useGameStore.setState({ showReconnectPopup: true });
               joinRoom(pendingReconnectSession.roomId, pendingReconnectSession.myName);
               clearPendingReconnect();
             }}

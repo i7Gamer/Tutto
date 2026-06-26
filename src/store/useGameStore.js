@@ -424,14 +424,16 @@ export const useGameStore = create(immer((set, get) => ({
           turnTimerPlayerIndex = state.currentPlayerIndex;
           turnTimerCard = state.currentCard;
 
-          // Use server's turnTimeRemaining value (already accurate), or calculate if not available
-          let remaining = state.turnTimeRemaining;
-          if (remaining === null || remaining === undefined) {
+          // On reconnect, use server's pre-calculated remaining time.
+          // On new turn, always start from full duration (turnTimeRemaining still holds old value at this point).
+          let remaining;
+          if (justReconnected && state.turnTimeRemaining !== null && state.turnTimeRemaining !== undefined) {
+            remaining = state.turnTimeRemaining;
+          } else {
             let multiplier = 1;
             if (state.currentCard === 'Feuerwerk') multiplier = 3;
             if (state.currentCard === 'Kleeblatt') multiplier = 2;
-            const targetDuration = state.turnDuration * multiplier;
-            remaining = targetDuration;
+            remaining = state.turnDuration * multiplier;
           }
           set({ turnTimeRemaining: remaining });
 
