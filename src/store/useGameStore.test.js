@@ -354,6 +354,61 @@ describe('useGameStore', () => {
       const joinCallback = joinRoomCall[2];
       joinCallback({ success: true });
       expect(mockEmit).toHaveBeenCalledWith('leaveRoom');
+      expect(mockDisconnect).toHaveBeenCalled();
+    });
+
+    it('cancelReconnect(roomId, name) does not emit leaveRoom if joinRoom fails', async () => {
+      const { io } = await import('socket.io-client');
+      io.mockClear();
+      mockEmit.mockClear();
+      mockDisconnect.mockClear();
+
+      useGameStore.getState().cancelReconnect('GHOST_ROOM', 'Charlie');
+
+      expect(io).toHaveBeenCalledWith(expect.any(String));
+      mockOnHandlers['connect']();
+
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinCallback = joinRoomCall[2];
+      // Simulate failed joinRoom (success: false or server error)
+      joinCallback({ success: false });
+
+      // Should NOT emit leaveRoom on failure
+      expect(mockEmit).not.toHaveBeenCalledWith('leaveRoom');
+      // But should still disconnect to clean up the temp socket
+      expect(mockDisconnect).toHaveBeenCalled();
+    });
+
+    it('cancelReconnect(roomId, name) cleans up on connect_error without trying to join', async () => {
+      const { io } = await import('socket.io-client');
+      io.mockClear();
+      mockEmit.mockClear();
+      mockDisconnect.mockClear();
+
+      useGameStore.getState().cancelReconnect('GHOST_ROOM', 'Charlie');
+
+      expect(io).toHaveBeenCalledWith(expect.any(String));
+      // Simulate connection failure
+      mockOnHandlers['connect_error']();
+
+      // Should not attempt to join
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(joinRoomCall).toBeUndefined();
+      // But should clean up
+      expect(mockDisconnect).toHaveBeenCalled();
+    });
+
+    it('cancelReconnect(roomId, name) passes color from localStorage if available', async () => {
+      const { io } = await import('socket.io-client');
+      io.mockClear();
+      mockEmit.mockClear();
+
+      localStorage.setItem('tutto_color', '#FF5733');
+      useGameStore.getState().cancelReconnect('ROOM_123', 'Alice');
+
+      mockOnHandlers['connect']();
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(joinRoomCall[1]).toMatchObject({ color: '#FF5733' });
     });
   });
 

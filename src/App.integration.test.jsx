@@ -16,6 +16,20 @@ vi.mock('./utils/soundEffects', () => ({
   playTone: vi.fn()
 }));
 
+// Create a mock for socket.io-client that can be configured per test
+let mockSocketInstance = null;
+vi.mock('socket.io-client', () => {
+  return {
+    io: vi.fn(() => mockSocketInstance || {
+      on: vi.fn(),
+      emit: vi.fn(),
+      off: vi.fn(),
+      disconnect: vi.fn(),
+      id: 'socket-default',
+    })
+  };
+});
+
 describe('App Integration (End-to-End)', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -192,16 +206,155 @@ describe('App Integration (End-to-End)', () => {
     act(() => {
       useGameStore.setState({ pendingReconnectSession: { roomId: 'GHOST_ROOM', myName: 'Charlie' } });
     });
-    
+
     render(<App />);
 
     expect(screen.getByText('home.restore.title')).toBeInTheDocument();
     expect(screen.getByText(/home.restore.description/)).toBeInTheDocument();
 
-    const yesButton = screen.getByText('home.restore.cancel');
-    fireEvent.click(yesButton);
+    const cancelButton = screen.getByText('home.restore.cancel');
+    fireEvent.click(cancelButton);
 
     expect(useGameStore.getState().pendingReconnectSession).toBeNull();
     expect(screen.queryByText('home.restore.title')).not.toBeInTheDocument();
+  });
+
+  it('RestoreSessionPopup Cancel button triggers temp socket join+leave flow', async () => {
+    const { io } = await import('socket.io-client');
+    let connectHandler = null;
+
+    mockSocketInstance = {
+      on: vi.fn((event, handler) => {
+        if (event === 'connect') {
+          connectHandler = handler;
+          // Simulate connection after a brief delay
+          setTimeout(() => handler(), 5);
+        }
+      }),
+      emit: vi.fn((event, ...args) => {
+        // If joinRoom, invoke the callback
+        if (event === 'joinRoom') {
+          const callback = args[args.length - 1];
+          if (typeof callback === 'function') {
+            setTimeout(() => callback({ success: true }), 10);
+          }
+        }
+      }),
+      disconnect: vi.fn(),
+      id: 'temp-socket-123',
+    };
+
+    act(() => {
+      useGameStore.setState({
+        pendingReconnectSession: { roomId: 'TEST_ROOM_123', myName: 'Alice' },
+        liveTurnState: { turnScore: 50 },
+      });
+    });
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 50 }));
+
+    render(<App />);
+    const cancelButton = screen.getByText('home.restore.cancel');
+
+    fireEvent.click(cancelButton);
+
+    // State should be immediately cleared
+    expect(useGameStore.getState().pendingReconnectSession).toBeNull();
+    expect(useGameStore.getState().liveTurnState).toBeNull();
+
+    // Allow async socket operations to complete
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Verify temp socket was created
+    expect(io).toHaveBeenCalledWith(expect.any(String));
+
+    // Verify joinRoom was emitted with correct args
+    const joinRoomCall = mockSocketInstance.emit.mock.calls.find(c => c[0] === 'joinRoom');
+    expect(joinRoomCall).toBeTruthy();
+    expect(joinRoomCall[1]).toMatchObject({
+      roomId: 'TEST_ROOM_123',
+      name: 'Alice',
+      deviceId: expect.any(String),
+    });
+
+    // Verify leaveRoom was emitted after successful join
+    expect(mockSocketInstance.emit).toHaveBeenCalledWith('leaveRoom');
+
+    // Verify socket was disconnected after leaving
+    expect(mockSocketInstance.disconnect).toHaveBeenCalled();
+
+    mockSocketInstance = null;
+  });
+
+  it('RestoreSessionPopup Cancel button cleans up on socket connect_error', async () => {
+    const { io } = await import('socket.io-client');
+    let connectErrorHandler;
+
+    mockSocketInstance = {
+      on: vi.fn((event, handler) => {
+        if (event === 'connect_error') {
+          connectErrorHandler = handler;
+        }
+      }),
+      emit: vi.fn(),
+      disconnect: vi.fn(),
+      id: 'temp-socket-error',
+    };
+
+    act(() => {
+      useGameStore.setState({
+        pendingReconnectSession: { roomId: 'ROOM_ERROR', myName: 'Bob' },
+      });
+    });
+
+    render(<App />);
+    const cancelButton = screen.getByText('home.restore.cancel');
+    fireEvent.click(cancelButton);
+
+    // Allow socket to be created
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // Trigger the connect_error handler
+    if (connectErrorHandler) {
+      connectErrorHandler();
+    }
+
+    // Allow async operations
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Should NOT attempt to join on error
+    expect(mockSocketInstance.emit).not.toHaveBeenCalledWith(
+      'joinRoom',
+      expect.any(Object)
+    );
+
+    // Should still clean up the socket
+    expect(mockSocketInstance.disconnect).toHaveBeenCalled();
+
+    mockSocketInstance = null;
+  });
+
+  it('ReconnectPopup (in-game disconnect) does not create temp socket', async () => {
+    const { io } = await import('socket.io-client');
+    const ioMock = vi.mocked(io);
+    const initialIOCallCount = ioMock.mock.calls.length;
+
+    act(() => {
+      useGameStore.setState({ showReconnectPopup: true });
+    });
+
+    render(<App />);
+    expect(screen.getByText('home.reconnect.title')).toBeInTheDocument();
+
+    const returnButton = screen.getByText('home.reconnect.returnMenu');
+    fireEvent.click(returnButton);
+
+    // Popup should close
+    expect(screen.queryByText('home.reconnect.title')).not.toBeInTheDocument();
+    // Mode should switch to local (indicating intentional disconnect)
+    expect(useGameStore.getState().mode).toBe('local');
+
+    // No new temp socket should be created
+    // (io call count should not increase beyond initial calls)
+    expect(ioMock.mock.calls.length).toBe(initialIOCallCount);
   });
 });
