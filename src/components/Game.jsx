@@ -54,23 +54,35 @@ export default function Game() {
     }
   }, [isMyTurn]);
 
-  // Auto-open DiceGame on reconnect if turn was in progress
+  // Auto-open DiceGame on reconnect/reload if turn was in progress (online mode) or
+  // if cached dice game state exists (local mode).
   useEffect(() => {
-    // Reset guard when justReconnected goes false (ready for next reconnect)
-    if (!justReconnected) {
-      reconnectHandledRef.current = false;
-      return;
+    if (!isMyTurn || diceMode !== 'digital') return;
+
+    // For online mode: auto-open on reconnect
+    if (isOnline) {
+      // Reset guard when justReconnected goes false (ready for next reconnect)
+      if (!justReconnected) {
+        reconnectHandledRef.current = false;
+        return;
+      }
+      if (!liveTurnState) return;
+      // Ref guard prevents StrictMode double-invoke from showing the toast twice.
+      if (reconnectHandledRef.current) return;
+      reconnectHandledRef.current = true;
+      useGameStore.setState({ justReconnected: false });
+      setShowDiceGame(true);
+      game.addToast("Resuming your dice game...");
+    } else {
+      // For local mode: auto-open if cached dice game state exists
+      const cachedState = localStorage.getItem('tutto_dice_turn_state');
+      if (cachedState && !reconnectHandledRef.current) {
+        reconnectHandledRef.current = true;
+        setShowDiceGame(true);
+        game.addToast("Resuming your dice game...");
+      }
     }
-    if (!liveTurnState || !isMyTurn || diceMode !== 'digital') return;
-    // Ref guard prevents StrictMode double-invoke from showing the toast twice.
-    // StrictMode re-runs effects synchronously before the store re-render propagates,
-    // so useGameStore.setState alone isn't enough to block the second invocation.
-    if (reconnectHandledRef.current) return;
-    reconnectHandledRef.current = true;
-    useGameStore.setState({ justReconnected: false });
-    setShowDiceGame(true);
-    game.addToast("Resuming your dice game...");
-  }, [justReconnected, liveTurnState, isMyTurn, diceMode]);
+  }, [justReconnected, liveTurnState, isMyTurn, diceMode, isOnline]);
 
   useEffect(() => {
     let soundTimeout;
@@ -264,7 +276,7 @@ export default function Game() {
               currentCard={currentCard}
               onComplete={handleDiceComplete}
               onCancel={handleCancelDiceGame}
-              onStateChange={isOnline && diceMode === 'digital' ? setLiveTurnState : undefined}
+              onStateChange={diceMode === 'digital' ? setLiveTurnState : undefined}
             />
           </motion.div>
         </div>

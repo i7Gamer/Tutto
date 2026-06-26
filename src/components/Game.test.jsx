@@ -442,4 +442,79 @@ describe('Game Component Integration', () => {
       // Both modes call nextTurn with same signature for Plus_Minus failure
     });
   });
+
+  describe('Local Game Dice Caching', () => {
+    beforeEach(() => {
+      localStorage.clear();
+      useGameStore.setState({
+        mode: 'local',
+        isOnline: false,
+        currentPlayerIndex: 0,
+        currentCard: 'x2',
+        diceMode: 'digital',
+        myName: 'LocalPlayer',
+        players: [
+          { name: 'LocalPlayer', score: 0, position: 1, color: '#FF5733' }
+        ],
+      });
+    });
+
+    it('auto-opens DiceGame when cached dice state exists in localStorage for local games', () => {
+      // Set up cached dice game state
+      const cachedState = { turnScore: 150, keptDice: [], currentRoll: [] };
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify(cachedState));
+
+      render(<Game />);
+
+      // After a small delay to let useEffect run
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+
+      // DiceGame should be visible (modal wrapper should show the dice game)
+      const diceGame = screen.getByTestId('mock-dice-game');
+      expect(diceGame).toBeInTheDocument();
+    });
+
+    it('does not auto-open DiceGame when physical dice mode is active', () => {
+      useGameStore.setState({
+        diceMode: 'physical',
+      });
+
+      const cachedState = { turnScore: 75, keptDice: [], currentRoll: [] };
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify(cachedState));
+
+      render(<Game />);
+
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+
+      // DiceGame should not appear even with cached state
+      const diceGame = screen.queryByTestId('mock-dice-game');
+      expect(diceGame).not.toBeInTheDocument();
+    });
+
+    it('clears cached dice state and toast on cancel in local mode', () => {
+      const cachedState = { turnScore: 100, keptDice: [], currentRoll: [] };
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify(cachedState));
+
+      render(<Game />);
+
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+
+      // Find and click the cancel button (X button on DiceGame)
+      const diceGame = screen.getByTestId('mock-dice-game');
+      expect(diceGame).toBeInTheDocument();
+
+      // Simulate closing the dice game
+      useGameStore.setState({ liveTurnState: null });
+      localStorage.removeItem('tutto_dice_turn_state');
+
+      // Verify state is cleared
+      expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
+    });
+  });
 });
