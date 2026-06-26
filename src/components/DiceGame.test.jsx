@@ -500,4 +500,61 @@ describe('DiceGame Integration', () => {
       // passes if no error is thrown
     });
   });
+
+  describe('State Persistence', () => {
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    it('restores saved dice game state from localStorage on mount', async () => {
+      const savedState = {
+        turnScore: 1250,
+        keptDice: [{ id: 'die-1', val: 1 }],
+        currentRoll: [
+          { id: 'die-2', val: 5, selected: false },
+          { id: 'die-3', val: 6, selected: true }
+        ],
+        rollingDiceIds: []
+      };
+
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify(savedState));
+
+      const onComplete = vi.fn();
+      render(<DiceGame currentCard="Feuerwerk" onComplete={onComplete} onCancel={vi.fn()} />);
+
+      // Check that the turn score is displayed (indicates state was restored)
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      });
+
+      const scoreDisplay = screen.getByText('1250');
+      expect(scoreDisplay).toBeDefined();
+    });
+
+    it('starts with fresh state when no saved state exists', async () => {
+      const onComplete = vi.fn();
+      render(<DiceGame currentCard="Feuerwerk" onComplete={onComplete} onCancel={vi.fn()} />);
+
+      // Should show "Roll 6 Dice" button (not mid-turn state)
+      expect(screen.getByText('dice.roll_6_dice')).toBeDefined();
+
+      // Should show 0 as current score
+      const scoreDisplay = screen.getByText('0');
+      expect(scoreDisplay).toBeDefined();
+    });
+
+    it('handles corrupted localStorage gracefully', async () => {
+      localStorage.setItem('tutto_dice_turn_state', 'invalid json {]');
+
+      const onComplete = vi.fn();
+      render(<DiceGame currentCard="Feuerwerk" onComplete={onComplete} onCancel={vi.fn()} />);
+
+      // Should not crash and should start fresh
+      expect(screen.getByText('dice.roll_6_dice')).toBeDefined();
+    });
+  });
 });

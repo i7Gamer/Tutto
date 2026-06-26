@@ -616,4 +616,63 @@ describe('useGameStore', () => {
     });
   });
 
+  describe('Dice Game State Persistence', () => {
+    it('setLiveTurnState saves state to localStorage', () => {
+      const turnState = {
+        turnScore: 1250,
+        keptDice: [{ id: 'die-1', val: 1 }],
+        currentRoll: [{ id: 'die-2', val: 6, selected: true }],
+        rollingDiceIds: ['die-3']
+      };
+
+      useGameStore.getState().setLiveTurnState(turnState);
+
+      const saved = localStorage.getItem('tutto_dice_turn_state');
+      expect(saved).toBeDefined();
+      expect(JSON.parse(saved)).toEqual(turnState);
+    });
+
+    it('setLiveTurnState does not save null state to localStorage', () => {
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 100 }));
+
+      useGameStore.getState().setLiveTurnState(null);
+
+      const saved = localStorage.getItem('tutto_dice_turn_state');
+      expect(saved).toBe(JSON.stringify({ turnScore: 100 })); // Should not be cleared by null
+    });
+
+    it('nextTurn clears dice game state from localStorage', () => {
+      // Setup initial state
+      useGameStore.setState({
+        players: [
+          { name: 'Alice', deviceId: 'dev-alice', score: 0, busts: 0, totalTurns: 0,
+            times1000PointsDeducted: 0, timesKniffelCompleted: 0, timesPlusMinusCompleted: 0,
+            timesKniffelFailed: 0, timesKleeblattFailed: 0, timesKleeblattCompleted: 0,
+            timesPlusMinusFailed: 0, timesFeuerwerkReceived: 0, timesSkipped: 0,
+            timesx2Received: 0, feuerwerkBusts: 0, x2Busts: 0,
+            feuerwerkPointsScored: 0, x2PointsScored: 0, highestTurnScore: 0, position: 1, color: '#ff0000'
+          }
+        ],
+        currentPlayerIndex: 0,
+        currentCard: 'Feuerwerk',
+        cards: [1, 2, 3, 4, 5, 6],
+        round: 1
+      });
+
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 500 }));
+
+      useGameStore.getState().nextTurn(500, true);
+
+      expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
+    });
+
+    it('endGame clears dice game state from localStorage', () => {
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 750 }));
+
+      useGameStore.getState().endGame();
+
+      expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
+    });
+  });
+
 });
