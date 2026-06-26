@@ -214,8 +214,8 @@ export const useGameStore = create(immer((set, get) => ({
       Object.assign(state, config);
     });
     const s = get();
-    if (s.isOnline && s.isHost && s.roomId) {
-      socket.emit('updateConfig', { 
+    if (s.isOnline && s.isHost && s.roomId && socket) {
+      socket.emit('updateConfig', {
         roomId: s.roomId, 
         winningScore: s.winningScore, 
         initialCards: s.initialCards, 
@@ -253,7 +253,7 @@ export const useGameStore = create(immer((set, get) => ({
 
   reorderPlayers: (newPlayers) => {
     set({ players: newPlayers, randomOrder: false });
-    if (get().isOnline && get().isHost) {
+    if (get().isOnline && get().isHost && socket) {
       socket.emit('reorderPlayers', { roomId: get().roomId, newPlayers });
     }
   },
@@ -268,7 +268,7 @@ export const useGameStore = create(immer((set, get) => ({
   changeMyColor: (newColor) => {
     localStorage.setItem('tutto_color', newColor);
     get().changePlayerColor(get().myName, newColor);
-    if (get().isOnline) {
+    if (get().isOnline && socket) {
       socket.emit('updatePlayerColor', { roomId: get().roomId, color: newColor });
     }
   },
@@ -454,8 +454,6 @@ export const useGameStore = create(immer((set, get) => ({
         const s = get();
         if (s.gameStartTime) {
           set({ gameTimeInSeconds: Math.floor((Date.now() - s.gameStartTime) / 1000) });
-        } else {
-          set(draft => { draft.gameTimeInSeconds++ });
         }
       }, 1000);
 

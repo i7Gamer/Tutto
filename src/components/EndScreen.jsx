@@ -71,6 +71,7 @@ export default function EndScreen({ theme, deviceId }) {
       if (!isMounted) return;
       try {
         const res = await fetch(`/api/stats/${deviceId}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         
         if ((!data || !data.gamesPlayed) && retries < 5) {

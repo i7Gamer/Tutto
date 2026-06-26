@@ -702,8 +702,8 @@ describe('useGameStore', () => {
       expect(afterWait).toBeGreaterThanOrEqual(initial + 1);
     });
 
-    it('game timer uses fallback counter when gameStartTime cannot be set (null gameTimeInSeconds)', async () => {
-      // gameTimeInSeconds=null → condition skips gameStartTime → interval uses fallback ++
+    it('game timer does not tick when gameStartTime is null (null gameTimeInSeconds skips anchor)', async () => {
+      // gameTimeInSeconds=null → syncOnlineTimers cannot anchor gameStartTime → timer fires but does nothing
       useGameStore.setState({
         mode: 'online',
         isOnline: true,
@@ -714,13 +714,12 @@ describe('useGameStore', () => {
       });
 
       useGameStore.getState().syncOnlineTimers();
-      expect(useGameStore.getState().gameStartTime).toBeNull(); // Confirm fallback path
+      expect(useGameStore.getState().gameStartTime).toBeNull(); // Confirm no anchor was set
 
       await new Promise(resolve => setTimeout(resolve, 1100));
 
-      const afterWait = useGameStore.getState().gameTimeInSeconds;
-      // null++ → 1 on first tick
-      expect(afterWait).toBeGreaterThanOrEqual(1);
+      // Without gameStartTime the timer interval has nothing to compute — value stays null.
+      expect(useGameStore.getState().gameTimeInSeconds).toBeNull();
     });
     });
 
