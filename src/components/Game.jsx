@@ -47,6 +47,8 @@ export default function Game() {
   const [showDiceGame, setShowDiceGame] = useState(false);
   const confettiFiredRef = useRef(false);
   const reconnectHandledRef = useRef(false);
+  // Snapshot taken once at mount — avoids re-reading localStorage on every liveTurnState change.
+  const localCacheOnMountRef = useRef(!!localStorage.getItem('tutto_dice_turn_state'));
 
   useEffect(() => {
     if (!isMyTurn) {
@@ -74,10 +76,11 @@ export default function Game() {
       setShowDiceGame(true);
       game.addToast("Resuming your dice game...");
     } else {
-      // For local mode: auto-open if cached dice game state exists
-      const cachedState = localStorage.getItem('tutto_dice_turn_state');
-      if (cachedState && !reconnectHandledRef.current) {
+      // For local mode: use the mount-time snapshot so subsequent liveTurnState
+      // updates during an active game don't re-trigger this.
+      if (localCacheOnMountRef.current && !reconnectHandledRef.current) {
         reconnectHandledRef.current = true;
+        localCacheOnMountRef.current = false;
         setShowDiceGame(true);
         game.addToast("Resuming your dice game...");
       }
@@ -165,8 +168,8 @@ export default function Game() {
   const handleCancelDiceGame = useCallback(() => {
     setShowDiceGame(false);
     localStorage.removeItem('tutto_dice_turn_state');
-    if (isOnline) setLiveTurnState(null);
-  }, [isOnline, setLiveTurnState]);
+    setLiveTurnState(null);
+  }, [setLiveTurnState]);
 
   return (
     <div className="container mx-auto px-2 md:px-4 pt-2 md:pt-4 pb-20 max-w-3xl flex flex-col gap-2 md:gap-4">

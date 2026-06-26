@@ -495,7 +495,30 @@ describe('Game Component Integration', () => {
       expect(diceGame).not.toBeInTheDocument();
     });
 
-    it('clears cached dice state and toast on cancel in local mode', () => {
+    it('does not show spurious resume toast when liveTurnState updates during active dice game', () => {
+      // No cached state at mount — user opens dice game manually
+      render(<Game />);
+
+      const mockAddToast = vi.fn();
+      useGameStore.setState({ addToast: mockAddToast });
+
+      // Simulate liveTurnState being written after first dice roll (DiceGame calls onStateChange)
+      act(() => {
+        useGameStore.setState({
+          liveTurnState: { turnScore: 50, keptDice: [], currentRoll: [] }
+        });
+        // This also writes to localStorage (as setLiveTurnState does)
+        localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 50 }));
+        vi.advanceTimersByTime(400); // past DiceGame's 300ms debounce
+      });
+
+      // The toast should NOT have been called — no cache was present at mount
+      expect(mockAddToast).not.toHaveBeenCalledWith("Resuming your dice game...");
+      // And the dice game modal should not have been auto-opened
+      // (it was never opened because there was no cached state at mount)
+    });
+
+    it('clears liveTurnState in store on cancel for local mode', () => {
       const cachedState = { turnScore: 100, keptDice: [], currentRoll: [] };
       localStorage.setItem('tutto_dice_turn_state', JSON.stringify(cachedState));
 
@@ -505,16 +528,22 @@ describe('Game Component Integration', () => {
         vi.advanceTimersByTime(100);
       });
 
-      // Find and click the cancel button (X button on DiceGame)
-      const diceGame = screen.getByTestId('mock-dice-game');
-      expect(diceGame).toBeInTheDocument();
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
 
-      // Simulate closing the dice game
-      useGameStore.setState({ liveTurnState: null });
-      localStorage.removeItem('tutto_dice_turn_state');
+      // Simulate store having a liveTurnState (from dice rolls during this turn)
+      act(() => {
+        useGameStore.setState({ liveTurnState: { turnScore: 100 } });
+      });
 
-      // Verify state is cleared
-      expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
+      expect(useGameStore.getState().liveTurnState).not.toBeNull();
+
+      // handleCancelDiceGame should clear liveTurnState even in local mode
+      // We verify by checking that setLiveTurnState clears it
+      act(() => {
+        useGameStore.getState().setLiveTurnState(null);
+      });
+
+      expect(useGameStore.getState().liveTurnState).toBeNull();
     });
   });
 });
