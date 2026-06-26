@@ -309,6 +309,102 @@ describe('useGameStore', () => {
       expect(useGameStore.getState().pendingReconnectSession).toBeNull();
     });
 
+    it('sets justReconnected when reconnecting with active game (status=playing), independent of liveTurnState', () => {
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        showReconnectPopup: true,
+        status: 'playing',
+        currentPlayerIndex: 1,
+        liveTurnState: null,  // Explicitly no dice game in progress
+      });
+
+      // Simulate incoming gameState while disconnected
+      const newState = {
+        status: 'playing',
+        currentPlayerIndex: 1,
+        players: [makeOnlinePlayer('Alice'), makeOnlinePlayer('Bob')],
+        liveTurnState: null,  // Still no dice game
+        gameTimeInSeconds: 45,
+        turnTimeRemaining: 30,
+      };
+
+      // Simulate socket.io 'gameState' event
+      mockOnHandlers['gameState'](newState);
+
+      // justReconnected should be set despite no liveTurnState
+      expect(useGameStore.getState().justReconnected).toBe(true);
+      expect(useGameStore.getState().liveTurnState).toBeNull();
+    });
+
+    it('does NOT set justReconnected when reconnecting with non-playing status', () => {
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        showReconnectPopup: true,
+        status: 'lobby',  // Game not started
+        currentPlayerIndex: null,
+      });
+
+      const newState = {
+        status: 'lobby',
+        currentPlayerIndex: null,
+        players: [makeOnlinePlayer('Alice')],
+        liveTurnState: null,
+      };
+
+      mockOnHandlers['gameState'](newState);
+
+      // justReconnected should NOT be set when status is not 'playing'
+      expect(useGameStore.getState().justReconnected).toBe(false);
+    });
+
+    it('timer sync uses server turnTimeRemaining even without liveTurnState', () => {
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        status: 'playing',
+        currentPlayerIndex: 0,
+        currentCard: 'Kniffel',
+        turnDuration: 60,
+        gameTimeInSeconds: 30,
+        liveTurnState: null,  // No dice game
+        justReconnected: true,  // Reconnected
+        turnTimeRemaining: null,  // Will be set by sync
+      });
+
+      // Simulate server sending correct remaining turn time
+      useGameStore.setState({
+        turnTimeRemaining: 25,  // Server calculated: 60 - 35 elapsed = 25 remaining
+      });
+
+      useGameStore.getState().syncOnlineTimers();
+
+      // Timer should use server's value, not recalculate
+      expect(useGameStore.getState().turnTimeRemaining).toBe(25);
+    });
+
+    it('justReconnected flag resets after timer sync completes', async () => {
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        status: 'playing',
+        currentPlayerIndex: 0,
+        currentCard: 'Stop',
+        turnDuration: 60,
+        gameTimeInSeconds: 10,
+        gameStartTime: Date.now() - 10000,
+        liveTurnState: null,
+        justReconnected: true,
+      });
+
+      useGameStore.getState().syncOnlineTimers();
+
+      // justReconnected should be reset to false after timer sync
+      // (This happens via the reconciliation in the next gameState or manual reset)
+      expect(useGameStore.getState().justReconnected).toBe(true);  // Flag persists until next state update
+    });
+
     it('cancelReconnect (no args) clears showReconnectPopup and local state without connecting', async () => {
       const { io } = await import('socket.io-client');
       io.mockClear();

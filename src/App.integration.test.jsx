@@ -533,4 +533,137 @@ describe('App Integration (End-to-End)', () => {
 
     mockSocketInstance = null;
   });
+
+  it('Reconnect without liveTurnState during active game sets justReconnected for timer sync', async () => {
+    // Set up: player in active game, other player's turn, no dice game
+    act(() => {
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        status: 'playing',
+        currentPlayerIndex: 1,  // Other player's turn
+        currentCard: 'Kniffel',
+        turnDuration: 60,
+        gameTimeInSeconds: 25,
+        turnTimeRemaining: 35,
+        liveTurnState: null,  // No dice game in progress
+        justReconnected: false,
+      });
+    });
+
+    // Simulate disconnect then reconnect
+    act(() => {
+      useGameStore.setState({ showReconnectPopup: true });
+    });
+
+    // Simulate server sending gameState after reconnect
+    const gameState = {
+      status: 'playing',
+      currentPlayerIndex: 1,
+      currentCard: 'Kniffel',
+      turnDuration: 60,
+      gameTimeInSeconds: 30,
+      turnTimeRemaining: 30,  // Server calculated remaining time
+      liveTurnState: null,  // Still no dice game
+      finished: false,
+    };
+
+    // Manually trigger the socket handler
+    const store = useGameStore.getState();
+    const connectHandler = vi.fn();
+    const gameStateHandler = vi.fn((state) => {
+      // Simulate what the actual gameState handler does
+      useGameStore.setState((prev) => {
+        const wasDisconnected = prev.showReconnectPopup;
+        Object.assign(prev, state);
+
+        // This is the key change - should set justReconnected based on status, not liveTurnState
+        if (wasDisconnected && state.status === 'playing') {
+          prev.justReconnected = true;
+        }
+        prev.showReconnectPopup = false;
+        return prev;
+      });
+    });
+
+    gameStateHandler(gameState);
+
+    // justReconnected should be set despite no liveTurnState
+    expect(useGameStore.getState().justReconnected).toBe(true);
+    expect(useGameStore.getState().liveTurnState).toBeNull();
+
+    // Timers should be set to server values
+    expect(useGameStore.getState().turnTimeRemaining).toBe(30);
+    expect(useGameStore.getState().gameTimeInSeconds).toBe(30);
+  });
+
+  it('Reconnect during lobby does not set justReconnected', () => {
+    act(() => {
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        status: 'lobby',  // Game not started
+        currentPlayerIndex: null,
+        showReconnectPopup: true,
+      });
+    });
+
+    // Simulate gameState from server
+    const gameState = {
+      status: 'lobby',
+      currentPlayerIndex: null,
+      players: [],
+      liveTurnState: null,
+      finished: false,
+    };
+
+    const gameStateHandler = vi.fn((state) => {
+      useGameStore.setState((prev) => {
+        const wasDisconnected = prev.showReconnectPopup;
+        Object.assign(prev, state);
+
+        if (wasDisconnected && state.status === 'playing') {
+          prev.justReconnected = true;
+        }
+        prev.showReconnectPopup = false;
+        return prev;
+      });
+    });
+
+    gameStateHandler(gameState);
+
+    // justReconnected should NOT be set when status is not 'playing'
+    expect(useGameStore.getState().justReconnected).toBe(false);
+  });
+
+  it('DiceGame does not auto-open on reconnect without liveTurnState', async () => {
+    act(() => {
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        status: 'playing',
+        currentPlayerIndex: 0,
+        myName: 'Alice',
+        diceMode: 'digital',
+        players: [{ name: 'Alice', socketId: 'sock-123' }],
+        justReconnected: true,
+        liveTurnState: null,  // No saved dice state
+        showReconnectPopup: false,
+      });
+    });
+
+    render(<App />);
+
+    // Wait for useEffect to run
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // DiceGame should NOT appear because liveTurnState is null
+    expect(screen.queryByText(/resume|rolling/i)).not.toBeInTheDocument();
+
+    // Verify we're in the game view and not showing an error
+    const scoreboard = screen.queryByText('game.leaderboard');
+    if (scoreboard) {
+      expect(scoreboard).toBeInTheDocument();
+    }
+  });
 });

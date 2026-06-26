@@ -297,8 +297,10 @@ export const useGameStore = create(immer((set, get) => ({
           // Merge state but keep connection-specific fields untouched
           Object.assign(prev, state);
 
-          // Flag reconnection for auto-open DiceGame
-          if (wasDisconnected && state.liveTurnState) {
+          // Flag reconnection for timer sync — independent of liveTurnState.
+          // Timer sync should always happen on reconnect during active games.
+          // DiceGame auto-open will still check liveTurnState separately.
+          if (wasDisconnected && state.status === 'playing') {
             prev.justReconnected = true;
           }
 
