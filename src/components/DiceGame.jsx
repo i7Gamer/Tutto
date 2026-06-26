@@ -14,6 +14,9 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
     const cardNameMap = {
       'Plus_Minus': 'Plus/Minus',
       '200': '200 Bonus',
+      '300': '300 Bonus',
+      '400': '400 Bonus',
+      '500': '500 Bonus',
       '600': '600 Bonus',
     };
     return cardNameMap[cardName] || cardName;
