@@ -407,10 +407,10 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
                             y: { repeat: isDieTumbling ? Infinity : 0, duration: 0.15 }
                           }}
                           className={`die w-14 h-14 rounded-xl flex items-center justify-center text-2xl font-bold transition-all border-2
-                            ${isSelected 
-                              ? 'bg-emerald-100 border-emerald-500 text-emerald-700 shadow-[0_0_15px_rgba(16,185,129,0.3)] scale-110 z-10' 
-                              : bustState 
-                                ? 'bg-red-50 border-red-300 text-red-500 opacity-70 cursor-default' 
+                            ${isSelected
+                              ? 'bg-emerald-500 border-emerald-700 text-white shadow-[0_0_20px_rgba(16,185,129,0.5)] scale-110 z-10'
+                              : bustState
+                                ? 'bg-red-50 border-red-300 text-red-500 opacity-70 cursor-default'
                                 : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 text-gray-800 dark:text-gray-100 shadow-sm ' + (isDieTumbling ? '' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50')
                             }
                           `}
