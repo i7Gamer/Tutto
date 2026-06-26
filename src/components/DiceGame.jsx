@@ -37,12 +37,14 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
   const [bustCountdown, setBustCountdown] = useState(null);
   const bustTimerStarted = useRef(false);
 
-  // Restore dice game state from localStorage on component mount
+  // Restore dice game state from localStorage on component mount.
+  // All setState calls here are batched by React into a single render (once-only effect).
   useEffect(() => {
     const savedState = localStorage.getItem('tutto_dice_turn_state');
     if (savedState) {
       try {
         const { turnScore: savedScore, keptDice: savedKept, currentRoll: savedRoll, busted, kniffelProgress: savedKniffelProgress, tuttosThisTurn: savedTuttosThisTurn } = JSON.parse(savedState);
+        /* eslint-disable react-hooks/set-state-in-effect */
         setTurnScore(savedScore || 0);
         setKeptDice(savedKept || []);
         setCurrentRoll(savedRoll || []);
@@ -57,6 +59,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
           setSummaryData({ won, score, isTutto: false });
           setShowSummary(true);
         }
+        /* eslint-enable react-hooks/set-state-in-effect */
       } catch (e) {
         // Silently ignore if state is corrupted
       }
@@ -251,7 +254,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
       });
     }, 300);
     return () => clearTimeout(timer);
-  }, [keptDice, currentRoll, turnScore, hasRolled, rollingDiceIndices, isRolling, bustState]);
+  }, [keptDice, currentRoll, turnScore, hasRolled, rollingDiceIndices, isRolling, bustState, kniffelProgress, tuttosThisTurn]);
 
   // When bust is detected, immediately save bust snapshot with busted:true flag so
   // a refresh during/after bust can restore and show the bust summary automatically.
@@ -295,10 +298,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
       finishGameRef.current();
     }, AUTO_CONTINUE_MS);
 
-    // eslint-disable-next-line consistent-return
     return () => clearTimeout(timeout);
-  // finishGame intentionally omitted: we use the ref to avoid re-starting on parent re-renders
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSummary, bustState]);
 
   // Countdown tick: decrements once per second while bustCountdown > 0.
