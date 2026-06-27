@@ -150,7 +150,7 @@ export function AdvancedOptionsPanel({
   const { t } = useTranslation();
   const updateCardCount = (card, count) => {
     if (game.setInitialCards) {
-      game.setInitialCards({ ...game.initialCards, [card]: Math.max(0, parseInt(count) || 0) });
+      game.setInitialCards({ ...game.initialCards, [card]: Math.min(99, Math.max(0, parseInt(count) || 0)) });
     }
   };
   return (
@@ -264,14 +264,15 @@ export function AdvancedOptionsPanel({
               {game.initialCards && Object.keys(game.initialCards).map(card => (
                 <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text" key={card}>
                   <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{card.replace("_", "/")}</span>
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     min="0"
+                    max="99"
                     inputMode="numeric"
                     pattern="[0-9]*"
-                    className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-20 py-1 text-gray-900 dark:text-white font-medium text-base" 
-                    value={game.initialCards[card]} 
-                    onChange={(e) => updateCardCount(card, e.target.value)} 
+                    className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-20 py-1 text-gray-900 dark:text-white font-medium text-base"
+                    value={game.initialCards[card]}
+                    onChange={(e) => updateCardCount(card, e.target.value)}
                   />
                 </label>
               ))}

@@ -9,10 +9,8 @@ const INITIAL_CARDS = {
   x2: 5, 200: 5, 300: 5, 400: 5, 500: 5, 600: 5,
 };
 
-export const PLAYER_COLORS = [
-  '#FF5733', '#33FF57', '#3357FF', '#F033FF', '#33FFF0',
-  '#FFD700', '#FF33A1', '#8D33FF', '#33FF8D', '#FF8D33'
-];
+import playerColorsData from '../../playerColors.json';
+export const PLAYER_COLORS = playerColorsData.PLAYER_COLORS;
 
 const createInitialPlayer = (name) => ({
   name, score: 0, times1000PointsDeducted: 0, timesKniffelCompleted: 0,
@@ -546,7 +544,6 @@ export const useGameStore = create(immer((set, get) => ({
       state.previousWasBust = false;
       state.previousHighestTurnScore = 0;
       state.status = 'playing';
-      state.gameTimeInSeconds = 0;  // Reset game timer to 0 at game start
 
       const deckConfig = Object.keys(state.initialCards).reduce((acc, card) => {
         for(let i=0; i<state.initialCards[card]; i++) acc.push(card);

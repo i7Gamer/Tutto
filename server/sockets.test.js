@@ -1220,4 +1220,118 @@ describe('Server Socket E2E Simulation', () => {
       });
     });
   }, 10000);
+
+  it('does not auto-kick a disconnected player when reconnectTimeout is 0 (disabled)', () => {
+    // reconnectTimeout=0 means "never kick automatically"; the buggy `|| 60` fallback would
+    // treat 0 as 60 seconds instead. We verify no kick fires within a window that exceeds
+    // the 1-second timer used in other kick tests.
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const s2 = io(`http://127.0.0.1:${PORT}`);
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        reject(new Error('Test timed out'));
+      }, 8000);
+
+      let latestState = null;
+      let bobDisconnectSeen = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'RECONNECT_OFF', name: 'Alice', deviceId: 'dev-ro-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'RECONNECT_OFF', name: 'Bob', deviceId: 'dev-ro-b', color: '#00ff00' }, () => {
+            const players = [
+              { name: 'Alice', deviceId: 'dev-ro-a', socketId: s1.id, disconnected: false, score: 0 },
+              { name: 'Bob',   deviceId: 'dev-ro-b', socketId: s2.id, disconnected: false, score: 0 },
+            ];
+            s1.emit('pushState', {
+              roomId: 'RECONNECT_OFF',
+              newState: { players, status: 'playing', currentPlayerIndex: 0, reconnectTimeout: 0 },
+            });
+            setTimeout(() => s2.disconnect(), 300);
+          });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        latestState = state;
+        const bob = state.players?.find(p => p.name === 'Bob');
+        if (bob?.disconnected && !bobDisconnectSeen) {
+          bobDisconnectSeen = true;
+          // Wait 1500ms — longer than the 1s kick timer used in reconnectTimeout=1 tests.
+          // Bob must remain in the room (marked disconnected but not removed).
+          setTimeout(() => {
+            expect(latestState.players.length).toBe(2);
+            expect(latestState.players.find(p => p.name === 'Bob')?.disconnected).toBe(true);
+            clearTimeout(timeoutId);
+            s1.disconnect();
+            resolve();
+          }, 1500);
+        }
+      });
+    });
+  }, 10000);
+
+  it('rejects updateConfig with invalid initialCards (unknown type, negative count, non-integer, over limit)', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        resolve(); // No invalid state observed — all bad payloads were correctly rejected.
+      }, 2500);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'CARDS_INVALID', name: 'Alice', deviceId: 'dev-ci-a', color: '#ff0000' }, () => {
+          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { injected: 5, '200': 5 } }), 100);
+          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': -1 } }), 400);
+          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': 1.5 } }), 700);
+          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': 100 } }), 1000); // > MAX_CARD_COUNT=99
+          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: {} }), 1300);          // empty object
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        const cards = state.initialCards;
+        if (!cards) return;
+        const hasUnknownKey = Object.keys(cards).some(k => !['Kleeblatt','Feuerwerk','Stop','Kniffel','Plus_Minus','x2','200','300','400','500','600'].includes(k));
+        const hasNegative = Object.values(cards).some(v => v < 0);
+        const hasNonInteger = Object.values(cards).some(v => !Number.isInteger(v));
+        const hasOverLimit = Object.values(cards).some(v => v > 99);
+        if (hasUnknownKey || hasNegative || hasNonInteger || hasOverLimit) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          reject(new Error(`Server accepted invalid initialCards: ${JSON.stringify(cards)}`));
+        }
+      });
+    });
+  }, 10000);
+
+  it('accepts updateConfig with a fully valid initialCards configuration', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        reject(new Error('Server never accepted valid initialCards'));
+      }, 3000);
+
+      const validCards = {
+        '200': 5, '300': 5, '400': 5, '500': 5, '600': 5,
+        Stop: 3, Kleeblatt: 1, Feuerwerk: 2, Kniffel: 2, Plus_Minus: 2, x2: 2,
+      };
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'CARDS_VALID', name: 'Alice', deviceId: 'dev-cva-a', color: '#ff0000' }, () => {
+          s1.emit('updateConfig', { roomId: 'CARDS_VALID', initialCards: validCards });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (state.initialCards?.['200'] === 5 && state.initialCards?.Stop === 3 && state.initialCards?.Kleeblatt === 1) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          resolve();
+        }
+      });
+    });
+  }, 10000);
 });

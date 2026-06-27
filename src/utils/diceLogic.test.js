@@ -238,6 +238,18 @@ describe('diceLogic', () => {
         expect(getMaxValidSelection([4, 5, 6], "Kniffel", [1])).toEqual([]); // needs 2
       });
 
+      it('selects all 6 dice when the full 1–6 sequence is present regardless of dice order', () => {
+        // Both the ascending (1→6) and descending (6→1) traversals find every value in
+        // [1,2,3,6,5,4] — neither path skips dice. The tie-break (ascending wins on >=)
+        // is inconsequential because both cover the same six dice.
+        const roll = [1, 2, 3, 6, 5, 4];
+        const indices = getMaxValidSelection(roll, 'Kniffel', []);
+        expect(indices.length).toBe(6);
+        expect(new Set(indices).size).toBe(6); // all unique
+        const vals = indices.map(i => roll[i]).sort((a, b) => a - b);
+        expect(vals).toEqual([1, 2, 3, 4, 5, 6]);
+      });
+
       it('produces a selection that checkKniffel accepts', () => {
         const roll = [3, 4, 5, 2, 2, 2];
         const sel = selectedVals(roll, "Kniffel", [1, 2]);

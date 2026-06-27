@@ -20,10 +20,25 @@ const io = new Server(server, {
   pingTimeout: 6000
 });
 
-const PLAYER_COLORS = [
-  '#FF5733', '#33FF57', '#3357FF', '#F033FF', '#33FFF0',
-  '#FFD700', '#FF33A1', '#8D33FF', '#33FF8D', '#FF8D33'
-];
+const { PLAYER_COLORS } = require('../playerColors.json');
+
+const VALID_CARD_TYPES = new Set([
+  'Kleeblatt', 'Feuerwerk', 'Stop', 'Kniffel', 'Plus_Minus', 'x2',
+  '200', '300', '400', '500', '600',
+]);
+const MAX_CARD_COUNT = 99;
+
+const validateInitialCards = (cards) => {
+  if (typeof cards !== 'object' || cards === null) return false;
+  const entries = Object.entries(cards);
+  if (entries.length === 0) return false;
+  return entries.every(([key, val]) =>
+    VALID_CARD_TYPES.has(key) &&
+    Number.isInteger(val) &&
+    val >= 0 &&
+    val <= MAX_CARD_COUNT
+  );
+};
 
 // Fields only the host may push (game config + lifecycle).
 const HOST_ONLY_FIELDS = new Set([
@@ -265,7 +280,7 @@ io.on('connection', (socket) => {
   socket.on('updateConfig', ({ roomId, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout }) => {
     if (rooms[roomId] && rooms[roomId].host === socket.id) {
       if (typeof winningScore === 'number' && winningScore >= 1000) rooms[roomId].state.winningScore = winningScore;
-      if (typeof initialCards === 'object' && initialCards !== null) rooms[roomId].state.initialCards = initialCards;
+      if (validateInitialCards(initialCards)) rooms[roomId].state.initialCards = initialCards;
       if (typeof randomOrder === 'boolean') rooms[roomId].state.randomOrder = randomOrder;
       if (typeof turnDuration === 'number' && (turnDuration === 0 || turnDuration >= 10)) rooms[roomId].state.turnDuration = turnDuration;
       if (typeof reconnectTimeout === 'number' && (reconnectTimeout === 0 || reconnectTimeout >= 10)) rooms[roomId].state.reconnectTimeout = reconnectTimeout;
@@ -482,7 +497,8 @@ io.on('connection', (socket) => {
 
           // Set kick timer
           if (!room.disconnectTimers) room.disconnectTimers = {};
-          const timeoutSecs = room.state.reconnectTimeout || 60;
+          const timeoutSecs = room.state.reconnectTimeout ?? 60;
+          if (timeoutSecs === 0) return; // disabled: player stays until manual kick
           const roomIdSnapshot = currentRoom;
           const hostSocketId = socket.id;
 

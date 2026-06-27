@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getLeaders, buildGlobalStatsPayload, shuffleArray, calculateNextTurn, calculateUndo, computeRankedPlayers } from './coreGameEngine';
+import { getLeaders, buildGlobalStatsPayload, shuffleArray, buildDeck, calculateNextTurn, calculateUndo, computeRankedPlayers } from './coreGameEngine';
 
 const makePlayer = (name, overrides = {}) => ({
   name, score: 0, times1000PointsDeducted: 0, timesKniffelCompleted: 0,
@@ -7,6 +7,7 @@ const makePlayer = (name, overrides = {}) => ({
   timesKleeblattCompleted: 0, timesPlusMinusFailed: 0, timesFeuerwerkReceived: 0,
   timesSkipped: 0, timesx2Received: 0, totalTurns: 0, busts: 0,
   feuerwerkBusts: 0, x2Busts: 0, feuerwerkPointsScored: 0, x2PointsScored: 0,
+  highestTurnScore: 0,
   ...overrides
 });
 
@@ -87,7 +88,6 @@ describe('coreGameEngine', () => {
   describe('buildDeck', () => {
     it('builds a deck excluding cards with zero count', () => {
       const initialCards = { '200': 5, 'Stop': 0, 'Kleeblatt': 1 };
-      const { buildDeck } = require('./coreGameEngine');
       const deck = buildDeck(initialCards);
       expect(deck.length).toBe(6);
       expect(deck.includes('Stop')).toBe(false);

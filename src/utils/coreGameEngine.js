@@ -285,9 +285,10 @@ export const calculateUndo = (gameState) => {
   }
 
   if (previousCard === "Kleeblatt") {
-    // A successful Kleeblatt stores previousScore = 0 (turnScore is never set for yes/no cards)
-    // and immediately sets finished = true, unmounting Game before undo is reachable.
-    // So in practice only the failure branch (previousScore === 0) is ever executed here.
+    // A successful Kleeblatt ends the game immediately, unmounting Game.jsx and making undo
+    // unreachable via the UI in physical-dice mode. In digital-dice mode the active player
+    // may have accumulated a non-zero scoreInput, so previousScore can be > 0 on success.
+    // Both branches are valid and reachable.
     if (previousScore > 0) {
       p.timesKleeblattCompleted = Math.max(0, (p.timesKleeblattCompleted || 0) - 1);
     } else {
