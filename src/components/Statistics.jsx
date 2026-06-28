@@ -120,12 +120,12 @@ export default function Statistics({ deviceId, onBack }) {
   const p = personalStats;
   const g = globalStats;
 
-  const pWinRate = p?.gamesPlayed ? ((p.wins / p.gamesPlayed) * 100).toFixed(1) : "0";
+  const pWinRate = p?.gamesPlayed ? ((p.wins / p.gamesPlayed) * 100).toFixed(0) : "0";
   const pAvgDuration = p?.gamesPlayed ? p.totalPlaytime / p.gamesPlayed : 0;
-  const pBustRate = p?.totalTurns ? ((p.busts / p.totalTurns) * 100).toFixed(1) : "0";
+  const pBustRate = p?.totalTurns ? ((p.busts / p.totalTurns) * 100).toFixed(0) : "0";
 
   const gAvgDuration = g?.totalGamesPlayed ? g.totalPlaytime / g.totalGamesPlayed : 0;
-  const gBustRate = g?.totalTurns ? ((g.totalBusts / g.totalTurns) * 100).toFixed(1) : "0";
+  const gBustRate = g?.totalTurns ? ((g.totalBusts / g.totalTurns) * 100).toFixed(0) : "0";
 
 
   return (
@@ -223,7 +223,7 @@ export default function Statistics({ deviceId, onBack }) {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                     <StatTile icon={<Hash size={32} className="text-orange-400" />} value={p.busts || 0} label={t('statistics.totalBusts', 'Total Busts')} colorClass="text-orange-600 dark:text-orange-400" bgClass="bg-orange-50 dark:bg-orange-900/20 border-orange-100 dark:border-orange-500/30" />
-                    <StatTile icon={<Hash size={32} className="text-orange-400" />} value={p.gamesPlayed ? ((p.busts || 0) / p.gamesPlayed).toFixed(1) : 0} label={t('statistics.avgBustsPerGame', 'Avg Busts / Game')} colorClass="text-orange-600 dark:text-orange-400" bgClass="bg-orange-50 dark:bg-orange-900/20 border-orange-100 dark:border-orange-500/30" />
+                    <StatTile icon={<Hash size={32} className="text-orange-400" />} value={p.gamesPlayed ? Math.round((p.busts || 0) / p.gamesPlayed) : 0} label={t('statistics.avgBustsPerGame', 'Avg Busts / Game')} colorClass="text-orange-600 dark:text-orange-400" bgClass="bg-orange-50 dark:bg-orange-900/20 border-orange-100 dark:border-orange-500/30" />
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -323,7 +323,7 @@ export default function Statistics({ deviceId, onBack }) {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
                     <StatTile icon={<Hash size={32} className="text-red-400" />} value={g.totalBusts || 0} label={t('statistics.totalBusts', 'Total Busts')} colorClass="text-red-600 dark:text-red-400" bgClass="bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-500/30" />
-                    <StatTile icon={<Hash size={32} className="text-red-400" />} value={g.totalGamesPlayed ? ((g.totalBusts || 0) / g.totalGamesPlayed).toFixed(1) : 0} label={t('statistics.avgBustsPerGame', 'Avg Busts / Game')} colorClass="text-red-600 dark:text-red-400" bgClass="bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-500/30" />
+                    <StatTile icon={<Hash size={32} className="text-red-400" />} value={g.totalGamesPlayed ? Math.round((g.totalBusts || 0) / g.totalGamesPlayed) : 0} label={t('statistics.avgBustsPerGame', 'Avg Busts / Game')} colorClass="text-red-600 dark:text-red-400" bgClass="bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-500/30" />
                   </div>
 
                   <h4 className="text-lg font-extrabold text-gray-800 dark:text-gray-100 border-t border-gray-200 dark:border-slate-600 pt-8 pb-6 text-center uppercase tracking-widest flex items-center justify-center gap-3">

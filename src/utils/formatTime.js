@@ -1,5 +1,5 @@
 export const formatTime = (totalSeconds) => {
-  const safeSeconds = Math.max(0, totalSeconds);
+  const safeSeconds = Math.floor(Math.max(0, totalSeconds));
   const h = Math.floor(safeSeconds / 3600);
   const m = Math.floor((safeSeconds % 3600) / 60);
   const s = safeSeconds % 60;

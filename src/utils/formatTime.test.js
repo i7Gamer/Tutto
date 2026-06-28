@@ -39,4 +39,9 @@ describe('formatTime', () => {
     // If it doesn't handle negative, we test what it does
     expect(formatTime(-5)).toBe('00:00'); // Or whatever the actual output is if unguarded
   });
+
+  it('floors float inputs to avoid decimal seconds', () => {
+    expect(formatTime(127.5)).toBe('02:07');
+    expect(formatTime(63.9)).toBe('01:03');
+  });
 });

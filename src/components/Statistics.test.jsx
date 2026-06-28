@@ -91,7 +91,7 @@ describe('Statistics Component', () => {
     // Check Personal Stats Tab
     expect(screen.getByText('statistics.gamesPlayed')).toBeInTheDocument();
     expect(screen.getByText('10')).toBeInTheDocument(); // Games played value
-    expect(screen.getByText('60.0%')).toBeInTheDocument(); // Win rate
+    expect(screen.getByText('60%')).toBeInTheDocument(); // Win rate
     
     // Check personal averages
     expect(screen.getByText('statistics.avgPointsPerTurn')).toBeInTheDocument();
@@ -110,6 +110,53 @@ describe('Statistics Component', () => {
     const backButton = screen.getByRole('button', { name: 'common.back' });
     fireEvent.click(backButton);
     expect(onBackMock).toHaveBeenCalled();
+  });
+
+  it('rounds win rate and bust rate to whole percentages with non-integer inputs', async () => {
+    const mockPersonalStats = {
+      gamesPlayed: 3,
+      wins: 2,          // 2/3*100 = 66.67 → toFixed(0) → '67%'
+      totalPlaytime: 3601, // avg: 3601/3 = 1200.33s → formatTime floors → '20:00'
+      totalTurns: 30,
+      busts: 7,         // bust rate: 7/30*100 = 23.33 → toFixed(0) → '23%'
+      totalScore: 1500,
+    };
+
+    global.fetch = vi.fn((url) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.includes('global') ? {} : mockPersonalStats),
+    }));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+    expect(screen.getByText('67%')).toBeInTheDocument();
+    expect(screen.getByText('23%')).toBeInTheDocument();
+    expect(screen.getByText('20:00')).toBeInTheDocument();
+    // Old format with one decimal should not appear
+    expect(screen.queryByText('66.7%')).not.toBeInTheDocument();
+    expect(screen.queryByText('23.3%')).not.toBeInTheDocument();
+  });
+
+  it('rounds avg busts per game to nearest integer rather than one decimal', async () => {
+    const mockPersonalStats = {
+      gamesPlayed: 3,
+      wins: 0,
+      totalPlaytime: 0,
+      totalTurns: 0,
+      busts: 7,  // 7/3 = 2.33 → Math.round → 2 (toFixed(1) would give '2.3')
+      totalScore: 0,
+    };
+
+    global.fetch = vi.fn((url) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.includes('global') ? {} : mockPersonalStats),
+    }));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+    expect(screen.queryByText('2.3')).not.toBeInTheDocument();
   });
 
   it('handles fetch errors gracefully', async () => {

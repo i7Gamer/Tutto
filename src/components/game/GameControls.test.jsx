@@ -107,6 +107,64 @@ describe('GameControls Component', () => {
     expect(screen.queryByText('game.controls.waiting')).not.toBeInTheDocument();
   });
 
+  it('shows bust label and red dice styling for spectator when activeTurnState.busted is true', () => {
+    const activeTurnState = {
+      turnScore: 200,
+      keptDice: [{ val: 1 }],
+      currentRoll: [
+        { id: 'die-a', val: 4, selected: false },
+        { id: 'die-b', val: 6, selected: false },
+      ],
+      busted: true,
+    };
+    render(
+      <GameControls
+        currentCard="300"
+        isMyTurn={false}
+        isOnline={true}
+        diceMode="digital"
+        activeTurnState={activeTurnState}
+        currentPlayer={{ name: 'Bob' }}
+      />
+    );
+
+    expect(screen.getByText('dice.bust_description')).toBeInTheDocument();
+
+    // Values 4 and 6 are only in currentRoll, not keptDice — they should be red
+    const die4 = screen.getByText('4');
+    expect(die4.className).toContain('border-red-300');
+    const die6 = screen.getByText('6');
+    expect(die6.className).toContain('border-red-300');
+    // keptDice die (val 1) is indigo, not red
+    const keptDie = screen.getByText('1');
+    expect(keptDie.className).not.toContain('border-red-300');
+  });
+
+  it('does not show bust label or red dice when activeTurnState is not busted', () => {
+    const activeTurnState = {
+      turnScore: 350,
+      keptDice: [{ val: 1 }],
+      currentRoll: [
+        { id: 'die-a', val: 4, selected: false },
+        { id: 'die-b', val: 6, selected: false },
+      ],
+    };
+    render(
+      <GameControls
+        currentCard="300"
+        isMyTurn={false}
+        isOnline={true}
+        diceMode="digital"
+        activeTurnState={activeTurnState}
+        currentPlayer={{ name: 'Alice' }}
+      />
+    );
+
+    expect(screen.queryByText('dice.bust_description')).not.toBeInTheDocument();
+    expect(screen.getByText('4').className).not.toContain('border-red-300');
+    expect(screen.getByText('6').className).not.toContain('border-red-300');
+  });
+
   it('still shows spinner when online digital but activeTurnState is null (not yet rolled)', () => {
     render(
       <GameControls

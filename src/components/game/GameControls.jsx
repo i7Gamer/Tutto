@@ -234,6 +234,7 @@ export default function GameControls({
                       <div className="flex gap-2 flex-wrap justify-center">
                         {activeTurnState.currentRoll.map((d) => {
                           const isRolling = activeTurnState.rollingDiceIds?.includes(d.id) || false;
+                          const isBusted = activeTurnState.busted || false;
                           return (
                             <motion.div
                               key={d.id}
@@ -246,9 +247,11 @@ export default function GameControls({
                                 y: { repeat: isRolling ? Infinity : 0, duration: 0.15 }
                               }}
                               className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl font-bold border-2 ${
-                                d.selected
-                                  ? 'bg-emerald-100 border-emerald-500 text-emerald-700'
-                                  : 'bg-white dark:bg-slate-700 border-gray-300 dark:border-slate-500 text-gray-800 dark:text-gray-100'
+                                isBusted
+                                  ? 'bg-red-50 border-red-300 text-red-500 opacity-70'
+                                  : d.selected
+                                    ? 'bg-emerald-100 border-emerald-500 text-emerald-700'
+                                    : 'bg-white dark:bg-slate-700 border-gray-300 dark:border-slate-500 text-gray-800 dark:text-gray-100'
                               }`}
                             >
                               {d.val}
@@ -256,6 +259,15 @@ export default function GameControls({
                           );
                         })}
                       </div>
+                      {activeTurnState.busted && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="text-center text-red-500 text-lg font-black mt-3 bg-red-50 py-2 rounded-xl border border-red-100"
+                        >
+                          {t('dice.bust_description', 'Bust! (Volltreffer/Niete)')}
+                        </motion.div>
+                      )}
                     </div>
                   )}
                 </div>
