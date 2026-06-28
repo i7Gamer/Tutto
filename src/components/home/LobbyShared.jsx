@@ -199,14 +199,15 @@ export function AdvancedOptionsPanel({
             <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 mb-6 items-stretch`}>
               <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                 <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.winningScore', 'Winning Score')}</span>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   min="0"
+                  max="99999"
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium" 
-                  value={game.winningScore} 
-                  onChange={(e) => game.setWinningScore(Math.max(0, parseInt(e.target.value) || 0))} 
+                  className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
+                  value={game.winningScore}
+                  onChange={(e) => game.setWinningScore(Math.min(99999, Math.max(0, parseInt(e.target.value) || 0)))}
                 />
               </label>
 
@@ -214,28 +215,30 @@ export function AdvancedOptionsPanel({
                 <>
                   <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                     <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.turnTimer', 'Turn Timer (s)')}</span>
-                    <input 
-                      type="number" 
+                    <input
+                      type="number"
                       min="0"
+                      max="600"
                       inputMode="numeric"
                       pattern="[0-9]*"
-                      className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium" 
-                      value={game.turnDuration} 
-                      onChange={(e) => game.setTurnDuration(Math.max(0, parseInt(e.target.value) || 0))} 
-                      placeholder="0" 
+                      className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
+                      value={game.turnDuration}
+                      onChange={(e) => game.setTurnDuration(Math.min(600, Math.max(0, parseInt(e.target.value) || 0)))}
+                      placeholder="0"
                     />
                   </label>
                   <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                     <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.kickTimer', 'Kick Timer (s)')}</span>
-                    <input 
-                      type="number" 
+                    <input
+                      type="number"
                       min="0"
+                      max="3600"
                       inputMode="numeric"
                       pattern="[0-9]*"
-                      className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium" 
-                      value={game.reconnectTimeout} 
-                      onChange={(e) => game.setReconnectTimeout(Math.max(0, parseInt(e.target.value) || 0))} 
-                      placeholder="0" 
+                      className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
+                      value={game.reconnectTimeout}
+                      onChange={(e) => game.setReconnectTimeout(Math.min(3600, Math.max(0, parseInt(e.target.value) || 0)))}
+                      placeholder="0"
                     />
                   </label>
                 </>

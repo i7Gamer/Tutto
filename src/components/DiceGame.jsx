@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Dices, Check, X, Hand, RotateCw } from 'lucide-react';
+import { Dices, X, Hand, RotateCw } from 'lucide-react';
 import { playBuzzer, playSuccess, playTone } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
 import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from '../utils/diceLogic';
@@ -9,6 +9,8 @@ import { deriveTurnControls, sortKeptDiceForDisplay } from '../utils/diceTurnCon
 import { useBustCountdown } from '../hooks/useBustCountdown';
 import { isTestEnv } from '../utils/env';
 import { motion, AnimatePresence } from 'framer-motion';
+import Die from './game/Die';
+import DiceSummary from './game/DiceSummary';
 
 export default function DiceGame({ currentCard, onComplete, onCancel, onStateChange }) {
   const { t } = useTranslation();
@@ -67,9 +69,13 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
   const selectedVals = selectedRolls.map(d => d.val);
   
   const validation = useMemo(() => checkValidityAndScore(selectedVals, currentCard, kniffelProgress), [selectedVals, currentCard, kniffelProgress]);
-  
-  
+
+  const pendingTimers = useRef([]);
+  useEffect(() => () => pendingTimers.current.forEach(clearTimeout), []);
+
   const roll = (numDice, kniffelArray = null, scoreSoFar = 0) => {
+    pendingTimers.current.forEach(clearTimeout);
+    pendingTimers.current = [];
     setIsRolling(true);
     setBustState(false);
     
@@ -98,7 +104,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
         });
         setDisplayRoll(prev => prev.map(d => d.id === r.id ? { ...d, val: r.val } : d));
       } else {
-        setTimeout(() => {
+        pendingTimers.current.push(setTimeout(() => {
           setRollingDiceIndices(prev => {
             const next = new Set(prev);
             next.delete(r.id);
@@ -106,7 +112,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
           });
           setDisplayRoll(prev => prev.map(d => d.id === r.id ? { ...d, val: r.val } : d));
           playTone(400 + (idx * 50), "sine", 0.05);
-        }, baseTumbleTime + (idx * staggerDelay));
+        }, baseTumbleTime + (idx * staggerDelay)));
       }
     });
 
@@ -131,14 +137,14 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
             }
             setShowSummary(true);
           } else {
-            setTimeout(() => {
+            pendingTimers.current.push(setTimeout(() => {
               if (currentCard === "Feuerwerk") {
                 setSummaryData({ won: scoreSoFar > 0, score: scoreSoFar, isTutto: false });
               } else {
                 setSummaryData({ won: false, score: 0, isTutto: false });
               }
               setShowSummary(true);
-            }, 1500);
+            }, 1500));
           }
         }
       }
@@ -147,7 +153,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
     if (isTest) {
       finalizeRoll();
     } else {
-      setTimeout(finalizeRoll, totalAnimationTime + 100);
+      pendingTimers.current.push(setTimeout(finalizeRoll, totalAnimationTime + 100));
     }
   };
 
@@ -313,42 +319,13 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
 
       <div className="p-8 w-full">
         {showSummary ? (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="text-center py-10"
-          >
-            <h2 className={`text-4xl font-extrabold mb-4 ${summaryData.won ? 'text-emerald-500' : 'text-red-500'}`}>
-              {summaryData.won ? t('dice.success', "Success!") : t('dice.bust', "Bust!")}
-            </h2>
-            {summaryData.isTutto && <h3 className="text-3xl font-bold text-indigo-500 mb-4 animate-bounce">{t('dice.tutto', 'Tutto!')}</h3>}
-            {(summaryData.won || currentCard === "Feuerwerk") && !["Kniffel", "Plus_Minus", "Kleeblatt"].includes(currentCard) && summaryData.score > 0 && (
-              <p className="text-2xl text-gray-700 dark:text-gray-200">{t('dice.points_gained', 'Points gained: ')}<strong className="text-indigo-600 font-black">{summaryData.score}</strong></p>
-            )}
-            
-            {bustState && !summaryData.won ? (
-              <div className="mt-10 flex flex-col items-center gap-3">
-                <p className="text-red-400 font-semibold text-lg">
-                  {t('dice.auto_continuing', 'Continuing in {{count}}…', { count: bustCountdown ?? 0 })}
-                </p>
-                <div className="w-full bg-red-100 dark:bg-red-900/30 rounded-full h-2 overflow-hidden">
-                  <motion.div
-                    className="h-2 bg-red-500 rounded-full"
-                    initial={{ width: '100%' }}
-                    animate={{ width: '0%' }}
-                    transition={{ duration: isTestEnv() ? 0 : 3, ease: 'linear' }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <button 
-                className="mt-10 bg-indigo-600 hover:bg-indigo-700 text-white w-full py-4 rounded-xl text-xl font-bold flex justify-center items-center gap-2 shadow-lg shadow-indigo-500/30 transition-all" 
-                onClick={finishGame}
-              >
-                {t('dice.continue', 'Continue to Next Player')} <Check size={24} />
-              </button>
-            )}
-          </motion.div>
+          <DiceSummary
+            summaryData={summaryData}
+            bustState={bustState}
+            bustCountdown={bustCountdown}
+            finishGame={finishGame}
+            currentCard={currentCard}
+          />
         ) : (
           <>
             <div className="text-center mb-8">
@@ -415,36 +392,16 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
                   <div className="min-h-[80px] p-4 bg-white dark:bg-slate-800 rounded-2xl flex gap-3 flex-wrap justify-center border border-gray-200 dark:border-slate-600 shadow-sm">
                     {displayRoll.map(d => {
                       const isDieTumbling = rollingDiceIndices.has(d.id);
-                      const actualDie = currentRoll.find(cr => cr.id === d.id);
-                      const isSelected = actualDie?.selected || false;
-                      
+                      const isSelected = currentRoll.find(cr => cr.id === d.id)?.selected || false;
                       return (
-                        <motion.button
+                        <Die
                           key={d.id}
-                          layout
-                          animate={{
-                            rotate: isDieTumbling ? [0, 90, 180, 270, 360] : 0,
-                            y: isDieTumbling ? [0, -20, 0] : 0
-                          }}
-                          transition={{
-                            rotate: { repeat: isDieTumbling ? Infinity : 0, duration: 0.2 },
-                            y: { repeat: isDieTumbling ? Infinity : 0, duration: 0.15 }
-                          }}
-                          className={`die w-14 h-14 rounded-xl flex items-center justify-center text-2xl font-bold transition-all border-2
-                            ${isSelected
-                              ? 'bg-emerald-100 border-emerald-500 text-emerald-700 dark:bg-slate-700 dark:border-emerald-400 dark:text-emerald-100 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-110 z-10'
-                              : bustState
-                                ? 'bg-red-50 border-red-300 text-red-500 opacity-70 cursor-default'
-                                : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 text-gray-800 dark:text-gray-100 shadow-sm ' + (isDieTumbling ? '' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50')
-                            }
-                          `}
-                          onClick={() => toggleDie(d.id)}
-                          disabled={bustState || isDieTumbling}
-                          aria-pressed={isSelected}
-                          aria-label={`Die showing ${d.val}, ${isSelected ? 'selected' : 'not selected'}`}
-                        >
-                          {d.val}
-                        </motion.button>
+                          die={d}
+                          isSelected={isSelected}
+                          isDieTumbling={isDieTumbling}
+                          bustState={bustState}
+                          onToggle={toggleDie}
+                        />
                       );
                     })}
                   </div>

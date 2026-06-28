@@ -51,17 +51,32 @@ The drawn card dictates specific bonuses or rules for your turn:
    npm install
    ```
 
-3. **Database Setup:**
+3. **Configure environment variables:**
+   ```bash
+   cp .env.example .env
+   ```
+   Edit `.env` if you need to change the API token or port. See `.env.example` for descriptions of each variable. The defaults work for local development without any changes.
+
+4. **Database Setup:**
    Migrations will run automatically when you start the server. The SQLite database is stored locally in the `server` directory.
 
-4. **Start the Development Server:**
+5. **Start the Development Server:**
    ```bash
    npm run dev
    ```
    This command starts both the Vite frontend server and the Node.js backend server simultaneously.
 
-5. **Open in Browser:**
+6. **Open in Browser:**
    Navigate to `http://localhost:5173` in your browser.
+
+## Production Deployment
+
+1. Set `TUTTO_API_TOKEN` and `VITE_API_TOKEN` to the same strong random secret in your environment (e.g. `openssl rand -hex 32`).
+2. Run the combined build + server command:
+   ```bash
+   npm run start:prod
+   ```
+   This builds the frontend into `dist/`, then starts the Express server with `NODE_ENV=production`. The server serves the static frontend and refuses to start if `TUTTO_API_TOKEN` is missing.
 
 ## Testing
 

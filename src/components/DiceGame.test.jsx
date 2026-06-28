@@ -2,6 +2,9 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import DiceGame from './DiceGame';
+import { isTestEnv } from '../utils/env';
+
+vi.mock('../utils/env', () => ({ isTestEnv: vi.fn(() => true) }));
 
 vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
@@ -686,6 +689,37 @@ describe('DiceGame Integration', () => {
         // With tuttosThisTurn=1, this second Tutto should trigger a win (not ask for another roll)
         expect(onComplete).toHaveBeenCalledWith(expect.any(Number), true);
       }
+    });
+  });
+
+  describe('Timer cleanup on unmount', () => {
+    // Switch to real setTimeout paths and fake timers so we can inspect
+    // pending timer counts before and after unmount.
+    beforeEach(() => {
+      vi.mocked(isTestEnv).mockReturnValue(false);
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.mocked(isTestEnv).mockReturnValue(true);
+    });
+
+    it('cancels all pending animation timers when unmounted mid-roll', () => {
+      diceSequence = [2, 3, 4, 6, 2, 3]; // non-scoring roll (would bust)
+      const { unmount } = render(
+        <DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />
+      );
+
+      act(() => { fireEvent.click(screen.getByText('dice.roll_6_dice')); });
+
+      // Real setTimeout paths were taken: die-settle + finalizeRoll timers should be pending
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+      act(() => { unmount(); });
+
+      // Cleanup effect must have called clearTimeout on every pending timer
+      expect(vi.getTimerCount()).toBe(0);
     });
   });
 });

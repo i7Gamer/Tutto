@@ -279,11 +279,11 @@ io.on('connection', (socket) => {
 
   socket.on('updateConfig', ({ roomId, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout }) => {
     if (rooms[roomId] && rooms[roomId].host === socket.id) {
-      if (typeof winningScore === 'number' && winningScore >= 1000) rooms[roomId].state.winningScore = winningScore;
+      if (typeof winningScore === 'number' && winningScore >= 1000 && winningScore <= 99999) rooms[roomId].state.winningScore = winningScore;
       if (validateInitialCards(initialCards)) rooms[roomId].state.initialCards = initialCards;
       if (typeof randomOrder === 'boolean') rooms[roomId].state.randomOrder = randomOrder;
-      if (typeof turnDuration === 'number' && (turnDuration === 0 || turnDuration >= 10)) rooms[roomId].state.turnDuration = turnDuration;
-      if (typeof reconnectTimeout === 'number' && (reconnectTimeout === 0 || reconnectTimeout >= 10)) rooms[roomId].state.reconnectTimeout = reconnectTimeout;
+      if (typeof turnDuration === 'number' && (turnDuration === 0 || (turnDuration >= 10 && turnDuration <= 600))) rooms[roomId].state.turnDuration = turnDuration;
+      if (typeof reconnectTimeout === 'number' && (reconnectTimeout === 0 || (reconnectTimeout >= 10 && reconnectTimeout <= 3600))) rooms[roomId].state.reconnectTimeout = reconnectTimeout;
       emitRoomState(roomId);
     }
   });
@@ -540,10 +540,11 @@ io.on('connection', (socket) => {
   });
 });
 
-const API_TOKEN = process.env.TUTTO_API_TOKEN || 'tutto-local-dev-token';
 if (process.env.NODE_ENV === 'production' && !process.env.TUTTO_API_TOKEN) {
-  console.warn('[SECURITY] TUTTO_API_TOKEN env var is not set — using the insecure default token. Set this in production.');
+  console.error('[SECURITY] TUTTO_API_TOKEN is not set. Refusing to start in production.');
+  process.exit(1);
 }
+const API_TOKEN = process.env.TUTTO_API_TOKEN || 'tutto-local-dev-token';
 
 const requireToken = (req, res, next) => {
   if (req.headers['x-tutto-token'] !== API_TOKEN) {

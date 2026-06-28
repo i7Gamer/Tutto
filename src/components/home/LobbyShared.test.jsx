@@ -113,7 +113,56 @@ describe('AdvancedOptionsPanel', () => {
     const input = screen.getByDisplayValue('50');
     fireEvent.change(input, { target: { value: '-10' } });
 
-    // Should clamp -10 to 0
     expect(mockSetWinningScore).toHaveBeenCalledWith(0);
+  });
+
+  it('clamps winningScore to 99999 when value exceeds the upper bound', () => {
+    const mockSetWinningScore = vi.fn();
+    const game = {
+      winningScore: 6000,
+      setWinningScore: mockSetWinningScore,
+      initialCards: {}
+    };
+
+    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={false} />);
+
+    fireEvent.change(screen.getByDisplayValue('6000'), { target: { value: '200000' } });
+    expect(mockSetWinningScore).toHaveBeenCalledWith(99999);
+  });
+
+  it('clamps turnDuration to 600 when value exceeds the upper bound', () => {
+    const mockSetTurnDuration = vi.fn();
+    const game = {
+      winningScore: 6000,
+      setWinningScore: vi.fn(),
+      turnDuration: 120,
+      setTurnDuration: mockSetTurnDuration,
+      reconnectTimeout: 60,
+      setReconnectTimeout: vi.fn(),
+      initialCards: {}
+    };
+
+    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={true} />);
+
+    fireEvent.change(screen.getByDisplayValue('120'), { target: { value: '800' } });
+    expect(mockSetTurnDuration).toHaveBeenCalledWith(600);
+  });
+
+  it('clamps reconnectTimeout to 3600 when value exceeds the upper bound', () => {
+    const mockSetReconnectTimeout = vi.fn();
+    const game = {
+      winningScore: 6000,
+      setWinningScore: vi.fn(),
+      turnDuration: 120,
+      setTurnDuration: vi.fn(),
+      reconnectTimeout: 60,
+      setReconnectTimeout: mockSetReconnectTimeout,
+      initialCards: {}
+    };
+
+    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={true} />);
+
+    fireEvent.change(screen.getByDisplayValue('60'), { target: { value: '5000' } });
+    expect(mockSetReconnectTimeout).toHaveBeenCalledWith(3600);
   });
 });
