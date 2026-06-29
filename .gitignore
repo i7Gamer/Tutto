@@ -34,6 +34,13 @@ scratch/
 # Claude Code local config
 .claude/
 
+# Environment variables
+.env
+
+# Local startup scripts
+*.bat
+*.cmd
+
 # Databases
 *.sqlite
 *.db
