@@ -5,7 +5,7 @@ Tutto Multi-Device is a dynamic web application that allows you to play the popu
 ## Features
 
 - **Local & Online Multiplayer:** Play on a single device with friends, or host/join an online room and play over the internet in real-time.
-- **Advanced Statistics & Leaderboards:** Track both global and personal device statistics. View advanced metrics such as total turns played, most busts, fastest wins, fastest losses, highest turn scores, and the success rates of resolving challenging cards like Kniffel, Plus/Minus, and Kleeblatt.
+- **Advanced Statistics & Leaderboards:** Track both global and personal device statistics. View advanced metrics such as total turns played, most busts (Note: Feuerwerk turns only count as a bust if 0 points are scored), fastest wins, fastest losses, highest turn scores, and the success rates of resolving challenging cards like Kniffel, Plus/Minus, and Kleeblatt.
 - **Physical & Digital Dice Modes:** Use the built-in digital dice with physics-inspired staggered tumbling animations, or track scores using your own physical dice on the table.
 - **Modern UI & Dark Mode:** A fully responsive, polished user interface built with TailwindCSS, featuring seamless dark mode integration, glassmorphism, floating labels, and dynamic micro-animations via Framer Motion.
 - **Advanced Options:** Highly customizable game modes! Set custom winning scores, customize the card deck counts, randomize player turn orders, and configure precise turn/kick timers for online play.

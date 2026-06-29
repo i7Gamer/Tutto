@@ -102,6 +102,11 @@ export const calculateNextTurn = (gameState, scoreInput, isSuccess = false) => {
   // Track turns and busts.
   currentPlayer.totalTurns = (currentPlayer.totalTurns || 0) + 1;
   const isYesNoCard = ["Plus_Minus", "Kniffel", "Kleeblatt"].includes(currentCard);
+  
+  // DESIGN NOTE: For Feuerwerk, `isSuccess` is true if the player banked >0 points 
+  // before the mandatory end-of-turn bust. Therefore, `wasBust` evaluates to false 
+  // if they scored points. This means `feuerwerkBusts` intentionally ONLY increments 
+  // when a player scores exactly 0 points (a "true" bust).
   const wasBust = !isSuccess && !isYesNoCard && currentCard !== "Stop";
   if (wasBust) {
     currentPlayer.busts = (currentPlayer.busts || 0) + 1;
