@@ -107,4 +107,77 @@ describe('EndScreen Component', () => {
     // Since we don't have a specific test ID, we can check if a canvas element exists (the chart uses canvas)
     expect(container.querySelector('canvas')).toBeNull();
   });
+
+  it('maintains snapshot when players array shrinks multiple times', () => {
+    const { getByText } = render(<EndScreen />);
+
+    // Initially: Alice (10k) > Bob (5k)
+    expect(getByText('end.winner Alice')).toBeInTheDocument();
+
+    // First shrink: remove Bob
+    act(() => {
+      useGameStore.setState({
+        players: [
+          { name: 'Alice', score: 10000, position: 1 }
+        ]
+      });
+    });
+
+    expect(getByText('end.winner Alice')).toBeInTheDocument();
+
+    // Even if re-render happens, snapshot should be frozen (no player data changes)
+    act(() => {
+      useGameStore.setState({
+        players: [
+          { name: 'Alice', score: 10000, position: 1 }
+        ]
+      });
+    });
+
+    expect(getByText('end.winner Alice')).toBeInTheDocument();
+  });
+
+  it('uses snapshot for rankings even when new higher-scored player arrives', () => {
+    const { getByText, queryByText } = render(<EndScreen />);
+
+    // Snapshot frozen: Alice (10k) wins
+    expect(getByText('end.winner Alice')).toBeInTheDocument();
+
+    // Player count increases with a new player who has higher score
+    act(() => {
+      useGameStore.setState({
+        players: [
+          { name: 'Alice', score: 10000, position: 1 },
+          { name: 'Bob', score: 5000, position: 2 },
+          { name: 'Charlie', score: 20000, position: 1 }
+        ]
+      });
+    });
+
+    // Snapshot updates (3 > 2), so Charlie becomes winner
+    expect(getByText('end.winner Charlie')).toBeInTheDocument();
+    expect(queryByText('end.winner Alice')).toBeNull();
+  });
+
+  it('updates snapshot only when players array grows (high-water mark)', () => {
+    const { getByText } = render(<EndScreen />);
+
+    // Initial: Alice (10k), Bob (5k) - Alice is winner
+    expect(getByText('end.winner Alice')).toBeInTheDocument();
+
+    // Add Charlie with higher score
+    act(() => {
+      useGameStore.setState({
+        players: [
+          { name: 'Alice', score: 10000, position: 1 },
+          { name: 'Bob', score: 5000, position: 2 },
+          { name: 'Charlie', score: 20000, position: 1 }
+        ]
+      });
+    });
+
+    // Snapshot should update (3 players > 2 players)
+    // New winner should be Charlie
+    expect(getByText('end.winner Charlie')).toBeInTheDocument();
+  });
 });
