@@ -19,7 +19,7 @@ export const buildDeck = (initialCards) => {
   const deck = shuffleArray(newCards);
   
   // Smoothing pass: try to separate adjacent identical cards to make the deck feel more "natural"
-  for (let pass = 0; pass < 2; pass++) {
+  for (let pass = 0; pass < 3; pass++) {
     for (let i = 1; i < deck.length; i++) {
       if (deck[i] === deck[i - 1]) {
         let swapIdx = -1;

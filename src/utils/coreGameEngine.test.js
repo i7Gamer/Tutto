@@ -96,9 +96,9 @@ describe('coreGameEngine', () => {
     });
 
     describe('smoothing algorithm — separation of duplicates', () => {
-      it('significantly reduces clustering vs. raw Fisher-Yates', () => {
+      it('nearly eliminates adjacent identical cards in standard diverse decks', () => {
         // Standard deck: most cards 5x, one card 10x
-        // The smoothing algorithm should prevent most 3+ clusters
+        // With 3 passes, the algorithm prevents most 3+ clusters; occasionally 2 remains
         const initialCards = {
           '200': 5, '300': 5, '400': 5, '500': 5, '600': 5,
           'Kniffel': 10, 'Plus_Minus': 5, 'x2': 5,
@@ -116,9 +116,8 @@ describe('coreGameEngine', () => {
             }
             maxCluster = Math.max(maxCluster, cluster);
           }
-          // With diverse cards (55 total, 11 types), 2 passes keeps most to 1–2,
-          // occasionally 3 may slip through (acceptable with current implementation)
-          expect(maxCluster).toBeLessThanOrEqual(3);
+          // With diverse cards (55 total, 11 types) and 3 passes: max 2 adjacent (excellent)
+          expect(maxCluster).toBeLessThanOrEqual(2);
         }
       });
 
@@ -136,13 +135,13 @@ describe('coreGameEngine', () => {
         expect(deck.filter(c => c === 'Stop').length).toBe(2);
       });
 
-      it('handles the high-frequency card case (10x) with reasonable spreading', () => {
+      it('handles the high-frequency card case (10x) with good spreading', () => {
         const initialCards = { 'Kniffel': 10, '200': 5 };
         const deck = buildDeck(initialCards);
 
-        // With 10 of the same card in 15 total (~67% frequency), 2 passes provide
-        // reasonable but imperfect spreading. Some 3–6 adjacent clusters are expected.
-        // Raw Fisher-Yates alone produces much worse clustering; this is better.
+        // With 10 of the same card in 15 total (~67% frequency), 3 passes provide
+        // good spreading. Most runs keep max cluster to 5; occasionally 6 appears.
+        // This is a significant improvement over raw Fisher-Yates (~7+).
         let maxCluster = 1;
         for (let i = 1; i < deck.length; i++) {
           let cluster = 1;
@@ -152,7 +151,7 @@ describe('coreGameEngine', () => {
           }
           maxCluster = Math.max(maxCluster, cluster);
         }
-        // Currently gets 6 max; room to improve with more passes if needed
+        // With 3 passes: max 5–6 adjacent (balanced good performance vs. cost)
         expect(maxCluster).toBeLessThanOrEqual(6);
       });
 
