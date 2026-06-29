@@ -31,6 +31,9 @@ playwright-report/
 # Local scratch / throwaway scripts
 scratch/
 
+# Claude Code local config
+.claude/
+
 # Databases
 *.sqlite
 *.db
