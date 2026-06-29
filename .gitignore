@@ -33,6 +33,7 @@ scratch/
 
 # Claude Code local config
 .claude/
+GEMINI.md
 
 # Environment variables
 .env
