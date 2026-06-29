@@ -8,6 +8,7 @@ import { Server, Socket } from 'socket.io';
 import cors from 'cors';
 import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } from './database';
 import { sanitizeStats } from './sanitize';
+import type { DiceSnapshot } from '../src/types';
 import playerColorsData from '../playerColors.json';
 
 const { PLAYER_COLORS } = playerColorsData;
@@ -68,7 +69,7 @@ interface RoomState {
   previousLeaders: ServerPlayer[] | null;
   previousWasBust?: boolean;
   previousHighestTurnScore?: number;
-  liveTurnState?: unknown;
+  liveTurnState?: DiceSnapshot | null;
 }
 
 interface TurnTimerState {
@@ -380,9 +381,9 @@ io.on('connection', (socket: Socket) => {
       newPlayers.every(p => currentNames.has(p.name));
 
     if (isPermutation) {
-      rooms[roomId].state.players = newPlayers.map(np =>
-        rooms[roomId].state.players.find(p => p.name === np.name)!
-      );
+      rooms[roomId].state.players = newPlayers
+        .map(np => rooms[roomId].state.players.find(p => p.name === np.name))
+        .filter((p): p is ServerPlayer => p !== undefined);
       rooms[roomId].state.randomOrder = false;
       emitRoomState(roomId);
     }

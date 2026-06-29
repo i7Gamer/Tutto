@@ -67,9 +67,9 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
       // Restoring saved dice game state from localStorage - intentional one-time initialization
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setTurnScore(restored.turnScore);
-      setKeptDice(restored.keptDice as DieType[]);
-      setCurrentRoll(restored.currentRoll as DieType[]);
-      setDisplayRoll(restored.currentRoll as DieType[]);
+      setKeptDice(restored.keptDice);
+      setCurrentRoll(restored.currentRoll);
+      setDisplayRoll(restored.currentRoll);
       setKniffelProgress(restored.kniffelProgress);
       setTuttosThisTurn(restored.tuttosThisTurn);
       setHasRolled(true);
