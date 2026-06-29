@@ -2,7 +2,16 @@ import { User, Globe, BarChart2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-export default function ModeSelector({ mode, onModeChange, onShowStats, hasActiveRoom }) {
+type GameMode = 'local' | 'online';
+
+interface ModeSelectorProps {
+  mode: GameMode;
+  onModeChange: (mode: GameMode) => void;
+  onShowStats: () => void;
+  hasActiveRoom: boolean;
+}
+
+export default function ModeSelector({ mode, onModeChange, onShowStats, hasActiveRoom }: ModeSelectorProps) {
   const { t } = useTranslation();
 
   return (
@@ -11,11 +20,7 @@ export default function ModeSelector({ mode, onModeChange, onShowStats, hasActiv
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${
-            mode === 'local' 
-              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' 
-              : 'bg-white dark:bg-slate-800/50 text-gray-700 dark:text-gray-200 hover:bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600'
-          }`}
+          className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${mode === 'local' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-white dark:bg-slate-800/50 text-gray-700 dark:text-gray-200 hover:bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600'}`}
           onClick={() => onModeChange('local')}
         >
           <User size={20} /> {t('home.localPlay', 'Local Play')}
@@ -23,11 +28,7 @@ export default function ModeSelector({ mode, onModeChange, onShowStats, hasActiv
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${
-            mode === 'online' 
-              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' 
-              : 'bg-white dark:bg-slate-800/50 text-gray-700 dark:text-gray-200 hover:bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600'
-          }`}
+          className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${mode === 'online' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-white dark:bg-slate-800/50 text-gray-700 dark:text-gray-200 hover:bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600'}`}
           onClick={() => onModeChange('online')}
         >
           <Globe size={20} /> {t('home.onlinePlay', 'Online Play')}

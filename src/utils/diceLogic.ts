@@ -1,8 +1,10 @@
-export const rollDie = () => Math.floor(Math.random() * 6) + 1;
+import type { CardType } from '../types';
 
-export const isBust = (rolledVals, card, kniffelProgress) => {
-  if (card === "Kniffel") {
-    let nextNeeded = [];
+export const rollDie = (): number => Math.floor(Math.random() * 6) + 1;
+
+export const isBust = (rolledVals: number[], card: CardType | null, kniffelProgress: number[]): boolean => {
+  if (card === 'Kniffel') {
+    let nextNeeded: number[];
     if (kniffelProgress.length === 0) {
       nextNeeded = [1, 6];
     } else if (kniffelProgress[0] === 1) {
@@ -12,40 +14,43 @@ export const isBust = (rolledVals, card, kniffelProgress) => {
     }
     return !rolledVals.some(v => nextNeeded.includes(v));
   }
-  
+
   if (rolledVals.includes(1) || rolledVals.includes(5)) return false;
-  
-  const counts = {1:0, 2:0, 3:0, 4:0, 5:0, 6:0};
-  rolledVals.forEach(v => counts[v]++);
+
+  const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+  rolledVals.forEach(v => { counts[v]++; });
   for (let i = 2; i <= 6; i++) {
     if (counts[i] >= 3) return false;
   }
   return true;
 };
 
-export const checkKniffel = (vals, progress) => {
+export const checkKniffel = (
+  vals: number[],
+  progress: number[],
+): { valid: boolean; newProgress: number[] } => {
   if (vals.length === 0) return { valid: false, newProgress: progress };
-  let sorted = [...vals].sort((a,b)=>a-b);
-  
+  const sorted = [...vals].sort((a, b) => a - b);
+
   let p = [...progress];
-  
+
   if (p.length === 0) {
     if (sorted[0] === 1) {
-      let temp = [];
+      const temp: number[] = [];
       let current = 1;
       let ok = true;
-      for (let v of sorted) {
+      for (const v of sorted) {
         if (v === current) { temp.push(v); current++; }
         else { ok = false; break; }
       }
       if (ok) return { valid: true, newProgress: temp };
     }
-    let sortedDesc = [...vals].sort((a,b)=>b-a);
+    const sortedDesc = [...vals].sort((a, b) => b - a);
     if (sortedDesc[0] === 6) {
-      let temp = [];
+      const temp: number[] = [];
       let current = 6;
       let ok = true;
-      for (let v of sortedDesc) {
+      for (const v of sortedDesc) {
         if (v === current) { temp.push(v); current--; }
         else { ok = false; break; }
       }
@@ -53,62 +58,62 @@ export const checkKniffel = (vals, progress) => {
     }
     return { valid: false, newProgress: progress };
   }
-  
+
   if (p[0] === 1) {
     let current = p[p.length - 1] + 1;
     let ok = true;
-    for (let v of sorted) {
+    for (const v of sorted) {
       if (v === current) { p.push(v); current++; }
       else { ok = false; break; }
     }
     if (ok) return { valid: true, newProgress: p };
   } else {
-    let sortedDesc = [...vals].sort((a,b)=>b-a);
+    const sortedDesc = [...vals].sort((a, b) => b - a);
     let current = p[p.length - 1] - 1;
     let ok = true;
-    for (let v of sortedDesc) {
+    for (const v of sortedDesc) {
       if (v === current) { p.push(v); current--; }
       else { ok = false; break; }
     }
     if (ok) return { valid: true, newProgress: p };
   }
-  
+
   return { valid: false, newProgress: progress };
 };
 
-export const checkValidityAndScore = (vals, card, kniffelProgress) => {
+export const checkValidityAndScore = (
+  vals: number[],
+  card: CardType | null,
+  kniffelProgress: number[],
+): { valid: boolean; score: number; newKniffelProgress: number[] } => {
   if (vals.length === 0) return { valid: false, score: 0, newKniffelProgress: kniffelProgress };
-  
-  if (card === "Kniffel") {
+
+  if (card === 'Kniffel') {
     const kRes = checkKniffel(vals, kniffelProgress);
     return { valid: kRes.valid, score: 0, newKniffelProgress: kRes.newProgress };
-  } else {
-    const counts = {1:0, 2:0, 3:0, 4:0, 5:0, 6:0};
-    vals.forEach(v => counts[v]++);
-    
-    let score = 0;
-    for (let i = 2; i <= 6; i++) {
-      if (i === 5) continue;
-      if (counts[i] > 0 && counts[i] < 3) return { valid: false, score: 0, newKniffelProgress: [] };
-      if (counts[i] >= 3) {
-        score += Math.floor(counts[i] / 3) * (i * 100);
-        if (counts[i] % 3 !== 0) return { valid: false, score: 0, newKniffelProgress: [] };
-      }
-    }
-    
-    score += Math.floor(counts[1] / 3) * 1000 + (counts[1] % 3) * 100;
-    score += Math.floor(counts[5] / 3) * 500 + (counts[5] % 3) * 50;
-    
-    return { valid: true, score, newKniffelProgress: [] };
   }
+
+  const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+  vals.forEach(v => { counts[v]++; });
+
+  let score = 0;
+  for (let i = 2; i <= 6; i++) {
+    if (i === 5) continue;
+    if (counts[i] > 0 && counts[i] < 3) return { valid: false, score: 0, newKniffelProgress: [] };
+    if (counts[i] >= 3) {
+      score += Math.floor(counts[i] / 3) * (i * 100);
+      if (counts[i] % 3 !== 0) return { valid: false, score: 0, newKniffelProgress: [] };
+    }
+  }
+
+  score += Math.floor(counts[1] / 3) * 1000 + (counts[1] % 3) * 100;
+  score += Math.floor(counts[5] / 3) * 500 + (counts[5] % 3) * 50;
+
+  return { valid: true, score, newKniffelProgress: [] };
 };
 
-// Greedily collect a consecutive run of dice starting at `startVal` and moving
-// by `step` (+1 ascending, -1 descending). Returns the indices (into rollVals)
-// of the dice that form the run. `needed` is strictly monotonic, so each step
-// looks for a distinct value and no die index can be picked twice.
-const collectKniffelRun = (rollVals, startVal, step) => {
-  const picked = [];
+const collectKniffelRun = (rollVals: number[], startVal: number, step: number): number[] => {
+  const picked: number[] = [];
   let needed = startVal;
   while (needed >= 1 && needed <= 6) {
     const idx = rollVals.findIndex(v => v === needed);
@@ -119,13 +124,13 @@ const collectKniffelRun = (rollVals, startVal, step) => {
   return picked;
 };
 
-// Compute the indices of the maximal valid scoring selection for the current
-// roll. Used by the "Select all valid" helper button. Returns an array of
-// indices into `rollVals`. Returns [] when nothing scores (i.e. a bust).
-export const getMaxValidSelection = (rollVals, card, kniffelProgress = []) => {
-  if (card === "Kniffel") {
+export const getMaxValidSelection = (
+  rollVals: number[],
+  card: CardType | null,
+  kniffelProgress: number[] = [],
+): number[] => {
+  if (card === 'Kniffel') {
     if (kniffelProgress.length === 0) {
-      // Either start ascending from 1 or descending from 6 — pick the longer run.
       const ascending = collectKniffelRun(rollVals, 1, 1);
       const descending = collectKniffelRun(rollVals, 6, -1);
       return ascending.length >= descending.length ? ascending : descending;
@@ -136,13 +141,11 @@ export const getMaxValidSelection = (rollVals, card, kniffelProgress = []) => {
       : collectKniffelRun(rollVals, last - 1, -1);
   }
 
-  const byValue = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
-  rollVals.forEach((v, i) => byValue[v].push(i));
+  const byValue: Record<number, number[]> = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+  rollVals.forEach((v, i) => { byValue[v].push(i); });
 
-  const indices = [];
-  // 1s and 5s always score individually.
+  const indices: number[] = [];
   indices.push(...byValue[1], ...byValue[5]);
-  // 2, 3, 4, 6 only score in full triplets — take complete groups of three.
   for (const v of [2, 3, 4, 6]) {
     const take = Math.floor(byValue[v].length / 3) * 3;
     indices.push(...byValue[v].slice(0, take));
@@ -150,11 +153,11 @@ export const getMaxValidSelection = (rollVals, card, kniffelProgress = []) => {
   return indices;
 };
 
-export const applyTuttoBonus = (scoreSoFar, currentCard) => {
+export const applyTuttoBonus = (scoreSoFar: number, currentCard: CardType | null): number => {
   let newScore = scoreSoFar;
-  if (["200", "300", "400", "500", "600"].includes(currentCard)) {
-    newScore += parseInt(currentCard);
-  } else if (currentCard === "x2") {
+  if (currentCard !== null && (['200', '300', '400', '500', '600'] as string[]).includes(currentCard)) {
+    newScore += parseInt(currentCard, 10);
+  } else if (currentCard === 'x2') {
     newScore = newScore === 0 ? 0 : newScore * 2;
   }
   return newScore;

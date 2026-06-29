@@ -2,8 +2,23 @@ import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { isTestEnv } from '../../utils/env';
+import type { CardType } from '../../types';
 
-export default function DiceSummary({ summaryData, bustState, bustCountdown, finishGame, currentCard }) {
+interface SummaryData {
+  won: boolean;
+  score: number;
+  isTutto?: boolean;
+}
+
+interface DiceSummaryProps {
+  summaryData: SummaryData;
+  bustState: boolean;
+  bustCountdown: number | null;
+  finishGame: () => void;
+  currentCard: CardType | null;
+}
+
+export default function DiceSummary({ summaryData, bustState, bustCountdown, finishGame, currentCard }: DiceSummaryProps) {
   const { t } = useTranslation();
 
   return (
@@ -21,7 +36,7 @@ export default function DiceSummary({ summaryData, bustState, bustCountdown, fin
         </h3>
       )}
       {(summaryData.won || currentCard === 'Feuerwerk') &&
-        !['Kniffel', 'Plus_Minus', 'Kleeblatt'].includes(currentCard) &&
+        !(['Kniffel', 'Plus_Minus', 'Kleeblatt'] as string[]).includes(currentCard ?? '') &&
         summaryData.score > 0 && (
           <p className="text-2xl text-gray-700 dark:text-gray-200">
             {t('dice.points_gained', 'Points gained: ')}

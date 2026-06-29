@@ -1,6 +1,7 @@
 import './card.css';
+import type { CardType } from '../../../types';
 
-const DICE_PATTERNS = {
+const DICE_PATTERNS: Record<number, number[]> = {
   1: [0,0,0, 0,1,0, 0,0,0],
   2: [1,0,0, 0,0,0, 0,0,1],
   3: [1,0,0, 0,1,0, 0,0,1],
@@ -9,7 +10,7 @@ const DICE_PATTERNS = {
   6: [1,0,1, 1,0,1, 1,0,1],
 };
 
-function DieFace({ value }) {
+function DieFace({ value }: { value: number }) {
   return (
     <div className="die-face">
       {DICE_PATTERNS[value].map((hasDot, i) => (
@@ -19,7 +20,7 @@ function DieFace({ value }) {
   );
 }
 
-function Die({ value }) {
+function DieDisplay({ value }: { value: number }) {
   return (
     <div className="d-w">
       <DieFace value={value} />
@@ -30,9 +31,9 @@ function Die({ value }) {
 function DiceGrid() {
   return (
     <div className="grd">
-      <Die value={6} /><Die value={5} />
-      <Die value={4} /><Die value={3} />
-      <Die value={2} /><Die value={1} />
+      <DieDisplay value={6} /><DieDisplay value={5} />
+      <DieDisplay value={4} /><DieDisplay value={3} />
+      <DieDisplay value={2} /><DieDisplay value={1} />
     </div>
   );
 }
@@ -50,7 +51,7 @@ function Kniffel() {
       <div className="cnt">
         <div className="inr" style={{ overflow: 'visible' }}>
           <div className="stk" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}>
-            <Die value={1} /><Die value={2} /><Die value={3} /><Die value={4} /><Die value={5} /><Die value={6} />
+            <DieDisplay value={1} /><DieDisplay value={2} /><DieDisplay value={3} /><DieDisplay value={4} /><DieDisplay value={5} /><DieDisplay value={6} />
           </div>
         </div>
       </div>
@@ -58,7 +59,7 @@ function Kniffel() {
   );
 }
 
-function Plus_Minus() {
+function PlusMinus() {
   return (
     <>
       <div className="g" style={{left:'24%',top:'58%',width:'62%',height:'60%',background:'radial-gradient(circle, rgba(79,143,247,.5) 0%, transparent 66%)',opacity:.55}} />
@@ -96,14 +97,12 @@ function X2() {
         <span className="val">×2</span>
         <div style={{justifySelf:'end'}}><div className="crn" /></div>
       </div>
-      <div className="cnt">
-        <div className="inr"><DiceGrid /></div>
-      </div>
+      <div className="cnt"><div className="inr"><DiceGrid /></div></div>
     </>
   );
 }
 
-function BonusCard({ value }) {
+function BonusCard({ value }: { value: string }) {
   return (
     <>
       <div className="g" style={{left:'50%',top:'56%',width:'80%',height:'62%',background:'radial-gradient(circle, var(--tg) 0%, transparent 68%)',opacity:.55}} />
@@ -116,9 +115,7 @@ function BonusCard({ value }) {
         </div>
         <div style={{justifySelf:'end'}}><div className="crn" /></div>
       </div>
-      <div className="cnt">
-        <div className="inr"><DiceGrid /></div>
-      </div>
+      <div className="cnt"><div className="inr"><DiceGrid /></div></div>
     </>
   );
 }
@@ -127,8 +124,8 @@ function Feuerwerk() {
   const cornerStars = (
     <div style={{position:'relative',width:'30px',height:'30px'}}>
       <div className="star s-gld s-dp" style={{left:'50%',top:'42%',width:'44%',height:'44%'}} />
-      <div className="star s-grn"      style={{left:'23%',top:'30%',width:'30%',height:'30%'}} />
-      <div className="star s-red"      style={{left:'76%',top:'33%',width:'28%',height:'28%'}} />
+      <div className="star s-grn" style={{left:'23%',top:'30%',width:'30%',height:'30%'}} />
+      <div className="star s-red" style={{left:'76%',top:'33%',width:'28%',height:'28%'}} />
       <div className="dc" style={{left:'50%',top:'80%',width:'9%',height:'9%',background:'#84b3ff'}} />
       <div className="dc" style={{left:'37%',top:'69%',width:'8%',height:'8%',background:'#84b3ff'}} />
       <div className="dc" style={{left:'63%',top:'69%',width:'8%',height:'8%',background:'#ffd97a'}} />
@@ -223,21 +220,21 @@ function Stop() {
   );
 }
 
-const CARD_COMPONENTS = {
-  Kniffel:    () => <Kniffel />,
-  Plus_Minus: () => <Plus_Minus />,
-  x2:         () => <X2 />,
-  200:        () => <BonusCard value="200" />,
-  300:        () => <BonusCard value="300" />,
-  400:        () => <BonusCard value="400" />,
-  500:        () => <BonusCard value="500" />,
-  600:        () => <BonusCard value="600" />,
-  Feuerwerk:  () => <Feuerwerk />,
-  Kleeblatt:  () => <Kleeblatt />,
-  Stop:       () => <Stop />,
+const CARD_COMPONENTS: Record<CardType, React.FC> = {
+  Kniffel: () => <Kniffel />,
+  Plus_Minus: () => <PlusMinus />,
+  x2: () => <X2 />,
+  '200': () => <BonusCard value="200" />,
+  '300': () => <BonusCard value="300" />,
+  '400': () => <BonusCard value="400" />,
+  '500': () => <BonusCard value="500" />,
+  '600': () => <BonusCard value="600" />,
+  Feuerwerk: () => <Feuerwerk />,
+  Kleeblatt: () => <Kleeblatt />,
+  Stop: () => <Stop />,
 };
 
-export default function CardFace({ cardType }) {
+export default function CardFace({ cardType }: { cardType: CardType }) {
   const Content = CARD_COMPONENTS[cardType];
   if (!Content) return null;
   return (

@@ -10,8 +10,14 @@ import EndScreen from './components/EndScreen';
 import Statistics from './components/Statistics';
 import LanguageSwitcher from './components/LanguageSwitcher';
 import './index.css';
+import type { Toast } from './types';
 
-function ToastItem({ toast, removeToast }) {
+interface ToastItemProps {
+  toast: Toast;
+  removeToast: (id: number) => void;
+}
+
+function ToastItem({ toast, removeToast }: ToastItemProps) {
   useEffect(() => {
     const timer = setTimeout(() => removeToast(toast.id), 3000);
     return () => clearTimeout(timer);
@@ -60,16 +66,11 @@ function ReconnectPopup() {
           <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.578"/><path d="M22.016 11.664v-1.664h-1.664"/><path d="M2.383 14.156a10.742 10.742 0 0 1-1.074-6.49M2.08 7.666v1.665h1.665"/><path d="M7 16l-3.32-3.32"/><path d="M20.32 8.68L17 12"/><path d="m2 2 20 20"/></svg>
         </div>
         <h3 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">{t('home.reconnect.title', 'Connection Lost')}</h3>
-        <p className="text-gray-600 dark:text-gray-400 mb-6">
-          {t('home.reconnect.description', 'You have lost connection to the server. Attempting to automatically reconnect...')}
-        </p>
+        <p className="text-gray-600 dark:text-gray-400 mb-6">{t('home.reconnect.description', 'You have lost connection to the server. Attempting to automatically reconnect...')}</p>
         <div className="flex flex-col gap-3">
-          <button 
+          <button
             className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-xl transition-colors"
-            onClick={() => {
-              cancelReconnect();
-              setMode('local');
-            }}
+            onClick={() => { cancelReconnect(); setMode('local'); }}
           >
             {t('home.reconnect.returnMenu', 'Return to Main Menu')}
           </button>
@@ -95,26 +96,21 @@ function RestoreSessionPopup() {
           <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m19 19-4-4m0-7A7 7 0 1 1 5.1 8a7 7 0 0 1 9.9 0z"/></svg>
         </div>
         <h3 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">{t('home.restore.title', 'Ongoing Game Found')}</h3>
-        <p className="text-gray-600 dark:text-gray-400 mb-6">
-          {t('home.restore.description', 'You were recently in an online room ({{roomId}}). Do you want to reconnect?', { roomId: pendingReconnectSession.roomId })}
-        </p>
+        <p className="text-gray-600 dark:text-gray-400 mb-6">{t('home.restore.description', 'You were recently in an online room ({{roomId}}). Do you want to reconnect?', { roomId: pendingReconnectSession.roomId })}</p>
         <div className="flex flex-col gap-3">
-          <button 
+          <button
             className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3 px-4 rounded-xl transition-colors"
             onClick={() => {
-              // Signal reconnect so gameState handler can detect it and auto-open DiceGame
               useGameStore.setState({ showReconnectPopup: true });
-              joinRoom(pendingReconnectSession.roomId, pendingReconnectSession.myName, true);
+              void joinRoom(pendingReconnectSession.roomId, pendingReconnectSession.myName, true);
               clearPendingReconnect();
             }}
           >
             {t('home.restore.yes', 'Yes, Reconnect')}
           </button>
-          <button 
+          <button
             className="w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-200 font-bold py-3 px-4 rounded-xl transition-colors"
-            onClick={() => {
-              cancelReconnect(pendingReconnectSession.roomId, pendingReconnectSession.myName);
-            }}
+            onClick={() => { cancelReconnect(pendingReconnectSession.roomId, pendingReconnectSession.myName); }}
           >
             {t('home.restore.cancel', 'No, Cancel')}
           </button>
@@ -125,9 +121,7 @@ function RestoreSessionPopup() {
 }
 
 export default function App() {
-  const [theme, setTheme] = useState(() => {
-    return localStorage.getItem('tutto-theme') || 'light';
-  });
+  const [theme, setTheme] = useState(() => localStorage.getItem('tutto-theme') || 'light');
 
   const [deviceId] = useState(() => {
     let id = localStorage.getItem('tutto_device_id');
@@ -140,12 +134,10 @@ export default function App() {
 
   const [showStats, setShowStats] = useState(false);
 
-  // Initialize store once
   useEffect(() => {
     useGameStore.getState().init(deviceId);
   }, [deviceId]);
 
-  // Extract only what App needs to know for routing
   const finished = useGameStore(state => state.finished);
   const currentPlayerIndex = useGameStore(state => state.currentPlayerIndex);
   const players = useGameStore(state => state.players);

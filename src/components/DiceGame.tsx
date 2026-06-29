@@ -11,45 +11,58 @@ import { isTestEnv } from '../utils/env';
 import { motion, AnimatePresence } from 'framer-motion';
 import Die from './game/Die';
 import DiceSummary from './game/DiceSummary';
+import type { CardType, Die as DieType, DiceSnapshot } from '../types';
 
-export default function DiceGame({ currentCard, onComplete, onCancel, onStateChange }) {
+interface DiceGameProps {
+  currentCard: CardType | null;
+  onComplete: (score: number, isSuccess: boolean) => void;
+  onCancel: () => void;
+  onStateChange?: (snapshot: DiceSnapshot | null) => void;
+}
+
+interface SummaryData {
+  won: boolean;
+  score: number;
+  isTutto?: boolean;
+}
+
+const CARD_NAME_MAP: Partial<Record<CardType, string>> = {
+  'Plus_Minus': 'Plus/Minus',
+  '200': '200 Bonus',
+  '300': '300 Bonus',
+  '400': '400 Bonus',
+  '500': '500 Bonus',
+  '600': '600 Bonus',
+};
+
+export default function DiceGame({ currentCard, onComplete, onCancel, onStateChange }: DiceGameProps) {
   const { t } = useTranslation();
 
-  const getDisplayCardName = (cardName) => {
-    const cardNameMap = {
-      'Plus_Minus': 'Plus/Minus',
-      '200': '200 Bonus',
-      '300': '300 Bonus',
-      '400': '400 Bonus',
-      '500': '500 Bonus',
-      '600': '600 Bonus',
-    };
-    return cardNameMap[cardName] || cardName;
+  const getDisplayCardName = (cardName: CardType | null): string => {
+    if (!cardName) return '';
+    return CARD_NAME_MAP[cardName] ?? cardName;
   };
-  const [keptDice, setKeptDice] = useState([]);
-  const [currentRoll, setCurrentRoll] = useState([]);
-  const [displayRoll, setDisplayRoll] = useState([]);
-  const [rollingDiceIndices, setRollingDiceIndices] = useState(new Set());
+
+  const [keptDice, setKeptDice] = useState<DieType[]>([]);
+  const [currentRoll, setCurrentRoll] = useState<DieType[]>([]);
+  const [displayRoll, setDisplayRoll] = useState<DieType[]>([]);
+  const [rollingDiceIndices, setRollingDiceIndices] = useState<Set<string>>(new Set());
   const [turnScore, setTurnScore] = useState(0);
-  const [kniffelProgress, setKniffelProgress] = useState([]);
+  const [kniffelProgress, setKniffelProgress] = useState<number[]>([]);
   const [isRolling, setIsRolling] = useState(false);
-  
   const [hasRolled, setHasRolled] = useState(false);
   const [bustState, setBustState] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
-  const [summaryData, setSummaryData] = useState({ won: false, score: 0, isTutto: false });
+  const [summaryData, setSummaryData] = useState<SummaryData>({ won: false, score: 0, isTutto: false });
   const [tuttosThisTurn, setTuttosThisTurn] = useState(0);
 
-  // Restore dice game state from localStorage on component mount.
-  // All setState calls here are batched by React into a single render (once-only effect).
   useEffect(() => {
     const restored = parseSavedDiceState(localStorage.getItem('tutto_dice_turn_state'));
     if (restored) {
-      /* eslint-disable react-hooks/set-state-in-effect */
       setTurnScore(restored.turnScore);
-      setKeptDice(restored.keptDice);
-      setCurrentRoll(restored.currentRoll);
-      setDisplayRoll(restored.currentRoll);
+      setKeptDice(restored.keptDice as DieType[]);
+      setCurrentRoll(restored.currentRoll as DieType[]);
+      setDisplayRoll(restored.currentRoll as DieType[]);
       setKniffelProgress(restored.kniffelProgress);
       setTuttosThisTurn(restored.tuttosThisTurn);
       setHasRolled(true);
@@ -60,41 +73,40 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
         setSummaryData({ won, score, isTutto: false });
         setShowSummary(true);
       }
-      /* eslint-enable react-hooks/set-state-in-effect */
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selectedRolls = currentRoll.filter(d => d.selected);
   const selectedVals = selectedRolls.map(d => d.val);
-  
+
   const validation = useMemo(() => checkValidityAndScore(selectedVals, currentCard, kniffelProgress), [selectedVals, currentCard, kniffelProgress]);
 
-  const pendingTimers = useRef([]);
+  const pendingTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => () => pendingTimers.current.forEach(clearTimeout), []);
 
-  const roll = (numDice, kniffelArray = null, scoreSoFar = 0) => {
+  const roll = (numDice: number, kniffelArray: number[] | null = null, scoreSoFar = 0) => {
     pendingTimers.current.forEach(clearTimeout);
     pendingTimers.current = [];
     setIsRolling(true);
     setBustState(false);
-    
-    playTone(600, "sine", 0.1);
-    
-    const newRollVals = Array.from({length: numDice}, () => rollDie());
-    const finalRolls = newRollVals.map((val) => ({ id: crypto.randomUUID(), val, selected: false }));
-    
+
+    playTone(600, 'sine', 0.1);
+
+    const newRollVals = Array.from({ length: numDice }, () => rollDie());
+    const finalRolls: DieType[] = newRollVals.map((val) => ({ id: crypto.randomUUID(), val, selected: false }));
+
     setCurrentRoll(finalRolls);
     setDisplayRoll(finalRolls.map(r => ({ ...r, val: rollDie() })));
     setHasRolled(true);
 
     const initialRolling = new Set(finalRolls.map(r => r.id));
     setRollingDiceIndices(initialRolling);
-    
+
     const isTest = isTestEnv();
     const baseTumbleTime = isTest ? 0 : 400;
     const staggerDelay = isTest ? 0 : 150;
-    
+
     finalRolls.forEach((r, idx) => {
       if (isTest) {
         setRollingDiceIndices(prev => {
@@ -111,7 +123,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
             return next;
           });
           setDisplayRoll(prev => prev.map(d => d.id === r.id ? { ...d, val: r.val } : d));
-          playTone(400 + (idx * 50), "sine", 0.05);
+          playTone(400 + (idx * 50), 'sine', 0.05);
         }, baseTumbleTime + (idx * staggerDelay)));
       }
     });
@@ -120,17 +132,15 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
 
     const finalizeRoll = () => {
       setIsRolling(false);
-
       if (isBust(newRollVals, currentCard, kniffelArray || kniffelProgress)) {
         setBustState(true);
         playBuzzer();
-        
-        if (currentCard === "Kleeblatt") {
+        if (currentCard === 'Kleeblatt') {
           setShowSummary(true);
           setSummaryData({ won: false, score: 0 });
         } else {
           if (isTest) {
-            if (currentCard === "Feuerwerk") {
+            if (currentCard === 'Feuerwerk') {
               setSummaryData({ won: scoreSoFar > 0, score: scoreSoFar, isTutto: false });
             } else {
               setSummaryData({ won: false, score: 0, isTutto: false });
@@ -138,7 +148,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
             setShowSummary(true);
           } else {
             pendingTimers.current.push(setTimeout(() => {
-              if (currentCard === "Feuerwerk") {
+              if (currentCard === 'Feuerwerk') {
                 setSummaryData({ won: scoreSoFar > 0, score: scoreSoFar, isTutto: false });
               } else {
                 setSummaryData({ won: false, score: 0, isTutto: false });
@@ -160,38 +170,32 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
   useEffect(() => {
     if (rollingDiceIndices.size === 0) return;
     if (isTestEnv()) return;
-
     const interval = setInterval(() => {
       setDisplayRoll(prev => prev.map(d => {
-        // Only flicker if die is still rolling AND hasn't been settled to correct value yet
         const isDieRolling = rollingDiceIndices.has(d.id);
         const correctVal = currentRoll.find(cr => cr.id === d.id)?.val;
         const isSettled = correctVal !== undefined && d.val === correctVal;
-
-        return isDieRolling && !isSettled
-          ? { ...d, val: Math.floor(Math.random() * 6) + 1 }
-          : d;
+        return isDieRolling && !isSettled ? { ...d, val: Math.floor(Math.random() * 6) + 1 } : d;
       }));
     }, 80);
-
     return () => clearInterval(interval);
   }, [rollingDiceIndices, currentRoll]);
 
-  const handleAction = (action) => {
+  const handleAction = (action: 'roll' | 'stop') => {
     if (!validation.valid && action !== 'stop') return;
-    
+
     let newTurnScore = turnScore + validation.score;
-    let newKniffelProgress = validation.newKniffelProgress;
+    const newKniffelProgress = validation.newKniffelProgress;
     let newKeptDice = [...keptDice, ...selectedRolls];
-    
+
     const isTutto = newKeptDice.length === 6;
-    
+
     if (isTutto) {
       newTurnScore = applyTuttoBonus(newTurnScore, currentCard);
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
       playSuccess();
-      
-      if (currentCard === "Kleeblatt") {
+
+      if (currentCard === 'Kleeblatt') {
         if (tuttosThisTurn === 0) {
           setTuttosThisTurn(1);
           setKeptDice([]);
@@ -204,23 +208,22 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
           setShowSummary(true);
           return;
         }
-      } else if (currentCard !== "Feuerwerk") {
+      } else if (currentCard !== 'Feuerwerk') {
         setSummaryData({ won: true, score: newTurnScore, isTutto: true });
         setShowSummary(true);
         return;
       }
     }
-    
+
     if (action === 'stop') {
       setSummaryData({ won: true, score: newTurnScore, isTutto });
       setShowSummary(true);
       return;
     }
-    
+
     if (action === 'roll') {
       setTurnScore(newTurnScore);
       setKniffelProgress(newKniffelProgress);
-      
       if (isTutto) {
         setKeptDice([]);
         roll(6, newKniffelProgress, newTurnScore);
@@ -231,44 +234,35 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
     }
   };
 
-  const toggleDie = (id) => {
+  const toggleDie = (id: string) => {
     if (bustState || showSummary || isRolling) return;
     setCurrentRoll(prev => prev.map(d => d.id === id ? { ...d, selected: !d.selected } : d));
   };
 
-  // Auto-select every die in the current roll that contributes to a valid score,
-  // replacing any existing selection. Indices map 1:1 onto currentRoll order.
   const selectAllValid = () => {
     if (bustState || showSummary || isRolling || !hasRolled) return;
     const validIndices = new Set(getMaxValidSelection(currentRoll.map(d => d.val), currentCard, kniffelProgress));
     setCurrentRoll(prev => prev.map((d, i) => ({ ...d, selected: validIndices.has(i) })));
   };
 
-  // Keep a stable ref to onStateChange so the effect below never needs it as a dependency.
   const onStateChangeRef = useRef(onStateChange);
   useEffect(() => { onStateChangeRef.current = onStateChange; }, [onStateChange]);
 
-  // Broadcast settled dice state to observers (online digital-dice turns).
-  // Skipped while rolling or after a bust — the bust useEffect handles that case.
-  // Fires 300 ms after the last settled change so rapid updates only produce one push.
   useEffect(() => {
     if (!onStateChangeRef.current || !hasRolled || isRolling || bustState) return;
     const timer = setTimeout(() => {
-      onStateChangeRef.current(buildDiceSnapshot({
+      onStateChangeRef.current?.(buildDiceSnapshot({
         turnScore, keptDice, currentRoll, kniffelProgress, tuttosThisTurn, rollingDiceIndices,
       }));
     }, 300);
     return () => clearTimeout(timer);
   }, [keptDice, currentRoll, turnScore, hasRolled, rollingDiceIndices, isRolling, bustState, kniffelProgress, tuttosThisTurn]);
 
-  // When bust is detected, immediately save bust snapshot with busted:true flag so
-  // a refresh during/after bust can restore and show the bust summary automatically.
   useEffect(() => {
     if (!bustState || !onStateChangeRef.current || !hasRolled) return;
-    onStateChangeRef.current(buildDiceSnapshot({
+    onStateChangeRef.current?.(buildDiceSnapshot({
       turnScore, keptDice, currentRoll, kniffelProgress, tuttosThisTurn, busted: true,
     }));
-  // turnScore/keptDice/currentRoll are intentionally read at the moment bustState fires
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bustState]);
 
@@ -279,8 +273,6 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
     onComplete(summaryDataRef.current.score || 0, summaryDataRef.current.won || false);
   }, [onComplete]);
 
-  // Auto-continue on a true bust (won = false). The hook starts the countdown
-  // once showSummary && bustState are set and the turn was a loss.
   const bustCountdown = useBustCountdown({
     shouldStart: showSummary && bustState && !summaryData.won,
     onElapsed: finishGame,
@@ -306,12 +298,8 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
         <div className="w-full bg-black/5 dark:bg-white/5 border-b border-gray-200 dark:border-slate-600 p-4 flex justify-between items-center">
           <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 m-0">{t('dice.title', 'Dice Game')} - {getDisplayCardName(currentCard)}</h2>
           {!hasRolled && (
-            <button 
-              className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors" 
-              onClick={onCancel}
-              aria-label="Cancel dice roll"
-            >
-              <X size={20}/>
+            <button className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors" onClick={onCancel} aria-label="Cancel dice roll">
+              <X size={20} />
             </button>
           )}
         </div>
@@ -319,26 +307,15 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
 
       <div className="p-8 w-full">
         {showSummary ? (
-          <DiceSummary
-            summaryData={summaryData}
-            bustState={bustState}
-            bustCountdown={bustCountdown}
-            finishGame={finishGame}
-            currentCard={currentCard}
-          />
+          <DiceSummary summaryData={summaryData} bustState={bustState} bustCountdown={bustCountdown} finishGame={finishGame} currentCard={currentCard} />
         ) : (
           <>
             <div className="text-center mb-8">
               <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1">{t('dice.current_score', 'Current Score')}</div>
-              <motion.div 
-                key={turnScore + (validation.valid ? validation.score : 0)}
-                initial={{ scale: 1.2 }}
-                animate={{ scale: 1 }}
-                className="text-5xl font-black text-indigo-600 dark:text-indigo-400"
-              >
+              <motion.div key={turnScore + (validation.valid ? validation.score : 0)} initial={{ scale: 1.2 }} animate={{ scale: 1 }} className="text-5xl font-black text-indigo-600 dark:text-indigo-400">
                 {turnScore + (validation.valid ? validation.score : 0)}
               </motion.div>
-              {currentCard === "Kleeblatt" && (
+              {currentCard === 'Kleeblatt' && (
                 <div className="text-emerald-500 mt-2 font-bold text-lg bg-emerald-50 inline-block px-4 py-1 rounded-full border border-emerald-200">
                   {t('dice.tuttos_count', 'Tuttos: {{count}} / 2', { count: tuttosThisTurn })}
                 </div>
@@ -350,12 +327,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
               <div className="min-h-[80px] p-4 bg-black/5 dark:bg-white/5 rounded-2xl flex gap-3 flex-wrap items-center border border-gray-200 dark:border-slate-600/50 shadow-inner">
                 <AnimatePresence>
                   {displayKeptDice.map((d, i) => (
-                    <motion.div 
-                      key={`kept-${i}`} 
-                      initial={{ scale: 0, rotate: -180 }}
-                      animate={{ scale: 1, rotate: 0 }}
-                      className="die w-14 h-14 bg-indigo-600 text-white rounded-xl shadow-md flex items-center justify-center text-2xl font-bold border-2 border-indigo-400"
-                    >
+                    <motion.div key={`kept-${i}`} initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} className="die w-14 h-14 bg-indigo-600 text-white rounded-xl shadow-md flex items-center justify-center text-2xl font-bold border-2 border-indigo-400">
                       {d.val}
                     </motion.div>
                   ))}
@@ -368,22 +340,14 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('dice.current_roll', 'Current Roll')}</h4>
                 {hasRolled && !isRolling && !bustState && (
-                  <button
-                    className="text-xs font-bold px-2.5 py-1 rounded-md border border-indigo-300 dark:border-indigo-600 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"
-                    onClick={selectAllValid}
-                  >
+                  <button className="text-xs font-bold px-2.5 py-1 rounded-md border border-indigo-300 dark:border-indigo-600 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors" onClick={selectAllValid}>
                     {t('dice.select_all_valid', 'Select all')}
                   </button>
                 )}
               </div>
               {!hasRolled ? (
                 <div className="py-8 text-center flex justify-center">
-                  <motion.button 
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl text-xl font-bold flex items-center gap-3 shadow-lg shadow-indigo-500/30 transition-all" 
-                    onClick={() => roll(6)}
-                  >
+                  <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl text-xl font-bold flex items-center gap-3 shadow-lg shadow-indigo-500/30 transition-all" onClick={() => roll(6)}>
                     <Dices size={28} /> {t('dice.roll_6_dice', 'Roll 6 Dice')}
                   </motion.button>
                 </div>
@@ -392,30 +356,17 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
                   <div className="min-h-[80px] p-4 bg-white dark:bg-slate-800 rounded-2xl flex gap-3 flex-wrap justify-center border border-gray-200 dark:border-slate-600 shadow-sm">
                     {displayRoll.map(d => {
                       const isDieTumbling = rollingDiceIndices.has(d.id);
-                      const isSelected = currentRoll.find(cr => cr.id === d.id)?.selected || false;
+                      const isSelected = currentRoll.find(cr => cr.id === d.id)?.selected ?? false;
                       return (
-                        <Die
-                          key={d.id}
-                          die={d}
-                          isSelected={isSelected}
-                          isDieTumbling={isDieTumbling}
-                          bustState={bustState}
-                          onToggle={toggleDie}
-                        />
+                        <Die key={d.id} die={d} isSelected={isSelected} isDieTumbling={isDieTumbling} bustState={bustState} onToggle={toggleDie} />
                       );
                     })}
                   </div>
-                  
                   {bustState && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="text-center text-red-500 text-2xl font-black mt-6 bg-red-50 py-3 rounded-xl border border-red-100"
-                    >
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="text-center text-red-500 text-2xl font-black mt-6 bg-red-50 py-3 rounded-xl border border-red-100">
                       {t('dice.bust_description', 'Bust! (Volltreffer/Niete)')}
                     </motion.div>
                   )}
-                  
                   {!bustState && (
                     <div className="text-center mt-3 min-h-[24px]">
                       {!validation.valid && selectedRolls.length > 0 && (
@@ -429,11 +380,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
 
             <AnimatePresence>
               {hasRolled && !bustState && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex flex-col sm:flex-row gap-4 justify-center mt-8 pt-6 border-t border-gray-100 dark:border-slate-700"
-                >
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row gap-4 justify-center mt-8 pt-6 border-t border-gray-100 dark:border-slate-700">
                   {isRollAgainApplicable && (
                     <button
                       className={`flex-1 flex justify-center items-center gap-2 py-4 rounded-xl font-bold text-lg transition-all ${validation.valid ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/30' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
@@ -443,7 +390,6 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
                       <RotateCw size={20} /> {t('dice.roll_again', 'Roll Again')}
                     </button>
                   )}
-
                   {canStop && (
                     <button
                       className={`flex-1 flex justify-center items-center gap-2 py-4 rounded-xl font-bold text-lg transition-all ${validation.valid ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}

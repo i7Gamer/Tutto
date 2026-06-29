@@ -1,16 +1,25 @@
 import { motion } from 'framer-motion';
+import type { Die as DieType } from '../../types';
 
-export default function Die({ die, isSelected, isDieTumbling, bustState, onToggle }) {
+interface DieProps {
+  die: DieType;
+  isSelected: boolean;
+  isDieTumbling: boolean;
+  bustState: boolean;
+  onToggle: (id: string) => void;
+}
+
+export default function Die({ die, isSelected, isDieTumbling, bustState, onToggle }: DieProps) {
   return (
     <motion.button
       layout
       animate={{
         rotate: isDieTumbling ? [0, 90, 180, 270, 360] : 0,
-        y: isDieTumbling ? [0, -20, 0] : 0
+        y: isDieTumbling ? [0, -20, 0] : 0,
       }}
       transition={{
         rotate: { repeat: isDieTumbling ? Infinity : 0, duration: 0.2 },
-        y: { repeat: isDieTumbling ? Infinity : 0, duration: 0.15 }
+        y: { repeat: isDieTumbling ? Infinity : 0, duration: 0.15 },
       }}
       className={`die w-14 h-14 rounded-xl flex items-center justify-center text-2xl font-bold transition-all border-2
         ${isSelected
