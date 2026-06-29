@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { describe, it, expect } from 'vitest';
-import { sanitizeStats, STATS_VALUE_CAP } from './sanitize.js';
+import { sanitizeStats, STATS_VALUE_CAP } from './sanitize';
 
 describe('sanitizeStats', () => {
   it('returns an empty object for non-object input', () => {

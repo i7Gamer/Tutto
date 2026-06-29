@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'child_process';
-import { initDb } from './database.js';
+import { initDb } from './database';
 
 describe('API Endpoints Token Protection', () => {
   let serverProcess;
@@ -16,7 +16,7 @@ describe('API Endpoints Token Protection', () => {
     }
 
     return new Promise((resolve, reject) => {
-      serverProcess = spawn('node', ['server/index.js'], {
+      serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
         env: { ...process.env, PORT, VITE_API_TOKEN: API_TOKEN, TEST_DB: 'true', FORCE_INIT_DB: 'true' },
         stdio: 'pipe'
       });

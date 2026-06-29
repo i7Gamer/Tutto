@@ -15,7 +15,7 @@ describe('Server Socket E2E Simulation', () => {
 
   beforeAll(() => {
     return new Promise((resolve, reject) => {
-      serverProcess = spawn('node', ['server/index.js'], {
+      serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
         env: { ...process.env, PORT },
         stdio: 'pipe'
       });
