@@ -108,3 +108,146 @@ describe('Socket updateConfig — upper-bound validation', () => {
     sock.disconnect();
   });
 });
+
+describe('Socket security and timer fixes', () => {
+  let serverProcess;
+  const PORT = '3009';
+
+  beforeAll(() => {
+    return new Promise((resolve, reject) => {
+      serverProcess = spawn('node', ['server/index.js'], {
+        env: {
+          ...process.env,
+          PORT,
+          TUTTO_API_TOKEN: 'test-token',
+          TEST_DB: 'true',
+          FORCE_INIT_DB: 'true',
+        },
+        stdio: 'pipe',
+      });
+      serverProcess.stdout.on('data', (data) => {
+        if (data.toString().includes('Database migrated')) resolve();
+      });
+      serverProcess.stderr.on('data', (data) => console.error('[server]', data.toString()));
+      serverProcess.on('error', reject);
+    });
+  }, 10000);
+
+  afterAll(() => {
+    if (serverProcess) serverProcess.kill();
+  });
+
+  const joinRoom = (roomId) =>
+    new Promise((resolve, reject) => {
+      const sock = io(`http://127.0.0.1:${PORT}`, { transports: ['websocket'] });
+      sock.on('connect', () => {
+        sock.emit(
+          'joinRoom',
+          { roomId, name: 'Host', deviceId: `dev-${roomId}`, color: '#ff0000' },
+          (res) => {
+            if (res.error) { sock.disconnect(); return reject(new Error(res.error)); }
+            sock.once('gameState', (state) => resolve({ sock, state }));
+          }
+        );
+      });
+      sock.on('connect_error', reject);
+    });
+
+  const joinAsGuest = (roomId, name = 'Guest') =>
+    new Promise((resolve, reject) => {
+      const sock = io(`http://127.0.0.1:${PORT}`, { transports: ['websocket'] });
+      sock.on('connect', () => {
+        sock.emit(
+          'joinRoom',
+          { roomId, name, deviceId: `dev-${roomId}-${name}`, color: '#00ff00' },
+          (res) => {
+            if (res.error) { sock.disconnect(); return reject(new Error(res.error)); }
+            resolve({ sock, socketId: res.socketId });
+          }
+        );
+      });
+      sock.on('connect_error', reject);
+    });
+
+  // ─── Issue 2: reorderPlayers duplication exploit ──────────────────────────
+
+  it('rejects reorderPlayers that would create duplicate player entries', async () => {
+    const roomId = 'sec-room-1';
+    const { sock: hostSock } = await joinRoom(roomId);
+
+    // Guest joins; host receives updated gameState
+    const guestJoinedState = new Promise(r => hostSock.once('gameState', r));
+    const { sock: guestSock } = await joinAsGuest(roomId, 'Guest');
+    await guestJoinedState;
+
+    // Exploit attempt: 3 entries using only valid names — the old Set-size check
+    // passed because Set{Host,Guest}.size === Set{Host,Guest}.size, but this
+    // would map to [HostObj, GuestObj, HostObj] (3 players, Host duplicated).
+    hostSock.emit('reorderPlayers', {
+      roomId,
+      newPlayers: [{ name: 'Host' }, { name: 'Guest' }, { name: 'Host' }],
+    });
+
+    // Immediately follow with a valid reorder so we get a gameState to assert on.
+    // Server processes socket events in order, so the exploit fires first.
+    const stateAfterValidReorder = await new Promise(r => {
+      hostSock.once('gameState', r);
+      hostSock.emit('reorderPlayers', {
+        roomId,
+        newPlayers: [{ name: 'Guest' }, { name: 'Host' }],
+      });
+    });
+
+    expect(stateAfterValidReorder.players.length).toBe(2);
+    expect(stateAfterValidReorder.players[0].name).toBe('Guest');
+    expect(stateAfterValidReorder.players[1].name).toBe('Host');
+
+    hostSock.disconnect();
+    guestSock.disconnect();
+  });
+
+  // ─── Issue 3: turn timer desync on kick ──────────────────────────────────
+
+  it('resets turn timer when the active player is kicked mid-turn', async () => {
+    const roomId = 'sec-room-2';
+    const { sock: hostSock } = await joinRoom(roomId);
+
+    // Guest joins
+    const guestJoinedState = new Promise(r => hostSock.once('gameState', r));
+    const { sock: guestSock, socketId: guestId } = await joinAsGuest(roomId, 'Guest');
+    await guestJoinedState;
+
+    // Set turn duration to 60 s (valid range is 10-600)
+    await new Promise(r => {
+      hostSock.once('gameState', r);
+      hostSock.emit('updateConfig', { roomId, turnDuration: 60 });
+    });
+
+    // Start game with guest (index 1) as the active player
+    const playingState = await new Promise(r => {
+      hostSock.once('gameState', r);
+      hostSock.emit('pushState', {
+        roomId,
+        newState: { status: 'playing', currentPlayerIndex: 1, currentCard: 'Stop', round: 1 },
+      });
+    });
+    expect(playingState.turnTimeRemaining).toBe(60);
+
+    // Age the timer by 2+ seconds so the stale baseline is measurably different
+    // from a fresh reset: without fix → 60-2=58, with fix → 60-0=60
+    await new Promise(r => setTimeout(r, 2100));
+
+    // Host kicks the active player — fix resets turnStartTime to Date.now()
+    const stateAfterKick = await new Promise(r => {
+      hostSock.once('gameState', r);
+      hostSock.emit('kickPlayer', guestId);
+    });
+
+    // Without fix: turnTimeRemaining = 60 - 2 = 58 (<59, fails)
+    // With fix:    turnTimeRemaining = 60 - 0 = 60 (>=59, passes)
+    expect(stateAfterKick.turnTimeRemaining).toBeGreaterThanOrEqual(59);
+
+    hostSock.disconnect();
+    guestSock.disconnect();
+  }, 15000);
+});

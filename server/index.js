@@ -112,6 +112,7 @@ const handleActivePlayerRemoved = (state, removedIdx) => {
     state.previousScore = null;
     state.previousLeaders = null;
     state.round += 1;
+    state.turnStartTime = Date.now();
     drawNextCardForRoom(state);
   }
 };
@@ -295,7 +296,9 @@ io.on('connection', (socket) => {
 
       const currentNames = new Set(rooms[roomId].state.players.map(p => p.name));
       const newNames = new Set(newPlayers.map(p => p.name));
-      const isPermutation = currentNames.size === newNames.size && 
+      const isPermutation =
+        newPlayers.length === rooms[roomId].state.players.length &&
+        currentNames.size === newNames.size &&
         newPlayers.every(p => currentNames.has(p.name));
         
       if (isPermutation) {
