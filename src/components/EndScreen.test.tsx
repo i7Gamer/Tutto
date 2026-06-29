@@ -1,8 +1,19 @@
 import { render, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import EndScreen from './EndScreen';
 import { useGameStore } from '../store/useGameStore';
+
+// Capture the chart's `data` prop instead of rendering a real canvas.
+const chartCapture = vi.hoisted(() => ({ data: null as unknown }));
+vi.mock('react-chartjs-2', () => ({
+  Line: (props: { data: unknown }) => {
+    chartCapture.data = props.data;
+    return null;
+  },
+}));
+
+interface ChartDataset { label: string; data: number[]; borderColor: string; backgroundColor: string }
 
 describe('EndScreen Component', () => {
   beforeEach(() => {
@@ -106,6 +117,37 @@ describe('EndScreen Component', () => {
     const { container } = render(<EndScreen />);
     // Since we don't have a specific test ID, we can check if a canvas element exists (the chart uses canvas)
     expect(container.querySelector('canvas')).toBeNull();
+  });
+
+  it('binds chart lines to player identity (name + color), not chartNames order or the positional palette', () => {
+    // Reproduce the online desync: chartNames is in a stale/shuffled order, while
+    // the authoritative players array (and chartValues, which is filled in the same
+    // order) is the source of truth. Each line must follow players[i]/chartValues[i].
+    chartCapture.data = null;
+    useGameStore.setState({
+      players: [
+        { name: 'Alice', score: 10000, position: 1, color: '#abc123' },
+        { name: 'Bob', score: 5000, position: 2, color: '#def456' },
+      ],
+      chartValues: [[3000, 10000], [2000, 5000]],
+      chartNames: ['Bob', 'Alice'], // drifted order — must be ignored for rendering
+      chartLabels: [1, 2],
+      round: 2,
+    });
+
+    render(<EndScreen theme="light" deviceId="" />);
+
+    const datasets = (chartCapture.data as { datasets: ChartDataset[] }).datasets;
+
+    // Line 0 owns chartValues[0] → it is Alice, in Alice's color (not chartNames[0]='Bob', not palette).
+    expect(datasets[0].label).toBe('Alice');
+    expect(datasets[0].data).toEqual([3000, 10000]);
+    expect(datasets[0].borderColor).toBe('#abc123');
+
+    // Line 1 owns chartValues[1] → it is Bob, in Bob's color.
+    expect(datasets[1].label).toBe('Bob');
+    expect(datasets[1].data).toEqual([2000, 5000]);
+    expect(datasets[1].borderColor).toBe('#def456');
   });
 
   it('maintains snapshot when players array shrinks multiple times', () => {
