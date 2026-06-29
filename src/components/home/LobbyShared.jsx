@@ -199,11 +199,11 @@ export function AdvancedOptionsPanel({
           ) : (
             <div className="bg-white dark:bg-slate-800/40 p-4 sm:p-6 rounded-xl border border-gray-200 dark:border-slate-600">
             <div className="flex items-center justify-between mb-4">
-              <h4 className="font-bold text-gray-700 dark:text-gray-200">{t('lobby.generalSettings', 'General Settings')}</h4>
+              <h4 className="font-bold text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-slate-600 pb-2 mb-0 flex-1">{t('lobby.generalSettings', 'General Settings')}</h4>
               {onResetGeneralSettings && (
                 <button
                   onClick={onResetGeneralSettings}
-                  className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors"
+                  className="flex items-center p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors"
                   aria-label="Reset general settings to defaults"
                   title="Reset general settings to defaults"
                 >
@@ -283,7 +283,7 @@ export function AdvancedOptionsPanel({
               {onResetCards && (
                 <button
                   onClick={onResetCards}
-                  className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors ml-2"
+                  className="flex items-center p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors ml-2"
                   aria-label="Reset cards to default values"
                   title="Reset cards to default values"
                 >
