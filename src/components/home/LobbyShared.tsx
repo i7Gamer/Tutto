@@ -230,7 +230,7 @@ export function AdvancedOptionsPanel({
                   <button
                     onClick={onResetGeneralSettings}
                     className="flex items-center p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors"
-                    title="Reset general settings to defaults"
+                    title={t('lobby.resetGeneralSettings', 'Reset General Settings to Default Values')}
                   >
                     <RotateCcw size={18} />
                     <span className="ml-1 text-xs font-medium inline">{t('lobby.defaultValues', 'default values')}</span>
@@ -293,7 +293,7 @@ export function AdvancedOptionsPanel({
                   <button
                     onClick={onResetCards}
                     className="flex items-center p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors ml-2"
-                    title="Reset cards to default values"
+                    title={t('lobby.resetCardsInDeck', 'Reset Cards in Deck to Default Values')}
                   >
                     <RotateCcw size={18} />
                     <span className="ml-1 text-xs font-medium inline">{t('lobby.defaultValues', 'default values')}</span>

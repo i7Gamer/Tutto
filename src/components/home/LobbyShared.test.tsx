@@ -191,8 +191,7 @@ describe('AdvancedOptionsPanel', () => {
     );
 
     const resetButtons = screen.getAllByRole('button').filter(btn =>
-      btn.querySelector('svg[class*="RotateCcw"]') || false ||
-      btn.title === 'Reset general settings to defaults'
+      btn.title === 'lobby.resetGeneralSettings'
     );
     expect(resetButtons.length).toBeGreaterThan(0);
     fireEvent.click(resetButtons[0]);
@@ -221,7 +220,7 @@ describe('AdvancedOptionsPanel', () => {
     );
 
     const resetButtons = screen.getAllByRole('button').filter(btn =>
-      btn.title === 'Reset cards to default values'
+      btn.title === 'lobby.resetCardsInDeck'
     );
     expect(resetButtons.length).toBeGreaterThan(0);
     fireEvent.click(resetButtons[0]);
