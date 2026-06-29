@@ -31,6 +31,9 @@ playwright-report/
 # Local scratch / throwaway scripts
 scratch/
 
+# Claude Code scratchpad temp files (path-encoded filenames like C﹕Users...)
+C﹕*
+
 # Claude Code local config
 .claude/
 GEMINI.md
