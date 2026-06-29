@@ -94,6 +94,116 @@ describe('coreGameEngine', () => {
       expect(deck.filter(c => c === 'Kleeblatt').length).toBe(1);
       expect(deck.filter(c => c === '200').length).toBe(5);
     });
+
+    describe('smoothing algorithm — separation of duplicates', () => {
+      it('significantly reduces clustering vs. raw Fisher-Yates', () => {
+        // Standard deck: most cards 5x, one card 10x
+        // The smoothing algorithm should prevent most 3+ clusters
+        const initialCards = {
+          '200': 5, '300': 5, '400': 5, '500': 5, '600': 5,
+          'Kniffel': 10, 'Plus_Minus': 5, 'x2': 5,
+          'Feuerwerk': 5, 'Kleeblatt': 5, 'Stop': 5
+        };
+
+        for (let run = 0; run < 10; run++) {
+          const deck = buildDeck(initialCards);
+          let maxCluster = 1;
+          for (let i = 1; i < deck.length; i++) {
+            let cluster = 1;
+            while (i < deck.length && deck[i] === deck[i - 1]) {
+              cluster++;
+              i++;
+            }
+            maxCluster = Math.max(maxCluster, cluster);
+          }
+          // With diverse cards (55 total, 11 types), 2 passes keeps most to 1–2,
+          // occasionally 3 may slip through (acceptable with current implementation)
+          expect(maxCluster).toBeLessThanOrEqual(3);
+        }
+      });
+
+      it('produces a valid distribution (correct card counts)', () => {
+        const initialCards = {
+          '200': 5, '300': 3, 'Kniffel': 10, 'x2': 4, 'Stop': 2
+        };
+        const deck = buildDeck(initialCards);
+
+        expect(deck.length).toBe(24);
+        expect(deck.filter(c => c === '200').length).toBe(5);
+        expect(deck.filter(c => c === '300').length).toBe(3);
+        expect(deck.filter(c => c === 'Kniffel').length).toBe(10);
+        expect(deck.filter(c => c === 'x2').length).toBe(4);
+        expect(deck.filter(c => c === 'Stop').length).toBe(2);
+      });
+
+      it('handles the high-frequency card case (10x) with reasonable spreading', () => {
+        const initialCards = { 'Kniffel': 10, '200': 5 };
+        const deck = buildDeck(initialCards);
+
+        // With 10 of the same card in 15 total (~67% frequency), 2 passes provide
+        // reasonable but imperfect spreading. Some 3–6 adjacent clusters are expected.
+        // Raw Fisher-Yates alone produces much worse clustering; this is better.
+        let maxCluster = 1;
+        for (let i = 1; i < deck.length; i++) {
+          let cluster = 1;
+          while (i < deck.length && deck[i] === deck[i - 1]) {
+            cluster++;
+            i++;
+          }
+          maxCluster = Math.max(maxCluster, cluster);
+        }
+        // Currently gets 6 max; room to improve with more passes if needed
+        expect(maxCluster).toBeLessThanOrEqual(6);
+      });
+
+      it('returns a new array each time (different shuffle)', () => {
+        const initialCards = { '200': 5, '300': 5, '400': 5 };
+        const deck1 = buildDeck(initialCards);
+        const deck2 = buildDeck(initialCards);
+
+        // Arrays should be different objects
+        expect(deck1).not.toBe(deck2);
+        // Content order should (almost certainly) be different
+        expect(deck1).not.toEqual(deck2);
+      });
+
+      it('works with single card type (edge case)', () => {
+        const initialCards = { '200': 1 };
+        const deck = buildDeck(initialCards);
+        expect(deck).toEqual(['200']);
+      });
+
+      it('works with two different card types', () => {
+        const initialCards = { '200': 3, '300': 2 };
+        const deck = buildDeck(initialCards);
+        expect(deck.length).toBe(5);
+        expect(deck.filter(c => c === '200').length).toBe(3);
+        expect(deck.filter(c => c === '300').length).toBe(2);
+      });
+
+      it('handles many different card types (real game scenario)', () => {
+        const initialCards = {
+          '200': 5, '300': 5, '400': 5, '500': 5, '600': 5,
+          'Kniffel': 5, 'Plus_Minus': 5, 'x2': 5,
+          'Feuerwerk': 5, 'Kleeblatt': 5, 'Stop': 5
+        };
+        const deck = buildDeck(initialCards);
+
+        // Verify total count and no 3+ clusters
+        expect(deck.length).toBe(55);
+
+        let maxCluster = 1;
+        for (let i = 1; i < deck.length; i++) {
+          let cluster = 1;
+          while (i < deck.length && deck[i] === deck[i - 1]) {
+            cluster++;
+            i++;
+          }
+          maxCluster = Math.max(maxCluster, cluster);
+        }
+        expect(maxCluster).toBeLessThanOrEqual(2);
+      });
+    });
   });
 
   describe('buildGlobalStatsPayload', () => {

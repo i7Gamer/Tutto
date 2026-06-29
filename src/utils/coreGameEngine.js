@@ -14,7 +14,45 @@ export const buildDeck = (initialCards) => {
       newCards.push(cardType);
     }
   });
-  return shuffleArray(newCards);
+  
+  // Standard Fisher-Yates first
+  const deck = shuffleArray(newCards);
+  
+  // Smoothing pass: try to separate adjacent identical cards to make the deck feel more "natural"
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 1; i < deck.length; i++) {
+      if (deck[i] === deck[i - 1]) {
+        let swapIdx = -1;
+        // Try to find a perfect candidate that won't create new clumps
+        for (let j = i + 1; j < deck.length; j++) {
+          if (
+            deck[j] !== deck[i] &&
+            (j === deck.length - 1 || deck[i] !== deck[j + 1]) &&
+            (j === i + 1 || deck[i] !== deck[j - 1])
+          ) {
+            swapIdx = j;
+            break;
+          }
+        }
+        // Fallback to any different card if perfect match isn't found
+        if (swapIdx === -1) {
+          for (let j = i + 1; j < deck.length; j++) {
+            if (deck[j] !== deck[i]) {
+              swapIdx = j;
+              break;
+            }
+          }
+        }
+        if (swapIdx !== -1) {
+          const temp = deck[i];
+          deck[i] = deck[swapIdx];
+          deck[swapIdx] = temp;
+        }
+      }
+    }
+  }
+  
+  return deck;
 };
 
 export const computeRankedPlayers = (players) => {
