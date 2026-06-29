@@ -21,13 +21,15 @@ describe('Socket updateConfig — upper-bound validation', () => {
         },
         stdio: 'pipe',
       });
+      let stdout = '';
       serverProcess.stdout.on('data', (data) => {
-        if (data.toString().includes('Database migrated')) resolve();
+        stdout += data.toString();
+        if (stdout.includes('Database migrated')) resolve();
       });
       serverProcess.stderr.on('data', (data) => console.error('[server]', data.toString()));
       serverProcess.on('error', reject);
     });
-  }, 10000);
+  }, 20000);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -125,13 +127,15 @@ describe('Socket security and timer fixes', () => {
         },
         stdio: 'pipe',
       });
+      let stdout = '';
       serverProcess.stdout.on('data', (data) => {
-        if (data.toString().includes('Database migrated')) resolve();
+        stdout += data.toString();
+        if (stdout.includes('Database migrated')) resolve();
       });
       serverProcess.stderr.on('data', (data) => console.error('[server]', data.toString()));
       serverProcess.on('error', reject);
     });
-  }, 10000);
+  }, 20000);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();

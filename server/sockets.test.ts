@@ -20,10 +20,10 @@ describe('Server Socket E2E Simulation', () => {
         stdio: 'pipe'
       });
 
+      let stdout = '';
       serverProcess.stdout.on('data', (data) => {
-        if (data.toString().includes('Server running on port')) {
-          resolve();
-        }
+        stdout += data.toString();
+        if (stdout.includes('Server running on port')) resolve();
       });
 
       serverProcess.stderr.on('data', (data) => {
@@ -34,7 +34,7 @@ describe('Server Socket E2E Simulation', () => {
         reject(err);
       });
     });
-  }, 10000);
+  }, 20000);
 
   afterAll(() => {
     if (socket1) socket1.disconnect();

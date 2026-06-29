@@ -57,22 +57,6 @@ export default defineConfig([
     },
   },
 
-  // Browser app source (React JS) — legacy, removed as files are migrated.
-  {
-    files: ['src/**/*.{js,jsx}'],
-    ignores: ['**/*.test.{js,jsx}', 'src/setupTests.jsx'],
-    extends: [
-      js.configs.recommended,
-      reactHooks.configs.flat.recommended,
-      reactRefresh.configs.vite,
-    ],
-    languageOptions: {
-      globals: { ...globals.browser, process: 'readonly' },
-      parserOptions: { ecmaFeatures: { jsx: true } },
-    },
-    rules: sharedJsRules,
-  },
-
   // Vitest unit / integration tests and the shared test setup (TypeScript).
   {
     files: ['**/*.test.{ts,tsx}', 'src/setupTests.tsx'],
@@ -89,21 +73,10 @@ export default defineConfig([
     },
   },
 
-  // Vitest unit / integration tests and the shared test setup (JS, legacy).
-  {
-    files: ['**/*.test.{js,jsx}', 'src/setupTests.jsx'],
-    extends: [js.configs.recommended],
-    languageOptions: {
-      globals: { ...globals.browser, ...globals.node, ...globals.vitest },
-      parserOptions: { ecmaFeatures: { jsx: true } },
-    },
-    rules: sharedJsRules,
-  },
-
   // Node-side CommonJS: Express/Socket.IO server, migrations, .cjs scripts.
   {
     files: ['server/**/*.js', '**/*.cjs'],
-    ignores: ['server/**/*.test.js'],
+    ignores: ['server/**/*.test.js', 'server/**/*.test.ts'],
     extends: [js.configs.recommended],
     languageOptions: {
       globals: globals.node,

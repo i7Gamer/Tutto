@@ -146,16 +146,6 @@ describe('Statistics Saving - Personal and Global', () => {
     });
 
     it('should accumulate global stats across multiple games', async () => {
-      // Initial stats (from prior test)
-      const initialStats = await database.getGlobalStats() || {
-        totalGamesPlayed: 0,
-        totalPlaytime: 0,
-        totalScore: 0,
-        totalTurns: 0,
-        totalBusts: 0,
-        highestTurnScore: 0
-      };
-
       const game1Global = {
         gamesPlayed: 1,
         totalPlaytime: 400,

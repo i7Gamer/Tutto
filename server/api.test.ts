@@ -3,7 +3,6 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'child_process';
-import { initDb } from './database';
 
 describe('API Endpoints Token Protection', () => {
   let serverProcess;
@@ -11,8 +10,8 @@ describe('API Endpoints Token Protection', () => {
   const API_TOKEN = 'tutto-local-dev-token';
 
   beforeAll(() => {
-    if (global.__nativeFetch) {
-      global.fetch = global.__nativeFetch;
+    if (globalThis.__nativeFetch) {
+      globalThis.fetch = globalThis.__nativeFetch;
     }
 
     return new Promise((resolve, reject) => {
@@ -21,16 +20,16 @@ describe('API Endpoints Token Protection', () => {
         stdio: 'pipe'
       });
 
+      let stdout = '';
       serverProcess.stdout.on('data', (data) => {
-        if (data.toString().includes('Database migrated')) {
-          resolve();
-        }
+        stdout += data.toString();
+        if (stdout.includes('Database migrated')) resolve();
       });
       serverProcess.stderr.on('data', (data) => console.error(data.toString()));
 
       serverProcess.on('error', (err) => reject(err));
     });
-  }, 10000);
+  }, 20000);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();

@@ -7,6 +7,6 @@ exports.up = async function(knex) {
   }
 };
 
-exports.down = async function(knex) {
+exports.down = async function(_knex) {
   // Don't delete the row on rollback to prevent data loss
 };

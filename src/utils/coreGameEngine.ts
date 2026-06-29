@@ -210,7 +210,7 @@ export const calculateNextTurn = (
   currentPlayer.score += turnScore;
 
   let isGameOver = false;
-  let nextIndex = currentPlayerIndex + 1;
+  let nextIndex: number | null = currentPlayerIndex + 1;
   let nextRound = round;
   let isRoundEnd = false;
 
@@ -230,12 +230,12 @@ export const calculateNextTurn = (
     if (newDeck.length === 0) newDeck = buildDeck(initialCards);
     drawnCard = newDeck.shift() ?? null;
   } else {
-    nextIndex = null as unknown as number;
+    nextIndex = null;
   }
 
   return {
     players: newPlayers, isGameOver, isRoundEnd,
-    nextIndex: isGameOver ? null : nextIndex,
+    nextIndex,
     nextRound, previousCard: currentCard, previousScore: turnScore,
     previousLeaders: snapshotLeaders, previousWasBust: wasBust,
     previousHighestTurnScore, newDeck, drawnCard,
