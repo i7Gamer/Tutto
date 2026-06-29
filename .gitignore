@@ -46,3 +46,6 @@ GEMINI.md
 *.sqlite
 *.db
 *.backup
+
+# TypeScript build cache
+*.tsbuildinfo

@@ -10,7 +10,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       workbox: {
-        globPatterns: ['**/*.{js,css,html,png,svg,webmanifest}'],
+        globPatterns: ['**/*.{js,ts,css,html,png,svg,webmanifest}'],
         globIgnores: ['**/assets/old/**'],
         skipWaiting: true,
         clientsClaim: true,
