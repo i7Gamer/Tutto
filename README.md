@@ -71,12 +71,12 @@ The drawn card dictates specific bonuses or rules for your turn:
 
 ## Production Deployment
 
-1. Set `TUTTO_API_TOKEN` and `VITE_API_TOKEN` to the same strong random secret in your environment (e.g. `openssl rand -hex 32`).
+1. Set `VITE_API_TOKEN` to a strong random secret in your environment (e.g. `openssl rand -hex 32`).
 2. Run the combined build + server command:
    ```bash
    npm run start:prod
    ```
-   This builds the frontend into `dist/`, then starts the Express server with `NODE_ENV=production`. The server serves the static frontend and refuses to start if `TUTTO_API_TOKEN` is missing.
+   This builds the frontend into `dist/`, then starts the Express server with `NODE_ENV=production`. The server serves the static frontend and refuses to start if `VITE_API_TOKEN` is missing.
 
 ## Testing
 

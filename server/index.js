@@ -543,11 +543,11 @@ io.on('connection', (socket) => {
   });
 });
 
-if (process.env.NODE_ENV === 'production' && !process.env.TUTTO_API_TOKEN) {
-  console.error('[SECURITY] TUTTO_API_TOKEN is not set. Refusing to start in production.');
+if (process.env.NODE_ENV === 'production' && !process.env.VITE_API_TOKEN) {
+  console.error('[SECURITY] VITE_API_TOKEN is not set. Refusing to start in production.');
   process.exit(1);
 }
-const API_TOKEN = process.env.TUTTO_API_TOKEN || 'tutto-local-dev-token';
+const API_TOKEN = process.env.VITE_API_TOKEN || 'tutto-local-dev-token';
 
 const requireToken = (req, res, next) => {
   if (req.headers['x-tutto-token'] !== API_TOKEN) {

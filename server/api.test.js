@@ -17,7 +17,7 @@ describe('API Endpoints Token Protection', () => {
 
     return new Promise((resolve, reject) => {
       serverProcess = spawn('node', ['server/index.js'], {
-        env: { ...process.env, PORT, TUTTO_API_TOKEN: API_TOKEN, TEST_DB: 'true', FORCE_INIT_DB: 'true' },
+        env: { ...process.env, PORT, VITE_API_TOKEN: API_TOKEN, TEST_DB: 'true', FORCE_INIT_DB: 'true' },
         stdio: 'pipe'
       });
 

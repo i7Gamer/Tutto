@@ -15,7 +15,7 @@ describe('Socket updateConfig — upper-bound validation', () => {
         env: {
           ...process.env,
           PORT,
-          TUTTO_API_TOKEN: 'test-token',
+          VITE_API_TOKEN: 'test-token',
           TEST_DB: 'true',
           FORCE_INIT_DB: 'true',
         },
@@ -119,7 +119,7 @@ describe('Socket security and timer fixes', () => {
         env: {
           ...process.env,
           PORT,
-          TUTTO_API_TOKEN: 'test-token',
+          VITE_API_TOKEN: 'test-token',
           TEST_DB: 'true',
           FORCE_INIT_DB: 'true',
         },
