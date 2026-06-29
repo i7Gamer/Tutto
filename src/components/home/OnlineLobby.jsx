@@ -117,6 +117,8 @@ export default function OnlineLobby({ game }) {
           game={game}
           isOnline={true}
           readOnly={!isHost}
+          onResetGeneralSettings={isHost ? () => game.resetGeneralSettings() : null}
+          onResetCards={isHost ? () => game.resetInitialCards() : null}
         />
       </div>
 

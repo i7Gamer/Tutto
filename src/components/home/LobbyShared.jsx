@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Play, ChevronUp, ChevronDown, Trash2, UserMinus, Crown } from 'lucide-react';
+import { Settings, Play, ChevronUp, ChevronDown, Trash2, UserMinus, Crown, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 export function PlayerList({
@@ -141,11 +141,13 @@ export function AdvancedOptionsToggle({ showAdvanced, setShowAdvanced }) {
   );
 }
 
-export function AdvancedOptionsPanel({ 
-  showAdvanced, 
-  game, 
+export function AdvancedOptionsPanel({
+  showAdvanced,
+  game,
   isOnline = false,
-  readOnly = false
+  readOnly = false,
+  onResetGeneralSettings = null,
+  onResetCards = null
 }) {
   const { t } = useTranslation();
   const updateCardCount = (card, count) => {
@@ -196,6 +198,20 @@ export function AdvancedOptionsPanel({
             </div>
           ) : (
             <div className="bg-white dark:bg-slate-800/40 p-4 sm:p-6 rounded-xl border border-gray-200 dark:border-slate-600">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="font-bold text-gray-700 dark:text-gray-200">{t('lobby.generalSettings', 'General Settings')}</h4>
+              {onResetGeneralSettings && (
+                <button
+                  onClick={onResetGeneralSettings}
+                  className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors"
+                  aria-label="Reset general settings to defaults"
+                  title="Reset general settings to defaults"
+                >
+                  <RotateCcw size={18} />
+                  <span className="ml-1 text-xs font-medium inline">{t('lobby.defaultValues', 'default values')}</span>
+                </button>
+              )}
+            </div>
             <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 mb-6 items-stretch`}>
               <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                 <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.winningScore', 'Winning Score')}</span>
@@ -262,7 +278,20 @@ export function AdvancedOptionsPanel({
               </div>
             </div>
 
-            <h4 className="font-bold text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-slate-600 pb-2 mb-4">{t('lobby.cardsInDeck', 'Cards in Deck')}</h4>
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="font-bold text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-slate-600 pb-2 mb-0 flex-1">{t('lobby.cardsInDeck', 'Cards in Deck')}</h4>
+              {onResetCards && (
+                <button
+                  onClick={onResetCards}
+                  className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors ml-2"
+                  aria-label="Reset cards to default values"
+                  title="Reset cards to default values"
+                >
+                  <RotateCcw size={18} />
+                  <span className="ml-1 text-xs font-medium inline">{t('lobby.defaultValues', 'default values')}</span>
+                </button>
+              )}
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
               {game.initialCards && Object.keys(game.initialCards).map(card => (
                 <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text" key={card}>

@@ -239,6 +239,15 @@ export const useGameStore = create(immer((set, get) => ({
   setTurnDuration: (val) => get().updateConfig({ turnDuration: val }),
   setReconnectTimeout: (val) => get().updateConfig({ reconnectTimeout: val }),
 
+  resetGeneralSettings: () => get().updateConfig({
+    winningScore: 6000,
+    randomOrder: true,
+    turnDuration: 120,
+    reconnectTimeout: 60,
+  }),
+
+  resetInitialCards: () => get().updateConfig({ initialCards: INITIAL_CARDS }),
+
   // --- LOBBY & PLAYERS ---
   addPlayer: (name) => {
     set((state) => {

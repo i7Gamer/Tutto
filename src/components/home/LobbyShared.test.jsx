@@ -165,4 +165,81 @@ describe('AdvancedOptionsPanel', () => {
     fireEvent.change(screen.getByDisplayValue('60'), { target: { value: '5000' } });
     expect(mockSetReconnectTimeout).toHaveBeenCalledWith(3600);
   });
+
+  it('calls onResetGeneralSettings when reset button is clicked', () => {
+    const mockResetGeneralSettings = vi.fn();
+    const game = {
+      winningScore: 5000,
+      setWinningScore: vi.fn(),
+      randomOrder: false,
+      setRandomOrder: vi.fn(),
+      turnDuration: 300,
+      setTurnDuration: vi.fn(),
+      reconnectTimeout: 120,
+      setReconnectTimeout: vi.fn(),
+      initialCards: {}
+    };
+
+    render(
+      <AdvancedOptionsPanel
+        showAdvanced={true}
+        game={game}
+        isOnline={true}
+        onResetGeneralSettings={mockResetGeneralSettings}
+        onResetCards={vi.fn()}
+      />
+    );
+
+    const resetButtons = screen.getAllByRole('button').filter(btn =>
+      btn.querySelector('svg[class*="RotateCcw"]') || false ||
+      btn.title === 'Reset general settings to defaults'
+    );
+    expect(resetButtons.length).toBeGreaterThan(0);
+    fireEvent.click(resetButtons[0]);
+    expect(mockResetGeneralSettings).toHaveBeenCalledOnce();
+  });
+
+  it('calls onResetCards when reset cards button is clicked', () => {
+    const mockResetCards = vi.fn();
+    const game = {
+      winningScore: 6000,
+      setWinningScore: vi.fn(),
+      randomOrder: true,
+      setRandomOrder: vi.fn(),
+      initialCards: { Kleeblatt: 5, Stop: 20 },
+      setInitialCards: vi.fn()
+    };
+
+    render(
+      <AdvancedOptionsPanel
+        showAdvanced={true}
+        game={game}
+        isOnline={false}
+        onResetGeneralSettings={vi.fn()}
+        onResetCards={mockResetCards}
+      />
+    );
+
+    const resetButtons = screen.getAllByRole('button').filter(btn =>
+      btn.title === 'Reset cards to default values'
+    );
+    expect(resetButtons.length).toBeGreaterThan(0);
+    fireEvent.click(resetButtons[0]);
+    expect(mockResetCards).toHaveBeenCalledOnce();
+  });
+
+  it('hides reset buttons when callbacks are not provided', () => {
+    const game = {
+      winningScore: 6000,
+      setWinningScore: vi.fn(),
+      randomOrder: true,
+      setRandomOrder: vi.fn(),
+      initialCards: {}
+    };
+
+    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={false} />);
+
+    expect(screen.queryByTitle('Reset general settings to defaults')).toBeNull();
+    expect(screen.queryByTitle('Reset cards to default values')).toBeNull();
+  });
 });

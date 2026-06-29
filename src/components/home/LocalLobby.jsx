@@ -70,10 +70,12 @@ export default function LocalLobby({ game }) {
         />
       </div>
 
-      <AdvancedOptionsPanel 
-        showAdvanced={showAdvanced} 
-        game={game} 
-        isOnline={false} 
+      <AdvancedOptionsPanel
+        showAdvanced={showAdvanced}
+        game={game}
+        isOnline={false}
+        onResetGeneralSettings={() => game.resetGeneralSettings()}
+        onResetCards={() => game.resetInitialCards()}
       />
 
       <StartGameButton 
