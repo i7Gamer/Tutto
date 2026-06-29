@@ -119,9 +119,9 @@ describe('CardFace', () => {
   });
 
   describe('Kniffel card', () => {
-    it('renders 5 dice in the stacked layout', () => {
+    it('renders 6 dice in the stacked layout', () => {
       const { container } = render(<CardFace cardType="Kniffel" />);
-      expect(container.querySelectorAll('.stk .die-face').length).toBe(5);
+      expect(container.querySelectorAll('.stk .die-face').length).toBe(6);
     });
   });
 
@@ -141,10 +141,10 @@ describe('CardFace', () => {
   });
 
   describe('dice dot counts (verifies DICE_PATTERNS)', () => {
-    it('Kniffel stacked dice 1–5 have 15 total dots', () => {
+    it('Kniffel stacked dice 1–6 have 21 total dots', () => {
       const { container } = render(<CardFace cardType="Kniffel" />);
-      // dice 1+2+3+4+5 = 15 dots
-      expect(container.querySelectorAll('.stk .die-face i').length).toBe(15);
+      // dice 1+2+3+4+5+6 = 21 dots
+      expect(container.querySelectorAll('.stk .die-face i').length).toBe(21);
     });
 
     it('x2 grid dice 6–1 have 21 total dots', () => {

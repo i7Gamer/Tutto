@@ -48,9 +48,9 @@ function Kniffel() {
         <div style={{justifySelf:'end'}}><div className="crn" /></div>
       </div>
       <div className="cnt">
-        <div className="inr">
-          <div className="stk">
-            <Die value={1} /><Die value={2} /><Die value={3} /><Die value={4} /><Die value={5} />
+        <div className="inr" style={{ overflow: 'visible' }}>
+          <div className="stk" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}>
+            <Die value={1} /><Die value={2} /><Die value={3} /><Die value={4} /><Die value={5} /><Die value={6} />
           </div>
         </div>
       </div>
