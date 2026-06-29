@@ -391,7 +391,7 @@ describe('Game Component Integration', () => {
         currentCard: 'Plus_Minus',
       });
 
-      const { rerender } = render(<Game />);
+      render(<Game />);
 
       // Simulate DiceGame completion with success
       act(() => {

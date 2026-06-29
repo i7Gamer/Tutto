@@ -1,4 +1,5 @@
 import './card.css';
+import React from 'react';
 import type { CardType } from '../../../types';
 
 const DICE_PATTERNS: Record<number, number[]> = {

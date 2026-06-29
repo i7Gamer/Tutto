@@ -50,7 +50,7 @@ export default function Game() {
   const localCacheOnMountRef = useRef(!!localStorage.getItem('tutto_dice_turn_state'));
 
   useEffect(() => {
-    if (!isMyTurn) setShowDiceGame(false);
+    if (!isMyTurn) setShowDiceGame(false); // eslint-disable-line react-hooks/set-state-in-effect
   }, [isMyTurn]);
 
   useEffect(() => {

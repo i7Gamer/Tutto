@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Line } from 'react-chartjs-2';
 import {
@@ -44,9 +44,16 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   const { players, round, gameTimeInSeconds, startGame, endGame, chartLabels, chartNames, chartValues, leaveRoom } = game;
 
   const snapshotRef = useRef<Player[]>(players);
-  if (players.length >= snapshotRef.current.length) snapshotRef.current = players;
+  const [playerSnapshot, setPlayerSnapshot] = useState<Player[]>(players);
 
-  const sortedPlayers = computeRankedPlayers(snapshotRef.current);
+  useEffect(() => {
+    if (players.length >= snapshotRef.current.length) {
+      snapshotRef.current = players;
+      setPlayerSnapshot(players);
+    }
+  }, [players]);
+
+  const sortedPlayers = computeRankedPlayers(playerSnapshot);
   const winner = sortedPlayers[0];
   const formattedTime = formatTime(gameTimeInSeconds);
 

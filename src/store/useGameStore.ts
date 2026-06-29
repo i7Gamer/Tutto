@@ -248,7 +248,7 @@ export const useGameStore = create<GameStore>()(
       try {
         const stored = localStorage.getItem('tutto_local_game');
         if (stored) parsed = JSON.parse(stored) as Partial<GameStore>;
-      } catch (_e) {}
+      } catch {}
 
       set((state) => {
         state.deviceId = deviceId;
@@ -256,7 +256,7 @@ export const useGameStore = create<GameStore>()(
         try {
           const session = sessionStorage.getItem('tutto_online_session');
           if (session) state.pendingReconnectSession = JSON.parse(session) as ReconnectSession;
-        } catch (_e) {}
+        } catch {}
       });
 
       const storedDiceMode = localStorage.getItem('tutto_diceMode') as DiceMode | null;
@@ -269,7 +269,7 @@ export const useGameStore = create<GameStore>()(
         try {
           const stored = localStorage.getItem('tutto_local_game');
           if (stored) parsed = JSON.parse(stored) as Partial<GameStore>;
-        } catch (_e) {}
+        } catch {}
       }
 
       set((state) => {

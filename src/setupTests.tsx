@@ -27,7 +27,7 @@ if (typeof window !== 'undefined') {
     resume() { this.state = 'running'; return Promise.resolve(); }
     createOscillator() {
       return {
-        type: 'sine' as OscillatorType,
+        type: 'sine' as const,
         frequency: {
           value: 0,
           setValueAtTime: vi.fn(),

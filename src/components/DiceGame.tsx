@@ -43,6 +43,8 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
     return CARD_NAME_MAP[cardName] ?? cardName;
   };
 
+  const initRestoredRef = useRef(false);
+
   const [keptDice, setKeptDice] = useState<DieType[]>([]);
   const [currentRoll, setCurrentRoll] = useState<DieType[]>([]);
   const [displayRoll, setDisplayRoll] = useState<DieType[]>([]);
@@ -57,8 +59,13 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
   const [tuttosThisTurn, setTuttosThisTurn] = useState(0);
 
   useEffect(() => {
+    if (initRestoredRef.current) return;
     const restored = parseSavedDiceState(localStorage.getItem('tutto_dice_turn_state'));
     if (restored) {
+      initRestoredRef.current = true;
+
+      // Restoring saved dice game state from localStorage - intentional one-time initialization
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTurnScore(restored.turnScore);
       setKeptDice(restored.keptDice as DieType[]);
       setCurrentRoll(restored.currentRoll as DieType[]);

@@ -57,17 +57,17 @@ export default function GameControls({
   const [prevCard, setPrevCard] = useState<CardType | null>(currentCard);
   const [isFlipping, setIsFlipping] = useState(false);
 
+  // Synchronous render-time derived state: must run before paint so isFlipping
+  // is true on the same frame the new card arrives, preventing a visible flash.
   if (cardsLength !== prevCardsLength || currentCard !== prevCard) {
     setPrevCardsLength(cardsLength);
     setPrevCard(currentCard);
     if (!isTestEnv() && (currentCard || prevCard)) {
       setIsFlipping(true);
+    } else if (!currentCard) {
+      setIsFlipping(false);
     }
   }
-
-  useEffect(() => {
-    if (!currentCard && isFlipping) setIsFlipping(false);
-  }, [currentCard, isFlipping]);
 
   useEffect(() => {
     if (isFlipping && currentCard) {

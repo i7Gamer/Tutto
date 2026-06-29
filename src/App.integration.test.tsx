@@ -221,12 +221,10 @@ describe('App Integration (End-to-End)', () => {
 
   it('RestoreSessionPopup Cancel button triggers temp socket join+leave flow', async () => {
     const { io } = await import('socket.io-client');
-    let connectHandler = null;
 
     mockSocketInstance = {
       on: vi.fn((event, handler) => {
         if (event === 'connect') {
-          connectHandler = handler;
           // Simulate connection after a brief delay
           setTimeout(() => handler(), 5);
         }
@@ -286,7 +284,6 @@ describe('App Integration (End-to-End)', () => {
   });
 
   it('RestoreSessionPopup Cancel button cleans up on socket connect_error', async () => {
-    const { io } = await import('socket.io-client');
     let connectErrorHandler;
 
     mockSocketInstance = {
@@ -397,15 +394,10 @@ describe('App Integration (End-to-End)', () => {
   });
 
   it('RestoreSessionPopup Cancel handles socket timeout gracefully', async () => {
-    const { io } = await import('socket.io-client');
-    let connectHandler = null;
-    let connectErrorHandler = null;
+    let connectErrorHandler;
 
     mockSocketInstance = {
       on: vi.fn((event, handler) => {
-        if (event === 'connect') {
-          connectHandler = handler;
-        }
         if (event === 'connect_error') {
           connectErrorHandler = handler;
         }
@@ -479,12 +471,9 @@ describe('App Integration (End-to-End)', () => {
   });
 
   it('RestoreSessionPopup Cancel with multiple state mutations maintains consistency', async () => {
-    let connectHandler = null;
-
     mockSocketInstance = {
       on: vi.fn((event, handler) => {
         if (event === 'connect') {
-          connectHandler = handler;
           setTimeout(() => handler(), 5);
         }
       }),
@@ -569,8 +558,6 @@ describe('App Integration (End-to-End)', () => {
     };
 
     // Manually trigger the socket handler
-    const store = useGameStore.getState();
-    const connectHandler = vi.fn();
     const gameStateHandler = vi.fn((state) => {
       // Simulate what the actual gameState handler does
       useGameStore.setState((prev) => {
