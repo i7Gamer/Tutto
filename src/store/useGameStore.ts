@@ -436,7 +436,11 @@ export const useGameStore = create<GameStore>()(
       return new Promise((resolve) => {
         get().connectSocket();
         const savedColor = localStorage.getItem('tutto_color');
-        socket!.emit('joinRoom', { roomId: room, name, deviceId: get().deviceId, color: savedColor }, (res: JoinRoomResponse) => {
+        if (!socket) {
+          resolve({ success: false, error: 'Socket not connected' });
+          return;
+        }
+        socket.emit('joinRoom', { roomId: room, name, deviceId: get().deviceId, color: savedColor }, (res: JoinRoomResponse) => {
           if (res.success) {
             set({ roomId: room, isHost: res.isHost ?? false, myName: name, mode: 'online', isOnline: true });
             sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: room, myName: name }));
@@ -462,8 +466,8 @@ export const useGameStore = create<GameStore>()(
         roomId: null,
         isHost: false,
         myName: null,
-        mode: 'online',
-        isOnline: true,
+        mode: 'local',
+        isOnline: false,
         liveTurnState: null,
       });
     },
