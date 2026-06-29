@@ -32,7 +32,7 @@ playwright-report/
 scratch/
 
 # Claude Code scratchpad temp files (path-encoded filenames like C﹕Users...)
-C﹕*
+*scratchpad*
 
 # Claude Code local config
 .claude/
