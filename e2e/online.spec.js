@@ -43,11 +43,8 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     // Verify guest still sees host (ghost lobby fix)
     await expect(pageB.getByText('AliceHost').first()).toBeVisible();
     
-    // 4. Host reconnects
-    await pageA.getByRole('button', { name: /Online Play/i }).click();
-    await pageA.getByPlaceholder('e.g. 1234').fill(roomId);
-    await pageA.getByPlaceholder('e.g. Alice').fill('AliceHost');
-    await pageA.getByRole('button', { name: /Join \/ Create/i }).click();
+    // 4. Host reconnects via session restore popup (reload triggers it from sessionStorage)
+    await pageA.getByRole('button', { name: /Yes, Reconnect/i }).click();
 
     // 5. Verify host regains "Start Game!" button
     const startGameBtn = pageA.getByRole('button', { name: /Start Game!/i });
@@ -83,7 +80,7 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     await pageA.getByRole('button', { name: /Start Game!/i }).click();
 
     // Wait for game to initialize
-    await expect(pageA.getByRole('heading', { name: /Current Card/i })).toBeVisible();
+    await expect(pageA.getByText(/Current Player/i).first()).toBeVisible();
 
     // 4. Play Alice's turn until it is Bob's turn
     let aliceTurnActive = true;
@@ -124,8 +121,7 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     // Click roll dice
     await bobRollBtn.click();
 
-    // If Bob successfully pushed state, Alice should see Bob's new card/dice!
-    // Since Bob drew a card, Alice should see "Current Card" updated.
-    await expect(pageA.getByRole('heading', { name: /Current Card/i })).toBeVisible();
+    // If Bob successfully pushed state, Alice should see the game screen still active.
+    await expect(pageA.getByText(/Current Player/i).first()).toBeVisible();
   });
 });

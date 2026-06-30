@@ -564,6 +564,14 @@ io.on('connection', (socket: Socket) => {
           return;
         }
         room.host = nextHost.socketId;
+      } else if (
+        room.state.players.every(p => p.disconnected) &&
+        Object.keys(room.disconnectTimers).length === 0
+      ) {
+        // All remaining players are disconnected with no reconnect timers
+        // (e.g. reconnectTimeout=0). The room would never be cleaned up otherwise.
+        delete rooms[currentRoom];
+        return;
       }
       abortGameIfLowPlayers(room, currentRoom);
       emitRoomState(currentRoom);

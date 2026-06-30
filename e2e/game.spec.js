@@ -33,8 +33,8 @@ test.describe('Tutto Local Game Flow', () => {
     // Alice's turn should be active initially
     await expect(page.getByText('Alice', { exact: true }).first()).toBeVisible();
     
-    // Ensure the card display area is visible
-    await expect(page.getByRole('heading', { name: /Current Card/i })).toBeVisible();
+    // Ensure the game controls are visible (card display heading was removed during UI modernisation)
+    await expect(page.getByRole('button', { name: /Undo/i })).toBeVisible();
   });
 
   test('should persist local players after page reload', async ({ page }) => {

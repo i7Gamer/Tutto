@@ -73,6 +73,25 @@ export default defineConfig([
     },
   },
 
+  // Node-side TypeScript: Express/Socket.IO server source files.
+  {
+    files: ['server/**/*.ts'],
+    ignores: ['server/**/*.test.ts', 'server/**/*.integration.test.ts'],
+    plugins: { '@typescript-eslint': tseslint },
+    extends: [js.configs.recommended],
+    languageOptions: {
+      parser: tsParser,
+      globals: globals.node,
+      parserOptions: {
+        project: './tsconfig.server.json',
+      },
+    },
+    rules: {
+      ...sharedTsRules,
+      ...tseslint.configs.recommended.rules,
+    },
+  },
+
   // Node-side CommonJS: Express/Socket.IO server, migrations, .cjs scripts.
   {
     files: ['server/**/*.js', '**/*.cjs'],
