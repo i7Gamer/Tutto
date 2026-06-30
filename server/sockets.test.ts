@@ -15,15 +15,21 @@ describe('Server Socket E2E Simulation', () => {
 
   beforeAll(() => {
     return new Promise((resolve, reject) => {
+      // FORCE_INIT_DB makes the child run migrations against its in-memory DB so the
+      // endGameStats persistence tests can observe real writes (and verify scoping).
       serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: { ...process.env, PORT },
+        env: { ...process.env, PORT, FORCE_INIT_DB: 'true' },
         stdio: 'pipe'
       });
 
       let stdout = '';
+      let dbReady = false;
+      let serverListening = false;
+      const maybeResolve = () => { if (dbReady && serverListening) resolve(); };
       serverProcess.stdout.on('data', (data) => {
         stdout += data.toString();
-        if (stdout.includes('Server running on port')) resolve();
+        if (stdout.includes('Server running on port')) { serverListening = true; maybeResolve(); }
+        if (stdout.includes('Database migrated to the latest version')) { dbReady = true; maybeResolve(); }
       });
 
       serverProcess.stderr.on('data', (data) => {
@@ -1358,6 +1364,171 @@ describe('Server Socket E2E Simulation', () => {
           s1.disconnect();
           reject(new Error(`Server accepted invalid initialCards: ${JSON.stringify(cards)}`));
         }
+      });
+    });
+  }, 10000);
+
+  it('joinRoom returns an error (and does not crash) when name is missing', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Timed out')); }, 4000);
+
+      s1.on('connect', () => {
+        // No `name` field — previously crashed the handler at name.toLowerCase().
+        s1.emit('joinRoom', { roomId: 'BAD_JOIN_NONAME', deviceId: 'dev-bj-1' }, (res) => {
+          expect(res.error).toBeTruthy();
+          expect(res.success).toBeFalsy();
+
+          // Server must still be alive — a subsequent valid join must succeed.
+          s1.emit('joinRoom', { roomId: 'BAD_JOIN_NONAME', name: 'Alice', deviceId: 'dev-bj-1', color: '#ff0000' }, (res2) => {
+            expect(res2.success).toBe(true);
+            clearTimeout(timeoutId);
+            s1.disconnect();
+            resolve();
+          });
+        });
+      });
+    });
+  }, 10000);
+
+  it('joinRoom rejects an over-long name', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Timed out')); }, 4000);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'BAD_JOIN_LONGNAME', name: 'x'.repeat(31), deviceId: 'dev-bj-2' }, (res) => {
+          expect(res.error).toBeTruthy();
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          resolve();
+        });
+      });
+    });
+  }, 10000);
+
+  it('joinRoom without an ack callback does not crash the server', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Timed out')); }, 4000);
+
+      s1.on('connect', () => {
+        // Emit with no ack callback — the handler must not throw on callback(...).
+        s1.emit('joinRoom', { roomId: 'NO_CALLBACK_ROOM', name: 'Ghost', deviceId: 'dev-nc-1' });
+
+        // If the server survived, a normal join (with callback) still works.
+        setTimeout(() => {
+          const s2 = io(`http://127.0.0.1:${PORT}`);
+          s2.on('connect', () => {
+            s2.emit('joinRoom', { roomId: 'NO_CALLBACK_ROOM2', name: 'Alice', deviceId: 'dev-nc-2', color: '#ff0000' }, (res) => {
+              expect(res.success).toBe(true);
+              clearTimeout(timeoutId);
+              s1.disconnect();
+              s2.disconnect();
+              resolve();
+            });
+          });
+        }, 200);
+      });
+    });
+  }, 10000);
+
+  it('reorderPlayers with a non-array newPlayers payload is ignored without crashing', () => {
+    return new Promise((resolve) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const timeoutId = setTimeout(() => {
+        // No bad broadcast and server still responsive → pass.
+        s1.disconnect();
+        resolve();
+      }, 1500);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'REORDER_NONARRAY', name: 'Alice', deviceId: 'dev-rna-a', color: '#ff0000' }, () => {
+          // newPlayers is an object, not an array — must be ignored, not throw.
+          s1.emit('reorderPlayers', { roomId: 'REORDER_NONARRAY', newPlayers: { foo: 'bar' } });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        // The single real player must remain intact.
+        if (state.players && state.players.length !== 1) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          throw new Error('reorderPlayers with non-array payload altered the player list');
+        }
+      });
+    });
+  }, 10000);
+
+  it('endGameStats accepts a write for the socket\'s own device', () => {
+    return new Promise((resolve, reject) => {
+      const deviceId = 'dev-egs-self';
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Timed out')); }, 6000);
+
+      // setupTests replaces global.fetch with a mock that only matches relative
+      // URLs; the real implementation is preserved on global.__nativeFetch.
+      const realFetch = (globalThis as { __nativeFetch?: typeof fetch }).__nativeFetch ?? fetch;
+      const pollStats = async () => {
+        for (let i = 0; i < 20; i++) {
+          const res = await realFetch(`http://127.0.0.1:${PORT}/api/stats/${deviceId}`);
+          const body = await res.json();
+          if (body && body.gamesPlayed >= 1) return body;
+          await new Promise(r => setTimeout(r, 100));
+        }
+        return null;
+      };
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'EGS_SELF_ROOM', name: 'Alice', deviceId, color: '#ff0000' }, () => {
+          s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, wins: 1, totalScore: 1234 } });
+          pollStats().then((body) => {
+            try {
+              expect(body).not.toBeNull();
+              expect(body.gamesPlayed).toBeGreaterThanOrEqual(1);
+              clearTimeout(timeoutId);
+              s1.disconnect();
+              resolve();
+            } catch (e) {
+              clearTimeout(timeoutId);
+              s1.disconnect();
+              reject(e);
+            }
+          });
+        });
+      });
+    });
+  }, 10000);
+
+  it('endGameStats rejects a write for a device the socket does not own', () => {
+    return new Promise((resolve, reject) => {
+      const ownDevice = 'dev-egs-owner';
+      const foreignDevice = 'dev-egs-foreign';
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Timed out')); }, 6000);
+      const realFetch = (globalThis as { __nativeFetch?: typeof fetch }).__nativeFetch ?? fetch;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'EGS_FOREIGN_ROOM', name: 'Alice', deviceId: ownDevice, color: '#ff0000' }, () => {
+          // Attempt to write stats for a device this socket does not own — must be ignored.
+          s1.emit('endGameStats', { deviceId: foreignDevice, stats: { gamesPlayed: 99, totalScore: 999999 } });
+
+          // Give the server time to (not) process it, then confirm no row exists.
+          setTimeout(async () => {
+            try {
+              const res = await realFetch(`http://127.0.0.1:${PORT}/api/stats/${foreignDevice}`);
+              const body = await res.json();
+              expect(body.gamesPlayed === undefined || body.gamesPlayed === null).toBe(true);
+              clearTimeout(timeoutId);
+              s1.disconnect();
+              resolve();
+            } catch (e) {
+              clearTimeout(timeoutId);
+              s1.disconnect();
+              reject(e);
+            }
+          }, 600);
+        });
       });
     });
   }, 10000);

@@ -178,6 +178,24 @@ const initialLocalState: Omit<CoreGameState, never> & {
   justReconnected: false,
 };
 
+// Re-anchor the local game clock after a restore from localStorage. We persist
+// elapsed seconds (gameTimeInSeconds), not an absolute start time, so a resumed
+// in-progress local game has no live gameStartTime — without this the game timer
+// stays frozen at the saved value. Anchoring to "now minus elapsed" lets the clock
+// continue from where it left off without counting time the app was closed.
+const reanchorLocalClock = (state: {
+  mode: GameMode;
+  status: GameStatus;
+  finished: boolean;
+  currentPlayerIndex: number | null;
+  gameTimeInSeconds: number;
+  gameStartTime: number | null;
+}): void => {
+  if (state.mode === 'local' && state.status === 'playing' && !state.finished && state.currentPlayerIndex !== null) {
+    state.gameStartTime = Date.now() - (state.gameTimeInSeconds || 0) * 1000;
+  }
+};
+
 export const useGameStore = create<GameStore>()(
   immer((set, get) => ({
     mode: 'local',
@@ -252,7 +270,10 @@ export const useGameStore = create<GameStore>()(
 
       set((state) => {
         state.deviceId = deviceId;
-        if (parsed) Object.assign(state, parsed);
+        if (parsed) {
+          Object.assign(state, parsed);
+          reanchorLocalClock(state);
+        }
         try {
           const session = sessionStorage.getItem('tutto_online_session');
           if (session) state.pendingReconnectSession = JSON.parse(session) as ReconnectSession;
@@ -275,7 +296,10 @@ export const useGameStore = create<GameStore>()(
       set((state) => {
         state.mode = mode;
         state.isOnline = mode === 'online';
-        if (mode === 'local' && parsed) Object.assign(state, parsed);
+        if (mode === 'local' && parsed) {
+          Object.assign(state, parsed);
+          reanchorLocalClock(state);
+        }
       });
 
       if (mode === 'local') {
@@ -770,19 +794,32 @@ export const useGameStore = create<GameStore>()(
   })),
 );
 
+// The 1s game timer mutates gameTimeInSeconds every tick; persisting the whole
+// snapshot on each tick would rewrite localStorage once per second for the entire
+// game. We therefore skip the write unless something other than the timer changed
+// — the current gameTimeInSeconds still rides along whenever a real change is saved.
+let lastLocalPersistKey: string | null = null;
 useGameStore.subscribe((state) => {
-  if (state.mode === 'local') {
-    const localStateToSave = {
-      players: state.players, currentPlayerIndex: state.currentPlayerIndex,
-      currentCard: state.currentCard, cards: state.cards, round: state.round,
-      winningScore: state.winningScore, diceMode: state.diceMode,
-      initialCards: state.initialCards, randomOrder: state.randomOrder,
-      turnDuration: state.turnDuration, reconnectTimeout: state.reconnectTimeout,
-      finished: state.finished, gameTimeInSeconds: state.gameTimeInSeconds,
-      previousScore: state.previousScore, previousCard: state.previousCard,
-      previousLeaders: state.previousLeaders, chartValues: state.chartValues,
-      chartNames: state.chartNames, chartLabels: state.chartLabels, status: state.status,
-    };
-    localStorage.setItem('tutto_local_game', JSON.stringify(localStateToSave));
+  if (state.mode !== 'local') {
+    lastLocalPersistKey = null; // re-entering local mode should write once
+    return;
   }
+  // Everything except the per-second timer field forms the "stability key".
+  const stable = {
+    players: state.players, currentPlayerIndex: state.currentPlayerIndex,
+    currentCard: state.currentCard, cards: state.cards, round: state.round,
+    winningScore: state.winningScore, diceMode: state.diceMode,
+    initialCards: state.initialCards, randomOrder: state.randomOrder,
+    turnDuration: state.turnDuration, reconnectTimeout: state.reconnectTimeout,
+    finished: state.finished,
+    previousScore: state.previousScore, previousCard: state.previousCard,
+    previousLeaders: state.previousLeaders, chartValues: state.chartValues,
+    chartNames: state.chartNames, chartLabels: state.chartLabels, status: state.status,
+  };
+  const key = JSON.stringify(stable);
+  if (key === lastLocalPersistKey) return;
+  lastLocalPersistKey = key;
+  // The latest gameTimeInSeconds still rides along whenever a real change is saved.
+  const localStateToSave = { ...stable, gameTimeInSeconds: state.gameTimeInSeconds };
+  localStorage.setItem('tutto_local_game', JSON.stringify(localStateToSave));
 });

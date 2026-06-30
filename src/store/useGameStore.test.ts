@@ -64,6 +64,60 @@ describe('useGameStore', () => {
     expect(state.diceMode).toBe('digital');
   });
 
+  it('re-anchors the game clock when restoring an in-progress local game', () => {
+    // Saved games persist elapsed seconds, not an absolute start time. Restoring an
+    // in-progress game must re-anchor gameStartTime so the timer continues instead of
+    // freezing (regression: gameStartTime stayed null → tick no-ops → clock frozen).
+    const storedState = {
+      players: [{ name: 'Alice', color: '#ff0000', score: 100 }, { name: 'Bob', color: '#00ff00', score: 50 }],
+      status: 'playing',
+      currentPlayerIndex: 0,
+      finished: false,
+      round: 2,
+      gameTimeInSeconds: 50,
+    };
+    localStorage.setItem('tutto_local_game', JSON.stringify(storedState));
+
+    const before = Date.now();
+    useGameStore.getState().init('device-xyz');
+    const state = useGameStore.getState();
+
+    expect(state.gameStartTime).not.toBeNull();
+    // Anchored to ~now - 50s, so the derived elapsed continues from ~50.
+    const elapsed = Math.floor((before - (state.gameStartTime as number)) / 1000);
+    expect(elapsed).toBeGreaterThanOrEqual(49);
+    expect(elapsed).toBeLessThanOrEqual(51);
+  });
+
+  it('does not re-anchor the clock when the restored local game is not in progress', () => {
+    localStorage.setItem('tutto_local_game', JSON.stringify({
+      players: [{ name: 'Alice', color: '#ff0000', score: 0 }],
+      status: 'lobby',
+      currentPlayerIndex: null,
+      finished: false,
+      gameTimeInSeconds: 0,
+    }));
+    useGameStore.getState().init('device-xyz');
+    expect(useGameStore.getState().gameStartTime).toBeNull();
+  });
+
+  it('does not rewrite localStorage on a pure game-timer tick, but does on a real change', () => {
+    useGameStore.getState().addPlayer('Alice');
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+
+    // Simulate a 1s timer tick: only gameTimeInSeconds changes → must NOT persist.
+    useGameStore.setState({ gameTimeInSeconds: 999 });
+    const writesAfterTick = setItemSpy.mock.calls.filter(c => c[0] === 'tutto_local_game').length;
+    expect(writesAfterTick).toBe(0);
+
+    // A real state change (new player) must persist.
+    useGameStore.getState().addPlayer('Bob');
+    const writesAfterChange = setItemSpy.mock.calls.filter(c => c[0] === 'tutto_local_game').length;
+    expect(writesAfterChange).toBeGreaterThan(0);
+
+    setItemSpy.mockRestore();
+  });
+
   it('adds and removes players', () => {
     useGameStore.getState().addPlayer('Player 1');
     useGameStore.getState().addPlayer('Player 2');

@@ -241,9 +241,28 @@ io.on('connection', (socket: Socket) => {
   let username: string | null = null;
 
   socket.on('joinRoom', (
-    { roomId, name, deviceId, color }: { roomId: string; name: string; deviceId: string; color?: string },
+    { roomId, name, deviceId, color }: { roomId: string; name: string; deviceId: string; color?: string } =
+      {} as { roomId: string; name: string; deviceId: string; color?: string },
     callback: (result: { success: boolean; isHost?: boolean; socketId?: string; error?: string }) => void
   ) => {
+    // Reject malformed payloads before any field is used. Without these guards a
+    // client that omits the ack callback or sends a non-string name crashes the
+    // handler (e.g. name.toLowerCase() throws), which can take down the server.
+    if (typeof callback !== 'function') return;
+    if (typeof roomId !== 'string' || roomId.length === 0 || roomId.length > 100) {
+      return callback({ success: false, error: 'Invalid room' });
+    }
+    if (typeof deviceId !== 'string' || deviceId.length === 0 || deviceId.length > 200) {
+      return callback({ success: false, error: 'Invalid device' });
+    }
+    if (typeof name !== 'string') {
+      return callback({ success: false, error: 'Invalid name' });
+    }
+    name = name.trim();
+    if (name.length === 0 || name.length > 30) {
+      return callback({ success: false, error: 'Invalid name' });
+    }
+
     if (!rooms[roomId]) {
       rooms[roomId] = {
         host: socket.id,
@@ -369,9 +388,12 @@ io.on('connection', (socket: Socket) => {
     emitRoomState(roomId);
   });
 
-  socket.on('reorderPlayers', ({ roomId, newPlayers }: { roomId: string; newPlayers: { name: string }[] }) => {
+  socket.on('reorderPlayers', ({ roomId, newPlayers }: { roomId: string; newPlayers: { name: string }[] } =
+    {} as { roomId: string; newPlayers: { name: string }[] }) => {
     if (!rooms[roomId] || rooms[roomId].host !== socket.id) return;
     if (rooms[roomId].state.status !== 'lobby') return;
+    // Guard against non-array payloads, which would throw on the .map/.length below.
+    if (!Array.isArray(newPlayers)) return;
 
     const currentNames = new Set(rooms[roomId].state.players.map(p => p.name));
     const newNames = new Set(newPlayers.map(p => p.name));
@@ -516,8 +538,16 @@ io.on('connection', (socket: Socket) => {
     emitRoomState(roomId);
   });
 
-  socket.on('endGameStats', async ({ deviceId, stats }: { deviceId: string; stats: unknown }) => {
+  socket.on('endGameStats', async ({ deviceId, stats }: { deviceId: string; stats: unknown } =
+    {} as { deviceId: string; stats: unknown }) => {
     if (!deviceId) return;
+    // A socket may only submit stats for its OWN device, and only while it is a
+    // member of its current room. This mirrors the token gate on the HTTP path
+    // (POST /api/stats/:deviceId) so the socket route can't be used to write
+    // arbitrary device statistics.
+    const room = currentRoom ? rooms[currentRoom] : null;
+    const player = room?.state.players.find(p => p.socketId === socket.id);
+    if (!player || player.deviceId !== deviceId) return;
     try {
       await updateDeviceStats(deviceId, sanitizeStats(stats));
     } catch (err) {
