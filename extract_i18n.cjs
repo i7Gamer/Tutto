@@ -16,7 +16,7 @@ function walkSync(currentDirPath, callback) {
 const keys = {};
 
 walkSync('./src', (filePath) => {
-    if (filePath.endsWith('.jsx') || filePath.endsWith('.js')) {
+    if (filePath.endsWith('.tsx') || filePath.endsWith('.ts')) {
         const content = fs.readFileSync(filePath, 'utf8');
         // Matches t('key', 'default') or t("key", "default")
         // Also supports t('key', "default") etc.
