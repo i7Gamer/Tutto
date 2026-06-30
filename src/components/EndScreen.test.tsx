@@ -1,8 +1,19 @@
 import { render, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import EndScreen from './EndScreen';
 import { useGameStore } from '../store/useGameStore';
+
+// Capture the chart's `data` prop instead of rendering a real canvas.
+const chartCapture = vi.hoisted(() => ({ data: null as unknown }));
+vi.mock('react-chartjs-2', () => ({
+  Line: (props: { data: unknown }) => {
+    chartCapture.data = props.data;
+    return null;
+  },
+}));
+
+interface ChartDataset { label: string; data: number[]; borderColor: string; backgroundColor: string }
 
 describe('EndScreen Component', () => {
   beforeEach(() => {
@@ -106,5 +117,109 @@ describe('EndScreen Component', () => {
     const { container } = render(<EndScreen />);
     // Since we don't have a specific test ID, we can check if a canvas element exists (the chart uses canvas)
     expect(container.querySelector('canvas')).toBeNull();
+  });
+
+  it('binds chart lines to player identity (name + color), not chartNames order or the positional palette', () => {
+    // Reproduce the online desync: chartNames is in a stale/shuffled order, while
+    // the authoritative players array (and chartValues, which is filled in the same
+    // order) is the source of truth. Each line must follow players[i]/chartValues[i].
+    chartCapture.data = null;
+    useGameStore.setState({
+      players: [
+        { name: 'Alice', score: 10000, position: 1, color: '#abc123' },
+        { name: 'Bob', score: 5000, position: 2, color: '#def456' },
+      ],
+      chartValues: [[3000, 10000], [2000, 5000]],
+      chartNames: ['Bob', 'Alice'], // drifted order — must be ignored for rendering
+      chartLabels: [1, 2],
+      round: 2,
+    });
+
+    render(<EndScreen theme="light" deviceId="" />);
+
+    const datasets = (chartCapture.data as { datasets: ChartDataset[] }).datasets;
+
+    // Line 0 owns chartValues[0] → it is Alice, in Alice's color (not chartNames[0]='Bob', not palette).
+    expect(datasets[0].label).toBe('Alice');
+    expect(datasets[0].data).toEqual([3000, 10000]);
+    expect(datasets[0].borderColor).toBe('#abc123');
+
+    // Line 1 owns chartValues[1] → it is Bob, in Bob's color.
+    expect(datasets[1].label).toBe('Bob');
+    expect(datasets[1].data).toEqual([2000, 5000]);
+    expect(datasets[1].borderColor).toBe('#def456');
+  });
+
+  it('maintains snapshot when players array shrinks multiple times', () => {
+    const { getByText } = render(<EndScreen />);
+
+    // Initially: Alice (10k) > Bob (5k)
+    expect(getByText('end.winner Alice')).toBeInTheDocument();
+
+    // First shrink: remove Bob
+    act(() => {
+      useGameStore.setState({
+        players: [
+          { name: 'Alice', score: 10000, position: 1 }
+        ]
+      });
+    });
+
+    expect(getByText('end.winner Alice')).toBeInTheDocument();
+
+    // Even if re-render happens, snapshot should be frozen (no player data changes)
+    act(() => {
+      useGameStore.setState({
+        players: [
+          { name: 'Alice', score: 10000, position: 1 }
+        ]
+      });
+    });
+
+    expect(getByText('end.winner Alice')).toBeInTheDocument();
+  });
+
+  it('uses snapshot for rankings even when new higher-scored player arrives', () => {
+    const { getByText, queryByText } = render(<EndScreen />);
+
+    // Snapshot frozen: Alice (10k) wins
+    expect(getByText('end.winner Alice')).toBeInTheDocument();
+
+    // Player count increases with a new player who has higher score
+    act(() => {
+      useGameStore.setState({
+        players: [
+          { name: 'Alice', score: 10000, position: 1 },
+          { name: 'Bob', score: 5000, position: 2 },
+          { name: 'Charlie', score: 20000, position: 1 }
+        ]
+      });
+    });
+
+    // Snapshot updates (3 > 2), so Charlie becomes winner
+    expect(getByText('end.winner Charlie')).toBeInTheDocument();
+    expect(queryByText('end.winner Alice')).toBeNull();
+  });
+
+  it('updates snapshot only when players array grows (high-water mark)', () => {
+    const { getByText } = render(<EndScreen />);
+
+    // Initial: Alice (10k), Bob (5k) - Alice is winner
+    expect(getByText('end.winner Alice')).toBeInTheDocument();
+
+    // Add Charlie with higher score
+    act(() => {
+      useGameStore.setState({
+        players: [
+          { name: 'Alice', score: 10000, position: 1 },
+          { name: 'Bob', score: 5000, position: 2 },
+          { name: 'Charlie', score: 20000, position: 1 }
+        ]
+      });
+    });
+
+    // Snapshot should update (3 players > 2 players)
+    // New winner should be Charlie
+    expect(getByText('end.winner Charlie')).toBeInTheDocument();
   });
 });

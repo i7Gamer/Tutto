@@ -28,7 +28,7 @@ export const buildDeck = (initialCards: InitialCards): CardType[] => {
 
   const deck = shuffleArray(newCards);
 
-  for (let pass = 0; pass < 3; pass++) {
+  for (let pass = 0; pass < 5; pass++) {
     for (let i = 1; i < deck.length; i++) {
       if (deck[i] === deck[i - 1]) {
         let swapIdx = -1;

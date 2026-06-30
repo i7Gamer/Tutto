@@ -94,15 +94,23 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   const textColor = theme === 'dark' ? '#f8fafc' : '#1a1a1a';
   const gridColor = theme === 'dark' ? '#334155' : '#e5e7eb';
 
+  // Bind each line to the player that owns the data series (players[i] is
+  // index-aligned with chartValues[i]), so the name and color stay in sync with
+  // the leaderboard even after the start-of-game shuffle or custom color picks.
+  // chartNames is kept only as a defensive fallback.
   const chartData = {
     labels: chartLabels,
-    datasets: chartNames.map((name, i) => ({
-      label: name,
-      data: chartValues[i] ?? [],
-      borderColor: colors[i % colors.length],
-      backgroundColor: colors[i % colors.length],
-      tension: 0.2,
-    })),
+    datasets: chartValues.map((data, i) => {
+      const player = players[i];
+      const fallback = colors[i % colors.length];
+      return {
+        label: player?.name ?? chartNames[i] ?? `Player ${i + 1}`,
+        data: data ?? [],
+        borderColor: player?.color ?? fallback,
+        backgroundColor: player?.color ?? fallback,
+        tension: 0.2,
+      };
+    }),
   };
 
   const chartOptions = {

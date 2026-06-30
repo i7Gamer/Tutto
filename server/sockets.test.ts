@@ -298,6 +298,62 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
+  it('adopts the host-chosen player order when the game starts (online random shuffle)', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        s2.disconnect();
+        reject(new Error('Test timed out'));
+      }, 5000);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'E2E_STARTORDER', name: 'Alice', deviceId: 'dev-so-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'E2E_STARTORDER', name: 'Bob', deviceId: 'dev-so-b', color: '#00ff00' }, () => {
+            // Players joined as [Alice, Bob]. The host starts the game with a shuffled
+            // order [Bob, Alice] and chart arrays built in that same order.
+            const shuffled = [
+              { name: 'Bob', deviceId: 'dev-so-b', socketId: s2.id, disconnected: false, score: 0 },
+              { name: 'Alice', deviceId: 'dev-so-a', socketId: s1.id, disconnected: false, score: 0 },
+            ];
+            s1.emit('pushState', {
+              roomId: 'E2E_STARTORDER',
+              newState: {
+                players: shuffled,
+                status: 'playing',
+                currentPlayerIndex: 0,
+                chartNames: ['Bob', 'Alice'],
+                chartValues: [[], []],
+                chartLabels: [],
+              },
+            });
+          });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (state.status === 'playing' && state.players && state.players.length === 2) {
+          // Server must adopt the host's order so the turn order and the chart arrays
+          // agree: Bob first, Alice second — not the original join order.
+          expect(state.players[0].name).toBe('Bob');
+          expect(state.players[0].deviceId).toBe('dev-so-b');
+          expect(state.players[1].name).toBe('Alice');
+          expect(state.players[1].deviceId).toBe('dev-so-a');
+          // Identities/colors are kept from the server side, in the new order.
+          expect(state.players[0].color).toBe('#00ff00');
+          expect(state.players[1].color).toBe('#ff0000');
+          expect(state.chartNames).toEqual(['Bob', 'Alice']);
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          s2.disconnect();
+          resolve();
+        }
+      });
+    });
+  }, 10000);
+
   it('reorderPlayers preserves server-side player objects, ignoring injected client fields', () => {
     return new Promise((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host

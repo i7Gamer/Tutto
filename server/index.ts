@@ -8,6 +8,7 @@ import { Server, Socket } from 'socket.io';
 import cors from 'cors';
 import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } from './database';
 import { sanitizeStats } from './sanitize';
+import type { DiceSnapshot } from '../src/types';
 import playerColorsData from '../playerColors.json';
 
 const { PLAYER_COLORS } = playerColorsData;
@@ -68,7 +69,7 @@ interface RoomState {
   previousLeaders: ServerPlayer[] | null;
   previousWasBust?: boolean;
   previousHighestTurnScore?: number;
-  liveTurnState?: unknown;
+  liveTurnState?: DiceSnapshot | null;
 }
 
 interface TurnTimerState {
@@ -380,9 +381,9 @@ io.on('connection', (socket: Socket) => {
       newPlayers.every(p => currentNames.has(p.name));
 
     if (isPermutation) {
-      rooms[roomId].state.players = newPlayers.map(np =>
-        rooms[roomId].state.players.find(p => p.name === np.name)!
-      );
+      rooms[roomId].state.players = newPlayers
+        .map(np => rooms[roomId].state.players.find(p => p.name === np.name))
+        .filter((p): p is ServerPlayer => p !== undefined);
       rooms[roomId].state.randomOrder = false;
       emitRoomState(roomId);
     }
@@ -442,20 +443,42 @@ io.on('connection', (socket: Socket) => {
 
     const allowedFields = isHost ? ALL_FIELDS : ACTIVE_PLAYER_FIELDS;
 
+    // The host may legitimately reorder players (e.g. the random shuffle) only at
+    // the moment the game starts. Outside that transition the server keeps its own
+    // authoritative order so a stray push can never scramble the roster mid-game.
+    const startingGame = isHost && room.state.status === 'lobby' && newState.status === 'playing';
+
+    const mergeMutable = (existing: ServerPlayer, p: Record<string, unknown> | undefined): ServerPlayer => {
+      if (!p) return existing;
+      const updated = { ...existing };
+      for (const f of PLAYER_MUTABLE) {
+        if (f in p) (updated as Record<string, unknown>)[f] = p[f];
+      }
+      return updated;
+    };
+
     for (const key of allowedFields) {
       if (!(key in newState)) continue;
       if (key === 'players') {
-        const pushed = newState.players as unknown[];
+        const pushed = newState.players as Record<string, unknown>[];
         if (!validatePushedPlayers(room.state.players, pushed)) continue;
-        room.state.players = room.state.players.map(existing => {
-          const p = (pushed as Record<string, unknown>[]).find(q => q.deviceId === existing.deviceId);
-          if (!p) return existing;
-          const updated = { ...existing };
-          for (const f of PLAYER_MUTABLE) {
-            if (f in p) (updated as Record<string, unknown>)[f] = p[f];
-          }
-          return updated;
-        });
+
+        const pushedIds = pushed.map(p => p.deviceId as string);
+        const isStrictPermutation = new Set(pushedIds).size === room.state.players.length;
+
+        if (startingGame && isStrictPermutation) {
+          // Adopt the host's chosen ordering, but keep the server-side player
+          // identities and non-mutable fields. Keeps chartNames/chartValues
+          // (pushed in the same order) aligned with the authoritative roster.
+          const byDeviceId = new Map(room.state.players.map(p => [p.deviceId, p]));
+          room.state.players = pushedIds.map(id =>
+            mergeMutable(byDeviceId.get(id)!, pushed.find(q => q.deviceId === id)),
+          );
+        } else {
+          room.state.players = room.state.players.map(existing =>
+            mergeMutable(existing, pushed.find(q => q.deviceId === existing.deviceId)),
+          );
+        }
       } else {
         (room.state as unknown as Record<string, unknown>)[key] = newState[key];
       }

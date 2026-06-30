@@ -98,14 +98,14 @@ describe('coreGameEngine', () => {
     describe('smoothing algorithm — separation of duplicates', () => {
       it('nearly eliminates adjacent identical cards in standard diverse decks', () => {
         // Standard deck: most cards 5x, one card 10x
-        // With 3 passes, the algorithm prevents most 3+ clusters; occasionally 2 remains
+        // With 5 passes, the algorithm consistently prevents 3+ clusters
         const initialCards = {
           '200': 5, '300': 5, '400': 5, '500': 5, '600': 5,
           'Kniffel': 10, 'Plus_Minus': 5, 'x2': 5,
           'Feuerwerk': 5, 'Kleeblatt': 5, 'Stop': 5
         };
 
-        for (let run = 0; run < 10; run++) {
+        for (let run = 0; run < 20; run++) {
           const deck = buildDeck(initialCards);
           let maxCluster = 1;
           for (let i = 1; i < deck.length; i++) {
@@ -116,7 +116,7 @@ describe('coreGameEngine', () => {
             }
             maxCluster = Math.max(maxCluster, cluster);
           }
-          // With diverse cards (55 total, 11 types) and 3 passes: max 2 adjacent (excellent)
+          // With diverse cards (55 total, 11 types) and 5 passes: max 2 adjacent (excellent)
           expect(maxCluster).toBeLessThanOrEqual(2);
         }
       });
