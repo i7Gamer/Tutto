@@ -8,48 +8,27 @@ import { Server, Socket } from 'socket.io';
 import cors from 'cors';
 import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } from './database';
 import { sanitizeStats } from './sanitize';
-import type { DiceSnapshot } from '../src/types';
+import type { CardType, InitialCards, Player, DiceSnapshot } from '../src/types';
 import playerColorsData from '../playerColors.json';
 
 const { PLAYER_COLORS } = playerColorsData;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type CardType =
-  | 'Kleeblatt' | 'Feuerwerk' | 'Stop' | 'Kniffel' | 'Plus_Minus'
-  | 'x2' | '200' | '300' | '400' | '500' | '600';
-
-interface ServerPlayer {
-  name: string;
+// CardType / InitialCards / Player are shared with the client (src/types.ts) to
+// keep the card set and player shape from drifting. The server requires the
+// connection fields the client treats as optional, so narrow them here.
+type ServerPlayer = Omit<Player, 'deviceId' | 'socketId' | 'color' | 'disconnected'> & {
   deviceId: string;
   socketId: string;
-  score: number;
-  times1000PointsDeducted: number;
-  timesKniffelCompleted: number;
-  timesPlusMinusCompleted: number;
-  timesKniffelFailed: number;
-  timesKleeblattFailed: number;
-  timesKleeblattCompleted: number;
-  timesPlusMinusFailed: number;
-  timesFeuerwerkReceived: number;
-  timesSkipped: number;
-  timesx2Received: number;
-  totalTurns: number;
-  busts: number;
-  feuerwerkBusts: number;
-  x2Busts: number;
-  feuerwerkPointsScored: number;
-  x2PointsScored: number;
-  position: number;
   color: string;
   disconnected: boolean;
-  highestTurnScore?: number;
-}
+};
 
 interface RoomState {
   players: ServerPlayer[];
   status: 'lobby' | 'playing';
-  initialCards: Partial<Record<CardType, number>>;
+  initialCards: InitialCards;
   winningScore: number;
   randomOrder: boolean;
   turnDuration: number;
@@ -107,7 +86,7 @@ const VALID_CARD_TYPES = new Set<CardType>([
 ]);
 const MAX_CARD_COUNT = 99;
 
-const validateInitialCards = (cards: unknown): cards is Partial<Record<CardType, number>> => {
+const validateInitialCards = (cards: unknown): cards is InitialCards => {
   if (typeof cards !== 'object' || cards === null) return false;
   const entries = Object.entries(cards as Record<string, unknown>);
   if (entries.length === 0) return false;
@@ -147,7 +126,7 @@ const rooms: Record<string, Room> = {};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const buildShuffledDeck = (initialCards: Partial<Record<CardType, number>>): CardType[] => {
+const buildShuffledDeck = (initialCards: InitialCards): CardType[] => {
   const deck: CardType[] = Object.entries(initialCards).reduce<CardType[]>((acc, [card, count]) => {
     for (let i = 0; i < (count ?? 0); i++) acc.push(card as CardType);
     return acc;
