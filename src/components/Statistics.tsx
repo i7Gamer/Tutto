@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Trophy, Clock, Hash, FastForward, BarChart2, Globe, User, TrendingDown, TrendingUp, Zap, Repeat, Skull, XCircle, ArrowLeft } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
+import { parseJsonObject } from '../utils/parseJson';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import React from 'react';
@@ -168,8 +169,8 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
           fetch(`/api/stats/${deviceId}`),
           fetch('/api/stats/global'),
         ]);
-        if (personalRes.ok) setPersonalStats(await personalRes.json() as PersonalStats);
-        if (globalRes.ok) setGlobalStats(await globalRes.json() as GlobalStats);
+        if (personalRes.ok) setPersonalStats(await parseJsonObject<PersonalStats>(personalRes));
+        if (globalRes.ok) setGlobalStats(await parseJsonObject<GlobalStats>(globalRes));
       } catch (err) {
         console.error('Failed to load statistics:', err);
       } finally {

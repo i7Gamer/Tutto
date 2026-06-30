@@ -13,6 +13,7 @@ import {
 } from 'chart.js';
 import { Trophy, RotateCcw, Settings } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
+import { parseJsonObject } from '../utils/parseJson';
 import { computeRankedPlayers } from '../utils/coreGameEngine';
 import { motion } from 'framer-motion';
 import { useGameStore } from '../store/useGameStore';
@@ -68,7 +69,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
       try {
         const res = await fetch(`/api/stats/${deviceId}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json() as DeviceStats;
+        const data = await parseJsonObject<DeviceStats>(res);
 
         if ((!data || !data.gamesPlayed) && retries < 5) {
           timerId = setTimeout(() => void fetchStats(retries + 1), 1000);

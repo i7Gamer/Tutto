@@ -9,6 +9,7 @@ import {
   shuffleArray,
   buildGlobalStatsPayload,
 } from '../utils/coreGameEngine';
+import { parseJsonString } from '../utils/parseJson';
 import i18n from '../i18n';
 import playerColorsData from '../../playerColors.json';
 import type {
@@ -262,11 +263,7 @@ export const useGameStore = create<GameStore>()(
     },
 
     init: (deviceId: string) => {
-      let parsed: Partial<GameStore> | null = null;
-      try {
-        const stored = localStorage.getItem('tutto_local_game');
-        if (stored) parsed = JSON.parse(stored) as Partial<GameStore>;
-      } catch {}
+      const parsed = parseJsonString<Partial<GameStore>>(localStorage.getItem('tutto_local_game'));
 
       set((state) => {
         state.deviceId = deviceId;
@@ -274,10 +271,8 @@ export const useGameStore = create<GameStore>()(
           Object.assign(state, parsed);
           reanchorLocalClock(state);
         }
-        try {
-          const session = sessionStorage.getItem('tutto_online_session');
-          if (session) state.pendingReconnectSession = JSON.parse(session) as ReconnectSession;
-        } catch {}
+        const session = parseJsonString<ReconnectSession>(sessionStorage.getItem('tutto_online_session'));
+        if (session) state.pendingReconnectSession = session;
       });
 
       const storedDiceMode = localStorage.getItem('tutto_diceMode') as DiceMode | null;
@@ -285,13 +280,9 @@ export const useGameStore = create<GameStore>()(
     },
 
     setMode: (mode) => {
-      let parsed: Partial<GameStore> | null = null;
-      if (mode === 'local') {
-        try {
-          const stored = localStorage.getItem('tutto_local_game');
-          if (stored) parsed = JSON.parse(stored) as Partial<GameStore>;
-        } catch {}
-      }
+      const parsed = mode === 'local'
+        ? parseJsonString<Partial<GameStore>>(localStorage.getItem('tutto_local_game'))
+        : null;
 
       set((state) => {
         state.mode = mode;

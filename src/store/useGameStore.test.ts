@@ -64,6 +64,17 @@ describe('useGameStore', () => {
     expect(state.diceMode).toBe('digital');
   });
 
+  it('ignores a non-object localStorage value instead of corrupting state', () => {
+    // A valid-JSON-but-not-an-object value (e.g. a leftover string) must not be
+    // Object.assign'd into state. Previously JSON.parse('"corrupt"') → "corrupt"
+    // would spread string indices into the store.
+    localStorage.setItem('tutto_local_game', '"corrupt"');
+    useGameStore.getState().init('device-123');
+    const state = useGameStore.getState();
+    expect(state.players).toEqual([]);
+    expect(state.deviceId).toBe('device-123');
+  });
+
   it('re-anchors the game clock when restoring an in-progress local game', () => {
     // Saved games persist elapsed seconds, not an absolute start time. Restoring an
     // in-progress game must re-anchor gameStartTime so the timer continues instead of
