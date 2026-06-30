@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next';
-import { Check } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { isTestEnv } from '../../utils/env';
 import type { CardType } from '../../types';
@@ -12,13 +11,11 @@ interface SummaryData {
 
 interface DiceSummaryProps {
   summaryData: SummaryData;
-  bustState: boolean;
   bustCountdown: number | null;
-  finishGame: () => void;
   currentCard: CardType | null;
 }
 
-export default function DiceSummary({ summaryData, bustState, bustCountdown, finishGame, currentCard }: DiceSummaryProps) {
+export default function DiceSummary({ summaryData, bustCountdown, currentCard }: DiceSummaryProps) {
   const { t } = useTranslation();
 
   return (
@@ -44,28 +41,21 @@ export default function DiceSummary({ summaryData, bustState, bustCountdown, fin
           </p>
         )}
 
-      {bustState && !summaryData.won ? (
-        <div className="mt-10 flex flex-col items-center gap-3">
-          <p className="text-red-400 font-semibold text-lg">
-            {t('dice.auto_continuing', 'Continuing in {{count}}…', { count: bustCountdown ?? 0 })}
-          </p>
-          <div className="w-full bg-red-100 dark:bg-red-900/30 rounded-full h-2 overflow-hidden">
-            <motion.div
-              className="h-2 bg-red-500 rounded-full"
-              initial={{ width: '100%' }}
-              animate={{ width: '0%' }}
-              transition={{ duration: isTestEnv() ? 0 : 3, ease: 'linear' }}
-            />
-          </div>
+      {/* Both a success and a bust auto-continue to the next player after a short
+          countdown — only the colour differs (green for a win, red for a bust). */}
+      <div className="mt-10 flex flex-col items-center gap-3">
+        <p className={`font-semibold text-lg ${summaryData.won ? 'text-emerald-500' : 'text-red-400'}`}>
+          {t('dice.auto_continuing', 'Continuing in {{count}}…', { count: bustCountdown ?? 0 })}
+        </p>
+        <div className={`w-full rounded-full h-2 overflow-hidden ${summaryData.won ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
+          <motion.div
+            className={`h-2 rounded-full ${summaryData.won ? 'bg-emerald-500' : 'bg-red-500'}`}
+            initial={{ width: '100%' }}
+            animate={{ width: '0%' }}
+            transition={{ duration: isTestEnv() ? 0 : 3, ease: 'linear' }}
+          />
         </div>
-      ) : (
-        <button
-          className="mt-10 bg-indigo-600 hover:bg-indigo-700 text-white w-full py-4 rounded-xl text-xl font-bold flex justify-center items-center gap-2 shadow-lg shadow-indigo-500/30 transition-all"
-          onClick={finishGame}
-        >
-          {t('dice.continue', 'Continue to Next Player')} <Check size={24} />
-        </button>
-      )}
+      </div>
     </motion.div>
   );
 }

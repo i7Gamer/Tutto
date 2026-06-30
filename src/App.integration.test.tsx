@@ -119,20 +119,14 @@ describe('App Integration (End-to-End)', () => {
     actualDice.forEach(die => fireEvent.click(die));
 
     // After 1 Tutto on a 200 card, score should be 2200 points!
+    // The summary now auto-continues to the next player (same as a bust), so we
+    // assert on Alice's committed leaderboard score rather than the fleeting modal.
     const stopButton = await screen.findByText(/dice.stop_and_score/i);
     fireEvent.click(stopButton);
 
-    // Summary modal
+    // Auto-advance to Bob's turn; Alice's 2200 is recorded on the leaderboard.
     await waitFor(() => {
-      expect(screen.getByText(/dice.tutto/i)).toBeTruthy();
-      expect(screen.getByText(/2200/)).toBeTruthy();
-    });
-
-    const continueButton = screen.getByText(/dice.continue/i);
-    fireEvent.click(continueButton);
-
-    // Bob's turn
-    await waitFor(() => {
+      expect(screen.getAllByText(/2200/).length).toBeGreaterThan(0);
       expect(screen.getAllByText(/Bob/i).length).toBeGreaterThan(0);
     });
 
@@ -164,16 +158,8 @@ describe('App Integration (End-to-End)', () => {
     const stopBob = await screen.findByText(/dice.stop_and_score/i);
     fireEvent.click(stopBob);
 
-    // Bob's summary
-    await waitFor(() => {
-      expect(screen.getAllByText(/100/).length).toBeGreaterThan(0);
-    });
-
-    const continueBob = screen.getByText(/dice.continue/i);
-    fireEvent.click(continueBob);
-
-    // Round is over! Alice has 2200, Bob has 100. Winning score is 1000.
-    // End Screen should be shown!
+    // Bob's turn auto-continues too. Round is over! Alice has 2200, Bob has 100.
+    // Winning score is 1000, so the End Screen should be shown!
     await waitFor(() => {
       expect(screen.getByText(/end.winner Alice/i)).toBeTruthy();
       expect(screen.getAllByText(/2200/).length).toBeGreaterThan(0);

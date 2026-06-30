@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import GameControls from './GameControls';
+import type { CardType, DiceSnapshot, Player } from '../../types';
 
 describe('GameControls Animation State Pattern', () => {
   it('demonstrates synchronous state detection pattern', () => {
@@ -94,5 +97,96 @@ describe('GameControls Animation State Pattern', () => {
 
     expect(isFlipping).toBe(true);
     expect(prevCard).toBe('Kniffel');
+  });
+});
+
+describe('GameControls spectator view (online, not my turn)', () => {
+  const renderSpectator = (activeTurnState: DiceSnapshot, currentCard: CardType | null = null) =>
+    render(
+      <GameControls
+        currentCard={currentCard}
+        cardsLength={5}
+        isMyTurn={false}
+        diceMode="digital"
+        setShowDiceGame={vi.fn()}
+        scoreInput=""
+        setScoreInput={vi.fn()}
+        applyBonus={false}
+        setApplyBonus={vi.fn()}
+        handleNextTurn={vi.fn()}
+        handleYesNo={vi.fn()}
+        undo={vi.fn()}
+        endGame={vi.fn()}
+        isOnline={true}
+        isHost={false}
+        leaveRoom={vi.fn()}
+        activeTurnState={activeTurnState}
+        currentPlayer={{ name: 'Alice' } as Player}
+      />
+    );
+
+  // With currentRoll empty, the only single-digit texts on screen are the kept dice.
+  const keptDiceOrder = () => screen.getAllByText(/^[1-6]$/).map((el) => el.textContent);
+
+  it('sorts kept dice ascending for Kniffel when the first target is 1 (same as the active player)', () => {
+    renderSpectator(
+      {
+        turnScore: 300,
+        keptDice: [{ id: 'a', val: 5 }, { id: 'b', val: 1 }, { id: 'c', val: 3 }],
+        currentRoll: [],
+        kniffelProgress: [1],
+        tuttosThisTurn: 0,
+      },
+      'Kniffel'
+    );
+    expect(keptDiceOrder()).toEqual(['1', '3', '5']);
+  });
+
+  it('sorts kept dice descending for Kniffel when the first target is not 1', () => {
+    renderSpectator(
+      {
+        turnScore: 300,
+        keptDice: [{ id: 'a', val: 1 }, { id: 'b', val: 3 }, { id: 'c', val: 5 }],
+        currentRoll: [],
+        kniffelProgress: [6],
+        tuttosThisTurn: 0,
+      },
+      'Kniffel'
+    );
+    expect(keptDiceOrder()).toEqual(['5', '3', '1']);
+  });
+
+  it('leaves kept dice in their original order for non-Kniffel cards', () => {
+    renderSpectator(
+      {
+        turnScore: 300,
+        keptDice: [{ id: 'a', val: 5 }, { id: 'b', val: 1 }, { id: 'c', val: 3 }],
+        currentRoll: [],
+        kniffelProgress: [],
+        tuttosThisTurn: 0,
+      },
+      '200'
+    );
+    expect(keptDiceOrder()).toEqual(['5', '1', '3']);
+  });
+
+  it('marks busted dice red and shows no bust text', () => {
+    renderSpectator(
+      {
+        turnScore: 0,
+        keptDice: [],
+        currentRoll: [
+          { id: 'r1', val: 2, selected: false },
+          { id: 'r2', val: 4, selected: false },
+        ],
+        kniffelProgress: [],
+        tuttosThisTurn: 0,
+        busted: true,
+      },
+      '200'
+    );
+    expect(screen.queryByText('dice.bust_description')).toBeNull();
+    expect(screen.getByText('2').className).toContain('border-red-300');
+    expect(screen.getByText('4').className).toContain('border-red-300');
   });
 });

@@ -1,13 +1,11 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import DiceSummary from './DiceSummary';
 
 describe('DiceSummary', () => {
   const baseProps = {
     summaryData: { won: true, score: 500, isTutto: false },
-    bustState: false,
     bustCountdown: null,
-    finishGame: vi.fn(),
     currentCard: '200',
   };
 
@@ -71,67 +69,50 @@ describe('DiceSummary', () => {
     });
   });
 
-  describe('bust countdown', () => {
-    it('shows auto-continue message when busted and not won', () => {
+  // A win and a bust both auto-continue via the same countdown — no manual button.
+  describe('auto-continue countdown', () => {
+    it('shows the auto-continue message on a win (Tutto/stop)', () => {
+      render(
+        <DiceSummary
+          {...baseProps}
+          summaryData={{ won: true, score: 500, isTutto: false }}
+          bustCountdown={3}
+        />
+      );
+      expect(screen.getByText('dice.auto_continuing')).toBeInTheDocument();
+    });
+
+    it('shows the auto-continue message on a bust', () => {
       render(
         <DiceSummary
           {...baseProps}
           summaryData={{ won: false, score: 0, isTutto: false }}
-          bustState={true}
           bustCountdown={2}
         />
       );
       expect(screen.getByText('dice.auto_continuing')).toBeInTheDocument();
     });
 
-    it('does not show auto-continue message when bust is won (Feuerwerk)', () => {
+    it('shows the auto-continue message when Feuerwerk busts after scoring (won)', () => {
       render(
         <DiceSummary
           {...baseProps}
           summaryData={{ won: true, score: 200, isTutto: false }}
-          bustState={true}
           currentCard="Feuerwerk"
+          bustCountdown={1}
         />
       );
-      expect(screen.queryByText('dice.auto_continuing')).toBeNull();
-    });
-  });
-
-  describe('continue button', () => {
-    it('shows Continue button when not busted', () => {
-      render(<DiceSummary {...baseProps} />);
-      expect(screen.getByText('dice.continue')).toBeInTheDocument();
+      expect(screen.getByText('dice.auto_continuing')).toBeInTheDocument();
     });
 
-    it('shows Continue button when bustState but won (Feuerwerk scored)', () => {
-      render(
-        <DiceSummary
-          {...baseProps}
-          summaryData={{ won: true, score: 500, isTutto: false }}
-          bustState={true}
-          currentCard="Feuerwerk"
-        />
-      );
-      expect(screen.getByText('dice.continue')).toBeInTheDocument();
-    });
-
-    it('does not show Continue button when busted and lost', () => {
-      render(
-        <DiceSummary
-          {...baseProps}
-          summaryData={{ won: false, score: 0, isTutto: false }}
-          bustState={true}
-          bustCountdown={3}
-        />
+    it('never renders a manual continue button', () => {
+      const { rerender } = render(
+        <DiceSummary {...baseProps} summaryData={{ won: true, score: 500, isTutto: false }} />
       );
       expect(screen.queryByText('dice.continue')).toBeNull();
-    });
 
-    it('calls finishGame when Continue is clicked', () => {
-      const finishGame = vi.fn();
-      render(<DiceSummary {...baseProps} finishGame={finishGame} />);
-      fireEvent.click(screen.getByText('dice.continue'));
-      expect(finishGame).toHaveBeenCalledOnce();
+      rerender(<DiceSummary {...baseProps} summaryData={{ won: false, score: 0, isTutto: false }} />);
+      expect(screen.queryByText('dice.continue')).toBeNull();
     });
   });
 });

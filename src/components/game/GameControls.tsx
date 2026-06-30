@@ -3,6 +3,7 @@ import { Undo2, ChevronRight, Check, X, Dices } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { isTestEnv } from '../../utils/env';
+import { sortKeptDiceForDisplay } from '../../utils/diceTurnControls';
 import type { CardType, DiceSnapshot, Player } from '../../types';
 
 type DiceMode = 'digital' | 'physical';
@@ -220,8 +221,8 @@ export default function GameControls({
                     <div className="mb-4">
                       <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('game.controls.keptDice', 'Kept Dice')}</p>
                       <div className="flex gap-2 flex-wrap justify-center">
-                        {activeTurnState.keptDice.map((d, i) => (
-                          <div key={i} className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center text-xl font-bold border-2 border-indigo-400">
+                        {sortKeptDiceForDisplay(activeTurnState.keptDice, currentCard, activeTurnState.kniffelProgress).map((d) => (
+                          <div key={d.id} className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center text-xl font-bold border-2 border-indigo-400">
                             {d.val}
                           </div>
                         ))}
@@ -259,15 +260,6 @@ export default function GameControls({
                           );
                         })}
                       </div>
-                      {activeTurnState.busted && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="text-center text-red-500 text-lg font-black mt-3 bg-red-50 py-2 rounded-xl border border-red-100"
-                        >
-                          {t('dice.bust_description', 'Bust! (Volltreffer/Niete)')}
-                        </motion.div>
-                      )}
                     </div>
                   )}
                 </div>

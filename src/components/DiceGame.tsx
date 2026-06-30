@@ -280,8 +280,11 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
     onComplete(summaryDataRef.current.score || 0, summaryDataRef.current.won || false);
   }, [onComplete]);
 
+  // Auto-continue to the next player once the turn resolves — for a success the
+  // same way as for a bust (the spectator view relies on this turn ending on its
+  // own; only the active player can advance the shared game state).
   const bustCountdown = useBustCountdown({
-    shouldStart: showSummary && bustState && !summaryData.won,
+    shouldStart: showSummary,
     onElapsed: finishGame,
   });
 
@@ -314,7 +317,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
 
       <div className="p-8 w-full">
         {showSummary ? (
-          <DiceSummary summaryData={summaryData} bustState={bustState} bustCountdown={bustCountdown} finishGame={finishGame} currentCard={currentCard} />
+          <DiceSummary summaryData={summaryData} bustCountdown={bustCountdown} currentCard={currentCard} />
         ) : (
           <>
             <div className="text-center mb-8">
