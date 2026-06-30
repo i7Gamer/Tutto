@@ -1,11 +1,12 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import DiceSummary from './DiceSummary';
 
 describe('DiceSummary', () => {
   const baseProps = {
     summaryData: { won: true, score: 500, isTutto: false },
-    bustCountdown: null,
+    continueCountdown: null,
+    finishGame: vi.fn(),
     currentCard: '200',
   };
 
@@ -69,14 +70,14 @@ describe('DiceSummary', () => {
     });
   });
 
-  // A win and a bust both auto-continue via the same countdown — no manual button.
+  // A win and a bust both auto-continue via the same countdown, with a button to skip it.
   describe('auto-continue countdown', () => {
     it('shows the auto-continue message on a win (Tutto/stop)', () => {
       render(
         <DiceSummary
           {...baseProps}
           summaryData={{ won: true, score: 500, isTutto: false }}
-          bustCountdown={3}
+          continueCountdown={3}
         />
       );
       expect(screen.getByText('dice.auto_continuing')).toBeInTheDocument();
@@ -87,7 +88,7 @@ describe('DiceSummary', () => {
         <DiceSummary
           {...baseProps}
           summaryData={{ won: false, score: 0, isTutto: false }}
-          bustCountdown={2}
+          continueCountdown={2}
         />
       );
       expect(screen.getByText('dice.auto_continuing')).toBeInTheDocument();
@@ -99,20 +100,27 @@ describe('DiceSummary', () => {
           {...baseProps}
           summaryData={{ won: true, score: 200, isTutto: false }}
           currentCard="Feuerwerk"
-          bustCountdown={1}
+          continueCountdown={1}
         />
       );
       expect(screen.getByText('dice.auto_continuing')).toBeInTheDocument();
     });
 
-    it('never renders a manual continue button', () => {
+    it('renders a skip button on both a win and a bust', () => {
       const { rerender } = render(
         <DiceSummary {...baseProps} summaryData={{ won: true, score: 500, isTutto: false }} />
       );
-      expect(screen.queryByText('dice.continue')).toBeNull();
+      expect(screen.getByText('dice.continue')).toBeInTheDocument();
 
       rerender(<DiceSummary {...baseProps} summaryData={{ won: false, score: 0, isTutto: false }} />);
-      expect(screen.queryByText('dice.continue')).toBeNull();
+      expect(screen.getByText('dice.continue')).toBeInTheDocument();
+    });
+
+    it('calls finishGame when the skip button is clicked', () => {
+      const finishGame = vi.fn();
+      render(<DiceSummary {...baseProps} finishGame={finishGame} />);
+      fireEvent.click(screen.getByText('dice.continue'));
+      expect(finishGame).toHaveBeenCalledOnce();
     });
   });
 });

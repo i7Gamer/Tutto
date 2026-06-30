@@ -1,13 +1,13 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { useBustCountdown } from './useBustCountdown';
+import { useAutoContinueCountdown } from './useAutoContinueCountdown';
 
 // Control isTestEnv so we can exercise both the instant (test) path and the
 // real 3-2-1 countdown path.
 const isTestEnv = vi.fn();
 vi.mock('../utils/env', () => ({ isTestEnv: () => isTestEnv() }));
 
-describe('useBustCountdown', () => {
+describe('useAutoContinueCountdown', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     isTestEnv.mockReturnValue(false);
@@ -20,7 +20,7 @@ describe('useBustCountdown', () => {
 
   it('stays idle (null) while shouldStart is false', () => {
     const onElapsed = vi.fn();
-    const { result } = renderHook(() => useBustCountdown({ shouldStart: false, onElapsed }));
+    const { result } = renderHook(() => useAutoContinueCountdown({ shouldStart: false, onElapsed }));
 
     expect(result.current).toBeNull();
     act(() => vi.advanceTimersByTime(5000));
@@ -29,7 +29,7 @@ describe('useBustCountdown', () => {
 
   it('counts down 3 → 2 → 1 then calls onElapsed', () => {
     const onElapsed = vi.fn();
-    const { result } = renderHook(() => useBustCountdown({ shouldStart: true, onElapsed }));
+    const { result } = renderHook(() => useAutoContinueCountdown({ shouldStart: true, onElapsed }));
 
     expect(result.current).toBe(3);
 
@@ -50,7 +50,7 @@ describe('useBustCountdown', () => {
   it('only starts once and ignores shouldStart toggling back and forth', () => {
     const onElapsed = vi.fn();
     const { result, rerender } = renderHook(
-      ({ shouldStart }) => useBustCountdown({ shouldStart, onElapsed }),
+      ({ shouldStart }) => useAutoContinueCountdown({ shouldStart, onElapsed }),
       { initialProps: { shouldStart: true } }
     );
 
@@ -68,7 +68,7 @@ describe('useBustCountdown', () => {
     const first = vi.fn();
     const second = vi.fn();
     const { rerender } = renderHook(
-      ({ cb }) => useBustCountdown({ shouldStart: true, onElapsed: cb }),
+      ({ cb }) => useAutoContinueCountdown({ shouldStart: true, onElapsed: cb }),
       { initialProps: { cb: first } }
     );
 
@@ -83,7 +83,7 @@ describe('useBustCountdown', () => {
   it('in test mode collapses to 0 and fires immediately', () => {
     isTestEnv.mockReturnValue(true);
     const onElapsed = vi.fn();
-    const { result } = renderHook(() => useBustCountdown({ shouldStart: true, onElapsed }));
+    const { result } = renderHook(() => useAutoContinueCountdown({ shouldStart: true, onElapsed }));
 
     expect(result.current).toBe(0);
     act(() => vi.advanceTimersByTime(0));

@@ -6,7 +6,7 @@ import confetti from 'canvas-confetti';
 import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from '../utils/diceLogic';
 import { parseSavedDiceState, buildDiceSnapshot } from '../utils/diceTurnState';
 import { deriveTurnControls, sortKeptDiceForDisplay } from '../utils/diceTurnControls';
-import { useBustCountdown } from '../hooks/useBustCountdown';
+import { useAutoContinueCountdown } from '../hooks/useAutoContinueCountdown';
 import { isTestEnv } from '../utils/env';
 import { motion, AnimatePresence } from 'framer-motion';
 import Die from './game/Die';
@@ -283,7 +283,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
   // Auto-continue to the next player once the turn resolves — for a success the
   // same way as for a bust (the spectator view relies on this turn ending on its
   // own; only the active player can advance the shared game state).
-  const bustCountdown = useBustCountdown({
+  const continueCountdown = useAutoContinueCountdown({
     shouldStart: showSummary,
     onElapsed: finishGame,
   });
@@ -317,7 +317,7 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
 
       <div className="p-8 w-full">
         {showSummary ? (
-          <DiceSummary summaryData={summaryData} bustCountdown={bustCountdown} currentCard={currentCard} />
+          <DiceSummary summaryData={summaryData} continueCountdown={continueCountdown} finishGame={finishGame} currentCard={currentCard} />
         ) : (
           <>
             <div className="text-center mb-8">

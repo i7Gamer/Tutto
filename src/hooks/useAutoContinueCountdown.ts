@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { isTestEnv } from '../utils/env';
 
-interface UseBustCountdownOptions {
+interface UseAutoContinueCountdownOptions {
   shouldStart: boolean;
   onElapsed: () => void;
 }
 
-export function useBustCountdown({ shouldStart, onElapsed }: UseBustCountdownOptions): number | null {
-  const [bustCountdown, setBustCountdown] = useState<number | null>(null);
+export function useAutoContinueCountdown({ shouldStart, onElapsed }: UseAutoContinueCountdownOptions): number | null {
+  const [countdown, setCountdown] = useState<number | null>(null);
   const startedRef = useRef(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -19,10 +19,10 @@ export function useBustCountdown({ shouldStart, onElapsed }: UseBustCountdownOpt
     startedRef.current = true;
 
     const AUTO_CONTINUE_MS = isTestEnv() ? 0 : 3000;
-    setBustCountdown(isTestEnv() ? 0 : 3);
+    setCountdown(isTestEnv() ? 0 : 3);
 
     timeoutRef.current = setTimeout(() => {
-      setBustCountdown(null);
+      setCountdown(null);
       onElapsedRef.current();
     }, AUTO_CONTINUE_MS);
   }, [shouldStart]);
@@ -30,12 +30,12 @@ export function useBustCountdown({ shouldStart, onElapsed }: UseBustCountdownOpt
   useEffect(() => () => { if (timeoutRef.current !== null) clearTimeout(timeoutRef.current); }, []);
 
   useEffect(() => {
-    if (bustCountdown === null || bustCountdown <= 0 || isTestEnv()) return;
+    if (countdown === null || countdown <= 0 || isTestEnv()) return;
     const id = setTimeout(() => {
-      setBustCountdown(prev => (prev !== null && prev > 1 ? prev - 1 : prev));
+      setCountdown(prev => (prev !== null && prev > 1 ? prev - 1 : prev));
     }, 1000);
     return () => clearTimeout(id);
-  }, [bustCountdown]);
+  }, [countdown]);
 
-  return bustCountdown;
+  return countdown;
 }

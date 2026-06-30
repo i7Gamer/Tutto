@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { Check } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { isTestEnv } from '../../utils/env';
 import type { CardType } from '../../types';
@@ -11,11 +12,12 @@ interface SummaryData {
 
 interface DiceSummaryProps {
   summaryData: SummaryData;
-  bustCountdown: number | null;
+  continueCountdown: number | null;
+  finishGame: () => void;
   currentCard: CardType | null;
 }
 
-export default function DiceSummary({ summaryData, bustCountdown, currentCard }: DiceSummaryProps) {
+export default function DiceSummary({ summaryData, continueCountdown, finishGame, currentCard }: DiceSummaryProps) {
   const { t } = useTranslation();
 
   return (
@@ -42,10 +44,11 @@ export default function DiceSummary({ summaryData, bustCountdown, currentCard }:
         )}
 
       {/* Both a success and a bust auto-continue to the next player after a short
-          countdown — only the colour differs (green for a win, red for a bust). */}
+          countdown — only the colour differs (green for a win, red for a bust).
+          The button lets the player skip the wait and continue immediately. */}
       <div className="mt-10 flex flex-col items-center gap-3">
         <p className={`font-semibold text-lg ${summaryData.won ? 'text-emerald-500' : 'text-red-400'}`}>
-          {t('dice.auto_continuing', 'Continuing in {{count}}…', { count: bustCountdown ?? 0 })}
+          {t('dice.auto_continuing', 'Continuing in {{count}}…', { count: continueCountdown ?? 0 })}
         </p>
         <div className={`w-full rounded-full h-2 overflow-hidden ${summaryData.won ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
           <motion.div
@@ -55,6 +58,12 @@ export default function DiceSummary({ summaryData, bustCountdown, currentCard }:
             transition={{ duration: isTestEnv() ? 0 : 3, ease: 'linear' }}
           />
         </div>
+        <button
+          className="mt-2 bg-indigo-600 hover:bg-indigo-700 text-white w-full py-3 rounded-xl text-lg font-bold flex justify-center items-center gap-2 shadow-lg shadow-indigo-500/30 transition-all"
+          onClick={finishGame}
+        >
+          {t('dice.continue', 'Continue to Next Player')} <Check size={22} />
+        </button>
       </div>
     </motion.div>
   );
