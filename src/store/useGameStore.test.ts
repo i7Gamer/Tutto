@@ -846,7 +846,8 @@ describe('useGameStore', () => {
       expect(newElapsed).toBe(45);
     });
 
-    it('game timer increments correctly via gameStartTime reference', async () => {
+    it('game timer increments correctly via gameStartTime reference', () => {
+      vi.useFakeTimers();
       // gameTimeInSeconds=0 → syncOnlineTimers sets gameStartTime → interval uses that path
       useGameStore.setState({
         mode: 'online',
@@ -860,13 +861,15 @@ describe('useGameStore', () => {
       useGameStore.getState().syncOnlineTimers();
       const initial = useGameStore.getState().gameTimeInSeconds;
 
-      await new Promise(resolve => setTimeout(resolve, 1100));
+      vi.advanceTimersByTime(1100);
 
       const afterWait = useGameStore.getState().gameTimeInSeconds;
-      expect(afterWait).toBeGreaterThanOrEqual(initial + 1);
+      expect(afterWait).toBeGreaterThanOrEqual(initial! + 1);
+      vi.useRealTimers();
     });
 
-    it('game timer does not tick when gameStartTime is null (null gameTimeInSeconds skips anchor)', async () => {
+    it('game timer does not tick when gameStartTime is null (null gameTimeInSeconds skips anchor)', () => {
+      vi.useFakeTimers();
       // gameTimeInSeconds=null → syncOnlineTimers cannot anchor gameStartTime → timer fires but does nothing
       useGameStore.setState({
         mode: 'online',
@@ -880,10 +883,11 @@ describe('useGameStore', () => {
       useGameStore.getState().syncOnlineTimers();
       expect(useGameStore.getState().gameStartTime).toBeNull(); // Confirm no anchor was set
 
-      await new Promise(resolve => setTimeout(resolve, 1100));
+      vi.advanceTimersByTime(1100);
 
       // Without gameStartTime the timer interval has nothing to compute — value stays null.
       expect(useGameStore.getState().gameTimeInSeconds).toBeNull();
+      vi.useRealTimers();
     });
     });
 
@@ -1539,11 +1543,16 @@ describe('useGameStore', () => {
         rollingDiceIds: ['die-3']
       };
 
+      useGameStore.setState({
+        players: [{ name: 'TestPlayer' } as any],
+        currentPlayerIndex: 0
+      });
+
       useGameStore.getState().setLiveTurnState(turnState);
 
       const saved = localStorage.getItem('tutto_dice_turn_state');
       expect(saved).toBeDefined();
-      expect(JSON.parse(saved)).toEqual(turnState);
+      expect(JSON.parse(saved!)).toEqual({ ...turnState, playerName: 'TestPlayer' });
     });
 
     it('setLiveTurnState does not save null state to localStorage', () => {
@@ -1586,6 +1595,42 @@ describe('useGameStore', () => {
       useGameStore.getState().endGame();
 
       expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
+    });
+  });
+
+  describe('init state restoration', () => {
+    it('clears tutto_dice_turn_state if the active player does not match the cached player name in local mode', () => {
+      useGameStore.setState({
+        mode: 'local',
+        players: [{ name: 'Alice' }, { name: 'Bob' }] as any,
+        currentPlayerIndex: 1,
+      });
+
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+        turnScore: 1000,
+        playerName: 'Alice',
+      }));
+
+      useGameStore.getState().init('test-device-id');
+
+      expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
+    });
+
+    it('keeps tutto_dice_turn_state if the active player matches the cached player name in local mode', () => {
+      useGameStore.setState({
+        mode: 'local',
+        players: [{ name: 'Alice' }, { name: 'Bob' }] as any,
+        currentPlayerIndex: 1,
+      });
+
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+        turnScore: 1000,
+        playerName: 'Bob',
+      }));
+
+      useGameStore.getState().init('test-device-id');
+
+      expect(localStorage.getItem('tutto_dice_turn_state')).not.toBeNull();
     });
   });
 
