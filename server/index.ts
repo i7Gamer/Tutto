@@ -8,7 +8,8 @@ import { Server, Socket } from 'socket.io';
 import cors from 'cors';
 import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } from './database';
 import { sanitizeStats } from './sanitize';
-import type { CardType, InitialCards, Player, DiceSnapshot } from '../src/types';
+import type { CardType, InitialCards, Player, DiceSnapshot, CoreGameState } from '../src/types';
+import { calculateNextTurn } from '../src/utils/coreGameEngine';
 import playerColorsData from '../playerColors.json';
 
 const { PLAYER_COLORS } = playerColorsData;
@@ -40,7 +41,7 @@ interface RoomState {
   finished: boolean;
   chartValues: number[][];
   chartNames: string[];
-  chartLabels: string[];
+  chartLabels: number[];
   gameTimeInSeconds: number;
   turnStartTime: number | null;
   previousCard: CardType | null;
@@ -62,6 +63,7 @@ interface Room {
   gameActualStartTime: number | null;
   turnTimerState: TurnTimerState | null;
   disconnectTimers: Record<string, ReturnType<typeof setTimeout>>;
+  turnExpireTimer: ReturnType<typeof setTimeout> | null;
 }
 
 // ─── App setup ────────────────────────────────────────────────────────────────
@@ -201,8 +203,128 @@ const emitRoomState = (roomId: string): void => {
   io.to(roomId).emit('hostId', room.host);
 };
 
+const clearServerTurnTimer = (roomId: string): void => {
+  const room = rooms[roomId];
+  if (!room || !room.turnExpireTimer) return;
+  clearTimeout(room.turnExpireTimer);
+  room.turnExpireTimer = null;
+};
+
+// The server is the sole authority on turn expiry: no client (host or otherwise)
+// advances the turn on timeout anymore. This runs even if every player has
+// disconnected, so a dead host tab or a backgrounded/throttled client tab can
+// never stall the game for everyone else.
+const advanceTurnOnTimeout = (roomId: string): void => {
+  const room = rooms[roomId];
+  if (!room) return;
+  room.turnExpireTimer = null;
+
+  if (room.state.finished || room.state.status !== 'playing' || room.state.currentPlayerIndex === null) {
+    return;
+  }
+  const currentPlayerIndex = room.state.currentPlayerIndex;
+
+  // calculateNextTurn only reads players/currentPlayerIndex/currentCard/round/
+  // winningScore/cards/initialCards — the remaining CoreGameState fields are
+  // unused by it but required by the type, so they're filled with inert values.
+  const stateForCalc = {
+    players: room.state.players,
+    currentPlayerIndex,
+    currentCard: room.state.currentCard,
+    round: room.state.round,
+    winningScore: room.state.winningScore,
+    cards: room.state.cards,
+    initialCards: room.state.initialCards,
+    previousCard: room.state.previousCard,
+    previousScore: room.state.previousScore,
+    previousLeaders: room.state.previousLeaders,
+    previousWasBust: room.state.previousWasBust ?? false,
+    previousHighestTurnScore: room.state.previousHighestTurnScore ?? 0,
+    finished: room.state.finished,
+    gameStartTime: null,
+    gameTimeInSeconds: room.state.gameTimeInSeconds,
+  };
+
+  // Timeout = the player neither scored nor answered in time, same as a manual
+  // "Stop & Score 0" — matches what the client used to send on host-side expiry.
+  const result = calculateNextTurn(
+    stateForCalc as unknown as CoreGameState & { currentPlayerIndex: number },
+    0,
+    false,
+  );
+
+  room.state.players = result.players as ServerPlayer[];
+  room.state.previousCard = result.previousCard;
+  room.state.previousScore = result.previousScore;
+  room.state.previousLeaders = result.previousLeaders as ServerPlayer[] | null;
+  room.state.previousWasBust = result.previousWasBust;
+  room.state.previousHighestTurnScore = result.previousHighestTurnScore;
+  room.state.liveTurnState = null;
+
+  if (result.isRoundEnd) {
+    room.state.chartValues.forEach((vals, i) => vals.push(result.players[i]?.score ?? 0));
+    room.state.chartLabels.push(room.state.round);
+  }
+
+  if (!room.turnTimerState) {
+    room.turnTimerState = { lastCard: null, lastPlayerIndex: null };
+  }
+
+  if (result.isGameOver) {
+    room.state.finished = true;
+    room.state.currentPlayerIndex = null;
+    room.state.currentCard = null;
+    room.state.turnStartTime = null;
+    if (room.gameActualStartTime) {
+      room.state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / 1000);
+      room.gameActualStartTime = null;
+    }
+    room.turnTimerState.lastCard = null;
+    room.turnTimerState.lastPlayerIndex = null;
+  } else {
+    room.state.currentPlayerIndex = result.nextIndex;
+    room.state.round = result.nextRound;
+    room.state.cards = result.newDeck;
+    room.state.currentCard = result.drawnCard;
+    room.state.turnStartTime = Date.now();
+    // Mark this as the "already seen" turn so the next pushState's cardChanged/
+    // playerChanged check doesn't treat it as a fresh turn and reschedule again.
+    room.turnTimerState.lastCard = result.drawnCard;
+    room.turnTimerState.lastPlayerIndex = result.nextIndex;
+    startServerTurnTimer(roomId);
+  }
+
+  emitRoomState(roomId);
+};
+
+// Schedules (or reschedules) the server-side expiry for the room's current turn,
+// based on room.state.turnStartTime and the authoritative remaining-time formula
+// (calculateRemainingTurnTime) — the same value clients are shown. Safe to call
+// repeatedly: it always clears any existing timer first, so config changes or
+// player-removal events mid-turn can simply call this again to resync.
+const startServerTurnTimer = (roomId: string): void => {
+  clearServerTurnTimer(roomId);
+  const room = rooms[roomId];
+  if (!room) return;
+  if (room.state.status !== 'playing' || room.state.finished || room.state.currentPlayerIndex === null) return;
+  if (!room.state.turnDuration || !room.state.turnStartTime) return;
+
+  const remainingSeconds = calculateRemainingTurnTime(room);
+  if (remainingSeconds === null) return;
+
+  if (remainingSeconds <= 0) {
+    // Duration was shortened below the already-elapsed time (e.g. host lowered
+    // turnDuration mid-turn) — the turn is already over, advance immediately.
+    advanceTurnOnTimeout(roomId);
+    return;
+  }
+
+  room.turnExpireTimer = setTimeout(() => advanceTurnOnTimeout(roomId), remainingSeconds * 1000);
+};
+
 const abortGameIfLowPlayers = (room: Room, roomId: string): boolean => {
   if (room.state.status === 'playing' && room.state.players.length < 2) {
+    clearServerTurnTimer(roomId);
     io.to(roomId).emit('gameAborted');
     room.state.status = 'lobby';
     room.state.currentCard = null;
@@ -248,6 +370,7 @@ io.on('connection', (socket: Socket) => {
         gameActualStartTime: null,
         turnTimerState: null,
         disconnectTimers: {},
+        turnExpireTimer: null,
         state: {
           players: [],
           status: 'lobby',
@@ -370,6 +493,9 @@ io.on('connection', (socket: Socket) => {
     if (typeof randomOrder === 'boolean') s.randomOrder = randomOrder;
     if (typeof turnDuration === 'number' && (turnDuration === 0 || (turnDuration >= 10 && turnDuration <= 600))) s.turnDuration = turnDuration;
     if (typeof reconnectTimeout === 'number' && (reconnectTimeout === 0 || (reconnectTimeout >= 10 && reconnectTimeout <= 3600))) s.reconnectTimeout = reconnectTimeout;
+    // Resync the pending expiry to the (possibly just-changed) turnDuration. A
+    // no-op if no turn is in progress; startServerTurnTimer's own guards handle that.
+    startServerTurnTimer(roomId);
     emitRoomState(roomId);
   });
 
@@ -420,9 +546,13 @@ io.on('connection', (socket: Socket) => {
     }
 
     if (room.state.players.length === 0) {
+      clearServerTurnTimer(currentRoom);
       delete rooms[currentRoom];
     } else {
-      abortGameIfLowPlayers(room, currentRoom);
+      const aborted = abortGameIfLowPlayers(room, currentRoom);
+      // If the kicked player was mid-turn, handleActivePlayerRemoved already
+      // reset turnStartTime for the player now in their slot — resync the timer.
+      if (!aborted) startServerTurnTimer(currentRoom);
       emitRoomState(currentRoom);
     }
 
@@ -506,9 +636,11 @@ io.on('connection', (socket: Socket) => {
       room.state.turnStartTime = Date.now();
       room.turnTimerState.lastCard = room.state.currentCard;
       room.turnTimerState.lastPlayerIndex = room.state.currentPlayerIndex;
+      startServerTurnTimer(roomId);
     }
 
     if (room.state.finished || room.state.status === 'lobby') {
+      clearServerTurnTimer(roomId);
       room.state.turnStartTime = null;
       if (room.gameActualStartTime) {
         room.state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / 1000);
@@ -571,6 +703,7 @@ io.on('connection', (socket: Socket) => {
       }
 
       if (room.state.players.length === 0) {
+        clearServerTurnTimer(currentRoom);
         delete rooms[currentRoom];
         return;
       } else if (room.host === socket.id) {
@@ -579,6 +712,7 @@ io.on('connection', (socket: Socket) => {
           for (const p of room.state.players) {
             io.to(p.socketId).emit('kicked');
           }
+          clearServerTurnTimer(currentRoom);
           delete rooms[currentRoom];
           return;
         }
@@ -589,10 +723,14 @@ io.on('connection', (socket: Socket) => {
       ) {
         // All remaining players are disconnected with no reconnect timers
         // (e.g. reconnectTimeout=0). The room would never be cleaned up otherwise.
+        clearServerTurnTimer(currentRoom);
         delete rooms[currentRoom];
         return;
       }
-      abortGameIfLowPlayers(room, currentRoom);
+      {
+        const aborted = abortGameIfLowPlayers(room, currentRoom);
+        if (!aborted) startServerTurnTimer(currentRoom);
+      }
       emitRoomState(currentRoom);
     } else {
       player.disconnected = true;
@@ -615,12 +753,14 @@ io.on('connection', (socket: Socket) => {
         handleActivePlayerRemoved(r.state, removedIdx);
 
         if (r.state.players.length === 0) {
+          clearServerTurnTimer(roomIdSnapshot);
           delete rooms[roomIdSnapshot];
         } else {
           if (r.host === hostSocketId) {
             r.host = r.state.players[0].socketId;
           }
-          abortGameIfLowPlayers(r, roomIdSnapshot);
+          const aborted = abortGameIfLowPlayers(r, roomIdSnapshot);
+          if (!aborted) startServerTurnTimer(roomIdSnapshot);
           emitRoomState(roomIdSnapshot);
         }
       }, timeoutSecs * 1000);
