@@ -1,4 +1,6 @@
+import './jest-shim';
 import '@testing-library/jest-dom';
+import 'jest-canvas-mock';
 import { vi } from 'vitest';
 
 vi.mock('react-i18next', () => ({
@@ -61,16 +63,7 @@ if (typeof window !== 'undefined') {
   window.Audio = MockAudio as unknown as typeof Audio;
 }
 
-if (typeof HTMLCanvasElement !== 'undefined') {
-  HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
-    clearRect: vi.fn(), fillRect: vi.fn(), strokeRect: vi.fn(),
-    beginPath: vi.fn(), closePath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(),
-    arc: vi.fn(), fill: vi.fn(), stroke: vi.fn(), save: vi.fn(), restore: vi.fn(),
-    scale: vi.fn(), translate: vi.fn(), rotate: vi.fn(), drawImage: vi.fn(),
-    measureText: vi.fn(() => ({ width: 0 })),
-    canvas: { width: 0, height: 0 },
-  })) as unknown as typeof HTMLCanvasElement.prototype.getContext;
-}
+// HTMLCanvasElement is now mocked by jest-canvas-mock
 
 (globalThis as Record<string, unknown>).__nativeFetch = globalThis.fetch;
 globalThis.fetch = vi.fn((url: string) => {
