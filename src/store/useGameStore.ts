@@ -193,6 +193,27 @@ const initialLocalState: Omit<CoreGameState, never> & {
   justReconnected: false,
 };
 
+const validateOnlineConfig = (config: unknown): Partial<Pick<GameStore, ConfigKeys>> => {
+  if (typeof config !== 'object' || config === null) return {};
+  const valid: Partial<Pick<GameStore, ConfigKeys>> = {};
+  const c = config as any;
+  if (typeof c.winningScore === 'number' && c.winningScore >= 1000 && c.winningScore <= 99999) valid.winningScore = c.winningScore;
+  if (typeof c.randomOrder === 'boolean') valid.randomOrder = c.randomOrder;
+  if (typeof c.turnDuration === 'number' && c.turnDuration >= 0 && c.turnDuration <= 600) valid.turnDuration = c.turnDuration;
+  if (typeof c.reconnectTimeout === 'number' && c.reconnectTimeout >= 0 && c.reconnectTimeout <= 3600) valid.reconnectTimeout = c.reconnectTimeout;
+  if (typeof c.initialCards === 'object' && c.initialCards !== null) {
+    const VALID_CARD_TYPES = ['Kleeblatt', 'Feuerwerk', 'Stop', 'Kniffel', 'Plus_Minus', 'x2', '200', '300', '400', '500', '600'];
+    const validCards: any = {};
+    for (const [key, val] of Object.entries(c.initialCards)) {
+      if (VALID_CARD_TYPES.includes(key) && typeof val === 'number' && val >= 0 && val <= 99) {
+        validCards[key] = val;
+      }
+    }
+    if (Object.keys(validCards).length > 0) valid.initialCards = validCards as InitialCards;
+  }
+  return valid;
+};
+
 // Re-anchor the local game clock after a restore from localStorage. We persist
 // elapsed seconds (gameTimeInSeconds), not an absolute start time, so a resumed
 // in-progress local game has no live gameStartTime — without this the game timer
@@ -487,6 +508,17 @@ export const useGameStore = create<GameStore>()(
           if (res.success) {
             set({ roomId: room, isHost: res.isHost ?? false, myName: name, mode: 'online', isOnline: true });
             sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: room, myName: name }));
+            
+            if (res.isHost && !isReconnect) {
+              const storedConfigStr = localStorage.getItem('tutto_online_config');
+              if (storedConfigStr) {
+                const parsed = parseJsonString(storedConfigStr);
+                const validConfig = validateOnlineConfig(parsed);
+                if (Object.keys(validConfig).length > 0) {
+                  get().updateConfig(validConfig);
+                }
+              }
+            }
           }
           resolve(res);
         });
@@ -858,4 +890,23 @@ useGameStore.subscribe((state) => {
   // The latest gameTimeInSeconds still rides along whenever a real change is saved.
   const localStateToSave = { ...stable, gameTimeInSeconds: state.gameTimeInSeconds };
   localStorage.setItem('tutto_local_game', JSON.stringify(localStateToSave));
+});
+
+let lastOnlinePersistKey: string | null = null;
+useGameStore.subscribe((state) => {
+  if (state.mode !== 'online' || !state.isHost || state.status !== 'lobby') {
+    lastOnlinePersistKey = null;
+    return;
+  }
+  const stable = {
+    winningScore: state.winningScore,
+    initialCards: state.initialCards,
+    randomOrder: state.randomOrder,
+    turnDuration: state.turnDuration,
+    reconnectTimeout: state.reconnectTimeout,
+  };
+  const key = JSON.stringify(stable);
+  if (key === lastOnlinePersistKey) return;
+  lastOnlinePersistKey = key;
+  localStorage.setItem('tutto_online_config', key);
 });
