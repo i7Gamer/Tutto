@@ -163,11 +163,17 @@ const handleActivePlayerRemoved = (state: RoomState, removedIdx: number): void =
   if (removedIdx < curIdx) {
     state.currentPlayerIndex = curIdx - 1;
   } else if (removedIdx === curIdx) {
+    // `state.players` has already been spliced by the caller, so its length here
+    // is the original turn-order size minus one. The removed player was the last
+    // to act this round only if their index equals that post-splice length —
+    // otherwise players after them still owe a turn this round, and jumping the
+    // round forward would skip those turns entirely.
+    const removedPlayerWasLastInOrder = removedIdx === state.players.length;
     state.currentPlayerIndex = curIdx % Math.max(1, state.players.length);
     state.previousCard = null;
     state.previousScore = null;
     state.previousLeaders = null;
-    state.round += 1;
+    if (removedPlayerWasLastInOrder) state.round += 1;
     state.turnStartTime = Date.now();
     drawNextCardForRoom(state);
   }

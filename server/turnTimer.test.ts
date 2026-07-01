@@ -363,29 +363,65 @@ describe('Server-side turn timer', () => {
     });
     await delay(1200); // ~1.2s of Bob's 2s turn has elapsed
 
-    // Host kicks Bob mid-turn. handleActivePlayerRemoved immediately bumps round to 2
-    // and resets turnStartTime for whoever now occupies index 1 (Carol) — a fresh 2s
-    // window starting at the kick. The server must reschedule the actual pending
-    // setTimeout to match this fresh window, not just the turnStartTime field.
-    const kickedState = waitForState(hostSock, (s) => s.round === 2, 3000);
+    // Host kicks Bob mid-turn. Bob wasn't last in turn order (Carol, at index 2,
+    // hasn't gone yet this round) so the round must NOT bump — Carol simply
+    // inherits Bob's slot (shifted down to index 1) and gets a fresh 2s window.
+    // The server must reschedule the actual pending setTimeout to match that
+    // fresh window, not just the turnStartTime field.
+    const kickedState = waitForState(hostSock, (s) => s.players.length === 2 && s.currentPlayerIndex === 1, 3000);
     hostSock.emit('kickPlayer', bobId);
     bobSock.disconnect();
     const afterKick = await kickedState;
+    expect(afterKick.round).toBe(1); // no round skip — Carol still owed a turn this round
     expect(afterKick.currentPlayerIndex).toBe(1); // Carol, shifted into Bob's old slot
 
-    // Carol's forced timeout (if/when it fires) wraps the round again, to round 3.
-    // If the reschedule didn't happen, the STALE timer (armed at t=0 for the
-    // ORIGINAL 2s window, ~0.8s remaining at kick time) would fire ~800ms after
-    // the kick and force this prematurely. It must not.
-    await expectNoAdvanceWithin(hostSock, (s) => s.round === 3, 1200);
+    // Carol is now last in turn order (2 players remain), so her forced timeout
+    // completes the round, wrapping to round 2. If the reschedule didn't happen,
+    // the STALE timer (armed at t=0 for the ORIGINAL 2s window, ~0.8s remaining
+    // at kick time) would fire ~800ms after the kick and force this prematurely.
+    await expectNoAdvanceWithin(hostSock, (s) => s.round === 2, 1200);
 
     // ~2s after the kick, Carol's rescheduled turn must have expired.
-    const state = await waitForState(hostSock, (s) => s.round === 3, 2500);
+    const state = await waitForState(hostSock, (s) => s.round === 2, 2500);
     expect(state.players.length).toBe(2);
 
     hostSock.disconnect();
     carolSock.disconnect();
   }, 12000);
+
+  it('kicking the active player who is last in turn order still bumps the round', async () => {
+    const roomId = 'timer-kick-last-in-order';
+    const { sock: hostSock } = await joinRoom(roomId, 'Alice');
+    const { sock: bobSock } = await joinRoom(roomId, 'Bob');
+    const { sock: carolSock, socketId: carolId } = await joinRoom(roomId, 'Carol');
+
+    const players = [
+      { name: 'Alice', deviceId: `dev-${roomId}-Alice`, socketId: hostSock.id, disconnected: false, score: 0 },
+      { name: 'Bob', deviceId: `dev-${roomId}-Bob`, socketId: bobSock.id, disconnected: false, score: 0 },
+      { name: 'Carol', deviceId: `dev-${roomId}-Carol`, socketId: carolSock.id, disconnected: false, score: 0 },
+    ];
+
+    // Carol (index 2) is the active player — the last in turn order this round.
+    hostSock.emit('pushState', {
+      roomId,
+      newState: {
+        players, status: 'playing', currentPlayerIndex: 2, currentCard: '200',
+        cards: ['300', '400'], round: 1, turnDuration: 30,
+      },
+    });
+
+    // Kicking her should complete the round immediately, unlike kicking a
+    // mid-order player — nobody else was still owed a turn this round.
+    const kickedState = waitForState(hostSock, (s) => s.players.length === 2, 3000);
+    hostSock.emit('kickPlayer', carolId);
+    carolSock.disconnect();
+    const afterKick = await kickedState;
+    expect(afterKick.round).toBe(2);
+    expect(afterKick.currentPlayerIndex).toBe(0); // wraps back to Alice
+
+    hostSock.disconnect();
+    bobSock.disconnect();
+  }, 10000);
 
   it('deleting a room while a turn timer is pending does not crash the server', async () => {
     const roomId = 'timer-room-deleted';
