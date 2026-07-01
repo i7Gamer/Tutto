@@ -1699,4 +1699,41 @@ describe('Server Socket E2E Simulation', () => {
       });
     });
   }, 10000);
+
+  it('closes room when all players passively disconnect and reconnectTimeout is 0', () => {
+    return new Promise((resolve, reject) => {
+      const roomId = 'PASSIVE_DISCONNECT_0';
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      let s2: any = null;
+
+      const cleanup = () => { s1.disconnect(); if (s2) s2.disconnect(); };
+      const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 8000);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-pdo-a', color: '#ff0000' }, () => {
+          // Set reconnectTimeout to 0
+          s1.emit('updateConfig', { roomId, reconnectTimeout: 0 });
+          setTimeout(() => {
+            s1.disconnect(); // passive disconnect
+          }, 200);
+        });
+      });
+
+      // Wait for the server to process the disconnect and delete the room.
+      setTimeout(() => {
+        s2 = io(`http://127.0.0.1:${PORT}`);
+        s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-pdo-b', color: '#00ff00' }, () => {});
+
+        s2.on('gameState', (freshState: any) => {
+          // If the room was properly closed, it should be a fresh room with only Bob.
+          // If the room leaked, Alice would still be in the state (as disconnected).
+          expect(freshState.players.some((p: any) => p.name === 'Alice')).toBe(false);
+          expect(freshState.players.some((p: any) => p.name === 'Bob')).toBe(true);
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve(undefined);
+        });
+      }, 1000);
+    });
+  }, 10000);
 });

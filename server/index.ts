@@ -744,7 +744,13 @@ io.on('connection', (socket: Socket) => {
 
       if (!room.disconnectTimers) room.disconnectTimers = {};
       const timeoutSecs = room.state.reconnectTimeout ?? 60;
-      if (timeoutSecs === 0) return;
+      if (timeoutSecs === 0) {
+        if (room.state.players.every(p => p.disconnected)) {
+          clearServerTurnTimer(currentRoom);
+          delete rooms[currentRoom];
+        }
+        return;
+      }
 
       const roomIdSnapshot = currentRoom;
       const hostSocketId = socket.id;
