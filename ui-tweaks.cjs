@@ -1,7 +1,7 @@
 const fs = require('fs');
 
 // 1. Update widths
-['src/components/Home.jsx', 'src/components/Game.jsx', 'src/components/Statistics.jsx', 'src/components/EndScreen.jsx'].forEach(file => {
+['src/components/Home.tsx', 'src/components/Game.tsx', 'src/components/Statistics.tsx', 'src/components/EndScreen.tsx'].forEach(file => {
   let c = fs.readFileSync(file, 'utf8');
   c = c.replace(/max-w-3xl/g, 'max-w-xl');
   fs.writeFileSync(file, c);
@@ -17,7 +17,7 @@ const walk = (dir) => {
     if (stat && stat.isDirectory()) {
       results = results.concat(walk(file));
     } else {
-      if (file.endsWith('.jsx')) results.push(file);
+      if (file.endsWith('.tsx')) results.push(file);
     }
   });
   return results;
