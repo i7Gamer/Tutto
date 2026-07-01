@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { useGameStore } from './useGameStore';
+import { useGameStore, _resetTimersForTests } from './useGameStore';
 
 let mockEmit = vi.fn();
 let mockOnHandlers = {};
@@ -32,6 +32,11 @@ describe('useGameStore', () => {
   beforeEach(() => {
     // Reset state before each test
     useGameStore.getState().reset();
+    // reset() only resets Zustand state — the module-level gameTimerInterval/
+    // turnTimerInterval aren't part of that state, so a timer started in one
+    // test can otherwise keep firing into the next (vitest caches the module
+    // between test cases within the same file).
+    _resetTimersForTests();
   });
 
   afterEach(() => {
@@ -39,6 +44,33 @@ describe('useGameStore', () => {
     localStorage.clear();
     sessionStorage.clear();
     mockEmit.mockClear();
+  });
+
+  describe('_resetTimersForTests', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('stops a running local game timer so it no longer fires after reset', () => {
+      useGameStore.setState({
+        mode: 'local', currentPlayerIndex: 0, finished: false, gameStartTime: Date.now(),
+      });
+      useGameStore.getState().startLocalTimers();
+
+      vi.advanceTimersByTime(1000);
+      expect(useGameStore.getState().gameTimeInSeconds).toBeGreaterThan(0);
+
+      _resetTimersForTests();
+      const snapshot = useGameStore.getState().gameTimeInSeconds;
+
+      // Without the reset, this tick would have updated gameTimeInSeconds again.
+      vi.advanceTimersByTime(5000);
+      expect(useGameStore.getState().gameTimeInSeconds).toBe(snapshot);
+    });
   });
 
   it('initializes with default local state', () => {

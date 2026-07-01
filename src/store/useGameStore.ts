@@ -137,6 +137,17 @@ const clearTurnTimer = () => {
   turnTimerCard = null;
 };
 
+// Test-only escape hatch: gameTimerInterval/turnTimerInterval are module-level,
+// so vitest's module caching lets a timer started in one test keep firing into
+// the next. useGameStore.getState().reset() only resets Zustand state — it
+// never calls stopLocalTimers/stopOnlineTimers, so it can't stop them. Call
+// this from a test's beforeEach alongside reset() to actually clear them.
+export const _resetTimersForTests = (): void => {
+  if (gameTimerInterval) clearInterval(gameTimerInterval);
+  gameTimerInterval = null;
+  clearTurnTimer();
+};
+
 const initialLocalState: Omit<CoreGameState, never> & {
   diceMode: DiceMode;
   randomOrder: boolean;
