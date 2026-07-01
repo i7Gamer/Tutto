@@ -34,6 +34,7 @@ export interface DiceSnapshot {
   tuttosThisTurn: number;
   busted?: boolean;
   rollingDiceIds?: string[];
+  playerName?: string;
 }
 
 export interface Player {

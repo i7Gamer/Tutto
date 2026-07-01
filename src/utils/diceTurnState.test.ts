@@ -21,6 +21,7 @@ describe('diceTurnState', () => {
         kniffelProgress: [1, 2],
         tuttosThisTurn: 1,
         busted: true,
+        playerName: 'Alice',
       });
       expect(parseSavedDiceState(raw)).toEqual({
         turnScore: 1250,
@@ -29,6 +30,7 @@ describe('diceTurnState', () => {
         kniffelProgress: [1, 2],
         tuttosThisTurn: 1,
         busted: true,
+        playerName: 'Alice',
       });
     });
 

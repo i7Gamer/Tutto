@@ -21,6 +21,7 @@ export const parseSavedDiceState = (raw: string | null): DiceSnapshot | null => 
       kniffelProgress: parsed.kniffelProgress ?? [],
       tuttosThisTurn: parsed.tuttosThisTurn ?? 0,
       busted: !!parsed.busted,
+      playerName: parsed.playerName,
     };
   } catch {
     return null;

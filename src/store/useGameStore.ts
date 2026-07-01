@@ -10,6 +10,7 @@ import {
   buildGlobalStatsPayload,
 } from '../utils/coreGameEngine';
 import { parseJsonString } from '../utils/parseJson';
+import { parseSavedDiceState } from '../utils/diceTurnState';
 import i18n from '../i18n';
 import playerColorsData from '../../playerColors.json';
 import type {
@@ -310,6 +311,15 @@ export const useGameStore = create<GameStore>()(
         if (session) state.pendingReconnectSession = session;
       });
 
+      // Validation of dice turn state cache ownership
+      const restoredDice = parseSavedDiceState(localStorage.getItem('tutto_dice_turn_state'));
+      if (restoredDice && restoredDice.playerName && get().mode === 'local') {
+        const activePlayer = get().currentPlayerIndex !== null ? get().players[get().currentPlayerIndex!] : null;
+        if (!activePlayer || activePlayer.name !== restoredDice.playerName) {
+          localStorage.removeItem('tutto_dice_turn_state');
+        }
+      }
+
       const storedDiceMode = localStorage.getItem('tutto_diceMode') as DiceMode | null;
       if (storedDiceMode) set({ diceMode: storedDiceMode });
 
@@ -597,7 +607,13 @@ export const useGameStore = create<GameStore>()(
 
     setLiveTurnState: (snapshot) => {
       set({ liveTurnState: snapshot });
-      if (snapshot) localStorage.setItem('tutto_dice_turn_state', JSON.stringify(snapshot));
+      if (snapshot) {
+        const snapshotWithPlayer = {
+          ...snapshot,
+          playerName: get().players[get().currentPlayerIndex ?? 0]?.name,
+        };
+        localStorage.setItem('tutto_dice_turn_state', JSON.stringify(snapshotWithPlayer));
+      }
       if (get().isOnline) get().pushState();
     },
 
