@@ -264,12 +264,10 @@ describe('useGameStore', () => {
     });
 
     it('sends online stats exactly once when host finishes the game', () => {
-      global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));
-
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
-      useGameStore.setState({ 
-        isHost: true, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice', 
+      useGameStore.setState({
+        isHost: true, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
         players: [{name: 'Bob', score: 2000, times1000PointsDeducted: 0}, {name: 'Alice', score: 5500, times1000PointsDeducted: 0}],
         currentPlayerIndex: 1, status: 'playing', finished: false,
         winningScore: 6000, initialCards: {}
@@ -280,15 +278,15 @@ describe('useGameStore', () => {
       // Host triggers winning turn
       useGameStore.getState().nextTurn(500, true);
 
-      // Should emit endGameStats for Alice
+      // Should emit endGameStats for Alice (personal stats via socket)
       expect(mockEmit).toHaveBeenCalledWith('endGameStats', expect.objectContaining({
         deviceId: 'dev-alice'
       }));
 
-      // Should send global stats once
-      expect(global.fetch).toHaveBeenCalledWith('/api/stats/global', expect.any(Object));
-
-      global.fetch.mockRestore();
+      // Should emit global stats via socket (no HTTP token needed)
+      expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', expect.objectContaining({
+        roomId: 'ROOM1',
+      }));
     });
   });
 
@@ -1117,8 +1115,6 @@ describe('useGameStore', () => {
     };
 
     it('host sends global stats when an online game ends', () => {
-      global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));
-
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
       useGameStore.setState({
@@ -1128,15 +1124,15 @@ describe('useGameStore', () => {
         winningScore: 6000, initialCards: { ...DEFAULT_CARDS },
       });
 
+      mockEmit.mockClear();
       useGameStore.getState().nextTurn(500, true);
 
-      expect(global.fetch).toHaveBeenCalledWith('/api/stats/global', expect.any(Object));
-      global.fetch.mockRestore();
+      expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', expect.objectContaining({
+        roomId: 'ROOM1',
+      }));
     });
 
     it('non-host does NOT send global stats when an online game ends', () => {
-      global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));
-
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
       useGameStore.setState({
@@ -1146,10 +1142,10 @@ describe('useGameStore', () => {
         winningScore: 6000, initialCards: { ...DEFAULT_CARDS },
       });
 
+      mockEmit.mockClear();
       useGameStore.getState().nextTurn(500, true);
 
-      expect(global.fetch).not.toHaveBeenCalledWith('/api/stats/global', expect.any(Object));
-      global.fetch.mockRestore();
+      expect(mockEmit).not.toHaveBeenCalledWith('submitGlobalStats', expect.any(Object));
     });
   });
 
