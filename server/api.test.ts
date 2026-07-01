@@ -81,3 +81,42 @@ describe('API Endpoints Token Protection', () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe('CORS_ORIGIN configuration', () => {
+  let serverProcess;
+  const PORT = '3007';
+  const CORS_ORIGIN = 'https://tutto.rzipas.win';
+
+  beforeAll(() => {
+    if (globalThis.__nativeFetch) {
+      globalThis.fetch = globalThis.__nativeFetch;
+    }
+
+    return new Promise((resolve, reject) => {
+      serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
+        env: { ...process.env, PORT, CORS_ORIGIN, TEST_DB: 'true', FORCE_INIT_DB: 'true' },
+        stdio: 'pipe'
+      });
+
+      let stdout = '';
+      serverProcess.stdout.on('data', (data) => {
+        stdout += data.toString();
+        if (stdout.includes('Database migrated')) resolve();
+      });
+      serverProcess.stderr.on('data', (data) => console.error(data.toString()));
+
+      serverProcess.on('error', (err) => reject(err));
+    });
+  }, 20000);
+
+  afterAll(() => {
+    if (serverProcess) serverProcess.kill();
+  });
+
+  it('reflects the configured CORS_ORIGIN in Access-Control-Allow-Origin', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/global`, {
+      headers: { Origin: CORS_ORIGIN },
+    });
+    expect(res.headers.get('access-control-allow-origin')).toBe(CORS_ORIGIN);
+  });
+});

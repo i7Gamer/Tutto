@@ -68,14 +68,19 @@ interface Room {
 
 // ─── App setup ────────────────────────────────────────────────────────────────
 
+// Defaults to '*' (any origin) to preserve local-dev/LAN-play behaviour when
+// unset. Set CORS_ORIGIN to the deployed origin (e.g. https://tutto.rzipas.win)
+// in production to lock this down.
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+
 const app = express();
-app.use(cors());
+app.use(cors({ origin: CORS_ORIGIN }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../dist')));
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: '*' },
+  cors: { origin: CORS_ORIGIN },
   pingInterval: 4000,
   pingTimeout: 6000,
 });
