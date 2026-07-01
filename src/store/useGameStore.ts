@@ -411,6 +411,10 @@ export const useGameStore = create<GameStore>()(
           get().addToast(`${name} disconnected! They have ${seconds} seconds to reconnect.`);
         });
 
+        sock.on('nameConflictWithDisconnected', (name: string) => {
+          get().addToast(`Someone tried to join as "${name}", which belongs to a disconnected player. Kick them below to free up the name.`);
+        });
+
         sock.on('hostId', (hostSocketId: string) => {
           set({ isHost: hostSocketId === sock.id, hostId: hostSocketId });
         });

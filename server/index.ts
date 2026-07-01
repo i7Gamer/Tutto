@@ -431,7 +431,13 @@ io.on('connection', (socket: Socket) => {
       return callback({ success: false, error: 'Game is already running. You cannot join mid-game.' });
     }
 
-    if (room.state.players.find(p => p.name.toLowerCase() === name.toLowerCase())) {
+    const nameConflict = room.state.players.find(p => p.name.toLowerCase() === name.toLowerCase());
+    if (nameConflict) {
+      // The conflicting player is still holding the name so they can reconnect —
+      // let the host know in case they'd rather kick the ghost and free it up.
+      if (nameConflict.disconnected) {
+        io.to(room.host).emit('nameConflictWithDisconnected', nameConflict.name);
+      }
       return callback({ success: false, error: 'Username already exists in this room' });
     }
 

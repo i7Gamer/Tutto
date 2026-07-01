@@ -1371,6 +1371,18 @@ describe('useGameStore', () => {
     });
   });
 
+  describe('nameConflictWithDisconnected toast', () => {
+    it('tells the host which disconnected player\'s name was contested', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+
+      mockOnHandlers['nameConflictWithDisconnected']('Bob');
+
+      const messages = useGameStore.getState().toasts.map(t => t.message);
+      expect(messages.some(m => m.includes('Bob'))).toBe(true);
+    });
+  });
+
   describe('Dice Game State Persistence', () => {
     it('setLiveTurnState saves state to localStorage', () => {
       const turnState = {

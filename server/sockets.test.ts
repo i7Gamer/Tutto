@@ -1407,6 +1407,78 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
+  it('notifies the host when a new device tries to join using a disconnected player\'s name', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — will disconnect but not be kicked yet
+      const s3 = io(`http://127.0.0.1:${PORT}`); // Charlie — tries to join as "Bob"
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect(); s2.disconnect(); s3.disconnect();
+        reject(new Error('Timed out waiting for nameConflictWithDisconnected'));
+      }, 6000);
+
+      s1.on('nameConflictWithDisconnected', (name) => {
+        expect(name).toBe('Bob');
+        clearTimeout(timeoutId);
+        s1.disconnect(); s2.disconnect(); s3.disconnect();
+        resolve();
+      });
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'GHOST_NAME_ROOM', name: 'Alice', deviceId: 'dev-ghost-alice', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'GHOST_NAME_ROOM', name: 'Bob', deviceId: 'dev-ghost-bob', color: '#00ff00' }, () => {
+            // reconnectTimeout is long enough that Bob stays a "ghost" (disconnected
+            // but not yet spliced out) for the duration of this test. Room stays in
+            // 'lobby' — matching the real scenario of someone closing their tab
+            // before the game starts.
+            s1.emit('updateConfig', { roomId: 'GHOST_NAME_ROOM', reconnectTimeout: 30 });
+
+            setTimeout(() => {
+              s2.disconnect();
+              // Give the server a moment to process Bob's disconnect and mark him
+              // before Charlie attempts to take his name.
+              setTimeout(() => {
+                s3.emit('joinRoom', { roomId: 'GHOST_NAME_ROOM', name: 'Bob', deviceId: 'dev-ghost-charlie', color: '#0000ff' }, (res) => {
+                  expect(res.success).toBe(false);
+                });
+              }, 300);
+            }, 200);
+          });
+        });
+      });
+    });
+  }, 10000);
+
+  it('does not notify the host when the conflicting name belongs to a still-connected player', () => {
+    return new Promise((resolve) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — stays connected
+      const s3 = io(`http://127.0.0.1:${PORT}`); // Charlie — tries to join as "Bob"
+
+      let conflictNotified = false;
+      s1.on('nameConflictWithDisconnected', () => { conflictNotified = true; });
+
+      setTimeout(() => {
+        expect(conflictNotified).toBe(false);
+        s1.disconnect(); s2.disconnect(); s3.disconnect();
+        resolve();
+      }, 1500);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'ACTIVE_NAME_ROOM', name: 'Alice', deviceId: 'dev-active-alice', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'ACTIVE_NAME_ROOM', name: 'Bob', deviceId: 'dev-active-bob', color: '#00ff00' }, () => {
+            s3.emit('joinRoom', { roomId: 'ACTIVE_NAME_ROOM', name: 'Bob', deviceId: 'dev-active-charlie', color: '#0000ff' }, (res) => {
+              expect(res.success).toBe(false);
+              // Don't resolve here — wait out the timeout below to confirm no
+              // nameConflictWithDisconnected event arrives after the rejection.
+            });
+          });
+        });
+      });
+    });
+  }, 10000);
+
   it('joinRoom without an ack callback does not crash the server', () => {
     return new Promise((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
