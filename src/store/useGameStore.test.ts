@@ -1163,15 +1163,27 @@ describe('useGameStore', () => {
   });
 
   describe('online turn timer', () => {
-    it('host auto-busts the active player when the turn timer expires', () => {
+    // Turn expiry is authoritative on the server (server/index.ts startServerTurnTimer /
+    // advanceTurnOnTimeout) so it still fires even if the host disconnects or backgrounds
+    // their tab. The client's countdown is display-only: it must NOT call nextTurn/pushState
+    // itself when it hits 0, for host or non-host alike — it just stops and waits for the
+    // server's gameState push.
+    it.each([
+      ['host', true],
+      ['non-host', false],
+    ])('%s client does not auto-advance the turn when its local countdown hits 0', (_label, isHost) => {
       vi.useFakeTimers();
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
+      // currentPlayerIndex/currentCard vary per iteration (rather than being fixed)
+      // so syncOnlineTimers always sees a "new turn" — the module-level
+      // turnTimerPlayerIndex/turnTimerCard tracking vars from the previous
+      // it.each iteration would otherwise make this a no-op on the second run.
       useGameStore.setState({
-        isHost: true, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
+        isHost, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
         players: [makeOnlinePlayer('Alice'), makeOnlinePlayer('Bob')],
-        currentPlayerIndex: 0, status: 'playing', finished: false,
-        turnDuration: 2, currentCard: '200', cards: ['200'], initialCards: { 200: 5 },
+        currentPlayerIndex: isHost ? 0 : 1, status: 'playing', finished: false,
+        turnDuration: 2, currentCard: isHost ? '200' : '300', cards: ['200'], initialCards: { 200: 5 },
         round: 1, chartValues: [[], []], chartLabels: [], chartNames: ['Alice', 'Bob'],
       });
 
@@ -1182,9 +1194,16 @@ describe('useGameStore', () => {
       mockEmit.mockClear();
       vi.advanceTimersByTime(2000);
 
-      // Auto-bust advances the turn and pushes the new state to the server.
-      expect(mockEmit).toHaveBeenCalledWith('pushState', expect.any(Object));
-      expect(useGameStore.getState().currentPlayerIndex).toBe(1);
+      // Countdown stops at 0, but no local pushState/turn-advance is triggered —
+      // that would race with (or duplicate) the server's own authoritative advance.
+      expect(useGameStore.getState().turnTimeRemaining).toBe(0);
+      expect(useGameStore.getState().currentPlayerIndex).toBe(isHost ? 0 : 1);
+      expect(mockEmit).not.toHaveBeenCalledWith('pushState', expect.any(Object));
+
+      // Advancing further must not somehow retrigger anything (interval was cleared).
+      vi.advanceTimersByTime(5000);
+      expect(mockEmit).not.toHaveBeenCalledWith('pushState', expect.any(Object));
+
       vi.useRealTimers();
     });
   });
