@@ -76,7 +76,10 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     
     await expect(pageA.getByText('BobGuest').first()).toBeVisible({ timeout: 15000 });
 
-    // 3. Start Game
+    // 3. Switch to digital dice mode so the Roll Dice button is rendered
+    await pageA.getByLabel(/Digital Dice/i).click();
+
+    // Start Game
     await pageA.getByRole('button', { name: /Start Game!/i }).click();
 
     // Wait for game to initialize
@@ -85,29 +88,36 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     // 4. Play Alice's turn until it is Bob's turn
     let aliceTurnActive = true;
     let attempts = 0;
-    while(aliceTurnActive && attempts < 20) {
+    while(aliceTurnActive && attempts < 30) {
       attempts++;
-      
+
+      // Open the dice modal if the Roll Dice button is visible
       const rollBtn = pageA.getByRole('button', { name: /Roll Dice/i });
       if (await rollBtn.isVisible()) {
         await rollBtn.click();
-        await pageA.waitForTimeout(500); // Wait for dice animation
+        await pageA.waitForTimeout(300);
       }
-      
+
+      // Inside the DiceGame modal, roll all 6 dice
+      const roll6Btn = pageA.getByRole('button', { name: /Roll 6 Dice/i });
+      if (await roll6Btn.isVisible()) {
+        await roll6Btn.click();
+        await pageA.waitForTimeout(800); // wait for dice animation to finish
+      }
+
       const stopBtn = pageA.getByRole('button', { name: /Stop & Score/i, exact: false }).or(pageA.getByRole('button', { name: /Stop and Score/i }));
       if (await stopBtn.isVisible()) {
         await stopBtn.click();
         await pageA.waitForTimeout(500);
       }
-      
+
       const passBtn = pageA.getByRole('button', { name: /Pass/i });
       if (await passBtn.isVisible()) {
         await passBtn.click();
         await pageA.waitForTimeout(500);
       }
-      
+
       // Check if it's Bob's turn by looking at the highlighted row in the leaderboard
-      // The current player name is usually visible in the active row
       const isBobTurn = await pageA.locator('tr.bg-indigo-100, tr.dark\\:bg-indigo-900\\/30').filter({ hasText: 'BobGuest' }).isVisible();
       if (isBobTurn) {
         aliceTurnActive = false;
@@ -117,9 +127,12 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     // 5. Bob's turn: Bob is non-host. Verify he can roll dice and push state!
     const bobRollBtn = pageB.getByRole('button', { name: /Roll Dice/i });
     await expect(bobRollBtn).toBeVisible();
-    
-    // Click roll dice
+
+    // Open the DiceGame modal and roll — this pushes state to Alice via socket
     await bobRollBtn.click();
+    const bobRoll6Btn = pageB.getByRole('button', { name: /Roll 6 Dice/i });
+    await expect(bobRoll6Btn).toBeVisible();
+    await bobRoll6Btn.click();
 
     // If Bob successfully pushed state, Alice should see the game screen still active.
     await expect(pageA.getByText(/Current Player/i).first()).toBeVisible();
