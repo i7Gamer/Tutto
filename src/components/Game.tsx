@@ -4,6 +4,7 @@ import confetti from 'canvas-confetti';
 import { playBuzzer, playSuccess } from '../utils/soundEffects';
 import { isTestEnv } from '../utils/env';
 import { computeRankedPlayers } from '../utils/coreGameEngine';
+import { applyTuttoBonus } from '../utils/diceLogic';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { formatTime } from '../utils/formatTime';
@@ -129,12 +130,7 @@ export default function Game() {
   const handleNextTurn = () => {
     let parsedScore = Math.max(0, parseInt(scoreInput) || 0);
     if (applyBonus) {
-      if (currentCard === '200') parsedScore += 200;
-      else if (currentCard === '300') parsedScore += 300;
-      else if (currentCard === '400') parsedScore += 400;
-      else if (currentCard === '500') parsedScore += 500;
-      else if (currentCard === '600') parsedScore += 600;
-      else if (currentCard === 'x2') parsedScore *= 2;
+      parsedScore = applyTuttoBonus(parsedScore, currentCard);
     }
     nextTurn(parsedScore, parsedScore > 0);
     setScoreInput('');
