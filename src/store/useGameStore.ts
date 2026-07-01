@@ -38,7 +38,6 @@ const createInitialPlayer = (name: string): Player => ({
   position: 0,
 });
 
-const API_TOKEN = import.meta.env.VITE_API_TOKEN || 'tutto-local-dev-token';
 
 const TURN_DURATION_MULTIPLIERS: Partial<Record<CardType, number>> = {
   Feuerwerk: 3,
@@ -650,6 +649,7 @@ export const useGameStore = create<GameStore>()(
 
     endGame: () => {
       if (get().isOnline && !get().isHost) return;
+      get().stopLocalTimers();
       set({
         finished: false,
         status: 'lobby',
@@ -705,6 +705,8 @@ export const useGameStore = create<GameStore>()(
         localStorage.removeItem('tutto_dice_turn_state');
       });
 
+      // Stats are intentionally only tracked for online games. Local games do not
+      // submit statistics — by design, not an oversight.
       if (get().finished && get().isOnline) get().sendOnlineStats();
       if (get().isOnline) {
         get().pushState();
@@ -774,12 +776,14 @@ export const useGameStore = create<GameStore>()(
         });
       }
 
-      if (s.isHost) {
-        fetch('/api/stats/global', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-tutto-token': API_TOKEN },
-          body: JSON.stringify(get().buildGlobalStatsPayload()),
-        }).catch(console.error);
+      // Global stats are submitted by the host via socket so no secret token
+      // needs to be compiled into the client bundle. The server validates the
+      // sender is the room host by socket identity.
+      if (s.isHost && socket) {
+        socket.emit('submitGlobalStats', {
+          roomId: s.roomId,
+          payload: get().buildGlobalStatsPayload(),
+        });
       }
     },
   })),
