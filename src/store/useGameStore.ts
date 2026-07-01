@@ -664,8 +664,17 @@ export const useGameStore = create<GameStore>()(
         gameTimeInSeconds: 0,
         round: 1,
         currentCard: null,
+        cards: [],
         turnTimeRemaining: null,
         liveTurnState: null,
+        previousCard: null,
+        previousScore: null,
+        previousLeaders: null,
+        previousWasBust: false,
+        previousHighestTurnScore: 0,
+        chartValues: [],
+        chartNames: [],
+        chartLabels: [],
       });
       localStorage.removeItem('tutto_dice_turn_state');
       if (get().isOnline) get().pushState();

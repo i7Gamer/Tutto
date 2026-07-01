@@ -1293,6 +1293,37 @@ describe('useGameStore', () => {
 
       expect(useGameStore.getState().liveTurnState).toBeNull();
     });
+
+    it('endGame resets cards, chart data and previous-turn fields, not just round/status', () => {
+      // startGame() already resets all of these before a new game; endGame()
+      // previously left them stale while sitting in the lobby between games —
+      // cosmetic today (nothing renders them in the lobby), but a foot-gun for
+      // any future lobby UI that reads them (e.g. a "last game" recap).
+      useGameStore.setState({
+        cards: ['200', '300'],
+        previousCard: 'Kniffel',
+        previousScore: 2000,
+        previousLeaders: [{ name: 'Alice', score: 6000 }],
+        previousWasBust: true,
+        previousHighestTurnScore: 2000,
+        chartValues: [[0, 500], [0, 300]],
+        chartNames: ['Alice', 'Bob'],
+        chartLabels: [1],
+      });
+
+      useGameStore.getState().endGame();
+
+      const state = useGameStore.getState();
+      expect(state.cards).toEqual([]);
+      expect(state.previousCard).toBeNull();
+      expect(state.previousScore).toBeNull();
+      expect(state.previousLeaders).toBeNull();
+      expect(state.previousWasBust).toBe(false);
+      expect(state.previousHighestTurnScore).toBe(0);
+      expect(state.chartValues).toEqual([]);
+      expect(state.chartNames).toEqual([]);
+      expect(state.chartLabels).toEqual([]);
+    });
   });
 
   describe('Plus_Minus store integration', () => {
