@@ -502,6 +502,72 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
+  it('draws a valid card from a freshly built deck when the active player is kicked with an exhausted deck', () => {
+    // handleActivePlayerRemoved's drawNextCardForRoom used to build the
+    // replacement deck with a plain Fisher-Yates shuffle (buildShuffledDeck),
+    // diverging from the shared buildDeck() used everywhere else turn
+    // advancement happens. Now it reuses buildDeck() directly — with a single
+    // card type in initialCards, the redrawn card is fully deterministic,
+    // which lets us verify both that a valid card comes back and that
+    // buildShuffledDeck (now removed) isn't secretly still in play.
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — active player, will be kicked
+      const s3 = io(`http://127.0.0.1:${PORT}`); // Carol — needed so the room doesn't drop below 2 players and abort
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        s2.disconnect();
+        s3.disconnect();
+        reject(new Error('Test timed out'));
+      }, 5000);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'DECK_EXHAUST_KICK_ROOM', name: 'Alice', deviceId: 'dev-dek-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'DECK_EXHAUST_KICK_ROOM', name: 'Bob', deviceId: 'dev-dek-b', color: '#00ff00' }, () => {
+            s3.emit('joinRoom', { roomId: 'DECK_EXHAUST_KICK_ROOM', name: 'Carol', deviceId: 'dev-dek-c', color: '#0000ff' }, () => {
+              s1.emit('pushState', {
+                roomId: 'DECK_EXHAUST_KICK_ROOM',
+                newState: {
+                  players: [
+                    { name: 'Alice', deviceId: 'dev-dek-a', socketId: s1.id, disconnected: false, score: 0 },
+                    { name: 'Bob', deviceId: 'dev-dek-b', socketId: s2.id, disconnected: false, score: 0 },
+                    { name: 'Carol', deviceId: 'dev-dek-c', socketId: s3.id, disconnected: false, score: 0 },
+                  ],
+                  status: 'playing',
+                  currentPlayerIndex: 1,
+                  currentCard: '200',
+                  cards: [], // deck already exhausted
+                  initialCards: { '200': 1 }, // single card type → fully deterministic redraw
+                },
+              });
+
+              setTimeout(() => {
+                s1.emit('kickPlayer', s2.id);
+              }, 300);
+            });
+          });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        // Guard on both players.length===2 AND currentCard==='200' — joinRoom
+        // itself broadcasts gameState after each join, so players.length briefly
+        // equals 2 while Carol is still joining (with currentCard still null,
+        // before pushState ever runs). Requiring currentCard==='200' too ensures
+        // we only match the post-kick state, not that transient join broadcast.
+        if (state.players && state.players.length === 2 && state.currentCard === '200') {
+          expect(state.cards).toEqual([]);
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          s2.disconnect();
+          s3.disconnect();
+          resolve();
+        }
+      });
+    });
+  }, 10000);
+
   it('reorderPlayers is blocked when the game is already playing', () => {
     return new Promise((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host

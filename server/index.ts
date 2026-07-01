@@ -9,7 +9,7 @@ import cors from 'cors';
 import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } from './database';
 import { sanitizeStats } from './sanitize';
 import type { CardType, InitialCards, Player, DiceSnapshot, CoreGameState } from '../src/types';
-import { calculateNextTurn } from '../src/utils/coreGameEngine';
+import { calculateNextTurn, buildDeck } from '../src/utils/coreGameEngine';
 import playerColorsData from '../playerColors.json';
 
 const { PLAYER_COLORS } = playerColorsData;
@@ -128,23 +128,11 @@ const rooms: Record<string, Room> = {};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const buildShuffledDeck = (initialCards: InitialCards): CardType[] => {
-  const deck: CardType[] = Object.entries(initialCards).reduce<CardType[]>((acc, [card, count]) => {
-    for (let i = 0; i < (count ?? 0); i++) acc.push(card as CardType);
-    return acc;
-  }, []);
-  for (let i = deck.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [deck[i], deck[j]] = [deck[j], deck[i]];
-  }
-  return deck;
-};
-
 const drawNextCardForRoom = (state: RoomState): void => {
   if (state.cards && state.cards.length > 0) {
     state.currentCard = state.cards.shift() ?? null;
   } else {
-    const deck = buildShuffledDeck(state.initialCards);
+    const deck = buildDeck(state.initialCards);
     state.currentCard = deck.shift() ?? null;
     state.cards = deck;
   }
