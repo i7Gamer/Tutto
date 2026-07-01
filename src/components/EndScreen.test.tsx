@@ -1,6 +1,6 @@
 import { render, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import EndScreen from './EndScreen';
 import { useGameStore } from '../store/useGameStore';
 
@@ -221,5 +221,51 @@ describe('EndScreen Component', () => {
     // Snapshot should update (3 players > 2 players)
     // New winner should be Charlie
     expect(getByText('end.winner Charlie')).toBeInTheDocument();
+  });
+
+  describe('device stats fetching', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+      useGameStore.setState({ isOnline: false });
+    });
+
+    it('does not fetch device stats for local games', () => {
+      global.fetch = vi.fn();
+      useGameStore.setState({ isOnline: false });
+
+      render(<EndScreen deviceId="device-local-1" />);
+
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('does not render the lifetime stats block for local games', () => {
+      useGameStore.setState({ isOnline: false });
+      const { queryByText } = render(<EndScreen deviceId="device-local-2" />);
+
+      expect(queryByText('end.lifetimeStats')).not.toBeInTheDocument();
+    });
+
+    it('still fetches device stats for online games', async () => {
+      vi.useFakeTimers();
+      global.fetch = vi.fn(() => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ gamesPlayed: 3, wins: 1, pointsDeducted: 0, kniffelCompleted: 2 }),
+      }));
+      useGameStore.setState({ isOnline: true });
+
+      render(<EndScreen deviceId="device-online-1" />);
+
+      // The effect debounces the first fetch by 500ms; flush microtasks after
+      // so the fetch/json chain (real Promises, unaffected by fake timers)
+      // resolves within this act() boundary.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(global.fetch).toHaveBeenCalledWith('/api/stats/device-online-1');
+      vi.useRealTimers();
+    });
   });
 });

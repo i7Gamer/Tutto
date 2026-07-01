@@ -61,6 +61,11 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   const [deviceStats, setDeviceStats] = useState<DeviceStats | null>(null);
 
   useEffect(() => {
+    // Local games never submit stats (by design — see useGameStore.nextTurn),
+    // so the retry loop below would always exhaust its 5 attempts waiting for
+    // gamesPlayed > 0, wasting 5 requests and 5 seconds for nothing.
+    if (!game.isOnline) return;
+
     let isMounted = true;
     let timerId: ReturnType<typeof setTimeout> | undefined;
 
@@ -88,7 +93,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
       isMounted = false;
       if (timerId) clearTimeout(timerId);
     };
-  }, [deviceId]);
+  }, [deviceId, game.isOnline]);
 
   if (!winner) return null;
 
