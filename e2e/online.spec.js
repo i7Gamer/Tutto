@@ -76,8 +76,12 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     
     await expect(pageA.getByText('BobGuest').first()).toBeVisible({ timeout: 15000 });
 
-    // 3. Switch to digital dice mode so the Roll Dice button is rendered
+    // 3. Switch to digital dice mode so the Roll Dice button is rendered.
+    // diceMode is a per-client localStorage preference, never sent through
+    // pushState, so each page must toggle it independently — Alice's choice
+    // has no effect on Bob's client.
     await pageA.getByLabel(/Digital Dice/i).click();
+    await pageB.getByLabel(/Digital Dice/i).click();
 
     // Start Game
     await pageA.getByRole('button', { name: /Start Game!/i }).click();

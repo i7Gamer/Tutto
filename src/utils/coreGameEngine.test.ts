@@ -97,10 +97,10 @@ describe('coreGameEngine', () => {
 
     describe('smoothing algorithm — separation of duplicates', () => {
       it('never produces a cluster larger than 3, across many random shuffles', () => {
-        // buildDeck loops (up to a safety cap) until no run exceeds 3 identical
-        // adjacent cards — this is an enforced invariant, not a probability, so
-        // it must hold on every single shuffle. Repeating the check many times
-        // verifies the loop's correctness across different random inputs rather
+        // buildDeck always places the most-plentiful still-eligible card type
+        // next, so no run can exceed 3 identical adjacent cards — this is a
+        // guaranteed invariant, not a probability. Repeating the check many
+        // times verifies correctness across different random inputs rather
         // than hoping we get lucky.
         const initialCards = {
           '200': 5, '300': 5, '400': 5, '500': 5, '600': 5,
@@ -139,8 +139,10 @@ describe('coreGameEngine', () => {
 
       it('handles the high-frequency card case (10x) with good spreading', () => {
         // 10 of 15 cards (~67%) is still comfortably enough non-Kniffel cards
-        // (5) to keep every run within the MAX_CLUSTER=3 limit — the smoothing
-        // loop keeps passing until that invariant holds, so this is deterministic.
+        // (5) to keep every run within the MAX_CLUSTER=3 limit — the greedy
+        // placement enforces that invariant unconditionally, so this is
+        // deterministic (this exact case previously slipped through a
+        // shuffle-then-patch heuristic about 1 in 5 times).
         const initialCards = { 'Kniffel': 10, '200': 5 };
         const deck = buildDeck(initialCards);
 
@@ -154,6 +156,28 @@ describe('coreGameEngine', () => {
           maxCluster = Math.max(maxCluster, cluster);
         }
         expect(maxCluster).toBeLessThanOrEqual(3);
+      });
+
+      it('still allows clusters of exactly 3 rather than over-smoothing below the limit', () => {
+        // MAX_CLUSTER=3 is a ceiling, not a target — the greedy placement should
+        // happily produce a run of 3 identical cards when the numbers call for
+        // it, not needlessly break things up into smaller runs out of caution.
+        // With Kniffel this dominant it reliably forms a run of exactly 3 on
+        // essentially every call; looping guards against a one-off tie-break fluke.
+        const initialCards = { 'Kniffel': 10, '200': 5 };
+        let sawClusterOfThree = false;
+
+        for (let run = 0; run < 10 && !sawClusterOfThree; run++) {
+          const deck = buildDeck(initialCards);
+          for (let i = 0; i < deck.length && !sawClusterOfThree; i++) {
+            let cluster = 1;
+            let j = i;
+            while (j + 1 < deck.length && deck[j + 1] === deck[j]) { cluster++; j++; }
+            if (cluster === 3) sawClusterOfThree = true;
+          }
+        }
+
+        expect(sawClusterOfThree).toBe(true);
       });
 
       it('returns a new array each time (different shuffle)', () => {
@@ -181,11 +205,12 @@ describe('coreGameEngine', () => {
         expect(deck.filter(c => c === '300').length).toBe(2);
       });
 
-      it('terminates (via the smoothing-pass safety cap) instead of hanging when no arrangement can satisfy MAX_CLUSTER', () => {
+      it('terminates with correct counts instead of hanging when no arrangement can satisfy MAX_CLUSTER', () => {
         // One dominant card type with only a single card of another type: no
-        // arrangement can keep every run <= 3, so the smoothing loop is expected
-        // to hit its pass cap rather than looping forever. Card counts must still
-        // come out correct even though clustering can't be fully resolved.
+        // arrangement can keep every run <= 3, so every type eventually becomes
+        // "blocked" and the fallback (place the most plentiful type anyway)
+        // kicks in. Card counts must still come out correct even though
+        // clustering can't be fully resolved.
         const initialCards = { '200': 90, '300': 1 };
         const deck = buildDeck(initialCards);
 

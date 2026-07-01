@@ -18,69 +18,45 @@ export const shuffleArray = <T>(array: T[]): T[] => {
 };
 
 // Clusters of up to MAX_CLUSTER identical adjacent cards are acceptable; only
-// runs longer than that get broken up.
+// runs longer than that are avoided.
 const MAX_CLUSTER = 3;
-// Safety cap on smoothing passes. Not a target — for any realistic deck this
-// converges in 1-2 passes. It only matters for pathological configs (e.g. one
-// card type overwhelming the rest of the deck) where no arrangement can keep
-// every run within MAX_CLUSTER; without a cap the while loop below would spin
-// forever instead of returning a best-effort deck.
-const MAX_SMOOTHING_PASSES = 50;
 
-const hasOversizedCluster = (deck: CardType[]): boolean => {
-  let run = 1;
-  for (let i = 1; i < deck.length; i++) {
-    run = deck[i] === deck[i - 1] ? run + 1 : 1;
-    if (run > MAX_CLUSTER) return true;
-  }
-  return false;
-};
-
+// Builds the deck by always placing the most-plentiful still-eligible card
+// type next (eligible = wouldn't extend a run past MAX_CLUSTER), picking
+// randomly among ties so repeated calls still shuffle differently. This is
+// the standard greedy construction for "no more than k identical items
+// adjacent" — unlike shuffle-then-patch, it can't get stuck: reserving the
+// most frequent type for later only ever makes placing it harder, never
+// easier, so always spending it first is always safe when a solution exists.
+// If a card type so dominates the deck that MAX_CLUSTER is mathematically
+// unsatisfiable (e.g. one type outnumbering all others combined), every type
+// becomes ineligible at some point and we fall back to placing the most
+// plentiful one anyway rather than getting stuck.
 export const buildDeck = (initialCards: InitialCards): CardType[] => {
-  const newCards: CardType[] = [];
+  const remaining = new Map<CardType, number>();
   (Object.keys(initialCards) as CardType[]).forEach(cardType => {
     const count = initialCards[cardType] ?? 0;
-    for (let i = 0; i < count; i++) {
-      newCards.push(cardType);
-    }
+    if (count > 0) remaining.set(cardType, count);
   });
 
-  const deck = shuffleArray(newCards);
+  const total = Array.from(remaining.values()).reduce((sum, c) => sum + c, 0);
+  const deck: CardType[] = [];
+  let lastCard: CardType | null = null;
+  let runLength = 0;
 
-  let passes = 0;
-  while (hasOversizedCluster(deck) && passes < MAX_SMOOTHING_PASSES) {
-    for (let i = MAX_CLUSTER; i < deck.length; i++) {
-      // Only repair once this card and the MAX_CLUSTER before it are all the
-      // same — i.e. the run has grown past what's allowed.
-      let runTooLong = true;
-      for (let k = i - MAX_CLUSTER; k < i; k++) {
-        if (deck[k] !== deck[i]) { runTooLong = false; break; }
-      }
-      if (!runTooLong) continue;
+  while (deck.length < total) {
+    const blocked: CardType | null = runLength >= MAX_CLUSTER ? lastCard : null;
+    let candidates: [CardType, number][] = Array.from(remaining.entries()).filter(([type, count]) => count > 0 && type !== blocked);
+    if (candidates.length === 0) candidates = Array.from(remaining.entries()).filter(([, count]) => count > 0);
 
-      let swapIdx = -1;
-      for (let j = i + 1; j < deck.length; j++) {
-        if (
-          deck[j] !== deck[i] &&
-          (j === deck.length - 1 || deck[i] !== deck[j + 1]) &&
-          (j === i + 1 || deck[i] !== deck[j - 1])
-        ) {
-          swapIdx = j;
-          break;
-        }
-      }
-      if (swapIdx === -1) {
-        for (let j = i + 1; j < deck.length; j++) {
-          if (deck[j] !== deck[i]) { swapIdx = j; break; }
-        }
-      }
-      if (swapIdx !== -1) {
-        const temp = deck[i];
-        deck[i] = deck[swapIdx];
-        deck[swapIdx] = temp;
-      }
-    }
-    passes++;
+    const maxCount: number = Math.max(...candidates.map(([, count]) => count));
+    const topCandidates: [CardType, number][] = candidates.filter(([, count]) => count === maxCount);
+    const [chosen]: [CardType, number] = topCandidates[Math.floor(Math.random() * topCandidates.length)];
+
+    deck.push(chosen);
+    remaining.set(chosen, (remaining.get(chosen) ?? 0) - 1);
+    runLength = chosen === lastCard ? runLength + 1 : 1;
+    lastCard = chosen;
   }
 
   return deck;
