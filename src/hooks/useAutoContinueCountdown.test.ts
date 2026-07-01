@@ -27,7 +27,7 @@ describe('useAutoContinueCountdown', () => {
     expect(onElapsed).not.toHaveBeenCalled();
   });
 
-  it('counts down 3 → 2 → 1 then calls onElapsed', () => {
+  it('counts down 3 → 2 → 1 → 0, showing 0 before calling onElapsed', () => {
     const onElapsed = vi.fn();
     const { result } = renderHook(() => useAutoContinueCountdown({ shouldStart: true, onElapsed }));
 
@@ -35,16 +35,19 @@ describe('useAutoContinueCountdown', () => {
 
     act(() => vi.advanceTimersByTime(1000));
     expect(result.current).toBe(2);
+    expect(onElapsed).not.toHaveBeenCalled();
 
     act(() => vi.advanceTimersByTime(1000));
     expect(result.current).toBe(1);
-
     expect(onElapsed).not.toHaveBeenCalled();
 
-    // Main 3s timer elapses.
+    // The countdown must actually reach 0 (and be rendered) before onElapsed
+    // fires. Previously a second, independently-scheduled 3s timer raced this
+    // final decrement and always won the tie, so the display jumped straight
+    // from 1 to null without ever showing 0.
     act(() => vi.advanceTimersByTime(1000));
+    expect(result.current).toBe(0);
     expect(onElapsed).toHaveBeenCalledTimes(1);
-    expect(result.current).toBeNull();
   });
 
   it('only starts once and ignores shouldStart toggling back and forth', () => {
@@ -59,8 +62,15 @@ describe('useAutoContinueCountdown', () => {
     rerender({ shouldStart: false });
     rerender({ shouldStart: true });
 
-    // Still a single timer — onElapsed fires exactly once after 3s.
-    act(() => vi.advanceTimersByTime(3000));
+    // Still a single countdown — onElapsed fires exactly once after 3
+    // one-second ticks. Advancing in 1s steps (rather than one 3000ms jump)
+    // because each tick's timer is only scheduled once the previous tick's
+    // state update has actually re-rendered — bulk-advancing skips past that,
+    // which is a fake-timer/effect-scheduling artifact, not how real timers
+    // behave in the browser.
+    act(() => vi.advanceTimersByTime(1000));
+    act(() => vi.advanceTimersByTime(1000));
+    act(() => vi.advanceTimersByTime(1000));
     expect(onElapsed).toHaveBeenCalledTimes(1);
   });
 
@@ -72,9 +82,10 @@ describe('useAutoContinueCountdown', () => {
       { initialProps: { cb: first } }
     );
 
-    act(() => vi.advanceTimersByTime(1500));
+    act(() => vi.advanceTimersByTime(1000));
+    act(() => vi.advanceTimersByTime(1000));
     rerender({ cb: second });
-    act(() => vi.advanceTimersByTime(1500));
+    act(() => vi.advanceTimersByTime(1000));
 
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
