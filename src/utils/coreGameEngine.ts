@@ -17,6 +17,25 @@ export const shuffleArray = <T>(array: T[]): T[] => {
   return newArr;
 };
 
+// Clusters of up to MAX_CLUSTER identical adjacent cards are acceptable; only
+// runs longer than that get broken up.
+const MAX_CLUSTER = 3;
+// Safety cap on smoothing passes. Not a target — for any realistic deck this
+// converges in 1-2 passes. It only matters for pathological configs (e.g. one
+// card type overwhelming the rest of the deck) where no arrangement can keep
+// every run within MAX_CLUSTER; without a cap the while loop below would spin
+// forever instead of returning a best-effort deck.
+const MAX_SMOOTHING_PASSES = 50;
+
+const hasOversizedCluster = (deck: CardType[]): boolean => {
+  let run = 1;
+  for (let i = 1; i < deck.length; i++) {
+    run = deck[i] === deck[i - 1] ? run + 1 : 1;
+    if (run > MAX_CLUSTER) return true;
+  }
+  return false;
+};
+
 export const buildDeck = (initialCards: InitialCards): CardType[] => {
   const newCards: CardType[] = [];
   (Object.keys(initialCards) as CardType[]).forEach(cardType => {
@@ -28,32 +47,40 @@ export const buildDeck = (initialCards: InitialCards): CardType[] => {
 
   const deck = shuffleArray(newCards);
 
-  for (let pass = 0; pass < 5; pass++) {
-    for (let i = 1; i < deck.length; i++) {
-      if (deck[i] === deck[i - 1]) {
-        let swapIdx = -1;
-        for (let j = i + 1; j < deck.length; j++) {
-          if (
-            deck[j] !== deck[i] &&
-            (j === deck.length - 1 || deck[i] !== deck[j + 1]) &&
-            (j === i + 1 || deck[i] !== deck[j - 1])
-          ) {
-            swapIdx = j;
-            break;
-          }
-        }
-        if (swapIdx === -1) {
-          for (let j = i + 1; j < deck.length; j++) {
-            if (deck[j] !== deck[i]) { swapIdx = j; break; }
-          }
-        }
-        if (swapIdx !== -1) {
-          const temp = deck[i];
-          deck[i] = deck[swapIdx];
-          deck[swapIdx] = temp;
+  let passes = 0;
+  while (hasOversizedCluster(deck) && passes < MAX_SMOOTHING_PASSES) {
+    for (let i = MAX_CLUSTER; i < deck.length; i++) {
+      // Only repair once this card and the MAX_CLUSTER before it are all the
+      // same — i.e. the run has grown past what's allowed.
+      let runTooLong = true;
+      for (let k = i - MAX_CLUSTER; k < i; k++) {
+        if (deck[k] !== deck[i]) { runTooLong = false; break; }
+      }
+      if (!runTooLong) continue;
+
+      let swapIdx = -1;
+      for (let j = i + 1; j < deck.length; j++) {
+        if (
+          deck[j] !== deck[i] &&
+          (j === deck.length - 1 || deck[i] !== deck[j + 1]) &&
+          (j === i + 1 || deck[i] !== deck[j - 1])
+        ) {
+          swapIdx = j;
+          break;
         }
       }
+      if (swapIdx === -1) {
+        for (let j = i + 1; j < deck.length; j++) {
+          if (deck[j] !== deck[i]) { swapIdx = j; break; }
+        }
+      }
+      if (swapIdx !== -1) {
+        const temp = deck[i];
+        deck[i] = deck[swapIdx];
+        deck[swapIdx] = temp;
+      }
     }
+    passes++;
   }
 
   return deck;

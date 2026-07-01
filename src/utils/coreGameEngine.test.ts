@@ -96,9 +96,12 @@ describe('coreGameEngine', () => {
     });
 
     describe('smoothing algorithm — separation of duplicates', () => {
-      it('nearly eliminates adjacent identical cards in standard diverse decks', () => {
-        // Standard deck: most cards 5x, one card 10x
-        // With 5 passes, the algorithm consistently prevents 3+ clusters
+      it('never produces a cluster larger than 3, across many random shuffles', () => {
+        // buildDeck loops (up to a safety cap) until no run exceeds 3 identical
+        // adjacent cards — this is an enforced invariant, not a probability, so
+        // it must hold on every single shuffle. Repeating the check many times
+        // verifies the loop's correctness across different random inputs rather
+        // than hoping we get lucky.
         const initialCards = {
           '200': 5, '300': 5, '400': 5, '500': 5, '600': 5,
           'Kniffel': 10, 'Plus_Minus': 5, 'x2': 5,
@@ -116,8 +119,7 @@ describe('coreGameEngine', () => {
             }
             maxCluster = Math.max(maxCluster, cluster);
           }
-          // With diverse cards (55 total, 11 types) and 5 passes: max 2 adjacent (excellent)
-          expect(maxCluster).toBeLessThanOrEqual(2);
+          expect(maxCluster).toBeLessThanOrEqual(3);
         }
       });
 
@@ -136,12 +138,12 @@ describe('coreGameEngine', () => {
       });
 
       it('handles the high-frequency card case (10x) with good spreading', () => {
+        // 10 of 15 cards (~67%) is still comfortably enough non-Kniffel cards
+        // (5) to keep every run within the MAX_CLUSTER=3 limit — the smoothing
+        // loop keeps passing until that invariant holds, so this is deterministic.
         const initialCards = { 'Kniffel': 10, '200': 5 };
         const deck = buildDeck(initialCards);
 
-        // With 10 of the same card in 15 total (~67% frequency), 3 passes provide
-        // good spreading. Most runs keep max cluster to 5; occasionally 6 appears.
-        // This is a significant improvement over raw Fisher-Yates (~7+).
         let maxCluster = 1;
         for (let i = 1; i < deck.length; i++) {
           let cluster = 1;
@@ -151,8 +153,7 @@ describe('coreGameEngine', () => {
           }
           maxCluster = Math.max(maxCluster, cluster);
         }
-        // With 3 passes: max 5–6 adjacent (balanced good performance vs. cost)
-        expect(maxCluster).toBeLessThanOrEqual(6);
+        expect(maxCluster).toBeLessThanOrEqual(3);
       });
 
       it('returns a new array each time (different shuffle)', () => {
@@ -180,6 +181,19 @@ describe('coreGameEngine', () => {
         expect(deck.filter(c => c === '300').length).toBe(2);
       });
 
+      it('terminates (via the smoothing-pass safety cap) instead of hanging when no arrangement can satisfy MAX_CLUSTER', () => {
+        // One dominant card type with only a single card of another type: no
+        // arrangement can keep every run <= 3, so the smoothing loop is expected
+        // to hit its pass cap rather than looping forever. Card counts must still
+        // come out correct even though clustering can't be fully resolved.
+        const initialCards = { '200': 90, '300': 1 };
+        const deck = buildDeck(initialCards);
+
+        expect(deck.length).toBe(91);
+        expect(deck.filter(c => c === '200').length).toBe(90);
+        expect(deck.filter(c => c === '300').length).toBe(1);
+      });
+
       it('handles many different card types (real game scenario)', () => {
         const initialCards = {
           '200': 5, '300': 5, '400': 5, '500': 5, '600': 5,
@@ -188,7 +202,7 @@ describe('coreGameEngine', () => {
         };
         const deck = buildDeck(initialCards);
 
-        // Verify total count and no 3+ clusters
+        // Verify total count and no clusters larger than 3
         expect(deck.length).toBe(55);
 
         let maxCluster = 1;
@@ -200,7 +214,7 @@ describe('coreGameEngine', () => {
           }
           maxCluster = Math.max(maxCluster, cluster);
         }
-        expect(maxCluster).toBeLessThanOrEqual(2);
+        expect(maxCluster).toBeLessThanOrEqual(3);
       });
     });
   });
