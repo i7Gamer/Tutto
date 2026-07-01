@@ -13,6 +13,8 @@ export type CardType =
 
 export type InitialCards = Partial<Record<CardType, number>>;
 
+export type DiceMode = 'physical' | 'digital';
+
 export interface Die {
   id: string;
   val: number;

@@ -4,9 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { isTestEnv } from '../../utils/env';
 import { sortKeptDiceForDisplay } from '../../utils/diceTurnControls';
-import type { CardType, DiceSnapshot, Player } from '../../types';
-
-type DiceMode = 'digital' | 'physical';
+import type { CardType, DiceMode, DiceSnapshot, Player } from '../../types';
 
 interface GameControlsProps {
   currentCard: CardType | null;

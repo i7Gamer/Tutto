@@ -20,6 +20,7 @@ import type {
   Toast,
   DiceSnapshot,
   GlobalStatsPayload,
+  DiceMode,
 } from '../types';
 
 export const PLAYER_COLORS: string[] = playerColorsData.PLAYER_COLORS;
@@ -44,7 +45,6 @@ const TURN_DURATION_MULTIPLIERS: Partial<Record<CardType, number>> = {
   Kleeblatt: 2,
 };
 
-type DiceMode = 'physical' | 'digital';
 type GameMode = 'local' | 'online';
 type GameStatus = 'lobby' | 'playing';
 

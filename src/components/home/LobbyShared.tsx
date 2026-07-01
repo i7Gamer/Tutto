@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, Play, ChevronUp, ChevronDown, Trash2, UserMinus, Crown, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { Player, CardType } from '../../types';
+import type { Player, CardType, DiceMode } from '../../types';
 import type { GameStore } from '../../store/useGameStore';
 
 interface PlayerListProps {
@@ -115,8 +115,6 @@ export function PlayerList({
     </motion.div>
   );
 }
-
-type DiceMode = 'digital' | 'physical';
 
 interface DiceModeSelectorProps {
   diceMode: DiceMode;
