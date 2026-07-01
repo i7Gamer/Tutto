@@ -320,15 +320,40 @@ export const useGameStore = create<GameStore>()(
     },
 
     setMode: (mode) => {
-      const parsed = mode === 'local'
-        ? parseJsonString<Partial<GameStore>>(localStorage.getItem('tutto_local_game'))
-        : null;
+      const isLocal = mode === 'local';
+      
+      let parsed = null;
+      if (isLocal) {
+        parsed = parseJsonString<Partial<GameStore>>(localStorage.getItem('tutto_local_game'));
+      } else {
+        const raw = localStorage.getItem('tutto_online_config');
+        if (raw) {
+          try {
+            parsed = validateOnlineConfig(JSON.parse(raw));
+          } catch (e) {
+            console.error('Failed to parse online config', e);
+          }
+        }
+      }
 
       set((state) => {
         state.mode = mode;
-        state.isOnline = mode === 'online';
-        if (mode === 'local' && parsed) {
+        state.isOnline = !isLocal;
+        
+        // Reset advanced options to defaults to prevent bleeding between modes
+        Object.assign(state, {
+          winningScore: initialLocalState.winningScore,
+          randomOrder: initialLocalState.randomOrder,
+          turnDuration: initialLocalState.turnDuration,
+          reconnectTimeout: initialLocalState.reconnectTimeout,
+          initialCards: initialLocalState.initialCards,
+        });
+
+        if (parsed) {
           Object.assign(state, parsed);
+        }
+
+        if (isLocal) {
           reanchorLocalClock(state);
         }
       });
