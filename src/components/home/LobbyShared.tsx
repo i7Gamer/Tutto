@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, Play, ChevronUp, ChevronDown, Trash2, UserMinus, Crown, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -197,17 +197,24 @@ interface BlurInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 function BlurInput({ value, onValueChange, minVal = 0, maxVal = 99999, ...props }: BlurInputProps) {
   const safeValue = value ?? 0;
   const [localValue, setLocalValue] = useState(safeValue.toString());
+  const isDirtyRef = useRef(false);
+  const valueRef = useRef(value);
 
   useEffect(() => {
+    valueRef.current = value;
     setLocalValue((value ?? 0).toString());
+    isDirtyRef.current = false;
   }, [value]);
 
   const commit = () => {
+    if (!isDirtyRef.current) return;
     let parsed = parseInt(localValue);
-    if (isNaN(parsed)) parsed = 0;
+    if (isNaN(parsed)) parsed = valueRef.current ?? 0;
     const clamped = Math.min(maxVal, Math.max(minVal, parsed));
     setLocalValue(clamped.toString());
-    if (clamped !== value) {
+    isDirtyRef.current = false;
+    
+    if (clamped !== valueRef.current) {
       onValueChange(clamped);
     }
   };
@@ -223,7 +230,10 @@ function BlurInput({ value, onValueChange, minVal = 0, maxVal = 99999, ...props 
     <input
       {...props}
       value={localValue}
-      onChange={(e) => setLocalValue(e.target.value)}
+      onChange={(e) => {
+        setLocalValue(e.target.value);
+        isDirtyRef.current = true;
+      }}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
     />

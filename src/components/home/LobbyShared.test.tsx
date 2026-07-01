@@ -174,6 +174,45 @@ describe('AdvancedOptionsPanel', () => {
     expect(mockSetReconnectTimeout).toHaveBeenCalledWith(3600);
   });
 
+  it('does not trigger onValueChange on blur if the input was not modified', () => {
+    const mockSetWinningScore = vi.fn();
+    const game = {
+      winningScore: 6000,
+      setWinningScore: mockSetWinningScore,
+      turnDuration: 120,
+      setTurnDuration: vi.fn(),
+      reconnectTimeout: 60,
+      setReconnectTimeout: vi.fn(),
+      initialCards: {}
+    };
+
+    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={true} />);
+
+    const input = screen.getByDisplayValue('6000');
+    fireEvent.blur(input);
+    // Should not be called because it was never changed
+    expect(mockSetWinningScore).not.toHaveBeenCalled();
+  });
+
+  it('does not trigger onValueChange on unmount if input was not modified', () => {
+    const mockSetWinningScore = vi.fn();
+    const game = {
+      winningScore: 6000,
+      setWinningScore: mockSetWinningScore,
+      turnDuration: 120,
+      setTurnDuration: vi.fn(),
+      reconnectTimeout: 60,
+      setReconnectTimeout: vi.fn(),
+      initialCards: {}
+    };
+
+    const { unmount } = render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={true} />);
+    
+    unmount();
+    // BlurInput should not call commit() during unmount since isDirty is false
+    expect(mockSetWinningScore).not.toHaveBeenCalled();
+  });
+
   it('calls onResetGeneralSettings when reset button is clicked', () => {
     const mockResetGeneralSettings = vi.fn();
     const game = {

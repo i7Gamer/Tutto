@@ -115,6 +115,7 @@
   "lobby.playersTitle": "Players",
   "lobby.newPlayerPlaceholder": "Name of new player",
   "lobby.addPlayerButton": "Add",
+  "lobby.savedSettingsLoaded": "Saved settings loaded",
   "home.localPlay": "Local Play",
   "home.onlinePlay": "Online Play",
   "home.viewStats": "View Statistics",

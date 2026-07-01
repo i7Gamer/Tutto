@@ -115,6 +115,7 @@
   "lobby.playersTitle": "Spieler",
   "lobby.newPlayerPlaceholder": "Name des neuen Spielers",
   "lobby.addPlayerButton": "Hinzufügen",
+  "lobby.savedSettingsLoaded": "Gespeicherte Einstellungen geladen",
   "lobby.online.enterBoth": "Bitte geben Sie einen Raumcode und einen Namen ein.",
   "lobby.online.joinOrCreateRoom": "Raum beitreten oder erstellen",
   "lobby.online.roomCode": "Raumcode",

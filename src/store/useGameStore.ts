@@ -341,16 +341,24 @@ export const useGameStore = create<GameStore>()(
         state.isOnline = !isLocal;
         
         // Reset advanced options to defaults to prevent bleeding between modes
-        Object.assign(state, {
-          winningScore: initialLocalState.winningScore,
-          randomOrder: initialLocalState.randomOrder,
-          turnDuration: initialLocalState.turnDuration,
-          reconnectTimeout: initialLocalState.reconnectTimeout,
-          initialCards: initialLocalState.initialCards,
-        });
+        state.winningScore = initialLocalState.winningScore;
+        state.randomOrder = initialLocalState.randomOrder;
+        state.turnDuration = initialLocalState.turnDuration;
+        state.reconnectTimeout = initialLocalState.reconnectTimeout;
+        state.initialCards = JSON.parse(JSON.stringify(initialLocalState.initialCards));
 
         if (parsed) {
           Object.assign(state, parsed);
+        }
+
+        // If switching to local, ensure we don't accidentally load online settings 
+        // that somehow snuck into the local save file in older versions.
+        if (isLocal && parsed) {
+           if (parsed.winningScore !== undefined) state.winningScore = parsed.winningScore;
+           if (parsed.randomOrder !== undefined) state.randomOrder = parsed.randomOrder;
+           if (parsed.turnDuration !== undefined) state.turnDuration = parsed.turnDuration;
+           if (parsed.reconnectTimeout !== undefined) state.reconnectTimeout = parsed.reconnectTimeout;
+           if (parsed.initialCards !== undefined) state.initialCards = parsed.initialCards;
         }
 
         if (isLocal) {
@@ -522,27 +530,40 @@ export const useGameStore = create<GameStore>()(
         localStorage.removeItem('tutto_dice_turn_state');
         set({ liveTurnState: null });
       }
-      return new Promise((resolve) => {
+      return new Promise<JoinRoomResponse>((resolve) => {
+        let initialConfig: any = undefined;
+        try {
+          const storedConfigStr = localStorage.getItem('tutto_online_config');
+          if (storedConfigStr) {
+            const parsed = JSON.parse(storedConfigStr);
+            // Quick shallow validate for safe transmission
+            if (parsed && typeof parsed === 'object') {
+              initialConfig = {
+                winningScore: parsed.winningScore,
+                randomOrder: parsed.randomOrder,
+                turnDuration: parsed.turnDuration,
+                reconnectTimeout: parsed.reconnectTimeout,
+                initialCards: parsed.initialCards
+              };
+            }
+          }
+        } catch (e) {
+          console.error('Failed to parse online config for joinRoom', e);
+        }
+
         get().connectSocket();
         const savedColor = localStorage.getItem('tutto_color');
         if (!socket) {
           resolve({ success: false, error: 'Socket not connected' });
           return;
         }
-        socket.emit('joinRoom', { roomId: room, name, deviceId: get().deviceId, color: savedColor }, (res: JoinRoomResponse) => {
+        socket.emit('joinRoom', { roomId: room, name, deviceId: get().deviceId, color: savedColor, initialConfig }, (res: JoinRoomResponse) => {
           if (res.success) {
             set({ roomId: room, isHost: res.isHost ?? false, myName: name, mode: 'online', isOnline: true });
             sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: room, myName: name }));
             
-            if (res.isHost && !isReconnect) {
-              const storedConfigStr = localStorage.getItem('tutto_online_config');
-              if (storedConfigStr) {
-                const parsed = parseJsonString(storedConfigStr);
-                const validConfig = validateOnlineConfig(parsed);
-                if (Object.keys(validConfig).length > 0) {
-                  get().updateConfig(validConfig);
-                }
-              }
+            if (res.isHost && !isReconnect && initialConfig) {
+              get().addToast(i18n.t('lobby.savedSettingsLoaded'));
             }
           }
           resolve(res);
@@ -566,8 +587,6 @@ export const useGameStore = create<GameStore>()(
         roomId: null,
         isHost: false,
         myName: null,
-        mode: 'local',
-        isOnline: false,
         liveTurnState: null,
       });
     },

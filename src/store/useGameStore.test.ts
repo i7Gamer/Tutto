@@ -906,6 +906,52 @@ describe('useGameStore', () => {
       expect(io).not.toHaveBeenCalled();
     });
 
+    it('joinRoom extracts and emits initialConfig from localStorage', async () => {
+      const { io } = await import('socket.io-client');
+      io.mockClear();
+      mockEmit.mockClear();
+
+      localStorage.setItem('tutto_online_config', JSON.stringify({
+        winningScore: 8000,
+        randomOrder: false,
+        turnDuration: 30,
+        reconnectTimeout: 10,
+        initialCards: { '200': 10 }
+      }));
+
+      const joinPromise = useGameStore.getState().joinRoom('CONFIG_ROOM', 'Alice', false);
+      expect(io).toHaveBeenCalledWith(expect.any(String));
+      mockOnHandlers['connect']();
+
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(joinRoomCall).toBeTruthy();
+      expect(joinRoomCall[1]).toMatchObject({
+        roomId: 'CONFIG_ROOM',
+        name: 'Alice',
+        initialConfig: {
+          winningScore: 8000,
+          randomOrder: false,
+          turnDuration: 30,
+          reconnectTimeout: 10,
+          initialCards: { '200': 10 }
+        }
+      });
+
+      const joinCallback = joinRoomCall[2];
+      joinCallback({ success: true, isHost: true });
+      await joinPromise;
+
+      const state = useGameStore.getState();
+      expect(state.roomId).toBe('CONFIG_ROOM');
+      
+      // Should show the translated "Saved settings loaded" toast instead of individual ones
+      const toasts = state.toasts;
+      expect(toasts.some(t => t.message === 'lobby.savedSettingsLoaded' || t.message === 'Saved settings loaded')).toBe(true);
+      expect(toasts.some(t => t.message.includes('Winning score'))).toBe(false);
+
+      localStorage.removeItem('tutto_online_config');
+    });
+
     it('cancelReconnect(roomId, name) clears state and opens a temp socket to leave the room', async () => {
       const { io } = await import('socket.io-client');
       io.mockClear();

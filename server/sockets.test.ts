@@ -48,6 +48,43 @@ describe('Server Socket E2E Simulation', () => {
     if (serverProcess) serverProcess.kill();
   });
 
+  it('applies initialConfig when creating a new room', () => {
+    return new Promise<void>((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+
+      s1.on('connect', () => {
+        const initialConfig = {
+          winningScore: 7777,
+          randomOrder: false,
+          turnDuration: 90,
+          reconnectTimeout: 30,
+          initialCards: {
+            Kleeblatt: 2, Feuerwerk: 2, Stop: 2, Kniffel: 2,
+            Plus_Minus: 2, x2: 2, '200': 2, '300': 2, '400': 2, '500': 2, '600': 2,
+          }
+        };
+
+        s1.emit('joinRoom', { roomId: 'CONFIG_TEST', name: 'Alice', deviceId: 'dev-1', initialConfig }, (res: any) => {
+          if (!res.success) {
+            reject(new Error('joinRoom failed'));
+          }
+        });
+
+        s1.on('gameState', (state: any) => {
+          expect(state.winningScore).toBe(7777);
+          expect(state.randomOrder).toBe(false);
+          expect(state.turnDuration).toBe(90);
+          expect(state.reconnectTimeout).toBe(30);
+          expect(state.initialCards['200']).toBe(2);
+          s1.disconnect();
+          resolve();
+        });
+      });
+      
+      setTimeout(() => reject(new Error('Test timed out')), 2000);
+    });
+  });
+
   it('preserves socket metadata, detects disconnects, and kicks player correctly', () => {
     return new Promise((resolve, reject) => {
       socket1 = io(`http://127.0.0.1:${PORT}`);
