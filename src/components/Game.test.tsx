@@ -170,6 +170,29 @@ describe('Game Component Integration', () => {
     expect(mockNextTurn).not.toHaveBeenCalled();
   });
 
+  it('does not double-advance when Continue is clicked before the Stop auto-advance timeout fires', () => {
+    useGameStore.setState({ currentCard: 'Stop' });
+    // Mimic the real store: nextTurn moves the game on to a new card, which is
+    // what actually clears the pending auto-advance timeout (the effect's
+    // cleanup fires because `currentCard` changed).
+    mockNextTurn.mockImplementation(() => {
+      useGameStore.setState({ currentCard: '200' });
+    });
+    render(<Game />);
+
+    const continueBtn = screen.getByRole('button', { name: /game.controls.continue/i });
+    fireEvent.click(continueBtn);
+    expect(mockNextTurn).toHaveBeenCalledTimes(1);
+
+    // The original 5s auto-advance timeout must not still be pending — it
+    // should have been cleared once currentCard changed, so this must not
+    // call nextTurn a second time for the same Stop card.
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(mockNextTurn).toHaveBeenCalledTimes(1);
+  });
+
   it('sends isSuccess=false when manually submitting 0 points for x2', () => {
     useGameStore.setState({ currentCard: 'x2' });
     render(<Game />);

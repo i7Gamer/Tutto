@@ -660,6 +660,29 @@ describe('coreGameEngine', () => {
       expect(result.players[0].score).toBe(0);
     });
 
+    it('reverses an x2 BUST — decrements busts and x2Busts alongside the other x2 counters', () => {
+      // The test above only covers undoing a *successful* x2 turn (previousWasBust:
+      // false). A bust also increments the generic `busts` counter and the x2-specific
+      // `x2Busts` counter (coreGameEngine.ts: wasBust branch), so undo must reverse
+      // those too, not just timesx2Received/x2PointsScored.
+      const state = makeState({
+        players: [makePlayer('Alice', {
+          score: 0, totalTurns: 1, timesx2Received: 1, x2PointsScored: 0,
+          busts: 1, x2Busts: 1,
+        }), makePlayer('Bob')],
+        currentPlayerIndex: 1,
+        previousCard: 'x2',
+        previousScore: 0,
+        previousWasBust: true,
+      });
+      const result = calculateUndo(state);
+      expect(result.players[0].busts).toBe(0);
+      expect(result.players[0].x2Busts).toBe(0);
+      expect(result.players[0].timesx2Received).toBe(0);
+      expect(result.players[0].x2PointsScored).toBe(0);
+      expect(result.players[0].totalTurns).toBe(0);
+    });
+
     it('only touches Feuerwerk stats based on previousCard, not currentCard (Bug 2)', () => {
       // Previous player played '200'; the card now showing is Feuerwerk.
       const state = makeState({

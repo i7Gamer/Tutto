@@ -288,6 +288,44 @@ describe('useGameStore', () => {
         roomId: 'ROOM1',
       }));
     });
+
+    it('does not double-submit stats when the server echoes the finished gameState back to the host', () => {
+      // The host's own pushState() round-trips through the server and comes back
+      // as a 'gameState' broadcast (the host isn't excluded from their own room's
+      // broadcast). nextTurn() already sent stats locally when it flipped
+      // `finished` to true — the echo must not trigger a second submission.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: true, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
+        players: [{ name: 'Bob', score: 2000, times1000PointsDeducted: 0 }, { name: 'Alice', score: 5500, times1000PointsDeducted: 0 }],
+        currentPlayerIndex: 1, status: 'playing', finished: false,
+        winningScore: 6000, initialCards: {},
+      });
+
+      mockEmit.mockClear();
+
+      // Host triggers the winning turn — flips `finished` locally and sends stats.
+      useGameStore.getState().nextTurn(500, true);
+
+      const endGameStatsCallsAfterNextTurn = mockEmit.mock.calls.filter(c => c[0] === 'endGameStats').length;
+      const submitGlobalStatsCallsAfterNextTurn = mockEmit.mock.calls.filter(c => c[0] === 'submitGlobalStats').length;
+      expect(endGameStatsCallsAfterNextTurn).toBe(1);
+      expect(submitGlobalStatsCallsAfterNextTurn).toBe(1);
+
+      // Now simulate the server echoing the same finished state back to the host.
+      mockOnHandlers['gameState']({
+        status: 'playing',
+        finished: true,
+        players: useGameStore.getState().players,
+      });
+
+      // Counts must be unchanged — the echo must not trigger a second submission.
+      const endGameStatsCallsAfterEcho = mockEmit.mock.calls.filter(c => c[0] === 'endGameStats').length;
+      const submitGlobalStatsCallsAfterEcho = mockEmit.mock.calls.filter(c => c[0] === 'submitGlobalStats').length;
+      expect(endGameStatsCallsAfterEcho).toBe(1);
+      expect(submitGlobalStatsCallsAfterEcho).toBe(1);
+    });
   });
 
   describe('socket disconnect behavior', () => {
