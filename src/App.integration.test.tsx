@@ -661,12 +661,10 @@ describe('App Integration (End-to-End)', () => {
     expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
     expect(useGameStore.getState().status).toBe('playing');
 
-    // Wait for timer to tick
-    await new Promise(resolve => setTimeout(resolve, 1100));
-
-    // Game time should have incremented
-    const timeAfterWait = useGameStore.getState().gameTimeInSeconds;
-    expect(timeAfterWait).toBeGreaterThanOrEqual(1);
+    // Wait for timer to tick — wrapped in waitFor to avoid act() warning
+    await waitFor(() => {
+      expect(useGameStore.getState().gameTimeInSeconds).toBeGreaterThanOrEqual(1);
+    }, { timeout: 2000 });
   });
 
   it('Game time resyncs from server without drift on reconnect', async () => {
