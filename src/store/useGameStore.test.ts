@@ -1353,6 +1353,27 @@ describe('useGameStore', () => {
       }));
     });
 
+    it('setLiveTurnState does not include playerName in the liveTurnState pushed to the server', () => {
+      // playerName is only persisted in localStorage, never sent over the wire
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: false, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
+        players: [makeOnlinePlayer('Alice'), makeOnlinePlayer('Bob')],
+        currentPlayerIndex: 0, status: 'playing',
+      });
+      mockEmit.mockClear();
+
+      const snapshot = { turnScore: 350, keptDice: [], currentRoll: [] };
+      useGameStore.getState().setLiveTurnState(snapshot);
+
+      const pushCall = mockEmit.mock.calls.find(([ev]) => ev === 'pushState');
+      expect(pushCall).toBeDefined();
+      expect(pushCall![1].newState.liveTurnState).not.toHaveProperty('playerName');
+      // Also verify in-memory store has no playerName on liveTurnState
+      expect(useGameStore.getState().liveTurnState).not.toHaveProperty('playerName');
+    });
+
     it('nextTurn clears liveTurnState', () => {
       useGameStore.getState().addPlayer('P1');
       useGameStore.getState().addPlayer('P2');
@@ -1631,6 +1652,61 @@ describe('useGameStore', () => {
       useGameStore.getState().init('test-device-id');
 
       expect(localStorage.getItem('tutto_dice_turn_state')).not.toBeNull();
+    });
+
+    it('does not delete tutto_dice_turn_state for legacy local saves that have no playerName', () => {
+      // Old saves written before this fix have no playerName field — we must not drop them
+      useGameStore.setState({
+        mode: 'local',
+        players: [{ name: 'Alice' }] as any,
+        currentPlayerIndex: 0,
+      });
+
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+        turnScore: 500,
+        // no playerName
+      }));
+
+      useGameStore.getState().init('test-device-id');
+
+      // Validation only fires when playerName is present; legacy saves are left untouched
+      expect(localStorage.getItem('tutto_dice_turn_state')).not.toBeNull();
+    });
+
+    it('does not delete tutto_dice_turn_state in online mode even if names mismatch', () => {
+      // The validation block is local-only; online games restore from the server
+      useGameStore.setState({
+        mode: 'online',
+        players: [{ name: 'Alice' }, { name: 'Bob' }] as any,
+        currentPlayerIndex: 1,
+      });
+
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+        turnScore: 1000,
+        playerName: 'Alice', // deliberately mismatched
+      }));
+
+      useGameStore.getState().init('test-device-id');
+
+      // Should NOT be cleared — mode is online, not local
+      expect(localStorage.getItem('tutto_dice_turn_state')).not.toBeNull();
+    });
+
+    it('does not crash when currentPlayerIndex is null during init', () => {
+      useGameStore.setState({
+        mode: 'local',
+        players: [{ name: 'Alice' }] as any,
+        currentPlayerIndex: null,
+      });
+
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+        turnScore: 1000,
+        playerName: 'Alice',
+      }));
+
+      expect(() => useGameStore.getState().init('test-device-id')).not.toThrow();
+      // activePlayer is null → mismatch → cache cleared
+      expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
     });
   });
 

@@ -49,6 +49,11 @@ describe('diceTurnState', () => {
       expect(parseSavedDiceState(JSON.stringify({ busted: 1 })).busted).toBe(true);
       expect(parseSavedDiceState(JSON.stringify({ busted: 0 })).busted).toBe(false);
     });
+
+    it('returns undefined playerName for legacy snapshots that do not contain the field', () => {
+      const raw = JSON.stringify({ turnScore: 500, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0 });
+      expect(parseSavedDiceState(raw)!.playerName).toBeUndefined();
+    });
   });
 
   describe('buildDiceSnapshot', () => {
