@@ -85,6 +85,7 @@ function RestoreSessionPopup() {
   const clearPendingReconnect = useGameStore(state => state.clearPendingReconnect);
   const cancelReconnect = useGameStore(state => state.cancelReconnect);
   const joinRoom = useGameStore(state => state.joinRoom);
+  const addToast = useGameStore(state => state.addToast);
   const { t } = useTranslation();
 
   if (!pendingReconnectSession) return null;
@@ -100,10 +101,19 @@ function RestoreSessionPopup() {
         <div className="flex flex-col gap-3">
           <button
             className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3 px-4 rounded-xl transition-colors"
-            onClick={() => {
+            onClick={async () => {
               useGameStore.setState({ showReconnectPopup: true });
-              void joinRoom(pendingReconnectSession.roomId, pendingReconnectSession.myName, true);
+              const { roomId, myName } = pendingReconnectSession;
               clearPendingReconnect();
+              const res = await joinRoom(roomId, myName, true);
+              if (!res.success) {
+                // joinRoom failed outright (room gone, name taken, etc.) — there will
+                // be no gameState event to clear showReconnectPopup, so the "Connection
+                // Lost" popup would otherwise stay up forever with its misleading
+                // "attempting to reconnect" message.
+                useGameStore.setState({ showReconnectPopup: false });
+                addToast(res.error || t('home.restore.failed', 'Failed to reconnect to the game'));
+              }
             }}
           >
             {t('home.restore.yes', 'Yes, Reconnect')}

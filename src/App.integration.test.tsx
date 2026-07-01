@@ -205,6 +205,47 @@ describe('App Integration (End-to-End)', () => {
     expect(screen.queryByText('home.restore.title')).not.toBeInTheDocument();
   });
 
+  it('dismisses the "Connection Lost" popup and shows an error toast when reconnect join fails', async () => {
+    // Before this fix, a failed joinRoom() left showReconnectPopup stuck at
+    // true forever — there's no gameState event to clear it (the join never
+    // succeeded), so the user would be stuck on a misleading "attempting to
+    // reconnect" popup with no feedback that anything went wrong.
+    mockSocketInstance = {
+      on: vi.fn(),
+      emit: vi.fn((event, ...args) => {
+        if (event === 'joinRoom') {
+          const callback = args[args.length - 1];
+          if (typeof callback === 'function') {
+            callback({ success: false, error: 'Game is already running. You cannot join mid-game.' });
+          }
+        }
+      }),
+      disconnect: vi.fn(),
+      id: 'socket-fail',
+    };
+
+    act(() => {
+      useGameStore.setState({ pendingReconnectSession: { roomId: 'MIDGAME_ROOM', myName: 'Dave' } });
+    });
+
+    render(<App />);
+
+    const reconnectButton = screen.getByText('home.restore.yes');
+    await act(async () => {
+      fireEvent.click(reconnectButton);
+    });
+
+    // The "Connection Lost" popup must not be stuck open.
+    expect(useGameStore.getState().showReconnectPopup).toBe(false);
+    expect(screen.queryByText('home.reconnect.title')).not.toBeInTheDocument();
+
+    // The user must see feedback explaining what happened.
+    const messages = useGameStore.getState().toasts.map(t => t.message);
+    expect(messages).toContain('Game is already running. You cannot join mid-game.');
+
+    mockSocketInstance = null;
+  });
+
   it('RestoreSessionPopup Cancel button triggers temp socket join+leave flow', async () => {
     const { io } = await import('socket.io-client');
 

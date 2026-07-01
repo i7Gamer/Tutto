@@ -6,6 +6,7 @@
   "home.restore.description": "You were recently in an online room ({{roomId}}). Do you want to reconnect?",
   "home.restore.yes": "Yes, Reconnect",
   "home.restore.cancel": "No, Cancel",
+  "home.restore.failed": "Failed to reconnect to the game",
   "dice.stop_and_score": "Stop & Score",
   "dice.roll_2nd_tutto": "Roll 2nd Tutto",
   "dice.finish_card": "Finish Card",

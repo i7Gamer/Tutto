@@ -6,6 +6,7 @@
   "home.restore.description": "Sie waren vor kurzem in einem Online-Raum ({{roomId}}). Möchten Sie wieder beitreten?",
   "home.restore.yes": "Ja, wieder verbinden",
   "home.restore.cancel": "Nein, abbrechen",
+  "home.restore.failed": "Wiederverbindung zum Spiel fehlgeschlagen",
   "dice.stop_and_score": "Stoppen & Punkten",
   "dice.roll_2nd_tutto": "Zweites Tutto würfeln",
   "dice.finish_card": "Karte beenden",
