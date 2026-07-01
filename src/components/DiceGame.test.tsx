@@ -1,5 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import { parseSavedDiceState } from '../utils/diceTurnState';
+import DiceGame from './DiceGame';
+
+vi.mock('../utils/soundEffects', () => ({
+  playBuzzer: vi.fn(),
+  playSuccess: vi.fn(),
+  playTone: vi.fn(),
+}));
+
+vi.mock('canvas-confetti', () => ({
+  default: vi.fn(),
+}));
 
 describe('DiceGame State Restoration Logic', () => {
   beforeEach(() => {
@@ -92,5 +104,38 @@ describe('DiceGame State Restoration Logic', () => {
     expect(restored?.keptDice).toEqual([]);
     expect(restored?.kniffelProgress).toEqual([]);
     expect(restored?.tuttosThisTurn).toBe(0);
+  });
+});
+
+describe('DiceGame restored-state bust rendering', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('shows the same "Bust!" summary for a restored Kleeblatt bust as a live one', () => {
+    // Simulates a page reload/reconnect mid-Kleeblatt-turn right after busting.
+    // Kleeblatt is all-or-nothing (needs 2 successful tuttos), so a bust always
+    // forfeits the turn regardless of tuttosThisTurn banked so far — the restored
+    // path (DiceGame.tsx init effect) and the live bust path both produce
+    // { won: false, score: 0 }, so the rendered summary must match exactly.
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 0,
+      keptDice: [],
+      currentRoll: [],
+      kniffelProgress: [],
+      tuttosThisTurn: 1,
+      busted: true,
+    }));
+
+    render(<DiceGame currentCard="Kleeblatt" onComplete={vi.fn()} onCancel={vi.fn()} />);
+
+    expect(screen.getByText('dice.bust')).toBeInTheDocument();
+    expect(screen.queryByText('dice.success')).not.toBeInTheDocument();
+    expect(screen.queryByText('dice.tutto')).not.toBeInTheDocument();
+    expect(screen.queryByText('dice.points_gained')).not.toBeInTheDocument();
   });
 });
