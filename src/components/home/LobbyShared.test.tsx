@@ -93,6 +93,7 @@ describe('AdvancedOptionsPanel', () => {
     // Find the input for 'Kleeblatt'
     const input = screen.getByDisplayValue('1');
     fireEvent.change(input, { target: { value: '2' } });
+    fireEvent.blur(input);
 
     // It should be called with an object, not a function
     expect(mockSetInitialCards).toHaveBeenCalledWith({
@@ -112,6 +113,7 @@ describe('AdvancedOptionsPanel', () => {
 
     const input = screen.getByDisplayValue('50');
     fireEvent.change(input, { target: { value: '-10' } });
+    fireEvent.blur(input);
 
     expect(mockSetWinningScore).toHaveBeenCalledWith(0);
   });
@@ -126,7 +128,9 @@ describe('AdvancedOptionsPanel', () => {
 
     render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={false} />);
 
-    fireEvent.change(screen.getByDisplayValue('6000'), { target: { value: '200000' } });
+    const input = screen.getByDisplayValue('6000');
+    fireEvent.change(input, { target: { value: '200000' } });
+    fireEvent.blur(input);
     expect(mockSetWinningScore).toHaveBeenCalledWith(99999);
   });
 
@@ -144,7 +148,9 @@ describe('AdvancedOptionsPanel', () => {
 
     render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={true} />);
 
-    fireEvent.change(screen.getByDisplayValue('120'), { target: { value: '800' } });
+    const input = screen.getByDisplayValue('120');
+    fireEvent.change(input, { target: { value: '800' } });
+    fireEvent.blur(input);
     expect(mockSetTurnDuration).toHaveBeenCalledWith(600);
   });
 
@@ -162,7 +168,9 @@ describe('AdvancedOptionsPanel', () => {
 
     render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={true} />);
 
-    fireEvent.change(screen.getByDisplayValue('60'), { target: { value: '5000' } });
+    const input = screen.getByDisplayValue('60');
+    fireEvent.change(input, { target: { value: '5000' } });
+    fireEvent.blur(input);
     expect(mockSetReconnectTimeout).toHaveBeenCalledWith(3600);
   });
 

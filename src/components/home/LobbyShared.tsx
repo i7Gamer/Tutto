@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, Play, ChevronUp, ChevronDown, Trash2, UserMinus, Crown, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -186,6 +187,49 @@ interface AdvancedOptionsPanelProps {
   onResetCards?: (() => void) | null;
 }
 
+interface BlurInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  value: number;
+  onValueChange: (val: number) => void;
+  minVal?: number;
+  maxVal?: number;
+}
+
+function BlurInput({ value, onValueChange, minVal = 0, maxVal = 99999, ...props }: BlurInputProps) {
+  const safeValue = value ?? 0;
+  const [localValue, setLocalValue] = useState(safeValue.toString());
+
+  useEffect(() => {
+    setLocalValue((value ?? 0).toString());
+  }, [value]);
+
+  const commit = () => {
+    let parsed = parseInt(localValue);
+    if (isNaN(parsed)) parsed = 0;
+    const clamped = Math.min(maxVal, Math.max(minVal, parsed));
+    setLocalValue(clamped.toString());
+    if (clamped !== value) {
+      onValueChange(clamped);
+    }
+  };
+
+  const handleBlur = () => commit();
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur();
+    }
+  };
+
+  return (
+    <input
+      {...props}
+      value={localValue}
+      onChange={(e) => setLocalValue(e.target.value)}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+    />
+  );
+}
+
 export function AdvancedOptionsPanel({
   showAdvanced,
   game,
@@ -196,9 +240,9 @@ export function AdvancedOptionsPanel({
 }: AdvancedOptionsPanelProps) {
   const { t } = useTranslation();
 
-  const updateCardCount = (card: string, count: string) => {
+  const updateCardCount = (card: string, count: number) => {
     if (game.setInitialCards) {
-      game.setInitialCards({ ...game.initialCards, [card as CardType]: Math.min(99, Math.max(0, parseInt(count) || 0)) });
+      game.setInitialCards({ ...game.initialCards, [card as CardType]: count });
     }
   };
 
@@ -260,32 +304,32 @@ export function AdvancedOptionsPanel({
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 mb-6 items-stretch">
                 <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                   <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.winningScore', 'Winning Score')}</span>
-                  <input
-                    type="number" min="0" max="99999" inputMode="numeric" pattern="[0-9]*"
+                  <BlurInput
+                    type="number" minVal={0} maxVal={99999} inputMode="numeric" pattern="[0-9]*"
                     className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
                     value={game.winningScore}
-                    onChange={(e) => game.setWinningScore(Math.min(99999, Math.max(0, parseInt(e.target.value) || 0)))}
+                    onValueChange={(val) => game.setWinningScore(val)}
                   />
                 </label>
                 {isOnline && (
                   <>
                     <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                       <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.turnTimer', 'Turn Timer (s)')}</span>
-                      <input
-                        type="number" min="0" max="600" inputMode="numeric" pattern="[0-9]*"
+                      <BlurInput
+                        type="number" minVal={0} maxVal={600} inputMode="numeric" pattern="[0-9]*"
                         className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
                         value={game.turnDuration}
-                        onChange={(e) => game.setTurnDuration(Math.min(600, Math.max(0, parseInt(e.target.value) || 0)))}
+                        onValueChange={(val) => game.setTurnDuration(val)}
                         placeholder="0"
                       />
                     </label>
                     <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                       <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.kickTimer', 'Kick Timer (s)')}</span>
-                      <input
-                        type="number" min="0" max="3600" inputMode="numeric" pattern="[0-9]*"
+                      <BlurInput
+                        type="number" minVal={0} maxVal={3600} inputMode="numeric" pattern="[0-9]*"
                         className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
                         value={game.reconnectTimeout}
-                        onChange={(e) => game.setReconnectTimeout(Math.min(3600, Math.max(0, parseInt(e.target.value) || 0)))}
+                        onValueChange={(val) => game.setReconnectTimeout(val)}
                         placeholder="0"
                       />
                     </label>
@@ -321,14 +365,14 @@ export function AdvancedOptionsPanel({
                 )}
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
-                {game.initialCards && Object.keys(game.initialCards).map(card => (
+                {game.initialCards && Object.entries(game.initialCards).map(([card, count]) => (
                   <label key={card} className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                     <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{card.replace('_', '/')}</span>
-                    <input
-                      type="number" min="0" max="99" inputMode="numeric" pattern="[0-9]*"
-                      className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-20 py-1 text-gray-900 dark:text-white font-medium text-base"
-                      value={game.initialCards[card as CardType] ?? 0}
-                      onChange={(e) => updateCardCount(card, e.target.value)}
+                    <BlurInput
+                      type="number" minVal={0} maxVal={99} inputMode="numeric" pattern="[0-9]*"
+                      className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-16 py-1 text-gray-900 dark:text-white font-medium"
+                      value={count}
+                      onValueChange={(val) => updateCardCount(card, val)}
                     />
                   </label>
                 ))}
