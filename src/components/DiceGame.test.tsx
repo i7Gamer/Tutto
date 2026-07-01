@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { parseSavedDiceState } from '../utils/diceTurnState';
 import DiceGame from './DiceGame';
+import { playTone } from '../utils/soundEffects';
 
 vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
@@ -12,6 +13,14 @@ vi.mock('../utils/soundEffects', () => ({
 vi.mock('canvas-confetti', () => ({
   default: vi.fn(),
 }));
+
+// Real isTestEnv() collapses all of DiceGame's roll/bust animation timers to 0
+// (they fire synchronously), which is convenient elsewhere but means there'd
+// be nothing to verify cleanup against for the unmount test below. Default to
+// the real (true) behavior for every other test; only the cleanup test flips
+// this to false to exercise the actual setTimeout-scheduling code paths.
+const isTestEnvMock = vi.fn(() => true);
+vi.mock('../utils/env', () => ({ isTestEnv: () => isTestEnvMock() }));
 
 describe('DiceGame State Restoration Logic', () => {
   beforeEach(() => {
@@ -137,5 +146,48 @@ describe('DiceGame restored-state bust rendering', () => {
     expect(screen.queryByText('dice.success')).not.toBeInTheDocument();
     expect(screen.queryByText('dice.tutto')).not.toBeInTheDocument();
     expect(screen.queryByText('dice.points_gained')).not.toBeInTheDocument();
+  });
+});
+
+describe('DiceGame pending timer cleanup on unmount', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    // Disable the test-env fast path so roll() actually schedules its
+    // animation/finalize setTimeouts instead of running everything synchronously
+    // — otherwise there would be nothing queued to verify cleanup against.
+    isTestEnvMock.mockReturnValue(false);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    isTestEnvMock.mockReturnValue(true);
+    localStorage.clear();
+  });
+
+  it('clears every pending timer on unmount so no callbacks fire afterward', () => {
+    // roll() calls playTone once synchronously (the initial "shake" tone) and
+    // then once per die via the staggered tumble timers that live in
+    // pendingTimers — that second batch is what unmount must actually cancel.
+    // A prop-callback spy (onComplete/onStateChange) doesn't work here: they're
+    // wired to *other*, independently-cleaned-up effects and would pass even
+    // with pendingTimers cleanup deleted entirely (verified by temporarily
+    // removing it — the callback-spy version still passed, a false negative).
+    const { unmount } = render(
+      <DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />
+    );
+
+    fireEvent.click(screen.getByText('dice.roll_6_dice'));
+    expect(playTone).toHaveBeenCalledTimes(1); // the synchronous "shake" tone only
+
+    // Unmount immediately — before any of the 6 staggered per-die timers fire.
+    unmount();
+    vi.mocked(playTone).mockClear();
+
+    // If pendingTimers cleanup didn't run, each die's tumble timer would call
+    // playTone here.
+    act(() => { vi.runAllTimers(); });
+
+    expect(playTone).not.toHaveBeenCalled();
   });
 });
