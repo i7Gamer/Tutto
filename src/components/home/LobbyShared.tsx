@@ -138,6 +138,28 @@ export function DiceModeSelector({ diceMode, setDiceMode, nameSuffix = 'Lobby' }
   );
 }
 
+interface AudioSettingSelectorProps {
+  audioEnabled: boolean;
+  setAudioEnabled: (val: boolean) => void;
+  nameSuffix?: string;
+}
+
+export function AudioSettingSelector({ audioEnabled, setAudioEnabled, nameSuffix = 'Lobby' }: AudioSettingSelectorProps) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 bg-white dark:bg-slate-800/50 px-4 py-3 sm:px-6 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px]">
+      <label className="radio-wrapper text-gray-700 dark:text-gray-200">
+        <input type="radio" name={`audioSetting${nameSuffix}`} checked={audioEnabled === true} onChange={() => setAudioEnabled(true)} />
+        <span className="font-medium">{t('lobby.soundOn', 'Sound On')}</span>
+      </label>
+      <label className="radio-wrapper text-gray-700 dark:text-gray-200">
+        <input type="radio" name={`audioSetting${nameSuffix}`} checked={audioEnabled === false} onChange={() => setAudioEnabled(false)} />
+        <span className="font-medium">{t('lobby.muted', 'Muted')}</span>
+      </label>
+    </div>
+  );
+}
+
 interface AdvancedOptionsToggleProps {
   showAdvanced: boolean;
   setShowAdvanced: (val: boolean) => void;

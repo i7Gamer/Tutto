@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList } from './LobbyShared';
+import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, AudioSettingSelector } from './LobbyShared';
 import type { GameStore } from '../../store/useGameStore';
 
 interface JoinRoomResult {
@@ -113,6 +113,7 @@ export default function OnlineLobby({ game }: OnlineLobbyProps) {
 
         <div className="flex flex-row flex-wrap justify-center items-stretch gap-4 mb-8">
           <DiceModeSelector diceMode={game.diceMode} setDiceMode={game.setDiceMode} nameSuffix="Online" />
+          <AudioSettingSelector audioEnabled={game.audioEnabled} setAudioEnabled={game.setAudioEnabled} nameSuffix="Online" />
           <AdvancedOptionsToggle showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} />
         </div>
 

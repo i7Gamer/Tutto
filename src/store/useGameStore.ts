@@ -72,6 +72,7 @@ export interface GameStore extends CoreGameState {
   myName: string | null;
   toasts: Toast[];
   diceMode: DiceMode;
+  audioEnabled: boolean;
   randomOrder: boolean;
   turnDuration: number;
   reconnectTimeout: number;
@@ -93,6 +94,7 @@ export interface GameStore extends CoreGameState {
   addToast: (message: string) => void;
   removeToast: (id: number) => void;
   setDiceMode: (val: DiceMode) => void;
+  setAudioEnabled: (val: boolean) => void;
   updateConfig: (config: Partial<Pick<GameStore, ConfigKeys>>) => void;
   setWinningScore: (val: number) => void;
   setInitialCards: (val: InitialCards) => void;
@@ -150,6 +152,7 @@ export const _resetTimersForTests = (): void => {
 
 const initialLocalState: Omit<CoreGameState, never> & {
   diceMode: DiceMode;
+  audioEnabled: boolean;
   randomOrder: boolean;
   turnDuration: number;
   reconnectTimeout: number;
@@ -169,6 +172,7 @@ const initialLocalState: Omit<CoreGameState, never> & {
   winningScore: 6000,
   initialCards: INITIAL_CARDS,
   diceMode: 'physical',
+  audioEnabled: true,
   randomOrder: true,
   turnDuration: 120,
   reconnectTimeout: 60,
@@ -287,6 +291,11 @@ export const useGameStore = create<GameStore>()(
 
       const storedDiceMode = localStorage.getItem('tutto_diceMode') as DiceMode | null;
       if (storedDiceMode) set({ diceMode: storedDiceMode });
+
+      const storedAudioEnabled = localStorage.getItem('tutto_audioEnabled');
+      if (storedAudioEnabled !== null) {
+        set({ audioEnabled: storedAudioEnabled === 'true' });
+      }
     },
 
     setMode: (mode) => {
@@ -322,6 +331,11 @@ export const useGameStore = create<GameStore>()(
     setDiceMode: (val) => {
       set({ diceMode: val });
       localStorage.setItem('tutto_diceMode', val);
+    },
+
+    setAudioEnabled: (val) => {
+      set({ audioEnabled: val });
+      localStorage.setItem('tutto_audioEnabled', String(val));
     },
 
     updateConfig: (config) => {

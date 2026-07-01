@@ -1,3 +1,5 @@
+import { useGameStore } from '../store/useGameStore';
+
 let audioCtx: AudioContext | null = null;
 
 const getAudioContext = async (): Promise<AudioContext> => {
@@ -17,6 +19,7 @@ export const playTone = async (
   vol = 0.1,
   offset = 0,
 ): Promise<void> => {
+  if (!useGameStore.getState().audioEnabled) return;
   try {
     const ctx = await getAudioContext();
     const oscillator = ctx.createOscillator();
