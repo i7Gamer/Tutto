@@ -280,6 +280,12 @@ io.on('connection', (socket: Socket) => {
 
     const existingPlayer = room.state.players.find(p => p.deviceId === deviceId);
     if (existingPlayer) {
+      const nameTakenByOther = room.state.players.some(
+        p => p.deviceId !== deviceId && !p.disconnected && p.name.toLowerCase() === name.toLowerCase()
+      );
+      if (nameTakenByOther) {
+        return callback({ success: false, error: 'Username already exists in this room' });
+      }
       if (room.host === existingPlayer.socketId) room.host = socket.id;
       existingPlayer.socketId = socket.id;
       existingPlayer.name = name;
@@ -517,6 +523,19 @@ io.on('connection', (socket: Socket) => {
     emitRoomState(roomId);
   });
 
+  socket.on('submitGlobalStats', async ({ roomId, payload }: { roomId: string; payload: unknown } =
+    {} as { roomId: string; payload: unknown }) => {
+    // Only the room host may submit global stats, authenticated by socket identity.
+    // No token needed — the WebSocket session is the credential.
+    const room = roomId ? rooms[roomId] : null;
+    if (!room || room.host !== socket.id) return;
+    try {
+      await updateGlobalStats(sanitizeStats(payload));
+    } catch (err) {
+      console.error('submitGlobalStats error:', err);
+    }
+  });
+
   socket.on('endGameStats', async ({ deviceId, stats }: { deviceId: string; stats: unknown } =
     {} as { deviceId: string; stats: unknown }) => {
     if (!deviceId) return;
@@ -622,6 +641,8 @@ io.on('connection', (socket: Socket) => {
 
 // ─── REST API ─────────────────────────────────────────────────────────────────
 
+// VITE_API_TOKEN guards the HTTP POST /api/stats/* endpoints (admin/tool access only).
+// Clients submit stats via authenticated WebSocket events — no token in the client bundle.
 if (process.env.NODE_ENV === 'production' && !process.env.VITE_API_TOKEN) {
   console.error('[SECURITY] VITE_API_TOKEN is not set. Refusing to start in production.');
   process.exit(1);
