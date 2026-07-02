@@ -166,6 +166,9 @@ const handleActivePlayerRemoved = (state: RoomState, removedIdx: number): void =
     state.previousCard = null;
     state.previousScore = null;
     state.previousLeaders = null;
+    // The removed player was mid-turn — drop their live dice snapshot so
+    // spectators don't keep seeing it attributed to the player now in this slot.
+    state.liveTurnState = null;
     if (removedPlayerWasLastInOrder) state.round += 1;
     state.turnStartTime = Date.now();
     drawNextCardForRoom(state);

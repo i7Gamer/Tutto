@@ -650,6 +650,7 @@ export const useGameStore = create<GameStore>()(
 
     stopLocalTimers: () => {
       if (gameTimerInterval) clearInterval(gameTimerInterval);
+      gameTimerInterval = null;
     },
 
     syncOnlineTimers: () => {

@@ -423,6 +423,46 @@ describe('Server-side turn timer', () => {
     bobSock.disconnect();
   }, 10000);
 
+  it('kicking the active player clears their live dice snapshot from room state', async () => {
+    const roomId = 'timer-kick-livestate';
+    const { sock: hostSock } = await joinRoom(roomId, 'Alice');
+    const { sock: bobSock, socketId: bobId } = await joinRoom(roomId, 'Bob');
+    const { sock: carolSock } = await joinRoom(roomId, 'Carol');
+
+    const players = [
+      { name: 'Alice', deviceId: `dev-${roomId}-Alice`, socketId: hostSock.id, disconnected: false, score: 0 },
+      { name: 'Bob', deviceId: `dev-${roomId}-Bob`, socketId: bobSock.id, disconnected: false, score: 0 },
+      { name: 'Carol', deviceId: `dev-${roomId}-Carol`, socketId: carolSock.id, disconnected: false, score: 0 },
+    ];
+
+    // Bob (index 1) is mid-turn with a live dice snapshot that spectators render.
+    const liveTurnState = {
+      turnScore: 350, keptDice: [{ id: 'd1', val: 1 }], currentRoll: [],
+      kniffelProgress: [], tuttosThisTurn: 0,
+    };
+    const setup = waitForState(hostSock, (s) => s.liveTurnState?.turnScore === 350, 3000);
+    hostSock.emit('pushState', {
+      roomId,
+      newState: {
+        players, status: 'playing', currentPlayerIndex: 1, currentCard: '200',
+        cards: ['300', '400'], round: 1, turnDuration: 30, liveTurnState,
+      },
+    });
+    await setup;
+
+    // Kicking Bob must drop his snapshot — otherwise the remaining players keep
+    // seeing Bob's dice attributed to Carol, who inherits his turn slot.
+    const kickedState = waitForState(hostSock, (s) => s.players.length === 2, 3000);
+    hostSock.emit('kickPlayer', bobId);
+    bobSock.disconnect();
+    const afterKick = await kickedState;
+    expect(afterKick.liveTurnState).toBeNull();
+    expect(afterKick.currentPlayerIndex).toBe(1); // Carol, shifted into Bob's slot
+
+    hostSock.disconnect();
+    carolSock.disconnect();
+  }, 10000);
+
   it('deleting a room while a turn timer is pending does not crash the server', async () => {
     const roomId = 'timer-room-deleted';
     const { sock } = await joinRoom(roomId, 'Solo');
