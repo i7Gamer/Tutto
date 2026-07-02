@@ -12,6 +12,7 @@ import {
 import { parseJsonString } from '../utils/parseJson';
 import { parseSavedDiceState, buildTurnKey } from '../utils/diceTurnState';
 import { getEffectiveTurnDuration } from '../utils/turnDuration';
+import { isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry } from '../utils/configValidation';
 import i18n from '../i18n';
 import playerColorsData from '../../playerColors.json';
 import type {
@@ -197,15 +198,14 @@ const validateOnlineConfig = (config: unknown): Partial<Pick<GameStore, ConfigKe
   // Ranges must match the server's applyValidatedConfig (server/index.ts):
   // values the server would reject are dropped here too, so the lobby never
   // shows a setting the server silently refused.
-  if (typeof c.winningScore === 'number' && c.winningScore >= 1000 && c.winningScore <= 99999) valid.winningScore = c.winningScore;
+  if (isValidWinningScore(c.winningScore)) valid.winningScore = c.winningScore;
   if (typeof c.randomOrder === 'boolean') valid.randomOrder = c.randomOrder;
-  if (typeof c.turnDuration === 'number' && (c.turnDuration === 0 || (c.turnDuration >= 10 && c.turnDuration <= 600))) valid.turnDuration = c.turnDuration;
-  if (typeof c.reconnectTimeout === 'number' && (c.reconnectTimeout === 0 || (c.reconnectTimeout >= 10 && c.reconnectTimeout <= 3600))) valid.reconnectTimeout = c.reconnectTimeout;
+  if (isValidTurnDuration(c.turnDuration)) valid.turnDuration = c.turnDuration;
+  if (isValidReconnectTimeout(c.reconnectTimeout)) valid.reconnectTimeout = c.reconnectTimeout;
   if (typeof c.initialCards === 'object' && c.initialCards !== null) {
-    const VALID_CARD_TYPES = ['Kleeblatt', 'Feuerwerk', 'Stop', 'Kniffel', 'Plus_Minus', 'x2', '200', '300', '400', '500', '600'];
     const validCards: InitialCards = {};
     for (const [key, val] of Object.entries(c.initialCards)) {
-      if (VALID_CARD_TYPES.includes(key) && typeof val === 'number' && val >= 0 && val <= 99) {
+      if (isValidCardEntry(key, val)) {
         validCards[key as CardType] = val;
       }
     }

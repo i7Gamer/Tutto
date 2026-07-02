@@ -11,8 +11,8 @@ import { sanitizeStats } from './sanitize';
 import type { CardType, InitialCards, Player, DiceSnapshot, CoreGameState } from '../src/types';
 import { calculateNextTurn, buildDeck } from '../src/utils/coreGameEngine';
 import { getEffectiveTurnDuration } from '../src/utils/turnDuration';
+import { isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry, MAX_CARD_COUNT, VALID_CARD_TYPES } from '../src/utils/configValidation';
 import playerColorsData from '../playerColors.json';
-
 const { PLAYER_COLORS } = playerColorsData;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -100,11 +100,6 @@ const io = new Server(server, {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const VALID_CARD_TYPES = new Set<CardType>([
-  'Kleeblatt', 'Feuerwerk', 'Stop', 'Kniffel', 'Plus_Minus', 'x2',
-  '200', '300', '400', '500', '600',
-]);
-const MAX_CARD_COUNT = 99;
 // A fully-loaded deck has at most MAX_CARD_COUNT of each of the 11 card types.
 const MAX_DECK_SIZE = MAX_CARD_COUNT * 11;
 // Generous safety cap for per-round arrays (chartLabels/chartValues entries) — far
@@ -118,12 +113,7 @@ const validateInitialCards = (cards: unknown): cards is InitialCards => {
   if (typeof cards !== 'object' || cards === null) return false;
   const entries = Object.entries(cards as Record<string, unknown>);
   if (entries.length === 0) return false;
-  const shapeValid = entries.every(([key, val]) =>
-    VALID_CARD_TYPES.has(key as CardType) &&
-    Number.isInteger(val) &&
-    (val as number) >= 0 &&
-    (val as number) <= MAX_CARD_COUNT
-  );
+  const shapeValid = entries.every(([key, val]) => isValidCardEntry(key, val));
   if (!shapeValid) return false;
   // An all-zero deck leaves currentCard permanently null and the game unplayable.
   return entries.some(([, val]) => (val as number) > 0);
@@ -135,11 +125,11 @@ const validateInitialCards = (cards: unknown): cards is InitialCards => {
 // drift apart between them.
 const applyValidatedConfig = (state: RoomState, config: Record<string, unknown>): void => {
   const { winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout } = config;
-  if (typeof winningScore === 'number' && winningScore >= 1000 && winningScore <= 99999) state.winningScore = winningScore;
+  if (isValidWinningScore(winningScore)) state.winningScore = winningScore;
   if (validateInitialCards(initialCards)) state.initialCards = initialCards;
   if (typeof randomOrder === 'boolean') state.randomOrder = randomOrder;
-  if (typeof turnDuration === 'number' && (turnDuration === 0 || (turnDuration >= 10 && turnDuration <= 600))) state.turnDuration = turnDuration;
-  if (typeof reconnectTimeout === 'number' && (reconnectTimeout === 0 || (reconnectTimeout >= 10 && reconnectTimeout <= 3600))) state.reconnectTimeout = reconnectTimeout;
+  if (isValidTurnDuration(turnDuration)) state.turnDuration = turnDuration;
+  if (isValidReconnectTimeout(reconnectTimeout)) state.reconnectTimeout = reconnectTimeout;
 };
 
 // Minimal shape check for a previousLeaders snapshot entry — just enough for
@@ -764,12 +754,12 @@ io.on('connection', (socket: Socket) => {
           if (typeof newState.randomOrder === 'boolean') room.state.randomOrder = newState.randomOrder;
         } else if (key === 'currentCard' || key === 'previousCard') {
           const v = newState[key];
-          if (v === null || VALID_CARD_TYPES.has(v as CardType)) {
+          if (v === null || VALID_CARD_TYPES.includes(v as CardType)) {
             (room.state as unknown as Record<string, unknown>)[key] = v;
           }
         } else if (key === 'cards') {
           const v = newState.cards;
-          if (Array.isArray(v) && v.length <= MAX_DECK_SIZE && v.every(c => VALID_CARD_TYPES.has(c as CardType))) {
+          if (Array.isArray(v) && v.length <= MAX_DECK_SIZE && v.every(c => VALID_CARD_TYPES.includes(c as CardType))) {
             room.state.cards = v as CardType[];
           }
         } else if (key === 'currentPlayerIndex') {
