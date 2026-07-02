@@ -492,24 +492,27 @@ describe('useGameStore', () => {
       expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
     });
 
-    it('clears sessionStorage when kicked from a room', () => {
+    it('clears session/room state, toasts, and returns to local mode when kicked from a room', () => {
       sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'TEST_ROOM', myName: 'Alice' }));
-      
-      // Connect to online mode
+
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        roomId: 'TEST_ROOM', isHost: true, hostId: 'socket-123', myName: 'Alice',
+      });
 
-      // Trigger 'kicked'
-      if (mockOnHandlers['kicked']) {
-        // mock window.alert
-        const originalAlert = window.alert;
-        window.alert = vi.fn();
-        
-        mockOnHandlers['kicked']();
-        
-        expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
-        window.alert = originalAlert;
-      }
+      expect(mockOnHandlers['kicked']).toBeTypeOf('function');
+      mockOnHandlers['kicked']();
+
+      const state = useGameStore.getState();
+      expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+      expect(state.roomId).toBeNull();
+      expect(state.isHost).toBe(false);
+      expect(state.hostId).toBeNull();
+      expect(state.myName).toBeNull();
+      expect(state.mode).toBe('local');
+      expect(state.isOnline).toBe(false);
+      expect(state.toasts.map(t => t.message)).toContain('You were kicked by the host');
     });
 
     it('clears pendingReconnectSession when clearPendingReconnect is called', () => {
