@@ -652,8 +652,15 @@ io.on('connection', (socket: Socket) => {
 
     const removedIdx = room.state.players.findIndex(p => p.socketId === targetSocketId);
     if (removedIdx !== -1) {
+      const removedPlayer = room.state.players[removedIdx];
       room.state.players.splice(removedIdx, 1);
       handleActivePlayerRemoved(room.state, removedIdx);
+      // A kicked player may be mid-reconnect-countdown; leaving that timer armed
+      // would later remove whoever rejoined the room on the same device.
+      if (room.disconnectTimers[removedPlayer.deviceId]) {
+        clearTimeout(room.disconnectTimers[removedPlayer.deviceId]);
+        delete room.disconnectTimers[removedPlayer.deviceId];
+      }
     }
 
     if (room.state.players.length === 0) {
@@ -699,7 +706,11 @@ io.on('connection', (socket: Socket) => {
       // The host may legitimately reorder players (e.g. the random shuffle) only at
       // the moment the game starts. Outside that transition the server keeps its own
       // authoritative order so a stray push can never scramble the roster mid-game.
-      const startingGame = isHost && room.state.status === 'lobby' && newState.status === 'playing';
+      // A game starts either from the lobby, or from the end screen's "Play Again",
+      // which never passes through the lobby: the room is still status 'playing'
+      // with finished=true when the host pushes the next game's opening state.
+      const startingGame = isHost && newState.status === 'playing' &&
+        (room.state.status === 'lobby' || (room.state.finished && newState.finished === false));
       if (startingGame) {
         room.statsRecordedForGame = { devices: new Set(), global: false };
       }
@@ -973,6 +984,10 @@ io.on('connection', (socket: Socket) => {
       room.disconnectTimers[player.deviceId] = setTimeout(() => {
         const r = rooms[roomIdSnapshot];
         if (!r) return;
+        // This timer has fired — drop its bookkeeping entry, or the
+        // "no pending timers" room-cleanup check above would see a phantom
+        // pending timer forever and the room could never be deleted.
+        delete r.disconnectTimers[player.deviceId];
         const removedIdx = r.state.players.findIndex(p => p.deviceId === player.deviceId);
         if (removedIdx === -1) return;
         r.state.players.splice(removedIdx, 1);
@@ -983,7 +998,13 @@ io.on('connection', (socket: Socket) => {
           delete rooms[roomIdSnapshot];
         } else {
           if (r.host === hostSocketId) {
-            r.host = r.state.players[0].socketId;
+            // Prefer a connected player — players[0] may itself be disconnected,
+            // which would leave the room with a dead socket as host (no config /
+            // kick / restart) until that player reconnects or times out. If
+            // everyone left is disconnected, fall back to players[0]; their own
+            // pending timers will resolve or clean up the room.
+            const nextHost = r.state.players.find(p => !p.disconnected) ?? r.state.players[0];
+            r.host = nextHost.socketId;
           }
           const aborted = abortGameIfLowPlayers(r, roomIdSnapshot);
           if (!aborted) startServerTurnTimer(roomIdSnapshot);

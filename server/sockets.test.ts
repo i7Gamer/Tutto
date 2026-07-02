@@ -2099,4 +2099,240 @@ describe('Server Socket E2E Simulation', () => {
       }, 1000);
     });
   }, 10000);
+
+  it('Play Again (finished→playing without a lobby push) resets the stats dedup and adopts the host\'s new player order', () => {
+    return new Promise((resolve, reject) => {
+      const roomId = 'PLAY_AGAIN_ROOM';
+      const deviceId = 'dev-pa-a';
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob
+      const cleanup = () => { s1.disconnect(); s2.disconnect(); };
+      const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 10000);
+
+      const realFetch = (globalThis as { __nativeFetch?: typeof fetch }).__nativeFetch ?? fetch;
+      const pollDeviceScore = async (expected) => {
+        for (let i = 0; i < 30; i++) {
+          const res = await realFetch(`http://127.0.0.1:${PORT}/api/stats/${deviceId}`);
+          const body = await res.json();
+          if (body?.totalScore === expected) return body;
+          await new Promise(r => setTimeout(r, 100));
+        }
+        throw new Error(`totalScore never reached ${expected}`);
+      };
+
+      let latestState = null;
+      s1.on('gameState', (state) => { latestState = state; });
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId, color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-pa-b', color: '#00ff00' }, async () => {
+            try {
+              const players = [
+                { name: 'Alice', deviceId, socketId: s1.id, disconnected: false, score: 0 },
+                { name: 'Bob', deviceId: 'dev-pa-b', socketId: s2.id, disconnected: false, score: 0 },
+              ];
+
+              // Game 1: normal lobby→playing start, then finish and record stats.
+              s1.emit('pushState', { roomId, newState: { players, status: 'playing', currentPlayerIndex: 0 } });
+              await new Promise(r => setTimeout(r, 200));
+              s1.emit('pushState', { roomId, newState: { finished: true } });
+              s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, totalScore: 100 } });
+              await pollDeviceScore(100);
+
+              // "Play Again" from the EndScreen: the room never returns to the
+              // lobby — the host pushes playing+finished:false directly, with a
+              // freshly shuffled order (Bob now first).
+              s1.emit('pushState', {
+                roomId,
+                newState: {
+                  players: [
+                    { name: 'Bob', score: 0, disconnected: false },
+                    { name: 'Alice', score: 0, disconnected: false },
+                  ],
+                  status: 'playing', finished: false, currentPlayerIndex: 0,
+                },
+              });
+              await new Promise(r => setTimeout(r, 200));
+
+              // The new shuffle must be adopted, not discarded.
+              expect(latestState.players.map((p) => p.name)).toEqual(['Bob', 'Alice']);
+
+              // And stats for the new game must be accepted (dedup was reset).
+              s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, totalScore: 50 } });
+              await pollDeviceScore(150); // 100 (game 1) + 50 (game 2)
+
+              clearTimeout(timeoutId);
+              cleanup();
+              resolve(undefined);
+            } catch (e) {
+              clearTimeout(timeoutId);
+              cleanup();
+              reject(e);
+            }
+          });
+        });
+      });
+    });
+  }, 12000);
+
+  it('kicking a disconnected player cancels their reconnect timer, so a fresh rejoin is not removed by the stale timer', () => {
+    return new Promise((resolve, reject) => {
+      const roomId = 'KICK_REJOIN_ROOM';
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — disconnects, gets kicked
+      let s3 = null;                             // Bob again — fresh rejoin, same device
+      const cleanup = () => { s1.disconnect(); s2.disconnect(); if (s3) s3.disconnect(); };
+      const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 9000);
+
+      let latestState = null;
+      let kicked = false;
+      s1.on('gameState', (state) => {
+        latestState = state;
+        const bob = state.players?.find((p) => p.name === 'Bob');
+        if (bob?.disconnected && !kicked) {
+          kicked = true;
+          // Host kicks the disconnected Bob while his 1s reconnect timer is armed.
+          s1.emit('kickPlayer', bob.socketId);
+          setTimeout(() => {
+            // Bob rejoins fresh (room is in lobby) with the SAME deviceId.
+            s3 = io(`http://127.0.0.1:${PORT}`);
+            s3.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-kr-b', color: '#00ff00' }, (res) => {
+              expect(res.success).toBe(true);
+              // Wait past the original 1s reconnect timer: the stale timer must
+              // NOT remove the rejoined Bob.
+              setTimeout(() => {
+                expect(latestState.players.map((p) => p.name).sort()).toEqual(['Alice', 'Bob']);
+                expect(latestState.players.find((p) => p.name === 'Bob')?.disconnected).toBe(false);
+                clearTimeout(timeoutId);
+                cleanup();
+                resolve(undefined);
+              }, 1500);
+            });
+          }, 200);
+        }
+      });
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-kr-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-kr-b', color: '#00ff00' }, () => {
+            // 1s reconnect timer (pushState bounds allow 1; updateConfig would not).
+            s1.emit('pushState', { roomId, newState: { reconnectTimeout: 1 } });
+            setTimeout(() => s2.disconnect(), 200);
+          });
+        });
+      });
+    });
+  }, 10000);
+
+  it('host timeout promotes the first CONNECTED player, skipping disconnected ones', () => {
+    return new Promise((resolve, reject) => {
+      const roomId = 'HOST_TIMEOUT_SKIP_DISC';
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host, disconnects first
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — also disconnected (must NOT become host)
+      const s3 = io(`http://127.0.0.1:${PORT}`); // Charlie — connected (must become host)
+      const cleanup = () => { s1.disconnect(); s2.disconnect(); s3.disconnect(); };
+      const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 9000);
+
+      let latestHostId = null;
+      let checked = false;
+      s3.on('hostId', (id) => { latestHostId = id; });
+
+      s3.on('gameState', (state) => {
+        // Alice's 1s timer fired: she was removed while Bob is still marked
+        // disconnected (his own timer fires ~600ms later). At this moment the
+        // host must already be Charlie, not Bob's dead socket.
+        const aliceGone = !state.players?.some((p) => p.name === 'Alice');
+        const bobStillThere = state.players?.some((p) => p.name === 'Bob' && p.disconnected);
+        if (aliceGone && bobStillThere && !checked) {
+          checked = true;
+          // hostId is emitted right after gameState — give it a moment, but stay
+          // well below the ~600ms window before Bob's own timer self-heals it.
+          setTimeout(() => {
+            expect(latestHostId).toBe(s3.id);
+            clearTimeout(timeoutId);
+            cleanup();
+            resolve(undefined);
+          }, 200);
+        }
+      });
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-hts-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-hts-b', color: '#00ff00' }, () => {
+            s3.emit('joinRoom', { roomId, name: 'Charlie', deviceId: 'dev-hts-c', color: '#0000ff' }, () => {
+              s1.emit('pushState', { roomId, newState: { reconnectTimeout: 1 } });
+              setTimeout(() => s1.disconnect(), 200);      // Alice's timer fires at ~1.2s
+              setTimeout(() => s2.disconnect(), 800);      // Bob's timer fires at ~1.8s
+            });
+          });
+        });
+      });
+    });
+  }, 10000);
+
+  it('a fired reconnect timer cleans up its bookkeeping entry, so the room is still deleted when the last connected player leaves', () => {
+    return new Promise((resolve, reject) => {
+      const roomId = 'STALE_TIMER_LEAK_ROOM';
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — times out (leaves a fired timer behind)
+      const s3 = io(`http://127.0.0.1:${PORT}`); // Charlie — passively disconnects (timeout 0)
+      const s4 = io(`http://127.0.0.1:${PORT}`); // Dave — explicit-leaves last
+      let s5 = null;                             // Eve — probes whether the room leaked
+      const cleanup = () => { s1.disconnect(); s2.disconnect(); s3.disconnect(); s4.disconnect(); if (s5) s5.disconnect(); };
+      const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 12000);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-stl-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-stl-b', color: '#00ff00' }, () => {
+            s3.emit('joinRoom', { roomId, name: 'Charlie', deviceId: 'dev-stl-c', color: '#0000ff' }, () => {
+              s4.emit('joinRoom', { roomId, name: 'Dave', deviceId: 'dev-stl-d', color: '#00ffff' }, async () => {
+                try {
+                  // Marker config so a leaked room is distinguishable from a fresh one.
+                  s1.emit('pushState', { roomId, newState: { winningScore: 7777, reconnectTimeout: 1 } });
+                  await new Promise(r => setTimeout(r, 200));
+
+                  // Bob times out — his fired timer must not leave a stale entry.
+                  s2.disconnect();
+                  await new Promise(r => setTimeout(r, 1500));
+
+                  // Disable reconnect timers, then Alice and Charlie passively
+                  // disconnect (marked disconnected, no timers armed).
+                  s1.emit('pushState', { roomId, newState: { reconnectTimeout: 0 } });
+                  await new Promise(r => setTimeout(r, 200));
+                  s1.disconnect();
+                  await new Promise(r => setTimeout(r, 300));
+                  s3.disconnect();
+                  await new Promise(r => setTimeout(r, 300));
+
+                  // Dave explicit-leaves: everyone remaining is disconnected and no
+                  // timers are pending, so the room must be deleted.
+                  s4.emit('leaveRoom');
+                  await new Promise(r => setTimeout(r, 300));
+
+                  // Probe: a new join must land in a FRESH room (default config,
+                  // sole member = host), not the leaked one.
+                  s5 = io(`http://127.0.0.1:${PORT}`);
+                  s5.emit('joinRoom', { roomId, name: 'Eve', deviceId: 'dev-stl-e', color: '#123456' }, (res) => {
+                    expect(res.success).toBe(true);
+                    expect(res.isHost).toBe(true);
+                  });
+                  s5.on('gameState', (state) => {
+                    expect(state.players.map((p) => p.name)).toEqual(['Eve']);
+                    expect(state.winningScore).toBe(6000);
+                    clearTimeout(timeoutId);
+                    cleanup();
+                    resolve(undefined);
+                  });
+                } catch (e) {
+                  clearTimeout(timeoutId);
+                  cleanup();
+                  reject(e);
+                }
+              });
+            });
+          });
+        });
+      });
+    });
+  }, 14000);
 });
