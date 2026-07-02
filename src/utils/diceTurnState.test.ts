@@ -1,7 +1,41 @@
 import { describe, it, expect } from 'vitest';
-import { parseSavedDiceState, buildDiceSnapshot } from './diceTurnState';
+import { parseSavedDiceState, buildDiceSnapshot, buildTurnKey } from './diceTurnState';
 
 describe('diceTurnState', () => {
+  describe('buildTurnKey', () => {
+    it('differs when round changes for the same player and card', () => {
+      const a = buildTurnKey('ROOM1', 1, 0, '200');
+      const b = buildTurnKey('ROOM1', 2, 0, '200');
+      expect(a).not.toBe(b);
+    });
+
+    it('differs when currentPlayerIndex changes', () => {
+      const a = buildTurnKey('ROOM1', 1, 0, '200');
+      const b = buildTurnKey('ROOM1', 1, 1, '200');
+      expect(a).not.toBe(b);
+    });
+
+    it('differs when the card changes', () => {
+      const a = buildTurnKey('ROOM1', 1, 0, '200');
+      const b = buildTurnKey('ROOM1', 1, 0, '300');
+      expect(a).not.toBe(b);
+    });
+
+    it('differs between rooms with otherwise identical turn state', () => {
+      const a = buildTurnKey('ROOM1', 1, 0, '200');
+      const b = buildTurnKey('ROOM2', 1, 0, '200');
+      expect(a).not.toBe(b);
+    });
+
+    it('treats a null roomId as the local-game slot', () => {
+      expect(buildTurnKey(null, 1, 0, '200')).toBe('local:1:0:200');
+    });
+
+    it('is identical for identical inputs (stable/deterministic)', () => {
+      expect(buildTurnKey('ROOM1', 3, 1, 'Kniffel')).toBe(buildTurnKey('ROOM1', 3, 1, 'Kniffel'));
+    });
+  });
+
   describe('parseSavedDiceState', () => {
     it('returns null for empty/missing input', () => {
       expect(parseSavedDiceState(null)).toBeNull();
@@ -53,6 +87,14 @@ describe('diceTurnState', () => {
     it('returns undefined playerName for legacy snapshots that do not contain the field', () => {
       const raw = JSON.stringify({ turnScore: 500, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0 });
       expect(parseSavedDiceState(raw)!.playerName).toBeUndefined();
+    });
+
+    it('passes through turnKey when present, and leaves it undefined for legacy snapshots', () => {
+      const withKey = JSON.stringify({ turnScore: 100, turnKey: 'ROOM1:2:0:200' });
+      expect(parseSavedDiceState(withKey)!.turnKey).toBe('ROOM1:2:0:200');
+
+      const legacy = JSON.stringify({ turnScore: 100 });
+      expect(parseSavedDiceState(legacy)!.turnKey).toBeUndefined();
     });
   });
 

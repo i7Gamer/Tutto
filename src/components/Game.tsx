@@ -8,6 +8,7 @@ import { applyTuttoBonus } from '../utils/diceLogic';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { formatTime } from '../utils/formatTime';
+import { buildTurnKey } from '../utils/diceTurnState';
 
 import Scoreboard from './game/Scoreboard';
 import CardDisplay from './game/CardDisplay';
@@ -35,6 +36,8 @@ export default function Game() {
     isHost,
     kickPlayer,
     justReconnected,
+    roomId,
+    round,
   } = game;
 
   const formattedTime = formatTime(gameTimeInSeconds);
@@ -48,6 +51,7 @@ export default function Game() {
   const [showDiceGame, setShowDiceGame] = useState(false);
   const confettiFiredRef = useRef(false);
   const reconnectHandledRef = useRef(false);
+  const onlineReconnectHandledRef = useRef(false);
   const localCacheOnMountRef = useRef(!!localStorage.getItem('tutto_dice_turn_state'));
 
   useEffect(() => {
@@ -55,25 +59,28 @@ export default function Game() {
   }, [isMyTurn]);
 
   useEffect(() => {
-    if (!isMyTurn || diceMode !== 'digital') return;
-    if (isOnline) {
-      if (!justReconnected) {
-        reconnectHandledRef.current = false;
-        return;
-      }
-      if (!liveTurnState) return;
-      if (reconnectHandledRef.current) return;
-      reconnectHandledRef.current = true;
+    if (isOnline && justReconnected) {
+      if (onlineReconnectHandledRef.current) return;
+      onlineReconnectHandledRef.current = true;
+      // Clear immediately, regardless of whether this particular reconnect turns
+      // out to be resumable (my turn, digital mode, mid-roll) — otherwise a
+      // reconnect as a spectator, on physical dice, or between rolls leaves this
+      // flag stuck true and it wrongly fires the "resume" popup/toast on a later,
+      // unrelated turn.
       useGameStore.setState({ justReconnected: false });
-      setShowDiceGame(true);
-      game.addToast('Resuming your dice game...');
-    } else {
-      if (localCacheOnMountRef.current && !reconnectHandledRef.current) {
-        reconnectHandledRef.current = true;
-        localCacheOnMountRef.current = false;
-        setShowDiceGame(true);
+      if (isMyTurn && diceMode === 'digital' && liveTurnState) {
+        setShowDiceGame(true); // eslint-disable-line react-hooks/set-state-in-effect
         game.addToast('Resuming your dice game...');
       }
+      return;
+    }
+    onlineReconnectHandledRef.current = false;
+
+    if (!isOnline && isMyTurn && diceMode === 'digital' && localCacheOnMountRef.current && !reconnectHandledRef.current) {
+      reconnectHandledRef.current = true;
+      localCacheOnMountRef.current = false;
+      setShowDiceGame(true);
+      game.addToast('Resuming your dice game...');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [justReconnected, liveTurnState, isMyTurn, diceMode, isOnline]);
@@ -244,6 +251,7 @@ export default function Game() {
           >
             <DiceGame
               currentCard={currentCard}
+              turnKey={buildTurnKey(roomId, round, currentPlayerIndex, currentCard)}
               onComplete={handleDiceComplete}
               onCancel={handleCancelDiceGame}
               onStateChange={diceMode === 'digital' ? setLiveTurnState : undefined}

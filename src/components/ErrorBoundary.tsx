@@ -34,9 +34,13 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 
   clearCacheAndReload() {
+    // last_crash_time is deliberately left alone here — componentDidCatch just set
+    // it to throttle auto-reloads. Clearing it here meant a persistent render crash
+    // found no last_crash_time on every reload and auto-reloaded forever, never
+    // reaching the fallback UI below. Only the manual "Clear Cache & Reload" button
+    // resets it, since that's an explicit user request to retry.
     localStorage.removeItem('tutto_dice_turn_state');
     localStorage.removeItem('tutto_local_game');
-    localStorage.removeItem('last_crash_time');
     sessionStorage.removeItem('tutto_online_session');
 
     if ('serviceWorker' in navigator) {

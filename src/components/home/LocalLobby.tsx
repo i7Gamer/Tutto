@@ -3,6 +3,7 @@ import { UserPlus } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, AudioSettingSelector } from './LobbyShared';
+import { hasPlayableDeck } from '../../utils/coreGameEngine';
 import type { GameStore } from '../../store/useGameStore';
 
 interface LocalLobbyProps {
@@ -72,7 +73,12 @@ export default function LocalLobby({ game }: LocalLobbyProps) {
         onResetCards={() => game.resetInitialCards()}
       />
 
-      <StartGameButton startGame={startGame} playersCount={players ? players.length : 0} />
+      <StartGameButton
+        startGame={startGame}
+        playersCount={players ? players.length : 0}
+        disabled={!hasPlayableDeck(game.initialCards)}
+        disabledMessage={!hasPlayableDeck(game.initialCards) ? t('lobby.emptyDeck', 'Add at least one card to the deck') : undefined}
+      />
     </motion.div>
   );
 }

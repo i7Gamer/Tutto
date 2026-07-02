@@ -8,6 +8,11 @@ import type {
   UndoResult,
 } from '../types';
 
+// A deck with every card type at 0 leaves currentCard permanently null and the
+// game unplayable — both lobbies must refuse to start in that state.
+export const hasPlayableDeck = (initialCards: InitialCards | undefined): boolean =>
+  Object.values(initialCards ?? {}).some(count => (count ?? 0) > 0);
+
 export const shuffleArray = <T>(array: T[]): T[] => {
   const newArr = [...array];
   for (let i = newArr.length - 1; i > 0; i--) {

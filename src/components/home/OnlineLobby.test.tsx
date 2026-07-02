@@ -49,6 +49,7 @@ describe('OnlineLobby start button / waiting indicator', () => {
     kickPlayer: vi.fn(),
     startGame: vi.fn(),
     reorderPlayers: vi.fn(),
+    initialCards: { Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5, x2: 5, '200': 5, '300': 5, '400': 5, '500': 5, '600': 5 },
     ...overrides,
   });
 

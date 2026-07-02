@@ -18,6 +18,12 @@ describe('StartGameButton', () => {
     expect(screen.getByText('lobby.waitingForPlayersToReconnect')).toBeInTheDocument();
   });
 
+  it('renders a custom disabledMessage instead of the default when provided', () => {
+    render(<StartGameButton startGame={() => {}} playersCount={3} disabled={true} disabledMessage="Add at least one card to the deck" />);
+    expect(screen.getByText('Add at least one card to the deck')).toBeInTheDocument();
+    expect(screen.queryByText('lobby.waitingForPlayersToReconnect')).not.toBeInTheDocument();
+  });
+
   it('does not render when playersCount is 0', () => {
     const { container } = render(<StartGameButton startGame={() => {}} playersCount={0} />);
     expect(container.firstChild).toBeNull();

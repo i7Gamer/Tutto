@@ -35,6 +35,10 @@ export interface DiceSnapshot {
   busted?: boolean;
   rollingDiceIds?: string[];
   playerName?: string;
+  // Identifies which turn this localStorage-persisted snapshot belongs to (see
+  // buildTurnKey in diceTurnState.ts) — lets DiceGame tell a same-player-but-
+  // expired-turn snapshot apart from a genuinely resumable one.
+  turnKey?: string;
 }
 
 export interface Player {

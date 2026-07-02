@@ -106,12 +106,15 @@ const validateInitialCards = (cards: unknown): cards is InitialCards => {
   if (typeof cards !== 'object' || cards === null) return false;
   const entries = Object.entries(cards as Record<string, unknown>);
   if (entries.length === 0) return false;
-  return entries.every(([key, val]) =>
+  const shapeValid = entries.every(([key, val]) =>
     VALID_CARD_TYPES.has(key as CardType) &&
     Number.isInteger(val) &&
     (val as number) >= 0 &&
     (val as number) <= MAX_CARD_COUNT
   );
+  if (!shapeValid) return false;
+  // An all-zero deck leaves currentCard permanently null and the game unplayable.
+  return entries.some(([, val]) => (val as number) > 0);
 };
 
 // Applies only the config fields that pass validation, silently ignoring the

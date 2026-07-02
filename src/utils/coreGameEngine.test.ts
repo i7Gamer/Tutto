@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getLeaders, buildGlobalStatsPayload, shuffleArray, buildDeck, calculateNextTurn, calculateUndo, computeRankedPlayers } from './coreGameEngine';
+import { getLeaders, buildGlobalStatsPayload, shuffleArray, buildDeck, calculateNextTurn, calculateUndo, computeRankedPlayers, hasPlayableDeck } from './coreGameEngine';
 
 const makePlayer = (name, overrides = {}) => ({
   name, score: 0, times1000PointsDeducted: 0, timesKniffelCompleted: 0,
@@ -26,6 +26,18 @@ const makeState = (overrides = {}) => ({
 });
 
 describe('coreGameEngine', () => {
+  describe('hasPlayableDeck', () => {
+    it('returns false for undefined, empty, or all-zero decks', () => {
+      expect(hasPlayableDeck(undefined)).toBe(false);
+      expect(hasPlayableDeck({})).toBe(false);
+      expect(hasPlayableDeck({ Stop: 0, Kleeblatt: 0 })).toBe(false);
+    });
+
+    it('returns true as soon as any card type has a positive count', () => {
+      expect(hasPlayableDeck({ Stop: 0, '200': 1 })).toBe(true);
+    });
+  });
+
   describe('shuffleArray', () => {
     it('returns an array of the same length with same elements', () => {
       const arr = [1, 2, 3, 4, 5];

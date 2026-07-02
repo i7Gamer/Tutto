@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dices, X, Hand, RotateCw } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
 import { playBuzzer, playSuccess, playTone } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
 import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from '../utils/diceLogic';
@@ -15,6 +16,10 @@ import type { CardType, Die as DieType, DiceSnapshot } from '../types';
 
 interface DiceGameProps {
   currentCard: CardType | null;
+  // Identifies the turn this instance was opened for (see buildTurnKey in
+  // diceTurnState.ts). Left undefined, restoration is unconditional — matches
+  // every test in this file that doesn't pass it and predates this prop.
+  turnKey?: string;
   onComplete: (score: number, isSuccess: boolean) => void;
   onCancel: () => void;
   onStateChange?: (snapshot: DiceSnapshot | null) => void;
@@ -35,7 +40,7 @@ const CARD_NAME_MAP: Partial<Record<CardType, string>> = {
   '600': '600 Bonus',
 };
 
-export default function DiceGame({ currentCard, onComplete, onCancel, onStateChange }: DiceGameProps) {
+export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, onStateChange }: DiceGameProps) {
   const { t } = useTranslation();
 
   const getDisplayCardName = (cardName: CardType | null): string => {
@@ -62,6 +67,17 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
     if (initRestoredRef.current) return;
     const restored = parseSavedDiceState(localStorage.getItem('tutto_dice_turn_state'));
     if (restored) {
+      // A snapshot stamped for a different turn — e.g. the server's turn timer
+      // advanced past this player while they were disconnected/backgrounded, so
+      // their own client never got the chance to clear its cache entry — must be
+      // discarded rather than resumed into their new turn. turnKey is undefined
+      // for callers that don't pass it (predating this prop), in which case
+      // restoration stays unconditional as before.
+      if (turnKey !== undefined && restored.turnKey !== turnKey) {
+        localStorage.removeItem('tutto_dice_turn_state');
+        return;
+      }
+
       initRestoredRef.current = true;
 
       // Restoring saved dice game state from localStorage - intentional one-time initialization
@@ -101,7 +117,9 @@ export default function DiceGame({ currentCard, onComplete, onCancel, onStateCha
     playTone(600, 'sine', 0.1);
 
     const newRollVals = Array.from({ length: numDice }, () => rollDie());
-    const finalRolls: DieType[] = newRollVals.map((val) => ({ id: crypto.randomUUID(), val, selected: false }));
+    // crypto.randomUUID() only exists in secure contexts (HTTPS/localhost) —
+    // this would throw on every roll when playing over plain http:// on a LAN.
+    const finalRolls: DieType[] = newRollVals.map((val) => ({ id: uuidv4(), val, selected: false }));
 
     setCurrentRoll(finalRolls);
     setDisplayRoll(finalRolls.map(r => ({ ...r, val: rollDie() })));

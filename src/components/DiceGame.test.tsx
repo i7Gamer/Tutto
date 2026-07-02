@@ -166,6 +166,59 @@ describe('DiceGame restored-state bust rendering', () => {
   });
 });
 
+describe('DiceGame stale turn restoration (turnKey)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  // A player's turn ended (e.g. the server's turn timer advanced past them while
+  // disconnected) without their own client ever running the code that clears this
+  // cache entry — so it survives, stamped for a turn that is no longer current.
+  const staleSnapshot = {
+    turnScore: 0,
+    keptDice: [],
+    currentRoll: [],
+    kniffelProgress: [],
+    tuttosThisTurn: 1,
+    busted: true,
+    turnKey: 'ROOM1:2:0:Kleeblatt',
+  };
+
+  it('restores the snapshot when turnKey matches the current turn', () => {
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify(staleSnapshot));
+
+    render(<DiceGame currentCard="Kleeblatt" turnKey="ROOM1:2:0:Kleeblatt" onComplete={vi.fn()} onCancel={vi.fn()} />);
+
+    expect(screen.getByText('dice.bust')).toBeInTheDocument();
+  });
+
+  it('discards a snapshot stamped for a different turn instead of resuming it', () => {
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify(staleSnapshot));
+
+    // Same player and card, but the round has advanced — a later turn, not a
+    // resumable one.
+    render(<DiceGame currentCard="Kleeblatt" turnKey="ROOM1:3:0:Kleeblatt" onComplete={vi.fn()} onCancel={vi.fn()} />);
+
+    // A fresh turn shows the roll button, not the stale bust summary.
+    expect(screen.getByText('dice.roll_6_dice')).toBeInTheDocument();
+    expect(screen.queryByText('dice.bust')).not.toBeInTheDocument();
+    // Cleared, not just ignored, so it can't resurface on a later mount either.
+    expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
+  });
+
+  it('restores unconditionally when the caller does not pass turnKey (backward compatible)', () => {
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify(staleSnapshot));
+
+    render(<DiceGame currentCard="Kleeblatt" onComplete={vi.fn()} onCancel={vi.fn()} />);
+
+    expect(screen.getByText('dice.bust')).toBeInTheDocument();
+  });
+});
+
 describe('DiceGame interactive turn logic', () => {
   beforeEach(() => {
     localStorage.clear();

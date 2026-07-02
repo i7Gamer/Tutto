@@ -9,7 +9,7 @@ vi.mock('./LobbyShared', () => ({
   AdvancedOptionsPanel: () => <div data-testid="advanced-options-panel" />,
   StartGameButton: () => <div data-testid="start-game-button" />,
   PlayerList: () => <div data-testid="player-list" />,
-  AudioSettingSelector: () => <div data-testid="audio-setting-selector" />
+  AudioSettingSelector: () => <div data-testid="audio-setting-selector" />,
 }));
 
 describe('LocalLobby', () => {

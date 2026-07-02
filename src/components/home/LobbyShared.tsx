@@ -407,10 +407,17 @@ interface StartGameButtonProps {
   startGame: () => void;
   playersCount: number;
   disabled?: boolean;
+  // Overrides the default "need players" / "waiting to reconnect" message —
+  // needed for reasons those two don't cover (e.g. an empty deck), and to
+  // avoid showing the 2-player message in local mode, which never required it.
+  disabledMessage?: string;
 }
 
-export function StartGameButton({ startGame, playersCount, disabled = false }: StartGameButtonProps) {
+export function StartGameButton({ startGame, playersCount, disabled = false, disabledMessage }: StartGameButtonProps) {
   const { t } = useTranslation();
+  const fallbackMessage = playersCount < 2
+    ? t('lobby.needAtLeast2Players', 'Need at least 2 players')
+    : t('lobby.waitingForPlayersToReconnect', 'Waiting for players to reconnect...');
   return (
     <AnimatePresence>
       {playersCount > 0 && (
@@ -427,7 +434,7 @@ export function StartGameButton({ startGame, playersCount, disabled = false }: S
             onClick={startGame}
             disabled={disabled}
           >
-            <Play size={24} /> {disabled ? (playersCount < 2 ? t('lobby.needAtLeast2Players', 'Need at least 2 players') : t('lobby.waitingForPlayersToReconnect', 'Waiting for players to reconnect...')) : t('lobby.startGame', 'Start Game!')}
+            <Play size={24} /> {disabled ? (disabledMessage ?? fallbackMessage) : t('lobby.startGame', 'Start Game!')}
           </motion.button>
         </motion.div>
       )}

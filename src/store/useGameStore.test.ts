@@ -1653,7 +1653,8 @@ describe('useGameStore', () => {
 
       const saved = localStorage.getItem('tutto_dice_turn_state');
       expect(saved).toBeDefined();
-      expect(JSON.parse(saved!)).toEqual({ ...turnState, playerName: 'TestPlayer' });
+      // roomId: null, round: 1, currentCard: null after reset() in beforeEach.
+      expect(JSON.parse(saved!)).toEqual({ ...turnState, playerName: 'TestPlayer', turnKey: 'local:1:0:none' });
     });
 
     it('setLiveTurnState does not save null state to localStorage', () => {
@@ -1841,6 +1842,16 @@ describe('useGameStore', () => {
     it('keeps the default deck when no initialCards entry is valid', () => {
       localStorage.setItem('tutto_online_config', JSON.stringify({
         initialCards: { Bogus: 4 },
+      }));
+      useGameStore.getState().setMode('online');
+      const cards = useGameStore.getState().initialCards;
+      expect(cards.Stop).toBe(10);
+      expect(cards.Kleeblatt).toBe(1);
+    });
+
+    it('keeps the default deck when the stored initialCards is all zeros (would leave currentCard permanently null)', () => {
+      localStorage.setItem('tutto_online_config', JSON.stringify({
+        initialCards: { Stop: 0, Kleeblatt: 0, '200': 0 },
       }));
       useGameStore.getState().setMode('online');
       const cards = useGameStore.getState().initialCards;

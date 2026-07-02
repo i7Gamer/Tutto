@@ -569,4 +569,55 @@ describe('Game Component Integration', () => {
       expect(useGameStore.getState().liveTurnState).toBeNull();
     });
   });
+
+  describe('Online Reconnect Dice Resume', () => {
+    beforeEach(() => {
+      localStorage.clear();
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        currentPlayerIndex: 0,
+        currentCard: 'x2',
+        diceMode: 'digital',
+        myName: 'Alice',
+        players: [{ name: 'Alice', socketId: 'socket1', score: 0, position: 1 }],
+        liveTurnState: null,
+        justReconnected: false,
+      });
+    });
+
+    it('auto-opens DiceGame and shows the resume toast when reconnecting mid-roll on my turn', () => {
+      const mockAddToast = vi.fn();
+      useGameStore.setState({
+        addToast: mockAddToast,
+        liveTurnState: { turnScore: 200, keptDice: [], currentRoll: [] },
+        justReconnected: true,
+      });
+
+      render(<Game />);
+      act(() => { vi.advanceTimersByTime(100); });
+
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+      expect(mockAddToast).toHaveBeenCalledWith('Resuming your dice game...');
+      expect(useGameStore.getState().justReconnected).toBe(false);
+    });
+
+    it('clears justReconnected even when the reconnect is not resumable, so it cannot leak into a later turn', () => {
+      const mockAddToast = vi.fn();
+      // Reconnecting as a spectator (not the active player) — nothing to resume.
+      useGameStore.setState({
+        addToast: mockAddToast,
+        myName: 'Bob',
+        justReconnected: true,
+        liveTurnState: null,
+      });
+
+      render(<Game />);
+      act(() => { vi.advanceTimersByTime(100); });
+
+      expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
+      expect(mockAddToast).not.toHaveBeenCalledWith('Resuming your dice game...');
+      expect(useGameStore.getState().justReconnected).toBe(false);
+    });
+  });
 });

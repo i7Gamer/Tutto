@@ -1530,6 +1530,32 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
+  it('rejects an all-zero initialCards deck, which would leave currentCard permanently null', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Test timed out')); }, 5000);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'CARDS_ALL_ZERO', name: 'Alice', deviceId: 'dev-caz-a', color: '#ff0000' }, () => {
+          const zeroDeck = { Kleeblatt: 0, Feuerwerk: 0, Stop: 0, Kniffel: 0, Plus_Minus: 0, x2: 0, '200': 0, '300': 0, '400': 0, '500': 0, '600': 0 };
+          s1.emit('updateConfig', { roomId: 'CARDS_ALL_ZERO', initialCards: zeroDeck });
+          // Follow with a distinguishable no-op config change so we get a gameState
+          // to assert against once the (rejected) all-zero push has been processed.
+          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_ALL_ZERO', winningScore: 7000 }), 200);
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (state.winningScore !== 7000) return;
+        const total = Object.values(state.initialCards).reduce((sum, v) => sum + v, 0);
+        expect(total).toBeGreaterThan(0);
+        clearTimeout(timeoutId);
+        s1.disconnect();
+        resolve();
+      });
+    });
+  }, 10000);
+
   it('joinRoom returns an error (and does not crash) when name is missing', () => {
     return new Promise((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);

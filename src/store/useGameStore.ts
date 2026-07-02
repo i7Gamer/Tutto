@@ -10,7 +10,7 @@ import {
   buildGlobalStatsPayload,
 } from '../utils/coreGameEngine';
 import { parseJsonString } from '../utils/parseJson';
-import { parseSavedDiceState } from '../utils/diceTurnState';
+import { parseSavedDiceState, buildTurnKey } from '../utils/diceTurnState';
 import { getEffectiveTurnDuration } from '../utils/turnDuration';
 import i18n from '../i18n';
 import playerColorsData from '../../playerColors.json';
@@ -209,7 +209,9 @@ const validateOnlineConfig = (config: unknown): Partial<Pick<GameStore, ConfigKe
         validCards[key as CardType] = val;
       }
     }
-    if (Object.keys(validCards).length > 0) valid.initialCards = validCards;
+    // An all-zero deck leaves currentCard permanently null and the game
+    // unplayable — same rule the server enforces in validateInitialCards.
+    if (Object.values(validCards).some(count => (count ?? 0) > 0)) valid.initialCards = validCards;
   }
   return valid;
 };
@@ -600,9 +602,15 @@ export const useGameStore = create<GameStore>()(
     setLiveTurnState: (snapshot) => {
       set({ liveTurnState: snapshot });
       if (snapshot) {
+        const s = get();
         const snapshotWithPlayer = {
           ...snapshot,
-          playerName: get().players[get().currentPlayerIndex ?? 0]?.name,
+          playerName: s.currentPlayerIndex !== null ? s.players[s.currentPlayerIndex]?.name : undefined,
+          // Stamped so a later restore (see DiceGame's mount effect) can tell this
+          // turn apart from a stale snapshot left behind by an earlier turn — e.g.
+          // one the server's turn timer advanced past while this player was
+          // disconnected, which never got the chance to clear its own cache entry.
+          turnKey: buildTurnKey(s.roomId, s.round, s.currentPlayerIndex, s.currentCard),
         };
         localStorage.setItem('tutto_dice_turn_state', JSON.stringify(snapshotWithPlayer));
       }
