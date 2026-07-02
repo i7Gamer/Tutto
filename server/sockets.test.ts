@@ -64,13 +64,19 @@ describe('Server Socket E2E Simulation', () => {
           }
         };
 
-        s1.emit('joinRoom', { roomId: 'CONFIG_TEST', name: 'Alice', deviceId: 'dev-1', initialConfig }, (res: any) => {
+        s1.emit('joinRoom', { roomId: 'CONFIG_TEST', name: 'Alice', deviceId: 'dev-1', initialConfig }, (res: { success: boolean }) => {
           if (!res.success) {
             reject(new Error('joinRoom failed'));
           }
         });
 
-        s1.on('gameState', (state: any) => {
+        s1.on('gameState', (state: {
+          winningScore: number;
+          randomOrder: boolean;
+          turnDuration: number;
+          reconnectTimeout: number;
+          initialCards: Record<string, number>;
+        }) => {
           expect(state.winningScore).toBe(7777);
           expect(state.randomOrder).toBe(false);
           expect(state.turnDuration).toBe(90);

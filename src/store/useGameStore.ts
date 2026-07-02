@@ -197,20 +197,20 @@ const initialLocalState: Omit<CoreGameState, never> & {
 const validateOnlineConfig = (config: unknown): Partial<Pick<GameStore, ConfigKeys>> => {
   if (typeof config !== 'object' || config === null) return {};
   const valid: Partial<Pick<GameStore, ConfigKeys>> = {};
-  const c = config as any;
+  const c = config as Record<string, unknown>;
   if (typeof c.winningScore === 'number' && c.winningScore >= 1000 && c.winningScore <= 99999) valid.winningScore = c.winningScore;
   if (typeof c.randomOrder === 'boolean') valid.randomOrder = c.randomOrder;
   if (typeof c.turnDuration === 'number' && c.turnDuration >= 0 && c.turnDuration <= 600) valid.turnDuration = c.turnDuration;
   if (typeof c.reconnectTimeout === 'number' && c.reconnectTimeout >= 0 && c.reconnectTimeout <= 3600) valid.reconnectTimeout = c.reconnectTimeout;
   if (typeof c.initialCards === 'object' && c.initialCards !== null) {
     const VALID_CARD_TYPES = ['Kleeblatt', 'Feuerwerk', 'Stop', 'Kniffel', 'Plus_Minus', 'x2', '200', '300', '400', '500', '600'];
-    const validCards: any = {};
+    const validCards: InitialCards = {};
     for (const [key, val] of Object.entries(c.initialCards)) {
       if (VALID_CARD_TYPES.includes(key) && typeof val === 'number' && val >= 0 && val <= 99) {
-        validCards[key] = val;
+        validCards[key as CardType] = val;
       }
     }
-    if (Object.keys(validCards).length > 0) valid.initialCards = validCards as InitialCards;
+    if (Object.keys(validCards).length > 0) valid.initialCards = validCards;
   }
   return valid;
 };
@@ -541,7 +541,7 @@ export const useGameStore = create<GameStore>()(
         set({ liveTurnState: null });
       }
       return new Promise<JoinRoomResponse>((resolve) => {
-        let initialConfig: any = undefined;
+        let initialConfig: Record<string, unknown> | undefined = undefined;
         try {
           const storedConfigStr = localStorage.getItem('tutto_online_config');
           if (storedConfigStr) {

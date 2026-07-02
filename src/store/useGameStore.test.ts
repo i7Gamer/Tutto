@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useGameStore, _resetTimersForTests } from './useGameStore';
+import type { Player } from '../types';
 
 let mockEmit = vi.fn();
 let mockOnHandlers = {};
@@ -18,6 +19,10 @@ vi.mock('socket.io-client', () => {
     }))
   };
 });
+
+// Minimal player stand-ins for tests that only ever read `name`.
+const namedPlayers = (...names: string[]): Player[] =>
+  names.map(name => ({ name }) as unknown as Player);
 
 const makeOnlinePlayer = (name) => ({
   name, socketId: `sock-${name}`, deviceId: `dev-${name}`, score: 0,
@@ -1565,7 +1570,7 @@ describe('useGameStore', () => {
       };
 
       useGameStore.setState({
-        players: [{ name: 'TestPlayer' } as any],
+        players: namedPlayers('TestPlayer'),
         currentPlayerIndex: 0
       });
 
@@ -1623,7 +1628,7 @@ describe('useGameStore', () => {
     it('clears tutto_dice_turn_state if the active player does not match the cached player name in local mode', () => {
       useGameStore.setState({
         mode: 'local',
-        players: [{ name: 'Alice' }, { name: 'Bob' }] as any,
+        players: namedPlayers('Alice', 'Bob'),
         currentPlayerIndex: 1,
       });
 
@@ -1640,7 +1645,7 @@ describe('useGameStore', () => {
     it('keeps tutto_dice_turn_state if the active player matches the cached player name in local mode', () => {
       useGameStore.setState({
         mode: 'local',
-        players: [{ name: 'Alice' }, { name: 'Bob' }] as any,
+        players: namedPlayers('Alice', 'Bob'),
         currentPlayerIndex: 1,
       });
 
@@ -1658,7 +1663,7 @@ describe('useGameStore', () => {
       // Old saves written before this fix have no playerName field — we must not drop them
       useGameStore.setState({
         mode: 'local',
-        players: [{ name: 'Alice' }] as any,
+        players: namedPlayers('Alice'),
         currentPlayerIndex: 0,
       });
 
@@ -1677,7 +1682,7 @@ describe('useGameStore', () => {
       // The validation block is local-only; online games restore from the server
       useGameStore.setState({
         mode: 'online',
-        players: [{ name: 'Alice' }, { name: 'Bob' }] as any,
+        players: namedPlayers('Alice', 'Bob'),
         currentPlayerIndex: 1,
       });
 
@@ -1695,7 +1700,7 @@ describe('useGameStore', () => {
     it('does not crash when currentPlayerIndex is null during init', () => {
       useGameStore.setState({
         mode: 'local',
-        players: [{ name: 'Alice' }] as any,
+        players: namedPlayers('Alice'),
         currentPlayerIndex: null,
       });
 

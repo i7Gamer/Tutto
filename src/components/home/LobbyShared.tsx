@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
+import type { InputHTMLAttributes, KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, Play, ChevronUp, ChevronDown, Trash2, UserMinus, Crown, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -187,7 +188,7 @@ interface AdvancedOptionsPanelProps {
   onResetCards?: (() => void) | null;
 }
 
-interface BlurInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+interface BlurInputProps extends InputHTMLAttributes<HTMLInputElement> {
   value: number;
   onValueChange: (val: number) => void;
   minVal?: number;
@@ -195,32 +196,34 @@ interface BlurInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 }
 
 function BlurInput({ value, onValueChange, minVal = 0, maxVal = 99999, ...props }: BlurInputProps) {
-  const safeValue = value ?? 0;
-  const [localValue, setLocalValue] = useState(safeValue.toString());
-  const isDirtyRef = useRef(false);
-  const valueRef = useRef(value);
+  const [localValue, setLocalValue] = useState((value ?? 0).toString());
+  const [prevValue, setPrevValue] = useState(value);
+  const [isDirty, setIsDirty] = useState(false);
 
-  useEffect(() => {
-    valueRef.current = value;
+  // Synchronous render-time derived state (same pattern as GameControls): when
+  // the committed value changes from outside (reset buttons, a server update),
+  // adopt it and drop any uncommitted edit.
+  if (value !== prevValue) {
+    setPrevValue(value);
     setLocalValue((value ?? 0).toString());
-    isDirtyRef.current = false;
-  }, [value]);
+    setIsDirty(false);
+  }
 
   const commit = () => {
-    if (!isDirtyRef.current) return;
+    if (!isDirty) return;
     let parsed = parseInt(localValue);
-    if (isNaN(parsed)) parsed = valueRef.current ?? 0;
+    if (isNaN(parsed)) parsed = value ?? 0;
     const clamped = Math.min(maxVal, Math.max(minVal, parsed));
     setLocalValue(clamped.toString());
-    isDirtyRef.current = false;
-    
-    if (clamped !== valueRef.current) {
+    setIsDirty(false);
+
+    if (clamped !== value) {
       onValueChange(clamped);
     }
   };
 
   const handleBlur = () => commit();
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.currentTarget.blur();
     }
@@ -232,7 +235,7 @@ function BlurInput({ value, onValueChange, minVal = 0, maxVal = 99999, ...props 
       value={localValue}
       onChange={(e) => {
         setLocalValue(e.target.value);
-        isDirtyRef.current = true;
+        setIsDirty(true);
       }}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}

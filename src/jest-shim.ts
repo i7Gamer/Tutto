@@ -1,2 +1,2 @@
 import { vi } from 'vitest';
-(globalThis as any).jest = vi;
+(globalThis as unknown as { jest: typeof vi }).jest = vi;

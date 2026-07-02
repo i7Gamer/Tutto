@@ -341,8 +341,8 @@ io.on('connection', (socket: Socket) => {
   let username: string | null = null;
 
   socket.on('joinRoom', (
-    { roomId, name, deviceId, color, initialConfig }: { roomId: string; name: string; deviceId: string; color?: string; initialConfig?: any } =
-      {} as { roomId: string; name: string; deviceId: string; color?: string; initialConfig?: any },
+    { roomId, name, deviceId, color, initialConfig }: { roomId: string; name: string; deviceId: string; color?: string; initialConfig?: Record<string, unknown> } =
+      {} as { roomId: string; name: string; deviceId: string; color?: string; initialConfig?: Record<string, unknown> },
     callback: (result: { success: boolean; isHost?: boolean; socketId?: string; error?: string }) => void
   ) => {
     // Reject malformed payloads before any field is used. Without these guards a
@@ -404,7 +404,7 @@ io.on('connection', (socket: Socket) => {
         if (typeof initialConfig.turnDuration === 'number') r.turnDuration = initialConfig.turnDuration;
         if (typeof initialConfig.reconnectTimeout === 'number') r.reconnectTimeout = initialConfig.reconnectTimeout;
         if (initialConfig.initialCards && typeof initialConfig.initialCards === 'object') {
-          r.initialCards = initialConfig.initialCards;
+          r.initialCards = initialConfig.initialCards as InitialCards;
         }
       }
     }
