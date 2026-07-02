@@ -127,6 +127,16 @@ describe('diceLogic', () => {
       expect(checkValidityAndScore([3, 3, 3, 4], "200", []).valid).toBe(false);
     });
 
+    it('rejects a selection with more than a complete triplet of the same value (4 or 5 of a kind)', () => {
+      // Only complete triplets of 2/3/4/6 may be banked — the 4th/5th die does
+      // not score and therefore cannot be part of a valid selection. (A ROLL
+      // containing four 2s is still safe — isBust only needs one triplet.)
+      expect(checkValidityAndScore([2, 2, 2, 2], "200", []).valid).toBe(false);
+      expect(checkValidityAndScore([6, 6, 6, 6, 6], "200", []).valid).toBe(false);
+      // ...while two full triplets stay valid.
+      expect(checkValidityAndScore([2, 2, 2, 2, 2, 2], "200", []).valid).toBe(true);
+    });
+
     it('scores combinations of triplets and singles correctly', () => {
       expect(checkValidityAndScore([2, 2, 2, 1, 5], "200", []).score).toBe(350); // 200 + 100 + 50
       expect(checkValidityAndScore([1, 1, 1, 5, 5, 5], "200", []).score).toBe(1500); // 1000 + 500

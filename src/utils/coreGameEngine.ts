@@ -251,6 +251,7 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
     previousLeaders, previousWasBust, previousHighestTurnScore, currentCard, cards,
   } = gameState;
 
+  if (gameState.finished) return null;
   if (!previousCard || previousCard === 'Stop') return null;
   if (currentPlayerIndex === null) return null;
 
@@ -303,9 +304,11 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
     else p.timesKniffelFailed = Math.max(0, (p.timesKniffelFailed ?? 0) - 1);
   }
 
+  // A Kleeblatt completion instantly wins the game, which makes it un-undoable
+  // (the finished/currentPlayerIndex guards above return null first) — so a
+  // reachable Kleeblatt undo always reverses a failure.
   if (previousCard === 'Kleeblatt') {
-    if ((previousScore ?? 0) > 0) p.timesKleeblattCompleted = Math.max(0, (p.timesKleeblattCompleted ?? 0) - 1);
-    else p.timesKleeblattFailed = Math.max(0, (p.timesKleeblattFailed ?? 0) - 1);
+    p.timesKleeblattFailed = Math.max(0, (p.timesKleeblattFailed ?? 0) - 1);
   }
 
   if (previousHighestTurnScore !== undefined) p.highestTurnScore = previousHighestTurnScore;

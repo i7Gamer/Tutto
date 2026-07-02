@@ -861,16 +861,63 @@ describe('coreGameEngine', () => {
       expect(result.players[0].timesKleeblattFailed).toBe(0);
     });
 
-    it('reverses Kleeblatt completion', () => {
+    it('returns null after a Kleeblatt win — the instant game-over cannot be undone', () => {
+      // A real Kleeblatt completion ends the game: calculateNextTurn returns
+      // isGameOver with nextIndex null, and the store sets finished=true and
+      // currentPlayerIndex=null. Undo must refuse this state — the winner's
+      // score was SET to 999999 (not incremented), so an additive undo would
+      // corrupt it.
+      const win = calculateNextTurn(
+        makeState({ currentCard: 'Kleeblatt' }),
+        0,
+        true,
+      );
+      expect(win.isGameOver).toBe(true);
+
+      const result = calculateUndo(makeState({
+        players: win.players,
+        currentPlayerIndex: win.nextIndex, // null
+        currentCard: null,
+        previousCard: win.previousCard,
+        previousScore: win.previousScore,
+        finished: true,
+      }));
+      expect(result).toBeNull();
+    });
+
+    it('returns null when the game is finished, regardless of other fields', () => {
       const state = makeState({
-        players: [makePlayer('Alice', { timesKleeblattCompleted: 1, score: 999999 }), makePlayer('Bob')],
+        previousCard: '200',
+        previousScore: 300,
+        finished: true,
+      });
+      expect(calculateUndo(state)).toBeNull();
+    });
+
+    it('decrements timesKniffelCompleted when undoing a successful Kniffel (previousScore 2000)', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { timesKniffelCompleted: 1, score: 2000, totalTurns: 1 }), makePlayer('Bob')],
         currentPlayerIndex: 1,
-        previousCard: 'Kleeblatt',
-        previousScore: 500,
+        previousCard: 'Kniffel',
+        previousScore: 2000,
       });
       const result = calculateUndo(state);
-      expect(result.players[0].timesKleeblattCompleted).toBe(0);
-      expect(result.players[0].score).toBe(999999 - 500);
+      expect(result.players[0].timesKniffelCompleted).toBe(0);
+      expect(result.players[0].timesKniffelFailed).toBe(0);
+      expect(result.players[0].score).toBe(0);
+    });
+
+    it('decrements timesKniffelFailed when undoing a failed Kniffel', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { timesKniffelFailed: 1, totalTurns: 1 }), makePlayer('Bob')],
+        currentPlayerIndex: 1,
+        previousCard: 'Kniffel',
+        previousScore: 0,
+      });
+      const result = calculateUndo(state);
+      expect(result.players[0].timesKniffelFailed).toBe(0);
+      expect(result.players[0].timesKniffelCompleted).toBe(0);
+      expect(result.players[0].score).toBe(0);
     });
   });
 
