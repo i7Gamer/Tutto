@@ -58,16 +58,18 @@ export default function Game() {
     if (!isMyTurn) setShowDiceGame(false); // eslint-disable-line react-hooks/set-state-in-effect
   }, [isMyTurn]);
 
+  // justReconnected is set — and self-cleared on the next gameState event it
+  // isn't itself part of — by the store; this effect only reads it to decide
+  // whether to show the resume UI. onlineReconnectHandledRef still guards
+  // against firing the toast/modal more than once per reconnect episode: once
+  // resumed, DiceGame calls onStateChange ~300ms after mount (see its own
+  // effect), which updates liveTurnState — a dependency here — and would
+  // otherwise re-run this effect while justReconnected is still waiting on the
+  // store's next gameState round-trip to clear it.
   useEffect(() => {
     if (isOnline && justReconnected) {
       if (onlineReconnectHandledRef.current) return;
       onlineReconnectHandledRef.current = true;
-      // Clear immediately, regardless of whether this particular reconnect turns
-      // out to be resumable (my turn, digital mode, mid-roll) — otherwise a
-      // reconnect as a spectator, on physical dice, or between rolls leaves this
-      // flag stuck true and it wrongly fires the "resume" popup/toast on a later,
-      // unrelated turn.
-      useGameStore.setState({ justReconnected: false });
       if (isMyTurn && diceMode === 'digital' && liveTurnState) {
         setShowDiceGame(true); // eslint-disable-line react-hooks/set-state-in-effect
         game.addToast('Resuming your dice game...');

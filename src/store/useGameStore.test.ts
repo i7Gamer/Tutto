@@ -597,7 +597,7 @@ describe('useGameStore', () => {
       expect(useGameStore.getState().turnTimeRemaining).toBe(25);
     });
 
-    it('justReconnected flag persists after syncOnlineTimers — reset is handled by Game.jsx effect', () => {
+    it('justReconnected flag persists across a syncOnlineTimers call — only the gameState handler clears it', () => {
       useGameStore.setState({
         mode: 'online',
         isOnline: true,
@@ -613,9 +613,39 @@ describe('useGameStore', () => {
 
       useGameStore.getState().syncOnlineTimers();
 
-      // syncOnlineTimers must NOT clear justReconnected — Game.jsx's useEffect does that
-      // after opening the DiceGame (or skipping when liveTurnState is null)
+      // syncOnlineTimers must NOT clear justReconnected — it's consulted (not
+      // reset) there to decide whether to reuse the server's turnTimeRemaining.
       expect(useGameStore.getState().justReconnected).toBe(true);
+    });
+
+    it('the gameState handler self-clears justReconnected on the next event that is not itself a reconnect', () => {
+      useGameStore.setState({
+        mode: 'online',
+        isOnline: true,
+        showReconnectPopup: true,
+        status: 'playing',
+        currentPlayerIndex: 0,
+      });
+
+      // First event: a genuine reconnect — sets the flag.
+      mockOnHandlers['gameState']({
+        status: 'playing',
+        currentPlayerIndex: 0,
+        players: [makeOnlinePlayer('Alice')],
+        liveTurnState: null,
+      });
+      expect(useGameStore.getState().justReconnected).toBe(true);
+
+      // Second event: an ordinary update, not a fresh reconnect (showReconnectPopup
+      // is already false by now) — must clear the flag rather than leaving it
+      // stuck true for a future, unrelated turn to pick up.
+      mockOnHandlers['gameState']({
+        status: 'playing',
+        currentPlayerIndex: 0,
+        players: [makeOnlinePlayer('Alice')],
+        liveTurnState: { turnScore: 50, keptDice: [], currentRoll: [] },
+      });
+      expect(useGameStore.getState().justReconnected).toBe(false);
     });
 
     it('does NOT set justReconnected on a normal gameState update (not a reconnect)', () => {

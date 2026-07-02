@@ -599,10 +599,9 @@ describe('Game Component Integration', () => {
 
       expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
       expect(mockAddToast).toHaveBeenCalledWith('Resuming your dice game...');
-      expect(useGameStore.getState().justReconnected).toBe(false);
     });
 
-    it('clears justReconnected even when the reconnect is not resumable, so it cannot leak into a later turn', () => {
+    it('does not show the resume UI when the reconnect is not resumable (e.g. a spectator)', () => {
       const mockAddToast = vi.fn();
       // Reconnecting as a spectator (not the active player) — nothing to resume.
       useGameStore.setState({
@@ -617,7 +616,31 @@ describe('Game Component Integration', () => {
 
       expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
       expect(mockAddToast).not.toHaveBeenCalledWith('Resuming your dice game...');
-      expect(useGameStore.getState().justReconnected).toBe(false);
+    });
+
+    it('only shows the resume UI once per reconnect episode, even if liveTurnState changes again while justReconnected is still true', () => {
+      // Simulates DiceGame's own onStateChange firing ~300ms after it mounts to
+      // resume (see DiceGame.tsx), which updates liveTurnState again before the
+      // store's next gameState round-trip has had a chance to clear
+      // justReconnected.
+      const mockAddToast = vi.fn();
+      useGameStore.setState({
+        addToast: mockAddToast,
+        liveTurnState: { turnScore: 200, keptDice: [], currentRoll: [] },
+        justReconnected: true,
+      });
+
+      render(<Game />);
+      act(() => { vi.advanceTimersByTime(100); });
+      expect(mockAddToast).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        useGameStore.setState({ liveTurnState: { turnScore: 250, keptDice: [], currentRoll: [] } });
+        vi.advanceTimersByTime(100);
+      });
+
+      // Still only the one toast — justReconnected hasn't changed, only liveTurnState.
+      expect(mockAddToast).toHaveBeenCalledTimes(1);
     });
   });
 });

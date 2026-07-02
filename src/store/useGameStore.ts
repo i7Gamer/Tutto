@@ -484,8 +484,17 @@ export const useGameStore = create<GameStore>()(
             }
             Object.assign(prev, serverState);
 
-            if (wasDisconnected && serverState.status === 'playing') {
+            const isNewReconnect = wasDisconnected && serverState.status === 'playing';
+            if (isNewReconnect) {
               prev.justReconnected = true;
+            } else if (prev.justReconnected) {
+              // Self-clearing: true for exactly one gameState event's processing
+              // window, then reset here on the next one — regardless of whether
+              // any component (e.g. Game.tsx) was mounted to react to it and
+              // clear it itself. Without this it could get stuck true forever
+              // (e.g. reconnecting as a spectator, or on physical dice) and
+              // wrongly resurface on a later, unrelated turn.
+              prev.justReconnected = false;
             }
             prev.showReconnectPopup = false;
           });
