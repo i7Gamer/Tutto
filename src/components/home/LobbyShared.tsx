@@ -29,6 +29,11 @@ export function PlayerList({
 }: PlayerListProps) {
   const { t } = useTranslation();
 
+  // The reorder is deferred by 50ms (together with the blur() in the onClick
+  // handlers): on mobile, swapping the rows synchronously re-renders while the
+  // tap's hover/active state is still held, leaving that highlight stuck on a
+  // DIFFERENT row's button after the press. The short delay lets the browser
+  // release the pressed state on the original button first.
   const handleMoveUp = (index: number) => {
     if (index === 0) return;
     const newPlayers = [...players];

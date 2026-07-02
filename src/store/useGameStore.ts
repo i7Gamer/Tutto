@@ -11,6 +11,7 @@ import {
 } from '../utils/coreGameEngine';
 import { parseJsonString } from '../utils/parseJson';
 import { parseSavedDiceState } from '../utils/diceTurnState';
+import { getEffectiveTurnDuration } from '../utils/turnDuration';
 import i18n from '../i18n';
 import playerColorsData from '../../playerColors.json';
 import type {
@@ -40,11 +41,6 @@ const createInitialPlayer = (name: string): Player => ({
   position: 0,
 });
 
-
-const TURN_DURATION_MULTIPLIERS: Partial<Record<CardType, number>> = {
-  Feuerwerk: 3,
-  Kleeblatt: 2,
-};
 
 type GameMode = 'local' | 'online';
 type GameStatus = 'lobby' | 'playing';
@@ -686,8 +682,7 @@ export const useGameStore = create<GameStore>()(
             if (!isNewTurn && justReconnected && state.turnTimeRemaining !== null && state.turnTimeRemaining !== undefined) {
               remaining = state.turnTimeRemaining;
             } else {
-              const multiplier = state.currentCard ? (TURN_DURATION_MULTIPLIERS[state.currentCard] ?? 1) : 1;
-              remaining = state.turnDuration * multiplier;
+              remaining = getEffectiveTurnDuration(state.currentCard, state.turnDuration);
             }
             set({ turnTimeRemaining: remaining });
 

@@ -10,6 +10,7 @@ import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } 
 import { sanitizeStats } from './sanitize';
 import type { CardType, InitialCards, Player, DiceSnapshot, CoreGameState } from '../src/types';
 import { calculateNextTurn, buildDeck } from '../src/utils/coreGameEngine';
+import { getEffectiveTurnDuration } from '../src/utils/turnDuration';
 import playerColorsData from '../playerColors.json';
 
 const { PLAYER_COLORS } = playerColorsData;
@@ -212,10 +213,7 @@ const calculateGameTime = (room: Room): number => {
 const calculateRemainingTurnTime = (room: Room): number | null => {
   if (!room.state.turnStartTime || room.state.turnDuration === 0) return null;
 
-  let multiplier = 1;
-  if (room.state.currentCard === 'Feuerwerk') multiplier = 3;
-  if (room.state.currentCard === 'Kleeblatt') multiplier = 2;
-  const targetDuration = room.state.turnDuration * multiplier;
+  const targetDuration = getEffectiveTurnDuration(room.state.currentCard, room.state.turnDuration);
   const elapsedSeconds = Math.floor((Date.now() - room.state.turnStartTime) / 1000);
   return Math.max(0, targetDuration - elapsedSeconds);
 };
