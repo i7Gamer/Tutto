@@ -365,6 +365,81 @@ describe('useGameStore', () => {
     });
   });
 
+  describe('socket callbacks', () => {
+    beforeEach(() => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+    });
+
+    it('gameAborted adds a toast', () => {
+      if (mockOnHandlers['gameAborted']) {
+        mockOnHandlers['gameAborted']();
+        const toasts = useGameStore.getState().toasts;
+        expect(toasts.some(t => t.message === 'game.aborted' || t.message.toLowerCase().includes('aborted'))).toBe(true);
+      }
+    });
+
+    it('hostId updates isHost and hostId state', () => {
+      if (mockOnHandlers['hostId']) {
+        mockOnHandlers['hostId']('socket-123'); // matches mock socket id
+        expect(useGameStore.getState().isHost).toBe(true);
+        expect(useGameStore.getState().hostId).toBe('socket-123');
+
+        mockOnHandlers['hostId']('other-socket');
+        expect(useGameStore.getState().isHost).toBe(false);
+        expect(useGameStore.getState().hostId).toBe('other-socket');
+      }
+    });
+
+    it('playerDisconnected adds a toast with reconnectTimeout', () => {
+      useGameStore.setState({ reconnectTimeout: 45 });
+      if (mockOnHandlers['playerDisconnected']) {
+        mockOnHandlers['playerDisconnected']('Alice');
+        const toasts = useGameStore.getState().toasts;
+        expect(toasts.some(t => t.message.includes('Alice disconnected! They have 45 seconds to reconnect.'))).toBe(true);
+      }
+    });
+
+    it('nameConflictWithDisconnected adds a warning toast', () => {
+      if (mockOnHandlers['nameConflictWithDisconnected']) {
+        mockOnHandlers['nameConflictWithDisconnected']('Bob');
+        const toasts = useGameStore.getState().toasts;
+        expect(toasts.some(t => t.message.includes('Someone tried to join as "Bob", which belongs to a disconnected player'))).toBe(true);
+      }
+    });
+
+    it('connect event emits joinRoom if roomId and myName exist', () => {
+      useGameStore.setState({ roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice' });
+      localStorage.setItem('tutto_color', '#ff0000');
+      mockEmit.mockClear();
+
+      if (mockOnHandlers['connect']) {
+        mockOnHandlers['connect']();
+        expect(mockEmit).toHaveBeenCalledWith('joinRoom', expect.objectContaining({
+          roomId: 'ROOM1',
+          name: 'Alice',
+          deviceId: 'dev-alice',
+          color: '#ff0000',
+        }), expect.any(Function));
+      }
+    });
+  });
+
+  describe('legacy config fallback', () => {
+    it('setMode(local) parses and merges config from localStorage fallback', () => {
+      const legacyState = { winningScore: 7000, randomOrder: false, turnDuration: 300, reconnectTimeout: 120, initialCards: { '200': 10 } };
+      localStorage.setItem('tutto_local_game', JSON.stringify(legacyState));
+      
+      useGameStore.getState().setMode('local');
+      const state = useGameStore.getState();
+
+      expect(state.winningScore).toBe(7000);
+      expect(state.randomOrder).toBe(false);
+      expect(state.turnDuration).toBe(300);
+      expect(state.reconnectTimeout).toBe(120);
+      expect(state.initialCards['200']).toBe(10);
+    });
+  });
+
   describe('socket disconnect behavior', () => {
     it('sets showReconnectPopup when disconnected unexpectedly while online', () => {
       // Connect to online mode

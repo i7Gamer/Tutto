@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { parseSavedDiceState } from '../utils/diceTurnState';
 import DiceGame from './DiceGame';
 import { playTone } from '../utils/soundEffects';
@@ -13,6 +13,23 @@ vi.mock('../utils/soundEffects', () => ({
 vi.mock('canvas-confetti', () => ({
   default: vi.fn(),
 }));
+
+// Deterministic dice: rollDie() drains this queue and falls back to the real
+// implementation when empty (so tests that don't care keep working).
+const { rollQueue } = vi.hoisted(() => ({ rollQueue: [] as number[] }));
+
+vi.mock('../utils/diceLogic', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/diceLogic')>();
+  return {
+    ...actual,
+    rollDie: () => (rollQueue.length > 0 ? rollQueue.shift()! : actual.rollDie()),
+  };
+});
+
+// Each roll consumes 2N rollDie() calls: N for the real values and N for the
+// initial display values (which the test-env path immediately overwrites), so
+// the values are pushed twice.
+const queueRoll = (vals: number[]) => { rollQueue.push(...vals, ...vals); };
 
 // Real isTestEnv() collapses all of DiceGame's roll/bust animation timers to 0
 // (they fire synchronously), which is convenient elsewhere but means there'd
@@ -146,6 +163,178 @@ describe('DiceGame restored-state bust rendering', () => {
     expect(screen.queryByText('dice.success')).not.toBeInTheDocument();
     expect(screen.queryByText('dice.tutto')).not.toBeInTheDocument();
     expect(screen.queryByText('dice.points_gained')).not.toBeInTheDocument();
+  });
+});
+
+describe('DiceGame interactive turn logic', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    rollQueue.length = 0;
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  const rollDice = () => fireEvent.click(screen.getByText('dice.roll_6_dice'));
+  const selectAllValid = () => fireEvent.click(screen.getByText('dice.select_all_valid'));
+  const clickDie = (val: number) => {
+    const dice = screen.getAllByLabelText(`Die showing ${val}, not selected`);
+    fireEvent.click(dice[0]);
+  };
+
+  it('scores the selected dice and completes the turn on Stop & Score', async () => {
+    const onComplete = vi.fn();
+    queueRoll([1, 5, 2, 2, 3, 4]);
+    render(<DiceGame currentCard="200" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    rollDice();
+    clickDie(1);
+    clickDie(5);
+    fireEvent.click(screen.getByText('dice.stop_and_score'));
+
+    expect(screen.getByText('dice.success')).toBeInTheDocument();
+    // 100 (single 1) + 50 (single 5); auto-continue fires onComplete in test env
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(150, true));
+  });
+
+  it('marks a non-scoring selection invalid and disables both action buttons', () => {
+    queueRoll([1, 2, 3, 4, 6, 6]);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />);
+
+    rollDice();
+    clickDie(2); // a lone 2 can never score
+
+    expect(screen.getByText('dice.invalid_selection')).toBeInTheDocument();
+    expect(screen.getByText('dice.roll_again').closest('button')).toBeDisabled();
+    expect(screen.queryByText('dice.stop_and_score')).not.toBeInTheDocument();
+  });
+
+  it('busting a regular card ends the turn with 0 points', async () => {
+    const onComplete = vi.fn();
+    queueRoll([2, 2, 3, 3, 4, 6]); // no 1/5 and no triplet → bust
+    render(<DiceGame currentCard="300" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    rollDice();
+
+    expect(screen.getByText('dice.bust')).toBeInTheDocument();
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, false));
+  });
+
+  it('a Tutto on a bonus card ends the turn immediately with the bonus applied', async () => {
+    const onComplete = vi.fn();
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    render(<DiceGame currentCard="400" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    rollDice();
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.stop_and_score'));
+
+    expect(screen.getByText('dice.tutto')).toBeInTheDocument();
+    // 1000 (triple 1s) + 500 (triple 5s) + 400 bonus
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(1900, true));
+  });
+
+  it('a Tutto on x2 doubles the turn score', async () => {
+    const onComplete = vi.fn();
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    render(<DiceGame currentCard="x2" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    rollDice();
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.stop_and_score'));
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(3000, true));
+  });
+
+  it('Feuerwerk keeps rolling after a Tutto and banks all points on the eventual bust', async () => {
+    const onComplete = vi.fn();
+    queueRoll([1, 1, 1, 5, 5, 5]); // first roll: full Tutto worth 1500
+    render(<DiceGame currentCard="Feuerwerk" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    rollDice();
+    selectAllValid();
+
+    // Feuerwerk never offers Stop — only Roll Again.
+    expect(screen.queryByText('dice.stop_and_score')).not.toBeInTheDocument();
+
+    queueRoll([2, 2, 3, 3, 4, 6]); // forced re-roll busts
+    fireEvent.click(screen.getByText('dice.roll_again'));
+
+    expect(screen.getByText('dice.success')).toBeInTheDocument();
+    // The bust still banks everything rolled before it — a Feuerwerk "win".
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(1500, true));
+  });
+
+  it('Feuerwerk busting on the first roll scores 0 and counts as a loss', async () => {
+    const onComplete = vi.fn();
+    queueRoll([2, 2, 3, 3, 4, 6]);
+    render(<DiceGame currentCard="Feuerwerk" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    rollDice();
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, false));
+  });
+
+  it('Kleeblatt needs two Tuttos: the first re-rolls automatically, the second wins', async () => {
+    const onComplete = vi.fn();
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    // The first Tutto immediately triggers the second 6-dice roll — queue it up front.
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    render(<DiceGame currentCard="Kleeblatt" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    rollDice();
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.roll_2nd_tutto'));
+
+    // Second roll is live now; one Tutto banked.
+    expect(screen.getByText('dice.tuttos_count')).toBeInTheDocument();
+    expect(onComplete).not.toHaveBeenCalled();
+
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.finish_card'));
+
+    expect(screen.getByText('dice.tutto')).toBeInTheDocument();
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(3000, true));
+  });
+
+  it('Kleeblatt busting forfeits the card as a loss', async () => {
+    const onComplete = vi.fn();
+    queueRoll([2, 2, 3, 3, 4, 6]);
+    render(<DiceGame currentCard="Kleeblatt" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    rollDice();
+
+    expect(screen.getByText('dice.bust')).toBeInTheDocument();
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, false));
+  });
+
+  it('Kniffel builds the run across rolls and completes with score 0 (engine awards the 2000)', async () => {
+    const onComplete = vi.fn();
+    queueRoll([1, 2, 3, 2, 4, 6]);
+    render(<DiceGame currentCard="Kniffel" onComplete={onComplete} onCancel={vi.fn()} />);
+
+    rollDice();
+    selectAllValid(); // picks the 1-2-3-4 run
+    queueRoll([5, 6]); // two dice remain; the run needs 5 then 6
+    fireEvent.click(screen.getByText('dice.roll_again'));
+
+    // roll_again above already consumed the queued roll; select the completion
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.finish_card'));
+
+    expect(screen.getByText('dice.tutto')).toBeInTheDocument();
+    // Kniffel itself scores 0 — calculateNextTurn turns the success into 2000.
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, true));
+  });
+
+  it('invokes onCancel via the close button before the first roll', () => {
+    const onCancel = vi.fn();
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={onCancel} />);
+
+    fireEvent.click(screen.getByLabelText('Cancel dice roll'));
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 });
 
