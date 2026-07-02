@@ -12,7 +12,10 @@ import {
 import { parseJsonString } from '../utils/parseJson';
 import { parseSavedDiceState, buildTurnKey } from '../utils/diceTurnState';
 import { getEffectiveTurnDuration } from '../utils/turnDuration';
-import { isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry } from '../utils/configValidation';
+import {
+  isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
+  DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
+} from '../utils/configValidation';
 import i18n from '../i18n';
 import playerColorsData from '../../playerColors.json';
 import type {
@@ -27,11 +30,6 @@ import type {
 } from '../types';
 
 export const PLAYER_COLORS: string[] = playerColorsData.PLAYER_COLORS;
-
-const INITIAL_CARDS: InitialCards = {
-  Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5,
-  x2: 5, '200': 5, '300': 5, '400': 5, '500': 5, '600': 5,
-};
 
 const createInitialPlayer = (name: string): Player => ({
   name, score: 0, times1000PointsDeducted: 0, timesKniffelCompleted: 0,
@@ -167,13 +165,13 @@ const initialLocalState: Omit<CoreGameState, never> & {
   currentCard: null,
   cards: [],
   round: 1,
-  winningScore: 6000,
-  initialCards: INITIAL_CARDS,
+  winningScore: DEFAULT_WINNING_SCORE,
+  initialCards: DEFAULT_INITIAL_CARDS,
   diceMode: 'physical',
   audioEnabled: true,
   randomOrder: true,
-  turnDuration: 120,
-  reconnectTimeout: 60,
+  turnDuration: DEFAULT_TURN_DURATION,
+  reconnectTimeout: DEFAULT_RECONNECT_TIMEOUT,
   finished: false,
   gameStartTime: null,
   gameTimeInSeconds: 0,
@@ -423,8 +421,13 @@ export const useGameStore = create<GameStore>()(
     setRandomOrder: (val) => get().updateConfig({ randomOrder: val }),
     setTurnDuration: (val) => get().updateConfig({ turnDuration: val }),
     setReconnectTimeout: (val) => get().updateConfig({ reconnectTimeout: val }),
-    resetGeneralSettings: () => get().updateConfig({ winningScore: 6000, randomOrder: true, turnDuration: 120, reconnectTimeout: 60 }),
-    resetInitialCards: () => get().updateConfig({ initialCards: INITIAL_CARDS }),
+    resetGeneralSettings: () => get().updateConfig({
+      winningScore: DEFAULT_WINNING_SCORE,
+      randomOrder: true,
+      turnDuration: DEFAULT_TURN_DURATION,
+      reconnectTimeout: DEFAULT_RECONNECT_TIMEOUT,
+    }),
+    resetInitialCards: () => get().updateConfig({ initialCards: { ...DEFAULT_INITIAL_CARDS } }),
 
     addPlayer: (name) => {
       set((state) => {
@@ -506,7 +509,7 @@ export const useGameStore = create<GameStore>()(
         });
 
         sock.on('playerDisconnected', (name: string) => {
-          const seconds = get().reconnectTimeout || 60;
+          const seconds = get().reconnectTimeout || DEFAULT_RECONNECT_TIMEOUT;
           get().addToast(`${name} disconnected! They have ${seconds} seconds to reconnect.`);
         });
 
@@ -887,7 +890,7 @@ export const useGameStore = create<GameStore>()(
 
     buildGlobalStatsPayload: () => {
       const s = get();
-      const isDefaultGame = s.winningScore === 6000 && JSON.stringify(s.initialCards) === JSON.stringify(INITIAL_CARDS);
+      const isDefaultGame = s.winningScore === DEFAULT_WINNING_SCORE && JSON.stringify(s.initialCards) === JSON.stringify(DEFAULT_INITIAL_CARDS);
       return buildGlobalStatsPayload(s.players, s.gameTimeInSeconds, isDefaultGame);
     },
 

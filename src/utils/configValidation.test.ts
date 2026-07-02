@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   VALID_CARD_TYPES,
   MAX_CARD_COUNT,
+  DEFAULT_INITIAL_CARDS,
+  DEFAULT_WINNING_SCORE,
+  DEFAULT_TURN_DURATION,
+  DEFAULT_RECONNECT_TIMEOUT,
   isValidWinningScore,
   isValidTurnDuration,
   isValidReconnectTimeout,
@@ -10,6 +14,28 @@ import {
 
 describe('configValidation', () => {
   // ─── Constants ──────────────────────────────────────────────────────────────
+
+  describe('shared game-config defaults', () => {
+    // These are the single source of truth for both the client store's initial
+    // state and the server's new-room defaults — they must always satisfy the
+    // validators both sides use to accept config.
+    it('DEFAULT_INITIAL_CARDS defines a valid count for every card type', () => {
+      expect(Object.keys(DEFAULT_INITIAL_CARDS).sort()).toEqual([...VALID_CARD_TYPES].sort());
+      for (const [key, val] of Object.entries(DEFAULT_INITIAL_CARDS)) {
+        expect(isValidCardEntry(key, val)).toBe(true);
+      }
+    });
+
+    it('DEFAULT_INITIAL_CARDS is a playable (non-empty) deck', () => {
+      expect(Object.values(DEFAULT_INITIAL_CARDS).some(count => (count ?? 0) > 0)).toBe(true);
+    });
+
+    it('default score/timer values pass their own validators', () => {
+      expect(isValidWinningScore(DEFAULT_WINNING_SCORE)).toBe(true);
+      expect(isValidTurnDuration(DEFAULT_TURN_DURATION)).toBe(true);
+      expect(isValidReconnectTimeout(DEFAULT_RECONNECT_TIMEOUT)).toBe(true);
+    });
+  });
 
   describe('VALID_CARD_TYPES', () => {
     it('contains exactly 11 entries', () => {

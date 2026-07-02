@@ -9,6 +9,7 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { formatTime } from '../utils/formatTime';
 import { buildTurnKey, parseSavedDiceState } from '../utils/diceTurnState';
+import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS } from '../utils/uiTimings';
 
 import Scoreboard from './game/Scoreboard';
 import CardDisplay from './game/CardDisplay';
@@ -110,12 +111,12 @@ export default function Game() {
       if (isTestEnv()) {
         playBuzzer();
         if (isOnline && isMyTurn) {
-          turnTimeout = setTimeout(() => nextTurn(0, false), 5000);
+          turnTimeout = setTimeout(() => nextTurn(0, false), STOP_CARD_AUTO_CONTINUE_MS);
         }
       } else {
-        soundTimeout = setTimeout(() => playBuzzer(), 1200);
+        soundTimeout = setTimeout(() => playBuzzer(), CARD_FLIP_MS);
         if (isOnline && isMyTurn) {
-          turnTimeout = setTimeout(() => nextTurn(0, false), 6200);
+          turnTimeout = setTimeout(() => nextTurn(0, false), CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS);
         }
       }
     }
@@ -145,7 +146,7 @@ export default function Game() {
             playSuccess();
             confettiFiredRef.current = true;
           }
-        }, 1200);
+        }, CARD_FLIP_MS);
       }
     }
     return () => clearTimeout(timeout);

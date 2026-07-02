@@ -11,7 +11,11 @@ import { sanitizeStats } from './sanitize';
 import type { CardType, InitialCards, Player, DiceSnapshot, CoreGameState } from '../src/types';
 import { calculateNextTurn, buildDeck } from '../src/utils/coreGameEngine';
 import { getEffectiveTurnDuration } from '../src/utils/turnDuration';
-import { isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry, MAX_CARD_COUNT, VALID_CARD_TYPES } from '../src/utils/configValidation';
+import {
+  isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
+  MAX_CARD_COUNT, VALID_CARD_TYPES,
+  DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
+} from '../src/utils/configValidation';
 import playerColorsData from '../playerColors.json';
 const { PLAYER_COLORS } = playerColorsData;
 
@@ -480,14 +484,11 @@ io.on('connection', (socket: Socket) => {
         state: {
           players: [],
           status: 'lobby',
-          initialCards: {
-            Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5,
-            Plus_Minus: 5, x2: 5, '200': 5, '300': 5, '400': 5, '500': 5, '600': 5,
-          },
-          winningScore: 6000,
+          initialCards: { ...DEFAULT_INITIAL_CARDS },
+          winningScore: DEFAULT_WINNING_SCORE,
           randomOrder: true,
-          turnDuration: 120,
-          reconnectTimeout: 60,
+          turnDuration: DEFAULT_TURN_DURATION,
+          reconnectTimeout: DEFAULT_RECONNECT_TIMEOUT,
           currentCard: null,
           cards: [],
           round: 1,
@@ -969,7 +970,7 @@ io.on('connection', (socket: Socket) => {
       io.to(currentRoom).emit('playerDisconnected', username);
 
       if (!room.disconnectTimers) room.disconnectTimers = {};
-      const timeoutSecs = room.state.reconnectTimeout ?? 60;
+      const timeoutSecs = room.state.reconnectTimeout ?? DEFAULT_RECONNECT_TIMEOUT;
       if (timeoutSecs === 0) {
         if (room.state.players.every(p => p.disconnected)) {
           clearServerTurnTimer(currentRoom);

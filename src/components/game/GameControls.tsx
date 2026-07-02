@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { isTestEnv } from '../../utils/env';
 import { sortKeptDiceForDisplay } from '../../utils/diceTurnControls';
+import { CARD_FLIP_MS } from '../../utils/uiTimings';
 import type { CardType, DiceMode, DiceSnapshot, Player } from '../../types';
 
 interface GameControlsProps {
@@ -70,7 +71,7 @@ export default function GameControls({
 
   useEffect(() => {
     if (isFlipping && currentCard) {
-      const timer = setTimeout(() => setIsFlipping(false), 1200);
+      const timer = setTimeout(() => setIsFlipping(false), CARD_FLIP_MS);
       return () => clearTimeout(timer);
     }
   }, [isFlipping, currentCard]);

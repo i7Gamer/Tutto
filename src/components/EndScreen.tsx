@@ -26,6 +26,12 @@ const colors = [
   '#FFD700', '#FF33A1', '#8D33FF', '#33FF8D', '#FF8D33',
 ];
 
+// The lifetime-stats fetch races the server-side stats write triggered by the
+// same game finish, so it retries until gamesPlayed shows up (or gives up).
+const STATS_FETCH_MAX_RETRIES = 5;
+const STATS_FETCH_RETRY_DELAY_MS = 1000;
+const STATS_FETCH_INITIAL_DELAY_MS = 500;
+
 interface DeviceStats {
   gamesPlayed: number;
   wins: number;
@@ -76,18 +82,18 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await parseJsonObject<DeviceStats>(res);
 
-        if ((!data || !data.gamesPlayed) && retries < 5) {
-          timerId = setTimeout(() => void fetchStats(retries + 1), 1000);
+        if ((!data || !data.gamesPlayed) && retries < STATS_FETCH_MAX_RETRIES) {
+          timerId = setTimeout(() => void fetchStats(retries + 1), STATS_FETCH_RETRY_DELAY_MS);
           return;
         }
         if (isMounted) setDeviceStats(data);
       } catch (err) {
         console.error('Could not fetch device stats', err);
-        if (retries < 5 && isMounted) timerId = setTimeout(() => void fetchStats(retries + 1), 1000);
+        if (retries < STATS_FETCH_MAX_RETRIES && isMounted) timerId = setTimeout(() => void fetchStats(retries + 1), STATS_FETCH_RETRY_DELAY_MS);
       }
     };
 
-    if (deviceId) timerId = setTimeout(() => void fetchStats(0), 500);
+    if (deviceId) timerId = setTimeout(() => void fetchStats(0), STATS_FETCH_INITIAL_DELAY_MS);
 
     return () => {
       isMounted = false;
