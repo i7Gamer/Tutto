@@ -1760,6 +1760,115 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
+  it('ignores a duplicate endGameStats/submitGlobalStats for the same game (e.g. a reconnect after finish), but accepts them again once a new game starts', () => {
+    return new Promise((resolve, reject) => {
+      const deviceId = 'dev-egs-dedup';
+      const roomId = 'EGS_DEDUP_ROOM';
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Timed out')); }, 10000);
+
+      const realFetch = (globalThis as { __nativeFetch?: typeof fetch }).__nativeFetch ?? fetch;
+      const pollDeviceScore = async (expected) => {
+        for (let i = 0; i < 30; i++) {
+          const res = await realFetch(`http://127.0.0.1:${PORT}/api/stats/${deviceId}`);
+          const body = await res.json();
+          if (body?.totalScore === expected) return body;
+          await new Promise(r => setTimeout(r, 100));
+        }
+        throw new Error(`totalScore never reached ${expected}`);
+      };
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId, color: '#ff0000' }, async () => {
+          try {
+            // First submission for this game — recorded.
+            s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, totalScore: 100 } });
+            await pollDeviceScore(100);
+
+            // Duplicate for the SAME game (e.g. a reconnect re-triggering the
+            // client's "finished just became true" path) — must be ignored. If it
+            // were applied, totalScore would become 100 + 99999.
+            s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, totalScore: 99999 } });
+            await new Promise(r => setTimeout(r, 300));
+            const stillOne = await realFetch(`http://127.0.0.1:${PORT}/api/stats/${deviceId}`).then(r => r.json());
+            expect(stillOne.totalScore).toBe(100);
+            expect(stillOne.gamesPlayed).toBe(1);
+
+            // Start a new game in the same room — resets the per-game dedup.
+            s1.emit('pushState', {
+              roomId,
+              newState: {
+                players: [{ name: 'Alice', deviceId, socketId: s1.id, disconnected: false, score: 0 }],
+                status: 'playing', currentPlayerIndex: 0,
+              },
+            });
+            await new Promise(r => setTimeout(r, 200));
+
+            // Now a submission for the NEW game must be accepted.
+            s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, totalScore: 50 } });
+            await pollDeviceScore(150); // 100 (first game) + 50 (second game)
+
+            clearTimeout(timeoutId);
+            s1.disconnect();
+            resolve();
+          } catch (e) {
+            clearTimeout(timeoutId);
+            s1.disconnect();
+            reject(e);
+          }
+        });
+      });
+    });
+  }, 12000);
+
+  it('ignores a duplicate submitGlobalStats for the same game from the host', () => {
+    return new Promise((resolve, reject) => {
+      const roomId = 'SGS_DEDUP_ROOM';
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Timed out')); }, 10000);
+
+      // global_statistics is a single shared row across every test in this file,
+      // so assert on the DELTA this test causes, not an absolute value.
+      const realFetch = (globalThis as { __nativeFetch?: typeof fetch }).__nativeFetch ?? fetch;
+      const getGlobalTotalScore = async () => {
+        const res = await realFetch(`http://127.0.0.1:${PORT}/api/stats/global`);
+        const body = await res.json();
+        return body.totalScore ?? 0;
+      };
+      const pollGlobalTotalScore = async (expected) => {
+        for (let i = 0; i < 30; i++) {
+          if ((await getGlobalTotalScore()) === expected) return;
+          await new Promise(r => setTimeout(r, 100));
+        }
+        throw new Error(`global totalScore never reached ${expected}`);
+      };
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-sgs-dedup', color: '#ff0000' }, async () => {
+          try {
+            const before = await getGlobalTotalScore();
+
+            s1.emit('submitGlobalStats', { roomId, payload: { totalScore: 100 } });
+            await pollGlobalTotalScore(before + 100);
+
+            // Duplicate for the same game — must be ignored, not added again.
+            s1.emit('submitGlobalStats', { roomId, payload: { totalScore: 99999 } });
+            await new Promise(r => setTimeout(r, 300));
+            expect(await getGlobalTotalScore()).toBe(before + 100);
+
+            clearTimeout(timeoutId);
+            s1.disconnect();
+            resolve();
+          } catch (e) {
+            clearTimeout(timeoutId);
+            s1.disconnect();
+            reject(e);
+          }
+        });
+      });
+    });
+  }, 12000);
+
   it('endGameStats rejects a write for a device the socket does not own', () => {
     return new Promise((resolve, reject) => {
       const ownDevice = 'dev-egs-owner';

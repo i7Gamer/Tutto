@@ -58,6 +58,17 @@ interface TurnTimerState {
   lastPlayerIndex: number | null;
 }
 
+// Tracks which devices/global stats have already been recorded for the room's
+// CURRENT game — reset whenever a new game starts (see pushState's startingGame
+// branch). Without this, a player who reconnects or reloads after their game
+// already finished (but before leaving the room) re-triggers their client's
+// "finished just became true" stats submission on every reconnect, repeatedly
+// inflating both their device stats and, if they're host, the global stats.
+interface StatsRecordedForGame {
+  devices: Set<string>;
+  global: boolean;
+}
+
 interface Room {
   host: string;
   state: RoomState;
@@ -65,6 +76,7 @@ interface Room {
   turnTimerState: TurnTimerState | null;
   disconnectTimers: Record<string, ReturnType<typeof setTimeout>>;
   turnExpireTimer: ReturnType<typeof setTimeout> | null;
+  statsRecordedForGame: StatsRecordedForGame;
 }
 
 // ─── App setup ────────────────────────────────────────────────────────────────
@@ -461,6 +473,7 @@ io.on('connection', (socket: Socket) => {
         turnTimerState: null,
         disconnectTimers: {},
         turnExpireTimer: null,
+        statsRecordedForGame: { devices: new Set(), global: false },
         state: {
           players: [],
           status: 'lobby',
@@ -684,6 +697,9 @@ io.on('connection', (socket: Socket) => {
       // the moment the game starts. Outside that transition the server keeps its own
       // authoritative order so a stray push can never scramble the roster mid-game.
       const startingGame = isHost && room.state.status === 'lobby' && newState.status === 'playing';
+      if (startingGame) {
+        room.statsRecordedForGame = { devices: new Set(), global: false };
+      }
 
       const mergeMutable = (existing: ServerPlayer, p: Record<string, unknown> | undefined): ServerPlayer => {
         if (!p) return existing;
@@ -853,6 +869,12 @@ io.on('connection', (socket: Socket) => {
     // No token needed — the WebSocket session is the credential.
     const room = roomId ? rooms[roomId] : null;
     if (!room || room.host !== socket.id) return;
+    // A reconnect/reload after the game already finished (but before anyone
+    // leaves the room) makes the client think "finished just became true" again,
+    // re-submitting for the same game. Recorded per game, reset when a new one
+    // starts (see pushState's startingGame branch).
+    if (room.statsRecordedForGame.global) return;
+    room.statsRecordedForGame.global = true;
     try {
       await updateGlobalStats(sanitizeStats(payload));
     } catch (err) {
@@ -869,7 +891,10 @@ io.on('connection', (socket: Socket) => {
     // arbitrary device statistics.
     const room = currentRoom ? rooms[currentRoom] : null;
     const player = room?.state.players.find(p => p.socketId === socket.id);
-    if (!player || player.deviceId !== deviceId) return;
+    if (!player || player.deviceId !== deviceId || !room) return;
+    // See submitGlobalStats above — same reconnect-after-finish dedup, per device.
+    if (room.statsRecordedForGame.devices.has(deviceId)) return;
+    room.statsRecordedForGame.devices.add(deviceId);
     try {
       await updateDeviceStats(deviceId, sanitizeStats(stats));
     } catch (err) {

@@ -350,12 +350,35 @@ describe('coreGameEngine', () => {
       }
     );
 
-    it('Kleeblatt success wins the game, sets score to 999999 and nextIndex null', () => {
+    it('Kleeblatt success wins the game, clears winningScore, and sets nextIndex null', () => {
+      // Both players start at 0 and winningScore defaults to 6000 — the winner's
+      // score is set to winningScore, not incremented by the rolled dice score.
       const result = calculateNextTurn(makeState({ currentCard: 'Kleeblatt' }), 0, true);
-      expect(result.players[0].score).toBe(999999);
+      expect(result.players[0].score).toBe(6000);
       expect(result.players[0].timesKleeblattCompleted).toBe(1);
       expect(result.isGameOver).toBe(true);
       expect(result.nextIndex).toBeNull();
+    });
+
+    it('Kleeblatt success gives the winner strictly more than every other player, even above winningScore', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 5500 }), makePlayer('Bob', { score: 6200 })],
+        currentPlayerIndex: 0,
+        currentCard: 'Kleeblatt',
+      });
+      const result = calculateNextTurn(state, 0, true);
+      expect(result.players[0].score).toBe(6201); // Bob's 6200 + 1, not the 6000 floor
+      expect(result.players[0].score).toBeGreaterThan(result.players[1].score);
+    });
+
+    it('Kleeblatt success never lowers the winner\'s own score', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 7000 }), makePlayer('Bob', { score: 100 })],
+        currentPlayerIndex: 0,
+        currentCard: 'Kleeblatt',
+      });
+      const result = calculateNextTurn(state, 0, true);
+      expect(result.players[0].score).toBe(7000); // kept, not reset down to winningScore
     });
 
     it('Kleeblatt success sets isRoundEnd so the chart captures the final scores', () => {
@@ -877,8 +900,8 @@ describe('coreGameEngine', () => {
       // A real Kleeblatt completion ends the game: calculateNextTurn returns
       // isGameOver with nextIndex null, and the store sets finished=true and
       // currentPlayerIndex=null. Undo must refuse this state — the winner's
-      // score was SET to 999999 (not incremented), so an additive undo would
-      // corrupt it.
+      // score was SET to a computed value (not incremented), so an additive
+      // undo would corrupt it.
       const win = calculateNextTurn(
         makeState({ currentCard: 'Kleeblatt' }),
         0,

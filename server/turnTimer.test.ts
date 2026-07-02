@@ -516,7 +516,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players: [
-          { ...players[0], score: 999999, timesKleeblattCompleted: 1 },
+          { ...players[0], score: 6000, timesKleeblattCompleted: 1 },
           players[1],
         ],
         finished: true, currentPlayerIndex: null, currentCard: null,

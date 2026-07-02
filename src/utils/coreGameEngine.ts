@@ -198,7 +198,16 @@ export const calculateNextTurn = (
 
   if (currentCard === 'Kleeblatt' && isSuccess) {
     currentPlayer.timesKleeblattCompleted = (currentPlayer.timesKleeblattCompleted ?? 0) + 1;
-    currentPlayer.score = 999999;
+    // Kleeblatt is a binary instant-win, not a scored turn — the dice rolled to
+    // complete it (turnScore/scoreInput) are never added to the score, matching
+    // the physical-dice rules (no separate scoring for it). The score just needs
+    // to (a) clear winningScore and (b) strictly exceed every other player's, so
+    // this player is the sole leader — a synthetic "999999" sentinel score used
+    // to do this by discarding the real score entirely, which corrupted average-
+    // score stats (totalScore, dashboards) whenever a Kleeblatt game was included.
+    const otherScores = newPlayers.filter(p => p.name !== currentPlayer.name).map(p => p.score);
+    const highestOtherScore = otherScores.length > 0 ? Math.max(...otherScores) : -Infinity;
+    currentPlayer.score = Math.max(winningScore, currentPlayer.score, highestOtherScore + 1);
     return {
       players: newPlayers, isGameOver: true, isRoundEnd: true,
       nextIndex: null, nextRound: round,
