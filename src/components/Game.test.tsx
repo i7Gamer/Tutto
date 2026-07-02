@@ -484,7 +484,7 @@ describe('Game Component Integration', () => {
 
     it('auto-opens DiceGame when cached dice state exists in localStorage for local games', () => {
       // Set up cached dice game state
-      const cachedState = { turnScore: 150, keptDice: [], currentRoll: [] };
+      const cachedState = { turnScore: 150, keptDice: [], currentRoll: [], turnKey: 'local:1:0:x2' };
       localStorage.setItem('tutto_dice_turn_state', JSON.stringify(cachedState));
 
       render(<Game />);
@@ -504,7 +504,7 @@ describe('Game Component Integration', () => {
         diceMode: 'physical',
       });
 
-      const cachedState = { turnScore: 75, keptDice: [], currentRoll: [] };
+      const cachedState = { turnScore: 75, keptDice: [], currentRoll: [], turnKey: 'local:1:0:x2' };
       localStorage.setItem('tutto_dice_turn_state', JSON.stringify(cachedState));
 
       render(<Game />);
@@ -531,7 +531,7 @@ describe('Game Component Integration', () => {
           liveTurnState: { turnScore: 50, keptDice: [], currentRoll: [] }
         });
         // This also writes to localStorage (as setLiveTurnState does)
-        localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 50 }));
+        localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 50, turnKey: 'local:1:0:x2' }));
         vi.advanceTimersByTime(400); // past DiceGame's 300ms debounce
       });
 
@@ -542,7 +542,7 @@ describe('Game Component Integration', () => {
     });
 
     it('clears liveTurnState in store on cancel for local mode', () => {
-      const cachedState = { turnScore: 100, keptDice: [], currentRoll: [] };
+      const cachedState = { turnScore: 100, keptDice: [], currentRoll: [], turnKey: 'local:1:0:x2' };
       localStorage.setItem('tutto_dice_turn_state', JSON.stringify(cachedState));
 
       render(<Game />);

@@ -8,7 +8,7 @@ import { applyTuttoBonus } from '../utils/diceLogic';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { formatTime } from '../utils/formatTime';
-import { buildTurnKey } from '../utils/diceTurnState';
+import { buildTurnKey, parseSavedDiceState } from '../utils/diceTurnState';
 
 import Scoreboard from './game/Scoreboard';
 import CardDisplay from './game/CardDisplay';
@@ -71,6 +71,12 @@ export default function Game() {
       if (onlineReconnectHandledRef.current) return;
       onlineReconnectHandledRef.current = true;
       if (isMyTurn && diceMode === 'digital' && liveTurnState) {
+        const snapshotWithPlayer = {
+          ...liveTurnState,
+          playerName: currentPlayer?.name,
+          turnKey: buildTurnKey(roomId, round, currentPlayerIndex, currentCard),
+        };
+        localStorage.setItem('tutto_dice_turn_state', JSON.stringify(snapshotWithPlayer));
         setShowDiceGame(true); // eslint-disable-line react-hooks/set-state-in-effect
         game.addToast('Resuming your dice game...');
       }
@@ -81,8 +87,17 @@ export default function Game() {
     if (!isOnline && isMyTurn && diceMode === 'digital' && localCacheOnMountRef.current && !reconnectHandledRef.current) {
       reconnectHandledRef.current = true;
       localCacheOnMountRef.current = false;
-      setShowDiceGame(true);
-      game.addToast('Resuming your dice game...');
+
+      const raw = localStorage.getItem('tutto_dice_turn_state');
+      const parsed = parseSavedDiceState(raw);
+      const expectedTurnKey = buildTurnKey(roomId, round, currentPlayerIndex, currentCard);
+
+      if (parsed && parsed.turnKey === expectedTurnKey) {
+        setShowDiceGame(true);
+        game.addToast('Resuming your dice game...');
+      } else {
+        localStorage.removeItem('tutto_dice_turn_state');
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [justReconnected, liveTurnState, isMyTurn, diceMode, isOnline]);
