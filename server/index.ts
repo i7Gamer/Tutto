@@ -462,6 +462,8 @@ io.on('connection', (socket: Socket) => {
     // unbounded way to accumulate abandoned rooms.
     if (currentRoom && currentRoom !== roomId) {
       socket.leave(currentRoom);
+      // handlePlayerLeave reads `currentRoom` from the closure internally
+      // (emitRoomState, delete rooms[currentRoom], etc.) — null it out only AFTER.
       handlePlayerLeave(true);
       currentRoom = null;
       username = null;

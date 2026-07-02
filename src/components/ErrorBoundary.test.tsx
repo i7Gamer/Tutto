@@ -82,6 +82,7 @@ describe('ErrorBoundary', () => {
     expect(log).toHaveLength(1);
     expect(log[0].message).toBe('I crashed!');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(reloadMock).toHaveBeenCalledTimes(1);
 
     vi.unstubAllGlobals();
   });

@@ -642,5 +642,70 @@ describe('Game Component Integration', () => {
       // Still only the one toast — justReconnected hasn't changed, only liveTurnState.
       expect(mockAddToast).toHaveBeenCalledTimes(1);
     });
+    it('does not show the resume UI when the active player reconnects but diceMode is physical', () => {
+      const mockAddToast = vi.fn();
+      useGameStore.setState({
+        addToast: mockAddToast,
+        // It IS my turn and there IS a live state — but dice mode is physical, so
+        // no digital DiceGame to resume.
+        liveTurnState: { turnScore: 200, keptDice: [], currentRoll: [] },
+        diceMode: 'physical',
+        justReconnected: true,
+      });
+
+      render(<Game />);
+      act(() => { vi.advanceTimersByTime(100); });
+
+      expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
+      expect(mockAddToast).not.toHaveBeenCalledWith('Resuming your dice game...');
+    });
+
+    it('does not show the resume UI when the active player reconnects but liveTurnState is null (turn not yet started)', () => {
+      const mockAddToast = vi.fn();
+      useGameStore.setState({
+        addToast: mockAddToast,
+        // It IS my turn in digital mode, but there is no in-flight dice state to
+        // restore — nothing mid-roll.
+        liveTurnState: null,
+        diceMode: 'digital',
+        justReconnected: true,
+      });
+
+      render(<Game />);
+      act(() => { vi.advanceTimersByTime(100); });
+
+      expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
+      expect(mockAddToast).not.toHaveBeenCalledWith('Resuming your dice game...');
+    });
+
+    it('fires the resume toast for each successive reconnect episode in the same session', () => {
+      // Verifies that onlineReconnectHandledRef is correctly reset between
+      // episodes so a second reconnect is not silently swallowed.
+      const mockAddToast = vi.fn();
+      useGameStore.setState({
+        addToast: mockAddToast,
+        liveTurnState: { turnScore: 200, keptDice: [], currentRoll: [] },
+        justReconnected: true,
+      });
+
+      const { unmount } = render(<Game />);
+      act(() => { vi.advanceTimersByTime(100); });
+      expect(mockAddToast).toHaveBeenCalledTimes(1);
+
+      // Simulate the store's self-clear after the next gameState event.
+      act(() => {
+        useGameStore.setState({ justReconnected: false });
+        vi.advanceTimersByTime(100);
+      });
+
+      unmount();
+
+      // Second reconnect episode: fresh mount, flag set again.
+      useGameStore.setState({ justReconnected: true });
+      render(<Game />);
+      act(() => { vi.advanceTimersByTime(100); });
+
+      expect(mockAddToast).toHaveBeenCalledTimes(2);
+    });
   });
 });

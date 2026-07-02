@@ -327,7 +327,7 @@ describe('Server Socket E2E Simulation', () => {
                 
                 // Now start listening to s1 to ensure it doesn't get Room A updates anymore
                 s1.on('gameState', (state) => {
-                  if (state.players && state.players.some((p: any) => p.name === 'Bob')) {
+                  if (state.players && state.players.some((p: { name: string }) => p.name === 'Bob')) {
                     s1ReceivedRoomA = true;
                   }
                 });
@@ -351,6 +351,79 @@ describe('Server Socket E2E Simulation', () => {
                   resolve();
                 }, 500);
               });
+            });
+          });
+        });
+      });
+    });
+  }, 10000);
+
+  it('deletes the old room when a socket was its sole member and then joins a different room', () => {
+    return new Promise<void>((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      let s2: ReturnType<typeof io>;
+
+      const timeoutId = setTimeout(() => {
+        if (s1) s1.disconnect();
+        if (s2) s2.disconnect();
+        reject(new Error('Test timed out.'));
+      }, 5000);
+
+      s1.on('connect', () => {
+        // s1 creates and is the only member of SOLE_TEST_A
+        s1.emit('joinRoom', { roomId: 'SOLE_TEST_A', name: 'Alice', deviceId: 'dev-sole-alice', color: '#ff0000' }, () => {
+          // s1 immediately joins SOLE_TEST_B without leaving — as the sole member,
+          // SOLE_TEST_A should be deleted (not left as an empty ghost room).
+          s1.emit('joinRoom', { roomId: 'SOLE_TEST_B', name: 'Alice2', deviceId: 'dev-sole-alice2', color: '#0000ff' }, () => {
+
+            // A fresh socket joining SOLE_TEST_A should get an empty new room
+            // (one player — itself), confirming the old room was fully deleted.
+            s2 = io(`http://127.0.0.1:${PORT}`);
+            s2.on('connect', () => {
+              s2.emit('joinRoom', { roomId: 'SOLE_TEST_A', name: 'Bob', deviceId: 'dev-sole-bob', color: '#00ff00' }, () => {
+                s2.on('gameState', (state) => {
+                  // If the room was truly deleted and recreated, only Bob is present.
+                  // If the room had lingered with Alice still in it, there would be 2 players.
+                  if (state.players && state.players.length === 1 && state.players[0].name === 'Bob') {
+                    clearTimeout(timeoutId);
+                    s1.disconnect();
+                    s2.disconnect();
+                    resolve();
+                  } else if (state.players && state.players.length > 1) {
+                    clearTimeout(timeoutId);
+                    s1.disconnect();
+                    s2.disconnect();
+                    reject(new Error(`Room was not deleted: found ${state.players.length} players instead of 1`));
+                  }
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+  }, 10000);
+
+  it('does not duplicate a player who calls joinRoom for the room they are already in (idempotent rejoin)', () => {
+    return new Promise<void>((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        reject(new Error('Test timed out.'));
+      }, 5000);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'IDEM_TEST', name: 'Alice', deviceId: 'dev-idem-alice', color: '#ff0000' }, () => {
+          // Call joinRoom a second time with the same roomId — should be a no-op,
+          // not add Alice as a second entry in the players list.
+          s1.emit('joinRoom', { roomId: 'IDEM_TEST', name: 'Alice', deviceId: 'dev-idem-alice', color: '#ff0000' }, () => {
+            s1.once('gameState', (state) => {
+              const aliceCount = (state.players ?? []).filter((p: { name: string }) => p.name === 'Alice').length;
+              expect(aliceCount).toBe(1);
+              clearTimeout(timeoutId);
+              s1.disconnect();
+              resolve();
             });
           });
         });

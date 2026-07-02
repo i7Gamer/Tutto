@@ -16,5 +16,5 @@ export const isValidReconnectTimeout = (v: unknown): v is number =>
   typeof v === 'number' && (v === 0 || (v >= 10 && v <= 3600));
 
 export const isValidCardEntry = (key: string, val: unknown): val is number =>
-  (VALID_CARD_TYPES as readonly string[]).includes(key as CardType) &&
+  (VALID_CARD_TYPES as readonly string[]).includes(key) &&
   Number.isInteger(val) && (val as number) >= 0 && (val as number) <= MAX_CARD_COUNT;
