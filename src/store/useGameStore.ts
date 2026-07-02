@@ -198,10 +198,13 @@ const validateOnlineConfig = (config: unknown): Partial<Pick<GameStore, ConfigKe
   if (typeof config !== 'object' || config === null) return {};
   const valid: Partial<Pick<GameStore, ConfigKeys>> = {};
   const c = config as Record<string, unknown>;
+  // Ranges must match the server's applyValidatedConfig (server/index.ts):
+  // values the server would reject are dropped here too, so the lobby never
+  // shows a setting the server silently refused.
   if (typeof c.winningScore === 'number' && c.winningScore >= 1000 && c.winningScore <= 99999) valid.winningScore = c.winningScore;
   if (typeof c.randomOrder === 'boolean') valid.randomOrder = c.randomOrder;
-  if (typeof c.turnDuration === 'number' && c.turnDuration >= 0 && c.turnDuration <= 600) valid.turnDuration = c.turnDuration;
-  if (typeof c.reconnectTimeout === 'number' && c.reconnectTimeout >= 0 && c.reconnectTimeout <= 3600) valid.reconnectTimeout = c.reconnectTimeout;
+  if (typeof c.turnDuration === 'number' && (c.turnDuration === 0 || (c.turnDuration >= 10 && c.turnDuration <= 600))) valid.turnDuration = c.turnDuration;
+  if (typeof c.reconnectTimeout === 'number' && (c.reconnectTimeout === 0 || (c.reconnectTimeout >= 10 && c.reconnectTimeout <= 3600))) valid.reconnectTimeout = c.reconnectTimeout;
   if (typeof c.initialCards === 'object' && c.initialCards !== null) {
     const VALID_CARD_TYPES = ['Kleeblatt', 'Feuerwerk', 'Stop', 'Kniffel', 'Plus_Minus', 'x2', '200', '300', '400', '500', '600'];
     const validCards: InitialCards = {};
@@ -541,21 +544,14 @@ export const useGameStore = create<GameStore>()(
         set({ liveTurnState: null });
       }
       return new Promise<JoinRoomResponse>((resolve) => {
-        let initialConfig: Record<string, unknown> | undefined = undefined;
+        let initialConfig: Partial<Pick<GameStore, ConfigKeys>> | undefined = undefined;
         try {
           const storedConfigStr = localStorage.getItem('tutto_online_config');
           if (storedConfigStr) {
-            const parsed = JSON.parse(storedConfigStr);
-            // Quick shallow validate for safe transmission
-            if (parsed && typeof parsed === 'object') {
-              initialConfig = {
-                winningScore: parsed.winningScore,
-                randomOrder: parsed.randomOrder,
-                turnDuration: parsed.turnDuration,
-                reconnectTimeout: parsed.reconnectTimeout,
-                initialCards: parsed.initialCards
-              };
-            }
+            // Only transmit fields the server would accept — same validator the
+            // lobby uses when loading this config, so both stay in sync.
+            const validated = validateOnlineConfig(JSON.parse(storedConfigStr));
+            if (Object.keys(validated).length > 0) initialConfig = validated;
           }
         } catch (e) {
           console.error('Failed to parse online config for joinRoom', e);

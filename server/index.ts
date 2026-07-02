@@ -105,6 +105,19 @@ const validateInitialCards = (cards: unknown): cards is InitialCards => {
   );
 };
 
+// Applies only the config fields that pass validation, silently ignoring the
+// rest. Shared by every path that lets a client write room configuration
+// (updateConfig and joinRoom's initialConfig) so the accepted ranges can never
+// drift apart between them.
+const applyValidatedConfig = (state: RoomState, config: Record<string, unknown>): void => {
+  const { winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout } = config;
+  if (typeof winningScore === 'number' && winningScore >= 1000 && winningScore <= 99999) state.winningScore = winningScore;
+  if (validateInitialCards(initialCards)) state.initialCards = initialCards;
+  if (typeof randomOrder === 'boolean') state.randomOrder = randomOrder;
+  if (typeof turnDuration === 'number' && (turnDuration === 0 || (turnDuration >= 10 && turnDuration <= 600))) state.turnDuration = turnDuration;
+  if (typeof reconnectTimeout === 'number' && (reconnectTimeout === 0 || (reconnectTimeout >= 10 && reconnectTimeout <= 3600))) state.reconnectTimeout = reconnectTimeout;
+};
+
 const HOST_ONLY_FIELDS = new Set<string>([
   'status', 'winningScore', 'initialCards', 'randomOrder',
   'turnDuration', 'reconnectTimeout',
@@ -119,6 +132,20 @@ const ACTIVE_PLAYER_FIELDS = new Set<string>([
 ]);
 
 const ALL_FIELDS = new Set<string>([...HOST_ONLY_FIELDS, ...ACTIVE_PLAYER_FIELDS]);
+
+// Upper bounds for numeric config fields arriving via pushState. Unlike
+// applyValidatedConfig this is a sanity guard, not a UX rule (pushState mirrors
+// state the client already ran through updateConfig, and tests legitimately
+// push short 1-2s turns): it only rejects values that would corrupt server-side
+// logic — a negative/non-finite turnDuration makes startServerTurnTimer re-arm
+// with remaining<=0 and advance turns in a synchronous loop until the stack
+// overflows, and an unvalidated initialCards object can send buildDeck into an
+// unbounded loop on the next deck rebuild.
+const PUSHED_NUMERIC_FIELD_MAX: Record<string, number> = {
+  winningScore: 99999,
+  turnDuration: 600,
+  reconnectTimeout: 3600,
+};
 
 const PLAYER_MUTABLE: (keyof ServerPlayer)[] = [
   'score', 'times1000PointsDeducted', 'timesKniffelCompleted',
@@ -400,15 +427,8 @@ io.on('connection', (socket: Socket) => {
         },
       };
 
-      if (initialConfig) {
-        const r = rooms[roomId].state;
-        if (typeof initialConfig.winningScore === 'number') r.winningScore = initialConfig.winningScore;
-        if (typeof initialConfig.randomOrder === 'boolean') r.randomOrder = initialConfig.randomOrder;
-        if (typeof initialConfig.turnDuration === 'number') r.turnDuration = initialConfig.turnDuration;
-        if (typeof initialConfig.reconnectTimeout === 'number') r.reconnectTimeout = initialConfig.reconnectTimeout;
-        if (initialConfig.initialCards && typeof initialConfig.initialCards === 'object') {
-          r.initialCards = initialConfig.initialCards as InitialCards;
-        }
+      if (initialConfig && typeof initialConfig === 'object') {
+        applyValidatedConfig(rooms[roomId].state, initialConfig);
       }
     }
 
@@ -506,12 +526,7 @@ io.on('connection', (socket: Socket) => {
     reconnectTimeout?: number;
   }) => {
     if (!rooms[roomId] || rooms[roomId].host !== socket.id) return;
-    const s = rooms[roomId].state;
-    if (typeof winningScore === 'number' && winningScore >= 1000 && winningScore <= 99999) s.winningScore = winningScore;
-    if (validateInitialCards(initialCards)) s.initialCards = initialCards;
-    if (typeof randomOrder === 'boolean') s.randomOrder = randomOrder;
-    if (typeof turnDuration === 'number' && (turnDuration === 0 || (turnDuration >= 10 && turnDuration <= 600))) s.turnDuration = turnDuration;
-    if (typeof reconnectTimeout === 'number' && (reconnectTimeout === 0 || (reconnectTimeout >= 10 && reconnectTimeout <= 3600))) s.reconnectTimeout = reconnectTimeout;
+    applyValidatedConfig(rooms[roomId].state, { winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout });
     // Resync the pending expiry to the (possibly just-changed) turnDuration. A
     // no-op if no turn is in progress; startServerTurnTimer's own guards handle that.
     startServerTurnTimer(roomId);
@@ -635,6 +650,17 @@ io.on('connection', (socket: Socket) => {
             mergeMutable(existing, pushed.find(q => q.deviceId === existing.deviceId)),
           );
         }
+      } else if (key in PUSHED_NUMERIC_FIELD_MAX) {
+        const v = newState[key];
+        if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= PUSHED_NUMERIC_FIELD_MAX[key]) {
+          (room.state as unknown as Record<string, unknown>)[key] = v;
+        }
+      } else if (key === 'initialCards') {
+        if (validateInitialCards(newState.initialCards)) room.state.initialCards = newState.initialCards;
+      } else if (key === 'status') {
+        if (newState.status === 'lobby' || newState.status === 'playing') room.state.status = newState.status;
+      } else if (key === 'randomOrder') {
+        if (typeof newState.randomOrder === 'boolean') room.state.randomOrder = newState.randomOrder;
       } else {
         (room.state as unknown as Record<string, unknown>)[key] = newState[key];
       }

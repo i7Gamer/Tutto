@@ -91,6 +91,52 @@ describe('Server Socket E2E Simulation', () => {
     });
   });
 
+  it('ignores invalid initialConfig values when creating a new room, keeping the defaults', () => {
+    return new Promise<void>((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+
+      s1.on('connect', () => {
+        // Every field invalid: out of range, wrong type, or a deck that could
+        // hang buildDeck. joinRoom must apply none of them (same validator as
+        // updateConfig).
+        const initialConfig = {
+          winningScore: NaN,
+          randomOrder: 'yes',
+          turnDuration: -5,
+          reconnectTimeout: 999999,
+          initialCards: { '200': 1e9, Bogus: 3 },
+        };
+
+        s1.emit('joinRoom', { roomId: 'CONFIG_INVALID_TEST', name: 'Alice', deviceId: 'dev-1', initialConfig }, (res: { success: boolean }) => {
+          if (!res.success) {
+            reject(new Error('joinRoom failed'));
+          }
+        });
+
+        s1.on('gameState', (state: {
+          winningScore: number;
+          randomOrder: boolean;
+          turnDuration: number;
+          reconnectTimeout: number;
+          initialCards: Record<string, number>;
+        }) => {
+          expect(state.winningScore).toBe(6000);
+          expect(state.randomOrder).toBe(true);
+          expect(state.turnDuration).toBe(120);
+          expect(state.reconnectTimeout).toBe(60);
+          expect(state.initialCards).toEqual({
+            Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5,
+            Plus_Minus: 5, x2: 5, '200': 5, '300': 5, '400': 5, '500': 5, '600': 5,
+          });
+          s1.disconnect();
+          resolve();
+        });
+      });
+
+      setTimeout(() => reject(new Error('Test timed out')), 2000);
+    });
+  });
+
   it('preserves socket metadata, detects disconnects, and kicks player correctly', () => {
     return new Promise((resolve, reject) => {
       socket1 = io(`http://127.0.0.1:${PORT}`);

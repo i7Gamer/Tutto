@@ -254,4 +254,42 @@ describe('Socket security and timer fixes', () => {
     hostSock.disconnect();
     guestSock.disconnect();
   }, 15000);
+
+  // ─── pushState config sanity guard ─────────────────────────────────────────
+
+  it('ignores insane config values arriving via pushState instead of applying them', async () => {
+    const roomId = 'sec-room-3';
+    const { sock: hostSock, state: initial } = await joinRoom(roomId);
+    expect(initial.turnDuration).toBe(120);
+
+    // A negative turnDuration would make the server-side turn timer re-arm
+    // with remaining<=0 and advance turns in a synchronous loop; NaN and junk
+    // initialCards would corrupt win checks and deck rebuilds. All must be
+    // dropped while the valid fields in the same push still apply.
+    const next = await new Promise(r => {
+      hostSock.once('gameState', r);
+      hostSock.emit('pushState', {
+        roomId,
+        newState: {
+          turnDuration: -1,
+          winningScore: NaN,
+          reconnectTimeout: 1e12,
+          randomOrder: 'yes',
+          status: 'garbage',
+          initialCards: { '200': 1e9, Bogus: 3 },
+          round: 2,
+        },
+      });
+    });
+
+    expect(next.turnDuration).toBe(120);
+    expect(next.winningScore).toBe(6000);
+    expect(next.reconnectTimeout).toBe(60);
+    expect(next.randomOrder).toBe(true);
+    expect(next.status).toBe('lobby');
+    expect(next.initialCards['200']).toBe(5);
+    expect(next.round).toBe(2); // the valid field in the same push still applies
+
+    hostSock.disconnect();
+  });
 });

@@ -1715,4 +1715,89 @@ describe('useGameStore', () => {
     });
   });
 
+  describe('validateOnlineConfig (stored online config loading)', () => {
+    it('applies a fully valid stored config when switching to online mode', () => {
+      localStorage.setItem('tutto_online_config', JSON.stringify({
+        winningScore: 8000, randomOrder: false, turnDuration: 60, reconnectTimeout: 120,
+        initialCards: { '200': 3, Stop: 2 },
+      }));
+      useGameStore.getState().setMode('online');
+      const s = useGameStore.getState();
+      expect(s.winningScore).toBe(8000);
+      expect(s.randomOrder).toBe(false);
+      expect(s.turnDuration).toBe(60);
+      expect(s.reconnectTimeout).toBe(120);
+      expect(s.initialCards).toEqual({ '200': 3, Stop: 2 });
+    });
+
+    it('drops out-of-range and wrong-typed fields, keeping the defaults', () => {
+      localStorage.setItem('tutto_online_config', JSON.stringify({
+        winningScore: 500,        // below the 1000 minimum
+        randomOrder: 'yes',       // wrong type
+        turnDuration: 5,          // server only accepts 0 or 10-600
+        reconnectTimeout: 99999,  // above 3600
+      }));
+      useGameStore.getState().setMode('online');
+      const s = useGameStore.getState();
+      expect(s.winningScore).toBe(6000);
+      expect(s.randomOrder).toBe(true);
+      expect(s.turnDuration).toBe(120);
+      expect(s.reconnectTimeout).toBe(60);
+    });
+
+    it('accepts 0 as the explicit "disabled" value for both timers', () => {
+      localStorage.setItem('tutto_online_config', JSON.stringify({
+        turnDuration: 0, reconnectTimeout: 0,
+      }));
+      useGameStore.getState().setMode('online');
+      expect(useGameStore.getState().turnDuration).toBe(0);
+      expect(useGameStore.getState().reconnectTimeout).toBe(0);
+    });
+
+    it('keeps only the valid initialCards entries', () => {
+      localStorage.setItem('tutto_online_config', JSON.stringify({
+        // Bogus is an unknown card, 100 exceeds the 99 cap, -1 is negative
+        initialCards: { '200': 3, Bogus: 4, '300': 100, Stop: -1 },
+      }));
+      useGameStore.getState().setMode('online');
+      expect(useGameStore.getState().initialCards).toEqual({ '200': 3 });
+    });
+
+    it('keeps the default deck when no initialCards entry is valid', () => {
+      localStorage.setItem('tutto_online_config', JSON.stringify({
+        initialCards: { Bogus: 4 },
+      }));
+      useGameStore.getState().setMode('online');
+      const cards = useGameStore.getState().initialCards;
+      expect(cards.Stop).toBe(10);
+      expect(cards.Kleeblatt).toBe(1);
+    });
+
+    it('ignores a non-object stored config', () => {
+      localStorage.setItem('tutto_online_config', JSON.stringify('garbage'));
+      useGameStore.getState().setMode('online');
+      expect(useGameStore.getState().winningScore).toBe(6000);
+    });
+
+    it('joinRoom transmits only the validated fields from the stored config', () => {
+      localStorage.setItem('tutto_online_config', JSON.stringify({
+        winningScore: 7000,
+        turnDuration: 3,   // invalid — must not be transmitted
+        bogus: true,       // unknown — must not be transmitted
+      }));
+      void useGameStore.getState().joinRoom('room-x', 'Alice');
+      const call = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(call).toBeDefined();
+      expect(call[1].initialConfig).toEqual({ winningScore: 7000 });
+    });
+
+    it('joinRoom sends no initialConfig when the stored config is entirely invalid', () => {
+      localStorage.setItem('tutto_online_config', JSON.stringify({ turnDuration: 3 }));
+      void useGameStore.getState().joinRoom('room-y', 'Alice');
+      const call = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(call).toBeDefined();
+      expect(call[1].initialConfig).toBeUndefined();
+    });
+  });
+
 });
