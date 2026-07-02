@@ -66,6 +66,11 @@ describe('ErrorBoundary', () => {
     // log entry must survive that cleanup (it only removes specific keys).
     const fetchMock = vi.fn(() => Promise.resolve({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
+    const reloadMock = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, reload: reloadMock },
+      writable: true,
+    });
 
     render(
       <ErrorBoundary>
