@@ -299,6 +299,65 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
+  it('cleans up the old room when a socket joins a new room without explicitly leaving', () => {
+    return new Promise<void>((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      let s2: ReturnType<typeof io>;
+      
+      let s1ReceivedRoomA = false;
+      let s2SawAliceLeave = false;
+      
+      let timeoutId = setTimeout(() => {
+        if (s1) s1.disconnect();
+        if (s2) s2.disconnect();
+        reject(new Error(`Test timed out.`));
+      }, 5000);
+
+      s1.on('connect', () => {
+        // First s1 joins Room A
+        s1.emit('joinRoom', { roomId: 'GHOST_TEST_A', name: 'Alice', deviceId: 'dev-alice', color: '#ff0000' }, () => {
+          
+          // Then s2 connects and joins Room A
+          s2 = io(`http://127.0.0.1:${PORT}`);
+          s2.on('connect', () => {
+            s2.emit('joinRoom', { roomId: 'GHOST_TEST_A', name: 'Bob', deviceId: 'dev-bob', color: '#00ff00' }, () => {
+              
+              // Now s1 joins Room B without calling leaveRoom
+              s1.emit('joinRoom', { roomId: 'GHOST_TEST_B', name: 'Alice2', deviceId: 'dev-alice2', color: '#0000ff' }, () => {
+                
+                // Now start listening to s1 to ensure it doesn't get Room A updates anymore
+                s1.on('gameState', (state) => {
+                  if (state.players && state.players.some((p: any) => p.name === 'Bob')) {
+                    s1ReceivedRoomA = true;
+                  }
+                });
+
+                // Set up s2 listener
+                s2.on('gameState', (state) => {
+                  if (state.players && state.players.length === 1 && state.players[0].name === 'Bob') {
+                    s2SawAliceLeave = true;
+                  }
+                });
+
+                // Trigger a gameState update in Room A via Bob
+                s2.emit('updatePlayerColor', { roomId: 'GHOST_TEST_A', color: '#123456' });
+
+                setTimeout(() => {
+                  expect(s1ReceivedRoomA).toBe(false); // s1 should not get room A updates
+                  expect(s2SawAliceLeave).toBe(true); // s2 should have seen s1 leave
+                  clearTimeout(timeoutId);
+                  s1.disconnect();
+                  s2.disconnect();
+                  resolve();
+                }, 500);
+              });
+            });
+          });
+        });
+      });
+    });
+  }, 10000);
+
   it('rejects invalid color strings in updatePlayerColor', () => {
     return new Promise((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);

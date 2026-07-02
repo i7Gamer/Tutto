@@ -466,6 +466,17 @@ io.on('connection', (socket: Socket) => {
       return callback({ success: false, error: 'Invalid name' });
     }
 
+    // A socket may only be an active member of one room at a time. Without this,
+    // joining a second, different room without leaving the first leaves a ghost
+    // player entry behind forever (currentRoom is just overwritten below) — an
+    // unbounded way to accumulate abandoned rooms.
+    if (currentRoom && currentRoom !== roomId) {
+      socket.leave(currentRoom);
+      handlePlayerLeave(true);
+      currentRoom = null;
+      username = null;
+    }
+
     if (!rooms[roomId]) {
       rooms[roomId] = {
         host: socket.id,
