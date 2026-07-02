@@ -145,9 +145,9 @@ const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
   const s = v as Record<string, unknown>;
   return typeof s.turnScore === 'number' && Number.isFinite(s.turnScore)
     && typeof s.tuttosThisTurn === 'number' && Number.isFinite(s.tuttosThisTurn)
-    && Array.isArray(s.keptDice)
-    && Array.isArray(s.currentRoll)
-    && Array.isArray(s.kniffelProgress);
+    && Array.isArray(s.keptDice) && s.keptDice.length <= 6
+    && Array.isArray(s.currentRoll) && s.currentRoll.length <= 6
+    && Array.isArray(s.kniffelProgress) && s.kniffelProgress.length <= 6;
 };
 
 const HOST_ONLY_FIELDS = new Set<string>([
