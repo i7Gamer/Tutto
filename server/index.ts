@@ -93,6 +93,14 @@ const VALID_CARD_TYPES = new Set<CardType>([
   '200', '300', '400', '500', '600',
 ]);
 const MAX_CARD_COUNT = 99;
+// A fully-loaded deck has at most MAX_CARD_COUNT of each of the 11 card types.
+const MAX_DECK_SIZE = MAX_CARD_COUNT * 11;
+// Generous safety cap for per-round arrays (chartLabels/chartValues entries) — far
+// beyond any real game, just enough to stop a malicious pushState from growing
+// these arrays without bound.
+const MAX_ROUNDS = 100000;
+const MAX_SCORE_MAGNITUDE = 1_000_000;
+const MAX_GAME_SECONDS = 10_000_000;
 
 const validateInitialCards = (cards: unknown): cards is InitialCards => {
   if (typeof cards !== 'object' || cards === null) return false;
@@ -117,6 +125,24 @@ const applyValidatedConfig = (state: RoomState, config: Record<string, unknown>)
   if (typeof randomOrder === 'boolean') state.randomOrder = randomOrder;
   if (typeof turnDuration === 'number' && (turnDuration === 0 || (turnDuration >= 10 && turnDuration <= 600))) state.turnDuration = turnDuration;
   if (typeof reconnectTimeout === 'number' && (reconnectTimeout === 0 || (reconnectTimeout >= 10 && reconnectTimeout <= 3600))) state.reconnectTimeout = reconnectTimeout;
+};
+
+// Minimal shape check for a previousLeaders snapshot entry — just enough for
+// calculateUndo (client-side) to read name/score back out safely.
+const isPlausiblePlayerSnapshot = (v: unknown): v is { name: string; score: number } => {
+  if (typeof v !== 'object' || v === null) return false;
+  const p = v as Record<string, unknown>;
+  return typeof p.name === 'string' && typeof p.score === 'number' && Number.isFinite(p.score);
+};
+
+const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
+  if (typeof v !== 'object' || v === null) return false;
+  const s = v as Record<string, unknown>;
+  return typeof s.turnScore === 'number' && Number.isFinite(s.turnScore)
+    && typeof s.tuttosThisTurn === 'number' && Number.isFinite(s.tuttosThisTurn)
+    && Array.isArray(s.keptDice)
+    && Array.isArray(s.currentRoll)
+    && Array.isArray(s.kniffelProgress);
 };
 
 const HOST_ONLY_FIELDS = new Set<string>([
@@ -218,11 +244,26 @@ const calculateRemainingTurnTime = (room: Room): number | null => {
   return Math.max(0, targetDuration - elapsedSeconds);
 };
 
+// deviceId is a reconnect credential (see joinRoom: possession of a player's
+// deviceId is enough to take over their seat), so it must never be broadcast
+// to other room members — only the owning client's own outgoing joinRoom call
+// carries it. previousLeaders is a snapshot of full player objects and needs
+// the same scrubbing.
+const sanitizePlayerForBroadcast = (p: ServerPlayer): Omit<ServerPlayer, 'deviceId'> => {
+  const rest: Partial<ServerPlayer> = { ...p };
+  delete rest.deviceId;
+  return rest as Omit<ServerPlayer, 'deviceId'>;
+};
+
 const emitRoomState = (roomId: string): void => {
   const room = rooms[roomId];
   if (!room) return;
   const gameState = {
     ...room.state,
+    players: room.state.players.map(sanitizePlayerForBroadcast),
+    previousLeaders: room.state.previousLeaders
+      ? room.state.previousLeaders.map(sanitizePlayerForBroadcast)
+      : room.state.previousLeaders,
     turnTimeRemaining: calculateRemainingTurnTime(room),
     gameTimeInSeconds: calculateGameTime(room),
   };
@@ -249,79 +290,88 @@ const advanceTurnOnTimeout = (roomId: string): void => {
   if (room.state.finished || room.state.status !== 'playing' || room.state.currentPlayerIndex === null) {
     return;
   }
-  const currentPlayerIndex = room.state.currentPlayerIndex;
 
-  // calculateNextTurn only reads players/currentPlayerIndex/currentCard/round/
-  // winningScore/cards/initialCards — the remaining CoreGameState fields are
-  // unused by it but required by the type, so they're filled with inert values.
-  const stateForCalc = {
-    players: room.state.players,
-    currentPlayerIndex,
-    currentCard: room.state.currentCard,
-    round: room.state.round,
-    winningScore: room.state.winningScore,
-    cards: room.state.cards,
-    initialCards: room.state.initialCards,
-    previousCard: room.state.previousCard,
-    previousScore: room.state.previousScore,
-    previousLeaders: room.state.previousLeaders,
-    previousWasBust: room.state.previousWasBust ?? false,
-    previousHighestTurnScore: room.state.previousHighestTurnScore ?? 0,
-    finished: room.state.finished,
-    gameStartTime: null,
-    gameTimeInSeconds: room.state.gameTimeInSeconds,
-  };
+  try {
+    const currentPlayerIndex = room.state.currentPlayerIndex;
 
-  // Timeout = the player neither scored nor answered in time, same as a manual
-  // "Stop & Score 0" — matches what the client used to send on host-side expiry.
-  const result = calculateNextTurn(
-    stateForCalc as unknown as CoreGameState & { currentPlayerIndex: number },
-    0,
-    false,
-  );
+    // calculateNextTurn only reads players/currentPlayerIndex/currentCard/round/
+    // winningScore/cards/initialCards — the remaining CoreGameState fields are
+    // unused by it but required by the type, so they're filled with inert values.
+    const stateForCalc = {
+      players: room.state.players,
+      currentPlayerIndex,
+      currentCard: room.state.currentCard,
+      round: room.state.round,
+      winningScore: room.state.winningScore,
+      cards: room.state.cards,
+      initialCards: room.state.initialCards,
+      previousCard: room.state.previousCard,
+      previousScore: room.state.previousScore,
+      previousLeaders: room.state.previousLeaders,
+      previousWasBust: room.state.previousWasBust ?? false,
+      previousHighestTurnScore: room.state.previousHighestTurnScore ?? 0,
+      finished: room.state.finished,
+      gameStartTime: null,
+      gameTimeInSeconds: room.state.gameTimeInSeconds,
+    };
 
-  room.state.players = result.players as ServerPlayer[];
-  room.state.previousCard = result.previousCard;
-  room.state.previousScore = result.previousScore;
-  room.state.previousLeaders = result.previousLeaders as ServerPlayer[] | null;
-  room.state.previousWasBust = result.previousWasBust;
-  room.state.previousHighestTurnScore = result.previousHighestTurnScore;
-  room.state.liveTurnState = null;
+    // Timeout = the player neither scored nor answered in time, same as a manual
+    // "Stop & Score 0" — matches what the client used to send on host-side expiry.
+    const result = calculateNextTurn(
+      stateForCalc as unknown as CoreGameState & { currentPlayerIndex: number },
+      0,
+      false,
+    );
 
-  if (result.isRoundEnd) {
-    room.state.chartValues.forEach((vals, i) => vals.push(result.players[i]?.score ?? 0));
-    room.state.chartLabels.push(room.state.round);
-  }
+    room.state.players = result.players as ServerPlayer[];
+    room.state.previousCard = result.previousCard;
+    room.state.previousScore = result.previousScore;
+    room.state.previousLeaders = result.previousLeaders as ServerPlayer[] | null;
+    room.state.previousWasBust = result.previousWasBust;
+    room.state.previousHighestTurnScore = result.previousHighestTurnScore;
+    room.state.liveTurnState = null;
 
-  if (!room.turnTimerState) {
-    room.turnTimerState = { lastCard: null, lastPlayerIndex: null };
-  }
-
-  if (result.isGameOver) {
-    room.state.finished = true;
-    room.state.currentPlayerIndex = null;
-    room.state.currentCard = null;
-    room.state.turnStartTime = null;
-    if (room.gameActualStartTime) {
-      room.state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / 1000);
-      room.gameActualStartTime = null;
+    if (result.isRoundEnd) {
+      room.state.chartValues.forEach((vals, i) => vals.push(result.players[i]?.score ?? 0));
+      room.state.chartLabels.push(room.state.round);
     }
-    room.turnTimerState.lastCard = null;
-    room.turnTimerState.lastPlayerIndex = null;
-  } else {
-    room.state.currentPlayerIndex = result.nextIndex;
-    room.state.round = result.nextRound;
-    room.state.cards = result.newDeck;
-    room.state.currentCard = result.drawnCard;
-    room.state.turnStartTime = Date.now();
-    // Mark this as the "already seen" turn so the next pushState's cardChanged/
-    // playerChanged check doesn't treat it as a fresh turn and reschedule again.
-    room.turnTimerState.lastCard = result.drawnCard;
-    room.turnTimerState.lastPlayerIndex = result.nextIndex;
-    startServerTurnTimer(roomId);
-  }
 
-  emitRoomState(roomId);
+    if (!room.turnTimerState) {
+      room.turnTimerState = { lastCard: null, lastPlayerIndex: null };
+    }
+
+    if (result.isGameOver) {
+      room.state.finished = true;
+      room.state.currentPlayerIndex = null;
+      room.state.currentCard = null;
+      room.state.turnStartTime = null;
+      if (room.gameActualStartTime) {
+        room.state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / 1000);
+        room.gameActualStartTime = null;
+      }
+      room.turnTimerState.lastCard = null;
+      room.turnTimerState.lastPlayerIndex = null;
+    } else {
+      room.state.currentPlayerIndex = result.nextIndex;
+      room.state.round = result.nextRound;
+      room.state.cards = result.newDeck;
+      room.state.currentCard = result.drawnCard;
+      room.state.turnStartTime = Date.now();
+      // Mark this as the "already seen" turn so the next pushState's cardChanged/
+      // playerChanged check doesn't treat it as a fresh turn and reschedule again.
+      room.turnTimerState.lastCard = result.drawnCard;
+      room.turnTimerState.lastPlayerIndex = result.nextIndex;
+      startServerTurnTimer(roomId);
+    }
+
+    emitRoomState(roomId);
+  } catch (err) {
+    // Backstop: pushState's own validation should make a malformed room state
+    // unreachable, but this callback runs on a bare setTimeout with no caller to
+    // catch a throw — an uncaught exception here would crash the whole process
+    // (every room, every player), not just this one room's turn.
+    console.error(`[turnTimer] Failed to advance turn for room ${roomId}:`, err);
+  }
 };
 
 // Schedules (or reschedules) the server-side expiry for the room's current turn,
@@ -357,6 +407,16 @@ const abortGameIfLowPlayers = (room: Room, roomId: string): boolean => {
     room.state.currentCard = null;
     room.state.currentPlayerIndex = null;
     room.state.finished = false;
+    room.state.turnStartTime = null;
+    // Without this, the aborted game's elapsed time (plus however long the room
+    // then sits idle in the lobby) bleeds into the next game's clock and stats,
+    // since gameActualStartTime is only otherwise reset when a client pushes a
+    // lobby/finished state — which never happens on a server-initiated abort.
+    room.gameActualStartTime = null;
+    if (room.turnTimerState) {
+      room.turnTimerState.lastCard = null;
+      room.turnTimerState.lastPlayerIndex = null;
+    }
     return true;
   }
   return false;
@@ -592,110 +652,196 @@ io.on('connection', (socket: Socket) => {
     if (targetSocket) targetSocket.leave(currentRoom);
   });
 
+  // Matched by name, not deviceId: name is already unique within a room (enforced
+  // at join) and, unlike deviceId, was never meant to be secret — reorderPlayers
+  // already keys off it the same way. Keeping deviceId out of this match means it
+  // never has to round-trip through a broadcast (see sanitizePlayerForBroadcast).
   const validatePushedPlayers = (existing: ServerPlayer[], pushed: unknown[]): boolean => {
     if (!Array.isArray(pushed) || pushed.length !== existing.length) return false;
-    const existingIds = new Set(existing.map(p => p.deviceId));
-    return pushed.every(p => typeof p === 'object' && p !== null && existingIds.has((p as { deviceId?: string }).deviceId ?? ''));
+    const existingNames = new Set(existing.map(p => p.name));
+    return pushed.every(p => typeof p === 'object' && p !== null && existingNames.has((p as { name?: string }).name ?? ''));
   };
 
   socket.on('pushState', ({ roomId, newState }: { roomId: string; newState: Record<string, unknown> }) => {
-    const room = rooms[roomId];
-    if (!room || !newState || typeof newState !== 'object') return;
+    try {
+      const room = rooms[roomId];
+      if (!room || !newState || typeof newState !== 'object') return;
 
-    const isHost = room.host === socket.id;
-    const activePlayer = room.state.currentPlayerIndex !== null
-      ? room.state.players[room.state.currentPlayerIndex]
-      : null;
-    const isActivePlayer = activePlayer?.socketId === socket.id;
+      const isHost = room.host === socket.id;
+      const activePlayer = room.state.currentPlayerIndex !== null
+        ? room.state.players[room.state.currentPlayerIndex]
+        : null;
+      const isActivePlayer = activePlayer?.socketId === socket.id;
 
-    if (!isHost && !isActivePlayer) return;
+      if (!isHost && !isActivePlayer) return;
 
-    const allowedFields = isHost ? ALL_FIELDS : ACTIVE_PLAYER_FIELDS;
+      const allowedFields = isHost ? ALL_FIELDS : ACTIVE_PLAYER_FIELDS;
 
-    // The host may legitimately reorder players (e.g. the random shuffle) only at
-    // the moment the game starts. Outside that transition the server keeps its own
-    // authoritative order so a stray push can never scramble the roster mid-game.
-    const startingGame = isHost && room.state.status === 'lobby' && newState.status === 'playing';
+      // The host may legitimately reorder players (e.g. the random shuffle) only at
+      // the moment the game starts. Outside that transition the server keeps its own
+      // authoritative order so a stray push can never scramble the roster mid-game.
+      const startingGame = isHost && room.state.status === 'lobby' && newState.status === 'playing';
 
-    const mergeMutable = (existing: ServerPlayer, p: Record<string, unknown> | undefined): ServerPlayer => {
-      if (!p) return existing;
-      const updated = { ...existing };
-      for (const f of PLAYER_MUTABLE) {
-        if (f in p) (updated as Record<string, unknown>)[f] = p[f];
-      }
-      return updated;
-    };
-
-    for (const key of allowedFields) {
-      if (!(key in newState)) continue;
-      if (key === 'players') {
-        const pushed = newState.players as Record<string, unknown>[];
-        if (!validatePushedPlayers(room.state.players, pushed)) continue;
-
-        const pushedIds = pushed.map(p => p.deviceId as string);
-        const isStrictPermutation = new Set(pushedIds).size === room.state.players.length;
-
-        if (startingGame && isStrictPermutation) {
-          // Adopt the host's chosen ordering, but keep the server-side player
-          // identities and non-mutable fields. Keeps chartNames/chartValues
-          // (pushed in the same order) aligned with the authoritative roster.
-          const byDeviceId = new Map(room.state.players.map(p => [p.deviceId, p]));
-          room.state.players = pushedIds.map(id =>
-            mergeMutable(byDeviceId.get(id)!, pushed.find(q => q.deviceId === id)),
-          );
-        } else {
-          room.state.players = room.state.players.map(existing =>
-            mergeMutable(existing, pushed.find(q => q.deviceId === existing.deviceId)),
-          );
+      const mergeMutable = (existing: ServerPlayer, p: Record<string, unknown> | undefined): ServerPlayer => {
+        if (!p) return existing;
+        const updated = { ...existing };
+        for (const f of PLAYER_MUTABLE) {
+          if (!(f in p)) continue;
+          const v = p[f];
+          if (f === 'color') {
+            if (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) updated.color = v;
+          } else if (f === 'disconnected') {
+            if (typeof v === 'boolean') updated.disconnected = v;
+          } else if (typeof v === 'number' && Number.isFinite(v)) {
+            (updated as Record<string, unknown>)[f] = v;
+          }
         }
-      } else if (key in PUSHED_NUMERIC_FIELD_MAX) {
-        const v = newState[key];
-        if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= PUSHED_NUMERIC_FIELD_MAX[key]) {
-          (room.state as unknown as Record<string, unknown>)[key] = v;
+        return updated;
+      };
+
+      for (const key of allowedFields) {
+        if (!(key in newState)) continue;
+        if (key === 'players') {
+          const pushed = newState.players as Record<string, unknown>[];
+          if (!validatePushedPlayers(room.state.players, pushed)) continue;
+
+          const pushedNames = pushed.map(p => p.name as string);
+          const isStrictPermutation = new Set(pushedNames).size === room.state.players.length;
+
+          if (startingGame && isStrictPermutation) {
+            // Adopt the host's chosen ordering, but keep the server-side player
+            // identities and non-mutable fields. Keeps chartNames/chartValues
+            // (pushed in the same order) aligned with the authoritative roster.
+            const byName = new Map(room.state.players.map(p => [p.name, p]));
+            room.state.players = pushedNames.map(name =>
+              mergeMutable(byName.get(name)!, pushed.find(q => q.name === name)),
+            );
+          } else {
+            room.state.players = room.state.players.map(existing =>
+              mergeMutable(existing, pushed.find(q => q.name === existing.name)),
+            );
+          }
+        } else if (key in PUSHED_NUMERIC_FIELD_MAX) {
+          const v = newState[key];
+          if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= PUSHED_NUMERIC_FIELD_MAX[key]) {
+            (room.state as unknown as Record<string, unknown>)[key] = v;
+          }
+        } else if (key === 'initialCards') {
+          if (validateInitialCards(newState.initialCards)) room.state.initialCards = newState.initialCards;
+        } else if (key === 'status') {
+          if (newState.status === 'lobby' || newState.status === 'playing') room.state.status = newState.status;
+        } else if (key === 'randomOrder') {
+          if (typeof newState.randomOrder === 'boolean') room.state.randomOrder = newState.randomOrder;
+        } else if (key === 'currentCard' || key === 'previousCard') {
+          const v = newState[key];
+          if (v === null || VALID_CARD_TYPES.has(v as CardType)) {
+            (room.state as unknown as Record<string, unknown>)[key] = v;
+          }
+        } else if (key === 'cards') {
+          const v = newState.cards;
+          if (Array.isArray(v) && v.length <= MAX_DECK_SIZE && v.every(c => VALID_CARD_TYPES.has(c as CardType))) {
+            room.state.cards = v as CardType[];
+          }
+        } else if (key === 'currentPlayerIndex') {
+          const v = newState.currentPlayerIndex;
+          if (v === null || (Number.isInteger(v) && (v as number) >= 0 && (v as number) < room.state.players.length)) {
+            room.state.currentPlayerIndex = v as number | null;
+          }
+        } else if (key === 'round') {
+          const v = newState.round;
+          if (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MAX_ROUNDS) {
+            room.state.round = v;
+          }
+        } else if (key === 'finished') {
+          if (typeof newState.finished === 'boolean') room.state.finished = newState.finished;
+        } else if (key === 'previousScore') {
+          const v = newState.previousScore;
+          if (v === null || (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= MAX_SCORE_MAGNITUDE)) {
+            room.state.previousScore = v as number | null;
+          }
+        } else if (key === 'previousLeaders') {
+          const v = newState.previousLeaders;
+          if (v === null) {
+            room.state.previousLeaders = null;
+          } else if (Array.isArray(v) && v.length <= room.state.players.length && v.every(isPlausiblePlayerSnapshot)) {
+            room.state.previousLeaders = v as ServerPlayer[];
+          }
+        } else if (key === 'previousWasBust') {
+          if (typeof newState.previousWasBust === 'boolean') room.state.previousWasBust = newState.previousWasBust;
+        } else if (key === 'previousHighestTurnScore') {
+          const v = newState.previousHighestTurnScore;
+          if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= MAX_SCORE_MAGNITUDE) {
+            room.state.previousHighestTurnScore = v;
+          }
+        } else if (key === 'chartValues') {
+          const v = newState.chartValues;
+          if (
+            Array.isArray(v) && v.length === room.state.players.length &&
+            v.every(arr => Array.isArray(arr) && arr.length <= MAX_ROUNDS && arr.every(n => typeof n === 'number' && Number.isFinite(n)))
+          ) {
+            room.state.chartValues = v as number[][];
+          }
+        } else if (key === 'chartNames') {
+          const v = newState.chartNames;
+          if (Array.isArray(v) && v.length === room.state.players.length && v.every(n => typeof n === 'string')) {
+            room.state.chartNames = v as string[];
+          }
+        } else if (key === 'chartLabels') {
+          const v = newState.chartLabels;
+          if (Array.isArray(v) && v.length <= MAX_ROUNDS && v.every(n => typeof n === 'number' && Number.isFinite(n))) {
+            room.state.chartLabels = v as number[];
+          }
+        } else if (key === 'gameTimeInSeconds') {
+          const v = newState.gameTimeInSeconds;
+          if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= MAX_GAME_SECONDS) {
+            room.state.gameTimeInSeconds = v;
+          }
+        } else if (key === 'liveTurnState') {
+          const v = newState.liveTurnState;
+          if (v === null || isValidDiceSnapshot(v)) {
+            room.state.liveTurnState = v as DiceSnapshot | null;
+          }
         }
-      } else if (key === 'initialCards') {
-        if (validateInitialCards(newState.initialCards)) room.state.initialCards = newState.initialCards;
-      } else if (key === 'status') {
-        if (newState.status === 'lobby' || newState.status === 'playing') room.state.status = newState.status;
-      } else if (key === 'randomOrder') {
-        if (typeof newState.randomOrder === 'boolean') room.state.randomOrder = newState.randomOrder;
-      } else {
-        (room.state as unknown as Record<string, unknown>)[key] = newState[key];
       }
-    }
 
-    if (room.state.status === 'playing' && !room.gameActualStartTime) {
-      room.gameActualStartTime = Date.now();
-    }
-
-    if (!room.turnTimerState) {
-      room.turnTimerState = { lastCard: null, lastPlayerIndex: null };
-    }
-
-    const cardChanged = room.state.currentCard !== room.turnTimerState.lastCard;
-    const playerChanged = room.state.currentPlayerIndex !== room.turnTimerState.lastPlayerIndex;
-
-    if (room.state.status === 'playing' && room.state.currentPlayerIndex !== null && (cardChanged || playerChanged)) {
-      room.state.turnStartTime = Date.now();
-      room.turnTimerState.lastCard = room.state.currentCard;
-      room.turnTimerState.lastPlayerIndex = room.state.currentPlayerIndex;
-      startServerTurnTimer(roomId);
-    }
-
-    if (room.state.finished || room.state.status === 'lobby') {
-      clearServerTurnTimer(roomId);
-      room.state.turnStartTime = null;
-      if (room.gameActualStartTime) {
-        room.state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / 1000);
+      if (room.state.status === 'playing' && !room.gameActualStartTime) {
+        room.gameActualStartTime = Date.now();
       }
-      room.gameActualStartTime = null;
-      if (room.turnTimerState) {
-        room.turnTimerState.lastCard = null;
-        room.turnTimerState.lastPlayerIndex = null;
-      }
-    }
 
-    emitRoomState(roomId);
+      if (!room.turnTimerState) {
+        room.turnTimerState = { lastCard: null, lastPlayerIndex: null };
+      }
+
+      const cardChanged = room.state.currentCard !== room.turnTimerState.lastCard;
+      const playerChanged = room.state.currentPlayerIndex !== room.turnTimerState.lastPlayerIndex;
+
+      if (room.state.status === 'playing' && room.state.currentPlayerIndex !== null && (cardChanged || playerChanged)) {
+        room.state.turnStartTime = Date.now();
+        room.turnTimerState.lastCard = room.state.currentCard;
+        room.turnTimerState.lastPlayerIndex = room.state.currentPlayerIndex;
+        startServerTurnTimer(roomId);
+      }
+
+      if (room.state.finished || room.state.status === 'lobby') {
+        clearServerTurnTimer(roomId);
+        room.state.turnStartTime = null;
+        if (room.gameActualStartTime) {
+          room.state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / 1000);
+        }
+        room.gameActualStartTime = null;
+        if (room.turnTimerState) {
+          room.turnTimerState.lastCard = null;
+          room.turnTimerState.lastPlayerIndex = null;
+        }
+      }
+
+      emitRoomState(roomId);
+    } catch (err) {
+      // Backstop: validation above should make this unreachable, but a crash here
+      // would otherwise take down the whole process (every room, every player) —
+      // see advanceTurnOnTimeout for the same reasoning.
+      console.error(`[pushState] Failed to apply state for room ${roomId}:`, err);
+    }
   });
 
   socket.on('submitGlobalStats', async ({ roomId, payload }: { roomId: string; payload: unknown } =

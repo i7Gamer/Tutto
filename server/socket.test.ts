@@ -221,6 +221,13 @@ describe('Socket security and timer fixes', () => {
     const { sock: guestSock, socketId: guestId } = await joinAsGuest(roomId, 'Guest');
     await guestJoinedState;
 
+    // A third player, so kicking Guest leaves a still-playable 2-player game
+    // instead of aborting it — the turn-timer-reset behavior under test only
+    // applies when the game continues with a new active player.
+    const bystanderJoinedState = new Promise(r => hostSock.once('gameState', r));
+    const { sock: bystanderSock } = await joinAsGuest(roomId, 'Bystander');
+    await bystanderJoinedState;
+
     // Set turn duration to 60 s (valid range is 10-600)
     await new Promise(r => {
       hostSock.once('gameState', r);
@@ -253,6 +260,7 @@ describe('Socket security and timer fixes', () => {
 
     hostSock.disconnect();
     guestSock.disconnect();
+    bystanderSock.disconnect();
   }, 15000);
 
   // ─── pushState config sanity guard ─────────────────────────────────────────

@@ -725,7 +725,6 @@ export const useGameStore = create<GameStore>()(
           ...createInitialPlayer(p.name),
           color: p.color,
           socketId: p.socketId,
-          deviceId: p.deviceId,
           disconnected: p.disconnected,
         }));
         state.players = state.randomOrder ? shuffleArray(resetPlayers) : resetPlayers;

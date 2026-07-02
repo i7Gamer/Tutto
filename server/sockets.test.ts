@@ -433,9 +433,12 @@ describe('Server Socket E2E Simulation', () => {
           // Server must adopt the host's order so the turn order and the chart arrays
           // agree: Bob first, Alice second — not the original join order.
           expect(state.players[0].name).toBe('Bob');
-          expect(state.players[0].deviceId).toBe('dev-so-b');
+          expect(state.players[0].socketId).toBe(s2.id);
           expect(state.players[1].name).toBe('Alice');
-          expect(state.players[1].deviceId).toBe('dev-so-a');
+          expect(state.players[1].socketId).toBe(s1.id);
+          // deviceId is a reconnect credential and must never be broadcast.
+          expect('deviceId' in state.players[0]).toBe(false);
+          expect('deviceId' in state.players[1]).toBe(false);
           // Identities/colors are kept from the server side, in the new order.
           expect(state.players[0].color).toBe('#00ff00');
           expect(state.players[1].color).toBe('#ff0000');
@@ -468,9 +471,10 @@ describe('Server Socket E2E Simulation', () => {
 
       s1.on('gameState', (state) => {
         if (state.players && state.players.length === 1) {
-          // The server must have kept the real score (0) and real deviceId, not the injected values.
+          // The server must have kept the real score (0), not the injected value —
+          // and deviceId (a reconnect credential) must never be broadcast at all.
           expect(state.players[0].score).toBe(0);
-          expect(state.players[0].deviceId).toBe('dev-ri-a');
+          expect('deviceId' in state.players[0]).toBe(false);
           clearTimeout(timeoutId);
           s1.disconnect();
           resolve();
@@ -860,7 +864,10 @@ describe('Server Socket E2E Simulation', () => {
               s2.emit('pushState', {
                 roomId: 'LIVE_TURN_ROOM',
                 newState: {
-                  liveTurnState: { turnScore: 350, keptDice: [{ val: 1 }], currentRoll: [{ val: 5, selected: false }] },
+                  liveTurnState: {
+                    turnScore: 350, keptDice: [{ val: 1 }], currentRoll: [{ val: 5, selected: false }],
+                    kniffelProgress: [], tuttosThisTurn: 0,
+                  },
                 },
               });
             }, 200);
