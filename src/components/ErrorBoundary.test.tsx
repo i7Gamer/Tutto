@@ -24,7 +24,7 @@ describe('ErrorBoundary', () => {
   it('catches error and displays fallback UI', () => {
     // We mock localStorage so that it simulates a repeated crash, preventing auto-reload
     localStorage.setItem('last_crash_time', Date.now().toString());
-    
+
     render(
       <ErrorBoundary>
         <ProblemChild />
@@ -32,5 +32,52 @@ describe('ErrorBoundary', () => {
     );
     expect(screen.getByText('Oops! Something went wrong.')).toBeInTheDocument();
     expect(screen.getByText('Clear Cache & Reload')).toBeInTheDocument();
+  });
+
+  it('records the crash to localStorage and POSTs it to the server', () => {
+    // Suppress the auto-reload path so jsdom does not try to reload
+    localStorage.setItem('last_crash_time', Date.now().toString());
+    const fetchMock = vi.fn(() => Promise.resolve({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <ErrorBoundary>
+        <ProblemChild />
+      </ErrorBoundary>
+    );
+
+    const log = JSON.parse(localStorage.getItem('tutto_crash_log') ?? '[]');
+    expect(log).toHaveLength(1);
+    expect(log[0].message).toBe('I crashed!');
+    expect(log[0].stack).toContain('I crashed!');
+    expect(log[0].componentStack).toContain('ProblemChild');
+    expect(log[0].timestamp).toBeTruthy();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
+    expect(url).toBe('/api/log/client-error');
+    expect(JSON.parse(options.body).message).toBe('I crashed!');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('records the crash even when it triggers the clear-cache-and-reload path', () => {
+    // No last_crash_time → the boundary will clear cache and reload. The crash
+    // log entry must survive that cleanup (it only removes specific keys).
+    const fetchMock = vi.fn(() => Promise.resolve({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <ErrorBoundary>
+        <ProblemChild />
+      </ErrorBoundary>
+    );
+
+    const log = JSON.parse(localStorage.getItem('tutto_crash_log') ?? '[]');
+    expect(log).toHaveLength(1);
+    expect(log[0].message).toBe('I crashed!');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    vi.unstubAllGlobals();
   });
 });

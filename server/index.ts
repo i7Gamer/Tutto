@@ -852,6 +852,21 @@ const requireToken = (
   next();
 };
 
+// Client crash reports from the ErrorBoundary (see src/utils/crashLog.ts).
+// Unauthenticated by design — crash reporting must work for any player — so
+// the payload is strictly truncated and only ever logged, never stored or
+// echoed back. express.json() already caps the body size at its default limit.
+const CRASH_FIELD_MAX = 2000;
+app.post('/api/log/client-error', (req: express.Request, res: express.Response) => {
+  const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+  const field = (key: string): string => String(body[key] ?? '').slice(0, CRASH_FIELD_MAX);
+  console.error(
+    `[client-error] ${field('timestamp') || new Date().toISOString()} ${field('message')}\n` +
+    `stack: ${field('stack')}\ncomponentStack: ${field('componentStack')}`
+  );
+  res.json({ success: true });
+});
+
 app.get('/api/stats/global', async (_req: express.Request, res: express.Response) => {
   try {
     const stats = await getGlobalStats();

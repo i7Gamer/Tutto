@@ -1,4 +1,5 @@
 import React from 'react';
+import { recordCrash } from '../utils/crashLog';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -20,6 +21,8 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('Uncaught error caught by ErrorBoundary:', error, errorInfo);
+    // Persist + report the crash BEFORE the auto-reload below wipes all traces.
+    recordCrash(error, errorInfo.componentStack);
 
     const lastCrash = localStorage.getItem('last_crash_time');
     const now = Date.now();

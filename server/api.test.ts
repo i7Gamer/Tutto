@@ -80,6 +80,34 @@ describe('API Endpoints Token Protection', () => {
     });
     expect(res.status).toBe(200);
   });
+
+  it('POST /api/log/client-error accepts crash reports without a token', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/log/client-error`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: 'boom',
+        stack: 'Error: boom\n  at DiceGame',
+        componentStack: 'at DiceGame\nat Game',
+        timestamp: new Date().toISOString(),
+      })
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true });
+  });
+
+  it('POST /api/log/client-error tolerates junk payloads without crashing', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/log/client-error`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: { nested: 'object' }, stack: 12345, extra: 'x'.repeat(50000) })
+    });
+    expect(res.status).toBe(200);
+
+    // The server must still be responsive afterwards.
+    const alive = await fetch(`http://127.0.0.1:${PORT}/api/stats/global`);
+    expect(alive.status).toBe(200);
+  });
 });
 
 describe('CORS_ORIGIN configuration', () => {

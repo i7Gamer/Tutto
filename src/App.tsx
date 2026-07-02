@@ -4,6 +4,7 @@ import { Sun, Moon } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from './store/useGameStore';
+import { warnAboutRecentCrash } from './utils/crashLog';
 import Home from './components/Home';
 import Game from './components/Game';
 import EndScreen from './components/EndScreen';
@@ -146,6 +147,9 @@ export default function App() {
 
   useEffect(() => {
     useGameStore.getState().init(deviceId);
+    // If the ErrorBoundary auto-reloaded after a crash, the stored report is
+    // the only remaining trace — surface it for anyone with devtools open.
+    warnAboutRecentCrash();
   }, [deviceId]);
 
   const finished = useGameStore(state => state.finished);
