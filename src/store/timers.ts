@@ -43,7 +43,15 @@ export const createTimerSlice: ImmerStateCreator<TimerSlice> = (set, get) => ({
     gameTimerInterval = null;
   },
 
-  syncOnlineTimers: () => {
+  // serverRemaining is the turnTimeRemaining carried by a fresh gameState event
+  // (the server computes it in emitRoomState). When present it is authoritative
+  // and restarts the display countdown — this keeps the client in sync after
+  // throttled background tabs, and shows the true remaining time after a
+  // page-reload reconnect (where the local turn tracking is empty and the turn
+  // would otherwise be misread as brand new → full duration). Callers reacting
+  // to local actions (nextTurn, undo, startGame) pass nothing and keep the
+  // turn-change heuristic below.
+  syncOnlineTimers: (serverRemaining?: number | null) => {
     const state = get();
 
     if (gameTimerInterval) clearInterval(gameTimerInterval);
@@ -69,15 +77,18 @@ export const createTimerSlice: ImmerStateCreator<TimerSlice> = (set, get) => ({
         const playerChanged = state.currentPlayerIndex !== turnTimerPlayerIndex;
         const cardChanged = state.currentCard !== turnTimerCard;
         const justReconnected = state.justReconnected;
+        const serverValue = typeof serverRemaining === 'number' ? serverRemaining : null;
 
-        if (playerChanged || cardChanged || justReconnected) {
+        if (playerChanged || cardChanged || justReconnected || serverValue !== null) {
           if (turnTimerInterval) clearInterval(turnTimerInterval);
           turnTimerPlayerIndex = state.currentPlayerIndex;
           turnTimerCard = state.currentCard;
 
           let remaining: number;
           const isNewTurn = playerChanged || cardChanged;
-          if (!isNewTurn && justReconnected && state.turnTimeRemaining !== null && state.turnTimeRemaining !== undefined) {
+          if (serverValue !== null) {
+            remaining = serverValue;
+          } else if (!isNewTurn && justReconnected && state.turnTimeRemaining !== null && state.turnTimeRemaining !== undefined) {
             remaining = state.turnTimeRemaining;
           } else {
             remaining = getEffectiveTurnDuration(state.currentCard, state.turnDuration);

@@ -79,7 +79,9 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           }
           prev.showReconnectPopup = false;
         });
-        get().syncOnlineTimers();
+        // Pass the server-computed remaining turn time so the display countdown
+        // resyncs to it (see syncOnlineTimers for why it is authoritative).
+        get().syncOnlineTimers(serverState.turnTimeRemaining);
 
         if (!wasFinished && get().finished) {
           get().sendOnlineStats();
@@ -88,7 +90,11 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
 
       sock.on('playerDisconnected', (name: string) => {
         const seconds = get().reconnectTimeout || DEFAULT_RECONNECT_TIMEOUT;
-        get().addToast(`${name} disconnected! They have ${seconds} seconds to reconnect.`);
+        get().addToast(i18n.t('game.playerDisconnected', {
+          defaultValue: '{{name}} disconnected! They have {{seconds}} seconds to reconnect.',
+          name,
+          seconds,
+        }));
       });
 
       sock.on('nameConflictWithDisconnected', (name: string) => {
@@ -100,7 +106,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       });
 
       sock.on('kicked', () => {
-        get().addToast('You were kicked by the host');
+        get().addToast(i18n.t('game.kickedByHost', 'You were kicked by the host'));
         set({ roomId: null, isHost: false, hostId: null, myName: null });
         sessionStorage.removeItem('tutto_online_session');
         get().setMode('local');

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useGameStore, _resetTimersForTests } from './useGameStore';
+import { disconnectSocket } from './socketRef';
 import type { Player } from '../types';
 
 let mockEmit = vi.fn();
@@ -757,6 +758,64 @@ describe('useGameStore', () => {
 
       // playerChanged=true must win over justReconnected → full duration, not 3
       expect(useGameStore.getState().turnTimeRemaining).toBe(60);
+    });
+
+    it('adopts the server turnTimeRemaining on reconnect even when the turn tracking is fresh (page reload)', () => {
+      // After a page reload the module-level turn tracking vars are empty (the
+      // beforeEach _resetTimersForTests() mirrors that), so playerChanged is
+      // true. The gameState answering the rejoin carries the server's actual
+      // remaining time — that value must win over the "new turn → full
+      // duration" heuristic, or the countdown shows a full turn mid-turn.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.setState({
+        mode: 'online', isOnline: true, showReconnectPopup: true,
+        status: 'playing', turnDuration: 60,
+      });
+
+      mockOnHandlers['gameState']({
+        status: 'playing', currentPlayerIndex: 1, currentCard: 'Kniffel',
+        players: [makeOnlinePlayer('Alice'), makeOnlinePlayer('Bob')],
+        turnDuration: 60, turnTimeRemaining: 25, gameTimeInSeconds: 30,
+      });
+
+      expect(useGameStore.getState().justReconnected).toBe(true);
+      expect(useGameStore.getState().turnTimeRemaining).toBe(25);
+
+      // Later tests expect no lingering module-level socket (e.g. they assert
+      // that joinRoom creates a fresh one).
+      disconnectSocket();
+    });
+
+    it('restarts the countdown from the server turnTimeRemaining even after the local countdown hit 0', () => {
+      vi.useFakeTimers();
+      try {
+        useGameStore.getState().connectSocket('http://localhost:3000');
+        useGameStore.setState({
+          mode: 'online', isOnline: true, status: 'playing',
+          currentPlayerIndex: 0, currentCard: 'Kniffel', turnDuration: 60,
+          showReconnectPopup: false, justReconnected: false,
+        });
+        useGameStore.getState().syncOnlineTimers(); // prime: full 60s countdown
+        vi.advanceTimersByTime(61_000); // countdown reaches 0 and its interval self-clears
+        expect(useGameStore.getState().turnTimeRemaining).toBe(0);
+
+        // A mid-turn broadcast for the SAME player/card carrying the
+        // authoritative remaining time (e.g. the host raised turnDuration
+        // mid-turn): the display must resume counting from the server value
+        // instead of staying frozen at 0 with its interval gone.
+        mockOnHandlers['gameState']({
+          status: 'playing', currentPlayerIndex: 0, currentCard: 'Kniffel',
+          players: [makeOnlinePlayer('Alice')],
+          turnDuration: 60, turnTimeRemaining: 30, gameTimeInSeconds: 43,
+        });
+        expect(useGameStore.getState().turnTimeRemaining).toBe(30);
+
+        vi.advanceTimersByTime(1000);
+        expect(useGameStore.getState().turnTimeRemaining).toBe(29);
+      } finally {
+        disconnectSocket();
+        vi.useRealTimers();
+      }
     });
 
     describe('server-authoritative game time sync', () => {

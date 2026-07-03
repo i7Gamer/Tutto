@@ -80,7 +80,7 @@ export interface GameStore extends CoreGameState {
   pushState: () => void;
   startLocalTimers: () => void;
   stopLocalTimers: () => void;
-  syncOnlineTimers: () => void;
+  syncOnlineTimers: (serverRemaining?: number | null) => void;
   stopOnlineTimers: () => void;
   startGame: () => void;
   endGame: () => void;

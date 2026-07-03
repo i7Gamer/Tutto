@@ -536,7 +536,7 @@ describe('Game Component Integration', () => {
       });
 
       // The toast should NOT have been called — no cache was present at mount
-      expect(mockAddToast).not.toHaveBeenCalledWith("Resuming your dice game...");
+      expect(mockAddToast).not.toHaveBeenCalledWith('game.resumingDiceGame');
       // And the dice game modal should not have been auto-opened
       // (it was never opened because there was no cached state at mount)
     });
@@ -598,7 +598,7 @@ describe('Game Component Integration', () => {
       act(() => { vi.advanceTimersByTime(100); });
 
       expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
-      expect(mockAddToast).toHaveBeenCalledWith('Resuming your dice game...');
+      expect(mockAddToast).toHaveBeenCalledWith('game.resumingDiceGame');
     });
 
     it('does not show the resume UI when the reconnect is not resumable (e.g. a spectator)', () => {
@@ -615,7 +615,7 @@ describe('Game Component Integration', () => {
       act(() => { vi.advanceTimersByTime(100); });
 
       expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
-      expect(mockAddToast).not.toHaveBeenCalledWith('Resuming your dice game...');
+      expect(mockAddToast).not.toHaveBeenCalledWith('game.resumingDiceGame');
     });
 
     it('only shows the resume UI once per reconnect episode, even if liveTurnState changes again while justReconnected is still true', () => {
@@ -657,7 +657,7 @@ describe('Game Component Integration', () => {
       act(() => { vi.advanceTimersByTime(100); });
 
       expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
-      expect(mockAddToast).not.toHaveBeenCalledWith('Resuming your dice game...');
+      expect(mockAddToast).not.toHaveBeenCalledWith('game.resumingDiceGame');
     });
 
     it('does not show the resume UI when the active player reconnects but liveTurnState is null (turn not yet started)', () => {
@@ -675,7 +675,7 @@ describe('Game Component Integration', () => {
       act(() => { vi.advanceTimersByTime(100); });
 
       expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
-      expect(mockAddToast).not.toHaveBeenCalledWith('Resuming your dice game...');
+      expect(mockAddToast).not.toHaveBeenCalledWith('game.resumingDiceGame');
     });
 
     it('fires the resume toast for each successive reconnect episode in the same session', () => {

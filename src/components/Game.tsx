@@ -79,7 +79,7 @@ export default function Game() {
         };
         localStorage.setItem('tutto_dice_turn_state', JSON.stringify(snapshotWithPlayer));
         setShowDiceGame(true); // eslint-disable-line react-hooks/set-state-in-effect
-        game.addToast('Resuming your dice game...');
+        game.addToast(t('game.resumingDiceGame', 'Resuming your dice game...'));
       }
       return;
     }
@@ -95,7 +95,7 @@ export default function Game() {
 
       if (parsed && parsed.turnKey === expectedTurnKey) {
         setShowDiceGame(true);
-        game.addToast('Resuming your dice game...');
+        game.addToast(t('game.resumingDiceGame', 'Resuming your dice game...'));
       } else {
         localStorage.removeItem('tutto_dice_turn_state');
       }
