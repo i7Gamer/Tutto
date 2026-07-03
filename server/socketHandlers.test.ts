@@ -118,11 +118,13 @@ describe('stats dedup rollback on DB failure', () => {
   });
 });
 
-describe('kickPlayer host migration', () => {
+describe('room membership (kick host migration, mid-game rename guard)', () => {
   let httpServer: HttpServer;
   let ioServer: Server;
   let port: number;
   const sockets: ClientSocket[] = [];
+
+  interface JoinAck { success: boolean; error?: string; name?: string; isHost?: boolean }
 
   beforeAll(async () => {
     httpServer = createServer();
@@ -137,18 +139,25 @@ describe('kickPlayer host migration', () => {
     await ioServer.close();
   });
 
-  const connectAndJoin = (roomId: string, name: string, deviceId: string): Promise<ClientSocket> =>
+  // Resolves with both the socket and the raw ack so tests can assert on
+  // rejections and the seated name, not just successful joins.
+  const joinRaw = (roomId: string, name: string, deviceId: string): Promise<{ sock: ClientSocket; res: JoinAck }> =>
     new Promise((resolve, reject) => {
       const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
       sockets.push(sock);
       sock.on('connect', () => {
-        sock.emit('joinRoom', { roomId, name, deviceId, color: '#ff0000' }, (res: { success: boolean; error?: string }) => {
-          if (!res.success) return reject(new Error(res.error));
-          resolve(sock);
+        sock.emit('joinRoom', { roomId, name, deviceId, color: '#ff0000' }, (res: JoinAck) => {
+          resolve({ sock, res });
         });
       });
       sock.on('connect_error', reject);
     });
+
+  const connectAndJoin = async (roomId: string, name: string, deviceId: string): Promise<ClientSocket> => {
+    const { sock, res } = await joinRaw(roomId, name, deviceId);
+    if (!res.success) throw new Error(res.error);
+    return sock;
+  };
 
   it('reassigns the host when the host kicks their own socket', async () => {
     // Only a modified host client can self-kick, but the room must not be
@@ -180,5 +189,50 @@ describe('kickPlayer host migration', () => {
 
     expect(rooms['NORMAL_KICK_ROOM'].host).toBe(host.id);
     expect(rooms['NORMAL_KICK_ROOM'].state.players.map(p => p.name)).toEqual(['Host']);
+  });
+
+  it('a mid-game rejoin with a different name keeps the seat name and returns it in the ack', async () => {
+    // Names are the identity key for pushState merging and the chart series —
+    // renaming mid-game corrupted both, so the server refuses it and tells the
+    // client which name it was actually seated under.
+    const host = await connectAndJoin('RENAME_GAME_ROOM', 'Alice', 'dev-rn-1');
+    host.emit('pushState', { roomId: 'RENAME_GAME_ROOM', newState: { status: 'playing', currentPlayerIndex: 0 } });
+    await new Promise<void>((resolve, reject) => {
+      const start = Date.now();
+      const poll = () => {
+        if (rooms['RENAME_GAME_ROOM']?.state.status === 'playing') return resolve();
+        if (Date.now() - start > 3000) return reject(new Error('room never started playing'));
+        setTimeout(poll, 25);
+      };
+      poll();
+    });
+
+    // Same device takes over its seat from a new socket, but with a new name.
+    const { res } = await joinRaw('RENAME_GAME_ROOM', 'Impostor', 'dev-rn-1');
+
+    expect(res.success).toBe(true);
+    expect(res.name).toBe('Alice');
+    expect(rooms['RENAME_GAME_ROOM'].state.players.map(p => p.name)).toEqual(['Alice']);
+  });
+
+  it('a lobby rejoin may still rename freely', async () => {
+    await connectAndJoin('RENAME_LOBBY_ROOM', 'Bob', 'dev-rn-2');
+
+    const { res } = await joinRaw('RENAME_LOBBY_ROOM', 'Bobby', 'dev-rn-2');
+
+    expect(res.success).toBe(true);
+    expect(res.name).toBe('Bobby');
+    expect(rooms['RENAME_LOBBY_ROOM'].state.players.map(p => p.name)).toEqual(['Bobby']);
+  });
+
+  it('a lobby rename to a name held by another player is still rejected', async () => {
+    await connectAndJoin('RENAME_CONFLICT_ROOM', 'Carol', 'dev-rn-3');
+    await connectAndJoin('RENAME_CONFLICT_ROOM', 'Dave', 'dev-rn-4');
+
+    const { res } = await joinRaw('RENAME_CONFLICT_ROOM', 'carol', 'dev-rn-4');
+
+    expect(res.success).toBe(false);
+    expect(res.error).toBe('Username already exists in this room');
+    expect(rooms['RENAME_CONFLICT_ROOM'].state.players.map(p => p.name).sort()).toEqual(['Carol', 'Dave']);
   });
 });

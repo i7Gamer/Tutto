@@ -17,7 +17,7 @@ export const registerSocketHandlers = (io: Server): void => {
     socket.on('joinRoom', (
       { roomId, name, deviceId, color, initialConfig }: { roomId: string; name: string; deviceId: string; color?: string; initialConfig?: Record<string, unknown> } =
         {} as { roomId: string; name: string; deviceId: string; color?: string; initialConfig?: Record<string, unknown> },
-      callback: (result: { success: boolean; isHost?: boolean; socketId?: string; error?: string }) => void
+      callback: (result: { success: boolean; isHost?: boolean; socketId?: string; error?: string; name?: string }) => void
     ) => {
       // Reject malformed payloads before any field is used. Without these guards a
       // client that omits the ack callback or sends a non-string name crashes the
@@ -62,20 +62,29 @@ export const registerSocketHandlers = (io: Server): void => {
 
       const existingPlayer = room.state.players.find(p => p.deviceId === deviceId);
       if (existingPlayer) {
-        // Disconnected players keep their name reserved too (same rule as the
-        // fresh-join path below) — otherwise a rejoining device could rename
-        // itself to a disconnected player's name, and the room would hold two
-        // identical names once that player reconnects. Names are the identity
-        // key for pushState merging, so duplicates corrupt scores and stats.
-        const nameTakenByOther = room.state.players.some(
-          p => p.deviceId !== deviceId && p.name.toLowerCase() === name.toLowerCase()
-        );
-        if (nameTakenByOther) {
-          return callback({ success: false, error: 'Username already exists in this room' });
+        if (room.state.status === 'lobby') {
+          // Disconnected players keep their name reserved too (same rule as the
+          // fresh-join path below) — otherwise a rejoining device could rename
+          // itself to a disconnected player's name, and the room would hold two
+          // identical names once that player reconnects. Names are the identity
+          // key for pushState merging, so duplicates corrupt scores and stats.
+          const nameTakenByOther = room.state.players.some(
+            p => p.deviceId !== deviceId && p.name.toLowerCase() === name.toLowerCase()
+          );
+          if (nameTakenByOther) {
+            return callback({ success: false, error: 'Username already exists in this room' });
+          }
+          existingPlayer.name = name;
+        } else {
+          // Renames are only honored in the lobby. Mid-game, other clients'
+          // in-flight pushStates still carry the old name (failing the player
+          // merge until the next broadcast) and chartNames would go stale — so
+          // the rejoin keeps the seat's existing name, returned via the ack so
+          // the client adopts it instead of keeping a mismatched myName.
+          name = existingPlayer.name;
         }
         if (room.host === existingPlayer.socketId) room.host = socket.id;
         existingPlayer.socketId = socket.id;
-        existingPlayer.name = name;
         existingPlayer.disconnected = false;
 
         if (room.disconnectTimers[deviceId]) {
@@ -86,7 +95,7 @@ export const registerSocketHandlers = (io: Server): void => {
         socket.join(roomId);
         currentRoom = roomId;
         username = name;
-        callback({ success: true, isHost: room.host === socket.id, socketId: socket.id });
+        callback({ success: true, isHost: room.host === socket.id, socketId: socket.id, name });
         emitRoomState(io, roomId);
         return;
       }
@@ -142,7 +151,7 @@ export const registerSocketHandlers = (io: Server): void => {
       };
       room.state.players.push(newPlayer);
 
-      callback({ success: true, isHost: room.host === socket.id, socketId: socket.id });
+      callback({ success: true, isHost: room.host === socket.id, socketId: socket.id, name });
       emitRoomState(io, roomId);
     });
 

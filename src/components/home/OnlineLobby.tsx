@@ -113,6 +113,10 @@ export default function OnlineLobby({ game }: OnlineLobbyProps) {
         />
 
         <div className="flex flex-row flex-wrap justify-center items-stretch gap-4 mb-8">
+          {/* diceMode is deliberately per-device, not room config: it only
+              decides how THIS player enters their own turns (digital dice vs
+              typing a physical-dice score). Spectators see the active player's
+              live digital dice regardless (see GameControls). */}
           <DiceModeSelector diceMode={game.diceMode} setDiceMode={game.setDiceMode} nameSuffix="Online" />
           <AudioSettingSelector audioEnabled={game.audioEnabled} setAudioEnabled={game.setAudioEnabled} nameSuffix="Online" />
           <AdvancedOptionsToggle showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} />

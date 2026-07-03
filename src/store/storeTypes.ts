@@ -21,6 +21,11 @@ export interface JoinRoomResponse {
   success: boolean;
   isHost?: boolean;
   error?: string;
+  // The name the server actually seated this client under. Differs from the
+  // requested name when rejoining a running game: mid-game renames are
+  // refused server-side (names are the identity key for pushState merging),
+  // so the client must adopt the seat's existing name.
+  name?: string;
 }
 
 export type ConfigKeys = 'winningScore' | 'initialCards' | 'randomOrder' | 'turnDuration' | 'reconnectTimeout';

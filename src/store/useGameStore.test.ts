@@ -1370,6 +1370,35 @@ describe('useGameStore', () => {
       localStorage.removeItem('tutto_online_config');
     });
 
+    it('joinRoom adopts the server-confirmed name from the ack (mid-game seat takeover)', async () => {
+      // Rejoining a running game with a different name keeps the seat's
+      // original name server-side; the client must adopt it or isMyTurn and
+      // stats matching (both keyed on myName) silently break.
+      mockEmit.mockClear();
+
+      const joinPromise = useGameStore.getState().joinRoom('SEAT_ROOM', 'Impostor', true);
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(joinRoomCall).toBeTruthy();
+      joinRoomCall[2]({ success: true, isHost: false, name: 'Alice' });
+      await joinPromise;
+
+      expect(useGameStore.getState().myName).toBe('Alice');
+      expect(JSON.parse(sessionStorage.getItem('tutto_online_session'))).toEqual({ roomId: 'SEAT_ROOM', myName: 'Alice' });
+    });
+
+    it('auto-rejoin adopts the server-confirmed name when provided', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.setState({ roomId: 'ROOM1', myName: 'Alicia', deviceId: 'dev-a', mode: 'online', isOnline: true });
+      mockEmit.mockClear();
+
+      mockOnHandlers['connect']();
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(joinRoomCall).toBeTruthy();
+      joinRoomCall[2]({ success: true, isHost: false, name: 'Alice' });
+
+      expect(useGameStore.getState().myName).toBe('Alice');
+    });
+
     it('cancelReconnect(roomId, name) clears state and opens a temp socket to leave the room', async () => {
       const { io } = await import('socket.io-client');
       io.mockClear();

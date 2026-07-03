@@ -179,7 +179,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           const savedColor = localStorage.getItem('tutto_color');
           sock.emit('joinRoom', { roomId, name: myName, deviceId, color: savedColor }, (res: JoinRoomResponse) => {
             if (res.success) {
-              set({ isHost: res.isHost ?? false });
+              set({ isHost: res.isHost ?? false, myName: res.name ?? myName });
               return;
             }
             // The seat is unrecoverable (room deleted after the reconnect
@@ -223,8 +223,11 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       }
       socket.emit('joinRoom', { roomId: room, name, deviceId: get().deviceId, color: savedColor, initialConfig }, (res: JoinRoomResponse) => {
         if (res.success) {
-          set({ roomId: room, isHost: res.isHost ?? false, myName: name, mode: 'online', isOnline: true });
-          sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: room, myName: name }));
+          // Adopt the name the server seated us under — a mid-game rejoin with
+          // a different name keeps the seat's original name (see JoinRoomResponse).
+          const seatedName = res.name ?? name;
+          set({ roomId: room, isHost: res.isHost ?? false, myName: seatedName, mode: 'online', isOnline: true });
+          sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: room, myName: seatedName }));
 
           if (res.isHost && !isReconnect && initialConfig) {
             get().addToast(i18n.t('lobby.savedSettingsLoaded'));
