@@ -8,80 +8,19 @@ import { Server, Socket } from 'socket.io';
 import cors from 'cors';
 import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } from './database';
 import { sanitizeStats } from './sanitize';
-import type { CardType, InitialCards, Player, DiceSnapshot, CoreGameState } from '../src/types';
-import { calculateNextTurn, buildDeck } from '../src/utils/coreGameEngine';
-import { getEffectiveTurnDuration } from '../src/utils/turnDuration';
+import type { CardType, InitialCards, DiceSnapshot, CoreGameState } from '../src/types';
+import { calculateNextTurn } from '../src/utils/coreGameEngine';
 import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
-  MAX_CARD_COUNT, VALID_CARD_TYPES,
-  DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
+  MAX_CARD_COUNT, VALID_CARD_TYPES, DEFAULT_RECONNECT_TIMEOUT,
 } from '../src/utils/configValidation';
+import type { Room, RoomState, ServerPlayer } from './roomTypes';
+import {
+  rooms, createRoom, handleActivePlayerRemoved,
+  calculateRemainingTurnTime, emitRoomState,
+} from './rooms';
 import playerColorsData from '../playerColors.json';
 const { PLAYER_COLORS } = playerColorsData;
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-// CardType / InitialCards / Player are shared with the client (src/types.ts) to
-// keep the card set and player shape from drifting. The server requires the
-// connection fields the client treats as optional, so narrow them here.
-type ServerPlayer = Omit<Player, 'deviceId' | 'socketId' | 'color' | 'disconnected'> & {
-  deviceId: string;
-  socketId: string;
-  color: string;
-  disconnected: boolean;
-};
-
-interface RoomState {
-  players: ServerPlayer[];
-  status: 'lobby' | 'playing';
-  initialCards: InitialCards;
-  winningScore: number;
-  randomOrder: boolean;
-  turnDuration: number;
-  reconnectTimeout: number;
-  currentCard: CardType | null;
-  cards: CardType[];
-  round: number;
-  currentPlayerIndex: number | null;
-  finished: boolean;
-  chartValues: number[][];
-  chartNames: string[];
-  chartLabels: number[];
-  gameTimeInSeconds: number;
-  turnStartTime: number | null;
-  previousCard: CardType | null;
-  previousScore: number | null;
-  previousLeaders: ServerPlayer[] | null;
-  previousWasBust?: boolean;
-  previousHighestTurnScore?: number;
-  liveTurnState?: DiceSnapshot | null;
-}
-
-interface TurnTimerState {
-  lastCard: CardType | null;
-  lastPlayerIndex: number | null;
-}
-
-// Tracks which devices/global stats have already been recorded for the room's
-// CURRENT game — reset whenever a new game starts (see pushState's startingGame
-// branch). Without this, a player who reconnects or reloads after their game
-// already finished (but before leaving the room) re-triggers their client's
-// "finished just became true" stats submission on every reconnect, repeatedly
-// inflating both their device stats and, if they're host, the global stats.
-interface StatsRecordedForGame {
-  devices: Set<string>;
-  global: boolean;
-}
-
-interface Room {
-  host: string;
-  state: RoomState;
-  gameActualStartTime: number | null;
-  turnTimerState: TurnTimerState | null;
-  disconnectTimers: Record<string, ReturnType<typeof setTimeout>>;
-  turnExpireTimer: ReturnType<typeof setTimeout> | null;
-  statsRecordedForGame: StatsRecordedForGame;
-}
 
 // ─── App setup ────────────────────────────────────────────────────────────────
 
@@ -192,93 +131,7 @@ const PLAYER_MUTABLE: (keyof ServerPlayer)[] = [
   'highestTurnScore', 'position', 'color', 'disconnected',
 ];
 
-const rooms: Record<string, Room> = {};
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const drawNextCardForRoom = (state: RoomState): void => {
-  if (state.cards && state.cards.length > 0) {
-    state.currentCard = state.cards.shift() ?? null;
-  } else {
-    const deck = buildDeck(state.initialCards);
-    state.currentCard = deck.shift() ?? null;
-    state.cards = deck;
-  }
-};
-
-const handleActivePlayerRemoved = (state: RoomState, removedIdx: number): void => {
-  if (Array.isArray(state.chartValues) && removedIdx < state.chartValues.length) {
-    state.chartValues.splice(removedIdx, 1);
-  }
-  if (Array.isArray(state.chartNames) && removedIdx < state.chartNames.length) {
-    state.chartNames.splice(removedIdx, 1);
-  }
-
-  if (state.currentPlayerIndex === null) return;
-  const curIdx = state.currentPlayerIndex;
-  if (removedIdx < curIdx) {
-    state.currentPlayerIndex = curIdx - 1;
-  } else if (removedIdx === curIdx) {
-    // `state.players` has already been spliced by the caller, so its length here
-    // is the original turn-order size minus one. The removed player was the last
-    // to act this round only if their index equals that post-splice length —
-    // otherwise players after them still owe a turn this round, and jumping the
-    // round forward would skip those turns entirely.
-    const removedPlayerWasLastInOrder = removedIdx === state.players.length;
-    state.currentPlayerIndex = curIdx % Math.max(1, state.players.length);
-    state.previousCard = null;
-    state.previousScore = null;
-    state.previousLeaders = null;
-    // The removed player was mid-turn — drop their live dice snapshot so
-    // spectators don't keep seeing it attributed to the player now in this slot.
-    state.liveTurnState = null;
-    if (removedPlayerWasLastInOrder) state.round += 1;
-    state.turnStartTime = Date.now();
-    drawNextCardForRoom(state);
-  }
-};
-
-const calculateGameTime = (room: Room): number => {
-  if (!room.gameActualStartTime || room.state.status !== 'playing') {
-    return room.state.gameTimeInSeconds;
-  }
-  return Math.floor((Date.now() - room.gameActualStartTime) / 1000);
-};
-
-const calculateRemainingTurnTime = (room: Room): number | null => {
-  if (!room.state.turnStartTime || room.state.turnDuration === 0) return null;
-
-  const targetDuration = getEffectiveTurnDuration(room.state.currentCard, room.state.turnDuration);
-  const elapsedSeconds = Math.floor((Date.now() - room.state.turnStartTime) / 1000);
-  return Math.max(0, targetDuration - elapsedSeconds);
-};
-
-// deviceId is a reconnect credential (see joinRoom: possession of a player's
-// deviceId is enough to take over their seat), so it must never be broadcast
-// to other room members — only the owning client's own outgoing joinRoom call
-// carries it. previousLeaders is a snapshot of full player objects and needs
-// the same scrubbing.
-const sanitizePlayerForBroadcast = (p: ServerPlayer): Omit<ServerPlayer, 'deviceId'> => {
-  const rest: Partial<ServerPlayer> = { ...p };
-  delete rest.deviceId;
-  return rest as Omit<ServerPlayer, 'deviceId'>;
-};
-
-const emitRoomState = (roomId: string): void => {
-  const room = rooms[roomId];
-  if (!room) return;
-  const gameState = {
-    ...room.state,
-    players: room.state.players.map(sanitizePlayerForBroadcast),
-    previousLeaders: room.state.previousLeaders
-      ? room.state.previousLeaders.map(sanitizePlayerForBroadcast)
-      : room.state.previousLeaders,
-    turnTimeRemaining: calculateRemainingTurnTime(room),
-    gameTimeInSeconds: calculateGameTime(room),
-  };
-  io.to(roomId).emit('gameState', gameState);
-  io.to(roomId).emit('hostId', room.host);
-};
 
 const clearServerTurnTimer = (roomId: string): void => {
   const room = rooms[roomId];
@@ -373,7 +226,7 @@ const advanceTurnOnTimeout = (roomId: string): void => {
       startServerTurnTimer(roomId);
     }
 
-    emitRoomState(roomId);
+    emitRoomState(io, roomId);
   } catch (err) {
     // Backstop: pushState's own validation should make a malformed room state
     // unreachable, but this callback runs on a bare setTimeout with no caller to
@@ -474,36 +327,7 @@ io.on('connection', (socket: Socket) => {
     }
 
     if (!rooms[roomId]) {
-      rooms[roomId] = {
-        host: socket.id,
-        gameActualStartTime: null,
-        turnTimerState: null,
-        disconnectTimers: {},
-        turnExpireTimer: null,
-        statsRecordedForGame: { devices: new Set(), global: false },
-        state: {
-          players: [],
-          status: 'lobby',
-          initialCards: { ...DEFAULT_INITIAL_CARDS },
-          winningScore: DEFAULT_WINNING_SCORE,
-          randomOrder: true,
-          turnDuration: DEFAULT_TURN_DURATION,
-          reconnectTimeout: DEFAULT_RECONNECT_TIMEOUT,
-          currentCard: null,
-          cards: [],
-          round: 1,
-          currentPlayerIndex: null,
-          finished: false,
-          chartValues: [],
-          chartNames: [],
-          chartLabels: [],
-          gameTimeInSeconds: 0,
-          turnStartTime: null,
-          previousCard: null,
-          previousScore: null,
-          previousLeaders: null,
-        },
-      };
+      rooms[roomId] = createRoom(socket.id);
 
       if (initialConfig && typeof initialConfig === 'object') {
         applyValidatedConfig(rooms[roomId].state, initialConfig);
@@ -534,7 +358,7 @@ io.on('connection', (socket: Socket) => {
       currentRoom = roomId;
       username = name;
       callback({ success: true, isHost: room.host === socket.id, socketId: socket.id });
-      emitRoomState(roomId);
+      emitRoomState(io, roomId);
       return;
     }
 
@@ -590,7 +414,7 @@ io.on('connection', (socket: Socket) => {
     room.state.players.push(newPlayer);
 
     callback({ success: true, isHost: room.host === socket.id, socketId: socket.id });
-    emitRoomState(roomId);
+    emitRoomState(io, roomId);
   });
 
   socket.on('updateConfig', ({
@@ -608,7 +432,7 @@ io.on('connection', (socket: Socket) => {
     // Resync the pending expiry to the (possibly just-changed) turnDuration. A
     // no-op if no turn is in progress; startServerTurnTimer's own guards handle that.
     startServerTurnTimer(roomId);
-    emitRoomState(roomId);
+    emitRoomState(io, roomId);
   });
 
   socket.on('reorderPlayers', ({ roomId, newPlayers }: { roomId: string; newPlayers: { name: string }[] } =
@@ -630,7 +454,7 @@ io.on('connection', (socket: Socket) => {
         .map(np => rooms[roomId].state.players.find(p => p.name === np.name))
         .filter((p): p is ServerPlayer => p !== undefined);
       rooms[roomId].state.randomOrder = false;
-      emitRoomState(roomId);
+      emitRoomState(io, roomId);
     }
   });
 
@@ -641,7 +465,7 @@ io.on('connection', (socket: Socket) => {
     const player = rooms[roomId].state.players.find(p => p.socketId === socket.id);
     if (player) {
       player.color = color;
-      emitRoomState(roomId);
+      emitRoomState(io, roomId);
     }
   });
 
@@ -672,7 +496,7 @@ io.on('connection', (socket: Socket) => {
       // If the kicked player was mid-turn, handleActivePlayerRemoved already
       // reset turnStartTime for the player now in their slot — resync the timer.
       if (!aborted) startServerTurnTimer(currentRoom);
-      emitRoomState(currentRoom);
+      emitRoomState(io, currentRoom);
     }
 
     const targetSocket = io.sockets.sockets.get(targetSocketId);
@@ -869,7 +693,7 @@ io.on('connection', (socket: Socket) => {
         }
       }
 
-      emitRoomState(roomId);
+      emitRoomState(io, roomId);
     } catch (err) {
       // Backstop: validation above should make this unreachable, but a crash here
       // would otherwise take down the whole process (every room, every player) —
@@ -963,10 +787,10 @@ io.on('connection', (socket: Socket) => {
         const aborted = abortGameIfLowPlayers(room, currentRoom);
         if (!aborted) startServerTurnTimer(currentRoom);
       }
-      emitRoomState(currentRoom);
+      emitRoomState(io, currentRoom);
     } else {
       player.disconnected = true;
-      emitRoomState(currentRoom);
+      emitRoomState(io, currentRoom);
       io.to(currentRoom).emit('playerDisconnected', username);
 
       if (!room.disconnectTimers) room.disconnectTimers = {};
@@ -1009,7 +833,7 @@ io.on('connection', (socket: Socket) => {
           }
           const aborted = abortGameIfLowPlayers(r, roomIdSnapshot);
           if (!aborted) startServerTurnTimer(roomIdSnapshot);
-          emitRoomState(roomIdSnapshot);
+          emitRoomState(io, roomIdSnapshot);
         }
       }, timeoutSecs * 1000);
     }
