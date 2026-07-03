@@ -12,13 +12,16 @@ const CRASH_FIELD_MAX = 2000;
 // Reads env at call time (not import time) so it runs after index.ts has
 // loaded .env via dotenv — module bodies are hoisted above that statement.
 export const registerApiRoutes = (app: express.Express): void => {
-  // VITE_API_TOKEN guards the HTTP POST /api/stats/* endpoints (admin/tool access only).
-  // Clients submit stats via authenticated WebSocket events — no token in the client bundle.
-  if (process.env.NODE_ENV === 'production' && !process.env.VITE_API_TOKEN) {
-    console.error('[SECURITY] VITE_API_TOKEN is not set. Refusing to start in production.');
+  // API_TOKEN guards the HTTP POST /api/stats/* endpoints (admin/tool access only).
+  // Clients submit stats via authenticated WebSocket events — no token in the
+  // client bundle. Deliberately NOT prefixed with VITE_: Vite compiles any
+  // referenced VITE_* env var into the public bundle, so the prefix would turn
+  // one careless import.meta.env reference into a leaked server secret.
+  if (process.env.NODE_ENV === 'production' && !process.env.API_TOKEN) {
+    console.error('[SECURITY] API_TOKEN is not set. Refusing to start in production.');
     process.exit(1);
   }
-  const API_TOKEN = process.env.VITE_API_TOKEN || 'tutto-local-dev-token';
+  const API_TOKEN = process.env.API_TOKEN || 'tutto-local-dev-token';
 
   const requireToken = (
     req: express.Request,

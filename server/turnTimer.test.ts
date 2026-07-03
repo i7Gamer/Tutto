@@ -19,7 +19,7 @@ describe('Server-side turn timer', () => {
         env: {
           ...process.env,
           PORT,
-          VITE_API_TOKEN: 'test-token',
+          API_TOKEN: 'test-token',
           TEST_DB: 'true',
           FORCE_INIT_DB: 'true',
         },

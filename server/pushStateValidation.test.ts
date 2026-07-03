@@ -21,7 +21,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
   beforeAll(() => {
     return new Promise((resolve, reject) => {
       serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: { ...process.env, PORT, VITE_API_TOKEN: 'test-token', TEST_DB: 'true', FORCE_INIT_DB: 'true' },
+        env: { ...process.env, PORT, API_TOKEN: 'test-token', TEST_DB: 'true', FORCE_INIT_DB: 'true' },
         stdio: 'pipe',
       });
       let stdout = '';
