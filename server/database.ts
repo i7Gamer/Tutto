@@ -78,7 +78,15 @@ export const updateDeviceStats = async (deviceId: string, stats: StatsPayload): 
 
   if (stats.highestTurnScore !== undefined) {
     data.highestTurnScore = stats.highestTurnScore;
-    mergeCols.highestTurnScore = knex.raw(`MAX(device_statistics.highestTurnScore, EXCLUDED.highestTurnScore)`);
+    // sqlite's scalar MAX(x, NULL) is NULL, so a null in the payload would wipe
+    // the stored maximum without the explicit NULL handling.
+    mergeCols.highestTurnScore = knex.raw(`
+      CASE
+        WHEN EXCLUDED.highestTurnScore IS NULL THEN device_statistics.highestTurnScore
+        WHEN device_statistics.highestTurnScore IS NULL THEN EXCLUDED.highestTurnScore
+        ELSE MAX(device_statistics.highestTurnScore, EXCLUDED.highestTurnScore)
+      END
+    `);
   }
   if (stats.fastestWinTurns !== undefined) {
     data.fastestWinTurns = stats.fastestWinTurns;
@@ -182,7 +190,14 @@ export const updateGlobalStats = async (stats: StatsPayload): Promise<number> =>
   }
 
   if (stats.highestTurnScore !== undefined) {
-    updateData.highestTurnScore = knex.raw(`MAX(global_statistics.highestTurnScore, ?)`, [stats.highestTurnScore]);
+    // See updateDeviceStats: MAX(x, NULL) is NULL in sqlite.
+    updateData.highestTurnScore = knex.raw(`
+      CASE
+        WHEN ? IS NULL THEN global_statistics.highestTurnScore
+        WHEN global_statistics.highestTurnScore IS NULL THEN ?
+        ELSE MAX(global_statistics.highestTurnScore, ?)
+      END
+    `, [stats.highestTurnScore, stats.highestTurnScore, stats.highestTurnScore]);
   }
   if (stats.fastestWinTurns !== undefined) {
     updateData.fastestWinTurns = knex.raw(`

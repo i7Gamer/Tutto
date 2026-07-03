@@ -49,7 +49,8 @@ export const drawNextCardForRoom = (state: RoomState): void => {
   }
 };
 
-export const handleActivePlayerRemoved = (state: RoomState, removedIdx: number): void => {
+export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void => {
+  const state = room.state;
   if (Array.isArray(state.chartValues) && removedIdx < state.chartValues.length) {
     state.chartValues.splice(removedIdx, 1);
   }
@@ -79,6 +80,16 @@ export const handleActivePlayerRemoved = (state: RoomState, removedIdx: number):
     state.turnStartTime = Date.now();
     drawNextCardForRoom(state);
   }
+
+  // Keep pushState's turn-change tracking in step with the adjusted index/card.
+  // Without this, the next pushState compares against the pre-removal values,
+  // misreads the shifted index (or freshly drawn card) as a brand-new turn, and
+  // resets turnStartTime again — granting the active player extra time.
+  if (!room.turnTimerState) {
+    room.turnTimerState = { lastCard: null, lastPlayerIndex: null };
+  }
+  room.turnTimerState.lastCard = state.currentCard;
+  room.turnTimerState.lastPlayerIndex = state.currentPlayerIndex;
 };
 
 export const calculateGameTime = (room: Room): number => {

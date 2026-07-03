@@ -132,6 +132,56 @@ describe('Database Statistics Integration', () => {
     expect(globalStats.fastestWinTurns).toBe(currentFastestGlobal);
   });
 
+  it('should not overwrite highestTurnScore with null in device stats', async () => {
+    const mockDeviceId = 'test-null-hts-device-' + Date.now();
+
+    await database.updateDeviceStats(mockDeviceId, {
+      gamesPlayed: 1,
+      highestTurnScore: 900,
+    });
+
+    let stats = await database.getDeviceStats(mockDeviceId);
+    expect(stats.highestTurnScore).toBe(900);
+
+    // A crafted payload with highestTurnScore: null must not wipe the stored
+    // max — sqlite's scalar MAX(x, NULL) returns NULL.
+    await database.updateDeviceStats(mockDeviceId, {
+      gamesPlayed: 1,
+      highestTurnScore: null,
+    });
+
+    stats = await database.getDeviceStats(mockDeviceId);
+    expect(stats.highestTurnScore).toBe(900);
+
+    // A real new maximum still wins.
+    await database.updateDeviceStats(mockDeviceId, {
+      gamesPlayed: 1,
+      highestTurnScore: 1200,
+    });
+
+    stats = await database.getDeviceStats(mockDeviceId);
+    expect(stats.highestTurnScore).toBe(1200);
+  });
+
+  it('should not overwrite highestTurnScore with null in global stats', async () => {
+    await database.updateGlobalStats({
+      gamesPlayed: 1,
+      highestTurnScore: 900,
+    });
+
+    let globalStats = await database.getGlobalStats();
+    const currentHighest = globalStats.highestTurnScore;
+    expect(currentHighest).toBeGreaterThanOrEqual(900);
+
+    await database.updateGlobalStats({
+      gamesPlayed: 1,
+      highestTurnScore: null,
+    });
+
+    globalStats = await database.getGlobalStats();
+    expect(globalStats.highestTurnScore).toBe(currentHighest);
+  });
+
   it('should store and retrieve Kleeblatt losses correctly in global statistics', async () => {
     const mockGlobalStats = {
       gamesPlayed: 1,

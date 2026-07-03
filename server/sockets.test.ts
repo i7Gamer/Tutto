@@ -1799,6 +1799,93 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
+  it('rejects a rejoining device renaming itself to a disconnected player\'s name', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host, will attempt the rename
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — disconnects, name stays reserved
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect(); s2.disconnect();
+        reject(new Error('Timed out'));
+      }, 6000);
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'RENAME_STEAL_ROOM', name: 'Alice', deviceId: 'dev-steal-alice', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'RENAME_STEAL_ROOM', name: 'Bob', deviceId: 'dev-steal-bob', color: '#00ff00' }, () => {
+            // Long reconnectTimeout keeps Bob's seat (and name) reserved after
+            // his socket drops.
+            s1.emit('updateConfig', { roomId: 'RENAME_STEAL_ROOM', reconnectTimeout: 30 });
+
+            setTimeout(() => {
+              s2.disconnect();
+              setTimeout(() => {
+                // Alice's DEVICE rejoins under Bob's name. The reconnect path
+                // (matched by deviceId) must reject it just like a fresh join
+                // would — otherwise the room ends up with two "Bob"s once the
+                // real Bob reconnects, and name-keyed state merging corrupts.
+                s1.emit('joinRoom', { roomId: 'RENAME_STEAL_ROOM', name: 'Bob', deviceId: 'dev-steal-alice', color: '#ff0000' }, (res) => {
+                  expect(res.success).toBe(false);
+                  expect(res.error).toBe('Username already exists in this room');
+
+                  // Rejoining under her own (unchanged) name still works.
+                  s1.emit('joinRoom', { roomId: 'RENAME_STEAL_ROOM', name: 'Alice', deviceId: 'dev-steal-alice', color: '#ff0000' }, (res2) => {
+                    expect(res2.success).toBe(true);
+                    clearTimeout(timeoutId);
+                    s1.disconnect(); s2.disconnect();
+                    resolve();
+                  });
+                });
+              }, 300);
+            }, 200);
+          });
+        });
+      });
+    });
+  }, 10000);
+
+  it('kickPlayer aimed at a socket in a different room does not emit kicked to it', () => {
+    return new Promise((resolve, reject) => {
+      const hostA = io(`http://127.0.0.1:${PORT}`);   // host of room A — the attacker
+      const hostB = io(`http://127.0.0.1:${PORT}`);   // host of room B
+      const victimB = io(`http://127.0.0.1:${PORT}`); // member of room B — the target
+
+      const cleanup = () => { hostA.disconnect(); hostB.disconnect(); victimB.disconnect(); };
+      const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Timed out')); }, 6000);
+
+      victimB.on('kicked', () => {
+        clearTimeout(timeoutId);
+        cleanup();
+        reject(new Error('Victim in another room received kicked'));
+      });
+
+      hostA.on('connect', () => {
+        hostA.emit('joinRoom', { roomId: 'XKICK_ROOM_A', name: 'Attacker', deviceId: 'dev-xkick-a', color: '#ff0000' }, () => {
+          hostB.emit('joinRoom', { roomId: 'XKICK_ROOM_B', name: 'HostB', deviceId: 'dev-xkick-hb', color: '#00ff00' }, () => {
+            victimB.emit('joinRoom', { roomId: 'XKICK_ROOM_B', name: 'Victim', deviceId: 'dev-xkick-v', color: '#0000ff' }, (res) => {
+              const victimSocketId = res.socketId;
+
+              hostA.emit('kickPlayer', victimSocketId);
+
+              // Give a stray 'kicked' time to arrive, then confirm room B's
+              // roster is untouched (the victim is still a member).
+              setTimeout(() => {
+                hostB.once('gameState', (state) => {
+                  expect(state.players.length).toBe(2);
+                  expect(state.players.some(p => p.name === 'Victim')).toBe(true);
+                  clearTimeout(timeoutId);
+                  cleanup();
+                  resolve();
+                });
+                // updatePlayerColor triggers a fresh emitRoomState to assert on.
+                hostB.emit('updatePlayerColor', { roomId: 'XKICK_ROOM_B', color: '#123456' });
+              }, 800);
+            });
+          });
+        });
+      });
+    });
+  }, 10000);
+
   it('joinRoom without an ack callback does not crash the server', () => {
     return new Promise((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);

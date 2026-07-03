@@ -62,8 +62,13 @@ export const registerSocketHandlers = (io: Server): void => {
 
       const existingPlayer = room.state.players.find(p => p.deviceId === deviceId);
       if (existingPlayer) {
+        // Disconnected players keep their name reserved too (same rule as the
+        // fresh-join path below) — otherwise a rejoining device could rename
+        // itself to a disconnected player's name, and the room would hold two
+        // identical names once that player reconnects. Names are the identity
+        // key for pushState merging, so duplicates corrupt scores and stats.
         const nameTakenByOther = room.state.players.some(
-          p => p.deviceId !== deviceId && !p.disconnected && p.name.toLowerCase() === name.toLowerCase()
+          p => p.deviceId !== deviceId && p.name.toLowerCase() === name.toLowerCase()
         );
         if (nameTakenByOther) {
           return callback({ success: false, error: 'Username already exists in this room' });
@@ -197,13 +202,15 @@ export const registerSocketHandlers = (io: Server): void => {
       if (!currentRoom || !rooms[currentRoom] || rooms[currentRoom].host !== socket.id) return;
       const room = rooms[currentRoom];
 
-      io.to(targetSocketId).emit('kicked');
-
       const removedIdx = room.state.players.findIndex(p => p.socketId === targetSocketId);
       if (removedIdx !== -1) {
+        // Only emit once the target is confirmed to be in the host's own room —
+        // otherwise a host could send a 'kicked' signal to any socket on the
+        // server, booting players out of unrelated rooms client-side.
+        io.to(targetSocketId).emit('kicked');
         const removedPlayer = room.state.players[removedIdx];
         room.state.players.splice(removedIdx, 1);
-        handleActivePlayerRemoved(room.state, removedIdx);
+        handleActivePlayerRemoved(room, removedIdx);
         // A kicked player may be mid-reconnect-countdown; leaving that timer armed
         // would later remove whoever rejoined the room on the same device.
         if (room.disconnectTimers[removedPlayer.deviceId]) {
@@ -305,10 +312,14 @@ export const registerSocketHandlers = (io: Server): void => {
       // re-submitting for the same game. Recorded per game, reset when a new one
       // starts (see pushState's startingGame branch).
       if (room.statsRecordedForGame.global) return;
+      // Marked BEFORE the await so a concurrent duplicate can't slip through,
+      // but rolled back on failure — otherwise a transient DB error would
+      // permanently swallow this game's stats (the dedup would reject a retry).
       room.statsRecordedForGame.global = true;
       try {
         await updateGlobalStats(sanitizeStats(payload));
       } catch (err) {
+        room.statsRecordedForGame.global = false;
         console.error('submitGlobalStats error:', err);
       }
     });
@@ -325,10 +336,13 @@ export const registerSocketHandlers = (io: Server): void => {
       if (!player || player.deviceId !== deviceId || !room) return;
       // See submitGlobalStats above — same reconnect-after-finish dedup, per device.
       if (room.statsRecordedForGame.devices.has(deviceId)) return;
+      // See submitGlobalStats: pre-add blocks concurrent duplicates, rollback
+      // on failure keeps a retry possible instead of losing the game's stats.
       room.statsRecordedForGame.devices.add(deviceId);
       try {
         await updateDeviceStats(deviceId, sanitizeStats(stats));
       } catch (err) {
+        room.statsRecordedForGame.devices.delete(deviceId);
         console.error(err);
       }
     });
@@ -343,7 +357,7 @@ export const registerSocketHandlers = (io: Server): void => {
 
       if (isExplicitLeave) {
         room.state.players.splice(playerIndex, 1);
-        handleActivePlayerRemoved(room.state, playerIndex);
+        handleActivePlayerRemoved(room, playerIndex);
 
         if (room.disconnectTimers[player.deviceId]) {
           clearTimeout(room.disconnectTimers[player.deviceId]);
@@ -408,7 +422,7 @@ export const registerSocketHandlers = (io: Server): void => {
           const removedIdx = r.state.players.findIndex(p => p.deviceId === player.deviceId);
           if (removedIdx === -1) return;
           r.state.players.splice(removedIdx, 1);
-          handleActivePlayerRemoved(r.state, removedIdx);
+          handleActivePlayerRemoved(r, removedIdx);
 
           if (r.state.players.length === 0) {
             clearServerTurnTimer(roomIdSnapshot);
