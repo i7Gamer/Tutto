@@ -94,7 +94,6 @@
   "game.round": "Round",
   "game.turnTimer": "Turn Timer",
   "game.timeSeconds": "{{time}}s",
-  "game.disconnectingIn": "Disconnecting in",
   "game.time": "Time",
   "game.leaderboard": "Leaderboard",
   "game.pos": "Pos",

@@ -132,7 +132,7 @@ const CardRow = ({ label, icon, count, wins, fails, avgPoints, hideRate, failsLa
             </div>
             {!hideRate && (
               <div className="text-center min-w-[50px]">
-                <div className="font-black text-lg text-indigo-600 dark:indigo-400">{getWinLoseRate(wins, fails ?? 0)}</div>
+                <div className="font-black text-lg text-indigo-600 dark:text-indigo-400">{getWinLoseRate(wins, fails ?? 0)}</div>
                 <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('statistics.rate', 'Rate')}</div>
               </div>
             )}
@@ -285,7 +285,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
             <motion.div key="global" role="tabpanel" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="flex flex-col w-full">
               <div className="text-center mb-8">
                 <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">{t('statistics.globalCommunityTitle', 'Global Community Statistics')}</h3>
-                <p className="text-gray-500 dark:text-gray-400 font-medium">{t('statistics.globalDescription', 'Aggregated across all local and online games played.')}</p>
+                <p className="text-gray-500 dark:text-gray-400 font-medium">{t('statistics.globalDescription', 'Aggregated across all online games played.')}</p>
               </div>
               {!g || !g.totalGamesPlayed ? (
                 <div className="text-center text-gray-500 dark:text-gray-400 py-10 bg-black/5 dark:bg-white/5 rounded-2xl border border-gray-100 dark:border-slate-700">

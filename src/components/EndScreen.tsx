@@ -64,6 +64,12 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   const winner = sortedPlayers[0];
   const formattedTime = formatTime(gameTimeInSeconds);
 
+  // Same rule as the lobby's StartGameButton: don't let the host restart while
+  // someone is disconnected — their turns would just burn down via the server
+  // turn timer until they reconnect or get kicked. Checked against the LIVE
+  // roster (not the frozen end-screen snapshot) so it clears on reconnect.
+  const waitingForReconnect = game.isOnline && players.some(p => p.disconnected);
+
   const [deviceStats, setDeviceStats] = useState<DeviceStats | null>(null);
 
   useEffect(() => {
@@ -165,8 +171,14 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
         <div className="flex justify-center">
           {(!game.isOnline || game.isHost) ? (
             <div className="flex flex-col sm:flex-row gap-4 w-full max-w-md">
-              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-4 px-6 rounded-2xl text-xl font-bold flex justify-center items-center gap-2 shadow-lg shadow-emerald-500/30 transition-colors" onClick={startGame}>
-                <RotateCcw size={24} /> {t('end.playAgain', 'Play Again')}
+              <motion.button
+                whileHover={!waitingForReconnect ? { scale: 1.05 } : {}}
+                whileTap={!waitingForReconnect ? { scale: 0.95 } : {}}
+                className={`flex-1 py-4 px-6 rounded-2xl text-xl font-bold flex justify-center items-center gap-2 transition-colors ${waitingForReconnect ? 'bg-gray-400 text-gray-200 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'}`}
+                onClick={startGame}
+                disabled={waitingForReconnect}
+              >
+                <RotateCcw size={24} /> {waitingForReconnect ? t('lobby.waitingForPlayersToReconnect', 'Waiting for players to reconnect...') : t('end.playAgain', 'Play Again')}
               </motion.button>
               <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="flex-1 bg-white dark:bg-slate-800 hover:bg-black/5 text-gray-700 dark:text-gray-200 border-2 border-gray-200 dark:border-slate-600 py-4 px-6 rounded-2xl text-lg font-bold flex justify-center items-center gap-2 shadow-sm transition-colors" onClick={endGame}>
                 <Settings size={20} /> {t('end.newConfig', 'New Config')}

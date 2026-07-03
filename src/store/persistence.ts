@@ -68,7 +68,13 @@ export const attachPersistence = (store: Pick<StoreApi<GameStore>, 'subscribe'>)
       turnDuration: state.turnDuration, reconnectTimeout: state.reconnectTimeout,
       finished: state.finished,
       previousScore: state.previousScore, previousCard: state.previousCard,
-      previousLeaders: state.previousLeaders, chartValues: state.chartValues,
+      previousLeaders: state.previousLeaders,
+      // calculateUndo needs these two to revert bust counters and restore
+      // highestTurnScore — previousCard is saved (undo stays available after a
+      // reload), so dropping them would make a post-reload undo corrupt stats.
+      previousWasBust: state.previousWasBust,
+      previousHighestTurnScore: state.previousHighestTurnScore,
+      chartValues: state.chartValues,
       chartNames: state.chartNames, chartLabels: state.chartLabels, status: state.status,
     };
     const key = JSON.stringify(stable);

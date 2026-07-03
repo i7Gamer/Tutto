@@ -41,7 +41,6 @@ export interface GameStore extends CoreGameState {
   turnDuration: number;
   reconnectTimeout: number;
   turnTimeRemaining: number | null;
-  kickTimeRemaining?: number | null;
   chartValues: number[][];
   chartNames: string[];
   chartLabels: number[];

@@ -167,6 +167,34 @@ describe('useGameStore', () => {
     setItemSpy.mockRestore();
   });
 
+  it('persists previousWasBust/previousHighestTurnScore so undo after a reload stays accurate', () => {
+    // calculateUndo reads both fields to revert bust counters and restore the
+    // player's highestTurnScore. previousCard IS persisted (so undo stays
+    // available after a reload) — if these two are dropped from the save, a
+    // post-reload undo resets highestTurnScore to 0 and never reverts busts.
+    useGameStore.setState({
+      mode: 'local', status: 'playing',
+      players: [{ ...namedPlayers('Alice')[0], score: 500, busts: 1, highestTurnScore: 800 }],
+      currentPlayerIndex: 0, previousCard: '200', previousScore: 0,
+      previousWasBust: true, previousHighestTurnScore: 800,
+    });
+
+    const savedRaw = localStorage.getItem('tutto_local_game')!;
+    const saved = JSON.parse(savedRaw);
+    expect(saved.previousWasBust).toBe(true);
+    expect(saved.previousHighestTurnScore).toBe(800);
+
+    // Simulate the reload: fresh store state, then init() restores the save.
+    // reset() itself re-triggers the persistence subscriber (a real reload
+    // doesn't — the page is gone), so put the on-disk save back before init.
+    useGameStore.getState().reset();
+    localStorage.setItem('tutto_local_game', savedRaw);
+    useGameStore.getState().init('device-123');
+
+    expect(useGameStore.getState().previousWasBust).toBe(true);
+    expect(useGameStore.getState().previousHighestTurnScore).toBe(800);
+  });
+
   it('adds and removes players', () => {
     useGameStore.getState().addPlayer('Player 1');
     useGameStore.getState().addPlayer('Player 2');

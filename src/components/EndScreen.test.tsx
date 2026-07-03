@@ -223,6 +223,58 @@ describe('EndScreen Component', () => {
     expect(getByText('end.winner Charlie')).toBeInTheDocument();
   });
 
+  describe('Play Again disconnected-player guard', () => {
+    afterEach(() => {
+      useGameStore.setState({ isOnline: false, isHost: false });
+    });
+
+    it('disables Play Again with the waiting message while an online player is disconnected (same rule as the lobby)', () => {
+      useGameStore.setState({
+        isOnline: true,
+        isHost: true,
+        players: [
+          { name: 'Alice', score: 10000, position: 1 },
+          { name: 'Bob', score: 5000, position: 2, disconnected: true },
+        ],
+      });
+      const { getByText, queryByText } = render(<EndScreen />);
+
+      const btn = getByText('lobby.waitingForPlayersToReconnect').closest('button');
+      expect(btn).toBeDisabled();
+      expect(queryByText('end.playAgain')).toBeNull();
+    });
+
+    it('re-enables Play Again once every online player is connected again', () => {
+      useGameStore.setState({
+        isOnline: true,
+        isHost: true,
+        players: [
+          { name: 'Alice', score: 10000, position: 1 },
+          { name: 'Bob', score: 5000, position: 2, disconnected: true },
+        ],
+      });
+      const { getByText } = render(<EndScreen />);
+      expect(getByText('lobby.waitingForPlayersToReconnect').closest('button')).toBeDisabled();
+
+      act(() => {
+        useGameStore.setState({
+          players: [
+            { name: 'Alice', score: 10000, position: 1 },
+            { name: 'Bob', score: 5000, position: 2, disconnected: false },
+          ],
+        });
+      });
+
+      expect(getByText('end.playAgain').closest('button')).toBeEnabled();
+    });
+
+    it('never disables Play Again for local games', () => {
+      useGameStore.setState({ isOnline: false });
+      const { getByText } = render(<EndScreen />);
+      expect(getByText('end.playAgain').closest('button')).toBeEnabled();
+    });
+  });
+
   describe('device stats fetching', () => {
     afterEach(() => {
       vi.restoreAllMocks();

@@ -22,7 +22,6 @@ describe('Scoreboard Component', () => {
       round: 1,
       winningScore: 1000,
       turnTimeRemaining: 30,
-      kickTimeRemaining: 60,
       hostId: 'abc'
     };
 
@@ -34,8 +33,7 @@ describe('Scoreboard Component', () => {
     expect(screen.getByText('game.yourScore')).toBeInTheDocument();
     expect(screen.getByText('game.round')).toBeInTheDocument();
     expect(screen.getByText('game.turnTimer')).toBeInTheDocument();
-    expect(screen.getAllByText('game.timeSeconds').length).toBe(2);
-    expect(screen.getByText('game.disconnectingIn')).toBeInTheDocument();
+    expect(screen.getAllByText('game.timeSeconds').length).toBe(1);
     expect(screen.getByText('game.time')).toBeInTheDocument();
   });
 
