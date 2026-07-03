@@ -32,10 +32,26 @@ export default function Home({ onShowStats }: HomeProps) {
     localStorage.removeItem('last_crash_time');
     sessionStorage.removeItem('tutto_online_session');
 
+    // The Cache Storage API is only exposed on secure contexts (HTTPS/localhost).
+    // This app is explicitly playable over plain http:// on a LAN (see the
+    // crypto.randomUUID() note in DiceGame.tsx for the same constraint), where
+    // `caches` is undefined — referencing it directly would throw before the
+    // reload below ever ran, leaving storage half-cleared and no reload.
+    if (typeof caches === 'undefined') {
+      window.location.reload();
+      return;
+    }
+
     caches.keys().then(names => {
       Promise.all(names.map(name => caches.delete(name))).then(() => {
         window.location.reload();
-      }).catch(console.error);
+      }).catch((err) => {
+        // Reload must happen even if a cache failed to delete — otherwise this
+        // explicit "reload" button silently does nothing from the user's
+        // perspective beyond the console error.
+        console.error(err);
+        window.location.reload();
+      });
     }).catch(() => window.location.reload());
   };
 

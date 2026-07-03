@@ -1,5 +1,6 @@
-import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import type { ComponentProps } from 'react';
 import GameControls from './GameControls';
 import type { CardType, DiceSnapshot, Player } from '../../types';
 
@@ -188,5 +189,127 @@ describe('GameControls spectator view (online, not my turn)', () => {
     expect(screen.queryByText('dice.bust_description')).toBeNull();
     expect(screen.getByText('2').className).toContain('border-red-300');
     expect(screen.getByText('4').className).toContain('border-red-300');
+  });
+});
+
+describe('GameControls physical dice interactions', () => {
+  const baseProps = (overrides: Partial<ComponentProps<typeof GameControls>> = {}) => ({
+    currentCard: '200' as CardType,
+    cardsLength: 5,
+    isMyTurn: true,
+    diceMode: 'physical' as const,
+    setShowDiceGame: vi.fn(),
+    scoreInput: '',
+    setScoreInput: vi.fn(),
+    applyBonus: false,
+    setApplyBonus: vi.fn(),
+    handleNextTurn: vi.fn(),
+    handleYesNo: vi.fn(),
+    undo: vi.fn(),
+    endGame: vi.fn(),
+    isOnline: false,
+    isHost: true,
+    leaveRoom: vi.fn(),
+    activeTurnState: null,
+    currentPlayer: { name: 'Alice' } as Player,
+    ...overrides,
+  });
+
+  it('quick-add button appends its value to a blank score input', () => {
+    const setScoreInput = vi.fn();
+    render(<GameControls {...baseProps({ scoreInput: '', setScoreInput })} />);
+
+    fireEvent.click(screen.getByText('+100'));
+
+    expect(setScoreInput).toHaveBeenCalledTimes(1);
+    const updater = setScoreInput.mock.calls[0][0] as (prev: string) => string;
+    expect(updater('')).toBe('100');
+  });
+
+  it('quick-add button accumulates onto an existing numeric score input', () => {
+    const setScoreInput = vi.fn();
+    render(<GameControls {...baseProps({ scoreInput: '250', setScoreInput })} />);
+
+    fireEvent.click(screen.getByText('+50'));
+
+    const updater = setScoreInput.mock.calls[0][0] as (prev: string) => string;
+    expect(updater('250')).toBe('300');
+  });
+
+  it('quick-add button treats a non-numeric score input as 0', () => {
+    const setScoreInput = vi.fn();
+    render(<GameControls {...baseProps({ scoreInput: '', setScoreInput })} />);
+
+    fireEvent.click(screen.getByText('+1000'));
+
+    const updater = setScoreInput.mock.calls[0][0] as (prev: string) => string;
+    expect(updater('not-a-number')).toBe('1000');
+  });
+});
+
+describe('GameControls end/leave game confirmation dialogs', () => {
+  const baseProps = (overrides: Partial<ComponentProps<typeof GameControls>> = {}) => ({
+    currentCard: '200' as CardType,
+    cardsLength: 5,
+    isMyTurn: true,
+    diceMode: 'physical' as const,
+    setShowDiceGame: vi.fn(),
+    scoreInput: '',
+    setScoreInput: vi.fn(),
+    applyBonus: false,
+    setApplyBonus: vi.fn(),
+    handleNextTurn: vi.fn(),
+    handleYesNo: vi.fn(),
+    undo: vi.fn(),
+    endGame: vi.fn(),
+    isOnline: false,
+    isHost: true,
+    leaveRoom: vi.fn(),
+    activeTurnState: null,
+    currentPlayer: { name: 'Alice' } as Player,
+    ...overrides,
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('offline: shows End Game, and only calls endGame once the confirm dialog is accepted', () => {
+    const endGame = vi.fn();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<GameControls {...baseProps({ isOnline: false, isHost: true, endGame })} />);
+
+    expect(screen.queryByText('game.controls.leaveGame')).toBeNull();
+    fireEvent.click(screen.getByText('game.controls.endGame'));
+    expect(confirmSpy).toHaveBeenCalledWith('game.controls.endGameConfirm');
+    expect(endGame).not.toHaveBeenCalled();
+
+    confirmSpy.mockReturnValue(true);
+    fireEvent.click(screen.getByText('game.controls.endGame'));
+    expect(endGame).toHaveBeenCalledTimes(1);
+  });
+
+  it('online + host: still shows End Game (not Leave Game)', () => {
+    const endGame = vi.fn();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<GameControls {...baseProps({ isOnline: true, isHost: true, endGame })} />);
+
+    fireEvent.click(screen.getByText('game.controls.endGame'));
+    expect(endGame).toHaveBeenCalledTimes(1);
+  });
+
+  it('online + non-host: shows Leave Game, and only calls leaveRoom once the confirm dialog is accepted', () => {
+    const leaveRoom = vi.fn();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<GameControls {...baseProps({ isOnline: true, isHost: false, leaveRoom })} />);
+
+    expect(screen.queryByText('game.controls.endGame')).toBeNull();
+    fireEvent.click(screen.getByText('game.controls.leaveGame'));
+    expect(confirmSpy).toHaveBeenCalledWith('game.controls.leaveGameConfirm');
+    expect(leaveRoom).not.toHaveBeenCalled();
+
+    confirmSpy.mockReturnValue(true);
+    fireEvent.click(screen.getByText('game.controls.leaveGame'));
+    expect(leaveRoom).toHaveBeenCalledTimes(1);
   });
 });

@@ -193,6 +193,92 @@ describe('useGameStore', () => {
     expect(state.randomOrder).toBe(false);
   });
 
+  describe('configSlice remaining setters and resets', () => {
+    it('setDiceMode updates state and persists to localStorage', () => {
+      useGameStore.getState().setDiceMode('digital');
+      expect(useGameStore.getState().diceMode).toBe('digital');
+      expect(localStorage.getItem('tutto_diceMode')).toBe('digital');
+    });
+
+    it('setAudioEnabled updates state and persists to localStorage', () => {
+      useGameStore.getState().setAudioEnabled(false);
+      expect(useGameStore.getState().audioEnabled).toBe(false);
+      expect(localStorage.getItem('tutto_audioEnabled')).toBe('false');
+    });
+
+    it('setInitialCards updates the deck composition', () => {
+      const newCards = { Stop: 20, Kniffel: 0 };
+      useGameStore.getState().setInitialCards(newCards as never);
+      expect(useGameStore.getState().initialCards).toEqual(newCards);
+    });
+
+    it('setReconnectTimeout updates the kick timer', () => {
+      useGameStore.getState().setReconnectTimeout(45);
+      expect(useGameStore.getState().reconnectTimeout).toBe(45);
+    });
+
+    it('resetGeneralSettings restores winningScore/randomOrder/turnDuration/reconnectTimeout to defaults', () => {
+      useGameStore.setState({ winningScore: 9999, randomOrder: false, turnDuration: 30, reconnectTimeout: 10 });
+      useGameStore.getState().resetGeneralSettings();
+
+      const state = useGameStore.getState();
+      expect(state.winningScore).toBe(6000);
+      expect(state.randomOrder).toBe(true);
+      expect(state.turnDuration).toBe(120);
+      expect(state.reconnectTimeout).toBe(60);
+    });
+
+    it('resetInitialCards restores the default deck each time it is called', () => {
+      useGameStore.setState({ initialCards: { Stop: 0 } as never });
+      useGameStore.getState().resetInitialCards();
+      expect(useGameStore.getState().initialCards.Stop).toBe(10);
+
+      // A second reset from a different tampered state must still land on the
+      // same defaults — proving each call spreads a fresh copy rather than
+      // handing out (and risking corruption of) the shared default object.
+      useGameStore.setState({ initialCards: { Stop: 77 } as never });
+      useGameStore.getState().resetInitialCards();
+      expect(useGameStore.getState().initialCards.Stop).toBe(10);
+    });
+
+    it('updateConfig emits updateConfig over the socket only when online AND host AND a roomId exists', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      mockEmit.mockClear();
+
+      // Online but not host — must not emit.
+      useGameStore.setState({ isOnline: true, isHost: false, roomId: 'ROOM1' });
+      useGameStore.getState().setWinningScore(7000);
+      expect(mockEmit).not.toHaveBeenCalledWith('updateConfig', expect.any(Object));
+
+      // Host but not online (e.g. local mode) — must not emit.
+      useGameStore.setState({ isOnline: false, isHost: true, roomId: 'ROOM1' });
+      useGameStore.getState().setWinningScore(7100);
+      expect(mockEmit).not.toHaveBeenCalledWith('updateConfig', expect.any(Object));
+
+      // Online + host but no roomId — must not emit.
+      useGameStore.setState({ isOnline: true, isHost: true, roomId: null });
+      useGameStore.getState().setWinningScore(7200);
+      expect(mockEmit).not.toHaveBeenCalledWith('updateConfig', expect.any(Object));
+
+      // Online + host + roomId — must emit the full config snapshot.
+      useGameStore.setState({
+        isOnline: true, isHost: true, roomId: 'ROOM1',
+        initialCards: { Stop: 5 } as never, randomOrder: false, turnDuration: 45, reconnectTimeout: 20,
+      });
+      useGameStore.getState().setWinningScore(7300);
+      expect(mockEmit).toHaveBeenCalledWith('updateConfig', {
+        roomId: 'ROOM1',
+        winningScore: 7300,
+        initialCards: { Stop: 5 },
+        randomOrder: false,
+        turnDuration: 45,
+        reconnectTimeout: 20,
+      });
+
+      disconnectSocket();
+    });
+  });
+
   it('changes player color locally', () => {
     useGameStore.getState().addPlayer('Alice');
     useGameStore.getState().changePlayerColor('Alice', '#FFFFFF');
