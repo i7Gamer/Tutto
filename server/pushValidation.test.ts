@@ -67,13 +67,14 @@ describe('applyPushedState', () => {
 
     it('ignores host-only fields from the active player', () => {
       const state = makeState();
-      applyPushedState(state, { status: 'playing', winningScore: 7777, turnDuration: 30, reconnectTimeout: 30, randomOrder: false, initialCards: { Stop: 1 } }, asActivePlayer);
+      applyPushedState(state, { status: 'playing', winningScore: 7777, turnDuration: 30, reconnectTimeout: 30, randomOrder: false, initialCards: { Stop: 1 }, enforcedDiceMode: 'digital' }, asActivePlayer);
       expect(state.status).toBe('lobby');
       expect(state.winningScore).toBe(6000);
       expect(state.turnDuration).toBe(120);
       expect(state.reconnectTimeout).toBe(60);
       expect(state.randomOrder).toBe(true);
       expect(state.initialCards.Stop).toBe(10);
+      expect(state.enforcedDiceMode).toBeNull();
     });
 
     it('lets the active player write game-progress fields', () => {
@@ -217,6 +218,18 @@ describe('applyPushedState', () => {
       const state = makeState();
       applyPushedState(state, { randomOrder: 1 }, asHost);
       expect(state.randomOrder).toBe(true);
+    });
+
+    it('enforcedDiceMode: accepts null and both dice modes, rejects junk', () => {
+      const state = makeState();
+      applyPushedState(state, { enforcedDiceMode: 'digital' }, asHost);
+      expect(state.enforcedDiceMode).toBe('digital');
+      applyPushedState(state, { enforcedDiceMode: 'physical' }, asHost);
+      expect(state.enforcedDiceMode).toBe('physical');
+      applyPushedState(state, { enforcedDiceMode: 'bogus' }, asHost);
+      expect(state.enforcedDiceMode).toBe('physical');
+      applyPushedState(state, { enforcedDiceMode: null }, asHost);
+      expect(state.enforcedDiceMode).toBeNull();
     });
 
     it('currentCard/previousCard: accepts null and valid cards, rejects junk', () => {
@@ -384,12 +397,27 @@ describe('applyValidatedConfig', () => {
       reconnectTimeout: 0,     // valid ("off")
       randomOrder: 'yes',      // not boolean — ignored
       initialCards: { Stop: 2 }, // valid
+      enforcedDiceMode: 'digital', // valid
     });
     expect(state.winningScore).toBe(7777);
     expect(state.turnDuration).toBe(120);
     expect(state.reconnectTimeout).toBe(0);
     expect(state.randomOrder).toBe(true);
     expect(state.initialCards).toEqual({ Stop: 2 });
+    expect(state.enforcedDiceMode).toBe('digital');
+  });
+
+  it('applies enforcedDiceMode: null (turning enforcement back off)', () => {
+    const state = makeState();
+    state.enforcedDiceMode = 'digital';
+    applyValidatedConfig(state, { enforcedDiceMode: null });
+    expect(state.enforcedDiceMode).toBeNull();
+  });
+
+  it('ignores an invalid enforcedDiceMode value', () => {
+    const state = makeState();
+    applyValidatedConfig(state, { enforcedDiceMode: 'bogus' });
+    expect(state.enforcedDiceMode).toBeNull();
   });
 });
 

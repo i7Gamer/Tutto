@@ -34,6 +34,7 @@ export default function Game() {
     liveTurnState,
     setLiveTurnState,
     diceMode,
+    enforcedDiceMode,
     isHost,
     kickPlayer,
     justReconnected,
@@ -42,6 +43,11 @@ export default function Game() {
   } = game;
 
   const formattedTime = formatTime(gameTimeInSeconds);
+
+  // The host may pin a single dice mode for how every player takes their OWN
+  // turn, overriding each player's personal device preference (offline has no
+  // host to enforce anything, so it's always the personal preference there).
+  const effectiveDiceMode = isOnline && enforcedDiceMode ? enforcedDiceMode : diceMode;
 
   const currentPlayer = currentPlayerIndex !== null ? players[currentPlayerIndex] : null;
   const sortedPlayers = useMemo(() => computeRankedPlayers(players), [players]);
@@ -71,7 +77,7 @@ export default function Game() {
     if (isOnline && justReconnected) {
       if (onlineReconnectHandledRef.current) return;
       onlineReconnectHandledRef.current = true;
-      if (isMyTurn && diceMode === 'digital' && liveTurnState) {
+      if (isMyTurn && effectiveDiceMode === 'digital' && liveTurnState) {
         const snapshotWithPlayer = {
           ...liveTurnState,
           playerName: currentPlayer?.name,
@@ -85,7 +91,7 @@ export default function Game() {
     }
     onlineReconnectHandledRef.current = false;
 
-    if (!isOnline && isMyTurn && diceMode === 'digital' && localCacheOnMountRef.current && !reconnectHandledRef.current) {
+    if (!isOnline && isMyTurn && effectiveDiceMode === 'digital' && localCacheOnMountRef.current && !reconnectHandledRef.current) {
       reconnectHandledRef.current = true;
       localCacheOnMountRef.current = false;
 
@@ -101,7 +107,7 @@ export default function Game() {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [justReconnected, liveTurnState, isMyTurn, diceMode, isOnline]);
+  }, [justReconnected, liveTurnState, isMyTurn, effectiveDiceMode, isOnline]);
 
   useEffect(() => {
     let soundTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -191,7 +197,7 @@ export default function Game() {
             currentCard={currentCard}
             cardsLength={cards?.length || 0}
             isMyTurn={!!isMyTurn}
-            diceMode={diceMode}
+            diceMode={effectiveDiceMode}
             setShowDiceGame={setShowDiceGame}
             scoreInput={scoreInput}
             setScoreInput={setScoreInput}
@@ -272,7 +278,7 @@ export default function Game() {
               turnKey={buildTurnKey(roomId, round, currentPlayerIndex, currentCard)}
               onComplete={handleDiceComplete}
               onCancel={handleCancelDiceGame}
-              onStateChange={diceMode === 'digital' ? setLiveTurnState : undefined}
+              onStateChange={effectiveDiceMode === 'digital' ? setLiveTurnState : undefined}
             />
           </motion.div>
         </div>

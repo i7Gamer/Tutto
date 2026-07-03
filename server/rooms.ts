@@ -36,6 +36,7 @@ export const createRoom = (hostSocketId: string): Room => ({
     previousCard: null,
     previousScore: null,
     previousLeaders: null,
+    enforcedDiceMode: null,
   },
 });
 

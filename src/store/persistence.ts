@@ -1,5 +1,5 @@
 import type { StoreApi } from 'zustand';
-import { isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry } from '../utils/configValidation';
+import { isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry, isValidEnforcedDiceMode } from '../utils/configValidation';
 import type { CardType, InitialCards } from '../types';
 import type { GameStore, GameMode, GameStatus, ConfigKeys } from './storeTypes';
 
@@ -14,6 +14,11 @@ export const validateOnlineConfig = (config: unknown): Partial<Pick<GameStore, C
   if (typeof c.randomOrder === 'boolean') valid.randomOrder = c.randomOrder;
   if (isValidTurnDuration(c.turnDuration)) valid.turnDuration = c.turnDuration;
   if (isValidReconnectTimeout(c.reconnectTimeout)) valid.reconnectTimeout = c.reconnectTimeout;
+  // A config saved before this field existed has c.enforcedDiceMode ===
+  // undefined, which isValidEnforcedDiceMode correctly rejects (only null or
+  // a DiceMode value pass) — so an old save is left with the field absent
+  // rather than forced to a value.
+  if (isValidEnforcedDiceMode(c.enforcedDiceMode)) valid.enforcedDiceMode = c.enforcedDiceMode;
   if (typeof c.initialCards === 'object' && c.initialCards !== null) {
     const validCards: InitialCards = {};
     for (const [key, val] of Object.entries(c.initialCards)) {
@@ -97,6 +102,7 @@ export const attachPersistence = (store: Pick<StoreApi<GameStore>, 'subscribe'>)
       randomOrder: state.randomOrder,
       turnDuration: state.turnDuration,
       reconnectTimeout: state.reconnectTimeout,
+      enforcedDiceMode: state.enforcedDiceMode,
     };
     const key = JSON.stringify(stable);
     if (key === lastOnlinePersistKey) return;

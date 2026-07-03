@@ -2,6 +2,7 @@ import { Server, Socket } from 'socket.io';
 import { updateDeviceStats, updateGlobalStats } from './database';
 import { sanitizeStats } from './sanitize';
 import { DEFAULT_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
+import type { DiceMode } from '../src/types';
 import { applyValidatedConfig, applyPushedState } from './pushValidation';
 import { clearServerTurnTimer, startServerTurnTimer, abortGameIfLowPlayers } from './turnTimers';
 import type { ServerPlayer } from './roomTypes';
@@ -156,7 +157,7 @@ export const registerSocketHandlers = (io: Server): void => {
     });
 
     socket.on('updateConfig', ({
-      roomId, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout,
+      roomId, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode,
     }: {
       roomId: string;
       winningScore?: number;
@@ -164,9 +165,10 @@ export const registerSocketHandlers = (io: Server): void => {
       randomOrder?: boolean;
       turnDuration?: number;
       reconnectTimeout?: number;
+      enforcedDiceMode?: DiceMode | null;
     }) => {
       if (!rooms[roomId] || rooms[roomId].host !== socket.id) return;
-      applyValidatedConfig(rooms[roomId].state, { winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout });
+      applyValidatedConfig(rooms[roomId].state, { winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode });
       // Resync the pending expiry to the (possibly just-changed) turnDuration. A
       // no-op if no turn is in progress; startServerTurnTimer's own guards handle that.
       startServerTurnTimer(io, roomId);

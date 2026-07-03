@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import OnlineLobby from './OnlineLobby';
 
@@ -86,5 +86,72 @@ describe('OnlineLobby start button / waiting indicator', () => {
     // Leave button lives inside the mb-8 wrapper; start button must not
     expect(leaveText.closest('.mb-8')).not.toBeNull();
     expect(startText.closest('.mb-8')).toBeNull();
+  });
+});
+
+describe('OnlineLobby dice mode enforcement', () => {
+  const makeGame = (overrides = {}) => ({
+    roomId: '1234',
+    myName: 'Alice',
+    isHost: true,
+    hostId: 'socket-alice',
+    players: [
+      { name: 'Alice', socketId: 'socket-alice', color: '#ff0000', disconnected: false },
+      { name: 'Bob',   socketId: 'socket-bob',   color: '#00ff00', disconnected: false },
+    ],
+    diceMode: 'physical',
+    setDiceMode: vi.fn(),
+    enforcedDiceMode: null,
+    setEnforcedDiceMode: vi.fn(),
+    changeMyColor: vi.fn(),
+    kickPlayer: vi.fn(),
+    startGame: vi.fn(),
+    reorderPlayers: vi.fn(),
+    initialCards: { Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5, x2: 5, '200': 5, '300': 5, '400': 5, '500': 5, '600': 5 },
+    ...overrides,
+  });
+
+  it('host sees the enforce checkbox and their own dice mode selector', () => {
+    render(<OnlineLobby game={makeGame()} />);
+    expect(screen.getByText('lobby.enforceDiceMode')).toBeInTheDocument();
+    expect(screen.getByText('lobby.digitalDice')).toBeInTheDocument();
+    expect(screen.getByText('lobby.physicalDice')).toBeInTheDocument();
+    expect(screen.queryByText('lobby.diceModeEnforcedBadge')).not.toBeInTheDocument();
+  });
+
+  it('checking the enforce checkbox enforces the host\'s current dice mode', () => {
+    const setEnforcedDiceMode = vi.fn();
+    render(<OnlineLobby game={makeGame({ diceMode: 'digital', setEnforcedDiceMode })} />);
+
+    const checkbox = screen.getByText('lobby.enforceDiceMode').closest('label')!.querySelector('input[type="checkbox"]')!;
+    fireEvent.click(checkbox);
+
+    expect(setEnforcedDiceMode).toHaveBeenCalledWith('digital');
+  });
+
+  it('unchecking the enforce checkbox turns enforcement off', () => {
+    const setEnforcedDiceMode = vi.fn();
+    render(<OnlineLobby game={makeGame({ enforcedDiceMode: 'physical', setEnforcedDiceMode })} />);
+
+    const checkbox = screen.getByText('lobby.enforceDiceMode').closest('label')!.querySelector('input[type="checkbox"]')!;
+    expect(checkbox).toBeChecked();
+    fireEvent.click(checkbox);
+
+    expect(setEnforcedDiceMode).toHaveBeenCalledWith(null);
+  });
+
+  it('non-host sees a read-only badge instead of the selector once enforcement is on', () => {
+    render(<OnlineLobby game={makeGame({ isHost: false, enforcedDiceMode: 'digital' })} />);
+    expect(screen.getByText(/lobby.diceModeEnforcedBadge/)).toBeInTheDocument();
+    expect(screen.queryByText('lobby.digitalDice')).not.toBeInTheDocument();
+    expect(screen.queryByText('lobby.physicalDice')).not.toBeInTheDocument();
+    expect(screen.queryByText('lobby.enforceDiceMode')).not.toBeInTheDocument();
+  });
+
+  it('non-host still sees their own selector when enforcement is off', () => {
+    render(<OnlineLobby game={makeGame({ isHost: false, enforcedDiceMode: null })} />);
+    expect(screen.getByText('lobby.digitalDice')).toBeInTheDocument();
+    expect(screen.getByText('lobby.physicalDice')).toBeInTheDocument();
+    expect(screen.queryByText(/lobby.diceModeEnforcedBadge/)).not.toBeInTheDocument();
   });
 });

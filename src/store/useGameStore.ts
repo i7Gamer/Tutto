@@ -20,6 +20,7 @@ export { PLAYER_COLORS } from './gameSlice';
 
 const initialLocalState: Omit<CoreGameState, never> & {
   diceMode: DiceMode;
+  enforcedDiceMode: DiceMode | null;
   audioEnabled: boolean;
   randomOrder: boolean;
   turnDuration: number;
@@ -40,6 +41,7 @@ const initialLocalState: Omit<CoreGameState, never> & {
   winningScore: DEFAULT_WINNING_SCORE,
   initialCards: DEFAULT_INITIAL_CARDS,
   diceMode: 'physical',
+  enforcedDiceMode: null,
   audioEnabled: true,
   randomOrder: true,
   turnDuration: DEFAULT_TURN_DURATION,
@@ -155,6 +157,10 @@ export const useGameStore = create<GameStore>()(
         state.turnDuration = initialLocalState.turnDuration;
         state.reconnectTimeout = initialLocalState.reconnectTimeout;
         state.initialCards = JSON.parse(JSON.stringify(initialLocalState.initialCards));
+        // Meaningless offline (no host to enforce it) and never part of a local
+        // save — reset so a leftover online enforcement doesn't survive a
+        // switch to local and then bleed into the next online room.
+        state.enforcedDiceMode = initialLocalState.enforcedDiceMode;
 
         if (parsed) {
           Object.assign(state, parsed);

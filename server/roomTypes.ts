@@ -1,4 +1,4 @@
-import type { CardType, InitialCards, Player, DiceSnapshot } from '../src/types';
+import type { CardType, InitialCards, Player, DiceSnapshot, DiceMode } from '../src/types';
 
 // CardType / InitialCards / Player are shared with the client (src/types.ts) to
 // keep the card set and player shape from drifting. The server requires the
@@ -34,6 +34,9 @@ export interface RoomState {
   previousWasBust?: boolean;
   previousHighestTurnScore?: number;
   liveTurnState?: DiceSnapshot | null;
+  // null = every player uses their own diceMode; a DiceMode value = the host
+  // has pinned that mode for everyone's own turn. Host-only config.
+  enforcedDiceMode: DiceMode | null;
 }
 
 export interface TurnTimerState {

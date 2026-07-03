@@ -109,6 +109,17 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
             if (JSON.stringify(prev.initialCards) !== JSON.stringify(serverState.initialCards)) {
               prev.toasts.push({ id: Date.now() + Math.random(), message: i18n.t('game.toastDeckChanged', 'Deck composition changed') });
             }
+            if (prev.enforcedDiceMode !== serverState.enforcedDiceMode) {
+              const value = serverState.enforcedDiceMode === null
+                ? i18n.t('common.disabled', 'Disabled')
+                : serverState.enforcedDiceMode === 'digital'
+                  ? i18n.t('lobby.digitalDice', 'Digital Dice')
+                  : i18n.t('lobby.physicalDice', 'Physical Dice');
+              prev.toasts.push({
+                id: Date.now() + Math.random(),
+                message: i18n.t('game.toastDiceModeEnforced', { defaultValue: 'Dice mode: {{value}}', value }),
+              });
+            }
           }
           if (prev.mode === 'online' && prev.status === 'playing' && serverState.status === 'lobby' && !prev.finished && (serverState.players?.length ?? 0) >= 2) {
             prev.toasts.push({ id: Date.now() + Math.random(), message: i18n.t('game.toastHostEndedEarly', 'Host ended game early') });
@@ -272,7 +283,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
         randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
         previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
-        chartValues, chartNames, chartLabels, status, liveTurnState,
+        chartValues, chartNames, chartLabels, status, liveTurnState, enforcedDiceMode,
       } = s;
       socket.emit('pushState', {
         roomId: s.roomId,
@@ -280,7 +291,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
           randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
           previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
-          chartValues, chartNames, chartLabels, status, liveTurnState,
+          chartValues, chartNames, chartLabels, status, liveTurnState, enforcedDiceMode,
         },
       });
     }

@@ -1,4 +1,4 @@
-import type { CardType, InitialCards } from '../types';
+import type { CardType, InitialCards, DiceMode } from '../types';
 
 export const VALID_CARD_TYPES: readonly CardType[] = [
   'Kleeblatt', 'Feuerwerk', 'Stop', 'Kniffel', 'Plus_Minus', 'x2',
@@ -48,3 +48,8 @@ export const snapDisableableDuration = (v: number, minEnabled: number): number =
 export const isValidCardEntry = (key: string, val: unknown): val is number =>
   (VALID_CARD_TYPES as readonly string[]).includes(key) &&
   Number.isInteger(val) && (val as number) >= 0 && (val as number) <= MAX_CARD_COUNT;
+
+// null = every player uses their own device's diceMode preference (default);
+// a DiceMode value = the host has pinned that mode for every player's own turn.
+export const isValidEnforcedDiceMode = (v: unknown): v is DiceMode | null =>
+  v === null || v === 'physical' || v === 'digital';

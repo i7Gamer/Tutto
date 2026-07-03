@@ -28,7 +28,7 @@ export interface JoinRoomResponse {
   name?: string;
 }
 
-export type ConfigKeys = 'winningScore' | 'initialCards' | 'randomOrder' | 'turnDuration' | 'reconnectTimeout';
+export type ConfigKeys = 'winningScore' | 'initialCards' | 'randomOrder' | 'turnDuration' | 'reconnectTimeout' | 'enforcedDiceMode';
 
 export interface GameStore extends CoreGameState {
   mode: GameMode;
@@ -41,6 +41,10 @@ export interface GameStore extends CoreGameState {
   myName: string | null;
   toasts: Toast[];
   diceMode: DiceMode;
+  // Host-only room config: null means every player uses their own diceMode
+  // (the default); a DiceMode value pins that mode for everyone's own turn,
+  // overriding their personal preference (see Game.tsx's effectiveDiceMode).
+  enforcedDiceMode: DiceMode | null;
   audioEnabled: boolean;
   randomOrder: boolean;
   turnDuration: number;
@@ -69,6 +73,7 @@ export interface GameStore extends CoreGameState {
   setRandomOrder: (val: boolean) => void;
   setTurnDuration: (val: number) => void;
   setReconnectTimeout: (val: number) => void;
+  setEnforcedDiceMode: (val: DiceMode | null) => void;
   resetGeneralSettings: () => void;
   resetInitialCards: () => void;
   addPlayer: (name: string) => void;

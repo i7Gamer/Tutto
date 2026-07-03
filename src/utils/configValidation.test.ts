@@ -16,6 +16,7 @@ import {
   isValidTurnDuration,
   isValidReconnectTimeout,
   isValidCardEntry,
+  isValidEnforcedDiceMode,
   snapDisableableDuration,
 } from './configValidation';
 
@@ -308,6 +309,38 @@ describe('configValidation', () => {
 
     it('rejects an empty string key', () => {
       expect(isValidCardEntry('', 5)).toBe(false);
+    });
+  });
+
+  // ─── isValidEnforcedDiceMode ────────────────────────────────────────────────
+
+  describe('isValidEnforcedDiceMode', () => {
+    it('accepts null (not enforced)', () => {
+      expect(isValidEnforcedDiceMode(null)).toBe(true);
+    });
+
+    it('accepts "digital"', () => {
+      expect(isValidEnforcedDiceMode('digital')).toBe(true);
+    });
+
+    it('accepts "physical"', () => {
+      expect(isValidEnforcedDiceMode('physical')).toBe(true);
+    });
+
+    it('rejects undefined', () => {
+      expect(isValidEnforcedDiceMode(undefined)).toBe(false);
+    });
+
+    it('rejects an arbitrary string', () => {
+      expect(isValidEnforcedDiceMode('digitall')).toBe(false);
+    });
+
+    it('rejects a boolean', () => {
+      expect(isValidEnforcedDiceMode(true)).toBe(false);
+    });
+
+    it('rejects a number', () => {
+      expect(isValidEnforcedDiceMode(1)).toBe(false);
     });
   });
 });

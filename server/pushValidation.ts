@@ -1,6 +1,7 @@
 import type { CardType, InitialCards, DiceSnapshot } from '../src/types';
 import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
+  isValidEnforcedDiceMode,
   MAX_CARD_COUNT, VALID_CARD_TYPES,
   MIN_WINNING_SCORE, MAX_WINNING_SCORE, MAX_TURN_DURATION, MAX_RECONNECT_TIMEOUT,
 } from '../src/utils/configValidation';
@@ -30,12 +31,13 @@ export const validateInitialCards = (cards: unknown): cards is InitialCards => {
 // (updateConfig and joinRoom's initialConfig) so the accepted ranges can never
 // drift apart between them.
 export const applyValidatedConfig = (state: RoomState, config: Record<string, unknown>): void => {
-  const { winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout } = config;
+  const { winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode } = config;
   if (isValidWinningScore(winningScore)) state.winningScore = winningScore;
   if (validateInitialCards(initialCards)) state.initialCards = initialCards;
   if (typeof randomOrder === 'boolean') state.randomOrder = randomOrder;
   if (isValidTurnDuration(turnDuration)) state.turnDuration = turnDuration;
   if (isValidReconnectTimeout(reconnectTimeout)) state.reconnectTimeout = reconnectTimeout;
+  if (isValidEnforcedDiceMode(enforcedDiceMode)) state.enforcedDiceMode = enforcedDiceMode;
 };
 
 // Minimal shape check for a previousLeaders snapshot entry — just enough for
@@ -58,7 +60,7 @@ export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
 
 const HOST_ONLY_FIELDS = new Set<string>([
   'status', 'winningScore', 'initialCards', 'randomOrder',
-  'turnDuration', 'reconnectTimeout',
+  'turnDuration', 'reconnectTimeout', 'enforcedDiceMode',
 ]);
 
 const ACTIVE_PLAYER_FIELDS = new Set<string>([
@@ -239,6 +241,9 @@ export const applyPushedState = (
       if (v === null || isValidDiceSnapshot(v)) {
         state.liveTurnState = v as DiceSnapshot | null;
       }
+    } else if (key === 'enforcedDiceMode') {
+      const v = newState.enforcedDiceMode;
+      if (isValidEnforcedDiceMode(v)) state.enforcedDiceMode = v;
     }
   }
 };

@@ -228,6 +228,49 @@ describe('useGameStore', () => {
       expect(localStorage.getItem('tutto_diceMode')).toBe('digital');
     });
 
+    it('setDiceMode does not touch enforcedDiceMode while offline or not enforcing', () => {
+      useGameStore.getState().setDiceMode('digital');
+      expect(useGameStore.getState().enforcedDiceMode).toBeNull();
+
+      useGameStore.setState({ isOnline: true, isHost: true, enforcedDiceMode: null });
+      useGameStore.getState().setDiceMode('physical');
+      expect(useGameStore.getState().enforcedDiceMode).toBeNull();
+    });
+
+    it('setDiceMode follows the host\'s new choice while enforcement is active', () => {
+      // While the host is enforcing a mode, their own DiceModeSelector doubles
+      // as "which mode to enforce" — the enforced value must track it live
+      // instead of requiring the host to re-toggle the checkbox.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.setState({ isOnline: true, isHost: true, roomId: 'ROOM1', enforcedDiceMode: 'digital' });
+      mockEmit.mockClear();
+
+      useGameStore.getState().setDiceMode('physical');
+
+      expect(useGameStore.getState().diceMode).toBe('physical');
+      expect(useGameStore.getState().enforcedDiceMode).toBe('physical');
+      const call = mockEmit.mock.calls.find(c => c[0] === 'updateConfig');
+      expect(call?.[1]).toMatchObject({ enforcedDiceMode: 'physical' });
+    });
+
+    it('setDiceMode does not follow for a non-host client even while enforcedDiceMode is set', () => {
+      useGameStore.setState({ isOnline: true, isHost: false, enforcedDiceMode: 'digital' });
+      useGameStore.getState().setDiceMode('physical');
+      expect(useGameStore.getState().enforcedDiceMode).toBe('digital');
+    });
+
+    it('setEnforcedDiceMode toggles enforcement on and off', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.setState({ isOnline: true, isHost: true, roomId: 'ROOM1' });
+      mockEmit.mockClear();
+
+      useGameStore.getState().setEnforcedDiceMode('digital');
+      expect(useGameStore.getState().enforcedDiceMode).toBe('digital');
+
+      useGameStore.getState().setEnforcedDiceMode(null);
+      expect(useGameStore.getState().enforcedDiceMode).toBeNull();
+    });
+
     it('setAudioEnabled updates state and persists to localStorage', () => {
       useGameStore.getState().setAudioEnabled(false);
       expect(useGameStore.getState().audioEnabled).toBe(false);
@@ -301,6 +344,7 @@ describe('useGameStore', () => {
         randomOrder: false,
         turnDuration: 45,
         reconnectTimeout: 20,
+        enforcedDiceMode: null,
       });
 
       disconnectSocket();
@@ -621,7 +665,7 @@ describe('useGameStore', () => {
     it('setMode(local) parses and merges config from localStorage fallback', () => {
       const legacyState = { winningScore: 7000, randomOrder: false, turnDuration: 300, reconnectTimeout: 120, initialCards: { '200': 10 } };
       localStorage.setItem('tutto_local_game', JSON.stringify(legacyState));
-      
+
       useGameStore.getState().setMode('local');
       const state = useGameStore.getState();
 
@@ -630,6 +674,31 @@ describe('useGameStore', () => {
       expect(state.turnDuration).toBe(300);
       expect(state.reconnectTimeout).toBe(120);
       expect(state.initialCards['200']).toBe(10);
+    });
+  });
+
+  describe('enforcedDiceMode mode-switch resets', () => {
+    it('setMode(local) resets a leftover enforcedDiceMode from a previous online room', () => {
+      useGameStore.setState({ enforcedDiceMode: 'digital' });
+      useGameStore.getState().setMode('local');
+      expect(useGameStore.getState().enforcedDiceMode).toBeNull();
+    });
+
+    it('setMode(online) does not carry a stale enforcedDiceMode into a fresh room join', () => {
+      useGameStore.setState({ enforcedDiceMode: 'digital' });
+      localStorage.removeItem('tutto_online_config');
+      useGameStore.getState().setMode('online');
+      expect(useGameStore.getState().enforcedDiceMode).toBeNull();
+    });
+
+    it('setMode(online) restores a saved enforcedDiceMode from a previous hosted room', () => {
+      localStorage.setItem('tutto_online_config', JSON.stringify({
+        winningScore: 6000, randomOrder: true, turnDuration: 120, reconnectTimeout: 60,
+        initialCards: { '200': 10 }, enforcedDiceMode: 'physical',
+      }));
+      useGameStore.getState().setMode('online');
+      expect(useGameStore.getState().enforcedDiceMode).toBe('physical');
+      localStorage.removeItem('tutto_online_config');
     });
   });
 
@@ -1370,6 +1439,27 @@ describe('useGameStore', () => {
       localStorage.removeItem('tutto_online_config');
     });
 
+    it('joinRoom includes a saved enforcedDiceMode in the transmitted initialConfig', async () => {
+      const { io } = await import('socket.io-client');
+      io.mockClear();
+      mockEmit.mockClear();
+
+      localStorage.setItem('tutto_online_config', JSON.stringify({
+        winningScore: 8000, randomOrder: false, turnDuration: 30, reconnectTimeout: 10,
+        initialCards: { '200': 10 }, enforcedDiceMode: 'digital',
+      }));
+
+      const joinPromise = useGameStore.getState().joinRoom('CONFIG_ROOM2', 'Alice', false);
+      mockOnHandlers['connect']();
+
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(joinRoomCall[1].initialConfig).toMatchObject({ enforcedDiceMode: 'digital' });
+
+      joinRoomCall[2]({ success: true, isHost: true });
+      await joinPromise;
+      localStorage.removeItem('tutto_online_config');
+    });
+
     it('joinRoom adopts the server-confirmed name from the ack (mid-game seat takeover)', async () => {
       // Rejoining a running game with a different name keeps the seat's
       // original name server-side; the client must adopt it or isMyTurn and
@@ -1722,6 +1812,45 @@ describe('useGameStore', () => {
 
       const messages = useGameStore.getState().toasts.map(t => t.message);
       expect(messages.some(m => m.includes('8000'))).toBe(true);
+    });
+
+    it('toasts when the host turns on dice mode enforcement in the lobby', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({ status: 'lobby', enforcedDiceMode: null });
+
+      mockOnHandlers['gameState']({ status: 'lobby', enforcedDiceMode: 'digital', players: [] });
+
+      const messages = useGameStore.getState().toasts.map(t => t.message);
+      expect(messages.some(m => m.includes('Digital Dice'))).toBe(true);
+    });
+
+    it('toasts when the host turns off dice mode enforcement in the lobby', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({ status: 'lobby', enforcedDiceMode: 'physical' });
+
+      mockOnHandlers['gameState']({ status: 'lobby', enforcedDiceMode: null, players: [] });
+
+      const messages = useGameStore.getState().toasts.map(t => t.message);
+      expect(messages.some(m => m.includes('Disabled'))).toBe(true);
+    });
+
+    it('does not toast when enforcedDiceMode is unchanged', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      const s = useGameStore.getState();
+      useGameStore.setState({ status: 'lobby', enforcedDiceMode: 'physical', toasts: [] });
+
+      // Every other lobby-diffed field must also match the current state,
+      // or its own toast fires and masks what this test is checking.
+      mockOnHandlers['gameState']({
+        status: 'lobby', enforcedDiceMode: 'physical', players: [],
+        winningScore: s.winningScore, turnDuration: s.turnDuration,
+        reconnectTimeout: s.reconnectTimeout, initialCards: s.initialCards,
+      });
+
+      expect(useGameStore.getState().toasts).toEqual([]);
     });
   });
 

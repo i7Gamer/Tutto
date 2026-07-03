@@ -254,6 +254,36 @@ describe('Game Component Integration', () => {
     expect(rollDiceButton).toBeTruthy();
   });
 
+  describe('host-enforced dice mode overrides the personal preference', () => {
+    it('shows Roll Dice even though the player\'s own diceMode is physical, when the host enforces digital', () => {
+      useGameStore.setState({ diceMode: 'physical', enforcedDiceMode: 'digital', isOnline: true });
+      render(<Game />);
+
+      expect(screen.getByText(/game.controls.rollDice/i)).toBeTruthy();
+    });
+
+    it('hides Roll Dice even though the player\'s own diceMode is digital, when the host enforces physical', () => {
+      useGameStore.setState({ diceMode: 'digital', enforcedDiceMode: 'physical', isOnline: true });
+      render(<Game />);
+
+      expect(screen.queryByText(/game.controls.rollDice/i)).toBeNull();
+    });
+
+    it('ignores enforcedDiceMode entirely offline (no host to enforce anything)', () => {
+      useGameStore.setState({ diceMode: 'physical', enforcedDiceMode: 'digital', isOnline: false });
+      render(<Game />);
+
+      expect(screen.queryByText(/game.controls.rollDice/i)).toBeNull();
+    });
+
+    it('falls back to the personal diceMode when enforcement is off (enforcedDiceMode: null)', () => {
+      useGameStore.setState({ diceMode: 'digital', enforcedDiceMode: null, isOnline: true });
+      render(<Game />);
+
+      expect(screen.getByText(/game.controls.rollDice/i)).toBeTruthy();
+    });
+  });
+
   it('plays buzzer sound when Stop card is drawn locally or online', async () => {
     act(() => {
       useGameStore.setState({ currentCard: 'Stop' });

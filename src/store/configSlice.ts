@@ -7,13 +7,21 @@ import type { GameStore, ImmerStateCreator } from './storeTypes';
 type ConfigSlice = Pick<GameStore,
   | 'setDiceMode' | 'setAudioEnabled'
   | 'updateConfig' | 'setWinningScore' | 'setInitialCards' | 'setRandomOrder'
-  | 'setTurnDuration' | 'setReconnectTimeout' | 'resetGeneralSettings' | 'resetInitialCards'
+  | 'setTurnDuration' | 'setReconnectTimeout' | 'setEnforcedDiceMode'
+  | 'resetGeneralSettings' | 'resetInitialCards'
 >;
 
 export const createConfigSlice: ImmerStateCreator<ConfigSlice> = (set, get) => ({
   setDiceMode: (val) => {
     set({ diceMode: val });
     localStorage.setItem('tutto_diceMode', val);
+    // While the host is actively enforcing a mode, their own selector doubles
+    // as "which mode to enforce" — keep the enforced value following it rather
+    // than requiring a separate re-toggle of the checkbox.
+    const s = get();
+    if (s.isOnline && s.isHost && s.enforcedDiceMode !== null) {
+      get().setEnforcedDiceMode(val);
+    }
   },
 
   setAudioEnabled: (val) => {
@@ -33,6 +41,7 @@ export const createConfigSlice: ImmerStateCreator<ConfigSlice> = (set, get) => (
         randomOrder: s.randomOrder,
         turnDuration: s.turnDuration,
         reconnectTimeout: s.reconnectTimeout,
+        enforcedDiceMode: s.enforcedDiceMode,
       });
     }
   },
@@ -42,6 +51,7 @@ export const createConfigSlice: ImmerStateCreator<ConfigSlice> = (set, get) => (
   setRandomOrder: (val) => get().updateConfig({ randomOrder: val }),
   setTurnDuration: (val) => get().updateConfig({ turnDuration: val }),
   setReconnectTimeout: (val) => get().updateConfig({ reconnectTimeout: val }),
+  setEnforcedDiceMode: (val) => get().updateConfig({ enforcedDiceMode: val }),
   resetGeneralSettings: () => get().updateConfig({
     winningScore: DEFAULT_WINNING_SCORE,
     randomOrder: true,

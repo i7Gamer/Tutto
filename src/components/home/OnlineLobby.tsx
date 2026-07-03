@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, AudioSettingSelector } from './LobbyShared';
+import {
+  DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList,
+  AudioSettingSelector, EnforceDiceModeToggle, DiceModeEnforcedBadge,
+} from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
 import type { GameStore } from '../../store/useGameStore';
 
@@ -113,12 +116,27 @@ export default function OnlineLobby({ game }: OnlineLobbyProps) {
         />
 
         <div className="flex flex-row flex-wrap justify-center items-stretch gap-4 mb-8">
-          {/* diceMode is deliberately per-device, not room config: it only
+          {/* diceMode is deliberately per-device, not room config by default: it
               decides how THIS player enters their own turns (digital dice vs
               typing a physical-dice score). Spectators see the active player's
-              live digital dice regardless (see GameControls). */}
-          <DiceModeSelector diceMode={game.diceMode} setDiceMode={game.setDiceMode} nameSuffix="Online" />
+              live digital dice regardless (see GameControls). The host may
+              override this per-device default by enforcing a single mode for
+              everyone (EnforceDiceModeToggle below) — a non-host's own selector
+              is hidden while that's active since it would no longer do anything. */}
+          {(isHost || !game.enforcedDiceMode) && (
+            <DiceModeSelector diceMode={game.diceMode} setDiceMode={game.setDiceMode} nameSuffix="Online" />
+          )}
+          {!isHost && game.enforcedDiceMode && (
+            <DiceModeEnforcedBadge enforcedDiceMode={game.enforcedDiceMode} />
+          )}
           <AudioSettingSelector audioEnabled={game.audioEnabled} setAudioEnabled={game.setAudioEnabled} nameSuffix="Online" />
+          {isHost && (
+            <EnforceDiceModeToggle
+              diceMode={game.diceMode}
+              enforcedDiceMode={game.enforcedDiceMode}
+              setEnforcedDiceMode={game.setEnforcedDiceMode}
+            />
+          )}
           <AdvancedOptionsToggle showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} />
         </div>
 

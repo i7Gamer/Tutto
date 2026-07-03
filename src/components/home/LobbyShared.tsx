@@ -150,6 +150,54 @@ export function DiceModeSelector({ diceMode, setDiceMode, nameSuffix = 'Lobby' }
   );
 }
 
+interface EnforceDiceModeToggleProps {
+  // The host's own current diceMode — becomes the value enforced for
+  // everyone the moment the checkbox is checked (see setDiceMode in
+  // configSlice.ts for how it keeps following the host's choice afterward).
+  diceMode: DiceMode;
+  enforcedDiceMode: DiceMode | null;
+  setEnforcedDiceMode: (val: DiceMode | null) => void;
+}
+
+// Host-only control: renders nothing for non-host viewers. The read-only
+// counterpart guests see instead (when enforcement is on) lives inline in
+// OnlineLobby, next to where their own now-inert DiceModeSelector would be.
+export function EnforceDiceModeToggle({ diceMode, enforcedDiceMode, setEnforcedDiceMode }: EnforceDiceModeToggleProps) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 bg-white dark:bg-slate-800/50 px-4 py-3 sm:px-6 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px]">
+      <label className="checkbox-wrapper text-gray-700 dark:text-gray-200">
+        <input
+          type="checkbox"
+          checked={enforcedDiceMode !== null}
+          onChange={(e) => setEnforcedDiceMode(e.target.checked ? diceMode : null)}
+        />
+        <span className="font-medium">{t('lobby.enforceDiceMode', 'Enforce dice mode for all players')}</span>
+      </label>
+    </div>
+  );
+}
+
+interface DiceModeEnforcedBadgeProps {
+  enforcedDiceMode: DiceMode;
+}
+
+// Read-only view shown to non-host players in place of their own
+// DiceModeSelector once the host has pinned a mode — their personal
+// preference no longer has any effect on gameplay, so the selector would be
+// misleading rather than merely inert.
+export function DiceModeEnforcedBadge({ enforcedDiceMode }: DiceModeEnforcedBadgeProps) {
+  const { t } = useTranslation();
+  const modeLabel = enforcedDiceMode === 'digital'
+    ? t('lobby.digitalDice', 'Digital Dice')
+    : t('lobby.physicalDice', 'Physical Dice');
+  return (
+    <div className="flex items-center justify-center gap-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-4 py-3 sm:px-6 rounded-xl border border-indigo-100 dark:border-indigo-800 h-full min-h-[50px] font-medium">
+      {t('lobby.diceModeEnforcedBadge', 'Dice Mode: {{mode}} (set by host)', { mode: modeLabel })}
+    </div>
+  );
+}
+
 interface AudioSettingSelectorProps {
   audioEnabled: boolean;
   setAudioEnabled: (val: boolean) => void;
@@ -301,6 +349,11 @@ export function AdvancedOptionsPanel({
                 <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
                   {t('lobby.randomOrder', 'Random Order')}: <strong>{game.randomOrder !== false ? t('game.controls.yes', 'Yes') : t('game.controls.no', 'No')}</strong>
                 </span>
+                {isOnline && game.enforcedDiceMode && (
+                  <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
+                    {t('lobby.diceMode', 'Dice Mode')}: <strong>{game.enforcedDiceMode === 'digital' ? t('lobby.digitalDice', 'Digital Dice') : t('lobby.physicalDice', 'Physical Dice')}</strong>
+                  </span>
+                )}
               </div>
               <div className="pt-4 border-t border-gray-200 dark:border-slate-600">
                 <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{t('lobby.cardsInDeck', 'Cards in Deck')}</h4>
