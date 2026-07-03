@@ -11,23 +11,24 @@ import {
 } from '../utils/coreGameEngine';
 import { parseJsonString } from '../utils/parseJson';
 import { parseSavedDiceState, buildTurnKey } from '../utils/diceTurnState';
-import { getEffectiveTurnDuration } from '../utils/turnDuration';
 import {
-  isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
 } from '../utils/configValidation';
 import i18n from '../i18n';
 import playerColorsData from '../../playerColors.json';
 import type {
   CardType,
-  InitialCards,
   Player,
   CoreGameState,
-  Toast,
   DiceSnapshot,
-  GlobalStatsPayload,
   DiceMode,
 } from '../types';
+import type { GameStore, GameStatus, ReconnectSession, JoinRoomResponse, ConfigKeys } from './storeTypes';
+import { validateOnlineConfig, reanchorLocalClock, attachPersistence } from './persistence';
+import { createTimerSlice } from './timers';
+
+export type { GameStore } from './storeTypes';
+export { _resetTimersForTests } from './timers';
 
 export const PLAYER_COLORS: string[] = playerColorsData.PLAYER_COLORS;
 
@@ -41,110 +42,7 @@ const createInitialPlayer = (name: string): Player => ({
 });
 
 
-type GameMode = 'local' | 'online';
-type GameStatus = 'lobby' | 'playing';
-
-interface ReconnectSession {
-  roomId: string;
-  myName: string;
-}
-
-interface JoinRoomResponse {
-  success: boolean;
-  isHost?: boolean;
-  error?: string;
-}
-
-type ConfigKeys = 'winningScore' | 'initialCards' | 'randomOrder' | 'turnDuration' | 'reconnectTimeout';
-
-export interface GameStore extends CoreGameState {
-  mode: GameMode;
-  deviceId: string | null;
-  isOnline: boolean;
-  showReconnectPopup: boolean;
-  roomId: string | null;
-  isHost: boolean;
-  hostId: string | null;
-  myName: string | null;
-  toasts: Toast[];
-  diceMode: DiceMode;
-  audioEnabled: boolean;
-  randomOrder: boolean;
-  turnDuration: number;
-  reconnectTimeout: number;
-  turnTimeRemaining: number | null;
-  kickTimeRemaining?: number | null;
-  chartValues: number[][];
-  chartNames: string[];
-  chartLabels: number[];
-  status: GameStatus;
-  liveTurnState: DiceSnapshot | null;
-  justReconnected: boolean;
-  pendingReconnectSession?: ReconnectSession | null;
-
-  reset: () => void;
-  clearPendingReconnect: () => void;
-  cancelReconnect: (roomId?: string | null, name?: string | null) => void;
-  init: (deviceId: string) => void;
-  setMode: (mode: GameMode) => void;
-  addToast: (message: string) => void;
-  removeToast: (id: number) => void;
-  setDiceMode: (val: DiceMode) => void;
-  setAudioEnabled: (val: boolean) => void;
-  updateConfig: (config: Partial<Pick<GameStore, ConfigKeys>>) => void;
-  setWinningScore: (val: number) => void;
-  setInitialCards: (val: InitialCards) => void;
-  setRandomOrder: (val: boolean) => void;
-  setTurnDuration: (val: number) => void;
-  setReconnectTimeout: (val: number) => void;
-  resetGeneralSettings: () => void;
-  resetInitialCards: () => void;
-  addPlayer: (name: string) => void;
-  removePlayer: (name: string) => void;
-  reorderPlayers: (newPlayers: Player[]) => void;
-  changePlayerColor: (name: string, color: string) => void;
-  changeMyColor: (newColor: string) => void;
-  connectSocket: (url?: string) => void;
-  joinRoom: (room: string, name: string, isReconnect?: boolean) => Promise<JoinRoomResponse>;
-  leaveRoom: () => void;
-  kickPlayer: (targetSocketId: string) => void;
-  setLiveTurnState: (snapshot: DiceSnapshot | null) => void;
-  pushState: () => void;
-  startLocalTimers: () => void;
-  stopLocalTimers: () => void;
-  syncOnlineTimers: () => void;
-  stopOnlineTimers: () => void;
-  startGame: () => void;
-  endGame: () => void;
-  nextTurn: (scoreInput: number, isSuccess?: boolean) => void;
-  undo: () => void;
-  buildGlobalStatsPayload: () => GlobalStatsPayload;
-  sendOnlineStats: () => void;
-}
-
 let socket: Socket | null = null;
-let gameTimerInterval: ReturnType<typeof setInterval> | null = null;
-let turnTimerInterval: ReturnType<typeof setInterval> | null = null;
-let turnTimerPlayerIndex: number | null = null;
-let turnTimerCard: CardType | null = null;
-
-const clearTurnTimer = () => {
-  if (turnTimerInterval) clearInterval(turnTimerInterval);
-  turnTimerInterval = null;
-  turnTimerPlayerIndex = null;
-  turnTimerCard = null;
-};
-
-// Test-only escape hatch: gameTimerInterval/turnTimerInterval are module-level,
-// so vitest's module caching lets a timer started in one test keep firing into
-// the next. useGameStore.getState().reset() only resets Zustand state — it
-// never calls stopLocalTimers/stopOnlineTimers, so it can't stop them. Call
-// this from a test's beforeEach alongside reset() to actually clear them.
-export const _resetTimersForTests = (): void => {
-  if (gameTimerInterval) clearInterval(gameTimerInterval);
-  gameTimerInterval = null;
-  clearTurnTimer();
-};
 
 const initialLocalState: Omit<CoreGameState, never> & {
   diceMode: DiceMode;
@@ -189,51 +87,8 @@ const initialLocalState: Omit<CoreGameState, never> & {
   justReconnected: false,
 };
 
-const validateOnlineConfig = (config: unknown): Partial<Pick<GameStore, ConfigKeys>> => {
-  if (typeof config !== 'object' || config === null) return {};
-  const valid: Partial<Pick<GameStore, ConfigKeys>> = {};
-  const c = config as Record<string, unknown>;
-  // Ranges must match the server's applyValidatedConfig (server/index.ts):
-  // values the server would reject are dropped here too, so the lobby never
-  // shows a setting the server silently refused.
-  if (isValidWinningScore(c.winningScore)) valid.winningScore = c.winningScore;
-  if (typeof c.randomOrder === 'boolean') valid.randomOrder = c.randomOrder;
-  if (isValidTurnDuration(c.turnDuration)) valid.turnDuration = c.turnDuration;
-  if (isValidReconnectTimeout(c.reconnectTimeout)) valid.reconnectTimeout = c.reconnectTimeout;
-  if (typeof c.initialCards === 'object' && c.initialCards !== null) {
-    const validCards: InitialCards = {};
-    for (const [key, val] of Object.entries(c.initialCards)) {
-      if (isValidCardEntry(key, val)) {
-        validCards[key as CardType] = val;
-      }
-    }
-    // An all-zero deck leaves currentCard permanently null and the game
-    // unplayable — same rule the server enforces in validateInitialCards.
-    if (Object.values(validCards).some(count => (count ?? 0) > 0)) valid.initialCards = validCards;
-  }
-  return valid;
-};
-
-// Re-anchor the local game clock after a restore from localStorage. We persist
-// elapsed seconds (gameTimeInSeconds), not an absolute start time, so a resumed
-// in-progress local game has no live gameStartTime — without this the game timer
-// stays frozen at the saved value. Anchoring to "now minus elapsed" lets the clock
-// continue from where it left off without counting time the app was closed.
-const reanchorLocalClock = (state: {
-  mode: GameMode;
-  status: GameStatus;
-  finished: boolean;
-  currentPlayerIndex: number | null;
-  gameTimeInSeconds: number;
-  gameStartTime: number | null;
-}): void => {
-  if (state.mode === 'local' && state.status === 'playing' && !state.finished && state.currentPlayerIndex !== null) {
-    state.gameStartTime = Date.now() - (state.gameTimeInSeconds || 0) * 1000;
-  }
-};
-
 export const useGameStore = create<GameStore>()(
-  immer((set, get) => ({
+  immer((set, get, api) => ({
     mode: 'local',
     deviceId: null,
     isOnline: false,
@@ -650,91 +505,7 @@ export const useGameStore = create<GameStore>()(
       }
     },
 
-    startLocalTimers: () => {
-      if (gameTimerInterval) clearInterval(gameTimerInterval);
-      gameTimerInterval = setInterval(() => {
-        const state = get();
-        if (state.mode === 'local' && state.currentPlayerIndex !== null && !state.finished && state.gameStartTime) {
-          set({ gameTimeInSeconds: Math.floor((Date.now() - state.gameStartTime) / 1000) });
-        }
-      }, 1000);
-    },
-
-    stopLocalTimers: () => {
-      if (gameTimerInterval) clearInterval(gameTimerInterval);
-      gameTimerInterval = null;
-    },
-
-    syncOnlineTimers: () => {
-      const state = get();
-
-      if (gameTimerInterval) clearInterval(gameTimerInterval);
-
-      if (state.mode === 'online' && !state.finished && state.status === 'playing' && state.currentPlayerIndex !== null) {
-        if (state.gameTimeInSeconds !== null && state.gameTimeInSeconds >= 0) {
-          const localElapsed = state.gameStartTime
-            ? Math.floor((Date.now() - state.gameStartTime) / 1000)
-            : null;
-          if (localElapsed === null || Math.abs(localElapsed - state.gameTimeInSeconds) > 2) {
-            set({ gameStartTime: Date.now() - state.gameTimeInSeconds * 1000 });
-          }
-        }
-
-        gameTimerInterval = setInterval(() => {
-          const s = get();
-          if (s.gameStartTime) {
-            set({ gameTimeInSeconds: Math.floor((Date.now() - s.gameStartTime) / 1000) });
-          }
-        }, 1000);
-
-        if (state.turnDuration > 0) {
-          const playerChanged = state.currentPlayerIndex !== turnTimerPlayerIndex;
-          const cardChanged = state.currentCard !== turnTimerCard;
-          const justReconnected = state.justReconnected;
-
-          if (playerChanged || cardChanged || justReconnected) {
-            if (turnTimerInterval) clearInterval(turnTimerInterval);
-            turnTimerPlayerIndex = state.currentPlayerIndex;
-            turnTimerCard = state.currentCard;
-
-            let remaining: number;
-            const isNewTurn = playerChanged || cardChanged;
-            if (!isNewTurn && justReconnected && state.turnTimeRemaining !== null && state.turnTimeRemaining !== undefined) {
-              remaining = state.turnTimeRemaining;
-            } else {
-              remaining = getEffectiveTurnDuration(state.currentCard, state.turnDuration);
-            }
-            set({ turnTimeRemaining: remaining });
-
-            // Display-only countdown. The server is the sole authority on turn
-            // expiry (see server/index.ts startServerTurnTimer) — it advances the
-            // turn and pushes the resulting gameState even if every client,
-            // including the host, is disconnected or backgrounded. This interval
-            // just stops counting at 0 and waits for that gameState to arrive.
-            turnTimerInterval = setInterval(() => {
-              const timeLeft = (get().turnTimeRemaining ?? 0) - 1;
-              set({ turnTimeRemaining: timeLeft > 0 ? timeLeft : 0 });
-              if (timeLeft <= 0) {
-                clearInterval(turnTimerInterval!);
-                turnTimerInterval = null;
-              }
-            }, 1000);
-          }
-        } else {
-          clearTurnTimer();
-          set({ turnTimeRemaining: null });
-        }
-      } else {
-        clearTurnTimer();
-        set({ turnTimeRemaining: null });
-      }
-    },
-
-    stopOnlineTimers: () => {
-      if (gameTimerInterval) clearInterval(gameTimerInterval);
-      gameTimerInterval = null;
-      clearTurnTimer();
-    },
+    ...createTimerSlice(set, get, api),
 
     startGame: () => {
       const s = get();
@@ -933,51 +704,4 @@ export const useGameStore = create<GameStore>()(
   })),
 );
 
-// The 1s game timer mutates gameTimeInSeconds every tick; persisting the whole
-// snapshot on each tick would rewrite localStorage once per second for the entire
-// game. We therefore skip the write unless something other than the timer changed
-// — the current gameTimeInSeconds still rides along whenever a real change is saved.
-let lastLocalPersistKey: string | null = null;
-useGameStore.subscribe((state) => {
-  if (state.mode !== 'local') {
-    lastLocalPersistKey = null; // re-entering local mode should write once
-    return;
-  }
-  // Everything except the per-second timer field forms the "stability key".
-  const stable = {
-    players: state.players, currentPlayerIndex: state.currentPlayerIndex,
-    currentCard: state.currentCard, cards: state.cards, round: state.round,
-    winningScore: state.winningScore, diceMode: state.diceMode,
-    initialCards: state.initialCards, randomOrder: state.randomOrder,
-    turnDuration: state.turnDuration, reconnectTimeout: state.reconnectTimeout,
-    finished: state.finished,
-    previousScore: state.previousScore, previousCard: state.previousCard,
-    previousLeaders: state.previousLeaders, chartValues: state.chartValues,
-    chartNames: state.chartNames, chartLabels: state.chartLabels, status: state.status,
-  };
-  const key = JSON.stringify(stable);
-  if (key === lastLocalPersistKey) return;
-  lastLocalPersistKey = key;
-  // The latest gameTimeInSeconds still rides along whenever a real change is saved.
-  const localStateToSave = { ...stable, gameTimeInSeconds: state.gameTimeInSeconds };
-  localStorage.setItem('tutto_local_game', JSON.stringify(localStateToSave));
-});
-
-let lastOnlinePersistKey: string | null = null;
-useGameStore.subscribe((state) => {
-  if (state.mode !== 'online' || !state.isHost || state.status !== 'lobby') {
-    lastOnlinePersistKey = null;
-    return;
-  }
-  const stable = {
-    winningScore: state.winningScore,
-    initialCards: state.initialCards,
-    randomOrder: state.randomOrder,
-    turnDuration: state.turnDuration,
-    reconnectTimeout: state.reconnectTimeout,
-  };
-  const key = JSON.stringify(stable);
-  if (key === lastOnlinePersistKey) return;
-  lastOnlinePersistKey = key;
-  localStorage.setItem('tutto_online_config', key);
-});
+attachPersistence(useGameStore);
