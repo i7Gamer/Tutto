@@ -289,14 +289,16 @@ describe('Server-side turn timer', () => {
     const roomId = 'timer-gameover';
     const { sock } = await joinRoom(roomId, 'Solo');
 
-    const player = { name: 'Solo', deviceId: `dev-${roomId}-Solo`, socketId: sock.id, disconnected: false, score: 100 };
+    // winningScore must respect the same MIN_WINNING_SCORE floor as updateConfig
+    // (pushState is no longer a side door for smaller values).
+    const player = { name: 'Solo', deviceId: `dev-${roomId}-Solo`, socketId: sock.id, disconnected: false, score: 1000 };
 
     const finishedState = waitForState(sock, (s) => s.finished === true, 5000);
     sock.emit('pushState', {
       roomId,
       newState: {
         players: [player], status: 'playing', currentPlayerIndex: 0, currentCard: '200',
-        cards: ['300'], round: 1, winningScore: 100, turnDuration: 1,
+        cards: ['300'], round: 1, winningScore: 1000, turnDuration: 1,
       },
     });
 
@@ -473,7 +475,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players: [player], status: 'playing', currentPlayerIndex: 0, currentCard: '200',
-        cards: ['300'], round: 1, winningScore: 100, turnDuration: 1,
+        cards: ['300'], round: 1, winningScore: 1000, turnDuration: 1,
       },
     });
     await delay(200);

@@ -26,17 +26,23 @@ export const shuffleArray = <T>(array: T[]): T[] => {
 // runs longer than that are avoided.
 const MAX_CLUSTER = 3;
 
-// Builds the deck by always placing the most-plentiful still-eligible card
-// type next (eligible = wouldn't extend a run past MAX_CLUSTER), picking
-// randomly among ties so repeated calls still shuffle differently. This is
-// the standard greedy construction for "no more than k identical items
-// adjacent" — unlike shuffle-then-patch, it can't get stuck: reserving the
-// most frequent type for later only ever makes placing it harder, never
-// easier, so always spending it first is always safe when a solution exists.
+// Builds the deck as a uniform random shuffle constrained to "no more than
+// MAX_CLUSTER identical cards adjacent": each card is drawn randomly among the
+// still-eligible types, weighted by remaining copies (sampling without
+// replacement), with two interventions:
+//   - a type that just completed a run of MAX_CLUSTER is ineligible for the
+//     next slot (that's the constraint itself), and
+//   - a type whose remaining copies no longer fit into the runs the other
+//     remaining cards can separate (count > MAX_CLUSTER * othersLeft) MUST be
+//     placed now — deferring it once more would force an over-long run later.
+//     At most one type can ever be in this state (two would need more cards
+//     than remain), so the rule is unambiguous. A pure most-plentiful-first
+//     greedy also satisfies the constraint but deterministically front-loads
+//     the most common card type, which is why it isn't used here.
 // If a card type so dominates the deck that MAX_CLUSTER is mathematically
 // unsatisfiable (e.g. one type outnumbering all others combined), every type
-// becomes ineligible at some point and we fall back to placing the most
-// plentiful one anyway rather than getting stuck.
+// eventually becomes ineligible and we fall back to placing the blocked one
+// anyway rather than getting stuck.
 export const buildDeck = (initialCards: InitialCards): CardType[] => {
   const remaining = new Map<CardType, number>();
   (Object.keys(initialCards) as CardType[]).forEach(cardType => {
@@ -44,22 +50,35 @@ export const buildDeck = (initialCards: InitialCards): CardType[] => {
     if (count > 0) remaining.set(cardType, count);
   });
 
-  const total = Array.from(remaining.values()).reduce((sum, c) => sum + c, 0);
+  const deckSize = Array.from(remaining.values()).reduce((sum, c) => sum + c, 0);
+  let remainingTotal = deckSize;
   const deck: CardType[] = [];
   let lastCard: CardType | null = null;
   let runLength = 0;
 
-  while (deck.length < total) {
+  while (deck.length < deckSize) {
     const blocked: CardType | null = runLength >= MAX_CLUSTER ? lastCard : null;
     let candidates: [CardType, number][] = Array.from(remaining.entries()).filter(([type, count]) => count > 0 && type !== blocked);
     if (candidates.length === 0) candidates = Array.from(remaining.entries()).filter(([, count]) => count > 0);
 
-    const maxCount: number = Math.max(...candidates.map(([, count]) => count));
-    const topCandidates: [CardType, number][] = candidates.filter(([, count]) => count === maxCount);
-    const [chosen]: [CardType, number] = topCandidates[Math.floor(Math.random() * topCandidates.length)];
+    const forced = candidates.find(([, count]) => count > MAX_CLUSTER * (remainingTotal - count));
+
+    let chosen: CardType;
+    if (forced) {
+      chosen = forced[0];
+    } else {
+      const candidateTotal = candidates.reduce((sum, [, count]) => sum + count, 0);
+      let pick = Math.floor(Math.random() * candidateTotal);
+      chosen = candidates[candidates.length - 1][0];
+      for (const [type, count] of candidates) {
+        pick -= count;
+        if (pick < 0) { chosen = type; break; }
+      }
+    }
 
     deck.push(chosen);
     remaining.set(chosen, (remaining.get(chosen) ?? 0) - 1);
+    remainingTotal--;
     runLength = chosen === lastCard ? runLength + 1 : 1;
     lastCard = chosen;
   }

@@ -177,6 +177,11 @@ describe('applyPushedState', () => {
   describe('numeric config bounds (winningScore/turnDuration/reconnectTimeout)', () => {
     it.each([
       ['winningScore', 99999, true], ['winningScore', 100000, false], ['winningScore', -1, false],
+      // Same MIN_WINNING_SCORE floor as updateConfig — pushState must not be a
+      // side door for a winning score the config validator just rejected.
+      ['winningScore', 1000, true], ['winningScore', 999, false], ['winningScore', 0, false],
+      // The timers deliberately keep a loose >= 0 sanity floor (tests push 1-2s turns).
+      ['turnDuration', 1, true], ['turnDuration', -1, false],
       ['turnDuration', 600, true], ['turnDuration', 601, false], ['turnDuration', NaN, false],
       ['reconnectTimeout', 3600, true], ['reconnectTimeout', 3601, false], ['reconnectTimeout', Infinity, false],
     ] as [keyof RoomState, number, boolean][])('%s = %s accepted: %s', (field, value, accepted) => {

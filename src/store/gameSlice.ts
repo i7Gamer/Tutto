@@ -2,12 +2,13 @@ import {
   calculateNextTurn,
   calculateUndo,
   shuffleArray,
+  buildDeck,
   buildGlobalStatsPayload,
 } from '../utils/coreGameEngine';
 import { buildTurnKey } from '../utils/diceTurnState';
 import { DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE } from '../utils/configValidation';
 import playerColorsData from '../../playerColors.json';
-import type { CardType, Player, CoreGameState } from '../types';
+import type { Player, CoreGameState } from '../types';
 import { getSocket } from './socketRef';
 import type { GameStore, ImmerStateCreator } from './storeTypes';
 
@@ -120,11 +121,9 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.previousHighestTurnScore = 0;
       state.status = 'playing';
 
-      const deck = shuffleArray(
-        (Object.keys(state.initialCards) as CardType[]).flatMap(card =>
-          Array.from({ length: state.initialCards[card] ?? 0 }, (): CardType => card)
-        )
-      );
+      // Same constrained shuffle the mid-game rebuilds use (see buildDeck) —
+      // a plain shuffle here could open the game with a 4+ run of one card.
+      const deck = buildDeck(state.initialCards);
       state.currentCard = deck.shift() ?? null;
       state.cards = deck;
       state.currentPlayerIndex = 0;

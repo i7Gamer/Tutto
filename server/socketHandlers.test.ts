@@ -20,6 +20,7 @@ vi.mock('./database', () => ({
 
 import { updateDeviceStats, updateGlobalStats } from './database';
 import { registerSocketHandlers } from './socketHandlers';
+import { rooms } from './rooms';
 
 const mockedUpdateDeviceStats = vi.mocked(updateDeviceStats);
 const mockedUpdateGlobalStats = vi.mocked(updateGlobalStats);
@@ -114,5 +115,70 @@ describe('stats dedup rollback on DB failure', () => {
     expect(mockedUpdateGlobalStats.mock.calls.length).toBe(2);
 
     client.disconnect();
+  });
+});
+
+describe('kickPlayer host migration', () => {
+  let httpServer: HttpServer;
+  let ioServer: Server;
+  let port: number;
+  const sockets: ClientSocket[] = [];
+
+  beforeAll(async () => {
+    httpServer = createServer();
+    ioServer = new Server(httpServer);
+    registerSocketHandlers(ioServer);
+    await new Promise<void>(resolve => httpServer.listen(0, () => resolve()));
+    port = (httpServer.address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    sockets.forEach(s => s.disconnect());
+    await ioServer.close();
+  });
+
+  const connectAndJoin = (roomId: string, name: string, deviceId: string): Promise<ClientSocket> =>
+    new Promise((resolve, reject) => {
+      const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+      sockets.push(sock);
+      sock.on('connect', () => {
+        sock.emit('joinRoom', { roomId, name, deviceId, color: '#ff0000' }, (res: { success: boolean; error?: string }) => {
+          if (!res.success) return reject(new Error(res.error));
+          resolve(sock);
+        });
+      });
+      sock.on('connect_error', reject);
+    });
+
+  it('reassigns the host when the host kicks their own socket', async () => {
+    // Only a modified host client can self-kick, but the room must not be
+    // left with a host id that is no longer seated — no config, kick or
+    // restart would work for anyone until the room died.
+    const host = await connectAndJoin('SELF_KICK_ROOM', 'Host', 'dev-sk-h');
+    const peer = await connectAndJoin('SELF_KICK_ROOM', 'Peer', 'dev-sk-p');
+
+    const hostKicked = new Promise<void>(resolve => host.on('kicked', () => resolve()));
+    const peerBecomesHost = new Promise<string>(resolve =>
+      peer.on('hostId', (id: string) => { if (id === peer.id) resolve(id); })
+    );
+
+    host.emit('kickPlayer', host.id);
+
+    await hostKicked;
+    expect(await peerBecomesHost).toBe(peer.id);
+    expect(rooms['SELF_KICK_ROOM'].host).toBe(peer.id);
+    expect(rooms['SELF_KICK_ROOM'].state.players.map(p => p.name)).toEqual(['Peer']);
+  });
+
+  it('kicking a non-host player leaves the host unchanged', async () => {
+    const host = await connectAndJoin('NORMAL_KICK_ROOM', 'Host', 'dev-nk-h');
+    const peer = await connectAndJoin('NORMAL_KICK_ROOM', 'Peer', 'dev-nk-p');
+
+    const peerKicked = new Promise<void>(resolve => peer.on('kicked', () => resolve()));
+    host.emit('kickPlayer', peer.id);
+    await peerKicked;
+
+    expect(rooms['NORMAL_KICK_ROOM'].host).toBe(host.id);
+    expect(rooms['NORMAL_KICK_ROOM'].state.players.map(p => p.name)).toEqual(['Host']);
   });
 });

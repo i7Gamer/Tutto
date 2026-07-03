@@ -17,6 +17,30 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     sessionStorage.removeItem('tutto_online_session');
     set({ pendingReconnectSession: null, liveTurnState: null, showReconnectPopup: false });
 
+    // Abandoning an active room (the "Return to Main Menu" path) must also drop
+    // the room identity and game state from the store — the setMode('local')
+    // that follows only overwrites the keys a saved local game happens to
+    // contain, so without this the stale roomId later renders a phantom
+    // joined-room lobby (or the online roster bleeds into local mode).
+    // Guarded on the STORE's roomId: declining the restore prompt on a fresh
+    // page load (store roomId never set — the roomId argument here identifies
+    // the room to leave server-side) must not wipe a restored local game.
+    if (get().roomId) {
+      set({
+        players: [],
+        currentPlayerIndex: null,
+        currentCard: null,
+        cards: [],
+        round: 1,
+        finished: false,
+        status: 'lobby',
+        roomId: null,
+        isHost: false,
+        hostId: null,
+        myName: null,
+      });
+    }
+
     if (!roomId) return;
 
     const tempSocket = io(window.location.origin);
@@ -154,7 +178,17 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         if (roomId && myName) {
           const savedColor = localStorage.getItem('tutto_color');
           sock.emit('joinRoom', { roomId, name: myName, deviceId, color: savedColor }, (res: JoinRoomResponse) => {
-            if (res.success) set({ isHost: res.isHost ?? false });
+            if (res.success) {
+              set({ isHost: res.isHost ?? false });
+              return;
+            }
+            // The seat is unrecoverable (room deleted after the reconnect
+            // timeout, name reclaimed, …) — retrying on the next 'connect'
+            // can never succeed, so stop showing the "attempting to
+            // reconnect" popup and drop back to the online join form.
+            get().addToast(res.error || i18n.t('home.restore.failed', 'Failed to reconnect to the game'));
+            get().leaveRoom();
+            set({ showReconnectPopup: false, hostId: null });
           });
         }
       });

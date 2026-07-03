@@ -107,21 +107,91 @@ describe('AdvancedOptionsPanel', () => {
       Stop: 10
     });
   });
-  it('prevents negative values for number inputs', () => {
+  it('clamps negative winning scores up to the 1000 minimum the server accepts', () => {
     const mockSetWinningScore = vi.fn();
     const game = {
-      winningScore: 50,
+      winningScore: 6000,
       setWinningScore: mockSetWinningScore,
       initialCards: {}
     };
 
     render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={false} />);
 
-    const input = screen.getByDisplayValue('50');
+    const input = screen.getByDisplayValue('6000');
     fireEvent.change(input, { target: { value: '-10' } });
     fireEvent.blur(input);
 
-    expect(mockSetWinningScore).toHaveBeenCalledWith(0);
+    expect(mockSetWinningScore).toHaveBeenCalledWith(1000);
+  });
+
+  it('clamps a below-minimum winning score up to 1000 instead of sending a value the server rejects', () => {
+    // isValidWinningScore requires >= 1000; the server's updateConfig silently
+    // drops smaller values, which left the host seeing a different score than
+    // everyone else. The input must never commit such a value.
+    const mockSetWinningScore = vi.fn();
+    const game = {
+      winningScore: 6000,
+      setWinningScore: mockSetWinningScore,
+      initialCards: {}
+    };
+
+    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={false} />);
+
+    const input = screen.getByDisplayValue('6000');
+    fireEvent.change(input, { target: { value: '500' } });
+    fireEvent.blur(input);
+    expect(mockSetWinningScore).toHaveBeenCalledWith(1000);
+  });
+
+  it('snaps a turn timer in the 1-9s gap up to the 10s minimum (0 stays disabled)', () => {
+    // Valid turn durations are 0 (disabled) or 10..600 — a plain min/max clamp
+    // can't express the hole, so 1-9 snaps up to 10 rather than being silently
+    // rejected by the server.
+    const mockSetTurnDuration = vi.fn();
+    const game = {
+      winningScore: 6000,
+      setWinningScore: vi.fn(),
+      turnDuration: 120,
+      setTurnDuration: mockSetTurnDuration,
+      reconnectTimeout: 60,
+      setReconnectTimeout: vi.fn(),
+      initialCards: {}
+    };
+
+    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={true} />);
+
+    const input = screen.getByDisplayValue('120');
+    fireEvent.change(input, { target: { value: '5' } });
+    fireEvent.blur(input);
+    expect(mockSetTurnDuration).toHaveBeenCalledWith(10);
+
+    fireEvent.change(input, { target: { value: '0' } });
+    fireEvent.blur(input);
+    expect(mockSetTurnDuration).toHaveBeenCalledWith(0);
+  });
+
+  it('snaps a kick timer in the 1-9s gap up to the 10s minimum (0 stays disabled)', () => {
+    const mockSetReconnectTimeout = vi.fn();
+    const game = {
+      winningScore: 6000,
+      setWinningScore: vi.fn(),
+      turnDuration: 120,
+      setTurnDuration: vi.fn(),
+      reconnectTimeout: 60,
+      setReconnectTimeout: mockSetReconnectTimeout,
+      initialCards: {}
+    };
+
+    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={true} />);
+
+    const input = screen.getByDisplayValue('60');
+    fireEvent.change(input, { target: { value: '3' } });
+    fireEvent.blur(input);
+    expect(mockSetReconnectTimeout).toHaveBeenCalledWith(10);
+
+    fireEvent.change(input, { target: { value: '0' } });
+    fireEvent.blur(input);
+    expect(mockSetReconnectTimeout).toHaveBeenCalledWith(0);
   });
 
   it('clamps winningScore to 99999 when value exceeds the upper bound', () => {

@@ -18,14 +18,32 @@ export const DEFAULT_WINNING_SCORE = 6000;
 export const DEFAULT_TURN_DURATION = 120;
 export const DEFAULT_RECONNECT_TIMEOUT = 60;
 
+// Accepted ranges, shared by the lobby inputs, the client-side config
+// validator and the server (updateConfig / pushState) so a value one layer
+// accepts can never be silently rejected by another.
+export const MIN_WINNING_SCORE = 1000;
+export const MAX_WINNING_SCORE = 99999;
+// The two timers are "0 = disabled, otherwise at least MIN_ENABLED_* seconds".
+export const MIN_ENABLED_TURN_DURATION = 10;
+export const MAX_TURN_DURATION = 600;
+export const MIN_ENABLED_RECONNECT_TIMEOUT = 10;
+export const MAX_RECONNECT_TIMEOUT = 3600;
+
 export const isValidWinningScore = (v: unknown): v is number =>
-  typeof v === 'number' && v >= 1000 && v <= 99999;
+  typeof v === 'number' && v >= MIN_WINNING_SCORE && v <= MAX_WINNING_SCORE;
 
 export const isValidTurnDuration = (v: unknown): v is number =>
-  typeof v === 'number' && (v === 0 || (v >= 10 && v <= 600));
+  typeof v === 'number' && (v === 0 || (v >= MIN_ENABLED_TURN_DURATION && v <= MAX_TURN_DURATION));
 
 export const isValidReconnectTimeout = (v: unknown): v is number =>
-  typeof v === 'number' && (v === 0 || (v >= 10 && v <= 3600));
+  typeof v === 'number' && (v === 0 || (v >= MIN_ENABLED_RECONNECT_TIMEOUT && v <= MAX_RECONNECT_TIMEOUT));
+
+// Lobby inputs let the user type any number, but the timers' valid range has a
+// hole (1..minEnabled-1 means neither "disabled" nor an accepted duration).
+// Typing a small positive number signals wanting the timer on, so snap up to
+// the smallest enabled value rather than silently losing the input.
+export const snapDisableableDuration = (v: number, minEnabled: number): number =>
+  v > 0 && v < minEnabled ? minEnabled : v;
 
 export const isValidCardEntry = (key: string, val: unknown): val is number =>
   (VALID_CARD_TYPES as readonly string[]).includes(key) &&

@@ -223,6 +223,13 @@ export const registerSocketHandlers = (io: Server): void => {
         clearServerTurnTimer(currentRoom);
         delete rooms[currentRoom];
       } else {
+        // Only a (modified) host client can kick its own socket, but if it does,
+        // the room must not keep a host id that is no longer seated — no one
+        // could change config, kick, or restart until the room died.
+        if (!room.state.players.some(p => p.socketId === room.host)) {
+          const nextHost = room.state.players.find(p => !p.disconnected) ?? room.state.players[0];
+          room.host = nextHost.socketId;
+        }
         const aborted = abortGameIfLowPlayers(io, room, currentRoom);
         // If the kicked player was mid-turn, handleActivePlayerRemoved already
         // reset turnStartTime for the player now in their slot — resync the timer.

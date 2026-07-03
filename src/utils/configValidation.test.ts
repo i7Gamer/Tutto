@@ -6,10 +6,17 @@ import {
   DEFAULT_WINNING_SCORE,
   DEFAULT_TURN_DURATION,
   DEFAULT_RECONNECT_TIMEOUT,
+  MIN_WINNING_SCORE,
+  MAX_WINNING_SCORE,
+  MIN_ENABLED_TURN_DURATION,
+  MAX_TURN_DURATION,
+  MIN_ENABLED_RECONNECT_TIMEOUT,
+  MAX_RECONNECT_TIMEOUT,
   isValidWinningScore,
   isValidTurnDuration,
   isValidReconnectTimeout,
   isValidCardEntry,
+  snapDisableableDuration,
 } from './configValidation';
 
 describe('configValidation', () => {
@@ -56,6 +63,57 @@ describe('configValidation', () => {
   describe('MAX_CARD_COUNT', () => {
     it('equals 99', () => {
       expect(MAX_CARD_COUNT).toBe(99);
+    });
+  });
+
+  describe('range constants match their validators', () => {
+    // The constants are what the lobby inputs clamp against; the validators are
+    // what the server accepts. The boundaries must agree exactly or a value the
+    // UI commits could be silently rejected server-side again.
+    it('winning score boundaries', () => {
+      expect(isValidWinningScore(MIN_WINNING_SCORE)).toBe(true);
+      expect(isValidWinningScore(MIN_WINNING_SCORE - 1)).toBe(false);
+      expect(isValidWinningScore(MAX_WINNING_SCORE)).toBe(true);
+      expect(isValidWinningScore(MAX_WINNING_SCORE + 1)).toBe(false);
+    });
+
+    it('turn duration boundaries', () => {
+      expect(isValidTurnDuration(MIN_ENABLED_TURN_DURATION)).toBe(true);
+      expect(isValidTurnDuration(MIN_ENABLED_TURN_DURATION - 1)).toBe(false);
+      expect(isValidTurnDuration(MAX_TURN_DURATION)).toBe(true);
+      expect(isValidTurnDuration(MAX_TURN_DURATION + 1)).toBe(false);
+    });
+
+    it('reconnect timeout boundaries', () => {
+      expect(isValidReconnectTimeout(MIN_ENABLED_RECONNECT_TIMEOUT)).toBe(true);
+      expect(isValidReconnectTimeout(MIN_ENABLED_RECONNECT_TIMEOUT - 1)).toBe(false);
+      expect(isValidReconnectTimeout(MAX_RECONNECT_TIMEOUT)).toBe(true);
+      expect(isValidReconnectTimeout(MAX_RECONNECT_TIMEOUT + 1)).toBe(false);
+    });
+  });
+
+  // ─── snapDisableableDuration ────────────────────────────────────────────────
+
+  describe('snapDisableableDuration', () => {
+    it('keeps 0 (disabled) as-is', () => {
+      expect(snapDisableableDuration(0, MIN_ENABLED_TURN_DURATION)).toBe(0);
+    });
+
+    it('snaps values inside the 1..minEnabled-1 gap up to minEnabled', () => {
+      expect(snapDisableableDuration(1, MIN_ENABLED_TURN_DURATION)).toBe(MIN_ENABLED_TURN_DURATION);
+      expect(snapDisableableDuration(MIN_ENABLED_TURN_DURATION - 1, MIN_ENABLED_TURN_DURATION)).toBe(MIN_ENABLED_TURN_DURATION);
+    });
+
+    it('keeps values at or above minEnabled unchanged', () => {
+      expect(snapDisableableDuration(MIN_ENABLED_TURN_DURATION, MIN_ENABLED_TURN_DURATION)).toBe(MIN_ENABLED_TURN_DURATION);
+      expect(snapDisableableDuration(120, MIN_ENABLED_TURN_DURATION)).toBe(120);
+    });
+
+    it('every snapped output passes the matching validator', () => {
+      for (let v = 0; v <= 20; v++) {
+        expect(isValidTurnDuration(snapDisableableDuration(v, MIN_ENABLED_TURN_DURATION))).toBe(true);
+        expect(isValidReconnectTimeout(snapDisableableDuration(v, MIN_ENABLED_RECONNECT_TIMEOUT))).toBe(true);
+      }
     });
   });
 

@@ -45,7 +45,7 @@ describe('App Integration (End-to-End)', () => {
     useGameStore.setState({ diceMode: 'digital' });
     // 1. Setup deterministic game environment
     const originalRandom = Math.random;
-    Math.random = () => 0.999999; // Keeps deck in original order. 1st card is 'Kleeblatt'
+    Math.random = () => 0.999999; // Deterministic: keeps the player order stable (identity shuffle)
 
     // We will control dice rolls to force specific outcomes
     let mockRolls = [];
@@ -59,6 +59,12 @@ describe('App Integration (End-to-End)', () => {
     // 2. Select Local Game
     const localButton = screen.getByText(/home.localPlay/i);
     fireEvent.click(localButton);
+
+    // Pin the deck to '200' cards only so both turns deterministically draw a
+    // '200' bonus card — buildDeck's constrained-random draw doesn't preserve
+    // insertion order under a mocked Math.random the way the old plain shuffle
+    // did. Must happen AFTER the mode click above, which resets initialCards.
+    act(() => useGameStore.setState({ initialCards: { '200': 50 } }));
 
     // 2. Change Winning Score to 1000
     const advancedOptionsButton = screen.getByText(/lobby.showAdvancedOptions/i);
@@ -90,7 +96,7 @@ describe('App Integration (End-to-End)', () => {
     });
 
     // 6. First Card is drawn automatically.
-    // It should be '200' due to our deterministic random mock.
+    // It is '200' — the pinned deck contains nothing else.
 
     // Alice's turn. First card is '200'.
     // We just do 1 Tutto!

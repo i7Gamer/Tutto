@@ -2,6 +2,7 @@ import type { CardType, InitialCards, DiceSnapshot } from '../src/types';
 import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
   MAX_CARD_COUNT, VALID_CARD_TYPES,
+  MIN_WINNING_SCORE, MAX_WINNING_SCORE, MAX_TURN_DURATION, MAX_RECONNECT_TIMEOUT,
 } from '../src/utils/configValidation';
 import type { RoomState, ServerPlayer } from './roomTypes';
 
@@ -70,18 +71,21 @@ const ACTIVE_PLAYER_FIELDS = new Set<string>([
 
 const ALL_FIELDS = new Set<string>([...HOST_ONLY_FIELDS, ...ACTIVE_PLAYER_FIELDS]);
 
-// Upper bounds for numeric config fields arriving via pushState. Unlike
-// applyValidatedConfig this is a sanity guard, not a UX rule (pushState mirrors
-// state the client already ran through updateConfig, and tests legitimately
-// push short 1-2s turns): it only rejects values that would corrupt server-side
-// logic — a negative/non-finite turnDuration makes startServerTurnTimer re-arm
-// with remaining<=0 and advance turns in a synchronous loop until the stack
+// Bounds for numeric config fields arriving via pushState. For the two timers
+// this is a sanity guard, not a UX rule (pushState mirrors state the client
+// already ran through updateConfig, and tests legitimately push short 1-2s
+// turns): it only rejects values that would corrupt server-side logic — a
+// negative/non-finite turnDuration makes startServerTurnTimer re-arm with
+// remaining<=0 and advance turns in a synchronous loop until the stack
 // overflows, and an unvalidated initialCards object can send buildDeck into an
-// unbounded loop on the next deck rebuild.
-const PUSHED_NUMERIC_FIELD_MAX: Record<string, number> = {
-  winningScore: 99999,
-  turnDuration: 600,
-  reconnectTimeout: 3600,
+// unbounded loop on the next deck rebuild. winningScore, however, enforces the
+// same MIN_WINNING_SCORE floor as updateConfig — otherwise pushState was a
+// side door that let a host start a game with a winning score updateConfig
+// had just rejected.
+const PUSHED_NUMERIC_FIELD_BOUNDS: Record<string, { min: number; max: number }> = {
+  winningScore: { min: MIN_WINNING_SCORE, max: MAX_WINNING_SCORE },
+  turnDuration: { min: 0, max: MAX_TURN_DURATION },
+  reconnectTimeout: { min: 0, max: MAX_RECONNECT_TIMEOUT },
 };
 
 const PLAYER_MUTABLE: (keyof ServerPlayer)[] = [
@@ -154,9 +158,10 @@ export const applyPushedState = (
           mergeMutable(existing, pushed.find(q => q.name === existing.name)),
         );
       }
-    } else if (key in PUSHED_NUMERIC_FIELD_MAX) {
+    } else if (key in PUSHED_NUMERIC_FIELD_BOUNDS) {
       const v = newState[key];
-      if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= PUSHED_NUMERIC_FIELD_MAX[key]) {
+      const { min, max } = PUSHED_NUMERIC_FIELD_BOUNDS[key];
+      if (typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max) {
         (state as unknown as Record<string, unknown>)[key] = v;
       }
     } else if (key === 'initialCards') {

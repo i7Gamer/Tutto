@@ -208,7 +208,10 @@ export default function GameControls({
               exit={{ opacity: 0 }}
               className="flex flex-col items-center justify-center w-full text-center"
             >
-              {diceMode === 'digital' && isOnline && activeTurnState ? (
+              {/* The live view mirrors the ACTIVE player's digital dice; the
+                  viewer's own diceMode is a per-device input preference and
+                  must not hide it (physical-dice spectators watch too). */}
+              {isOnline && activeTurnState ? (
                 <div className="w-full">
                   <p className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
                     {t('game.controls.playerIsPlaying', '{{name}} is playing', { name: currentPlayer?.name ?? '' })}

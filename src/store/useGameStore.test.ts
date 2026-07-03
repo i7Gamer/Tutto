@@ -339,6 +339,31 @@ describe('useGameStore', () => {
     expect(state.finished).toBe(false);
   });
 
+  it('deals the initial deck with the same MAX_CLUSTER constraint mid-game rebuilds use', () => {
+    // The opening deal used to be a plain shuffle, so a game could start with a
+    // 4+ run of one card that buildDeck forbids everywhere else. currentCard is
+    // drawn from the deck's head, so it counts toward the leading run.
+    useGameStore.getState().addPlayer('P1');
+    useGameStore.getState().addPlayer('P2');
+    useGameStore.setState({ initialCards: { Stop: 30, x2: 20 } });
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+      useGameStore.getState().startGame();
+      const state = useGameStore.getState();
+      const fullDeck = [state.currentCard, ...state.cards];
+
+      expect(fullDeck).toHaveLength(50);
+      expect(fullDeck.filter(c => c === 'Stop')).toHaveLength(30);
+      expect(fullDeck.filter(c => c === 'x2')).toHaveLength(20);
+
+      let cluster = 1;
+      for (let i = 1; i < fullDeck.length; i++) {
+        cluster = fullDeck[i] === fullDeck[i - 1] ? cluster + 1 : 1;
+        expect(cluster).toBeLessThanOrEqual(3);
+      }
+    }
+  });
+
   it('processes nextTurn', () => {
     useGameStore.getState().addPlayer('P1');
     useGameStore.getState().addPlayer('P2');
@@ -536,6 +561,59 @@ describe('useGameStore', () => {
           color: '#ff0000',
         }), expect.any(Function));
       }
+    });
+
+    it('a failed auto-rejoin clears the reconnect popup and drops back to the join form', () => {
+      // The seat being unrecoverable (room deleted, name reclaimed) is
+      // permanent — without this the "attempting to reconnect" popup stayed up
+      // forever because only a gameState event ever cleared it.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.setState({
+        mode: 'online', isOnline: true,
+        roomId: 'GONE_ROOM', myName: 'Alice', deviceId: 'dev-alice',
+        isHost: true, hostId: 'socket-123',
+        status: 'playing', currentPlayerIndex: 0,
+        players: namedPlayers('Alice', 'Bob'),
+        showReconnectPopup: true,
+      });
+      sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'GONE_ROOM', myName: 'Alice' }));
+      mockEmit.mockClear();
+
+      mockOnHandlers['connect']();
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(joinRoomCall).toBeTruthy();
+      joinRoomCall[2]({ success: false, error: 'Username already exists in this room' });
+
+      const s = useGameStore.getState();
+      expect(s.showReconnectPopup).toBe(false);
+      expect(s.roomId).toBeNull();
+      expect(s.myName).toBeNull();
+      expect(s.isHost).toBe(false);
+      expect(s.hostId).toBeNull();
+      expect(s.status).toBe('lobby');
+      expect(s.players).toEqual([]);
+      expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+      expect(s.toasts.some(t => t.message.includes('Username already exists'))).toBe(true);
+    });
+
+    it('a successful auto-rejoin keeps the room state and only refreshes isHost', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.setState({
+        mode: 'online', isOnline: true,
+        roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice', isHost: false,
+        players: namedPlayers('Alice', 'Bob'),
+      });
+      mockEmit.mockClear();
+
+      mockOnHandlers['connect']();
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      joinRoomCall[2]({ success: true, isHost: true });
+
+      const s = useGameStore.getState();
+      expect(s.roomId).toBe('ROOM1');
+      expect(s.myName).toBe('Alice');
+      expect(s.isHost).toBe(true);
+      expect(s.players.map(p => p.name)).toEqual(['Alice', 'Bob']);
     });
   });
 
@@ -1194,6 +1272,56 @@ describe('useGameStore', () => {
       expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
       // No temp socket opened — no roomId provided
       expect(io).not.toHaveBeenCalled();
+    });
+
+    it('cancelReconnect clears the abandoned room identity and game state ("Return to Main Menu")', () => {
+      // Without this, the stale roomId later rendered a phantom joined-room
+      // lobby, and the online roster could bleed into local mode — the
+      // setMode('local') that follows only overwrites keys a saved local game
+      // happens to contain.
+      useGameStore.setState({
+        mode: 'online', isOnline: true,
+        roomId: 'R1', myName: 'Alice', isHost: true, hostId: 'socket-123',
+        status: 'playing', currentPlayerIndex: 1, currentCard: 'Stop',
+        cards: ['x2'], round: 4, finished: false,
+        players: namedPlayers('Alice', 'Bob'),
+        showReconnectPopup: true,
+      });
+
+      useGameStore.getState().cancelReconnect();
+
+      const s = useGameStore.getState();
+      expect(s.roomId).toBeNull();
+      expect(s.myName).toBeNull();
+      expect(s.isHost).toBe(false);
+      expect(s.hostId).toBeNull();
+      expect(s.players).toEqual([]);
+      expect(s.status).toBe('lobby');
+      expect(s.currentPlayerIndex).toBeNull();
+      expect(s.currentCard).toBeNull();
+      expect(s.cards).toEqual([]);
+      expect(s.round).toBe(1);
+    });
+
+    it('cancelReconnect(roomId, name) without an active store room leaves a restored local game untouched', () => {
+      // Declining the restore prompt happens on a fresh page load where the
+      // store may already hold a restored LOCAL game. Only the roomId ARGUMENT
+      // (the room to leave server-side) is set there — the store's own roomId
+      // is null, and nothing in the store may be wiped.
+      useGameStore.setState({
+        mode: 'local', isOnline: false, roomId: null,
+        status: 'playing', currentPlayerIndex: 0, round: 3,
+        players: namedPlayers('Carol', 'Dave'),
+        pendingReconnectSession: { roomId: 'OLD_ROOM', myName: 'Carol' },
+      });
+
+      useGameStore.getState().cancelReconnect('OLD_ROOM', 'Carol');
+
+      const s = useGameStore.getState();
+      expect(s.players.map(p => p.name)).toEqual(['Carol', 'Dave']);
+      expect(s.status).toBe('playing');
+      expect(s.round).toBe(3);
+      expect(s.currentPlayerIndex).toBe(0);
     });
 
     it('joinRoom extracts and emits initialConfig from localStorage', async () => {

@@ -102,13 +102,13 @@ describe('GameControls Animation State Pattern', () => {
 });
 
 describe('GameControls spectator view (online, not my turn)', () => {
-  const renderSpectator = (activeTurnState: DiceSnapshot, currentCard: CardType | null = null) =>
+  const renderSpectator = (activeTurnState: DiceSnapshot, currentCard: CardType | null = null, diceMode: 'digital' | 'physical' = 'digital') =>
     render(
       <GameControls
         currentCard={currentCard}
         cardsLength={5}
         isMyTurn={false}
-        diceMode="digital"
+        diceMode={diceMode}
         setShowDiceGame={vi.fn()}
         scoreInput=""
         setScoreInput={vi.fn()}
@@ -169,6 +169,28 @@ describe('GameControls spectator view (online, not my turn)', () => {
       '200'
     );
     expect(keptDiceOrder()).toEqual(['5', '1', '3']);
+  });
+
+  it('shows the live dice view to spectators whose OWN diceMode is physical', () => {
+    // diceMode is a per-device input preference — it decides how the viewer
+    // enters their own turns, not whether they may watch the active player's
+    // digital dice. Physical-dice spectators used to get only the generic
+    // waiting spinner.
+    renderSpectator(
+      {
+        turnScore: 450,
+        keptDice: [{ id: 'a', val: 1 }],
+        currentRoll: [{ id: 'r1', val: 5, selected: false }],
+        kniffelProgress: [],
+        tuttosThisTurn: 0,
+      },
+      '200',
+      'physical'
+    );
+    expect(screen.getByText('450')).toBeInTheDocument();
+    expect(screen.getByText('1')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.queryByText(/waiting/i)).toBeNull();
   });
 
   it('marks busted dice red and shows no bust text', () => {

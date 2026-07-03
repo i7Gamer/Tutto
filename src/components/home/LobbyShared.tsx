@@ -3,6 +3,11 @@ import type { InputHTMLAttributes, KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, Play, ChevronUp, ChevronDown, Trash2, UserMinus, Crown, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import {
+  MIN_WINNING_SCORE, MAX_WINNING_SCORE, MAX_TURN_DURATION, MAX_RECONNECT_TIMEOUT,
+  MIN_ENABLED_TURN_DURATION, MIN_ENABLED_RECONNECT_TIMEOUT, MAX_CARD_COUNT,
+  snapDisableableDuration,
+} from '../../utils/configValidation';
 import type { Player, CardType, DiceMode } from '../../types';
 import type { GameStore } from '../../store/useGameStore';
 
@@ -198,9 +203,12 @@ interface BlurInputProps extends InputHTMLAttributes<HTMLInputElement> {
   onValueChange: (val: number) => void;
   minVal?: number;
   maxVal?: number;
+  // Applied after clamping — for fields whose valid range has a hole that a
+  // min/max pair can't express (e.g. the "0 = disabled, otherwise >= 10" timers).
+  normalize?: (val: number) => number;
 }
 
-function BlurInput({ value, onValueChange, minVal = 0, maxVal = 99999, ...props }: BlurInputProps) {
+function BlurInput({ value, onValueChange, minVal = 0, maxVal = 99999, normalize, ...props }: BlurInputProps) {
   const [localValue, setLocalValue] = useState((value ?? 0).toString());
   const [prevValue, setPrevValue] = useState(value);
   const [isDirty, setIsDirty] = useState(false);
@@ -219,11 +227,12 @@ function BlurInput({ value, onValueChange, minVal = 0, maxVal = 99999, ...props 
     let parsed = parseInt(localValue);
     if (isNaN(parsed)) parsed = value ?? 0;
     const clamped = Math.min(maxVal, Math.max(minVal, parsed));
-    setLocalValue(clamped.toString());
+    const committed = normalize ? normalize(clamped) : clamped;
+    setLocalValue(committed.toString());
     setIsDirty(false);
 
-    if (clamped !== value) {
-      onValueChange(clamped);
+    if (committed !== value) {
+      onValueChange(committed);
     }
   };
 
@@ -323,7 +332,7 @@ export function AdvancedOptionsPanel({
                 <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                   <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.winningScore', 'Winning Score')}</span>
                   <BlurInput
-                    type="number" minVal={0} maxVal={99999} inputMode="numeric" pattern="[0-9]*"
+                    type="number" minVal={MIN_WINNING_SCORE} maxVal={MAX_WINNING_SCORE} inputMode="numeric" pattern="[0-9]*"
                     className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
                     value={game.winningScore}
                     onValueChange={(val) => game.setWinningScore(val)}
@@ -334,7 +343,8 @@ export function AdvancedOptionsPanel({
                     <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                       <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.turnTimer', 'Turn Timer (s)')}</span>
                       <BlurInput
-                        type="number" minVal={0} maxVal={600} inputMode="numeric" pattern="[0-9]*"
+                        type="number" minVal={0} maxVal={MAX_TURN_DURATION} inputMode="numeric" pattern="[0-9]*"
+                        normalize={(val) => snapDisableableDuration(val, MIN_ENABLED_TURN_DURATION)}
                         className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
                         value={game.turnDuration}
                         onValueChange={(val) => game.setTurnDuration(val)}
@@ -344,7 +354,8 @@ export function AdvancedOptionsPanel({
                     <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                       <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.kickTimer', 'Kick Timer (s)')}</span>
                       <BlurInput
-                        type="number" minVal={0} maxVal={3600} inputMode="numeric" pattern="[0-9]*"
+                        type="number" minVal={0} maxVal={MAX_RECONNECT_TIMEOUT} inputMode="numeric" pattern="[0-9]*"
+                        normalize={(val) => snapDisableableDuration(val, MIN_ENABLED_RECONNECT_TIMEOUT)}
                         className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
                         value={game.reconnectTimeout}
                         onValueChange={(val) => game.setReconnectTimeout(val)}
@@ -387,7 +398,7 @@ export function AdvancedOptionsPanel({
                   <label key={card} className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                     <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{card.replace('_', '/')}</span>
                     <BlurInput
-                      type="number" minVal={0} maxVal={99} inputMode="numeric" pattern="[0-9]*"
+                      type="number" minVal={0} maxVal={MAX_CARD_COUNT} inputMode="numeric" pattern="[0-9]*"
                       className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-16 py-1 text-gray-900 dark:text-white font-medium"
                       value={count}
                       onValueChange={(val) => updateCardCount(card, val)}
