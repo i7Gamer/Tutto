@@ -52,9 +52,11 @@ test.describe('Tutto Online Ghost Lobbies', () => {
   });
 
   test('non-host players can push game state', async ({ browser }) => {
+    test.setTimeout(90000);
+
     const contextA = await browser.newContext();
     const pageA = await contextA.newPage();
-    
+
     const contextB = await browser.newContext();
     const pageB = await contextB.newPage();
 
@@ -66,14 +68,14 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     await pageA.getByPlaceholder('e.g. 1234').fill(roomId);
     await pageA.getByPlaceholder('e.g. Alice').fill('AliceHost');
     await pageA.getByRole('button', { name: /Join \/ Create/i }).click();
-    
+
     // 2. Guest joins room
     await pageB.goto('/');
     await pageB.getByRole('button', { name: /Online Play/i }).click();
     await pageB.getByPlaceholder('e.g. 1234').fill(roomId);
     await pageB.getByPlaceholder('e.g. Alice').fill('BobGuest');
     await pageB.getByRole('button', { name: /Join \/ Create/i }).click();
-    
+
     await expect(pageA.getByText('BobGuest').first()).toBeVisible({ timeout: 15000 });
 
     // 3. Switch to digital dice mode so the Roll Dice button is rendered.
@@ -83,62 +85,44 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     await pageA.getByLabel(/Digital Dice/i).click();
     await pageB.getByLabel(/Digital Dice/i).click();
 
-    // Start Game
-    await pageA.getByRole('button', { name: /Start Game!/i }).click();
-
-    // Wait for game to initialize
-    await expect(pageA.getByText(/Current Player/i).first()).toBeVisible();
-
-    // 4. Play Alice's turn until it is Bob's turn
-    let aliceTurnActive = true;
-    let attempts = 0;
-    while(aliceTurnActive && attempts < 30) {
-      attempts++;
-
-      // Open the dice modal if the Roll Dice button is visible
-      const rollBtn = pageA.getByRole('button', { name: /Roll Dice/i });
-      if (await rollBtn.isVisible()) {
-        await rollBtn.click();
-        await pageA.waitForTimeout(300);
-      }
-
-      // Inside the DiceGame modal, roll all 6 dice
-      const roll6Btn = pageA.getByRole('button', { name: /Roll 6 Dice/i });
-      if (await roll6Btn.isVisible()) {
-        await roll6Btn.click();
-        await pageA.waitForTimeout(800); // wait for dice animation to finish
-      }
-
-      const stopBtn = pageA.getByRole('button', { name: /Stop & Score/i, exact: false }).or(pageA.getByRole('button', { name: /Stop and Score/i }));
-      if (await stopBtn.isVisible()) {
-        await stopBtn.click();
-        await pageA.waitForTimeout(500);
-      }
-
-      const passBtn = pageA.getByRole('button', { name: /Pass/i });
-      if (await passBtn.isVisible()) {
-        await passBtn.click();
-        await pageA.waitForTimeout(500);
-      }
-
-      // Check if it's Bob's turn by looking at the highlighted row in the leaderboard
-      const isBobTurn = await pageA.locator('tr.bg-indigo-100, tr.dark\\:bg-indigo-900\\/30').filter({ hasText: 'BobGuest' }).isVisible();
-      if (isBobTurn) {
-        aliceTurnActive = false;
-      }
+    // 4. Make the game deterministic via the host's advanced options:
+    //    - a 10s turn timer, so if Alice is drawn as the first player her idle
+    //      turn expires server-side and play reaches Bob without simulating a
+    //      full dice turn for her;
+    //    - a bonus-cards-only deck (all special cards at 0), so no Stop card
+    //      can swallow Bob's turn and no Feuerwerk/Kleeblatt multiplier can
+    //      stretch the 10s window.
+    await pageA.getByRole('button', { name: /Show Advanced Options/i }).click();
+    const turnTimerInput = pageA.getByLabel(/Turn Timer/i);
+    await turnTimerInput.fill('10');
+    await turnTimerInput.press('Enter');
+    for (const card of ['Kleeblatt', 'Feuerwerk', 'Stop', 'Kniffel', 'Plus/Minus', 'x2']) {
+      const cardInput = pageA.getByLabel(card, { exact: true });
+      await cardInput.fill('0');
+      await cardInput.press('Enter');
     }
 
-    // 5. Bob's turn: Bob is non-host. Verify he can roll dice and push state!
-    const bobRollBtn = pageB.getByRole('button', { name: /Roll Dice/i });
-    await expect(bobRollBtn).toBeVisible();
+    // Start Game
+    await pageA.getByRole('button', { name: /Start Game!/i }).click();
+    await expect(pageA.getByText(/Current Player/i).first()).toBeVisible();
 
-    // Open the DiceGame modal and roll — this pushes state to Alice via socket
+    // 5. Wait until it is Bob's turn — his own Roll Dice button is the
+    //    authoritative signal. Turn order is random: either Bob is first
+    //    (immediate), or Alice is and the server's 10s timer forces her turn
+    //    over. 20s covers both with slack.
+    const bobRollBtn = pageB.getByRole('button', { name: /Roll Dice/i });
+    await expect(bobRollBtn).toBeVisible({ timeout: 20000 });
+
+    // 6. Bob (non-host) rolls — DiceGame pushes his live turn snapshot through
+    //    pushState as the active player.
     await bobRollBtn.click();
     const bobRoll6Btn = pageB.getByRole('button', { name: /Roll 6 Dice/i });
     await expect(bobRoll6Btn).toBeVisible();
     await bobRoll6Btn.click();
 
-    // If Bob successfully pushed state, Alice should see the game screen still active.
-    await expect(pageA.getByText(/Current Player/i).first()).toBeVisible();
+    // 7. The push must round-trip through the server to Alice: her spectator
+    //    view renders Bob's live turn (name + dice) only from the broadcast
+    //    liveTurnState a non-host pushed.
+    await expect(pageA.getByText(/BobGuest is currently playing/i)).toBeVisible({ timeout: 10000 });
   });
 });
