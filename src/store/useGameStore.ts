@@ -1,48 +1,22 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import { io } from 'socket.io-client';
-import type { Socket } from 'socket.io-client';
-import {
-  calculateNextTurn,
-  calculateUndo,
-  getLeaders,
-  shuffleArray,
-  buildGlobalStatsPayload,
-} from '../utils/coreGameEngine';
 import { parseJsonString } from '../utils/parseJson';
-import { parseSavedDiceState, buildTurnKey } from '../utils/diceTurnState';
+import { parseSavedDiceState } from '../utils/diceTurnState';
 import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
 } from '../utils/configValidation';
-import i18n from '../i18n';
-import playerColorsData from '../../playerColors.json';
-import type {
-  CardType,
-  Player,
-  CoreGameState,
-  DiceSnapshot,
-  DiceMode,
-} from '../types';
-import type { GameStore, GameStatus, ReconnectSession, JoinRoomResponse, ConfigKeys } from './storeTypes';
+import type { CoreGameState, DiceSnapshot, DiceMode } from '../types';
+import type { GameStore, GameStatus, ReconnectSession } from './storeTypes';
 import { validateOnlineConfig, reanchorLocalClock, attachPersistence } from './persistence';
 import { createTimerSlice } from './timers';
+import { createConfigSlice } from './configSlice';
+import { createSocketSlice } from './socketSlice';
+import { createGameSlice } from './gameSlice';
+import { disconnectSocket } from './socketRef';
 
 export type { GameStore } from './storeTypes';
 export { _resetTimersForTests } from './timers';
-
-export const PLAYER_COLORS: string[] = playerColorsData.PLAYER_COLORS;
-
-const createInitialPlayer = (name: string): Player => ({
-  name, score: 0, times1000PointsDeducted: 0, timesKniffelCompleted: 0,
-  timesPlusMinusCompleted: 0, timesKniffelFailed: 0, timesKleeblattFailed: 0,
-  timesKleeblattCompleted: 0, timesPlusMinusFailed: 0, timesFeuerwerkReceived: 0,
-  timesSkipped: 0, timesx2Received: 0, totalTurns: 0, busts: 0,
-  feuerwerkBusts: 0, x2Busts: 0, feuerwerkPointsScored: 0, x2PointsScored: 0,
-  position: 0,
-});
-
-
-let socket: Socket | null = null;
+export { PLAYER_COLORS } from './gameSlice';
 
 const initialLocalState: Omit<CoreGameState, never> & {
   diceMode: DiceMode;
@@ -100,6 +74,9 @@ export const useGameStore = create<GameStore>()(
     toasts: [],
     ...initialLocalState,
 
+    // Cross-cutting lifecycle actions live here in the composition root; the
+    // per-concern actions come from the slices spread below.
+
     reset: () => {
       set({
         ...initialLocalState,
@@ -118,38 +95,6 @@ export const useGameStore = create<GameStore>()(
     clearPendingReconnect: () => {
       sessionStorage.removeItem('tutto_online_session');
       set({ pendingReconnectSession: null });
-    },
-
-    cancelReconnect: (roomId?: string | null, name?: string | null) => {
-      localStorage.removeItem('tutto_dice_turn_state');
-      sessionStorage.removeItem('tutto_online_session');
-      set({ pendingReconnectSession: null, liveTurnState: null, showReconnectPopup: false });
-
-      if (!roomId) return;
-
-      const tempSocket = io(window.location.origin);
-      let cleanedUp = false;
-      const cleanup = () => {
-        if (cleanedUp) return;
-        cleanedUp = true;
-        clearTimeout(timeoutId);
-        tempSocket.disconnect();
-      };
-      const timeoutId = setTimeout(cleanup, 10000);
-
-      tempSocket.on('connect_error', cleanup);
-      tempSocket.on('connect', () => {
-        const savedColor = localStorage.getItem('tutto_color');
-        tempSocket.emit('joinRoom', {
-          roomId,
-          name,
-          deviceId: get().deviceId,
-          color: savedColor,
-        }, (res: JoinRoomResponse) => {
-          if (res?.success) tempSocket.emit('leaveRoom');
-          cleanup();
-        });
-      });
     },
 
     init: (deviceId: string) => {
@@ -185,7 +130,7 @@ export const useGameStore = create<GameStore>()(
 
     setMode: (mode) => {
       const isLocal = mode === 'local';
-      
+
       let parsed = null;
       if (isLocal) {
         parsed = parseJsonString<Partial<GameStore>>(localStorage.getItem('tutto_local_game'));
@@ -203,7 +148,7 @@ export const useGameStore = create<GameStore>()(
       set((state) => {
         state.mode = mode;
         state.isOnline = !isLocal;
-        
+
         // Reset advanced options to defaults to prevent bleeding between modes
         state.winningScore = initialLocalState.winningScore;
         state.randomOrder = initialLocalState.randomOrder;
@@ -215,7 +160,7 @@ export const useGameStore = create<GameStore>()(
           Object.assign(state, parsed);
         }
 
-        // If switching to local, ensure we don't accidentally load online settings 
+        // If switching to local, ensure we don't accidentally load online settings
         // that somehow snuck into the local save file in older versions.
         if (isLocal && parsed) {
            if (parsed.winningScore !== undefined) state.winningScore = parsed.winningScore;
@@ -231,7 +176,7 @@ export const useGameStore = create<GameStore>()(
       });
 
       if (mode === 'local') {
-        if (socket) { socket.disconnect(); socket = null; }
+        disconnectSocket();
         get().stopOnlineTimers();
         get().startLocalTimers();
       } else {
@@ -239,468 +184,10 @@ export const useGameStore = create<GameStore>()(
       }
     },
 
-    addToast: (message) => set((state) => {
-      state.toasts.push({ id: Date.now() + Math.random(), message });
-    }),
-    removeToast: (id) => set((state) => {
-      state.toasts = state.toasts.filter(t => t.id !== id);
-    }),
-
-    setDiceMode: (val) => {
-      set({ diceMode: val });
-      localStorage.setItem('tutto_diceMode', val);
-    },
-
-    setAudioEnabled: (val) => {
-      set({ audioEnabled: val });
-      localStorage.setItem('tutto_audioEnabled', String(val));
-    },
-
-    updateConfig: (config) => {
-      set((state) => { Object.assign(state, config); });
-      const s = get();
-      if (s.isOnline && s.isHost && s.roomId && socket) {
-        socket.emit('updateConfig', {
-          roomId: s.roomId,
-          winningScore: s.winningScore,
-          initialCards: s.initialCards,
-          randomOrder: s.randomOrder,
-          turnDuration: s.turnDuration,
-          reconnectTimeout: s.reconnectTimeout,
-        });
-      }
-    },
-
-    setWinningScore: (val) => get().updateConfig({ winningScore: val }),
-    setInitialCards: (val) => get().updateConfig({ initialCards: val }),
-    setRandomOrder: (val) => get().updateConfig({ randomOrder: val }),
-    setTurnDuration: (val) => get().updateConfig({ turnDuration: val }),
-    setReconnectTimeout: (val) => get().updateConfig({ reconnectTimeout: val }),
-    resetGeneralSettings: () => get().updateConfig({
-      winningScore: DEFAULT_WINNING_SCORE,
-      randomOrder: true,
-      turnDuration: DEFAULT_TURN_DURATION,
-      reconnectTimeout: DEFAULT_RECONNECT_TIMEOUT,
-    }),
-    resetInitialCards: () => get().updateConfig({ initialCards: { ...DEFAULT_INITIAL_CARDS } }),
-
-    addPlayer: (name) => {
-      set((state) => {
-        const usedColors = state.players.map(p => p.color);
-        let color = PLAYER_COLORS.find(c => !usedColors.includes(c));
-        if (!color) color = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
-        const newPlayer = createInitialPlayer(name);
-        newPlayer.color = color;
-        state.players.push(newPlayer);
-      });
-    },
-
-    removePlayer: (name) => {
-      set((state) => { state.players = state.players.filter(p => p.name !== name); });
-    },
-
-    reorderPlayers: (newPlayers) => {
-      set({ players: newPlayers, randomOrder: false });
-      if (get().isOnline && get().isHost && socket) {
-        socket.emit('reorderPlayers', { roomId: get().roomId, newPlayers });
-      }
-    },
-
-    changePlayerColor: (name, color) => {
-      set((state) => {
-        const p = state.players.find(p => p.name === name);
-        if (p) p.color = color;
-      });
-    },
-
-    changeMyColor: (newColor) => {
-      localStorage.setItem('tutto_color', newColor);
-      get().changePlayerColor(get().myName ?? '', newColor);
-      if (get().isOnline && socket) {
-        socket.emit('updatePlayerColor', { roomId: get().roomId, color: newColor });
-      }
-    },
-
-    connectSocket: (url?: string) => {
-      if (!socket) {
-        const sock = io(url ?? window.location.origin);
-        socket = sock;
-
-        sock.on('gameState', (serverState: Partial<GameStore>) => {
-          const wasFinished = get().finished;
-          set((prev) => {
-            const wasDisconnected = prev.showReconnectPopup;
-
-            if (prev.mode === 'online' && prev.status === 'lobby' && serverState.status === 'lobby') {
-              if (prev.winningScore !== serverState.winningScore) prev.toasts.push({ id: Date.now() + Math.random(), message: `Winning score: ${serverState.winningScore}` });
-              if (prev.turnDuration !== serverState.turnDuration) prev.toasts.push({ id: Date.now() + Math.random(), message: `Turn timer: ${serverState.turnDuration === 0 ? 'Off' : serverState.turnDuration + 's'}` });
-              if (prev.reconnectTimeout !== serverState.reconnectTimeout) prev.toasts.push({ id: Date.now() + Math.random(), message: `Kick timer: ${serverState.reconnectTimeout}s` });
-              if (JSON.stringify(prev.initialCards) !== JSON.stringify(serverState.initialCards)) prev.toasts.push({ id: Date.now() + Math.random(), message: 'Deck composition changed' });
-            }
-            if (prev.mode === 'online' && prev.status === 'playing' && serverState.status === 'lobby' && !prev.finished && (serverState.players?.length ?? 0) >= 2) {
-              prev.toasts.push({ id: Date.now() + Math.random(), message: 'Host ended game early' });
-            }
-            Object.assign(prev, serverState);
-
-            const isNewReconnect = wasDisconnected && serverState.status === 'playing';
-            if (isNewReconnect) {
-              prev.justReconnected = true;
-            } else if (prev.justReconnected) {
-              // Self-clearing: true for exactly one gameState event's processing
-              // window, then reset here on the next one — regardless of whether
-              // any component (e.g. Game.tsx) was mounted to react to it and
-              // clear it itself. Without this it could get stuck true forever
-              // (e.g. reconnecting as a spectator, or on physical dice) and
-              // wrongly resurface on a later, unrelated turn.
-              prev.justReconnected = false;
-            }
-            prev.showReconnectPopup = false;
-          });
-          get().syncOnlineTimers();
-
-          if (!wasFinished && get().finished) {
-            get().sendOnlineStats();
-          }
-        });
-
-        sock.on('playerDisconnected', (name: string) => {
-          const seconds = get().reconnectTimeout || DEFAULT_RECONNECT_TIMEOUT;
-          get().addToast(`${name} disconnected! They have ${seconds} seconds to reconnect.`);
-        });
-
-        sock.on('nameConflictWithDisconnected', (name: string) => {
-          get().addToast(`Someone tried to join as "${name}", which belongs to a disconnected player. Kick them below to free up the name.`);
-        });
-
-        sock.on('hostId', (hostSocketId: string) => {
-          set({ isHost: hostSocketId === sock.id, hostId: hostSocketId });
-        });
-
-        sock.on('kicked', () => {
-          get().addToast('You were kicked by the host');
-          set({ roomId: null, isHost: false, hostId: null, myName: null });
-          sessionStorage.removeItem('tutto_online_session');
-          get().setMode('local');
-        });
-
-        sock.on('gameAborted', () => {
-          get().addToast(i18n.t('game.aborted'));
-        });
-
-        sock.on('disconnect', () => {
-          if (get().mode === 'online') set({ showReconnectPopup: true });
-        });
-
-        sock.on('connect', () => {
-          const { roomId, myName, deviceId } = get();
-          if (roomId && myName) {
-            const savedColor = localStorage.getItem('tutto_color');
-            sock.emit('joinRoom', { roomId, name: myName, deviceId, color: savedColor }, (res: JoinRoomResponse) => {
-              if (res.success) set({ isHost: res.isHost ?? false });
-            });
-          }
-        });
-      }
-    },
-
-    joinRoom: (room, name, isReconnect = false) => {
-      if (!isReconnect) {
-        localStorage.removeItem('tutto_dice_turn_state');
-        set({ liveTurnState: null });
-      }
-      return new Promise<JoinRoomResponse>((resolve) => {
-        let initialConfig: Partial<Pick<GameStore, ConfigKeys>> | undefined = undefined;
-        try {
-          const storedConfigStr = localStorage.getItem('tutto_online_config');
-          if (storedConfigStr) {
-            // Only transmit fields the server would accept — same validator the
-            // lobby uses when loading this config, so both stay in sync.
-            const validated = validateOnlineConfig(JSON.parse(storedConfigStr));
-            if (Object.keys(validated).length > 0) initialConfig = validated;
-          }
-        } catch (e) {
-          console.error('Failed to parse online config for joinRoom', e);
-        }
-
-        get().connectSocket();
-        const savedColor = localStorage.getItem('tutto_color');
-        if (!socket) {
-          resolve({ success: false, error: 'Socket not connected' });
-          return;
-        }
-        socket.emit('joinRoom', { roomId: room, name, deviceId: get().deviceId, color: savedColor, initialConfig }, (res: JoinRoomResponse) => {
-          if (res.success) {
-            set({ roomId: room, isHost: res.isHost ?? false, myName: name, mode: 'online', isOnline: true });
-            sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: room, myName: name }));
-            
-            if (res.isHost && !isReconnect && initialConfig) {
-              get().addToast(i18n.t('lobby.savedSettingsLoaded'));
-            }
-          }
-          resolve(res);
-        });
-      });
-    },
-
-    leaveRoom: () => {
-      if (socket) socket.emit('leaveRoom');
-      get().stopOnlineTimers();
-      sessionStorage.removeItem('tutto_online_session');
-      localStorage.removeItem('tutto_dice_turn_state');
-      set({
-        players: [],
-        currentPlayerIndex: null,
-        currentCard: null,
-        cards: [],
-        round: 1,
-        finished: false,
-        status: 'lobby',
-        roomId: null,
-        isHost: false,
-        myName: null,
-        liveTurnState: null,
-      });
-    },
-
-    kickPlayer: (targetSocketId) => {
-      if (get().isHost && socket) socket.emit('kickPlayer', targetSocketId);
-    },
-
-    setLiveTurnState: (snapshot) => {
-      set({ liveTurnState: snapshot });
-      if (snapshot) {
-        const s = get();
-        const snapshotWithPlayer = {
-          ...snapshot,
-          playerName: s.currentPlayerIndex !== null ? s.players[s.currentPlayerIndex]?.name : undefined,
-          // Stamped so a later restore (see DiceGame's mount effect) can tell this
-          // turn apart from a stale snapshot left behind by an earlier turn — e.g.
-          // one the server's turn timer advanced past while this player was
-          // disconnected, which never got the chance to clear its own cache entry.
-          turnKey: buildTurnKey(s.roomId, s.round, s.currentPlayerIndex, s.currentCard),
-        };
-        localStorage.setItem('tutto_dice_turn_state', JSON.stringify(snapshotWithPlayer));
-      }
-      if (get().isOnline) get().pushState();
-    },
-
-    pushState: () => {
-      const s = get();
-      if (s.isOnline && socket) {
-        const {
-          players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
-          randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
-          previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
-          chartValues, chartNames, chartLabels, status, liveTurnState,
-        } = s;
-        socket.emit('pushState', {
-          roomId: s.roomId,
-          newState: {
-            players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
-            randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
-            previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
-            chartValues, chartNames, chartLabels, status, liveTurnState,
-          },
-        });
-      }
-    },
-
+    ...createConfigSlice(set, get, api),
     ...createTimerSlice(set, get, api),
-
-    startGame: () => {
-      const s = get();
-      if (s.isOnline && !s.isHost) return;
-
-      set((state) => {
-        const resetPlayers = state.players.map(p => ({
-          ...createInitialPlayer(p.name),
-          color: p.color,
-          socketId: p.socketId,
-          disconnected: p.disconnected,
-        }));
-        state.players = state.randomOrder ? shuffleArray(resetPlayers) : resetPlayers;
-        state.round = 1;
-        state.gameStartTime = Date.now();
-        state.gameTimeInSeconds = 0;
-        state.finished = false;
-        state.chartValues = state.players.map(() => []);
-        state.chartNames = state.players.map(p => p.name);
-        state.chartLabels = [];
-        state.previousCard = null;
-        state.previousScore = null;
-        state.previousLeaders = null;
-        state.previousWasBust = false;
-        state.previousHighestTurnScore = 0;
-        state.status = 'playing';
-
-        const deck = shuffleArray(
-          (Object.keys(state.initialCards) as CardType[]).flatMap(card =>
-            Array.from({ length: state.initialCards[card] ?? 0 }, (): CardType => card)
-          )
-        );
-        state.currentCard = deck.shift() ?? null;
-        state.cards = deck;
-        state.currentPlayerIndex = 0;
-        state.liveTurnState = null;
-      });
-      localStorage.removeItem('tutto_dice_turn_state');
-
-      if (get().isOnline) {
-        get().pushState();
-        get().syncOnlineTimers();
-      } else {
-        get().startLocalTimers();
-      }
-    },
-
-    endGame: () => {
-      if (get().isOnline && !get().isHost) return;
-      get().stopLocalTimers();
-      set({
-        finished: false,
-        status: 'lobby',
-        currentPlayerIndex: null,
-        gameTimeInSeconds: 0,
-        round: 1,
-        currentCard: null,
-        cards: [],
-        turnTimeRemaining: null,
-        liveTurnState: null,
-        previousCard: null,
-        previousScore: null,
-        previousLeaders: null,
-        previousWasBust: false,
-        previousHighestTurnScore: 0,
-        chartValues: [],
-        chartNames: [],
-        chartLabels: [],
-      });
-      localStorage.removeItem('tutto_dice_turn_state');
-      if (get().isOnline) get().pushState();
-    },
-
-    nextTurn: (scoreInput, isSuccess = false) => {
-      const s = get();
-      if (s.finished) return;
-      if (s.currentPlayerIndex === null) return;
-
-      const result = calculateNextTurn(
-        s as CoreGameState & { currentPlayerIndex: number },
-        scoreInput,
-        isSuccess,
-      );
-
-      set((state) => {
-        state.previousCard = result.previousCard;
-        state.previousScore = result.previousScore;
-        state.previousLeaders = result.previousLeaders;
-        state.previousWasBust = result.previousWasBust;
-        state.previousHighestTurnScore = result.previousHighestTurnScore;
-
-        if (result.isRoundEnd) {
-          state.chartValues.forEach((vals, i) => vals.push(result.players[i].score));
-          state.chartLabels.push(state.round);
-        }
-
-        state.players = result.players;
-
-        if (result.isGameOver) {
-          state.finished = true;
-          state.currentPlayerIndex = null;
-          if (state.gameStartTime) {
-            state.gameTimeInSeconds = Math.floor((Date.now() - state.gameStartTime) / 1000);
-          }
-        } else {
-          state.currentPlayerIndex = result.nextIndex;
-          state.round = result.nextRound;
-          state.cards = result.newDeck;
-          state.currentCard = result.drawnCard;
-        }
-        state.liveTurnState = null;
-        localStorage.removeItem('tutto_dice_turn_state');
-      });
-
-      // Stats are intentionally only tracked for online games. Local games do not
-      // submit statistics — by design, not an oversight.
-      if (get().finished && get().isOnline) get().sendOnlineStats();
-      if (get().isOnline) {
-        get().pushState();
-        get().syncOnlineTimers();
-      }
-    },
-
-    undo: () => {
-      const s = get();
-      if (!s.previousCard || s.previousCard === 'Stop') return;
-
-      const result = calculateUndo(s);
-      if (!result) return;
-
-      set((state) => {
-        if (result.isRoundEndUndo) {
-          state.chartValues = state.chartValues.map(vals => vals.slice(0, -1));
-          state.chartLabels = state.chartLabels.slice(0, -1);
-        }
-        state.players = result.players;
-        state.currentPlayerIndex = result.nextIndex;
-        state.round = result.nextRound;
-        state.cards = result.newDeck;
-        state.currentCard = result.drawnCard;
-        state.previousCard = null;
-        state.previousScore = null;
-        state.previousLeaders = null;
-        state.previousWasBust = false;
-        state.previousHighestTurnScore = 0;
-      });
-
-      if (get().isOnline) {
-        get().pushState();
-        get().syncOnlineTimers();
-      }
-    },
-
-    buildGlobalStatsPayload: () => {
-      const s = get();
-      const isDefaultGame = s.winningScore === DEFAULT_WINNING_SCORE && JSON.stringify(s.initialCards) === JSON.stringify(DEFAULT_INITIAL_CARDS);
-      return buildGlobalStatsPayload(s.players, s.gameTimeInSeconds, isDefaultGame);
-    },
-
-    sendOnlineStats: () => {
-      const s = get();
-      const me = s.players.find(p => p.name === s.myName);
-      if (me && socket) {
-        const leaders = getLeaders(s.players);
-        const didIWin = leaders.find(l => l.name === me.name) ? 1 : 0;
-        socket.emit('endGameStats', {
-          roomId: s.roomId,
-          deviceId: s.deviceId,
-          stats: {
-            gamesPlayed: 1, wins: didIWin, totalPlaytime: s.gameTimeInSeconds || 0,
-            pointsDeducted: me.times1000PointsDeducted || 0, plusMinusCompleted: me.timesPlusMinusCompleted || 0,
-            plusMinusFailed: me.timesPlusMinusFailed || 0, kniffelCompleted: me.timesKniffelCompleted || 0,
-            kniffelFailed: me.timesKniffelFailed || 0, skipped: me.timesSkipped || 0,
-            feuerwerkReceived: me.timesFeuerwerkReceived || 0, kleeblattFailed: me.timesKleeblattFailed || 0,
-            kleeblattCompleted: me.timesKleeblattCompleted || 0, x2Received: me.timesx2Received || 0,
-            totalTurns: me.totalTurns || 0, busts: me.busts || 0,
-            feuerwerkBusts: me.feuerwerkBusts || 0, x2Busts: me.x2Busts || 0,
-            feuerwerkPointsScored: me.feuerwerkPointsScored || 0, x2PointsScored: me.x2PointsScored || 0,
-            highestTurnScore: me.highestTurnScore || 0, totalScore: me.score || 0,
-            fastestWinTurns: didIWin ? (me.totalTurns || 0) : null,
-            fastestLossTurns: !didIWin ? (me.totalTurns || 0) : null,
-          },
-        });
-      }
-
-      // Global stats are submitted by the host via socket so no secret token
-      // needs to be compiled into the client bundle. The server validates the
-      // sender is the room host by socket identity.
-      if (s.isHost && socket) {
-        socket.emit('submitGlobalStats', {
-          roomId: s.roomId,
-          payload: get().buildGlobalStatsPayload(),
-        });
-      }
-    },
+    ...createSocketSlice(set, get, api),
+    ...createGameSlice(set, get, api),
   })),
 );
 
