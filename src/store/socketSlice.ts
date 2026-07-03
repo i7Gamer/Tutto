@@ -55,13 +55,39 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           const wasDisconnected = prev.showReconnectPopup;
 
           if (prev.mode === 'online' && prev.status === 'lobby' && serverState.status === 'lobby') {
-            if (prev.winningScore !== serverState.winningScore) prev.toasts.push({ id: Date.now() + Math.random(), message: `Winning score: ${serverState.winningScore}` });
-            if (prev.turnDuration !== serverState.turnDuration) prev.toasts.push({ id: Date.now() + Math.random(), message: `Turn timer: ${serverState.turnDuration === 0 ? 'Off' : serverState.turnDuration + 's'}` });
-            if (prev.reconnectTimeout !== serverState.reconnectTimeout) prev.toasts.push({ id: Date.now() + Math.random(), message: `Kick timer: ${serverState.reconnectTimeout}s` });
-            if (JSON.stringify(prev.initialCards) !== JSON.stringify(serverState.initialCards)) prev.toasts.push({ id: Date.now() + Math.random(), message: 'Deck composition changed' });
+            if (prev.winningScore !== serverState.winningScore) {
+              prev.toasts.push({
+                id: Date.now() + Math.random(),
+                message: i18n.t('game.toastWinningScore', {
+                  defaultValue: 'Winning score: {{value}}',
+                  value: serverState.winningScore,
+                }),
+              });
+            }
+            if (prev.turnDuration !== serverState.turnDuration) {
+              const value = serverState.turnDuration === 0
+                ? i18n.t('common.disabled', 'Disabled')
+                : i18n.t('game.timeSeconds', { defaultValue: '{{time}}s', time: serverState.turnDuration });
+              prev.toasts.push({
+                id: Date.now() + Math.random(),
+                message: i18n.t('game.toastTurnTimer', { defaultValue: 'Turn timer: {{value}}', value }),
+              });
+            }
+            if (prev.reconnectTimeout !== serverState.reconnectTimeout) {
+              prev.toasts.push({
+                id: Date.now() + Math.random(),
+                message: i18n.t('game.toastKickTimer', {
+                  defaultValue: 'Kick timer: {{value}}',
+                  value: `${serverState.reconnectTimeout}s`,
+                }),
+              });
+            }
+            if (JSON.stringify(prev.initialCards) !== JSON.stringify(serverState.initialCards)) {
+              prev.toasts.push({ id: Date.now() + Math.random(), message: i18n.t('game.toastDeckChanged', 'Deck composition changed') });
+            }
           }
           if (prev.mode === 'online' && prev.status === 'playing' && serverState.status === 'lobby' && !prev.finished && (serverState.players?.length ?? 0) >= 2) {
-            prev.toasts.push({ id: Date.now() + Math.random(), message: 'Host ended game early' });
+            prev.toasts.push({ id: Date.now() + Math.random(), message: i18n.t('game.toastHostEndedEarly', 'Host ended game early') });
           }
           Object.assign(prev, serverState);
 
@@ -98,7 +124,10 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       });
 
       sock.on('nameConflictWithDisconnected', (name: string) => {
-        get().addToast(`Someone tried to join as "${name}", which belongs to a disconnected player. Kick them below to free up the name.`);
+        get().addToast(i18n.t('game.nameConflictWithDisconnected', {
+          defaultValue: 'Someone tried to join as "{{name}}", which belongs to a disconnected player. Kick them below to free up the name.',
+          name,
+        }));
       });
 
       sock.on('hostId', (hostSocketId: string) => {
