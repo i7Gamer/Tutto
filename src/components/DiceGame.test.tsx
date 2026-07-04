@@ -8,6 +8,8 @@ vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
   playSuccess: vi.fn(),
   playTone: vi.fn(),
+  vibrateBust: vi.fn(),
+  vibrateSuccess: vi.fn(),
 }));
 
 vi.mock('canvas-confetti', () => ({

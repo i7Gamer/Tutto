@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { playTone, playBuzzer, playSuccess } from './soundEffects';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { playTone, playBuzzer, playSuccess, vibrateBust, vibrateSuccess } from './soundEffects';
+import { useGameStore } from '../store/useGameStore';
 
 describe('soundEffects', () => {
   const mockOscillator = {
@@ -61,5 +62,49 @@ describe('soundEffects', () => {
     playSuccess();
     await new Promise(r => setTimeout(r, 0));
     expect(mockAudioContext.createOscillator).toHaveBeenCalledTimes(3);
+  });
+
+  describe('vibration', () => {
+    afterEach(() => {
+      useGameStore.setState({ hapticsEnabled: true });
+      // @ts-expect-error test-only cleanup of a jsdom-absent API
+      delete navigator.vibrate;
+    });
+
+    it('vibrateBust calls navigator.vibrate when haptics are enabled and supported', () => {
+      const vibrate = vi.fn();
+      Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true });
+      useGameStore.setState({ hapticsEnabled: true });
+
+      vibrateBust();
+
+      expect(vibrate).toHaveBeenCalledWith(200);
+    });
+
+    it('vibrateSuccess calls navigator.vibrate with a pattern when haptics are enabled', () => {
+      const vibrate = vi.fn();
+      Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true });
+      useGameStore.setState({ hapticsEnabled: true });
+
+      vibrateSuccess();
+
+      expect(vibrate).toHaveBeenCalledWith([50, 50, 50]);
+    });
+
+    it('does not vibrate when hapticsEnabled is false', () => {
+      const vibrate = vi.fn();
+      Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true });
+      useGameStore.setState({ hapticsEnabled: false });
+
+      vibrateBust();
+      vibrateSuccess();
+
+      expect(vibrate).not.toHaveBeenCalled();
+    });
+
+    it('does not throw when navigator.vibrate is unsupported', () => {
+      useGameStore.setState({ hapticsEnabled: true });
+      expect(() => vibrateBust()).not.toThrow();
+    });
   });
 });

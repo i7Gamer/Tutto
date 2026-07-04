@@ -334,4 +334,18 @@ describe('GameControls end/leave game confirmation dialogs', () => {
     fireEvent.click(screen.getByText('game.controls.leaveGame'));
     expect(leaveRoom).toHaveBeenCalledTimes(1);
   });
+
+  it('undo: only calls undo once the confirm dialog is accepted', () => {
+    const undo = vi.fn();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<GameControls {...baseProps({ undo })} />);
+
+    fireEvent.click(screen.getByText('game.controls.undo'));
+    expect(confirmSpy).toHaveBeenCalledWith('game.controls.undoConfirm');
+    expect(undo).not.toHaveBeenCalled();
+
+    confirmSpy.mockReturnValue(true);
+    fireEvent.click(screen.getByText('game.controls.undo'));
+    expect(undo).toHaveBeenCalledTimes(1);
+  });
 });

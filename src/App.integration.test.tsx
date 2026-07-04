@@ -13,7 +13,9 @@ vi.mock('canvas-confetti', () => ({
 vi.mock('./utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
   playSuccess: vi.fn(),
-  playTone: vi.fn()
+  playTone: vi.fn(),
+  vibrateBust: vi.fn(),
+  vibrateSuccess: vi.fn(),
 }));
 
 // Create a mock for socket.io-client that can be configured per test

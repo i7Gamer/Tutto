@@ -4,6 +4,7 @@ import type {
   Player,
   CoreGameState,
   Toast,
+  Reaction,
   DiceSnapshot,
   GlobalStatsPayload,
   DiceMode,
@@ -30,6 +31,12 @@ export interface JoinRoomResponse {
 
 export type ConfigKeys = 'winningScore' | 'initialCards' | 'randomOrder' | 'turnDuration' | 'reconnectTimeout' | 'enforcedDiceMode';
 
+export interface PreGameStats {
+  highestTurnScore: number | null;
+  fastestWinTurns: number | null;
+  fastestLossTurns: number | null;
+}
+
 export interface GameStore extends CoreGameState {
   mode: GameMode;
   deviceId: string | null;
@@ -40,12 +47,14 @@ export interface GameStore extends CoreGameState {
   hostId: string | null;
   myName: string | null;
   toasts: Toast[];
+  reactions: Reaction[];
   diceMode: DiceMode;
   // Host-only room config: null means every player uses their own diceMode
   // (the default); a DiceMode value pins that mode for everyone's own turn,
   // overriding their personal preference (see Game.tsx's effectiveDiceMode).
   enforcedDiceMode: DiceMode | null;
   audioEnabled: boolean;
+  hapticsEnabled: boolean;
   randomOrder: boolean;
   turnDuration: number;
   reconnectTimeout: number;
@@ -57,6 +66,11 @@ export interface GameStore extends CoreGameState {
   liveTurnState: DiceSnapshot | null;
   justReconnected: boolean;
   pendingReconnectSession?: ReconnectSession | null;
+  // Snapshot of this device's lifetime records, fetched once when a game
+  // starts — i.e. strictly before this game's own endGameStats submission can
+  // land. EndScreen diffs the post-game deviceStats against this to tell a
+  // genuinely new personal record apart from merely tying an older one.
+  preGameStats: PreGameStats | null;
 
   reset: () => void;
   clearPendingReconnect: () => void;
@@ -65,8 +79,11 @@ export interface GameStore extends CoreGameState {
   setMode: (mode: GameMode) => void;
   addToast: (message: string) => void;
   removeToast: (id: number) => void;
+  sendReaction: (emoji: string) => void;
+  removeReaction: (id: number) => void;
   setDiceMode: (val: DiceMode) => void;
   setAudioEnabled: (val: boolean) => void;
+  setHapticsEnabled: (val: boolean) => void;
   updateConfig: (config: Partial<Pick<GameStore, ConfigKeys>>) => void;
   setWinningScore: (val: number) => void;
   setInitialCards: (val: InitialCards) => void;
@@ -95,6 +112,7 @@ export interface GameStore extends CoreGameState {
   endGame: () => void;
   nextTurn: (scoreInput: number, isSuccess?: boolean) => void;
   undo: () => void;
+  setPreGameStats: (stats: PreGameStats | null) => void;
   buildGlobalStatsPayload: () => GlobalStatsPayload;
   sendOnlineStats: () => void;
 }

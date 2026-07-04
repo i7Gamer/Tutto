@@ -741,4 +741,139 @@ describe('Game Component Integration', () => {
       expect(mockAddToast).toHaveBeenCalledTimes(2);
     });
   });
+
+  describe('keyboard shortcuts', () => {
+    // Earlier tests in this file (reconnect-resume) can leave justReconnected/
+    // liveTurnState set on the shared store, which would auto-open the dice
+    // modal on mount here — reset them so each test starts from a clean slate.
+    beforeEach(() => {
+      useGameStore.setState({ justReconnected: false, liveTurnState: null });
+    });
+
+    it('Space opens the dice-roll modal in digital mode', () => {
+      useGameStore.setState({ diceMode: 'digital', currentCard: 'x2' });
+      render(<Game />);
+
+      expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
+      fireEvent.keyDown(window, { key: ' ' });
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+    });
+
+    it('Escape closes the dice-roll modal', () => {
+      useGameStore.setState({ diceMode: 'digital', currentCard: 'x2' });
+      render(<Game />);
+
+      fireEvent.keyDown(window, { key: ' ' });
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
+    });
+
+    it('Enter submits the physical-mode score input as Next Turn', () => {
+      useGameStore.setState({ diceMode: 'physical', currentCard: '200' });
+      render(<Game />);
+
+      const scoreInput = screen.getByPlaceholderText('game.controls.scorePlaceholder');
+      fireEvent.change(scoreInput, { target: { value: '350' } });
+      fireEvent.keyDown(window, { key: 'Enter' });
+
+      expect(mockNextTurn).toHaveBeenCalledWith(350, true);
+    });
+
+    it('Space answers Yes for a physical-mode Yes/No card (Kniffel)', () => {
+      useGameStore.setState({ diceMode: 'physical', currentCard: 'Kniffel' });
+      render(<Game />);
+
+      fireEvent.keyDown(window, { key: ' ' });
+      expect(mockNextTurn).toHaveBeenCalledWith(0, true);
+    });
+
+    it('Space continues past a Stop card', () => {
+      useGameStore.setState({ diceMode: 'physical', currentCard: 'Stop' });
+      render(<Game />);
+
+      fireEvent.keyDown(window, { key: ' ' });
+      expect(mockNextTurn).toHaveBeenCalledWith(0, false);
+    });
+
+    it('opens Roll Dice via Space in digital mode even for a Yes/No card (digital always shows Roll Dice)', () => {
+      useGameStore.setState({ diceMode: 'digital', currentCard: 'Kniffel' });
+      render(<Game />);
+
+      fireEvent.keyDown(window, { key: ' ' });
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+      expect(mockNextTurn).not.toHaveBeenCalled();
+    });
+
+    it('ignores the shortcut when it is not the player\'s turn', () => {
+      useGameStore.setState({ diceMode: 'physical', currentCard: '200', myName: 'Bob' });
+      render(<Game />);
+
+      fireEvent.keyDown(window, { key: 'Enter' });
+      expect(mockNextTurn).not.toHaveBeenCalled();
+    });
+
+    it('ignores the shortcut while focus is inside the score input', () => {
+      useGameStore.setState({ diceMode: 'physical', currentCard: '200' });
+      render(<Game />);
+
+      const scoreInput = screen.getByPlaceholderText('game.controls.scorePlaceholder');
+      scoreInput.focus();
+      fireEvent.keyDown(window, { key: 'Enter' });
+
+      expect(mockNextTurn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('pre-game stats snapshot', () => {
+    afterEach(() => {
+      // @ts-expect-error test cleanup
+      delete global.fetch;
+    });
+
+    it('fetches and stores a pre-game stats snapshot for online games', async () => {
+      const setPreGameStats = vi.fn();
+      global.fetch = vi.fn(() => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null }),
+      })) as unknown as typeof fetch;
+
+      useGameStore.setState({ isOnline: true, deviceId: 'device-1', setPreGameStats });
+      render(<Game />);
+
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+      expect(global.fetch).toHaveBeenCalledWith('/api/stats/device-1');
+      expect(setPreGameStats).toHaveBeenCalledWith({ highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null });
+    });
+
+    it('does not fetch pre-game stats for local games', () => {
+      const setPreGameStats = vi.fn();
+      global.fetch = vi.fn();
+
+      useGameStore.setState({ isOnline: false, deviceId: 'device-1', setPreGameStats });
+      render(<Game />);
+
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('emoji reaction bar', () => {
+    it('shows the reaction bar for online games and sends the clicked emoji', () => {
+      const sendReaction = vi.fn();
+      useGameStore.setState({ isOnline: true, sendReaction });
+      render(<Game />);
+
+      fireEvent.click(screen.getByText('🔥'));
+      expect(sendReaction).toHaveBeenCalledWith('🔥');
+    });
+
+    it('hides the reaction bar for local games', () => {
+      useGameStore.setState({ isOnline: false });
+      render(<Game />);
+
+      expect(screen.queryByText('🔥')).not.toBeInTheDocument();
+    });
+  });
 });

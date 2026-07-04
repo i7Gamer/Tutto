@@ -201,6 +201,36 @@ describe('Database Statistics Integration', () => {
     expect(retrievedStats.totalKleeblattCompleted).toBe(initialStats.totalKleeblattCompleted);
   });
 
+  it('should track currentWinStreak/bestWinStreak across consecutive wins, a loss reset, and a longer streak', async () => {
+    const mockDeviceId = 'win-streak-device-' + Date.now();
+
+    // Win #1
+    await database.updateDeviceStats(mockDeviceId, { gamesPlayed: 1, wins: 1 });
+    let stats = await database.getDeviceStats(mockDeviceId);
+    expect(stats.currentWinStreak).toBe(1);
+    expect(stats.bestWinStreak).toBe(1);
+
+    // Win #2 — streak continues
+    await database.updateDeviceStats(mockDeviceId, { gamesPlayed: 1, wins: 1 });
+    stats = await database.getDeviceStats(mockDeviceId);
+    expect(stats.currentWinStreak).toBe(2);
+    expect(stats.bestWinStreak).toBe(2);
+
+    // Loss — streak resets, best is preserved
+    await database.updateDeviceStats(mockDeviceId, { gamesPlayed: 1, wins: 0 });
+    stats = await database.getDeviceStats(mockDeviceId);
+    expect(stats.currentWinStreak).toBe(0);
+    expect(stats.bestWinStreak).toBe(2);
+
+    // Three more wins — a new, longer streak becomes the new best
+    await database.updateDeviceStats(mockDeviceId, { gamesPlayed: 1, wins: 1 });
+    await database.updateDeviceStats(mockDeviceId, { gamesPlayed: 1, wins: 1 });
+    await database.updateDeviceStats(mockDeviceId, { gamesPlayed: 1, wins: 1 });
+    stats = await database.getDeviceStats(mockDeviceId);
+    expect(stats.currentWinStreak).toBe(3);
+    expect(stats.bestWinStreak).toBe(3);
+  });
+
   it('should handle edge cases with missing fields gracefully in device stats', async () => {
     const mockDeviceId = 'edge-case-device-' + Date.now();
     const almostEmptyStats = { dummy: 1 }; // Needs at least one key to bypass the early return optimization

@@ -7,7 +7,7 @@ import {
   DEFAULT_DICE_MODE, isValidDiceMode,
 } from '../utils/configValidation';
 import type { CoreGameState, DiceSnapshot, DiceMode } from '../types';
-import type { GameStore, GameStatus, ReconnectSession } from './storeTypes';
+import type { GameStore, GameStatus, ReconnectSession, PreGameStats } from './storeTypes';
 import { validateOnlineConfig, reanchorLocalClock, attachPersistence, pickLocalGameState } from './persistence';
 import { createTimerSlice } from './timers';
 import { createConfigSlice } from './configSlice';
@@ -23,6 +23,7 @@ const initialLocalState: Omit<CoreGameState, never> & {
   diceMode: DiceMode;
   enforcedDiceMode: DiceMode | null;
   audioEnabled: boolean;
+  hapticsEnabled: boolean;
   randomOrder: boolean;
   turnDuration: number;
   reconnectTimeout: number;
@@ -33,6 +34,7 @@ const initialLocalState: Omit<CoreGameState, never> & {
   status: GameStatus;
   liveTurnState: DiceSnapshot | null;
   justReconnected: boolean;
+  preGameStats: PreGameStats | null;
 } = {
   players: [],
   currentPlayerIndex: null,
@@ -44,6 +46,7 @@ const initialLocalState: Omit<CoreGameState, never> & {
   diceMode: DEFAULT_DICE_MODE,
   enforcedDiceMode: null,
   audioEnabled: true,
+  hapticsEnabled: true,
   randomOrder: true,
   turnDuration: DEFAULT_TURN_DURATION,
   reconnectTimeout: DEFAULT_RECONNECT_TIMEOUT,
@@ -63,6 +66,7 @@ const initialLocalState: Omit<CoreGameState, never> & {
   status: 'lobby',
   liveTurnState: null,
   justReconnected: false,
+  preGameStats: null,
 };
 
 export const useGameStore = create<GameStore>()(
@@ -76,6 +80,7 @@ export const useGameStore = create<GameStore>()(
     hostId: null,
     myName: null,
     toasts: [],
+    reactions: [],
     ...initialLocalState,
 
     // Cross-cutting lifecycle actions live here in the composition root; the
@@ -91,6 +96,7 @@ export const useGameStore = create<GameStore>()(
         hostId: null,
         myName: null,
         toasts: [],
+        reactions: [],
         showReconnectPopup: false,
         pendingReconnectSession: null,
       });
@@ -131,6 +137,11 @@ export const useGameStore = create<GameStore>()(
       const storedAudioEnabled = localStorage.getItem('tutto_audioEnabled');
       if (storedAudioEnabled !== null) {
         set({ audioEnabled: storedAudioEnabled === 'true' });
+      }
+
+      const storedHapticsEnabled = localStorage.getItem('tutto_hapticsEnabled');
+      if (storedHapticsEnabled !== null) {
+        set({ hapticsEnabled: storedHapticsEnabled === 'true' });
       }
     },
 

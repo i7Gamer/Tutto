@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dices, X, Hand, RotateCw } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import { playBuzzer, playSuccess, playTone } from '../utils/soundEffects';
+import { playBuzzer, playSuccess, playTone, vibrateBust, vibrateSuccess } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
 import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from '../utils/diceLogic';
 import { parseSavedDiceState, buildDiceSnapshot } from '../utils/diceTurnState';
@@ -160,6 +160,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
       if (isBust(newRollVals, currentCard, kniffelArray || kniffelProgress)) {
         setBustState(true);
         playBuzzer();
+        vibrateBust();
         if (currentCard === 'Kleeblatt') {
           setShowSummary(true);
           setSummaryData({ won: false, score: 0 });
@@ -219,6 +220,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
       newTurnScore = applyTuttoBonus(newTurnScore, currentCard);
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
       playSuccess();
+      vibrateSuccess();
 
       if (currentCard === 'Kleeblatt') {
         if (tuttosThisTurn === 0) {
@@ -321,9 +323,9 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
   const displayKeptDice = sortKeptDiceForDisplay(keptDice, currentCard, kniffelProgress);
 
   return (
-    <div className="bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden rounded-3xl flex flex-col items-center">
+    <div className="bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden rounded-3xl flex flex-col items-center w-full max-h-[90vh]">
       {!showSummary && (
-        <div className="w-full bg-black/5 dark:bg-white/5 border-b border-gray-200 dark:border-slate-600 p-4 flex justify-between items-center">
+        <div className="w-full shrink-0 bg-black/5 dark:bg-white/5 border-b border-gray-200 dark:border-slate-600 p-4 flex justify-between items-center">
           <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 m-0">{t('dice.title', 'Dice Game')} - {getDisplayCardName(currentCard)}</h2>
           {!hasRolled && (
             <button className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors" onClick={onCancel} aria-label="Cancel dice roll">
@@ -333,7 +335,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
         </div>
       )}
 
-      <div className="p-8 w-full">
+      <div className="p-8 w-full overflow-y-auto">
         {showSummary ? (
           <DiceSummary summaryData={summaryData} continueCountdown={continueCountdown} finishGame={finishGame} currentCard={currentCard} />
         ) : (

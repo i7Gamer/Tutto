@@ -295,6 +295,12 @@ describe('useGameStore', () => {
       expect(localStorage.getItem('tutto_audioEnabled')).toBe('false');
     });
 
+    it('setHapticsEnabled updates state and persists to localStorage', () => {
+      useGameStore.getState().setHapticsEnabled(false);
+      expect(useGameStore.getState().hapticsEnabled).toBe(false);
+      expect(localStorage.getItem('tutto_hapticsEnabled')).toBe('false');
+    });
+
     it('setInitialCards updates the deck composition', () => {
       const newCards = { Stop: 20, Kniffel: 0 };
       useGameStore.getState().setInitialCards(newCards as never);
@@ -385,6 +391,41 @@ describe('useGameStore', () => {
     const state = useGameStore.getState();
     expect(state.players[0].color).toBe('#123456');
     expect(localStorage.getItem('tutto_color')).toBe('#123456');
+  });
+
+  it('sendReaction emits over the socket when online with a room', () => {
+    useGameStore.getState().connectSocket('http://localhost:3000');
+    useGameStore.setState({ isOnline: true, roomId: 'ROOM1' });
+    mockEmit.mockClear();
+
+    useGameStore.getState().sendReaction('🔥');
+
+    expect(mockEmit).toHaveBeenCalledWith('sendReaction', { emoji: '🔥' });
+    disconnectSocket();
+  });
+
+  it('sendReaction does nothing for local (non-online) games', () => {
+    useGameStore.getState().connectSocket('http://localhost:3000');
+    useGameStore.setState({ isOnline: false });
+    mockEmit.mockClear();
+
+    useGameStore.getState().sendReaction('🔥');
+
+    expect(mockEmit).not.toHaveBeenCalledWith('sendReaction', expect.anything());
+    disconnectSocket();
+  });
+
+  it('removeReaction filters the reaction out of state', () => {
+    useGameStore.setState({
+      reactions: [
+        { id: 1, emoji: '🔥', senderName: 'Alice' },
+        { id: 2, emoji: '👍', senderName: 'Bob' },
+      ],
+    });
+
+    useGameStore.getState().removeReaction(1);
+
+    expect(useGameStore.getState().reactions).toEqual([{ id: 2, emoji: '👍', senderName: 'Bob' }]);
   });
 
   it('starts local game', () => {
@@ -605,6 +646,18 @@ describe('useGameStore', () => {
         const toasts = useGameStore.getState().toasts;
         expect(toasts.some(t => t.message === 'game.aborted' || t.message.toLowerCase().includes('aborted'))).toBe(true);
       }
+    });
+
+    it('playerReaction appends to reactions and self-prunes after the display window', () => {
+      vi.useFakeTimers();
+      if (mockOnHandlers['playerReaction']) {
+        mockOnHandlers['playerReaction']({ id: 1, emoji: '🔥', senderName: 'Alice', senderColor: '#ff0000' });
+        expect(useGameStore.getState().reactions).toEqual([{ id: 1, emoji: '🔥', senderName: 'Alice', senderColor: '#ff0000' }]);
+
+        vi.runAllTimers();
+        expect(useGameStore.getState().reactions).toEqual([]);
+      }
+      vi.useRealTimers();
     });
 
     it('hostId updates isHost and hostId state', () => {
@@ -2358,6 +2411,12 @@ describe('useGameStore', () => {
       expect(() => useGameStore.getState().init('test-device-id')).not.toThrow();
       // activePlayer is null → mismatch → cache cleared
       expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
+    });
+
+    it('restores hapticsEnabled from localStorage', () => {
+      localStorage.setItem('tutto_hapticsEnabled', 'false');
+      useGameStore.getState().init('test-device-id');
+      expect(useGameStore.getState().hapticsEnabled).toBe(false);
     });
   });
 

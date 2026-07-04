@@ -13,6 +13,10 @@ vi.mock('react-chartjs-2', () => ({
   },
 }));
 
+vi.mock('canvas-confetti', () => ({
+  default: vi.fn(),
+}));
+
 interface ChartDataset { label: string; data: number[]; borderColor: string; backgroundColor: string }
 
 describe('EndScreen Component', () => {
@@ -29,6 +33,15 @@ describe('EndScreen Component', () => {
       round: 10,
       winningScore: 6000
     });
+  });
+
+  it('fires confetti once on mount when the winner screen shows', async () => {
+    const confetti = await import('canvas-confetti').then(m => m.default);
+    vi.clearAllMocks();
+
+    render(<EndScreen />);
+
+    expect(confetti).toHaveBeenCalledTimes(1);
   });
 
   it('renders flex div structure instead of table to avoid transform bugs', () => {
@@ -317,6 +330,122 @@ describe('EndScreen Component', () => {
       });
 
       expect(global.fetch).toHaveBeenCalledWith('/api/stats/device-online-1');
+      vi.useRealTimers();
+    });
+  });
+
+  describe('personal-best records panel', () => {
+    const setupOnlineGame = (overrides: Record<string, unknown> = {}) => {
+      useGameStore.setState({
+        isOnline: true,
+        myName: 'Alice',
+        players: [
+          { name: 'Alice', score: 10000, position: 1, totalTurns: 8, highestTurnScore: 1500 },
+          { name: 'Bob', score: 5000, position: 2, totalTurns: 12, highestTurnScore: 800 },
+        ],
+        ...overrides,
+      });
+    };
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      useGameStore.setState({ isOnline: false, myName: null, preGameStats: null });
+    });
+
+    it('does not render the panel when there is no pre-game snapshot', () => {
+      setupOnlineGame({ preGameStats: null });
+      const { queryByText } = render(<EndScreen deviceId="d1" />);
+      expect(queryByText('end.newRecordsTitle')).not.toBeInTheDocument();
+    });
+
+    it('does not render the panel when nothing improved on the pre-game snapshot', () => {
+      setupOnlineGame({
+        preGameStats: { highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null },
+      });
+      const { queryByText } = render(<EndScreen deviceId="d1" />);
+      expect(queryByText('end.newRecordsTitle')).not.toBeInTheDocument();
+    });
+
+    it('shows a new personal best turn score when it exceeds the pre-game snapshot', () => {
+      setupOnlineGame({
+        // fastestWinTurns: 8 equals this game's totalTurns (8) — not an
+        // improvement — isolating the assertion to the high-score record only.
+        preGameStats: { highestTurnScore: 1000, fastestWinTurns: 8, fastestLossTurns: null },
+      });
+      const { getByText, queryByText } = render(<EndScreen deviceId="d1" />);
+      expect(getByText('end.newRecordsTitle')).toBeInTheDocument();
+      expect(getByText('end.newPersonalBestTurnScore')).toBeInTheDocument();
+      expect(queryByText('end.newFastestWin')).not.toBeInTheDocument();
+    });
+
+    it('shows a new fastest win only for the actual winner', () => {
+      setupOnlineGame({
+        preGameStats: { highestTurnScore: 1500, fastestWinTurns: 10, fastestLossTurns: null },
+      });
+      const { getByText, queryByText } = render(<EndScreen deviceId="d1" />);
+      expect(getByText('end.newFastestWin')).toBeInTheDocument();
+      expect(queryByText('end.newFastestLoss')).not.toBeInTheDocument();
+    });
+
+    it('shows a new fastest loss for the losing player, not the winner', () => {
+      useGameStore.setState({
+        isOnline: true,
+        myName: 'Bob',
+        players: [
+          { name: 'Alice', score: 10000, position: 1, totalTurns: 8, highestTurnScore: 1500 },
+          { name: 'Bob', score: 5000, position: 2, totalTurns: 12, highestTurnScore: 800 },
+        ],
+        preGameStats: { highestTurnScore: 800, fastestWinTurns: null, fastestLossTurns: 20 },
+      });
+      const { getByText, queryByText } = render(<EndScreen deviceId="d1" />);
+      expect(getByText('end.newFastestLoss')).toBeInTheDocument();
+      expect(queryByText('end.newFastestWin')).not.toBeInTheDocument();
+      expect(queryByText('end.newPersonalBestTurnScore')).not.toBeInTheDocument();
+    });
+
+    it('does NOT flag a record when this game merely ties an earlier record (regression: post-merge equality is not enough)', () => {
+      // The bug this guards against: comparing this game's value to the
+      // POST-merge deviceStats (which already includes this game) would make
+      // a mere tie look identical to a genuine new record. The fix compares
+      // against the PRE-game snapshot instead, so a tie must not trigger it.
+      setupOnlineGame({
+        preGameStats: { highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null },
+      });
+      const { queryByText } = render(<EndScreen deviceId="d1" />);
+      expect(queryByText('end.newPersonalBestTurnScore')).not.toBeInTheDocument();
+      expect(queryByText('end.newFastestWin')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('win streak tiles', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+      useGameStore.setState({ isOnline: false });
+    });
+
+    it('renders current and best win streak from device stats', async () => {
+      vi.useFakeTimers();
+      global.fetch = vi.fn(() => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          gamesPlayed: 5, wins: 3, pointsDeducted: 0, kniffelCompleted: 7,
+          currentWinStreak: 2, bestWinStreak: 4,
+        }),
+      }));
+      useGameStore.setState({ isOnline: true });
+
+      const { getByText } = render(<EndScreen deviceId="device-streak-1" />);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const currentStreakLabel = getByText('end.currentWinStreak');
+      const bestStreakLabel = getByText('end.bestWinStreak');
+      expect(currentStreakLabel.previousElementSibling?.textContent).toBe('2');
+      expect(bestStreakLabel.previousElementSibling?.textContent).toBe('4');
       vi.useRealTimers();
     });
   });

@@ -84,7 +84,7 @@ export default function GameControls({
   };
 
   return (
-    <div className="flex flex-col bg-[var(--card-bg)] backdrop-blur border border-white/40 rounded-3xl p-6 shadow-xl relative overflow-hidden h-full w-full min-h-[360px] md:min-h-[400px]">
+    <div className="flex flex-col bg-[var(--card-bg)] backdrop-blur border border-white/40 rounded-3xl p-4 md:p-6 shadow-xl relative overflow-hidden h-full w-full min-h-[360px] md:min-h-[400px]">
       <div className="flex-1 flex flex-col justify-center items-center w-full min-h-[220px]">
         <AnimatePresence mode="wait">
           {isMyTurn && !isStopCard && !isFlipping && (
@@ -298,7 +298,9 @@ export default function GameControls({
         )}
         <button
           className="flex items-center gap-2 text-gray-500 dark:text-gray-400 hover:bg-black/5 dark:bg-white/5 hover:text-gray-800 dark:text-gray-100 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:pointer-events-none"
-          onClick={undo}
+          onClick={() => {
+            if (window.confirm(t('game.controls.undoConfirm', 'Undo the last turn?'))) undo();
+          }}
           disabled={isOnline && !isMyTurn && !isHost}
         >
           <Undo2 size={18} /> {t('game.controls.undo', 'Undo')}

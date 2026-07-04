@@ -471,3 +471,82 @@ describe('room deletion clears pending disconnect timers', () => {
     bob2.disconnect();
   });
 });
+
+describe('emoji reactions', () => {
+  let httpServer: HttpServer;
+  let ioServer: Server;
+  let port: number;
+  const sockets: ClientSocket[] = [];
+
+  interface JoinAck { success: boolean; error?: string }
+
+  beforeAll(async () => {
+    httpServer = createServer();
+    ioServer = new Server(httpServer);
+    registerSocketHandlers(ioServer);
+    await new Promise<void>(resolve => httpServer.listen(0, () => resolve()));
+    port = (httpServer.address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    sockets.forEach(s => s.disconnect());
+    await ioServer.close();
+  });
+
+  const connectAndJoin = (roomId: string, name: string, deviceId: string): Promise<ClientSocket> =>
+    new Promise((resolve, reject) => {
+      const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+      sockets.push(sock);
+      sock.on('connect', () => {
+        sock.emit('joinRoom', { roomId, name, deviceId, color: '#ff0000' }, (res: JoinAck) => {
+          if (!res.success) return reject(new Error(res.error));
+          resolve(sock);
+        });
+      });
+      sock.on('connect_error', reject);
+    });
+
+  const settle = (ms = 150): Promise<void> => new Promise(r => setTimeout(r, ms));
+
+  it('broadcasts a whitelisted reaction to everyone in the room, with sender identity attached', async () => {
+    const alice = await connectAndJoin('REACT_ROOM_A', 'Alice', 'dev-react-1');
+    const bob = await connectAndJoin('REACT_ROOM_A', 'Bob', 'dev-react-2');
+
+    const received = new Promise<{ emoji: string; senderName: string; senderColor: string }>(resolve =>
+      bob.on('playerReaction', resolve)
+    );
+
+    alice.emit('sendReaction', { emoji: '🔥' });
+
+    const payload = await received;
+    expect(payload.emoji).toBe('🔥');
+    expect(payload.senderName).toBe('Alice');
+    expect(payload.senderColor).toBe('#ff0000');
+  });
+
+  it('rejects an emoji outside the fixed whitelist (no broadcast)', async () => {
+    const alice = await connectAndJoin('REACT_ROOM_B', 'Alice', 'dev-react-3');
+    const bob = await connectAndJoin('REACT_ROOM_B', 'Bob', 'dev-react-4');
+
+    let received = false;
+    bob.on('playerReaction', () => { received = true; });
+
+    alice.emit('sendReaction', { emoji: '<script>alert(1)</script>' });
+    await settle();
+
+    expect(received).toBe(false);
+  });
+
+  it('does nothing for a socket that has not joined any room', async () => {
+    const rogue = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+    sockets.push(rogue);
+    await new Promise<void>(resolve => rogue.on('connect', () => resolve()));
+
+    let threw = false;
+    rogue.on('connect_error', () => { threw = true; });
+    rogue.emit('sendReaction', { emoji: '👍' });
+    await settle();
+
+    expect(threw).toBe(false);
+  });
+});

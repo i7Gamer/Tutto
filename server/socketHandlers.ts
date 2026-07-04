@@ -2,6 +2,7 @@ import { Server, Socket } from 'socket.io';
 import { updateDeviceStats, updateGlobalStats } from './database';
 import { sanitizeStats } from './sanitize';
 import { DEFAULT_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
+import { REACTION_EMOJIS } from '../src/utils/reactions';
 import type { DiceMode } from '../src/types';
 import { applyValidatedConfig, applyPushedState } from './pushValidation';
 import { clearServerTurnTimer, startServerTurnTimer, abortGameIfLowPlayers } from './turnTimers';
@@ -225,6 +226,23 @@ export const registerSocketHandlers = (io: Server): void => {
         player.color = color;
         emitRoomState(io, roomId);
       }
+    });
+
+    socket.on('sendReaction', ({ emoji }: { emoji: string } = {} as { emoji: string }) => {
+      // Uses `currentRoom` (this socket's own tracked room) rather than a
+      // client-supplied roomId — a reaction only ever needs to broadcast to
+      // the room this socket is actually seated in.
+      if (!currentRoom || !rooms[currentRoom]) return;
+      if (typeof emoji !== 'string' || !(REACTION_EMOJIS as readonly string[]).includes(emoji)) return;
+      const room = rooms[currentRoom];
+      const sender = room.state.players.find(p => p.socketId === socket.id);
+      if (!sender) return;
+      io.to(currentRoom).emit('playerReaction', {
+        id: Date.now() + Math.random(),
+        emoji,
+        senderName: sender.name,
+        senderColor: sender.color,
+      });
     });
 
     socket.on('kickPlayer', (targetSocketId: string) => {

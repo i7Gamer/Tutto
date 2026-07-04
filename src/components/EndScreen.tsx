@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Line } from 'react-chartjs-2';
+import confetti from 'canvas-confetti';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -11,10 +12,10 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
-import { Trophy, RotateCcw, Settings } from 'lucide-react';
+import { Trophy, RotateCcw, Settings, Award, Zap, TrendingDown } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
 import { parseJsonObject } from '../utils/parseJson';
-import { computeRankedPlayers } from '../utils/coreGameEngine';
+import { computeRankedPlayers, getLeaders } from '../utils/coreGameEngine';
 import { motion } from 'framer-motion';
 import { useGameStore } from '../store/useGameStore';
 import type { Player } from '../types';
@@ -38,6 +39,8 @@ interface DeviceStats {
   pointsDeducted: number;
   kniffelCompleted: number;
   busts?: number;
+  currentWinStreak?: number;
+  bestWinStreak?: number;
 }
 
 interface EndScreenProps {
@@ -48,7 +51,7 @@ interface EndScreenProps {
 export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   const { t } = useTranslation();
   const game = useGameStore();
-  const { players, round, gameTimeInSeconds, startGame, endGame, chartLabels, chartNames, chartValues, leaveRoom } = game;
+  const { players, round, gameTimeInSeconds, startGame, endGame, chartLabels, chartNames, chartValues, leaveRoom, myName, preGameStats } = game;
 
   const snapshotRef = useRef<Player[]>(players);
   const [playerSnapshot, setPlayerSnapshot] = useState<Player[]>(players);
@@ -63,6 +66,20 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   const sortedPlayers = computeRankedPlayers(playerSnapshot);
   const winner = sortedPlayers[0];
   const formattedTime = formatTime(gameTimeInSeconds);
+
+  // "Did I set a new personal record this game?" — compared against the
+  // snapshot fetched when the game STARTED (game.preGameStats, see Game.tsx),
+  // not the post-game deviceStats fetched below (which already includes this
+  // game's own contribution and so can't tell a genuine new record apart from
+  // merely tying an older one — see the plan notes for this feature).
+  const me = playerSnapshot.find(p => p.name === myName);
+  const isWinner = !!me && getLeaders(playerSnapshot).some(l => l.name === me.name);
+  const newHighScore = !!(preGameStats && me && me.highestTurnScore && me.highestTurnScore > (preGameStats.highestTurnScore ?? 0));
+  const newFastestWin = !!(preGameStats && me && isWinner
+    && (preGameStats.fastestWinTurns == null || me.totalTurns < preGameStats.fastestWinTurns));
+  const newFastestLoss = !!(preGameStats && me && !isWinner
+    && (preGameStats.fastestLossTurns == null || me.totalTurns < preGameStats.fastestLossTurns));
+  const hasNewRecord = newHighScore || newFastestWin || newFastestLoss;
 
   // Same rule as the lobby's StartGameButton: don't let the host restart while
   // someone is disconnected — their turns would just burn down via the server
@@ -106,6 +123,13 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
       if (timerId) clearTimeout(timerId);
     };
   }, [deviceId, game.isOnline]);
+
+  // Fires once per mount (EndScreen only mounts when a game just finished —
+  // see App.tsx's finished/status-gated rendering), so this can't double-fire
+  // from the playerSnapshot/deviceStats effects re-rendering above.
+  useEffect(() => {
+    confetti({ particleCount: 150, spread: 100, origin: { y: 0.4 } });
+  }, []);
 
   if (!winner) return null;
 
@@ -198,8 +222,43 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
         </div>
       </motion.div>
 
-      {deviceStats && deviceStats.gamesPlayed > 0 && (
+      {hasNewRecord && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8">
+          <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 text-center mb-6">{t('end.newRecordsTitle', 'New Personal Records!')}</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-2xl mx-auto">
+            {newHighScore && (
+              <div className="flex items-center gap-4 bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-4 border border-amber-100 dark:border-amber-800">
+                <Award size={36} className="text-amber-500 flex-shrink-0" />
+                <div>
+                  <div className="text-2xl font-black text-amber-600 dark:text-amber-400">{me?.highestTurnScore}</div>
+                  <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.newPersonalBestTurnScore', 'New Personal Best Turn Score!')}</div>
+                </div>
+              </div>
+            )}
+            {newFastestWin && (
+              <div className="flex items-center gap-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-4 border border-emerald-100 dark:border-emerald-800">
+                <Zap size={36} className="text-emerald-500 flex-shrink-0" />
+                <div>
+                  <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{me?.totalTurns}</div>
+                  <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.newFastestWin', 'New Fastest Win (turns)!')}</div>
+                </div>
+              </div>
+            )}
+            {newFastestLoss && (
+              <div className="flex items-center gap-4 bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border border-red-100 dark:border-red-800">
+                <TrendingDown size={36} className="text-red-500 flex-shrink-0" />
+                <div>
+                  <div className="text-2xl font-black text-red-600 dark:text-red-400">{me?.totalTurns}</div>
+                  <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.newFastestLoss', 'New Fastest Loss (turns) — ouch!')}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        </motion.div>
+      )}
+
+      {deviceStats && deviceStats.gamesPlayed > 0 && (
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8">
           <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 text-center mb-8">{t('end.lifetimeStats', 'Your Lifetime Statistics')}</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center mb-8">
             <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl p-4 border border-indigo-100 dark:border-indigo-800">
@@ -219,7 +278,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
               <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.kniffelsDone', 'Kniffels Done')}</div>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-6 text-center max-w-md mx-auto">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center max-w-2xl mx-auto">
             <div className="bg-orange-50 dark:bg-orange-900/20 rounded-2xl p-4 border border-orange-100 dark:border-orange-800">
               <div className="text-4xl font-black text-orange-500 mb-1">{deviceStats.busts || 0}</div>
               <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.totalBusts', 'Total Busts')}</div>
@@ -228,11 +287,19 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
               <div className="text-4xl font-black text-orange-500 mb-1">{((deviceStats.busts || 0) / Math.max(1, deviceStats.gamesPlayed)).toFixed(1)}</div>
               <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.avgBustsPerGame', 'Avg Busts/Game')}</div>
             </div>
+            <div className="bg-violet-50 dark:bg-violet-900/20 rounded-2xl p-4 border border-violet-100 dark:border-violet-800">
+              <div className="text-4xl font-black text-violet-500 mb-1">{deviceStats.currentWinStreak || 0}</div>
+              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.currentWinStreak', 'Current Win Streak')}</div>
+            </div>
+            <div className="bg-violet-50 dark:bg-violet-900/20 rounded-2xl p-4 border border-violet-100 dark:border-violet-800">
+              <div className="text-4xl font-black text-violet-500 mb-1">{deviceStats.bestWinStreak || 0}</div>
+              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.bestWinStreak', 'Best Win Streak')}</div>
+            </div>
           </div>
         </motion.div>
       )}
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8 overflow-hidden">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8 overflow-hidden">
         <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">{t('end.gameStats', 'Game Statistics')}</h3>
         <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-slate-600">
           <div className="flex flex-col rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 min-w-max">
@@ -268,7 +335,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
       </motion.div>
 
       {chartLabels && chartLabels.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8 h-[400px]">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8 h-[400px]">
           <Line data={chartData} options={chartOptions} />
         </motion.div>
       )}

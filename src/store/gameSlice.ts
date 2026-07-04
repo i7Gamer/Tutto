@@ -24,10 +24,10 @@ export const createInitialPlayer = (name: string): Player => ({
 });
 
 type GameSlice = Pick<GameStore,
-  | 'addToast' | 'removeToast'
+  | 'addToast' | 'removeToast' | 'sendReaction' | 'removeReaction'
   | 'addPlayer' | 'removePlayer' | 'reorderPlayers' | 'changePlayerColor' | 'changeMyColor'
   | 'setLiveTurnState' | 'startGame' | 'endGame' | 'nextTurn' | 'undo'
-  | 'buildGlobalStatsPayload'
+  | 'buildGlobalStatsPayload' | 'setPreGameStats'
 >;
 
 export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
@@ -36,6 +36,16 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
   }),
   removeToast: (id) => set((state) => {
     state.toasts = state.toasts.filter(t => t.id !== id);
+  }),
+
+  sendReaction: (emoji) => {
+    const s = get();
+    if (!s.isOnline || !s.roomId) return;
+    const socket = getSocket();
+    if (socket) socket.emit('sendReaction', { emoji });
+  },
+  removeReaction: (id) => set((state) => {
+    state.reactions = state.reactions.filter(r => r.id !== id);
   }),
 
   addPlayer: (name) => {
@@ -259,4 +269,6 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     const isDefaultGame = s.winningScore === DEFAULT_WINNING_SCORE && JSON.stringify(s.initialCards) === JSON.stringify(DEFAULT_INITIAL_CARDS);
     return buildGlobalStatsPayload(s.players, s.gameTimeInSeconds, isDefaultGame);
   },
+
+  setPreGameStats: (stats) => set({ preGameStats: stats }),
 });

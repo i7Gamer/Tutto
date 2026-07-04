@@ -33,6 +33,44 @@ describe('OnlineLobby', () => {
   });
 });
 
+describe('OnlineLobby copy room code button', () => {
+  const makeGame = (overrides = {}) => ({
+    roomId: '1234',
+    myName: 'Alice',
+    isHost: true,
+    players: [{ name: 'Alice' }],
+    diceMode: 'digital',
+    setDiceMode: vi.fn(),
+    changeMyColor: vi.fn(),
+    kickPlayer: vi.fn(),
+    addToast: vi.fn(),
+    ...overrides,
+  });
+
+  it('copies the room code to the clipboard and shows a toast', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    const addToast = vi.fn();
+
+    render(<OnlineLobby game={makeGame({ addToast })} />);
+    fireEvent.click(screen.getByTitle('lobby.online.copyRoomCode'));
+
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith('1234'));
+    expect(addToast).toHaveBeenCalledWith('lobby.online.roomCodeCopied');
+  });
+
+  it('shows a failure toast when the clipboard write rejects', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('denied'));
+    Object.assign(navigator, { clipboard: { writeText } });
+    const addToast = vi.fn();
+
+    render(<OnlineLobby game={makeGame({ addToast })} />);
+    fireEvent.click(screen.getByTitle('lobby.online.copyRoomCode'));
+
+    await vi.waitFor(() => expect(addToast).toHaveBeenCalledWith('lobby.online.roomCodeCopyFailed'));
+  });
+});
+
 describe('OnlineLobby start button / waiting indicator', () => {
   const makeGame = (overrides = {}) => ({
     roomId: '1234',

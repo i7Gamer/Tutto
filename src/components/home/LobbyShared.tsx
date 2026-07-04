@@ -220,6 +220,32 @@ export function AudioSettingSelector({ audioEnabled, setAudioEnabled, nameSuffix
   );
 }
 
+interface HapticsSettingSelectorProps {
+  hapticsEnabled: boolean;
+  setHapticsEnabled: (val: boolean) => void;
+  nameSuffix?: string;
+}
+
+export function HapticsSettingSelector({ hapticsEnabled, setHapticsEnabled, nameSuffix = 'Lobby' }: HapticsSettingSelectorProps) {
+  const { t } = useTranslation();
+  // Desktop browsers don't implement the Vibration API — showing the toggle
+  // there would just be a dead control.
+  if (typeof navigator === 'undefined' || !('vibrate' in navigator)) return null;
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 bg-white dark:bg-slate-800/50 px-4 py-3 sm:px-6 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px]">
+      <label className="radio-wrapper text-gray-700 dark:text-gray-200">
+        <input type="radio" name={`hapticsSetting${nameSuffix}`} checked={hapticsEnabled === true} onChange={() => setHapticsEnabled(true)} />
+        <span className="font-medium">{t('lobby.hapticsOn', 'Vibration On')}</span>
+      </label>
+      <label className="radio-wrapper text-gray-700 dark:text-gray-200">
+        <input type="radio" name={`hapticsSetting${nameSuffix}`} checked={hapticsEnabled === false} onChange={() => setHapticsEnabled(false)} />
+        <span className="font-medium">{t('lobby.hapticsOff', 'Vibration Off')}</span>
+      </label>
+    </div>
+  );
+}
+
 interface AdvancedOptionsToggleProps {
   showAdvanced: boolean;
   setShowAdvanced: (val: boolean) => void;

@@ -9,11 +9,14 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { formatTime } from '../utils/formatTime';
 import { buildTurnKey, parseSavedDiceState } from '../utils/diceTurnState';
+import { parseJsonObject } from '../utils/parseJson';
 import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS } from '../utils/uiTimings';
+import type { PreGameStats } from '../store/storeTypes';
 
 import Scoreboard from './game/Scoreboard';
 import CardDisplay from './game/CardDisplay';
 import GameControls from './game/GameControls';
+import ReactionBar from './game/ReactionBar';
 import DiceGame from './DiceGame';
 
 export default function Game() {
@@ -40,6 +43,8 @@ export default function Game() {
     justReconnected,
     roomId,
     round,
+    deviceId,
+    setPreGameStats,
   } = game;
 
   const formattedTime = formatTime(gameTimeInSeconds);
@@ -64,6 +69,49 @@ export default function Game() {
   useEffect(() => {
     if (!isMyTurn) setShowDiceGame(false); // eslint-disable-line react-hooks/set-state-in-effect
   }, [isMyTurn]);
+
+  useEffect(() => {
+    if (showDiceGame) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [showDiceGame]);
+
+  // Snapshot this device's lifetime records once, right as the game begins —
+  // this component only mounts when a fresh game starts (App.tsx swaps in
+  // EndScreen while finished, then remounts Game on "Play Again"), and this
+  // read is guaranteed to land before this game's own endGameStats submission
+  // (which only fires from nextTurn at game-over). EndScreen later diffs the
+  // post-game stats against this snapshot to detect genuinely new personal
+  // records, rather than merely tying an older one.
+  useEffect(() => {
+    if (!isOnline || !deviceId) return;
+    setPreGameStats(null);
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const res = await fetch(`/api/stats/${deviceId}`);
+        if (!res.ok) return;
+        const data = await parseJsonObject<Partial<PreGameStats>>(res);
+        if (cancelled || !data) return;
+        setPreGameStats({
+          highestTurnScore: data.highestTurnScore ?? null,
+          fastestWinTurns: data.fastestWinTurns ?? null,
+          fastestLossTurns: data.fastestLossTurns ?? null,
+        });
+      } catch (err) {
+        console.error('Could not fetch pre-game device stats', err);
+      }
+    })();
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // justReconnected is set — and self-cleared on the next gameState event it
   // isn't itself part of — by the store; this effect only reads it to decide
@@ -158,7 +206,7 @@ export default function Game() {
     return () => clearTimeout(timeout);
   }, [currentCard, cards?.length]);
 
-  const handleNextTurn = () => {
+  const handleNextTurn = useCallback(() => {
     let parsedScore = Math.max(0, parseInt(scoreInput) || 0);
     if (applyBonus) {
       parsedScore = applyTuttoBonus(parsedScore, currentCard);
@@ -166,11 +214,11 @@ export default function Game() {
     nextTurn(parsedScore, parsedScore > 0);
     setScoreInput('');
     setApplyBonus(false);
-  };
+  }, [scoreInput, applyBonus, currentCard, nextTurn]);
 
-  const handleYesNo = (isSuccess: boolean) => {
+  const handleYesNo = useCallback((isSuccess: boolean) => {
     nextTurn(0, isSuccess);
-  };
+  }, [nextTurn]);
 
   const handleDiceComplete = useCallback((score: number, isSuccess: boolean) => {
     setShowDiceGame(false);
@@ -182,6 +230,46 @@ export default function Game() {
     localStorage.removeItem('tutto_dice_turn_state');
     setLiveTurnState(null);
   }, [setLiveTurnState]);
+
+  const currentCardHasInput = !['Stop', 'Plus_Minus', 'Kniffel', 'Kleeblatt'].includes(currentCard ?? '');
+  const currentCardHasYesNo = ['Plus_Minus', 'Kniffel', 'Kleeblatt'].includes(currentCard ?? '');
+  const isStopCard = currentCard === 'Stop';
+
+  // Keyboard shortcuts: Space/Enter triggers whatever GameControls' primary
+  // button is for the current turn state, Esc closes the dice-roll modal.
+  // Ignored while typing in an input (e.g. the physical-mode score field) so
+  // it doesn't hijack normal text entry.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      const tag = (document.activeElement as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      if (e.key === 'Escape') {
+        if (showDiceGame) setShowDiceGame(false);
+        return;
+      }
+
+      if (e.key !== ' ' && e.key !== 'Enter') return;
+      if (!isMyTurn) return;
+      e.preventDefault();
+
+      if (isStopCard) {
+        handleYesNo(false);
+      } else if (effectiveDiceMode === 'digital') {
+        // Digital mode always shows "Roll Dice" for any non-Stop card — it
+        // doesn't distinguish input/yes-no cards the way physical mode does.
+        if (!showDiceGame) setShowDiceGame(true);
+      } else if (currentCardHasYesNo) {
+        handleYesNo(true);
+      } else if (currentCardHasInput) {
+        handleNextTurn();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMyTurn, isStopCard, currentCardHasYesNo, currentCardHasInput, effectiveDiceMode, showDiceGame, handleNextTurn, handleYesNo]);
 
   return (
     <div className="container mx-auto px-2 md:px-4 pt-2 md:pt-4 pb-20 max-w-3xl flex flex-col gap-2 md:gap-4">
@@ -213,9 +301,16 @@ export default function Game() {
             activeTurnState={liveTurnState}
             currentPlayer={currentPlayer}
           />
+          {/* Reactions are meaningless without other players around to see
+              them, so the bar only makes sense for online games. */}
+          {isOnline && (
+            <div className="mt-2 md:mt-4">
+              <ReactionBar sendReaction={game.sendReaction} />
+            </div>
+          )}
         </motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="md:col-span-2 bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-3xl p-6 shadow-xl flex flex-col">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="md:col-span-2 bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-3xl p-4 md:p-6 shadow-xl flex flex-col">
           <h3 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 uppercase tracking-wider text-center">{t('game.leaderboard', 'Leaderboard')}</h3>
           <div className="flex flex-col rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800/40 overflow-hidden">
             <div className="flex px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 border-b border-gray-100 dark:border-slate-700 bg-black/5 dark:bg-white/5">
@@ -271,7 +366,7 @@ export default function Game() {
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl"
+            className="w-full max-w-4xl rounded-3xl"
           >
             <DiceGame
               currentCard={currentCard}

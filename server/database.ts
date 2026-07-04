@@ -43,6 +43,8 @@ export interface DeviceStatsRow {
   highestTurnScore: number | null;
   fastestWinTurns: number | null;
   fastestLossTurns: number | null;
+  currentWinStreak: number;
+  bestWinStreak: number;
 }
 
 export type StatsPayload = Record<string, number | boolean | null>;
@@ -75,6 +77,23 @@ export const updateDeviceStats = async (deviceId: string, stats: StatsPayload): 
     data[col] = (stats[col] as number | undefined) ?? 0;
     mergeCols[col] = knex.raw(`device_statistics.${col} + EXCLUDED.${col}`);
   });
+
+  // Streak isn't additive like the columns above — it depends on whether
+  // THIS game was a win, not a running sum. `wins` (0 or 1) is always present
+  // via deviceCols, so this can run unconditionally alongside it.
+  const wonThisGame = data.wins ? 1 : 0;
+  data.currentWinStreak = wonThisGame;
+  data.bestWinStreak = wonThisGame;
+  mergeCols.currentWinStreak = knex.raw(`
+    CASE WHEN EXCLUDED.wins = 1 THEN device_statistics.currentWinStreak + 1 ELSE 0 END
+  `);
+  mergeCols.bestWinStreak = knex.raw(`
+    CASE
+      WHEN EXCLUDED.wins = 1 AND device_statistics.currentWinStreak + 1 > device_statistics.bestWinStreak
+        THEN device_statistics.currentWinStreak + 1
+      ELSE device_statistics.bestWinStreak
+    END
+  `);
 
   if (stats.highestTurnScore !== undefined) {
     data.highestTurnScore = stats.highestTurnScore;

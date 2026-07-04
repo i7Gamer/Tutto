@@ -97,6 +97,13 @@ export interface Toast {
   message: string;
 }
 
+export interface Reaction {
+  id: number;
+  emoji: string;
+  senderName: string;
+  senderColor?: string | null;
+}
+
 export interface GlobalStatsPayload {
   gamesPlayed: number;
   totalPlaytime: number;

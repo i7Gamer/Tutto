@@ -51,3 +51,16 @@ export const playSuccess = (): void => {
   void playTone(659.25, 'sine', 0.5, 0.3, 0.15);
   void playTone(783.99, 'sine', 0.8, 0.3, 0.3);
 };
+
+const BUST_VIBRATION_PATTERN_MS = 200;
+const SUCCESS_VIBRATION_PATTERN_MS = [50, 50, 50];
+
+export const vibrateBust = (): void => {
+  if (!useGameStore.getState().hapticsEnabled) return;
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(BUST_VIBRATION_PATTERN_MS);
+};
+
+export const vibrateSuccess = (): void => {
+  if (!useGameStore.getState().hapticsEnabled) return;
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(SUCCESS_VIBRATION_PATTERN_MS);
+};

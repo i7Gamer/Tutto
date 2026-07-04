@@ -3,6 +3,8 @@ import { getLeaders } from '../utils/coreGameEngine';
 import i18n from '../i18n';
 import { validateOnlineConfig } from './persistence';
 import { getSocket, setSocket } from './socketRef';
+import { REACTION_DISPLAY_MS } from '../utils/reactions';
+import type { Reaction } from '../types';
 import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from './storeTypes';
 
 type SocketSlice = Pick<GameStore,
@@ -171,6 +173,13 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           defaultValue: 'Someone tried to join as "{{name}}", which belongs to a disconnected player. Kick them below to free up the name.',
           name,
         }));
+      });
+
+      sock.on('playerReaction', (reaction: Reaction) => {
+        set((state) => { state.reactions.push(reaction); });
+        // Self-pruning, like toasts — the sender only needs the id/timing
+        // contract, not a per-reaction cleanup call from the UI layer.
+        setTimeout(() => get().removeReaction(reaction.id), REACTION_DISPLAY_MS);
       });
 
       sock.on('hostId', (hostSocketId: string) => {

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { UserPlus } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, AudioSettingSelector } from './LobbyShared';
+import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, AudioSettingSelector, HapticsSettingSelector } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
 import type { GameStore } from '../../store/useGameStore';
 
@@ -62,6 +62,7 @@ export default function LocalLobby({ game }: LocalLobbyProps) {
       <div className="flex flex-row flex-wrap justify-center items-stretch gap-4 mb-8">
         <DiceModeSelector diceMode={game.diceMode} setDiceMode={game.setDiceMode} nameSuffix="Local" />
         <AudioSettingSelector audioEnabled={game.audioEnabled} setAudioEnabled={game.setAudioEnabled} nameSuffix="Local" />
+        <HapticsSettingSelector hapticsEnabled={game.hapticsEnabled} setHapticsEnabled={game.setHapticsEnabled} nameSuffix="Local" />
         <AdvancedOptionsToggle showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} />
       </div>
 
