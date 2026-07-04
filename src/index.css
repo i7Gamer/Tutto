@@ -361,13 +361,6 @@ tr.active-player {
     font-size: 0.9rem;
   }
   
-  .glass-card {
-    padding: 1rem;
-  }
-  
-  .container {
-    padding: 1rem 0.5rem;
-  }
 }
 
 .stat-box {

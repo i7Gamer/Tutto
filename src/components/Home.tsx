@@ -60,14 +60,14 @@ export default function Home({ onShowStats }: HomeProps) {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 rounded-3xl p-8 shadow-2xl relative overflow-hidden"
+        className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 rounded-3xl px-2 py-4 sm:p-6 md:p-8 shadow-2xl relative overflow-hidden flex-1 flex flex-col"
       >
         <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
 
         <motion.h1
           initial={{ scale: 0.9 }}
           animate={{ scale: 1 }}
-          className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-pink-500 text-center mb-8 tracking-tight"
+          className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-pink-500 text-center mb-6 sm:mb-8 tracking-tight"
         >
           {t('app.title', 'Tutto')}
         </motion.h1>
@@ -79,7 +79,7 @@ export default function Home({ onShowStats }: HomeProps) {
           hasActiveRoom={mode === 'online' && !!roomId}
         />
 
-        <div className="bg-black/5 dark:bg-white/5 rounded-2xl p-6 border border-gray-100 dark:border-slate-700">
+        <div className="bg-black/5 dark:bg-white/5 rounded-2xl p-2 sm:p-6 border border-gray-100 dark:border-slate-700">
           {mode === 'local' ? <LocalLobby game={game} /> : <OnlineLobby game={game} />}
         </div>
 
