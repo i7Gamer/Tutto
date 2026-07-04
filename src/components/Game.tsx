@@ -274,7 +274,7 @@ export default function Game() {
   const canUndo = !game.finished && !!game.previousCard && game.previousCard !== 'Stop' && game.currentPlayerIndex !== null && !!game.previousPlayerName && (!isOnline || isMyTurn || isHost);
 
   return (
-    <div className="container mx-auto px-2 md:px-4 pt-1 md:pt-4 pb-20 max-w-3xl flex flex-col gap-2 md:gap-4">
+    <div className="container mx-auto px-2 md:px-4 pt-2 md:pt-4 pb-20 max-w-3xl flex flex-col gap-2 md:gap-4">
       <Scoreboard game={game} formattedTime={formattedTime} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
