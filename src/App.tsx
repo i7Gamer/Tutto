@@ -10,6 +10,7 @@ import Game from './components/Game';
 import EndScreen from './components/EndScreen';
 import Statistics from './components/Statistics';
 import LanguageSwitcher from './components/LanguageSwitcher';
+import HelpPopup from './components/HelpPopup';
 import './index.css';
 import type { Toast } from './types';
 
@@ -182,6 +183,7 @@ export default function App() {
       <ToastMessage />
       <ReconnectPopup />
       <RestoreSessionPopup />
+      <HelpPopup />
 
       {showStats ? (
         <Statistics deviceId={deviceId} onBack={() => setShowStats(false)} />
