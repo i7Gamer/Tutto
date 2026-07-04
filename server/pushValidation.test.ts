@@ -133,6 +133,21 @@ describe('applyPushedState', () => {
       expect(state.players[1].score).toBe(300);
     });
 
+    it('rejects a mutable numeric field magnitude beyond the sanity cap', () => {
+      // A finite-but-absurd value (e.g. 1e308) would otherwise pass the
+      // Number.isFinite check and ride every future broadcast to every client.
+      const state = makeState();
+      applyPushedState(state, {
+        players: [
+          { name: 'Alice', score: 1e308, highestTurnScore: -1e308 },
+          { name: 'Bob', score: 300 },
+        ],
+      }, asActivePlayer);
+      expect(state.players[0].score).toBe(0);
+      expect(state.players[0].highestTurnScore).toBeUndefined();
+      expect(state.players[1].score).toBe(300);
+    });
+
     it('never lets a push overwrite disconnected, even with a valid boolean', () => {
       // The server is the sole owner of this flag (set from real socket
       // connectivity in handlePlayerLeave/joinRoom). A pushState composed
@@ -333,6 +348,17 @@ describe('applyPushedState', () => {
       expect(state.previousLeaders).toBeNull();
     });
 
+    it('previousLeaders: strips fields beyond name/score from each entry', () => {
+      // isPlausiblePlayerSnapshot only shape-checks name/score — without
+      // rebuilding the entries, an extra property would ride along into
+      // every future broadcast of previousLeaders.
+      const state = makeState();
+      applyPushedState(state, {
+        previousLeaders: [{ name: 'Alice', score: 100, deviceId: 'HIJACK', extra: 'junk' }],
+      }, asActivePlayer);
+      expect(state.previousLeaders).toEqual([{ name: 'Alice', score: 100 }]);
+    });
+
     it('previousWasBust: boolean only', () => {
       const state = makeState();
       applyPushedState(state, { previousWasBust: true }, asActivePlayer);
@@ -427,6 +453,43 @@ describe('applyPushedState', () => {
       expect(state.liveTurnState).toEqual(snapshot);
       applyPushedState(state, { liveTurnState: { ...snapshot, kniffelProgress: [0] } }, asActivePlayer); // out of 1-6 range
       expect(state.liveTurnState).toEqual(snapshot);
+    });
+
+    it('liveTurnState: rejects a malformed rollingDiceIds/busted, accepts well-formed ones', () => {
+      const state = makeState();
+      const snapshot = { turnScore: 0, tuttosThisTurn: 0, keptDice: [], currentRoll: [], kniffelProgress: [] };
+
+      applyPushedState(state, { liveTurnState: { ...snapshot, rollingDiceIds: [123] } }, asActivePlayer);
+      expect(state.liveTurnState).toBeUndefined();
+      applyPushedState(state, { liveTurnState: { ...snapshot, rollingDiceIds: Array(7).fill('d1') } }, asActivePlayer);
+      expect(state.liveTurnState).toBeUndefined();
+      applyPushedState(state, { liveTurnState: { ...snapshot, busted: 'yes' } }, asActivePlayer);
+      expect(state.liveTurnState).toBeUndefined();
+
+      applyPushedState(state, { liveTurnState: { ...snapshot, rollingDiceIds: ['d1', 'd2'], busted: true } }, asActivePlayer);
+      expect(state.liveTurnState).toEqual({ ...snapshot, rollingDiceIds: ['d1', 'd2'], busted: true });
+    });
+
+    it('liveTurnState: strips fields beyond the known snapshot shape', () => {
+      // Every field is shape-checked, but a valid snapshot with an extra
+      // property attached would otherwise still be stored (and rebroadcast)
+      // as-is — the same class of hole isValidDiceSnapshot exists to close.
+      const state = makeState();
+      applyPushedState(state, {
+        liveTurnState: {
+          turnScore: 50, tuttosThisTurn: 0,
+          keptDice: [{ id: 'd1', val: 4, extra: 'junk' }],
+          currentRoll: [{ id: 'd2', val: 2, selected: true, extra: 'junk' }],
+          kniffelProgress: [],
+          maliciousField: { toString: () => 'boom' },
+        },
+      }, asActivePlayer);
+      expect(state.liveTurnState).toEqual({
+        turnScore: 50, tuttosThisTurn: 0,
+        keptDice: [{ id: 'd1', val: 4 }],
+        currentRoll: [{ id: 'd2', val: 2, selected: true }],
+        kniffelProgress: [],
+      });
     });
   });
 });
@@ -555,5 +618,21 @@ describe('isValidDiceSnapshot', () => {
     expect(isValidDiceSnapshot({ ...valid, kniffelProgress: [7] })).toBe(false);
     expect(isValidDiceSnapshot({ ...valid, kniffelProgress: ['1'] })).toBe(false);
     expect(isValidDiceSnapshot({ ...valid, kniffelProgress: [1.5] })).toBe(false);
+  });
+
+  it('accepts a well-formed optional busted/rollingDiceIds, or their absence', () => {
+    expect(isValidDiceSnapshot(valid)).toBe(true);
+    expect(isValidDiceSnapshot({ ...valid, busted: true })).toBe(true);
+    expect(isValidDiceSnapshot({ ...valid, rollingDiceIds: ['d1', 'd2'] })).toBe(true);
+    expect(isValidDiceSnapshot({ ...valid, rollingDiceIds: [] })).toBe(true);
+  });
+
+  it('rejects a malformed optional busted/rollingDiceIds', () => {
+    expect(isValidDiceSnapshot({ ...valid, busted: 'yes' })).toBe(false);
+    expect(isValidDiceSnapshot({ ...valid, rollingDiceIds: 'd1' })).toBe(false);
+    expect(isValidDiceSnapshot({ ...valid, rollingDiceIds: [123] })).toBe(false);
+    expect(isValidDiceSnapshot({ ...valid, rollingDiceIds: [''] })).toBe(false);
+    expect(isValidDiceSnapshot({ ...valid, rollingDiceIds: ['x'.repeat(65)] })).toBe(false);
+    expect(isValidDiceSnapshot({ ...valid, rollingDiceIds: Array(7).fill('d1') })).toBe(false);
   });
 });

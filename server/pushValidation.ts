@@ -71,14 +71,40 @@ const isValidKniffelProgressEntry = (v: unknown): v is number =>
 // number is expected) reaching every viewer via broadcast crashes their
 // render and trips the ErrorBoundary's cache-clear-and-reload for all of
 // them, repeatedly, until the sender's next push is well-formed again.
+// rollingDiceIds/busted are optional but, when present, are shape-checked too
+// (rollingDiceIds is rendered the same way — see GameControls.tsx — and
+// busted only ever needs to be a boolean).
 export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
-  return typeof s.turnScore === 'number' && Number.isFinite(s.turnScore)
-    && typeof s.tuttosThisTurn === 'number' && Number.isFinite(s.tuttosThisTurn)
-    && Array.isArray(s.keptDice) && s.keptDice.length <= 6 && s.keptDice.every(isValidSnapshotDie)
-    && Array.isArray(s.currentRoll) && s.currentRoll.length <= 6 && s.currentRoll.every(isValidRolledDie)
-    && Array.isArray(s.kniffelProgress) && s.kniffelProgress.length <= 6 && s.kniffelProgress.every(isValidKniffelProgressEntry);
+  if (!(typeof s.turnScore === 'number' && Number.isFinite(s.turnScore))) return false;
+  if (!(typeof s.tuttosThisTurn === 'number' && Number.isFinite(s.tuttosThisTurn))) return false;
+  if (!(Array.isArray(s.keptDice) && s.keptDice.length <= 6 && s.keptDice.every(isValidSnapshotDie))) return false;
+  if (!(Array.isArray(s.currentRoll) && s.currentRoll.length <= 6 && s.currentRoll.every(isValidRolledDie))) return false;
+  if (!(Array.isArray(s.kniffelProgress) && s.kniffelProgress.length <= 6 && s.kniffelProgress.every(isValidKniffelProgressEntry))) return false;
+  if (s.busted !== undefined && typeof s.busted !== 'boolean') return false;
+  if (s.rollingDiceIds !== undefined) {
+    if (!Array.isArray(s.rollingDiceIds) || s.rollingDiceIds.length > 6) return false;
+    if (!s.rollingDiceIds.every(id => typeof id === 'string' && id.length > 0 && id.length <= MAX_DICE_ID_LENGTH)) return false;
+  }
+  return true;
+};
+
+// Rebuilds a validated snapshot from only its known fields, dropping anything
+// else the sender attached. isValidDiceSnapshot only checks shape — without
+// this, applyPushedState would still store (and rebroadcast) the client's
+// object as-is, extra properties included.
+const sanitizeDiceSnapshot = (v: DiceSnapshot): DiceSnapshot => {
+  const clean: DiceSnapshot = {
+    turnScore: v.turnScore,
+    keptDice: v.keptDice.map(d => ({ id: d.id, val: d.val })),
+    currentRoll: v.currentRoll.map(d => ({ id: d.id, val: d.val, selected: d.selected })),
+    kniffelProgress: [...v.kniffelProgress],
+    tuttosThisTurn: v.tuttosThisTurn,
+  };
+  if (v.busted) clean.busted = true;
+  if (v.rollingDiceIds) clean.rollingDiceIds = [...v.rollingDiceIds];
+  return clean;
 };
 
 const HOST_ONLY_FIELDS = new Set<string>([
@@ -151,7 +177,10 @@ const mergeMutable = (existing: ServerPlayer, p: Record<string, unknown> | undef
     const v = p[f];
     if (f === 'color') {
       if (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) updated.color = v;
-    } else if (typeof v === 'number' && Number.isFinite(v)) {
+      // Same sanity cap as previousScore/previousHighestTurnScore below — these
+      // are counters and scores, never legitimately anywhere near this large,
+      // and an unbounded value would ride every future broadcast to every client.
+    } else if (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= MAX_SCORE_MAGNITUDE) {
       (updated as Record<string, unknown>)[f] = v;
     }
   }
@@ -236,7 +265,10 @@ export const applyPushedState = (
       if (v === null) {
         state.previousLeaders = null;
       } else if (Array.isArray(v) && v.length <= state.players.length && v.every(isPlausiblePlayerSnapshot)) {
-        state.previousLeaders = v as ServerPlayer[];
+        // Rebuilt from only the checked fields — isPlausiblePlayerSnapshot only
+        // shape-checks name/score, so storing `v` as-is would let extra
+        // properties on each entry ride along into every future broadcast.
+        state.previousLeaders = v.map(p => ({ name: p.name, score: p.score })) as ServerPlayer[];
       }
     } else if (key === 'previousWasBust') {
       if (typeof newState.previousWasBust === 'boolean') state.previousWasBust = newState.previousWasBust;
@@ -275,8 +307,10 @@ export const applyPushedState = (
       }
     } else if (key === 'liveTurnState') {
       const v = newState.liveTurnState;
-      if (v === null || isValidDiceSnapshot(v)) {
-        state.liveTurnState = v as DiceSnapshot | null;
+      if (v === null) {
+        state.liveTurnState = null;
+      } else if (isValidDiceSnapshot(v)) {
+        state.liveTurnState = sanitizeDiceSnapshot(v);
       }
     } else if (key === 'enforcedDiceMode') {
       const v = newState.enforcedDiceMode;

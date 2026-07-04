@@ -17,6 +17,8 @@ import {
   isValidReconnectTimeout,
   isValidCardEntry,
   isValidEnforcedDiceMode,
+  isValidDiceMode,
+  DEFAULT_DICE_MODE,
   snapDisableableDuration,
 } from './configValidation';
 
@@ -341,6 +343,30 @@ describe('configValidation', () => {
 
     it('rejects a number', () => {
       expect(isValidEnforcedDiceMode(1)).toBe(false);
+    });
+  });
+
+  // ─── isValidDiceMode / DEFAULT_DICE_MODE ───────────────────────────────────
+
+  describe('isValidDiceMode', () => {
+    it('accepts "physical" and "digital"', () => {
+      expect(isValidDiceMode('physical')).toBe(true);
+      expect(isValidDiceMode('digital')).toBe(true);
+    });
+
+    it('rejects null, undefined, and any other value', () => {
+      expect(isValidDiceMode(null)).toBe(false);
+      expect(isValidDiceMode(undefined)).toBe(false);
+      expect(isValidDiceMode('')).toBe(false);
+      expect(isValidDiceMode('bogus')).toBe(false);
+      expect(isValidDiceMode(1)).toBe(false);
+    });
+  });
+
+  describe('DEFAULT_DICE_MODE', () => {
+    it('is digital, and is itself a valid dice mode', () => {
+      expect(DEFAULT_DICE_MODE).toBe('digital');
+      expect(isValidDiceMode(DEFAULT_DICE_MODE)).toBe(true);
     });
   });
 });

@@ -102,6 +102,24 @@ describe('useGameStore', () => {
     expect(state.diceMode).toBe('digital');
   });
 
+  it('defaults diceMode to digital, and falls back to it when the stored value is invalid', () => {
+    // A fresh store (no tutto_diceMode key at all) must default to digital.
+    expect(useGameStore.getState().diceMode).toBe('digital');
+
+    localStorage.setItem('tutto_diceMode', 'not-a-real-mode');
+    useGameStore.getState().init('device-123');
+    expect(useGameStore.getState().diceMode).toBe('digital');
+  });
+
+  it('does not let a corrupted local-game save clobber a store action', () => {
+    // Object.assign'ing an unvalidated parsed save into state could overwrite
+    // an action (e.g. startGame) with whatever value the save file held.
+    localStorage.setItem('tutto_local_game', JSON.stringify({ round: 3, startGame: 'not a function anymore' }));
+    useGameStore.getState().init('device-123');
+    expect(useGameStore.getState().round).toBe(3);
+    expect(typeof useGameStore.getState().startGame).toBe('function');
+  });
+
   it('ignores a non-object localStorage value instead of corrupting state', () => {
     // A valid-JSON-but-not-an-object value (e.g. a leftover string) must not be
     // Object.assign'd into state. Previously JSON.parse('"corrupt"') → "corrupt"
@@ -1165,7 +1183,12 @@ describe('useGameStore', () => {
       expect(elapsedSeconds).toBe(45);
     });
 
-    it('local timer increments between server syncs', async () => {
+    it('local timer increments between server syncs', () => {
+      // Fake timers instead of a real 1100ms wait: under a loaded test run, a
+      // real setInterval(..., 1000) can fire late enough that a 1100ms wait
+      // observes zero ticks, making this test flaky (it failed intermittently
+      // in the full suite while passing in isolation).
+      vi.useFakeTimers();
       useGameStore.setState({
         mode: 'online',
         isOnline: true,
@@ -1178,12 +1201,12 @@ describe('useGameStore', () => {
       useGameStore.getState().syncOnlineTimers();
       const initialTime = useGameStore.getState().gameTimeInSeconds;
 
-      // Wait for 1 second
-      await new Promise(resolve => setTimeout(resolve, 1100));
+      vi.advanceTimersByTime(1100);
 
       // Timer should have incremented by ~1
       const afterWait = useGameStore.getState().gameTimeInSeconds;
       expect(afterWait).toBeGreaterThanOrEqual(initialTime + 1);
+      vi.useRealTimers();
     });
 
     it('reconnect syncs gameStartTime from new server gameTimeInSeconds value', async () => {

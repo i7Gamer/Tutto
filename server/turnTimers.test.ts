@@ -304,6 +304,23 @@ describe('turnTimers', () => {
       expect(abortGameIfLowPlayers(io, rooms[roomId], roomId)).toBe(false);
     });
 
+    it('returns false for a finished game (end screen), even with fewer than 2 players', () => {
+      // A finished game stays status 'playing' (finished=true) through the end
+      // screen — the last remaining player's peer leaving/being kicked there
+      // must not wipe their end screen or fire a misleading "game aborted" toast.
+      rooms[roomId] = createRoom('host-1');
+      const room = rooms[roomId];
+      Object.assign(room.state, {
+        status: 'playing', finished: true, players: [makePlayer('Alice')],
+        currentCard: null, currentPlayerIndex: null,
+      });
+      const { io, emit } = makeFakeIo();
+      expect(abortGameIfLowPlayers(io, room, roomId)).toBe(false);
+      expect(room.state.status).toBe('playing');
+      expect(room.state.finished).toBe(true);
+      expect(emit).not.toHaveBeenCalled();
+    });
+
     it('aborts the game, resets play state, clears the timer, and emits gameAborted', () => {
       rooms[roomId] = createRoom('host-1');
       const room = rooms[roomId];

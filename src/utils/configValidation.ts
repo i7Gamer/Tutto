@@ -17,6 +17,11 @@ export const DEFAULT_INITIAL_CARDS: InitialCards = {
 export const DEFAULT_WINNING_SCORE = 6000;
 export const DEFAULT_TURN_DURATION = 120;
 export const DEFAULT_RECONNECT_TIMEOUT = 60;
+// Single source of truth for the default diceMode — used both for a fresh
+// store's initial state and whenever a stored preference fails validation
+// (see isValidDiceMode) — so "no valid preference" always falls back to the
+// same mode everywhere, rather than each call site picking its own default.
+export const DEFAULT_DICE_MODE: DiceMode = 'digital';
 
 // Accepted ranges, shared by the lobby inputs, the client-side config
 // validator and the server (updateConfig / pushState) so a value one layer
@@ -53,3 +58,8 @@ export const isValidCardEntry = (key: string, val: unknown): val is number =>
 // a DiceMode value = the host has pinned that mode for every player's own turn.
 export const isValidEnforcedDiceMode = (v: unknown): v is DiceMode | null =>
   v === null || v === 'physical' || v === 'digital';
+
+// A per-device preference, unlike enforcedDiceMode above — never null. Used to
+// validate a raw localStorage read before trusting it as a DiceMode.
+export const isValidDiceMode = (v: unknown): v is DiceMode =>
+  v === 'physical' || v === 'digital';

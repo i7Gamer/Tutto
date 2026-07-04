@@ -4,10 +4,11 @@ import { parseJsonString } from '../utils/parseJson';
 import { parseSavedDiceState } from '../utils/diceTurnState';
 import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
+  DEFAULT_DICE_MODE, isValidDiceMode,
 } from '../utils/configValidation';
 import type { CoreGameState, DiceSnapshot, DiceMode } from '../types';
 import type { GameStore, GameStatus, ReconnectSession } from './storeTypes';
-import { validateOnlineConfig, reanchorLocalClock, attachPersistence } from './persistence';
+import { validateOnlineConfig, reanchorLocalClock, attachPersistence, pickLocalGameState } from './persistence';
 import { createTimerSlice } from './timers';
 import { createConfigSlice } from './configSlice';
 import { createSocketSlice } from './socketSlice';
@@ -40,7 +41,7 @@ const initialLocalState: Omit<CoreGameState, never> & {
   round: 1,
   winningScore: DEFAULT_WINNING_SCORE,
   initialCards: DEFAULT_INITIAL_CARDS,
-  diceMode: 'physical',
+  diceMode: DEFAULT_DICE_MODE,
   enforcedDiceMode: null,
   audioEnabled: true,
   randomOrder: true,
@@ -106,7 +107,7 @@ export const useGameStore = create<GameStore>()(
       set((state) => {
         state.deviceId = deviceId;
         if (parsed) {
-          Object.assign(state, parsed);
+          Object.assign(state, pickLocalGameState(parsed));
           reanchorLocalClock(state);
         }
         const session = parseJsonString<ReconnectSession>(sessionStorage.getItem('tutto_online_session'));
@@ -122,8 +123,10 @@ export const useGameStore = create<GameStore>()(
         }
       }
 
-      const storedDiceMode = localStorage.getItem('tutto_diceMode') as DiceMode | null;
-      if (storedDiceMode) set({ diceMode: storedDiceMode });
+      // An invalid/corrupted value (or one predating this key) is left alone —
+      // the initial state's diceMode already holds DEFAULT_DICE_MODE.
+      const storedDiceMode = localStorage.getItem('tutto_diceMode');
+      if (isValidDiceMode(storedDiceMode)) set({ diceMode: storedDiceMode });
 
       const storedAudioEnabled = localStorage.getItem('tutto_audioEnabled');
       if (storedAudioEnabled !== null) {
@@ -134,9 +137,10 @@ export const useGameStore = create<GameStore>()(
     setMode: (mode) => {
       const isLocal = mode === 'local';
 
-      let parsed = null;
+      let parsed: Partial<GameStore> | null = null;
       if (isLocal) {
-        parsed = parseJsonString<Partial<GameStore>>(localStorage.getItem('tutto_local_game'));
+        const rawLocal = parseJsonString<Partial<GameStore>>(localStorage.getItem('tutto_local_game'));
+        parsed = rawLocal ? pickLocalGameState(rawLocal) : null;
       } else {
         const raw = localStorage.getItem('tutto_online_config');
         if (raw) {

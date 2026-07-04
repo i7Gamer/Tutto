@@ -134,7 +134,12 @@ export const startServerTurnTimer = (io: Server, roomId: string): void => {
 };
 
 export const abortGameIfLowPlayers = (io: Server, room: Room, roomId: string): boolean => {
-  if (room.state.status === 'playing' && room.state.players.length < 2) {
+  // A finished game stays status 'playing' (with finished=true) all the way
+  // through the end screen — see pushState's startingGame comment — so without
+  // the finished check, the last remaining player leaving/kicking a peer from
+  // there would silently wipe their end screen (finished reset to false) and
+  // show a misleading "game aborted" toast for a game that already ended normally.
+  if (room.state.status === 'playing' && !room.state.finished && room.state.players.length < 2) {
     clearServerTurnTimer(roomId);
     io.to(roomId).emit('gameAborted');
     room.state.status = 'lobby';

@@ -33,6 +33,9 @@ describe('Game Component Integration', () => {
       hostId: 'socket1',
       myName: 'Alice',
       winningScore: 6000,
+      // Most tests in this file exercise the physical-mode score input/yes-no
+      // controls; tests for digital-mode behavior set diceMode explicitly.
+      diceMode: 'physical',
       currentCardHasInput: true,
       currentCardHasYesNo: false,
       players: [
