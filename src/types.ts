@@ -81,6 +81,12 @@ export interface CoreGameState {
   previousLeaders: Player[] | null;
   previousWasBust: boolean;
   previousHighestTurnScore: number;
+  // Name of the player who took the previous (undoable) turn. Undo looks this
+  // player up by name rather than by "currentPlayerIndex - 1" — the roster can
+  // shift (mid-game leave/kick/reconnect-timeout) between that turn and now, so
+  // an index computed against the CURRENT roster would land on whoever now
+  // happens to occupy that slot instead of the player who actually played it.
+  previousPlayerName: string | null;
   finished: boolean;
   gameStartTime: number | null;
   gameTimeInSeconds: number;
@@ -127,6 +133,7 @@ export interface NextTurnResult {
   previousLeaders: Player[] | null;
   previousWasBust: boolean;
   previousHighestTurnScore: number;
+  previousPlayerName: string;
   newDeck: CardType[];
   drawnCard: CardType | null;
 }

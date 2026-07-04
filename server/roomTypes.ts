@@ -33,6 +33,9 @@ export interface RoomState {
   previousLeaders: ServerPlayer[] | null;
   previousWasBust?: boolean;
   previousHighestTurnScore?: number;
+  // Name of the player who took the previous turn — see CoreGameState in
+  // src/types.ts for why undo keys off this instead of a roster index.
+  previousPlayerName?: string | null;
   liveTurnState?: DiceSnapshot | null;
   // null = every player uses their own diceMode; a DiceMode value = the host
   // has pinned that mode for everyone's own turn. Host-only config.

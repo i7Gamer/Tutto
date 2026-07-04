@@ -64,7 +64,7 @@ describe('Server Socket E2E Simulation', () => {
           }
         };
 
-        s1.emit('joinRoom', { roomId: 'CONFIG_TEST', name: 'Alice', deviceId: 'dev-1', initialConfig }, (res: { success: boolean }) => {
+        s1.emit('joinRoom', { roomId: 'CONFIG_TEST', name: 'Alice', deviceId: 'dev-config-apply', initialConfig }, (res: { success: boolean }) => {
           if (!res.success) {
             reject(new Error('joinRoom failed'));
           }
@@ -107,7 +107,7 @@ describe('Server Socket E2E Simulation', () => {
           initialCards: { '200': 1e9, Bogus: 3 },
         };
 
-        s1.emit('joinRoom', { roomId: 'CONFIG_INVALID_TEST', name: 'Alice', deviceId: 'dev-1', initialConfig }, (res: { success: boolean }) => {
+        s1.emit('joinRoom', { roomId: 'CONFIG_INVALID_TEST', name: 'Alice', deviceId: 'dev-config-invalid', initialConfig }, (res: { success: boolean }) => {
           if (!res.success) {
             reject(new Error('joinRoom failed'));
           }
@@ -153,16 +153,16 @@ describe('Server Socket E2E Simulation', () => {
       }, 9000);
 
       socket1.on('connect', () => {
-        socket1.emit('joinRoom', { roomId: 'E2E_ROOM', name: 'Alice', deviceId: 'dev-alice', color: '#ff0000' }, (res) => {
+        socket1.emit('joinRoom', { roomId: 'E2E_ROOM', name: 'Alice', deviceId: 'dev-e2e-alice', color: '#ff0000' }, (res) => {
           expect(res.success).toBe(true);
-          
-          socket2.emit('joinRoom', { roomId: 'E2E_ROOM', name: 'Bob', deviceId: 'dev-bob', color: '#00ff00' }, (res2) => {
+
+          socket2.emit('joinRoom', { roomId: 'E2E_ROOM', name: 'Bob', deviceId: 'dev-e2e-bob', color: '#00ff00' }, (res2) => {
             expect(res2.success).toBe(true);
-            
+
             // Simulating Alice explicitly pushing state to start game
             const mockPlayers = [
-              { name: 'Alice', deviceId: 'dev-alice', socketId: socket1.id, disconnected: false, score: 0 },
-              { name: 'Bob', deviceId: 'dev-bob', socketId: socket2.id, disconnected: false, score: 0 }
+              { name: 'Alice', deviceId: 'dev-e2e-alice', socketId: socket1.id, disconnected: false, score: 0 },
+              { name: 'Bob', deviceId: 'dev-e2e-bob', socketId: socket2.id, disconnected: false, score: 0 }
             ];
             socket1.emit('pushState', {
               roomId: 'E2E_ROOM',
@@ -258,10 +258,10 @@ describe('Server Socket E2E Simulation', () => {
       }, 5000);
 
       s1.on('connect', () => {
-        s1.emit('joinRoom', { roomId: 'E2E_ROOM_LEAVE', name: 'Alice', deviceId: 'dev-alice2', color: '#ff0000' }, () => {
+        s1.emit('joinRoom', { roomId: 'E2E_ROOM_LEAVE', name: 'Alice', deviceId: 'dev-e2eleave-alice', color: '#ff0000' }, () => {
           s2.emit('joinRoom', { roomId: 'E2E_ROOM_LEAVE', name: 'Bob', deviceId: 'dev-bob2', color: '#00ff00' }, () => {
             const mockPlayers = [
-              { name: 'Alice', deviceId: 'dev-alice2', socketId: s1.id, disconnected: false, score: 0 },
+              { name: 'Alice', deviceId: 'dev-e2eleave-alice', socketId: s1.id, disconnected: false, score: 0 },
               { name: 'Bob', deviceId: 'dev-bob2', socketId: s2.id, disconnected: false, score: 0 }
             ];
             s1.emit('pushState', {
@@ -315,15 +315,15 @@ describe('Server Socket E2E Simulation', () => {
 
       s1.on('connect', () => {
         // First s1 joins Room A
-        s1.emit('joinRoom', { roomId: 'GHOST_TEST_A', name: 'Alice', deviceId: 'dev-alice', color: '#ff0000' }, () => {
-          
+        s1.emit('joinRoom', { roomId: 'GHOST_TEST_A', name: 'Alice', deviceId: 'dev-ghosttest-alice', color: '#ff0000' }, () => {
+
           // Then s2 connects and joins Room A
           s2 = io(`http://127.0.0.1:${PORT}`);
           s2.on('connect', () => {
-            s2.emit('joinRoom', { roomId: 'GHOST_TEST_A', name: 'Bob', deviceId: 'dev-bob', color: '#00ff00' }, () => {
-              
+            s2.emit('joinRoom', { roomId: 'GHOST_TEST_A', name: 'Bob', deviceId: 'dev-ghosttest-bob', color: '#00ff00' }, () => {
+
               // Now s1 joins Room B without calling leaveRoom
-              s1.emit('joinRoom', { roomId: 'GHOST_TEST_B', name: 'Alice2', deviceId: 'dev-alice2', color: '#0000ff' }, () => {
+              s1.emit('joinRoom', { roomId: 'GHOST_TEST_B', name: 'Alice2', deviceId: 'dev-ghosttest-alice2', color: '#0000ff' }, () => {
                 
                 // Now start listening to s1 to ensure it doesn't get Room A updates anymore
                 s1.on('gameState', (state) => {
@@ -440,7 +440,7 @@ describe('Server Socket E2E Simulation', () => {
       }, 1000);
 
       s1.on('connect', () => {
-        s1.emit('joinRoom', { roomId: 'COLOR_ROOM', name: 'Alice', deviceId: 'dev-alice', color: '#ff0000' }, () => {
+        s1.emit('joinRoom', { roomId: 'COLOR_ROOM', name: 'Alice', deviceId: 'dev-color-alice', color: '#ff0000' }, () => {
           s1.emit('updatePlayerColor', { roomId: 'COLOR_ROOM', color: 'invalid-color' });
         });
       });
@@ -464,7 +464,7 @@ describe('Server Socket E2E Simulation', () => {
       }, 1000);
 
       s1.on('connect', () => {
-        s1.emit('joinRoom', { roomId: 'CONFIG_ROOM', name: 'Alice', deviceId: 'dev-alice', color: '#ff0000' }, () => {
+        s1.emit('joinRoom', { roomId: 'CONFIG_ROOM', name: 'Alice', deviceId: 'dev-configbounds-alice', color: '#ff0000' }, () => {
           s1.emit('updateConfig', { winningScore: -100, turnDuration: 9999, reconnectTimeout: -5 });
         });
       });
@@ -624,7 +624,7 @@ describe('Server Socket E2E Simulation', () => {
       }, 1000);
 
       s1.on('connect', () => {
-        s1.emit('joinRoom', { roomId: 'REORDER_ROOM', name: 'Alice', deviceId: 'dev-alice', color: '#ff0000' }, () => {
+        s1.emit('joinRoom', { roomId: 'REORDER_ROOM', name: 'Alice', deviceId: 'dev-reorder-alice', color: '#ff0000' }, () => {
           s1.emit('reorderPlayers', []); // Send empty array when there's 1 player
         });
       });
@@ -997,7 +997,7 @@ describe('Server Socket E2E Simulation', () => {
                 roomId: 'LIVE_TURN_ROOM',
                 newState: {
                   liveTurnState: {
-                    turnScore: 350, keptDice: [{ val: 1 }], currentRoll: [{ val: 5, selected: false }],
+                    turnScore: 350, keptDice: [{ id: 'die-1', val: 1 }], currentRoll: [{ id: 'die-2', val: 5, selected: false }],
                     kniffelProgress: [], tuttosThisTurn: 0,
                   },
                 },

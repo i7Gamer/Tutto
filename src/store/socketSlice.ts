@@ -1,6 +1,5 @@
 import { io } from 'socket.io-client';
 import { getLeaders } from '../utils/coreGameEngine';
-import { DEFAULT_RECONNECT_TIMEOUT } from '../utils/configValidation';
 import i18n from '../i18n';
 import { validateOnlineConfig } from './persistence';
 import { getSocket, setSocket } from './socketRef';
@@ -150,7 +149,16 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       });
 
       sock.on('playerDisconnected', (name: string) => {
-        const seconds = get().reconnectTimeout || DEFAULT_RECONNECT_TIMEOUT;
+        const seconds = get().reconnectTimeout;
+        // 0 = the kick timer is disabled for this room (see configValidation.ts)
+        // — there is no deadline, so a message inventing one is misleading.
+        if (!seconds) {
+          get().addToast(i18n.t('game.playerDisconnectedNoTimeout', {
+            defaultValue: '{{name}} disconnected!',
+            name,
+          }));
+          return;
+        }
         get().addToast(i18n.t('game.playerDisconnected', {
           defaultValue: '{{name}} disconnected! They have {{seconds}} seconds to reconnect.',
           name,
@@ -171,8 +179,27 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
 
       sock.on('kicked', () => {
         get().addToast(i18n.t('game.kickedByHost', 'You were kicked by the host'));
-        set({ roomId: null, isHost: false, hostId: null, myName: null });
+        get().stopOnlineTimers();
         sessionStorage.removeItem('tutto_online_session');
+        localStorage.removeItem('tutto_dice_turn_state');
+        // Mirrors leaveRoom's reset (see its comment): setMode('local') below
+        // only overwrites the keys a saved local game happens to contain, so
+        // without clearing the online room's roster/game state here too, it
+        // bleeds into local mode whenever there's no local save to overwrite it.
+        set({
+          players: [],
+          currentPlayerIndex: null,
+          currentCard: null,
+          cards: [],
+          round: 1,
+          finished: false,
+          status: 'lobby',
+          roomId: null,
+          isHost: false,
+          hostId: null,
+          myName: null,
+          liveTurnState: null,
+        });
         get().setMode('local');
       });
 
@@ -283,7 +310,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
         randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
         previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
-        chartValues, chartNames, chartLabels, status, liveTurnState, enforcedDiceMode,
+        previousPlayerName, chartValues, chartNames, chartLabels, status, liveTurnState, enforcedDiceMode,
       } = s;
       socket.emit('pushState', {
         roomId: s.roomId,
@@ -291,7 +318,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
           randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
           previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
-          chartValues, chartNames, chartLabels, status, liveTurnState, enforcedDiceMode,
+          previousPlayerName, chartValues, chartNames, chartLabels, status, liveTurnState, enforcedDiceMode,
         },
       });
     }

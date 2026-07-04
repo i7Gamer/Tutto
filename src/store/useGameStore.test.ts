@@ -427,11 +427,12 @@ describe('useGameStore', () => {
     useGameStore.getState().addPlayer('P1');
     useGameStore.setState({ 
       status: 'playing', 
-      currentPlayerIndex: 1, 
+      currentPlayerIndex: 1,
       previousCard: 'x2',
       previousScore: 0,
       previousLeaders: [],
-      players: [{ name: 'P1', score: 500 }, { name: 'P2', score: 0 }] 
+      previousPlayerName: 'P1',
+      players: [{ name: 'P1', score: 500 }, { name: 'P2', score: 0 }]
     });
 
     useGameStore.getState().undo();
@@ -440,6 +441,32 @@ describe('useGameStore', () => {
     // It should revert back to P1
     expect(state.currentPlayerIndex).toBe(0);
     expect(state.previousCard).toBeNull();
+  });
+
+  it('undo clears the current player\'s live dice snapshot and cache, not just the previous-turn bookkeeping', () => {
+    // Undo can be triggered while the CURRENT player is mid-roll (digital dice).
+    // Without clearing liveTurnState/the localStorage cache too, spectators keep
+    // seeing that in-progress roll attributed to whoever undo reassigns the turn
+    // to, and a stale snapshot could be resumed into their next turn.
+    useGameStore.getState().addPlayer('P1');
+    const liveSnapshot = { turnScore: 250, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0 };
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify(liveSnapshot));
+    useGameStore.setState({
+      status: 'playing',
+      currentPlayerIndex: 1,
+      previousCard: 'x2',
+      previousScore: 0,
+      previousLeaders: [],
+      previousPlayerName: 'P1',
+      players: [{ name: 'P1', score: 500 }, { name: 'P2', score: 0 }],
+      liveTurnState: liveSnapshot,
+    });
+
+    useGameStore.getState().undo();
+
+    const state = useGameStore.getState();
+    expect(state.liveTurnState).toBeNull();
+    expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
   });
 
   describe('local game stats saving', () => {
@@ -580,6 +607,19 @@ describe('useGameStore', () => {
         mockOnHandlers['playerDisconnected']('Alice');
         const toasts = useGameStore.getState().toasts;
         expect(toasts.some(t => t.message.includes('Alice disconnected! They have 45 seconds to reconnect.'))).toBe(true);
+      }
+    });
+
+    it('playerDisconnected omits the reconnect deadline when the kick timer is disabled (reconnectTimeout 0)', () => {
+      // reconnectTimeout: 0 means the server never auto-kicks a disconnected
+      // player (see server/socketHandlers.ts) — a "N seconds to reconnect"
+      // message would invent a deadline that doesn't exist.
+      useGameStore.setState({ reconnectTimeout: 0 });
+      if (mockOnHandlers['playerDisconnected']) {
+        mockOnHandlers['playerDisconnected']('Alice');
+        const toasts = useGameStore.getState().toasts;
+        expect(toasts.some(t => t.message === 'Alice disconnected!')).toBe(true);
+        expect(toasts.some(t => t.message.includes('seconds to reconnect'))).toBe(false);
       }
     });
 
@@ -761,6 +801,13 @@ describe('useGameStore', () => {
       useGameStore.getState().setMode('online');
       useGameStore.setState({
         roomId: 'TEST_ROOM', isHost: true, hostId: 'socket-123', myName: 'Alice',
+        // The room's in-progress game — without clearing these too, a kicked
+        // player with no saved local game (setMode('local') only overwrites
+        // keys a save happens to contain) would land on the local lobby still
+        // showing the online roster and mid-game state (bug: kicked bleed).
+        players: [makeOnlinePlayer('Alice'), makeOnlinePlayer('Bob')],
+        status: 'playing', currentPlayerIndex: 0, currentCard: 'Stop', round: 3,
+        liveTurnState: { turnScore: 50, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0 },
       });
 
       expect(mockOnHandlers['kicked']).toBeTypeOf('function');
@@ -775,6 +822,13 @@ describe('useGameStore', () => {
       expect(state.mode).toBe('local');
       expect(state.isOnline).toBe(false);
       expect(state.toasts.map(t => t.message)).toContain('You were kicked by the host');
+      expect(state.players).toEqual([]);
+      expect(state.status).toBe('lobby');
+      expect(state.currentPlayerIndex).toBeNull();
+      expect(state.currentCard).toBeNull();
+      expect(state.round).toBe(1);
+      expect(state.finished).toBe(false);
+      expect(state.liveTurnState).toBeNull();
     });
 
     it('clears pendingReconnectSession when clearPendingReconnect is called', () => {
@@ -2048,6 +2102,7 @@ describe('useGameStore', () => {
         previousLeaders: [{ name: 'Alice', score: 1000, times1000PointsDeducted: 0, timesKniffelCompleted: 0, timesPlusMinusCompleted: 0, timesKniffelFailed: 0, timesKleeblattFailed: 0, timesKleeblattCompleted: 0, timesPlusMinusFailed: 0, timesFeuerwerkReceived: 0, timesSkipped: 0, timesx2Received: 0, totalTurns: 0, busts: 0, feuerwerkBusts: 0, x2Busts: 0, feuerwerkPointsScored: 0, x2PointsScored: 0, position: 0 }],
         previousWasBust: false,
         previousHighestTurnScore: 0,
+        previousPlayerName: 'Bob',
       });
 
       useGameStore.getState().undo();

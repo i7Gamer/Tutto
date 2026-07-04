@@ -1,5 +1,5 @@
 import type { Server } from 'socket.io';
-import { buildDeck } from '../src/utils/coreGameEngine';
+import { buildDeck, getLeaders } from '../src/utils/coreGameEngine';
 import { getEffectiveTurnDuration } from '../src/utils/turnDuration';
 import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
@@ -7,6 +7,13 @@ import {
 import type { Room, RoomState, ServerPlayer } from './roomTypes';
 
 export const rooms: Record<string, Room> = {};
+
+// Upper bound on distinct players a single room can hold. Without one, a
+// hostile or buggy client could keep joining new deviceIds into one room
+// forever, growing its player/chart arrays (and every broadcast of them)
+// without limit — this is a sanity cap on room size, not a real gameplay
+// scenario (nobody plays Tutto with anywhere near this many players).
+export const MAX_PLAYERS_PER_ROOM = 100;
 
 export const createRoom = (hostSocketId: string): Room => ({
   host: hostSocketId,
@@ -36,9 +43,25 @@ export const createRoom = (hostSocketId: string): Room => ({
     previousCard: null,
     previousScore: null,
     previousLeaders: null,
+    previousPlayerName: null,
     enforcedDiceMode: null,
   },
 });
+
+// Every room-deletion site must go through this, not a bare `delete rooms[id]`.
+// A pending disconnect-timeout timer (armed in socketHandlers.handlePlayerLeave)
+// captures roomId in its closure and looks the room up fresh, by id, when it
+// fires — so if the room was deleted without cancelling it, and a NEW room is
+// later created under the same id (e.g. the disconnected player reconnects and
+// recreates it), the stale timer fires against that unrelated new room and can
+// evict a player from it, or delete it outright.
+export const deleteRoom = (roomId: string): void => {
+  const room = rooms[roomId];
+  if (!room) return;
+  if (room.turnExpireTimer) clearTimeout(room.turnExpireTimer);
+  Object.values(room.disconnectTimers).forEach(timer => clearTimeout(timer));
+  delete rooms[roomId];
+};
 
 export const drawNextCardForRoom = (state: RoomState): void => {
   if (state.cards && state.cards.length > 0) {
@@ -74,12 +97,42 @@ export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void 
     state.previousCard = null;
     state.previousScore = null;
     state.previousLeaders = null;
+    state.previousPlayerName = null;
     // The removed player was mid-turn — drop their live dice snapshot so
     // spectators don't keep seeing it attributed to the player now in this slot.
     state.liveTurnState = null;
-    if (removedPlayerWasLastInOrder) state.round += 1;
-    state.turnStartTime = Date.now();
-    drawNextCardForRoom(state);
+    let isGameOver = false;
+    if (removedPlayerWasLastInOrder) {
+      // Same bookkeeping calculateNextTurn does on a normal round end (see
+      // gameSlice.nextTurn / advanceTurnOnTimeout) — without it, the round this
+      // removal forces past never gets a chart data point, and the end-screen
+      // score-per-round chart silently comes up one round short.
+      if (state.chartValues.length === state.players.length && state.chartNames.length === state.players.length) {
+        state.chartValues.forEach((vals, i) => vals.push(state.players[i].score));
+        state.chartLabels.push(state.round);
+      }
+      // Same win check calculateNextTurn runs at the same round boundary —
+      // without it, a removal that forces the round past a sole leader who
+      // already reached winningScore hands out a whole extra round instead of
+      // ending the game there (during which e.g. a Plus/Minus could even flip
+      // the winner).
+      const leaders = getLeaders(state.players);
+      isGameOver = leaders.length === 1 && leaders[0].score >= state.winningScore;
+      if (!isGameOver) state.round += 1;
+    }
+    if (isGameOver) {
+      state.finished = true;
+      state.currentPlayerIndex = null;
+      state.currentCard = null;
+      state.turnStartTime = null;
+      if (room.gameActualStartTime) {
+        state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / 1000);
+        room.gameActualStartTime = null;
+      }
+    } else {
+      state.turnStartTime = Date.now();
+      drawNextCardForRoom(state);
+    }
   }
 
   // Keep pushState's turn-change tracking in step with the adjusted index/card.

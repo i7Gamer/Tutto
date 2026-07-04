@@ -10,7 +10,7 @@
  * which coverage instrumentation can't see).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { handleActivePlayerRemoved, calculateRemainingTurnTime, createRoom } from './rooms';
+import { handleActivePlayerRemoved, calculateRemainingTurnTime, createRoom, deleteRoom, rooms } from './rooms';
 import type { Room, RoomState, ServerPlayer } from './roomTypes';
 
 const makePlayer = (name: string, overrides: Partial<ServerPlayer> = {}): ServerPlayer => ({
@@ -181,11 +181,18 @@ describe('handleActivePlayerRemoved', () => {
         previousCard: 'Kniffel',
         previousScore: 2000,
         previousLeaders: [{ name: 'Bob', score: 10 } as unknown as ServerPlayer],
+        previousPlayerName: 'Alice',
         round: 4,
         cards: ['200', '300'],
         currentCard: 'Kniffel',
         liveTurnState: { turnScore: 20, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0 },
       });
+      // chartValues/chartNames still hold all 3 PRE-splice entries (see the
+      // "chart array shrinking" tests above) — makeRoom's default sizes them
+      // for the post-splice roster, which is wrong for this function's own
+      // unconditional splice at the top.
+      room.state.chartValues = [[100], [100], [100]];
+      room.state.chartNames = ['Alice', 'Bob', 'Carol'];
 
       handleActivePlayerRemoved(room, 0);
 
@@ -194,11 +201,19 @@ describe('handleActivePlayerRemoved', () => {
       expect(room.state.previousCard).toBeNull();
       expect(room.state.previousScore).toBeNull();
       expect(room.state.previousLeaders).toBeNull();
+      // Undo now keys off previousPlayerName (see calculateUndo in
+      // coreGameEngine.ts) — it must be cleared alongside the other previous*
+      // bookkeeping here, or a later undo would still try to look up Alice
+      // (no longer seated) instead of correctly refusing.
+      expect(room.state.previousPlayerName).toBeNull();
       expect(room.state.liveTurnState).toBeNull();
       expect(room.state.turnStartTime).toBe(Date.now());
       // A new card was drawn for the player now occupying the active slot.
       expect(room.state.cards).toEqual(['300']);
       expect(room.state.currentCard).toBe('200');
+      // No round was forced past, so no chart data point should be pushed.
+      expect(room.state.chartLabels).toEqual([]);
+      expect(room.state.chartValues).toEqual([[100], [100]]);
     });
 
     it('last in order: index wraps to 0 and the round advances', () => {
@@ -212,6 +227,13 @@ describe('handleActivePlayerRemoved', () => {
         cards: ['Stop'],
         currentCard: 'x2',
       });
+      // chartValues/chartNames still hold all 3 PRE-splice entries (see the
+      // "chart array shrinking" tests above); give the players distinct scores
+      // so the pushed chart point is distinguishable from the seeded [100].
+      room.state.chartValues = [[100], [100], [100]];
+      room.state.chartNames = ['Alice', 'Bob', 'Carol'];
+      room.state.players[0].score = 250;
+      room.state.players[1].score = 175;
 
       handleActivePlayerRemoved(room, 2);
 
@@ -221,6 +243,72 @@ describe('handleActivePlayerRemoved', () => {
       expect(room.state.turnStartTime).toBe(Date.now());
       expect(room.state.currentCard).toBe('Stop');
       expect(room.state.cards).toEqual([]);
+      // The round the removal forced past (7, before it advanced to 8) still
+      // gets a chart data point — otherwise the end-screen score-per-round
+      // chart silently comes up one round short.
+      expect(room.state.chartLabels).toEqual([7]);
+      expect(room.state.chartValues).toEqual([[100, 250], [100, 175]]);
+    });
+
+    it('last in order AND a sole leader already reached winningScore: ends the game instead of drawing a new round', () => {
+      // Original [Alice, Bob, Carol], Carol (idx 2) active and removed.
+      // Post-splice players = [Alice, Bob], length 2. removedIdx(2) === length(2) -> last.
+      // Alice already sits at/above the default winningScore (6000) and is the
+      // sole leader — calculateNextTurn would end the game at this exact round
+      // boundary (see coreGameEngine.ts), and this removal-forced round
+      // boundary must do the same instead of handing out a free extra round.
+      const room = makeRoom(['Alice', 'Bob'], {
+        currentPlayerIndex: 2,
+        previousCard: 'x2',
+        previousScore: 400,
+        round: 5,
+        cards: ['Stop'],
+        currentCard: 'x2',
+      });
+      room.state.chartValues = [[100], [100], [100]];
+      room.state.chartNames = ['Alice', 'Bob', 'Carol'];
+      room.state.players[0].score = 6000;
+      room.state.players[1].score = 3000;
+      room.gameActualStartTime = Date.now() - 12_000;
+
+      handleActivePlayerRemoved(room, 2);
+
+      expect(room.state.finished).toBe(true);
+      expect(room.state.currentPlayerIndex).toBeNull();
+      expect(room.state.currentCard).toBeNull();
+      expect(room.state.turnStartTime).toBeNull();
+      expect(room.state.round).toBe(5); // NOT advanced — the game ended at this boundary
+      // The final round still gets its chart data point.
+      expect(room.state.chartLabels).toEqual([5]);
+      expect(room.state.chartValues).toEqual([[100, 6000], [100, 3000]]);
+      // The elapsed-time bookkeeping calculateNextTurn's callers do on game over.
+      expect(room.state.gameTimeInSeconds).toBe(12);
+      expect(room.gameActualStartTime).toBeNull();
+      expect(room.turnTimerState!.lastCard).toBeNull();
+      expect(room.turnTimerState!.lastPlayerIndex).toBeNull();
+    });
+
+    it('last in order but leaders are tied at/above winningScore: game continues (no sole leader)', () => {
+      // Same boundary, but Alice and Bob are tied — calculateNextTurn's own
+      // `leaders.length === 1` requirement means a tie never ends the game,
+      // so this removal-forced boundary must not end it either.
+      const room = makeRoom(['Alice', 'Bob'], {
+        currentPlayerIndex: 2,
+        round: 5,
+        cards: ['Stop'],
+        currentCard: 'x2',
+      });
+      room.state.chartValues = [[100], [100], [100]];
+      room.state.chartNames = ['Alice', 'Bob', 'Carol'];
+      room.state.players[0].score = 6000;
+      room.state.players[1].score = 6000;
+
+      handleActivePlayerRemoved(room, 2);
+
+      expect(room.state.finished).toBe(false);
+      expect(room.state.round).toBe(6);
+      expect(room.state.currentPlayerIndex).toBe(0);
+      expect(room.state.currentCard).toBe('Stop');
     });
 
     it('syncs turnTimerState to the freshly drawn card and new index', () => {
@@ -347,5 +435,68 @@ describe('calculateRemainingTurnTime', () => {
   it('applies no multiplier for a card with no configured multiplier', () => {
     const room = makeTimerRoom({ turnStartTime: Date.now(), turnDuration: 100, currentCard: 'Stop' });
     expect(calculateRemainingTurnTime(room)).toBe(100);
+  });
+});
+
+describe('deleteRoom', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('removes the room from the registry', () => {
+    rooms['DELETE_ROOM_TEST_1'] = createRoom('sock-host');
+    deleteRoom('DELETE_ROOM_TEST_1');
+    expect(rooms['DELETE_ROOM_TEST_1']).toBeUndefined();
+  });
+
+  it('does not throw when the room does not exist', () => {
+    expect(() => deleteRoom('NEVER_EXISTED')).not.toThrow();
+  });
+
+  // The bug this guards against: a disconnect-timeout timer captures its
+  // roomId in closure and looks the room up FRESH (by id) when it fires (see
+  // socketHandlers.ts). If deleteRoom leaves that timer armed, and a new room
+  // is later created under the same id, the stale timer fires against that
+  // unrelated new room instead of a no-op.
+  it('cancels a pending disconnectTimers entry so it never fires', () => {
+    vi.useFakeTimers();
+    const room = createRoom('sock-host');
+    const callback = vi.fn();
+    room.disconnectTimers['dev-1'] = setTimeout(callback, 1000);
+    rooms['DELETE_ROOM_TEST_2'] = room;
+
+    deleteRoom('DELETE_ROOM_TEST_2');
+    vi.advanceTimersByTime(5000);
+
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it('cancels multiple pending disconnectTimers entries', () => {
+    vi.useFakeTimers();
+    const room = createRoom('sock-host');
+    const cb1 = vi.fn();
+    const cb2 = vi.fn();
+    room.disconnectTimers['dev-1'] = setTimeout(cb1, 1000);
+    room.disconnectTimers['dev-2'] = setTimeout(cb2, 1000);
+    rooms['DELETE_ROOM_TEST_3'] = room;
+
+    deleteRoom('DELETE_ROOM_TEST_3');
+    vi.advanceTimersByTime(5000);
+
+    expect(cb1).not.toHaveBeenCalled();
+    expect(cb2).not.toHaveBeenCalled();
+  });
+
+  it('cancels a pending turnExpireTimer', () => {
+    vi.useFakeTimers();
+    const room = createRoom('sock-host');
+    const callback = vi.fn();
+    room.turnExpireTimer = setTimeout(callback, 1000);
+    rooms['DELETE_ROOM_TEST_4'] = room;
+
+    deleteRoom('DELETE_ROOM_TEST_4');
+    vi.advanceTimersByTime(5000);
+
+    expect(callback).not.toHaveBeenCalled();
   });
 });

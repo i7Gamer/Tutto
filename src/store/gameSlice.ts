@@ -119,6 +119,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.previousLeaders = null;
       state.previousWasBust = false;
       state.previousHighestTurnScore = 0;
+      state.previousPlayerName = null;
       state.status = 'playing';
 
       // Same constrained shuffle the mid-game rebuilds use (see buildDeck) —
@@ -157,6 +158,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       previousLeaders: null,
       previousWasBust: false,
       previousHighestTurnScore: 0,
+      previousPlayerName: null,
       chartValues: [],
       chartNames: [],
       chartLabels: [],
@@ -182,6 +184,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.previousLeaders = result.previousLeaders;
       state.previousWasBust = result.previousWasBust;
       state.previousHighestTurnScore = result.previousHighestTurnScore;
+      state.previousPlayerName = result.previousPlayerName;
 
       if (result.isRoundEnd) {
         state.chartValues.forEach((vals, i) => vals.push(result.players[i].score));
@@ -237,7 +240,13 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.previousLeaders = null;
       state.previousWasBust = false;
       state.previousHighestTurnScore = 0;
+      state.previousPlayerName = null;
+      // The turn being undone may have been mid-roll (digital dice) — its
+      // snapshot no longer corresponds to anything once the score is reverted
+      // and the turn reassigned, so it must not keep showing to spectators.
+      state.liveTurnState = null;
     });
+    localStorage.removeItem('tutto_dice_turn_state');
 
     if (get().isOnline) {
       get().pushState();

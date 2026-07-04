@@ -79,6 +79,7 @@
   "game.aborted": "Spiel abgebrochen (Zu wenig Spieler)",
   "game.disconnected": "Getrennt",
   "game.playerDisconnected": "{{name}} hat die Verbindung verloren! {{seconds}} Sekunden Zeit zum Wiederverbinden.",
+  "game.playerDisconnectedNoTimeout": "{{name}} hat die Verbindung verloren!",
   "game.kickedByHost": "Du wurdest vom Host entfernt",
   "game.resumingDiceGame": "Dein Würfelspiel wird fortgesetzt...",
   "game.toastWinningScore": "Siegpunktzahl: {{value}}",

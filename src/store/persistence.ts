@@ -79,6 +79,10 @@ export const attachPersistence = (store: Pick<StoreApi<GameStore>, 'subscribe'>)
       // reload), so dropping them would make a post-reload undo corrupt stats.
       previousWasBust: state.previousWasBust,
       previousHighestTurnScore: state.previousHighestTurnScore,
+      // calculateUndo looks the previous-turn player up by name (see
+      // types.ts) — without this, undo after a reload would find no match
+      // and refuse to undo at all.
+      previousPlayerName: state.previousPlayerName,
       chartValues: state.chartValues,
       chartNames: state.chartNames, chartLabels: state.chartLabels, status: state.status,
     };

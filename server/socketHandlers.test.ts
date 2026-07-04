@@ -20,7 +20,8 @@ vi.mock('./database', () => ({
 
 import { updateDeviceStats, updateGlobalStats } from './database';
 import { registerSocketHandlers } from './socketHandlers';
-import { rooms } from './rooms';
+import { rooms, createRoom, MAX_PLAYERS_PER_ROOM } from './rooms';
+import type { ServerPlayer } from './roomTypes';
 
 const mockedUpdateDeviceStats = vi.mocked(updateDeviceStats);
 const mockedUpdateGlobalStats = vi.mocked(updateGlobalStats);
@@ -234,5 +235,239 @@ describe('room membership (kick host migration, mid-game rename guard)', () => {
     expect(res.success).toBe(false);
     expect(res.error).toBe('Username already exists in this room');
     expect(rooms['RENAME_CONFLICT_ROOM'].state.players.map(p => p.name).sort()).toEqual(['Carol', 'Dave']);
+  });
+});
+
+describe('room capacity cap', () => {
+  let httpServer: HttpServer;
+  let ioServer: Server;
+  let port: number;
+  const sockets: ClientSocket[] = [];
+
+  // Prefixed per-room (not just per-index) — a device may now hold a seat in
+  // only one room at a time (see the "one device, one room" cap below), so
+  // reusing plain 'dev-filler-N' ids across the two tests in this block would
+  // make the second test's reconnecting device look like it's still seated in
+  // the first test's room and get rejected.
+  const makeFillerPlayer = (roomPrefix: string, i: number): ServerPlayer => ({
+    name: `Filler${i}`, deviceId: `dev-filler-${roomPrefix}-${i}`, socketId: `sock-filler-${roomPrefix}-${i}`,
+    score: 0, times1000PointsDeducted: 0, timesKniffelCompleted: 0, timesPlusMinusCompleted: 0,
+    timesKniffelFailed: 0, timesKleeblattFailed: 0, timesKleeblattCompleted: 0, timesPlusMinusFailed: 0,
+    timesFeuerwerkReceived: 0, timesSkipped: 0, timesx2Received: 0, totalTurns: 0, busts: 0,
+    feuerwerkBusts: 0, x2Busts: 0, feuerwerkPointsScored: 0, x2PointsScored: 0, position: 0,
+    color: '#ff0000', disconnected: false,
+  });
+
+  beforeAll(async () => {
+    httpServer = createServer();
+    ioServer = new Server(httpServer);
+    registerSocketHandlers(ioServer);
+    await new Promise<void>(resolve => httpServer.listen(0, () => resolve()));
+    port = (httpServer.address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    sockets.forEach(s => s.disconnect());
+    await ioServer.close();
+  });
+
+  it('rejects a fresh join once the room already holds MAX_PLAYERS_PER_ROOM players', async () => {
+    const roomId = 'FULL_ROOM';
+    // Seeded directly rather than via 100 real joinRoom round-trips — this test
+    // is about the cap check itself, not about exercising 100 real sockets.
+    rooms[roomId] = createRoom('fake-host-socket');
+    for (let i = 0; i < MAX_PLAYERS_PER_ROOM; i++) {
+      rooms[roomId].state.players.push(makeFillerPlayer('full', i));
+    }
+
+    const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+    sockets.push(sock);
+    const res = await new Promise<{ success: boolean; error?: string }>((resolve, reject) => {
+      sock.on('connect', () => {
+        sock.emit('joinRoom', { roomId, name: 'OneTooMany', deviceId: 'dev-overflow', color: '#00ff00' }, resolve);
+      });
+      sock.on('connect_error', reject);
+    });
+
+    expect(res.success).toBe(false);
+    expect(res.error).toBe('Room is full');
+    expect(rooms[roomId].state.players.length).toBe(MAX_PLAYERS_PER_ROOM);
+  });
+
+  it('still allows an existing seated player (reconnect) into a full room', async () => {
+    const roomId = 'FULL_ROOM_RECONNECT';
+    rooms[roomId] = createRoom('fake-host-socket');
+    for (let i = 0; i < MAX_PLAYERS_PER_ROOM; i++) {
+      rooms[roomId].state.players.push(makeFillerPlayer('reconnect', i));
+    }
+    // Filler0 "disconnects" (as the reconnect path checks) so its seat can be
+    // reclaimed — the cap must only block NEW players, not reconnects, since
+    // a reconnect doesn't grow the roster.
+    rooms[roomId].state.players[0].disconnected = true;
+
+    const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+    sockets.push(sock);
+    const res = await new Promise<{ success: boolean; error?: string }>((resolve, reject) => {
+      sock.on('connect', () => {
+        sock.emit('joinRoom', { roomId, name: 'Filler0', deviceId: 'dev-filler-reconnect-0', color: '#00ff00' }, resolve);
+      });
+      sock.on('connect_error', reject);
+    });
+
+    expect(res.success).toBe(true);
+    expect(rooms[roomId].state.players.length).toBe(MAX_PLAYERS_PER_ROOM);
+  });
+});
+
+describe('device room exclusivity (one device, one room)', () => {
+  let httpServer: HttpServer;
+  let ioServer: Server;
+  let port: number;
+  const sockets: ClientSocket[] = [];
+
+  interface JoinAck { success: boolean; error?: string }
+
+  beforeAll(async () => {
+    httpServer = createServer();
+    ioServer = new Server(httpServer);
+    registerSocketHandlers(ioServer);
+    await new Promise<void>(resolve => httpServer.listen(0, () => resolve()));
+    port = (httpServer.address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    sockets.forEach(s => s.disconnect());
+    await ioServer.close();
+  });
+
+  const connectAndJoin = (roomId: string, name: string, deviceId: string): Promise<{ sock: ClientSocket; res: JoinAck }> =>
+    new Promise((resolve, reject) => {
+      const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+      sockets.push(sock);
+      sock.on('connect', () => {
+        sock.emit('joinRoom', { roomId, name, deviceId, color: '#ff0000' }, (res: JoinAck) => resolve({ sock, res }));
+      });
+      sock.on('connect_error', reject);
+    });
+
+  const settle = (): Promise<void> => new Promise(r => setTimeout(r, 100));
+
+  it('rejects a second room for a deviceId already seated (connected) in another room, via a different socket', async () => {
+    await connectAndJoin('EXCL_ROOM_A', 'Alice', 'dev-excl-1');
+
+    // A second tab/socket from the same device (e.g. same browser localStorage)
+    // tries to spin up a different room while the first seat is still live.
+    const { res } = await connectAndJoin('EXCL_ROOM_B', 'Alice', 'dev-excl-1');
+
+    expect(res.success).toBe(false);
+    expect(res.error).toBe('This device is already in another room. Leave it before joining a new one.');
+    // Must not create an empty room as a side effect of the rejected attempt.
+    expect(rooms['EXCL_ROOM_B']).toBeUndefined();
+  });
+
+  it('still blocks a second room while the first seat is merely disconnected (not yet timed out)', async () => {
+    const { sock: s1 } = await connectAndJoin('EXCL_ROOM_C', 'Bob', 'dev-excl-2');
+    s1.disconnect();
+    await settle(); // let the server mark the seat disconnected
+
+    const { res } = await connectAndJoin('EXCL_ROOM_D', 'Bob', 'dev-excl-2');
+
+    expect(res.success).toBe(false);
+    expect(res.error).toBe('This device is already in another room. Leave it before joining a new one.');
+  });
+
+  it('allows a new room once the device has explicitly left its previous one', async () => {
+    const { sock: s1 } = await connectAndJoin('EXCL_ROOM_E', 'Carol', 'dev-excl-3');
+    s1.emit('leaveRoom');
+    await settle();
+
+    const { res } = await connectAndJoin('EXCL_ROOM_F', 'Carol', 'dev-excl-3');
+
+    expect(res.success).toBe(true);
+  });
+
+  it('does not block a reconnect/rejoin into the SAME room the device is already seated in', async () => {
+    await connectAndJoin('EXCL_ROOM_G', 'Dave', 'dev-excl-4');
+
+    // e.g. a page reload issuing a brand-new socket connection for the same room.
+    const { res } = await connectAndJoin('EXCL_ROOM_G', 'Dave', 'dev-excl-4');
+
+    expect(res.success).toBe(true);
+    expect(rooms['EXCL_ROOM_G'].state.players.length).toBe(1);
+  });
+});
+
+describe('room deletion clears pending disconnect timers', () => {
+  let httpServer: HttpServer;
+  let ioServer: Server;
+  let port: number;
+  const sockets: ClientSocket[] = [];
+
+  interface JoinAck { success: boolean; error?: string; isHost?: boolean }
+
+  beforeAll(async () => {
+    httpServer = createServer();
+    ioServer = new Server(httpServer);
+    registerSocketHandlers(ioServer);
+    await new Promise<void>(resolve => httpServer.listen(0, () => resolve()));
+    port = (httpServer.address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    sockets.forEach(s => s.disconnect());
+    await ioServer.close();
+  });
+
+  const connectAndJoin = (roomId: string, name: string, deviceId: string): Promise<{ sock: ClientSocket; res: JoinAck }> =>
+    new Promise((resolve, reject) => {
+      const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+      sockets.push(sock);
+      sock.on('connect', () => {
+        sock.emit('joinRoom', { roomId, name, deviceId, color: '#ff0000' }, (res: JoinAck) => resolve({ sock, res }));
+      });
+      sock.on('connect_error', reject);
+    });
+
+  const settle = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms));
+
+  it('a stale reconnect-timeout timer must not evict a player from a same-id room created after the original room died', async () => {
+    const roomId = 'STALE_TIMER_ROOM';
+
+    const { sock: alice } = await connectAndJoin(roomId, 'Alice', 'dev-stale-host');
+    const { sock: bob } = await connectAndJoin(roomId, 'Bob', 'dev-stale-bob');
+
+    // Shrink the kick timer well below the validator's >=10s floor — this
+    // bypasses the client-facing updateConfig/joinRoom validation (which only
+    // guards those entry points), mutating server state directly the same way
+    // other tests in this file seed rooms (e.g. `disconnected = true` above).
+    rooms[roomId].state.reconnectTimeout = 0.3; // 300ms
+
+    bob.disconnect();
+    await settle(50); // let the server mark Bob disconnected and arm his removal timer
+
+    // Alice (host) explicitly leaves. Bob (the only one left) is disconnected,
+    // so there is no connected player to hand the host role to — the room is
+    // torn down here, but Bob's 300ms removal timer is still pending.
+    alice.emit('leaveRoom');
+    await settle(50);
+    expect(rooms[roomId]).toBeUndefined();
+
+    // Bob reconnects and recreates the room fresh under the same id, becoming
+    // its host.
+    const { sock: bob2, res: bob2Res } = await connectAndJoin(roomId, 'Bob', 'dev-stale-bob');
+    expect(bob2Res.success).toBe(true);
+    expect(bob2Res.isHost).toBe(true);
+
+    // Wait past the ORIGINAL timer's deadline (armed ~100ms before bob2's
+    // join, well under the 300ms duration) with a comfortable margin.
+    await settle(500);
+
+    // If deleteRoom hadn't cancelled the stale timer, it would fire now
+    // against the NEW room (same roomId), remove Bob (the only player) from
+    // it, and delete it out from under him.
+    expect(rooms[roomId]).toBeDefined();
+    expect(rooms[roomId].state.players.map(p => p.name)).toEqual(['Bob']);
+
+    bob2.disconnect();
   });
 });

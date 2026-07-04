@@ -62,6 +62,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
     room.state.previousLeaders = result.previousLeaders as ServerPlayer[] | null;
     room.state.previousWasBust = result.previousWasBust;
     room.state.previousHighestTurnScore = result.previousHighestTurnScore;
+    room.state.previousPlayerName = result.previousPlayerName;
     room.state.liveTurnState = null;
 
     if (result.isRoundEnd) {

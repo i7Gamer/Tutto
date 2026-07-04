@@ -233,6 +233,7 @@ export const calculateNextTurn = (
       previousCard: currentCard, previousScore: turnScore,
       previousLeaders: snapshotLeaders, previousWasBust: wasBust,
       previousHighestTurnScore: currentPlayer.highestTurnScore ?? 0,
+      previousPlayerName: currentPlayer.name,
       newDeck: cards, drawnCard: null,
     };
   } else if (currentCard === 'Kleeblatt') {
@@ -274,28 +275,39 @@ export const calculateNextTurn = (
     nextIndex,
     nextRound, previousCard: currentCard, previousScore: turnScore,
     previousLeaders: snapshotLeaders, previousWasBust: wasBust,
-    previousHighestTurnScore, newDeck, drawnCard,
+    previousHighestTurnScore, previousPlayerName: currentPlayer.name,
+    newDeck, drawnCard,
   };
 };
 
 export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
   const {
     players, currentPlayerIndex, round, previousCard, previousScore,
-    previousLeaders, previousWasBust, previousHighestTurnScore, currentCard, cards,
+    previousLeaders, previousWasBust, previousHighestTurnScore, previousPlayerName,
+    currentCard, cards,
   } = gameState;
 
   if (gameState.finished) return null;
   if (!previousCard || previousCard === 'Stop') return null;
   if (currentPlayerIndex === null) return null;
+  if (!previousPlayerName) return null;
 
   const newPlayers = players.map(p => ({ ...p }));
-  let prevIndex = currentPlayerIndex - 1;
+  // Looked up by name (not "currentPlayerIndex - 1") so a roster change since
+  // that turn — a leave, kick, or reconnect-timeout removal — can't make this
+  // land on the wrong player. If the player who took that turn is no longer in
+  // the game at all, there is no one to safely revert the turn onto.
+  const prevIndex = newPlayers.findIndex(p => p.name === previousPlayerName);
+  if (prevIndex === -1) return null;
+
   let newRound = round;
   let isRoundEndUndo = false;
-
-  if (prevIndex < 0) {
+  // Under normal play the previous player sits right before the current one
+  // (prevIndex === currentPlayerIndex - 1). If instead they're at or after the
+  // current index, turn order must have wrapped since their turn, so the round
+  // that wrap advanced needs to be undone too.
+  if (prevIndex >= currentPlayerIndex) {
     if (round <= 1) return null;
-    prevIndex = newPlayers.length - 1;
     newRound--;
     isRoundEndUndo = true;
   }

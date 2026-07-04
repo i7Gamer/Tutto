@@ -6,7 +6,7 @@ import type { DiceMode } from '../src/types';
 import { applyValidatedConfig, applyPushedState } from './pushValidation';
 import { clearServerTurnTimer, startServerTurnTimer, abortGameIfLowPlayers } from './turnTimers';
 import type { ServerPlayer } from './roomTypes';
-import { rooms, createRoom, handleActivePlayerRemoved, emitRoomState } from './rooms';
+import { rooms, createRoom, deleteRoom, handleActivePlayerRemoved, emitRoomState, MAX_PLAYERS_PER_ROOM } from './rooms';
 import playerColorsData from '../playerColors.json';
 const { PLAYER_COLORS } = playerColorsData;
 
@@ -49,6 +49,20 @@ export const registerSocketHandlers = (io: Server): void => {
         handlePlayerLeave(true);
         currentRoom = null;
         username = null;
+      }
+
+      // A single device may hold a seat in at most one room at a time — without
+      // this, the same deviceId (e.g. two open tabs, or a scripted client) could
+      // create or join an unbounded number of rooms. Checked live against `rooms`
+      // rather than a separate cache, so it can never go stale: a room being
+      // deleted or a player being removed is immediately reflected here, with no
+      // extra bookkeeping to keep in sync. Excludes `roomId` itself so a
+      // reconnect/rejoin into the SAME room (handled below) is unaffected.
+      const otherRoomId = Object.keys(rooms).find(id =>
+        id !== roomId && rooms[id].state.players.some(p => p.deviceId === deviceId)
+      );
+      if (otherRoomId) {
+        return callback({ success: false, error: 'This device is already in another room. Leave it before joining a new one.' });
       }
 
       if (!rooms[roomId]) {
@@ -103,6 +117,10 @@ export const registerSocketHandlers = (io: Server): void => {
 
       if (room.state.status !== 'lobby') {
         return callback({ success: false, error: 'Game is already running. You cannot join mid-game.' });
+      }
+
+      if (room.state.players.length >= MAX_PLAYERS_PER_ROOM) {
+        return callback({ success: false, error: 'Room is full' });
       }
 
       const nameConflict = room.state.players.find(p => p.name.toLowerCase() === name.toLowerCase());
@@ -231,8 +249,7 @@ export const registerSocketHandlers = (io: Server): void => {
       }
 
       if (room.state.players.length === 0) {
-        clearServerTurnTimer(currentRoom);
-        delete rooms[currentRoom];
+        deleteRoom(currentRoom);
       } else {
         // Only a (modified) host client can kick its own socket, but if it does,
         // the room must not keep a host id that is no longer seated — no one
@@ -383,8 +400,7 @@ export const registerSocketHandlers = (io: Server): void => {
         }
 
         if (room.state.players.length === 0) {
-          clearServerTurnTimer(currentRoom);
-          delete rooms[currentRoom];
+          deleteRoom(currentRoom);
           return;
         } else if (room.host === socket.id) {
           const nextHost = room.state.players.find(p => !p.disconnected);
@@ -392,8 +408,7 @@ export const registerSocketHandlers = (io: Server): void => {
             for (const p of room.state.players) {
               io.to(p.socketId).emit('kicked');
             }
-            clearServerTurnTimer(currentRoom);
-            delete rooms[currentRoom];
+            deleteRoom(currentRoom);
             return;
           }
           room.host = nextHost.socketId;
@@ -403,8 +418,7 @@ export const registerSocketHandlers = (io: Server): void => {
         ) {
           // All remaining players are disconnected with no reconnect timers
           // (e.g. reconnectTimeout=0). The room would never be cleaned up otherwise.
-          clearServerTurnTimer(currentRoom);
-          delete rooms[currentRoom];
+          deleteRoom(currentRoom);
           return;
         }
         {
@@ -421,8 +435,7 @@ export const registerSocketHandlers = (io: Server): void => {
         const timeoutSecs = room.state.reconnectTimeout ?? DEFAULT_RECONNECT_TIMEOUT;
         if (timeoutSecs === 0) {
           if (room.state.players.every(p => p.disconnected)) {
-            clearServerTurnTimer(currentRoom);
-            delete rooms[currentRoom];
+            deleteRoom(currentRoom);
           }
           return;
         }
@@ -443,8 +456,7 @@ export const registerSocketHandlers = (io: Server): void => {
           handleActivePlayerRemoved(r, removedIdx);
 
           if (r.state.players.length === 0) {
-            clearServerTurnTimer(roomIdSnapshot);
-            delete rooms[roomIdSnapshot];
+            deleteRoom(roomIdSnapshot);
           } else {
             if (r.host === hostSocketId) {
               // Prefer a connected player — players[0] may itself be disconnected,

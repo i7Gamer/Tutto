@@ -48,14 +48,37 @@ export const isPlausiblePlayerSnapshot = (v: unknown): v is { name: string; scor
   return typeof p.name === 'string' && typeof p.score === 'number' && Number.isFinite(p.score);
 };
 
+// A die id only ever holds a uuidv4() (36 chars) — capped generously above
+// that so a plausible id always passes, while still bounding string size.
+const MAX_DICE_ID_LENGTH = 64;
+
+const isValidSnapshotDie = (v: unknown): v is { id: string; val: number } => {
+  if (typeof v !== 'object' || v === null) return false;
+  const d = v as Record<string, unknown>;
+  return typeof d.id === 'string' && d.id.length > 0 && d.id.length <= MAX_DICE_ID_LENGTH
+    && Number.isInteger(d.val) && (d.val as number) >= 1 && (d.val as number) <= 6;
+};
+
+const isValidRolledDie = (v: unknown): v is { id: string; val: number; selected: boolean } =>
+  isValidSnapshotDie(v) && typeof (v as Record<string, unknown>).selected === 'boolean';
+
+const isValidKniffelProgressEntry = (v: unknown): v is number =>
+  Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 6;
+
+// Every array element is shape-checked, not just the array's length: a
+// spectator's client (GameControls.tsx) renders keptDice/currentRoll entries'
+// `.val` directly into JSX, so a malformed element (e.g. an object where a
+// number is expected) reaching every viewer via broadcast crashes their
+// render and trips the ErrorBoundary's cache-clear-and-reload for all of
+// them, repeatedly, until the sender's next push is well-formed again.
 export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
   return typeof s.turnScore === 'number' && Number.isFinite(s.turnScore)
     && typeof s.tuttosThisTurn === 'number' && Number.isFinite(s.tuttosThisTurn)
-    && Array.isArray(s.keptDice) && s.keptDice.length <= 6
-    && Array.isArray(s.currentRoll) && s.currentRoll.length <= 6
-    && Array.isArray(s.kniffelProgress) && s.kniffelProgress.length <= 6;
+    && Array.isArray(s.keptDice) && s.keptDice.length <= 6 && s.keptDice.every(isValidSnapshotDie)
+    && Array.isArray(s.currentRoll) && s.currentRoll.length <= 6 && s.currentRoll.every(isValidRolledDie)
+    && Array.isArray(s.kniffelProgress) && s.kniffelProgress.length <= 6 && s.kniffelProgress.every(isValidKniffelProgressEntry);
 };
 
 const HOST_ONLY_FIELDS = new Set<string>([
@@ -66,10 +89,13 @@ const HOST_ONLY_FIELDS = new Set<string>([
 const ACTIVE_PLAYER_FIELDS = new Set<string>([
   'currentCard', 'cards', 'currentPlayerIndex', 'round',
   'finished', 'previousCard', 'previousScore', 'previousLeaders',
-  'previousWasBust', 'previousHighestTurnScore',
+  'previousWasBust', 'previousHighestTurnScore', 'previousPlayerName',
   'chartValues', 'chartNames', 'chartLabels', 'gameTimeInSeconds',
   'players', 'liveTurnState',
 ]);
+
+// Same length cap joinRoom enforces on a player's name.
+const MAX_PLAYER_NAME_LENGTH = 30;
 
 const ALL_FIELDS = new Set<string>([...HOST_ONLY_FIELDS, ...ACTIVE_PLAYER_FIELDS]);
 
@@ -90,13 +116,21 @@ const PUSHED_NUMERIC_FIELD_BOUNDS: Record<string, { min: number; max: number }> 
   reconnectTimeout: { min: 0, max: MAX_RECONNECT_TIMEOUT },
 };
 
+// 'disconnected' is deliberately excluded: it is server-owned (set in
+// socketHandlers.handlePlayerLeave/joinRoom from actual socket connectivity,
+// never from client input). Letting a push overwrite it let a stale roster
+// snapshot — composed before a client saw a peer's disconnect, e.g. the
+// active player's ~300ms live-dice pushState cadence — flip it back to
+// false, permanently hiding the disconnected badge/kick button and
+// corrupting host-failover ("prefer a connected player") until that seat's
+// own reconnect-timeout timer or a manual kick removed it.
 const PLAYER_MUTABLE: (keyof ServerPlayer)[] = [
   'score', 'times1000PointsDeducted', 'timesKniffelCompleted',
   'timesPlusMinusCompleted', 'timesKniffelFailed', 'timesKleeblattFailed',
   'timesKleeblattCompleted', 'timesPlusMinusFailed', 'timesFeuerwerkReceived',
   'timesSkipped', 'timesx2Received', 'totalTurns', 'busts',
   'feuerwerkBusts', 'x2Busts', 'feuerwerkPointsScored', 'x2PointsScored',
-  'highestTurnScore', 'position', 'color', 'disconnected',
+  'highestTurnScore', 'position', 'color',
 ];
 
 // Matched by name, not deviceId: name is already unique within a room (enforced
@@ -117,8 +151,6 @@ const mergeMutable = (existing: ServerPlayer, p: Record<string, unknown> | undef
     const v = p[f];
     if (f === 'color') {
       if (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) updated.color = v;
-    } else if (f === 'disconnected') {
-      if (typeof v === 'boolean') updated.disconnected = v;
     } else if (typeof v === 'number' && Number.isFinite(v)) {
       (updated as Record<string, unknown>)[f] = v;
     }
@@ -212,6 +244,11 @@ export const applyPushedState = (
       const v = newState.previousHighestTurnScore;
       if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= MAX_SCORE_MAGNITUDE) {
         state.previousHighestTurnScore = v;
+      }
+    } else if (key === 'previousPlayerName') {
+      const v = newState.previousPlayerName;
+      if (v === null || (typeof v === 'string' && v.length > 0 && v.length <= MAX_PLAYER_NAME_LENGTH)) {
+        state.previousPlayerName = v as string | null;
       }
     } else if (key === 'chartValues') {
       const v = newState.chartValues;

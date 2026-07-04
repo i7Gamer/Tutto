@@ -431,6 +431,7 @@ describe('coreGameEngine', () => {
           previousCard: 'Plus_Minus',
           previousScore: 1000,
           previousLeaders: [{ name: 'Alice', score: 1000 }],
+          previousPlayerName: 'Bob',
         });
         const result = calculateUndo(state);
         expect(result.isRoundEndUndo).toBe(true);
@@ -666,6 +667,43 @@ describe('coreGameEngine', () => {
       expect(calculateUndo(makeState({ previousCard: 'Stop' }))).toBeNull();
     });
 
+    it('returns null (never corrupts a different player) when the player who took the previous turn is no longer in the roster', () => {
+      // Bug: a non-active player who took the immediately-preceding turn could
+      // be removed (leave/kick/reconnect-timeout) without clearing previous*
+      // bookkeeping. Undo used to compute the previous player as
+      // "currentPlayerIndex - 1" against the CURRENT (shrunk) roster, so it
+      // silently landed on and corrupted whoever now occupies that slot instead
+      // of refusing. With Bob (who played the previous turn) gone, only Alice
+      // and Charlie remain; Charlie is now at index 1 — "index - 1" arithmetic
+      // would wrongly target Alice.
+      const state = makeState({
+        players: [makePlayer('Alice'), makePlayer('Charlie', { score: 500, totalTurns: 1 })],
+        currentPlayerIndex: 1, // Charlie's turn; Bob (removed) played before them
+        previousCard: '200',
+        previousScore: 500,
+        previousPlayerName: 'Bob',
+      });
+      expect(calculateUndo(state)).toBeNull();
+    });
+
+    it('finds the previous player by name even when the roster shifted around them (removal before their seat)', () => {
+      // Original order was [Zoe, Alice, Bob]; Zoe (idx 0) left, shifting Alice to
+      // idx 0 and Bob to idx 1. Alice — still present — took the previous turn
+      // and must be found by name at her NEW index, not by "currentPlayerIndex - 1".
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 300, totalTurns: 1 }), makePlayer('Bob')],
+        currentPlayerIndex: 1, // Bob's turn now
+        previousCard: '200',
+        previousScore: 300,
+        previousPlayerName: 'Alice',
+      });
+      const result = calculateUndo(state);
+      expect(result).not.toBeNull();
+      expect(result.nextIndex).toBe(0);
+      expect(result.players[0].score).toBe(0);
+      expect(result.players[0].totalTurns).toBe(0);
+    });
+
     it('reverts score, turn ownership, totalTurns and busts', () => {
       const state = makeState({
         players: [makePlayer('Alice', { score: 0, totalTurns: 1, busts: 1 }), makePlayer('Bob')],
@@ -674,6 +712,7 @@ describe('coreGameEngine', () => {
         previousCard: '200',
         previousScore: 0,
         previousWasBust: true,
+        previousPlayerName: 'Alice',
       });
       const result = calculateUndo(state);
       expect(result.nextIndex).toBe(0);
@@ -689,6 +728,7 @@ describe('coreGameEngine', () => {
         previousCard: 'Feuerwerk',
         previousScore: 0,
         previousWasBust: true,
+        previousPlayerName: 'Alice',
       });
       const result = calculateUndo(state);
       expect(result.players[0].feuerwerkBusts).toBe(0);
@@ -704,6 +744,7 @@ describe('coreGameEngine', () => {
         previousCard: 'x2',
         previousScore: 500,
         previousWasBust: false,
+        previousPlayerName: 'Alice',
       });
       const result = calculateUndo(state);
       expect(result.players[0].x2PointsScored).toBe(0);
@@ -725,6 +766,7 @@ describe('coreGameEngine', () => {
         previousCard: 'x2',
         previousScore: 0,
         previousWasBust: true,
+        previousPlayerName: 'Alice',
       });
       const result = calculateUndo(state);
       expect(result.players[0].busts).toBe(0);
@@ -742,6 +784,7 @@ describe('coreGameEngine', () => {
         currentCard: 'Feuerwerk',
         previousCard: '200',
         previousScore: 300,
+        previousPlayerName: 'Alice',
       });
       const result = calculateUndo(state);
       expect(result.players[0].timesFeuerwerkReceived).toBe(0); // untouched
@@ -755,6 +798,7 @@ describe('coreGameEngine', () => {
         previousCard: 'Plus_Minus',
         previousScore: 1000,
         previousLeaders: [{ name: 'Alice', score: 2000 }],
+        previousPlayerName: 'Bob',
       });
       const result = calculateUndo(state);
       expect(result.isRoundEndUndo).toBe(true);
@@ -780,6 +824,7 @@ describe('coreGameEngine', () => {
           { name: 'Alice', score: 3000 },
           { name: 'Bob', score: 3000 }
         ],
+        previousPlayerName: 'Charlie',
       });
       const result = calculateUndo(state);
       expect(result.players[0].score).toBe(3000); // Alice restored
@@ -800,6 +845,7 @@ describe('coreGameEngine', () => {
         previousCard: 'Plus_Minus',
         previousScore: 1000,
         previousLeaders: null, // No deduction occurred
+        previousPlayerName: 'Alice',
       });
       const result = calculateUndo(state);
       expect(result.players[0].score).toBe(2000); // Alice loses her 1000
@@ -818,6 +864,7 @@ describe('coreGameEngine', () => {
         previousCard: 'Plus_Minus',
         previousScore: 1000,
         previousLeaders: [{ name: 'Alice', score: 400 }],
+        previousPlayerName: 'Bob',
       });
       const result = calculateUndo(state);
       expect(result.isRoundEndUndo).toBe(true);
@@ -842,6 +889,7 @@ describe('coreGameEngine', () => {
           { name: 'Alice', score: 300 },
           { name: 'Bob', score: 300 }
         ],
+        previousPlayerName: 'Charlie',
       });
       const result = calculateUndo(state);
       expect(result.players[0].score).toBe(300); // Alice restored
@@ -858,6 +906,7 @@ describe('coreGameEngine', () => {
         currentPlayerIndex: 1,
         previousCard: 'Plus_Minus',
         previousScore: 0,
+        previousPlayerName: 'Alice',
       });
       const result = calculateUndo(state);
       expect(result.players[0].timesPlusMinusFailed).toBe(0);
@@ -871,6 +920,7 @@ describe('coreGameEngine', () => {
         cards: ['600'],
         previousCard: '200',
         previousScore: 500,
+        previousPlayerName: 'Alice',
       });
       const result = calculateUndo(state);
       expect(result.newDeck).toEqual(['Stop', '600']);
@@ -884,6 +934,7 @@ describe('coreGameEngine', () => {
         round: 1,
         previousCard: '200',
         previousScore: 0,
+        previousPlayerName: 'Bob',
       });
       const result = calculateUndo(state);
       expect(result).toBeNull();
@@ -896,6 +947,7 @@ describe('coreGameEngine', () => {
         previousCard: '200',
         previousScore: 1000,
         previousHighestTurnScore: 1000,
+        previousPlayerName: 'Alice',
       });
       const result = calculateUndo(state);
       expect(result.players[0].highestTurnScore).toBe(1000);
@@ -907,6 +959,7 @@ describe('coreGameEngine', () => {
         currentPlayerIndex: 1,
         previousCard: 'Kleeblatt',
         previousScore: 0,
+        previousPlayerName: 'Alice',
       });
       const result = calculateUndo(state);
       expect(result.players[0].timesKleeblattFailed).toBe(0);
@@ -931,6 +984,7 @@ describe('coreGameEngine', () => {
         currentCard: null,
         previousCard: win.previousCard,
         previousScore: win.previousScore,
+        previousPlayerName: win.previousPlayerName,
         finished: true,
       }));
       expect(result).toBeNull();
@@ -951,6 +1005,7 @@ describe('coreGameEngine', () => {
         currentPlayerIndex: 1,
         previousCard: 'Kniffel',
         previousScore: 2000,
+        previousPlayerName: 'Alice',
       });
       const result = calculateUndo(state);
       expect(result.players[0].timesKniffelCompleted).toBe(0);
@@ -964,6 +1019,7 @@ describe('coreGameEngine', () => {
         currentPlayerIndex: 1,
         previousCard: 'Kniffel',
         previousScore: 0,
+        previousPlayerName: 'Alice',
       });
       const result = calculateUndo(state);
       expect(result.players[0].timesKniffelFailed).toBe(0);
@@ -1019,6 +1075,7 @@ describe('coreGameEngine', () => {
         previousLeaders: t2.previousLeaders,
         previousWasBust: t2.previousWasBust,
         previousHighestTurnScore: t2.previousHighestTurnScore,
+        previousPlayerName: t2.previousPlayerName,
       });
 
       expect(u2.players[0].score).toBe(400);  // Alice restored

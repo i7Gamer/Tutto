@@ -55,6 +55,7 @@ const initialLocalState: Omit<CoreGameState, never> & {
   previousLeaders: null,
   previousWasBust: false,
   previousHighestTurnScore: 0,
+  previousPlayerName: null,
   chartValues: [],
   chartNames: [],
   chartLabels: [],

@@ -133,6 +133,35 @@ describe('applyPushedState', () => {
       expect(state.players[1].score).toBe(300);
     });
 
+    it('never lets a push overwrite disconnected, even with a valid boolean', () => {
+      // The server is the sole owner of this flag (set from real socket
+      // connectivity in handlePlayerLeave/joinRoom). A pushState composed
+      // before the sender's client saw a peer's disconnect — e.g. the active
+      // player's ~300ms live-dice pushState cadence — legitimately carries a
+      // stale `disconnected: false` for that peer; accepting it would flip
+      // the server's flag back and hide the disconnect indefinitely.
+      const state = makeState();
+      state.players[1].disconnected = true;
+      applyPushedState(state, {
+        players: [
+          { name: 'Alice', score: 10 },
+          { name: 'Bob', score: 20, disconnected: false },
+        ],
+      }, asActivePlayer);
+      expect(state.players[1].disconnected).toBe(true);
+      expect(state.players[1].score).toBe(20); // other mutable fields still merge normally
+
+      // The reverse direction is blocked too — not just "false can't clear true".
+      state.players[1].disconnected = false;
+      applyPushedState(state, {
+        players: [
+          { name: 'Alice', score: 10 },
+          { name: 'Bob', score: 30, disconnected: true },
+        ],
+      }, asActivePlayer);
+      expect(state.players[1].disconnected).toBe(false);
+    });
+
     it('accepts a valid color and rejects a malformed one', () => {
       const state = makeState();
       applyPushedState(state, {
@@ -322,6 +351,19 @@ describe('applyPushedState', () => {
       }
     });
 
+    it('previousPlayerName: null or a non-empty string up to 30 chars', () => {
+      const state = makeState();
+      applyPushedState(state, { previousPlayerName: 'Alice' }, asActivePlayer);
+      expect(state.previousPlayerName).toBe('Alice');
+      applyPushedState(state, { previousPlayerName: null }, asActivePlayer);
+      expect(state.previousPlayerName).toBeNull();
+      applyPushedState(state, { previousPlayerName: 'Bob' }, asActivePlayer);
+      for (const bad of ['', 'x'.repeat(31), 123, undefined]) {
+        applyPushedState(state, { previousPlayerName: bad }, asActivePlayer);
+        expect(state.previousPlayerName).toBe('Bob');
+      }
+    });
+
     it('chartValues: one finite-number array per player', () => {
       const state = makeState();
       applyPushedState(state, { chartValues: [[100], [200]] }, asActivePlayer);
@@ -367,6 +409,24 @@ describe('applyPushedState', () => {
       expect(state.liveTurnState).toEqual(snapshot);
       applyPushedState(state, { liveTurnState: null }, asActivePlayer);
       expect(state.liveTurnState).toBeNull();
+    });
+
+    it('liveTurnState: rejects a snapshot whose dice elements are malformed', () => {
+      // A spectator's client renders keptDice/currentRoll entries' `.val`
+      // directly into JSX — a malformed element reaching a broadcast crashes
+      // every viewer's render. The whole snapshot must be rejected (keeping
+      // the last good one), not merged in with a bad element left inside.
+      const state = makeState();
+      const snapshot = { turnScore: 100, tuttosThisTurn: 0, keptDice: [{ id: 'd1', val: 4 }], currentRoll: [], kniffelProgress: [] };
+      applyPushedState(state, { liveTurnState: snapshot }, asActivePlayer);
+      expect(state.liveTurnState).toEqual(snapshot);
+
+      applyPushedState(state, { liveTurnState: { ...snapshot, keptDice: [{ id: 'd1', val: 'boom' }] } }, asActivePlayer);
+      expect(state.liveTurnState).toEqual(snapshot);
+      applyPushedState(state, { liveTurnState: { ...snapshot, currentRoll: [{ id: 'd2', val: 3 }] } }, asActivePlayer); // missing `selected`
+      expect(state.liveTurnState).toEqual(snapshot);
+      applyPushedState(state, { liveTurnState: { ...snapshot, kniffelProgress: [0] } }, asActivePlayer); // out of 1-6 range
+      expect(state.liveTurnState).toEqual(snapshot);
     });
   });
 });
@@ -460,5 +520,40 @@ describe('isValidDiceSnapshot', () => {
     expect(isValidDiceSnapshot({ ...valid, keptDice: Array(7).fill(0) })).toBe(false);
     expect(isValidDiceSnapshot({ ...valid, currentRoll: Array(7).fill(0) })).toBe(false);
     expect(isValidDiceSnapshot({ ...valid, kniffelProgress: Array(7).fill(0) })).toBe(false);
+  });
+
+  it('accepts well-formed dice/kniffel-progress elements', () => {
+    expect(isValidDiceSnapshot({
+      ...valid,
+      keptDice: [{ id: 'd1', val: 6 }],
+      currentRoll: [{ id: 'd2', val: 3, selected: true }, { id: 'd3', val: 1, selected: false }],
+      kniffelProgress: [1, 2, 3],
+    })).toBe(true);
+  });
+
+  it('rejects malformed keptDice elements', () => {
+    expect(isValidDiceSnapshot({ ...valid, keptDice: [{ id: 'd1', val: 'not-a-number' }] })).toBe(false);
+    expect(isValidDiceSnapshot({ ...valid, keptDice: [{ id: 'd1' }] })).toBe(false); // missing val
+    expect(isValidDiceSnapshot({ ...valid, keptDice: [{ val: 4 }] })).toBe(false); // missing id
+    expect(isValidDiceSnapshot({ ...valid, keptDice: [{ id: 123, val: 4 }] })).toBe(false); // id not a string
+    expect(isValidDiceSnapshot({ ...valid, keptDice: [{ id: 'd1', val: 0 }] })).toBe(false); // val out of 1-6
+    expect(isValidDiceSnapshot({ ...valid, keptDice: [{ id: 'd1', val: 7 }] })).toBe(false); // val out of 1-6
+    expect(isValidDiceSnapshot({ ...valid, keptDice: [{ id: 'd1', val: 3.5 }] })).toBe(false); // non-integer
+    expect(isValidDiceSnapshot({ ...valid, keptDice: [{ id: '', val: 3 }] })).toBe(false); // empty id
+    expect(isValidDiceSnapshot({ ...valid, keptDice: [{ id: 'x'.repeat(65), val: 3 }] })).toBe(false); // id too long
+    expect(isValidDiceSnapshot({ ...valid, keptDice: ['not-an-object'] })).toBe(false);
+  });
+
+  it('rejects malformed currentRoll elements', () => {
+    expect(isValidDiceSnapshot({ ...valid, currentRoll: [{ id: 'd1', val: 3 }] })).toBe(false); // missing selected
+    expect(isValidDiceSnapshot({ ...valid, currentRoll: [{ id: 'd1', val: 3, selected: 'yes' }] })).toBe(false); // selected not boolean
+    expect(isValidDiceSnapshot({ ...valid, currentRoll: [{ id: 'd1', val: 9, selected: true }] })).toBe(false); // val out of range
+  });
+
+  it('rejects malformed kniffelProgress entries', () => {
+    expect(isValidDiceSnapshot({ ...valid, kniffelProgress: [0] })).toBe(false);
+    expect(isValidDiceSnapshot({ ...valid, kniffelProgress: [7] })).toBe(false);
+    expect(isValidDiceSnapshot({ ...valid, kniffelProgress: ['1'] })).toBe(false);
+    expect(isValidDiceSnapshot({ ...valid, kniffelProgress: [1.5] })).toBe(false);
   });
 });
