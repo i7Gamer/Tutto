@@ -228,12 +228,9 @@ interface HapticsSettingSelectorProps {
 
 export function HapticsSettingSelector({ hapticsEnabled, setHapticsEnabled, nameSuffix = 'Lobby' }: HapticsSettingSelectorProps) {
   const { t } = useTranslation();
-  // Desktop browsers don't implement the Vibration API — showing the toggle
-  // there would just be a dead control.
-  if (typeof navigator === 'undefined' || !('vibrate' in navigator)) return null;
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 bg-white dark:bg-slate-800/50 px-4 py-3 sm:px-6 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px]">
+    <div className="flex sm:hidden flex-wrap items-center justify-center gap-2 sm:gap-6 bg-white dark:bg-slate-800/50 px-3 py-2 sm:px-6 sm:py-3 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px]">
       <label className="radio-wrapper text-gray-700 dark:text-gray-200">
         <input type="radio" name={`hapticsSetting${nameSuffix}`} checked={hapticsEnabled === true} onChange={() => setHapticsEnabled(true)} />
         <span className="font-medium">{t('lobby.hapticsOn', 'Vibration On')}</span>
@@ -357,7 +354,7 @@ export function AdvancedOptionsPanel({
           className="overflow-hidden mb-8"
         >
           {readOnly ? (
-            <div className="bg-white dark:bg-slate-800/40 p-4 sm:p-5 rounded-xl border border-gray-200 dark:border-slate-600">
+            <div className="bg-white dark:bg-slate-800/40 p-3 sm:p-5 rounded-xl border border-gray-200 dark:border-slate-600">
               <div className="flex flex-wrap gap-2 mb-4">
                 <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
                   {t('lobby.winningScore', 'Winning Score')}: <strong>{game.winningScore}</strong>
@@ -393,7 +390,7 @@ export function AdvancedOptionsPanel({
               </div>
             </div>
           ) : (
-            <div className="bg-white dark:bg-slate-800/40 p-4 sm:p-6 rounded-xl border border-gray-200 dark:border-slate-600">
+            <div className="bg-white dark:bg-slate-800/40 p-3 sm:p-6 rounded-xl border border-gray-200 dark:border-slate-600">
               <div className="flex items-center justify-between mb-4">
                 <h4 className="font-bold text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-slate-600 pb-2 mb-0 flex-1">{t('lobby.generalSettings', 'General Settings')}</h4>
                 {onResetGeneralSettings && (

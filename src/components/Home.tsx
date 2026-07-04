@@ -56,7 +56,7 @@ export default function Home({ onShowStats }: HomeProps) {
   };
 
   return (
-    <div className="container mx-auto px-4 py-4 md:py-8 max-w-md flex-1 flex flex-col">
+    <div className="container mx-auto px-2 sm:px-4 py-4 md:py-8 max-w-md flex-1 flex flex-col">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}

@@ -44,11 +44,11 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
             {reactions?.map((r, i) => (
               <motion.div
                 key={r.id}
-                initial={{ opacity: 0, y: 0, scale: 0.5, x: 0 }}
-                animate={{ opacity: 1, y: -36, scale: 1.3, x: (i % 3) * 16 - 16 }}
-                exit={{ opacity: 0, y: -56 }}
-                transition={{ duration: 1.8 }}
-                className="absolute top-0 left-1/2 -translate-x-1/2 text-2xl md:text-3xl pointer-events-none select-none z-20"
+                initial={{ opacity: 0, y: 50, scale: 0.5, x: 0 }}
+                animate={{ opacity: 1, y: -200, scale: 2, x: (i % 5) * 40 - 80 }}
+                exit={{ opacity: 0, y: -400 }}
+                transition={{ duration: 2.5 }}
+                className="fixed bottom-24 left-1/2 -translate-x-1/2 text-4xl pointer-events-none select-none z-[100]"
                 title={r.senderName}
               >
                 {r.emoji}

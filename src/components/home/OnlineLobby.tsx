@@ -142,7 +142,7 @@ export default function OnlineLobby({ game }: OnlineLobbyProps) {
           onRemovePlayer={(p) => { if (p.socketId) kickPlayer(p.socketId); }}
         />
 
-        <div className="flex flex-row flex-wrap justify-center items-stretch gap-4 mb-8">
+        <div className="flex flex-row flex-wrap justify-center items-stretch gap-2 sm:gap-4 mb-8">
           {/* diceMode is deliberately per-device, not room config by default: it
               decides how THIS player enters their own turns (digital dice vs
               typing a physical-dice score). Spectators see the active player's

@@ -59,7 +59,7 @@ export default function LocalLobby({ game }: LocalLobbyProps) {
         />
       </div>
 
-      <div className="flex flex-row flex-wrap justify-center items-stretch gap-4 mb-8">
+      <div className="flex flex-row flex-wrap justify-center items-stretch gap-2 sm:gap-4 mb-8">
         <DiceModeSelector diceMode={game.diceMode} setDiceMode={game.setDiceMode} nameSuffix="Local" />
         <AudioSettingSelector audioEnabled={game.audioEnabled} setAudioEnabled={game.setAudioEnabled} nameSuffix="Local" />
         <HapticsSettingSelector hapticsEnabled={game.hapticsEnabled} setHapticsEnabled={game.setHapticsEnabled} nameSuffix="Local" />

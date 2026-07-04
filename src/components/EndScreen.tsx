@@ -169,8 +169,8 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-3xl flex flex-col gap-8">
-      <motion.div initial={{ opacity: 0, y: 20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-2xl rounded-3xl p-10 text-center">
+    <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8 max-w-3xl flex flex-col gap-4 sm:gap-8">
+      <motion.div initial={{ opacity: 0, y: 20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-2xl rounded-3xl p-6 sm:p-10 text-center">
         <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10, stiffness: 100, delay: 0.2 }} className="flex justify-center mb-6">
           <div className="bg-amber-100 p-6 rounded-full shadow-lg border-4 border-amber-300">
             <Trophy size={64} className="text-amber-500" />
@@ -223,9 +223,9 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
       </motion.div>
 
       {hasNewRecord && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8">
-          <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 text-center mb-6">{t('end.newRecordsTitle', 'New Personal Records!')}</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-2xl mx-auto">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-6 sm:p-8">
+          <h3 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100 text-center mb-6">{t('end.newRecordsTitle', 'New Personal Records!')}</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 max-w-2xl mx-auto">
             {newHighScore && (
               <div className="flex items-center gap-4 bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-4 border border-amber-100 dark:border-amber-800">
                 <Award size={36} className="text-amber-500 flex-shrink-0" />
@@ -258,42 +258,40 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
       )}
 
       {deviceStats && deviceStats.gamesPlayed > 0 && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8">
-          <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 text-center mb-8">{t('end.lifetimeStats', 'Your Lifetime Statistics')}</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center mb-8">
-            <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl p-4 border border-indigo-100 dark:border-indigo-800">
-              <div className="text-4xl font-black text-indigo-600 mb-1">{deviceStats.gamesPlayed}</div>
-              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.gamesPlayed', 'Games Played')}</div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-6 sm:p-8">
+          <h3 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100 text-center mb-6 sm:mb-8">{t('end.lifetimeStats', 'Your Lifetime Statistics')}</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 text-center max-w-3xl mx-auto">
+            <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl p-4 border border-indigo-100 dark:border-indigo-800 flex flex-col justify-center">
+              <div className="text-3xl sm:text-4xl font-black text-indigo-600 mb-1">{deviceStats.gamesPlayed}</div>
+              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.gamesPlayed', 'Games Played')}</div>
             </div>
-            <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-4 border border-emerald-100 dark:border-emerald-800">
-              <div className="text-4xl font-black text-emerald-500 mb-1">{deviceStats.wins}</div>
-              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.totalWins', 'Total Wins')}</div>
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-4 border border-emerald-100 dark:border-emerald-800 flex flex-col justify-center">
+              <div className="text-3xl sm:text-4xl font-black text-emerald-500 mb-1">{deviceStats.wins}</div>
+              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.totalWins', 'Total Wins')}</div>
             </div>
-            <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border border-red-100 dark:border-red-800">
-              <div className="text-4xl font-black text-red-500 mb-1">{deviceStats.pointsDeducted}</div>
-              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.pointsEaten', '-1000 Pts Eaten')}</div>
+            <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border border-red-100 dark:border-red-800 flex flex-col justify-center">
+              <div className="text-3xl sm:text-4xl font-black text-red-500 mb-1">{deviceStats.pointsDeducted}</div>
+              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.pointsEaten', '-1000 Pts Eaten')}</div>
             </div>
-            <div className="bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-4 border border-amber-100 dark:border-amber-800">
-              <div className="text-4xl font-black text-amber-500 mb-1">{deviceStats.kniffelCompleted}</div>
-              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.kniffelsDone', 'Kniffels Done')}</div>
+            <div className="bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-4 border border-amber-100 dark:border-amber-800 flex flex-col justify-center">
+              <div className="text-3xl sm:text-4xl font-black text-amber-500 mb-1">{deviceStats.kniffelCompleted}</div>
+              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.kniffelsDone', 'Kniffels Done')}</div>
             </div>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center max-w-2xl mx-auto">
-            <div className="bg-orange-50 dark:bg-orange-900/20 rounded-2xl p-4 border border-orange-100 dark:border-orange-800">
-              <div className="text-4xl font-black text-orange-500 mb-1">{deviceStats.busts || 0}</div>
-              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.totalBusts', 'Total Busts')}</div>
+            <div className="bg-orange-50 dark:bg-orange-900/20 rounded-2xl p-4 border border-orange-100 dark:border-orange-800 flex flex-col justify-center">
+              <div className="text-3xl sm:text-4xl font-black text-orange-500 mb-1">{deviceStats.busts || 0}</div>
+              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.totalBusts', 'Total Busts')}</div>
             </div>
-            <div className="bg-orange-50 dark:bg-orange-900/20 rounded-2xl p-4 border border-orange-100 dark:border-orange-800">
-              <div className="text-4xl font-black text-orange-500 mb-1">{((deviceStats.busts || 0) / Math.max(1, deviceStats.gamesPlayed)).toFixed(1)}</div>
-              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.avgBustsPerGame', 'Avg Busts/Game')}</div>
+            <div className="bg-orange-50 dark:bg-orange-900/20 rounded-2xl p-4 border border-orange-100 dark:border-orange-800 flex flex-col justify-center">
+              <div className="text-3xl sm:text-4xl font-black text-orange-500 mb-1">{((deviceStats.busts || 0) / Math.max(1, deviceStats.gamesPlayed)).toFixed(1)}</div>
+              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.avgBustsPerGame', 'Avg Busts/Game')}</div>
             </div>
-            <div className="bg-violet-50 dark:bg-violet-900/20 rounded-2xl p-4 border border-violet-100 dark:border-violet-800">
-              <div className="text-4xl font-black text-violet-500 mb-1">{deviceStats.currentWinStreak || 0}</div>
-              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.currentWinStreak', 'Current Win Streak')}</div>
+            <div className="bg-violet-50 dark:bg-violet-900/20 rounded-2xl p-4 border border-violet-100 dark:border-violet-800 flex flex-col justify-center">
+              <div className="text-3xl sm:text-4xl font-black text-violet-500 mb-1">{deviceStats.currentWinStreak || 0}</div>
+              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.currentWinStreak', 'Current Win Streak')}</div>
             </div>
-            <div className="bg-violet-50 dark:bg-violet-900/20 rounded-2xl p-4 border border-violet-100 dark:border-violet-800">
-              <div className="text-4xl font-black text-violet-500 mb-1">{deviceStats.bestWinStreak || 0}</div>
-              <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.bestWinStreak', 'Best Win Streak')}</div>
+            <div className="bg-violet-50 dark:bg-violet-900/20 rounded-2xl p-4 border border-violet-100 dark:border-violet-800 flex flex-col justify-center">
+              <div className="text-3xl sm:text-4xl font-black text-violet-500 mb-1">{deviceStats.bestWinStreak || 0}</div>
+              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.bestWinStreak', 'Best Win Streak')}</div>
             </div>
           </div>
         </motion.div>
