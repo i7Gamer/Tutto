@@ -207,7 +207,7 @@ export default function Game() {
   }, [currentCard, cards?.length]);
 
   const handleNextTurn = useCallback(() => {
-    let parsedScore = Math.max(0, parseInt(scoreInput) || 0);
+    let parsedScore = Math.max(0, parseInt(scoreInput, 10) || 0);
     if (applyBonus) {
       parsedScore = applyTuttoBonus(parsedScore, currentCard);
     }
@@ -271,6 +271,8 @@ export default function Game() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isMyTurn, isStopCard, currentCardHasYesNo, currentCardHasInput, effectiveDiceMode, showDiceGame, handleNextTurn, handleYesNo]);
 
+  const canUndo = !game.finished && !!game.previousCard && game.previousCard !== 'Stop' && game.currentPlayerIndex !== null && !!game.previousPlayerName && (!isOnline || isMyTurn || isHost);
+
   return (
     <div className="container mx-auto px-2 md:px-4 pt-2 md:pt-4 pb-20 max-w-3xl flex flex-col gap-2 md:gap-4">
       <Scoreboard game={game} formattedTime={formattedTime} />
@@ -294,6 +296,7 @@ export default function Game() {
             handleNextTurn={handleNextTurn}
             handleYesNo={handleYesNo}
             undo={undo}
+            canUndo={canUndo}
             endGame={endGame}
             isOnline={isOnline}
             isHost={isHost}

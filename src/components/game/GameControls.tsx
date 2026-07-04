@@ -20,6 +20,7 @@ interface GameControlsProps {
   handleNextTurn: () => void;
   handleYesNo: (isSuccess: boolean) => void;
   undo: () => void;
+  canUndo: boolean;
   endGame: () => void;
   isOnline: boolean;
   isHost: boolean;
@@ -41,6 +42,7 @@ export default function GameControls({
   handleNextTurn,
   handleYesNo,
   undo,
+  canUndo,
   endGame,
   isOnline,
   isHost,
@@ -78,7 +80,7 @@ export default function GameControls({
 
   const addScore = (val: number) => {
     setScoreInput(prev => {
-      const current = parseInt(prev) || 0;
+      const current = parseInt(prev, 10) || 0;
       return (current + val).toString();
     });
   };
@@ -301,7 +303,7 @@ export default function GameControls({
           onClick={() => {
             if (window.confirm(t('game.controls.undoConfirm', 'Undo the last turn?'))) undo();
           }}
-          disabled={isOnline && !isMyTurn && !isHost}
+          disabled={!canUndo}
         >
           <Undo2 size={18} /> {t('game.controls.undo', 'Undo')}
         </button>

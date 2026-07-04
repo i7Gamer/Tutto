@@ -298,7 +298,7 @@ function BlurInput({ value, onValueChange, minVal = 0, maxVal = 99999, normalize
 
   const commit = () => {
     if (!isDirty) return;
-    let parsed = parseInt(localValue);
+    let parsed = parseInt(localValue, 10);
     if (isNaN(parsed)) parsed = value ?? 0;
     const clamped = Math.min(maxVal, Math.max(minVal, parsed));
     const committed = normalize ? normalize(clamped) : clamped;

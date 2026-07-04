@@ -228,6 +228,7 @@ describe('GameControls physical dice interactions', () => {
     handleNextTurn: vi.fn(),
     handleYesNo: vi.fn(),
     undo: vi.fn(),
+    canUndo: true,
     endGame: vi.fn(),
     isOnline: false,
     isHost: true,
@@ -283,6 +284,7 @@ describe('GameControls end/leave game confirmation dialogs', () => {
     handleNextTurn: vi.fn(),
     handleYesNo: vi.fn(),
     undo: vi.fn(),
+    canUndo: true,
     endGame: vi.fn(),
     isOnline: false,
     isHost: true,
@@ -347,5 +349,12 @@ describe('GameControls end/leave game confirmation dialogs', () => {
     confirmSpy.mockReturnValue(true);
     fireEvent.click(screen.getByText('game.controls.undo'));
     expect(undo).toHaveBeenCalledTimes(1);
+  });
+
+  it('undo: is disabled when canUndo is false', () => {
+    const undo = vi.fn();
+    render(<GameControls {...baseProps({ undo, canUndo: false })} />);
+    const undoBtn = screen.getByText('game.controls.undo').closest('button');
+    expect(undoBtn).toBeDisabled();
   });
 });

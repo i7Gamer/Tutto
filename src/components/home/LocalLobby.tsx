@@ -77,7 +77,7 @@ export default function LocalLobby({ game }: LocalLobbyProps) {
       <StartGameButton
         startGame={startGame}
         playersCount={players ? players.length : 0}
-        disabled={!hasPlayableDeck(game.initialCards)}
+        disabled={(players ? players.length : 0) < 2 || !hasPlayableDeck(game.initialCards)}
         disabledMessage={!hasPlayableDeck(game.initialCards) ? t('lobby.emptyDeck', 'Add at least one card to the deck') : undefined}
       />
     </motion.div>
