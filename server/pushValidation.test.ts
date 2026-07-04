@@ -225,6 +225,10 @@ describe('applyPushedState', () => {
       // Same MIN_WINNING_SCORE floor as updateConfig — pushState must not be a
       // side door for a winning score the config validator just rejected.
       ['winningScore', 1000, true], ['winningScore', 999, false], ['winningScore', 0, false],
+      // Uses the real isValidWinningScore (integers only) rather than a local
+      // bounds check — pushState must not be a side door for a fractional
+      // winning score the config validator would also reject.
+      ['winningScore', 6000.5, false], ['winningScore', NaN, false], ['winningScore', Infinity, false],
       // The timers deliberately keep a loose >= 0 sanity floor (tests push 1-2s turns).
       ['turnDuration', 1, true], ['turnDuration', -1, false],
       ['turnDuration', 600, true], ['turnDuration', 601, false], ['turnDuration', NaN, false],
