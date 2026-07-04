@@ -2,12 +2,18 @@ import path from 'path';
 import express from 'express';
 import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } from './database';
 import { sanitizeStats } from './sanitize';
+import { createRateLimiter } from './rateLimit';
 
 // Client crash reports from the ErrorBoundary (see src/utils/crashLog.ts).
 // Unauthenticated by design — crash reporting must work for any player — so
 // the payload is strictly truncated and only ever logged, never stored or
 // echoed back. express.json() already caps the body size at its default limit.
+// Rate-limited per IP (below) since it's otherwise an open, unauthenticated
+// write endpoint — without a cap, a scripted client could flood the server
+// log (or a slow disk/log shipper) with an unbounded number of requests.
 const CRASH_FIELD_MAX = 2000;
+const CRASH_LOG_RATE_LIMIT_WINDOW_MS = 60_000;
+const CRASH_LOG_RATE_LIMIT_MAX = 20;
 
 // Reads env at call time (not import time) so it runs after index.ts has
 // loaded .env via dotenv — module bodies are hoisted above that statement.
@@ -35,7 +41,12 @@ export const registerApiRoutes = (app: express.Express): void => {
     next();
   };
 
-  app.post('/api/log/client-error', (req: express.Request, res: express.Response) => {
+  const crashLogRateLimiter = createRateLimiter({
+    windowMs: CRASH_LOG_RATE_LIMIT_WINDOW_MS,
+    max: CRASH_LOG_RATE_LIMIT_MAX,
+  });
+
+  app.post('/api/log/client-error', crashLogRateLimiter, (req: express.Request, res: express.Response) => {
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
     const field = (key: string): string => String(body[key] ?? '').slice(0, CRASH_FIELD_MAX);
     console.error(

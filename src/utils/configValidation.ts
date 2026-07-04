@@ -35,7 +35,7 @@ export const MIN_ENABLED_RECONNECT_TIMEOUT = 10;
 export const MAX_RECONNECT_TIMEOUT = 3600;
 
 export const isValidWinningScore = (v: unknown): v is number =>
-  typeof v === 'number' && v >= MIN_WINNING_SCORE && v <= MAX_WINNING_SCORE;
+  Number.isInteger(v) && (v as number) >= MIN_WINNING_SCORE && (v as number) <= MAX_WINNING_SCORE;
 
 export const isValidTurnDuration = (v: unknown): v is number =>
   typeof v === 'number' && (v === 0 || (v >= MIN_ENABLED_TURN_DURATION && v <= MAX_TURN_DURATION));

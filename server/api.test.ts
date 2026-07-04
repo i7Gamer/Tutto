@@ -110,6 +110,54 @@ describe('API Endpoints Token Protection', () => {
   });
 });
 
+describe('POST /api/log/client-error rate limiting', () => {
+  let serverProcess;
+  const PORT = '3008';
+
+  beforeAll(() => {
+    if (globalThis.__nativeFetch) {
+      globalThis.fetch = globalThis.__nativeFetch;
+    }
+
+    return new Promise((resolve, reject) => {
+      serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
+        env: { ...process.env, PORT, TEST_DB: 'true', FORCE_INIT_DB: 'true' },
+        stdio: 'pipe'
+      });
+
+      let stdout = '';
+      serverProcess.stdout.on('data', (data) => {
+        stdout += data.toString();
+        if (stdout.includes('Database migrated')) resolve();
+      });
+      serverProcess.stderr.on('data', (data) => console.error(data.toString()));
+
+      serverProcess.on('error', (err) => reject(err));
+    });
+  }, 20000);
+
+  afterAll(() => {
+    if (serverProcess) serverProcess.kill();
+  });
+
+  it('starts rejecting with 429 once a client exceeds the per-window request cap', async () => {
+    const post = () => fetch(`http://127.0.0.1:${PORT}/api/log/client-error`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'boom' }),
+    });
+
+    // The endpoint's own limit is 20/window; fire comfortably past that from
+    // this single (shared, real-IP) test client so the cap is exceeded
+    // regardless of exactly how many requests it allows.
+    const responses = await Promise.all(Array.from({ length: 25 }, () => post()));
+    const statuses = responses.map(r => r.status);
+
+    expect(statuses.some(s => s === 200)).toBe(true);
+    expect(statuses.some(s => s === 429)).toBe(true);
+  }, 15000);
+});
+
 describe('CORS_ORIGIN configuration', () => {
   let serverProcess;
   const PORT = '3007';

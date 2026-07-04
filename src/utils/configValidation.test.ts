@@ -162,6 +162,11 @@ describe('configValidation', () => {
     it('rejects undefined', () => {
       expect(isValidWinningScore(undefined)).toBe(false);
     });
+
+    it('rejects a non-integer within range', () => {
+      expect(isValidWinningScore(6000.5)).toBe(false);
+      expect(isValidWinningScore(1000.1)).toBe(false);
+    });
   });
 
   // ─── isValidTurnDuration ────────────────────────────────────────────────────
