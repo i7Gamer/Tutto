@@ -978,11 +978,12 @@ describe('Game Component Integration', () => {
       expect(vibrateYourTurn).not.toHaveBeenCalled();
     });
 
-    it('vibrates once when the turn timer crosses into its last 10 seconds, not on every subsequent tick', () => {
+    it('vibrates every second for as long as the turn timer reads 10s or under', () => {
       useGameStore.setState({
         isOnline: true, myName: 'Alice', currentPlayerIndex: 0, turnTimeRemaining: 15,
       });
       render(<Game />);
+      expect(vibrateTurnUrgent).not.toHaveBeenCalled();
 
       act(() => {
         useGameStore.setState({ turnTimeRemaining: 10 });
@@ -992,7 +993,12 @@ describe('Game Component Integration', () => {
       act(() => {
         useGameStore.setState({ turnTimeRemaining: 9 });
       });
-      expect(vibrateTurnUrgent).toHaveBeenCalledTimes(1);
+      expect(vibrateTurnUrgent).toHaveBeenCalledTimes(2);
+
+      act(() => {
+        useGameStore.setState({ turnTimeRemaining: 8 });
+      });
+      expect(vibrateTurnUrgent).toHaveBeenCalledTimes(3);
     });
 
     it('does not vibrate turn-timer urgency for a spectator (not my turn)', () => {

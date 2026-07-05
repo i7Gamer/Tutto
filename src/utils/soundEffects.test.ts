@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { playTone, playBuzzer, playSuccess, vibrateBust, vibrateSuccess, vibrateYourTurn, vibrateTurnUrgent } from './soundEffects';
 import { useGameStore } from '../store/useGameStore';
+import { supportsIOSSwitchHaptic, triggerIOSSwitchHaptic } from './iosSwitchHaptic';
+
+vi.mock('./iosSwitchHaptic', () => ({
+  supportsIOSSwitchHaptic: vi.fn(),
+  triggerIOSSwitchHaptic: vi.fn(),
+}));
 
 describe('soundEffects', () => {
   const mockOscillator = {
@@ -136,6 +142,72 @@ describe('soundEffects', () => {
       vibrateTurnUrgent();
 
       expect(vibrate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('iOS switch-haptic fallback (no navigator.vibrate)', () => {
+    beforeEach(() => {
+      // @ts-expect-error test-only cleanup of a jsdom-absent API
+      delete navigator.vibrate;
+      useGameStore.setState({ hapticsEnabled: true });
+      vi.mocked(supportsIOSSwitchHaptic).mockReturnValue(true);
+    });
+
+    afterEach(() => {
+      useGameStore.setState({ hapticsEnabled: true });
+      vi.mocked(triggerIOSSwitchHaptic).mockClear();
+      vi.mocked(supportsIOSSwitchHaptic).mockReset();
+    });
+
+    it('vibrateBust does NOT fall back to the iOS switch trick — by design', () => {
+      vibrateBust();
+      expect(triggerIOSSwitchHaptic).not.toHaveBeenCalled();
+    });
+
+    it('vibrateSuccess taps the switch three times to approximate the pulse pattern', () => {
+      vi.useFakeTimers();
+      try {
+        vibrateSuccess();
+        expect(triggerIOSSwitchHaptic).toHaveBeenCalledTimes(1);
+
+        vi.advanceTimersByTime(100);
+        expect(triggerIOSSwitchHaptic).toHaveBeenCalledTimes(2);
+
+        vi.advanceTimersByTime(100);
+        expect(triggerIOSSwitchHaptic).toHaveBeenCalledTimes(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('vibrateYourTurn taps the switch once', () => {
+      vibrateYourTurn();
+      expect(triggerIOSSwitchHaptic).toHaveBeenCalledTimes(1);
+    });
+
+    it('vibrateTurnUrgent taps the switch once per call', () => {
+      vibrateTurnUrgent();
+      expect(triggerIOSSwitchHaptic).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not use the switch trick when it is unsupported', () => {
+      vi.mocked(supportsIOSSwitchHaptic).mockReturnValue(false);
+
+      vibrateSuccess();
+      vibrateYourTurn();
+      vibrateTurnUrgent();
+
+      expect(triggerIOSSwitchHaptic).not.toHaveBeenCalled();
+    });
+
+    it('does not use the switch trick when hapticsEnabled is false', () => {
+      useGameStore.setState({ hapticsEnabled: false });
+
+      vibrateSuccess();
+      vibrateYourTurn();
+      vibrateTurnUrgent();
+
+      expect(triggerIOSSwitchHaptic).not.toHaveBeenCalled();
     });
   });
 });

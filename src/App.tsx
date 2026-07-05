@@ -12,6 +12,7 @@ import Statistics from './components/Statistics';
 import LanguageSwitcher from './components/LanguageSwitcher';
 import HelpPopup from './components/HelpPopup';
 import ReactionOverlay from './components/ReactionOverlay';
+import IOSHapticProxy from './components/IOSHapticProxy';
 import './index.css';
 import type { Toast } from './types';
 
@@ -186,6 +187,7 @@ export default function App() {
       <RestoreSessionPopup />
       <HelpPopup />
       <ReactionOverlay />
+      <IOSHapticProxy />
 
       {showStats ? (
         <Statistics deviceId={deviceId} onBack={() => setShowStats(false)} />

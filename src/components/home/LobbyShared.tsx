@@ -10,6 +10,7 @@ import {
 } from '../../utils/configValidation';
 import type { Player, CardType, DiceMode } from '../../types';
 import type { GameStore } from '../../store/useGameStore';
+import { supportsIOSSwitchHaptic } from '../../utils/iosSwitchHaptic';
 
 interface PlayerListProps {
   players: Player[];
@@ -230,10 +231,12 @@ export function HapticsSettingSelector({ hapticsEnabled, setHapticsEnabled, name
   const { t } = useTranslation();
 
   // iOS (Safari and every other browser there, all WebKit) has never
-  // implemented the Vibration API — showing this toggle there is a setting
-  // that visibly exists but can never do anything, which just reads as
-  // broken. Hide it outright rather than let it sit there doing nothing.
-  if (typeof navigator === 'undefined' || !('vibrate' in navigator)) return null;
+  // implemented the Vibration API, but supportsIOSSwitchHaptic() covers the
+  // one working fallback there (see iosSwitchHaptic.ts). Hide the toggle
+  // only when NEITHER path is available — otherwise it's a setting that
+  // visibly exists but can never do anything, which just reads as broken.
+  const hasVibrationSupport = typeof navigator !== 'undefined' && 'vibrate' in navigator;
+  if (!hasVibrationSupport && !supportsIOSSwitchHaptic()) return null;
 
   return (
     <div className="flex sm:hidden flex-wrap items-center justify-center gap-2 sm:gap-6 bg-white dark:bg-slate-800/50 px-3 py-2 sm:px-6 sm:py-3 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px]">

@@ -370,6 +370,8 @@ describe('HapticsSettingSelector', () => {
   afterEach(() => {
     // @ts-expect-error test-only cleanup of a jsdom-absent API
     delete navigator.vibrate;
+    // @ts-expect-error test-only cleanup of a jsdom-absent API
+    delete HTMLInputElement.prototype.switch;
   });
 
   it('renders the vibration toggle when the Vibration API is supported', () => {
@@ -381,7 +383,15 @@ describe('HapticsSettingSelector', () => {
     expect(screen.getByText('lobby.hapticsOff')).toBeInTheDocument();
   });
 
-  it('renders nothing on iOS/browsers without the Vibration API — a visible toggle would do nothing there', () => {
+  it('renders the vibration toggle on iOS when only the switch-haptic fallback is supported', () => {
+    Object.defineProperty(HTMLInputElement.prototype, 'switch', { value: true, configurable: true });
+
+    render(<HapticsSettingSelector hapticsEnabled={true} setHapticsEnabled={vi.fn()} />);
+
+    expect(screen.getByText('lobby.hapticsOn')).toBeInTheDocument();
+  });
+
+  it('renders nothing when neither the Vibration API nor the iOS switch-haptic fallback is supported — a visible toggle would do nothing there', () => {
     const { container } = render(<HapticsSettingSelector hapticsEnabled={true} setHapticsEnabled={vi.fn()} />);
 
     expect(container.firstChild).toBeNull();

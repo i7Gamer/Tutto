@@ -76,7 +76,6 @@ export default function Game() {
   // already-your-turn state (fresh load, reconnect) doesn't itself count as
   // a "turn started" transition — only a later false-to-true flip does.
   const wasMyTurnRef = useRef(!!isMyTurn);
-  const wasTurnUrgentRef = useRef(false);
 
   useEffect(() => {
     if (!isMyTurn) setShowDiceGame(false); // eslint-disable-line react-hooks/set-state-in-effect
@@ -91,14 +90,16 @@ export default function Game() {
     wasMyTurnRef.current = !!isMyTurn;
   }, [isOnline, isMyTurn]);
 
-  // Only for the active player's own device — spectators watching someone
-  // else's countdown run low shouldn't feel their phone buzz for it.
+  // Fires once per second for as long as your own turn timer reads 10s or
+  // under (turnTimeRemaining ticks down once a second, so this effect
+  // re-running on each new value already gives the "every second" cadence —
+  // no edge-detection needed). Only for the active player's own device —
+  // spectators watching someone else's countdown run low shouldn't feel
+  // their phone buzz for it.
   useEffect(() => {
-    const isUrgent = isOnline && !!isMyTurn && turnTimeRemaining !== null && turnTimeRemaining !== undefined && turnTimeRemaining <= 10;
-    if (isUrgent && !wasTurnUrgentRef.current) {
-      vibrateTurnUrgent();
-    }
-    wasTurnUrgentRef.current = isUrgent;
+    if (!isOnline || !isMyTurn) return;
+    if (turnTimeRemaining === null || turnTimeRemaining === undefined) return;
+    if (turnTimeRemaining <= 10) vibrateTurnUrgent();
   }, [isOnline, isMyTurn, turnTimeRemaining]);
 
   useEffect(() => {
