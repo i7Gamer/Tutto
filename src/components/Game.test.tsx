@@ -3,10 +3,13 @@ import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Game from './Game';
 import { useGameStore } from '../store/useGameStore';
+import { vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
 
 vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
-  playSuccess: vi.fn()
+  playSuccess: vi.fn(),
+  vibrateYourTurn: vi.fn(),
+  vibrateTurnUrgent: vi.fn(),
 }));
 
 vi.mock('canvas-confetti', () => ({
@@ -925,6 +928,91 @@ describe('Game Component Integration', () => {
       render(<Game />);
 
       expect(screen.queryByText('🔥')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('haptic feedback', () => {
+    it('vibrates once when it becomes my turn in an online game', () => {
+      useGameStore.setState({
+        isOnline: true,
+        myName: 'Bob',
+        currentPlayerIndex: 0,
+        players: [
+          { name: 'Alice', socketId: 'socket1', score: 0, position: 1 },
+          { name: 'Bob', socketId: 'socket2', score: 0, position: 2 },
+        ],
+      });
+      render(<Game />);
+      expect(vibrateYourTurn).not.toHaveBeenCalled();
+
+      act(() => {
+        useGameStore.setState({ currentPlayerIndex: 1 });
+      });
+
+      expect(vibrateYourTurn).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not vibrate on mount even if it is already my turn', () => {
+      useGameStore.setState({ isOnline: true, myName: 'Alice', currentPlayerIndex: 0 });
+      render(<Game />);
+
+      expect(vibrateYourTurn).not.toHaveBeenCalled();
+    });
+
+    it('does not vibrate for a turn change in a local (non-online) game', () => {
+      useGameStore.setState({
+        isOnline: false,
+        myName: 'Bob',
+        currentPlayerIndex: 0,
+        players: [
+          { name: 'Alice', socketId: 'socket1', score: 0, position: 1 },
+          { name: 'Bob', socketId: 'socket2', score: 0, position: 2 },
+        ],
+      });
+      render(<Game />);
+
+      act(() => {
+        useGameStore.setState({ currentPlayerIndex: 1 });
+      });
+
+      expect(vibrateYourTurn).not.toHaveBeenCalled();
+    });
+
+    it('vibrates once when the turn timer crosses into its last 10 seconds, not on every subsequent tick', () => {
+      useGameStore.setState({
+        isOnline: true, myName: 'Alice', currentPlayerIndex: 0, turnTimeRemaining: 15,
+      });
+      render(<Game />);
+
+      act(() => {
+        useGameStore.setState({ turnTimeRemaining: 10 });
+      });
+      expect(vibrateTurnUrgent).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        useGameStore.setState({ turnTimeRemaining: 9 });
+      });
+      expect(vibrateTurnUrgent).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not vibrate turn-timer urgency for a spectator (not my turn)', () => {
+      useGameStore.setState({
+        isOnline: true,
+        myName: 'Bob',
+        currentPlayerIndex: 0,
+        players: [
+          { name: 'Alice', socketId: 'socket1', score: 0, position: 1 },
+          { name: 'Bob', socketId: 'socket2', score: 0, position: 2 },
+        ],
+        turnTimeRemaining: 15,
+      });
+      render(<Game />);
+
+      act(() => {
+        useGameStore.setState({ turnTimeRemaining: 10 });
+      });
+
+      expect(vibrateTurnUrgent).not.toHaveBeenCalled();
     });
   });
 });

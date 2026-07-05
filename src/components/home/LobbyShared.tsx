@@ -229,6 +229,12 @@ interface HapticsSettingSelectorProps {
 export function HapticsSettingSelector({ hapticsEnabled, setHapticsEnabled, nameSuffix = 'Lobby' }: HapticsSettingSelectorProps) {
   const { t } = useTranslation();
 
+  // iOS (Safari and every other browser there, all WebKit) has never
+  // implemented the Vibration API — showing this toggle there is a setting
+  // that visibly exists but can never do anything, which just reads as
+  // broken. Hide it outright rather than let it sit there doing nothing.
+  if (typeof navigator === 'undefined' || !('vibrate' in navigator)) return null;
+
   return (
     <div className="flex sm:hidden flex-wrap items-center justify-center gap-2 sm:gap-6 bg-white dark:bg-slate-800/50 px-3 py-2 sm:px-6 sm:py-3 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px]">
       <label className="radio-wrapper text-gray-700 dark:text-gray-200">

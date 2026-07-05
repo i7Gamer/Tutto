@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import confetti from 'canvas-confetti';
-import { playBuzzer, playSuccess } from '../utils/soundEffects';
+import { playBuzzer, playSuccess, vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
 import { isTestEnv } from '../utils/env';
 import { computeRankedPlayers } from '../utils/coreGameEngine';
 import { applyTuttoBonus } from '../utils/diceLogic';
@@ -45,6 +45,7 @@ export default function Game() {
     round,
     deviceId,
     setPreGameStats,
+    turnTimeRemaining,
   } = game;
 
   const formattedTime = formatTime(gameTimeInSeconds);
@@ -71,10 +72,34 @@ export default function Game() {
   const reconnectHandledRef = useRef(false);
   const onlineReconnectHandledRef = useRef(false);
   const localCacheOnMountRef = useRef(!!localStorage.getItem('tutto_dice_turn_state'));
+  // Seeded with the initial value (not false) so mounting straight into an
+  // already-your-turn state (fresh load, reconnect) doesn't itself count as
+  // a "turn started" transition — only a later false-to-true flip does.
+  const wasMyTurnRef = useRef(!!isMyTurn);
+  const wasTurnUrgentRef = useRef(false);
 
   useEffect(() => {
     if (!isMyTurn) setShowDiceGame(false); // eslint-disable-line react-hooks/set-state-in-effect
   }, [isMyTurn]);
+
+  // Local hot-seat has no meaning for "your turn" haptics — every turn is
+  // "mine" there, since one device is passed around the table.
+  useEffect(() => {
+    if (isOnline && isMyTurn && !wasMyTurnRef.current) {
+      vibrateYourTurn();
+    }
+    wasMyTurnRef.current = !!isMyTurn;
+  }, [isOnline, isMyTurn]);
+
+  // Only for the active player's own device — spectators watching someone
+  // else's countdown run low shouldn't feel their phone buzz for it.
+  useEffect(() => {
+    const isUrgent = isOnline && !!isMyTurn && turnTimeRemaining !== null && turnTimeRemaining !== undefined && turnTimeRemaining <= 10;
+    if (isUrgent && !wasTurnUrgentRef.current) {
+      vibrateTurnUrgent();
+    }
+    wasTurnUrgentRef.current = isUrgent;
+  }, [isOnline, isMyTurn, turnTimeRemaining]);
 
   useEffect(() => {
     if (showDiceGame) {

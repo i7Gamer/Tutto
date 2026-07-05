@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
-import { StartGameButton, PlayerList, AdvancedOptionsPanel } from './LobbyShared';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { StartGameButton, PlayerList, AdvancedOptionsPanel, HapticsSettingSelector } from './LobbyShared';
 
 describe('StartGameButton', () => {
   it('renders "Start Game!" when not disabled and playersCount >= 2', () => {
@@ -363,5 +363,27 @@ describe('AdvancedOptionsPanel', () => {
 
     expect(screen.queryByTitle('Reset general settings to defaults')).toBeNull();
     expect(screen.queryByTitle('Reset cards to default values')).toBeNull();
+  });
+});
+
+describe('HapticsSettingSelector', () => {
+  afterEach(() => {
+    // @ts-expect-error test-only cleanup of a jsdom-absent API
+    delete navigator.vibrate;
+  });
+
+  it('renders the vibration toggle when the Vibration API is supported', () => {
+    Object.defineProperty(navigator, 'vibrate', { value: vi.fn(), configurable: true });
+
+    render(<HapticsSettingSelector hapticsEnabled={true} setHapticsEnabled={vi.fn()} />);
+
+    expect(screen.getByText('lobby.hapticsOn')).toBeInTheDocument();
+    expect(screen.getByText('lobby.hapticsOff')).toBeInTheDocument();
+  });
+
+  it('renders nothing on iOS/browsers without the Vibration API — a visible toggle would do nothing there', () => {
+    const { container } = render(<HapticsSettingSelector hapticsEnabled={true} setHapticsEnabled={vi.fn()} />);
+
+    expect(container.firstChild).toBeNull();
   });
 });

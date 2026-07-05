@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { playTone, playBuzzer, playSuccess, vibrateBust, vibrateSuccess } from './soundEffects';
+import { playTone, playBuzzer, playSuccess, vibrateBust, vibrateSuccess, vibrateYourTurn, vibrateTurnUrgent } from './soundEffects';
 import { useGameStore } from '../store/useGameStore';
 
 describe('soundEffects', () => {
@@ -105,6 +105,37 @@ describe('soundEffects', () => {
     it('does not throw when navigator.vibrate is unsupported', () => {
       useGameStore.setState({ hapticsEnabled: true });
       expect(() => vibrateBust()).not.toThrow();
+    });
+
+    it('vibrateYourTurn calls navigator.vibrate when haptics are enabled', () => {
+      const vibrate = vi.fn();
+      Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true });
+      useGameStore.setState({ hapticsEnabled: true });
+
+      vibrateYourTurn();
+
+      expect(vibrate).toHaveBeenCalledWith(100);
+    });
+
+    it('vibrateTurnUrgent calls navigator.vibrate with a pattern when haptics are enabled', () => {
+      const vibrate = vi.fn();
+      Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true });
+      useGameStore.setState({ hapticsEnabled: true });
+
+      vibrateTurnUrgent();
+
+      expect(vibrate).toHaveBeenCalledWith([30, 30, 30]);
+    });
+
+    it('does not vibrate for the new triggers when hapticsEnabled is false', () => {
+      const vibrate = vi.fn();
+      Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true });
+      useGameStore.setState({ hapticsEnabled: false });
+
+      vibrateYourTurn();
+      vibrateTurnUrgent();
+
+      expect(vibrate).not.toHaveBeenCalled();
     });
   });
 });

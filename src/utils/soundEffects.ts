@@ -54,6 +54,8 @@ export const playSuccess = (): void => {
 
 const BUST_VIBRATION_PATTERN_MS = 200;
 const SUCCESS_VIBRATION_PATTERN_MS = [50, 50, 50];
+const YOUR_TURN_VIBRATION_PATTERN_MS = 100;
+const TURN_URGENT_VIBRATION_PATTERN_MS = [30, 30, 30];
 
 export const vibrateBust = (): void => {
   if (!useGameStore.getState().hapticsEnabled) return;
@@ -63,4 +65,17 @@ export const vibrateBust = (): void => {
 export const vibrateSuccess = (): void => {
   if (!useGameStore.getState().hapticsEnabled) return;
   if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(SUCCESS_VIBRATION_PATTERN_MS);
+};
+
+// A single short pulse when it becomes your turn (online only — see Game.tsx).
+export const vibrateYourTurn = (): void => {
+  if (!useGameStore.getState().hapticsEnabled) return;
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(YOUR_TURN_VIBRATION_PATTERN_MS);
+};
+
+// Fired once when your own turn timer crosses into its last 10 seconds
+// (Scoreboard's isTurnTimerUrgent threshold) — not repeated every tick.
+export const vibrateTurnUrgent = (): void => {
+  if (!useGameStore.getState().hapticsEnabled) return;
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(TURN_URGENT_VIBRATION_PATTERN_MS);
 };
