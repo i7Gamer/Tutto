@@ -58,10 +58,8 @@ describe('HelpPopup', () => {
 
   it('defaults to cards section if opened during gameplay and a card is active', async () => {
     useGameStore.setState({
-      gameState: {
-        status: 'PLAYING',
-        currentCard: { type: 'fireworks' }
-      } as any
+      status: 'playing',
+      currentCard: 'Feuerwerk',
     });
 
     render(<HelpPopup />);

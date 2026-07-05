@@ -827,9 +827,13 @@ describe('Game Component Integration', () => {
   });
 
   describe('pre-game stats snapshot', () => {
+    let originalFetch: typeof fetch;
+    beforeAll(() => {
+      originalFetch = global.fetch;
+    });
+
     afterEach(() => {
-      // @ts-expect-error test cleanup
-      delete global.fetch;
+      global.fetch = originalFetch;
     });
 
     it('fetches and stores a pre-game stats snapshot for online games', async () => {

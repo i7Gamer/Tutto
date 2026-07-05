@@ -6,7 +6,9 @@ import Scoreboard from './Scoreboard';
 vi.mock('framer-motion', () => {
   return {
     motion: {
-      div: ({ children, ...props }) => <div {...props}>{children}</div>,
+      div: ({ children, layout, initial, animate, exit, transition, ...props }) => (
+        <div {...props}>{children}</div>
+      ),
     },
     AnimatePresence: ({ children }) => <>{children}</>,
   };
