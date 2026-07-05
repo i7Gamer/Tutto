@@ -21,8 +21,8 @@ describe('iosSwitchHaptic', () => {
   });
 
   describe('triggerIOSSwitchHaptic', () => {
-    it('clicks the registered element', () => {
-      const el = document.createElement('input');
+    it('clicks the registered label (not an input — WebKit only fires the haptic via label forwarding)', () => {
+      const el = document.createElement('label');
       const clickSpy = vi.spyOn(el, 'click');
       setIOSSwitchHapticElement(el);
 
