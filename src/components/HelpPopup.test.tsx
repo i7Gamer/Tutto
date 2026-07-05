@@ -5,7 +5,7 @@ import { useGameStore } from '../store/useGameStore';
 
 // Mock the dependencies
 vi.mock('react-i18next', async (importOriginal) => {
-  const actual: any = await importOriginal();
+  const actual = await importOriginal() as Record<string, unknown>;
   return {
     ...actual,
     useTranslation: () => ({

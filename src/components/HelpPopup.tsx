@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HelpCircle, X, ChevronRight, ChevronDown } from 'lucide-react';
@@ -10,7 +10,7 @@ interface SectionProps {
   id: string;
   isOpen: boolean;
   onToggle: (id: string) => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 function Section({ title, id, isOpen, onToggle, children }: SectionProps) {
@@ -54,14 +54,18 @@ export default function HelpPopup() {
   const [isOpen, setIsOpen] = useState(false);
   const status = useGameStore(state => state.status);
   const currentCard = useGameStore(state => state.currentCard);
-  
+
   const [activeSection, setActiveSection] = useState<string>('general');
   const activeCardRef = useRef<HTMLDivElement>(null);
+  const openedDuringPlayRef = useRef(false);
 
   // When opening during gameplay, check if we have a current card
-  useEffect(() => {
-    if (isOpen && status === 'playing' && currentCard) {
+  useLayoutEffect(() => {
+    if (isOpen && status === 'playing' && currentCard && !openedDuringPlayRef.current) {
+      openedDuringPlayRef.current = true;
       setActiveSection('cards');
+    } else if (!isOpen) {
+      openedDuringPlayRef.current = false;
     }
   }, [isOpen, status, currentCard]);
 
