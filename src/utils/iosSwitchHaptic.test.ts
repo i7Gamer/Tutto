@@ -13,10 +13,10 @@ describe('iosSwitchHaptic', () => {
       expect(supportsIOSSwitchHaptic()).toBe(false);
     });
 
-    it('returns true when `switch` is present (Safari 17.4+)', () => {
+    it('returns false even when `switch` is present — disabled via IOS_SWITCH_HAPTIC_ENABLED for now', () => {
       Object.defineProperty(HTMLInputElement.prototype, 'switch', { value: true, configurable: true });
 
-      expect(supportsIOSSwitchHaptic()).toBe(true);
+      expect(supportsIOSSwitchHaptic()).toBe(false);
     });
   });
 

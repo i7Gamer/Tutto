@@ -15,31 +15,18 @@ describe('IOSHapticProxy', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders a hidden switch input with an associated label, and registers the label for triggerIOSSwitchHaptic', () => {
+  // The feature is currently disabled (IOS_SWITCH_HAPTIC_ENABLED in
+  // iosSwitchHaptic.ts), regardless of browser support, so this renders
+  // nothing even on a `switch`-capable browser for now.
+  it('renders nothing even when the browser supports `switch` — disabled for now', () => {
     Object.defineProperty(HTMLInputElement.prototype, 'switch', { value: true, configurable: true });
 
     const { container } = render(<IOSHapticProxy />);
-    const input = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
-    const label = container.querySelector('label') as HTMLLabelElement;
-    expect(input).toBeInTheDocument();
-    expect(label).toBeInTheDocument();
-    // WebKit only fires the haptic for a click forwarded through the label,
-    // not one called directly on the input — the two must be associated.
-    expect(label.htmlFor).toBe(input.id);
 
-    let clicked = false;
-    label.addEventListener('click', () => { clicked = true; });
-    triggerIOSSwitchHaptic();
-
-    expect(clicked).toBe(true);
+    expect(container.firstChild).toBeNull();
   });
 
-  it('clears the registered element on unmount', () => {
-    Object.defineProperty(HTMLInputElement.prototype, 'switch', { value: true, configurable: true });
-
-    const { unmount } = render(<IOSHapticProxy />);
-    unmount();
-
+  it('does not throw when triggerIOSSwitchHaptic is called without ever having mounted/registered an element', () => {
     expect(() => triggerIOSSwitchHaptic()).not.toThrow();
   });
 });

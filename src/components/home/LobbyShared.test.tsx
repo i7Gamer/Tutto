@@ -383,12 +383,12 @@ describe('HapticsSettingSelector', () => {
     expect(screen.getByText('lobby.hapticsOff')).toBeInTheDocument();
   });
 
-  it('renders the vibration toggle on iOS when only the switch-haptic fallback is supported', () => {
+  it('renders nothing on iOS even when the browser supports the switch-haptic fallback — disabled for now (IOS_SWITCH_HAPTIC_ENABLED)', () => {
     Object.defineProperty(HTMLInputElement.prototype, 'switch', { value: true, configurable: true });
 
-    render(<HapticsSettingSelector hapticsEnabled={true} setHapticsEnabled={vi.fn()} />);
+    const { container } = render(<HapticsSettingSelector hapticsEnabled={true} setHapticsEnabled={vi.fn()} />);
 
-    expect(screen.getByText('lobby.hapticsOn')).toBeInTheDocument();
+    expect(container.firstChild).toBeNull();
   });
 
   it('renders nothing when neither the Vibration API nor the iOS switch-haptic fallback is supported — a visible toggle would do nothing there', () => {

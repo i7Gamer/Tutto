@@ -15,7 +15,17 @@
 // still exists — only the haptic side-effect was removed). There's no way to
 // feature-detect "will this actually produce a haptic" from JS; every caller
 // must already treat this as best-effort and degrade silently.
+//
+// Disabled for now: with the haptic side-effect gone on iOS 26.5+ and no way
+// to tell which devices still have it, a "Vibration On/Off" toggle that
+// silently does nothing for an unknown fraction of iOS users is worse than
+// not showing it. Flip this to `true` to re-enable — the rest of the
+// implementation (IOSHapticProxy, the soundEffects.ts fallbacks) is left
+// completely in place and untouched.
+const IOS_SWITCH_HAPTIC_ENABLED = false;
+
 export const supportsIOSSwitchHaptic = (): boolean =>
+  IOS_SWITCH_HAPTIC_ENABLED &&
   typeof HTMLInputElement !== 'undefined' && 'switch' in HTMLInputElement.prototype;
 
 let switchLabelEl: HTMLLabelElement | null = null;
