@@ -7,19 +7,6 @@ interface ScoreboardProps {
   formattedTime: string;
 }
 
-// A reaction emoji spawns just below its `bottom-24` anchor and drifts
-// upward while fading out. These distances must stay small relative to that
-// anchor (96px from the viewport bottom) — the previous -200/-400 travel
-// carried it well past the top half of the screen on short viewports instead
-// of the intended gentle float near the bottom.
-const REACTION_SPAWN_OFFSET_PX = 30;
-const REACTION_RISE_DISTANCE_PX = 70;
-const REACTION_EXIT_RISE_DISTANCE_PX = 110;
-const REACTION_ANIMATION_DURATION_S = 2.5;
-const REACTION_HORIZONTAL_SPREAD_COUNT = 5;
-const REACTION_HORIZONTAL_SPREAD_STEP_PX = 40;
-const REACTION_HORIZONTAL_SPREAD_OFFSET_PX = 80;
-
 export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
   const { t } = useTranslation();
   const {
@@ -30,7 +17,6 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
     round,
     winningScore,
     turnTimeRemaining,
-    reactions,
   } = game;
 
   const currentPlayer = currentPlayerIndex !== null && players?.length ? players[currentPlayerIndex] : null;
@@ -53,26 +39,6 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
     <div className="flex flex-col gap-2 md:gap-4 w-full phone-landscape:flex-row phone-landscape:flex-wrap">
       <div className="flex gap-2 md:gap-4 w-full phone-landscape:contents">
         <motion.div layout className="relative flex-1 min-w-[100px] md:min-w-[120px] phone-landscape:min-w-[75px] bg-white dark:bg-slate-800/80 backdrop-blur border border-white/40 rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center">
-          <AnimatePresence>
-            {reactions?.map((r, i) => (
-              <motion.div
-                key={r.id}
-                initial={{ opacity: 0, y: REACTION_SPAWN_OFFSET_PX, scale: 0.5, x: 0 }}
-                animate={{
-                  opacity: 1,
-                  y: -REACTION_RISE_DISTANCE_PX,
-                  scale: 2,
-                  x: (i % REACTION_HORIZONTAL_SPREAD_COUNT) * REACTION_HORIZONTAL_SPREAD_STEP_PX - REACTION_HORIZONTAL_SPREAD_OFFSET_PX,
-                }}
-                exit={{ opacity: 0, y: -REACTION_EXIT_RISE_DISTANCE_PX }}
-                transition={{ duration: REACTION_ANIMATION_DURATION_S }}
-                className="fixed bottom-24 left-1/2 -translate-x-1/2 text-4xl pointer-events-none select-none z-[100]"
-                title={r.senderName}
-              >
-                {r.emoji}
-              </motion.div>
-            ))}
-          </AnimatePresence>
           <div className="text-[10px] md:text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-0.5 md:mb-1">{t('game.currentPlayer', 'Current Player')}</div>
           <div className="text-lg md:text-2xl font-extrabold truncate w-full text-center flex flex-col items-center gap-1" style={{ color: currentPlayer.color || '#4f46e5' }}>
             <span className="flex items-center justify-center gap-2">

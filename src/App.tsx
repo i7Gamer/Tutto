@@ -11,6 +11,7 @@ import EndScreen from './components/EndScreen';
 import Statistics from './components/Statistics';
 import LanguageSwitcher from './components/LanguageSwitcher';
 import HelpPopup from './components/HelpPopup';
+import ReactionOverlay from './components/ReactionOverlay';
 import './index.css';
 import type { Toast } from './types';
 
@@ -184,6 +185,7 @@ export default function App() {
       <ReconnectPopup />
       <RestoreSessionPopup />
       <HelpPopup />
+      <ReactionOverlay />
 
       {showStats ? (
         <Statistics deviceId={deviceId} onBack={() => setShowStats(false)} />
