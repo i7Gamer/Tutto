@@ -59,7 +59,13 @@ export default function Home({ onShowStats }: HomeProps) {
     // pb-20 mirrors Game.tsx's own bottom padding — without it, this page's
     // content can sit directly behind the fixed Help button (bottom-6 left-6)
     // and theme/language toggles (bottom-4 right-4) instead of clearing them.
-    <div className="container mx-auto px-2 sm:px-4 pt-4 md:pt-8 pb-20 max-w-3xl flex-1 flex flex-col">
+    // max-w-4xl (up from max-w-3xl): at the lg: breakpoint the advanced-options
+    // grids switch to 3/4 columns (LobbyShared.tsx) — at max-w-3xl those columns
+    // were too narrow for their own labels ("Winning Score", "Kick Timer (s)",
+    // longer card names like "Plus/Minus"), which get whitespace-nowrap +
+    // text-ellipsis and were silently truncating regardless of how wide the
+    // actual browser window was.
+    <div className="container mx-auto px-2 sm:px-4 pt-4 md:pt-8 pb-20 max-w-4xl flex-1 flex flex-col">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
