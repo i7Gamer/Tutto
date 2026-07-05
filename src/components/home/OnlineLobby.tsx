@@ -106,7 +106,11 @@ export default function OnlineLobby({ game }: OnlineLobbyProps) {
       <div className="mb-8">
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center gap-2">
-            <h3 className="text-2xl font-bold text-indigo-900 dark:text-indigo-200">{t('lobby.online.room', 'Room: {{roomId}}', { roomId })}</h3>
+            {/* mb-0 overrides the global `h3 { margin-bottom: 1rem }` base rule
+                (index.css) — left in place, that stray bottom margin is what
+                pushed this heading's centered content above the copy/leave
+                buttons it shares this items-center row with. */}
+            <h3 className="text-2xl font-bold text-indigo-900 dark:text-indigo-200 mb-0">{t('lobby.online.room', 'Room: {{roomId}}', { roomId })}</h3>
             <button
               className="text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 p-2 rounded-lg transition-colors"
               onClick={() => void handleCopyRoomCode()}

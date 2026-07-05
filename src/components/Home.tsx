@@ -56,7 +56,10 @@ export default function Home({ onShowStats }: HomeProps) {
   };
 
   return (
-    <div className="container mx-auto px-2 sm:px-4 py-4 md:py-8 max-w-3xl flex-1 flex flex-col">
+    // pb-20 mirrors Game.tsx's own bottom padding — without it, this page's
+    // content can sit directly behind the fixed Help button (bottom-6 left-6)
+    // and theme/language toggles (bottom-4 right-4) instead of clearing them.
+    <div className="container mx-auto px-2 sm:px-4 pt-4 md:pt-8 pb-20 max-w-3xl flex-1 flex flex-col">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
