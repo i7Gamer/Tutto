@@ -23,6 +23,11 @@ interface DiceGameProps {
   onComplete: (score: number, isSuccess: boolean) => void;
   onCancel: () => void;
   onStateChange?: (snapshot: DiceSnapshot | null) => void;
+  // Lets the parent mirror the same "can this be dismissed?" rule the in-game
+  // X button already applies to itself (hidden once hasRolled) to any dismiss
+  // affordance it renders around this component (e.g. a backdrop click or
+  // Escape) — see Game.tsx.
+  onHasRolledChange?: (hasRolled: boolean) => void;
 }
 
 interface SummaryData {
@@ -40,7 +45,7 @@ const CARD_NAME_MAP: Partial<Record<CardType, string>> = {
   '600': '600 Bonus',
 };
 
-export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, onStateChange }: DiceGameProps) {
+export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, onStateChange, onHasRolledChange }: DiceGameProps) {
   const { t } = useTranslation();
 
   const getDisplayCardName = (cardName: CardType | null): string => {
@@ -274,6 +279,12 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
 
   const onStateChangeRef = useRef(onStateChange);
   useEffect(() => { onStateChangeRef.current = onStateChange; }, [onStateChange]);
+
+  const onHasRolledChangeRef = useRef(onHasRolledChange);
+  useEffect(() => { onHasRolledChangeRef.current = onHasRolledChange; }, [onHasRolledChange]);
+  useEffect(() => {
+    onHasRolledChangeRef.current?.(hasRolled);
+  }, [hasRolled]);
 
   useEffect(() => {
     if (!onStateChangeRef.current || !hasRolled || isRolling || bustState) return;

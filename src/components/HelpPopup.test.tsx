@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import HelpPopup from './HelpPopup';
 import { useGameStore } from '../store/useGameStore';
@@ -69,5 +69,38 @@ describe('HelpPopup', () => {
     await waitFor(() => {
       expect(screen.getByText('help.cards.fireworks')).toBeInTheDocument();
     });
+  });
+
+  it('scrolls the specific highlighted card into view, not just the section wrapper', () => {
+    // Regression test: the section's own scrollIntoView only brought the
+    // "Cards" section's wrapper into view — if the active card sits further
+    // down that section, it could still be off-screen. The card itself must
+    // be the element scrolled into view.
+    useGameStore.setState({
+      status: 'playing',
+      currentCard: 'Feuerwerk',
+    });
+
+    const scrolledElements: Element[] = [];
+    window.HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
+      scrolledElements.push(this);
+    };
+
+    vi.useFakeTimers();
+    try {
+      render(<HelpPopup />);
+      fireEvent.click(screen.getByTitle('help.buttonTitle'));
+
+      act(() => {
+        vi.advanceTimersByTime(400); // past HELP_SECTION_OPEN_ANIMATION_MS
+      });
+
+      const highlightedCard = screen.getByText('help.cards.fireworks').closest('div');
+      expect(highlightedCard).not.toBeNull();
+      expect(scrolledElements).toContain(highlightedCard);
+    } finally {
+      vi.useRealTimers();
+      window.HTMLElement.prototype.scrollIntoView = vi.fn();
+    }
   });
 });

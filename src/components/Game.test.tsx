@@ -14,7 +14,14 @@ vi.mock('canvas-confetti', () => ({
 }));
 
 vi.mock('./DiceGame', () => ({
-  default: () => <div data-testid="mock-dice-game">Dice Game</div>
+  default: ({ onHasRolledChange }: { onHasRolledChange?: (hasRolled: boolean) => void }) => (
+    <div data-testid="mock-dice-game">
+      Dice Game
+      <button data-testid="simulate-has-rolled" onClick={() => onHasRolledChange?.(true)}>
+        simulate roll
+      </button>
+    </div>
+  ),
 }));
 
 describe('Game Component Integration', () => {
@@ -768,6 +775,46 @@ describe('Game Component Integration', () => {
 
       fireEvent.keyDown(window, { key: 'Escape' });
       expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
+    });
+
+    it('Escape does not close the dice-roll modal once the player has rolled — same rule as the X button', () => {
+      // Regression test: previously Escape (and the backdrop click below) could
+      // discard an in-progress/resolved turn without ever advancing to the next
+      // player, letting the same player reopen "Roll Dice" and replay their bust.
+      useGameStore.setState({ diceMode: 'digital', currentCard: 'x2' });
+      render(<Game />);
+
+      fireEvent.keyDown(window, { key: ' ' });
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('simulate-has-rolled'));
+
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+      expect(mockNextTurn).not.toHaveBeenCalled();
+    });
+
+    it('clicking the backdrop closes the dice-roll modal before rolling', () => {
+      useGameStore.setState({ diceMode: 'digital', currentCard: 'x2' });
+      render(<Game />);
+
+      fireEvent.keyDown(window, { key: ' ' });
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('dice-game-backdrop'));
+      expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
+    });
+
+    it('clicking the backdrop does not close the dice-roll modal once the player has rolled', () => {
+      useGameStore.setState({ diceMode: 'digital', currentCard: 'x2' });
+      render(<Game />);
+
+      fireEvent.keyDown(window, { key: ' ' });
+      fireEvent.click(screen.getByTestId('simulate-has-rolled'));
+
+      fireEvent.click(screen.getByTestId('dice-game-backdrop'));
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+      expect(mockNextTurn).not.toHaveBeenCalled();
     });
 
     it('Enter submits the physical-mode score input as Next Turn', () => {

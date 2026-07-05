@@ -61,6 +61,12 @@ export default function Game() {
   const [scoreInput, setScoreInput] = useState('');
   const [applyBonus, setApplyBonus] = useState(false);
   const [showDiceGame, setShowDiceGame] = useState(false);
+  // Mirrors DiceGame's own `hasRolled` so the backdrop-click/Escape dismiss
+  // paths below can apply the exact same "no more bailing out" rule DiceGame
+  // already applies to its own X button (hidden once hasRolled) — without
+  // this, either path could discard a bust/roll without ever advancing the
+  // turn, letting the same player reopen "Roll Dice" and replay it.
+  const [diceHasRolled, setDiceHasRolled] = useState(false);
   const confettiFiredRef = useRef(false);
   const reconnectHandledRef = useRef(false);
   const onlineReconnectHandledRef = useRef(false);
@@ -226,10 +232,15 @@ export default function Game() {
   }, [nextTurn]);
 
   const handleCancelDiceGame = useCallback(() => {
+    // Once the player has rolled, this must not be dismissable — same rule as
+    // DiceGame's own X button (see its `!hasRolled` guard) — otherwise a
+    // backdrop click or Escape after a bust would silently drop the turn
+    // without ever advancing to the next player, letting it be replayed.
+    if (diceHasRolled) return;
     setShowDiceGame(false);
     localStorage.removeItem('tutto_dice_turn_state');
     setLiveTurnState(null);
-  }, [setLiveTurnState]);
+  }, [diceHasRolled, setLiveTurnState]);
 
   const currentCardHasInput = !['Stop', 'Plus_Minus', 'Kniffel', 'Kleeblatt'].includes(currentCard ?? '');
   const currentCardHasYesNo = ['Plus_Minus', 'Kniffel', 'Kleeblatt'].includes(currentCard ?? '');
@@ -246,7 +257,7 @@ export default function Game() {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
       if (e.key === 'Escape') {
-        if (showDiceGame) setShowDiceGame(false);
+        if (showDiceGame) handleCancelDiceGame();
         return;
       }
 
@@ -269,7 +280,7 @@ export default function Game() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isMyTurn, isStopCard, currentCardHasYesNo, currentCardHasInput, effectiveDiceMode, showDiceGame, handleNextTurn, handleYesNo]);
+  }, [isMyTurn, isStopCard, currentCardHasYesNo, currentCardHasInput, effectiveDiceMode, showDiceGame, handleNextTurn, handleYesNo, handleCancelDiceGame]);
 
   const canUndo = !game.finished && !!game.previousCard && game.previousCard !== 'Stop' && game.currentPlayerIndex !== null && !!game.previousPlayerName && (!isOnline || isMyTurn || isHost);
 
@@ -364,7 +375,7 @@ export default function Game() {
       </div>
 
       {showDiceGame && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={handleCancelDiceGame}>
+        <div data-testid="dice-game-backdrop" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={handleCancelDiceGame}>
           <motion.div
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -378,6 +389,7 @@ export default function Game() {
               onComplete={handleDiceComplete}
               onCancel={handleCancelDiceGame}
               onStateChange={effectiveDiceMode === 'digital' ? setLiveTurnState : undefined}
+              onHasRolledChange={setDiceHasRolled}
             />
           </motion.div>
         </div>

@@ -7,6 +7,19 @@ interface ScoreboardProps {
   formattedTime: string;
 }
 
+// A reaction emoji spawns just below its `bottom-24` anchor and drifts
+// upward while fading out. These distances must stay small relative to that
+// anchor (96px from the viewport bottom) — the previous -200/-400 travel
+// carried it well past the top half of the screen on short viewports instead
+// of the intended gentle float near the bottom.
+const REACTION_SPAWN_OFFSET_PX = 30;
+const REACTION_RISE_DISTANCE_PX = 70;
+const REACTION_EXIT_RISE_DISTANCE_PX = 110;
+const REACTION_ANIMATION_DURATION_S = 2.5;
+const REACTION_HORIZONTAL_SPREAD_COUNT = 5;
+const REACTION_HORIZONTAL_SPREAD_STEP_PX = 40;
+const REACTION_HORIZONTAL_SPREAD_OFFSET_PX = 80;
+
 export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
   const { t } = useTranslation();
   const {
@@ -44,10 +57,15 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
             {reactions?.map((r, i) => (
               <motion.div
                 key={r.id}
-                initial={{ opacity: 0, y: 50, scale: 0.5, x: 0 }}
-                animate={{ opacity: 1, y: -200, scale: 2, x: (i % 5) * 40 - 80 }}
-                exit={{ opacity: 0, y: -400 }}
-                transition={{ duration: 2.5 }}
+                initial={{ opacity: 0, y: REACTION_SPAWN_OFFSET_PX, scale: 0.5, x: 0 }}
+                animate={{
+                  opacity: 1,
+                  y: -REACTION_RISE_DISTANCE_PX,
+                  scale: 2,
+                  x: (i % REACTION_HORIZONTAL_SPREAD_COUNT) * REACTION_HORIZONTAL_SPREAD_STEP_PX - REACTION_HORIZONTAL_SPREAD_OFFSET_PX,
+                }}
+                exit={{ opacity: 0, y: -REACTION_EXIT_RISE_DISTANCE_PX }}
+                transition={{ duration: REACTION_ANIMATION_DURATION_S }}
                 className="fixed bottom-24 left-1/2 -translate-x-1/2 text-4xl pointer-events-none select-none z-[100]"
                 title={r.senderName}
               >

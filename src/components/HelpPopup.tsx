@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HelpCircle, X, ChevronRight, ChevronDown } from 'lucide-react';
 import { useGameStore } from '../store/useGameStore';
+import { HELP_SECTION_OPEN_ANIMATION_MS } from '../utils/uiTimings';
 
 interface SectionProps {
   title: string;
@@ -55,6 +56,7 @@ export default function HelpPopup() {
   const currentCard = useGameStore(state => state.currentCard);
   
   const [activeSection, setActiveSection] = useState<string>('general');
+  const activeCardRef = useRef<HTMLDivElement>(null);
 
   // When opening during gameplay, check if we have a current card
   useEffect(() => {
@@ -62,6 +64,19 @@ export default function HelpPopup() {
       setActiveSection('cards');
     }
   }, [isOpen, status, currentCard]);
+
+  // The Section's own scrollIntoView (see contentRef above) only brings the
+  // "Cards" section's wrapper into view, not the specific highlighted card
+  // inside it — which can still be off-screen if it sits further down that
+  // section. Scroll the highlighted card itself once the section's open
+  // animation has settled (see HELP_SECTION_OPEN_ANIMATION_MS).
+  useEffect(() => {
+    if (activeSection !== 'cards' || !currentCard) return;
+    const timer = setTimeout(() => {
+      activeCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, HELP_SECTION_OPEN_ANIMATION_MS);
+    return () => clearTimeout(timer);
+  }, [activeSection, currentCard]);
 
   const toggleSection = (id: string) => {
     setActiveSection(prev => prev === id ? '' : id);
@@ -171,31 +186,31 @@ export default function HelpPopup() {
 
                 <Section id="cards" title={t('help.cards.title', 'Cards')} isOpen={activeSection === 'cards'} onToggle={toggleSection}>
                   <div className="space-y-4">
-                    <div className={currentCard && ['200', '300', '400', '500', '600'].includes(currentCard) ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
+                    <div ref={currentCard && ['200', '300', '400', '500', '600'].includes(currentCard) ? activeCardRef : undefined} className={currentCard && ['200', '300', '400', '500', '600'].includes(currentCard) ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
                       <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.bonus', 'Bonus (200 - 600)')}</h4>
                       <p className="text-sm">{t('help.cards.bonusDesc')}</p>
                     </div>
-                    <div className={currentCard === 'x2' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
+                    <div ref={currentCard === 'x2' ? activeCardRef : undefined} className={currentCard === 'x2' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
                       <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.x2', 'x2 (Double)')}</h4>
                       <p className="text-sm">{t('help.cards.x2Desc')}</p>
                     </div>
-                    <div className={currentCard === 'Stop' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
+                    <div ref={currentCard === 'Stop' ? activeCardRef : undefined} className={currentCard === 'Stop' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
                       <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.stop', 'Stop')}</h4>
                       <p className="text-sm">{t('help.cards.stopDesc')}</p>
                     </div>
-                    <div className={currentCard === 'Feuerwerk' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
+                    <div ref={currentCard === 'Feuerwerk' ? activeCardRef : undefined} className={currentCard === 'Feuerwerk' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
                       <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.fireworks', 'Fireworks')}</h4>
                       <p className="text-sm border-l-2 border-orange-400 pl-3 mt-1 italic text-orange-800 dark:text-orange-200" dangerouslySetInnerHTML={{ __html: t('help.cards.fireworksDesc').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p>
                     </div>
-                    <div className={currentCard === 'Kniffel' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
+                    <div ref={currentCard === 'Kniffel' ? activeCardRef : undefined} className={currentCard === 'Kniffel' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
                       <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.kniffel', 'Kniffel')}</h4>
                       <p className="text-sm border-l-2 border-indigo-400 pl-3 mt-1 italic text-indigo-800 dark:text-indigo-200" dangerouslySetInnerHTML={{ __html: t('help.cards.kniffelDesc').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p>
                     </div>
-                    <div className={currentCard === 'Plus_Minus' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
+                    <div ref={currentCard === 'Plus_Minus' ? activeCardRef : undefined} className={currentCard === 'Plus_Minus' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
                       <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.plusMinus', 'Plus/Minus')}</h4>
                       <p className="text-sm border-l-2 border-red-400 pl-3 mt-1 italic text-red-800 dark:text-red-200" dangerouslySetInnerHTML={{ __html: t('help.cards.plusMinusDesc').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p>
                     </div>
-                    <div className={currentCard === 'Kleeblatt' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
+                    <div ref={currentCard === 'Kleeblatt' ? activeCardRef : undefined} className={currentCard === 'Kleeblatt' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
                       <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.kleeblatt', 'Kleeblatt')}</h4>
                       <p className="text-sm border-l-2 border-green-400 pl-3 mt-1 italic text-green-800 dark:text-green-200" dangerouslySetInnerHTML={{ __html: t('help.cards.kleeblattDesc').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p>
                     </div>

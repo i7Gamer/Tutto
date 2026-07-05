@@ -391,6 +391,24 @@ describe('DiceGame interactive turn logic', () => {
     fireEvent.click(screen.getByLabelText('Cancel dice roll'));
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
+
+  it('reports hasRolled to the parent so it can apply the same dismiss rule as the X button', () => {
+    const onHasRolledChange = vi.fn();
+    queueRoll([1, 5, 2, 2, 3, 4]);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} onHasRolledChange={onHasRolledChange} />);
+
+    expect(onHasRolledChange).toHaveBeenCalledWith(false);
+    onHasRolledChange.mockClear();
+
+    rollDice();
+
+    expect(onHasRolledChange).toHaveBeenCalledWith(true);
+
+    // This describe block's beforeEach clears mocks before each test, but not
+    // after the last one — leaving this roll's playTone calls to bleed into
+    // the next describe block's own playTone-count assertions.
+    vi.mocked(playTone).mockClear();
+  });
 });
 
 describe('DiceGame pending timer cleanup on unmount', () => {

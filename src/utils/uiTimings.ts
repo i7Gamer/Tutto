@@ -7,3 +7,9 @@ export const CARD_FLIP_MS = 1200;
 // How long the Stop card stays on screen (after the flip) before the turn
 // auto-advances for the active online player.
 export const STOP_CARD_AUTO_CONTINUE_MS = 5000;
+
+// HelpPopup's collapsible sections use framer-motion's default tween (300ms)
+// to animate open. Scrolling a highlighted card into view must wait until
+// that finishes, otherwise it scrolls against a height that is still
+// animating and can land short of the final position.
+export const HELP_SECTION_OPEN_ANIMATION_MS = 350;
