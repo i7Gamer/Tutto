@@ -11,6 +11,7 @@ import { formatTime } from '../utils/formatTime';
 import { buildTurnKey, parseSavedDiceState } from '../utils/diceTurnState';
 import { parseJsonObject } from '../utils/parseJson';
 import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS } from '../utils/uiTimings';
+import { useWakeLock } from '../hooks/useWakeLock';
 import type { PreGameStats } from '../store/storeTypes';
 
 import Scoreboard from './game/Scoreboard';
@@ -47,6 +48,10 @@ export default function Game() {
     setPreGameStats,
     turnTimeRemaining,
   } = game;
+
+  // Keeps the screen awake for the whole gameplay session, on every device —
+  // host or client, since this component mounts identically for both.
+  useWakeLock();
 
   const formattedTime = formatTime(gameTimeInSeconds);
 
