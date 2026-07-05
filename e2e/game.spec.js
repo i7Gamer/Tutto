@@ -10,7 +10,7 @@ test.describe('Tutto Local Game Flow', () => {
     await expect(page.getByRole('button', { name: /Local Play/i })).toBeVisible();
     
     // By default it should be on local play, showing player input
-    const playerInput = page.getByPlaceholder(/Name of new player/i);
+    const playerInput = page.getByPlaceholder(/Player name/i);
     await expect(playerInput).toBeVisible();
 
     // Add Player 1: Alice
@@ -39,7 +39,7 @@ test.describe('Tutto Local Game Flow', () => {
 
   test('should persist local players after page reload', async ({ page }) => {
     await page.goto('/');
-    const playerInput = page.getByPlaceholder(/Name of new player/i);
+    const playerInput = page.getByPlaceholder(/Player name/i);
     await playerInput.fill('Charlie');
     await page.getByRole('button', { name: /Add/i }).click();
     await expect(page.getByText('Charlie', { exact: true }).first()).toBeVisible();
