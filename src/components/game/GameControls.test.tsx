@@ -193,6 +193,21 @@ describe('GameControls spectator view (online, not my turn)', () => {
     expect(screen.queryByText(/waiting/i)).toBeNull();
   });
 
+  it('gives a selected spectator die a dark-mode background so its pips stay visible (not emerald-100 on emerald-100)', () => {
+    renderSpectator(
+      {
+        turnScore: 100,
+        keptDice: [],
+        currentRoll: [{ id: 'r1', val: 5, selected: true }],
+        kniffelProgress: [],
+        tuttosThisTurn: 0,
+      },
+      '200'
+    );
+    const selectedDie = screen.getByText('5');
+    expect(selectedDie.className).toContain('dark:bg-slate-700');
+  });
+
   it('marks busted dice red and shows no bust text', () => {
     renderSpectator(
       {

@@ -257,7 +257,7 @@ export default function GameControls({
                                 isBusted
                                   ? 'bg-red-50 border-red-300 opacity-70'
                                   : d.selected
-                                    ? 'bg-emerald-100 border-emerald-500'
+                                    ? 'bg-emerald-100 border-emerald-500 dark:bg-slate-700 dark:border-emerald-400'
                                     : 'bg-white dark:bg-slate-700 border-gray-300 dark:border-slate-500'
                               }`}
                             >
