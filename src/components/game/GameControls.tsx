@@ -6,6 +6,7 @@ import { isTestEnv } from '../../utils/env';
 import { sortKeptDiceForDisplay } from '../../utils/diceTurnControls';
 import { CARD_FLIP_MS } from '../../utils/uiTimings';
 import type { CardType, DiceMode, DiceSnapshot, Player } from '../../types';
+import { DiePips } from './Die';
 
 interface GameControlsProps {
   currentCard: CardType | null;
@@ -226,8 +227,9 @@ export default function GameControls({
                       <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('game.controls.keptDice', 'Kept Dice')}</p>
                       <div className="flex gap-2 flex-wrap justify-center">
                         {sortKeptDiceForDisplay(activeTurnState.keptDice, currentCard, activeTurnState.kniffelProgress).map((d) => (
-                          <div key={d.id} className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center text-xl font-bold border-2 border-indigo-400">
+                          <div key={d.id} style={{ color: 'transparent' }} className="w-10 h-10 bg-indigo-600 text-transparent rounded-xl flex items-center justify-center text-xl font-bold border-2 border-indigo-400 relative">
                             {d.val}
+                            <DiePips val={d.val} isSelected={false} bustState={false} size="small" isIndigo={true} />
                           </div>
                         ))}
                       </div>
@@ -251,15 +253,17 @@ export default function GameControls({
                                 rotate: { repeat: isRolling ? Infinity : 0, duration: 0.2 },
                                 y: { repeat: isRolling ? Infinity : 0, duration: 0.15 },
                               }}
-                              className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl font-bold border-2 ${
+                              style={{ color: 'transparent' }}
+                              className={`w-10 h-10 rounded-xl flex items-center justify-center text-transparent border-2 relative ${
                                 isBusted
-                                  ? 'bg-red-50 border-red-300 text-red-500 opacity-70'
+                                  ? 'bg-red-50 border-red-300 opacity-70'
                                   : d.selected
-                                    ? 'bg-emerald-100 border-emerald-500 text-emerald-700'
-                                    : 'bg-white dark:bg-slate-700 border-gray-300 dark:border-slate-500 text-gray-800 dark:text-gray-100'
+                                    ? 'bg-emerald-100 border-emerald-500'
+                                    : 'bg-white dark:bg-slate-700 border-gray-300 dark:border-slate-500'
                               }`}
                             >
                               {d.val}
+                              <DiePips val={d.val} isSelected={d.selected} bustState={isBusted} size="small" />
                             </motion.div>
                           );
                         })}

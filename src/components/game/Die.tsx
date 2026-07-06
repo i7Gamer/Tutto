@@ -20,6 +20,51 @@ const PIP_POSITIONS: Record<number, number[]> = {
 
 const GRID_SIZE = 9;
 
+export function DiePips({
+  val,
+  isSelected,
+  bustState,
+  size = 'large',
+  isIndigo = false,
+}: {
+  val: number;
+  isSelected: boolean;
+  bustState: boolean;
+  size?: 'large' | 'small';
+  isIndigo?: boolean;
+}) {
+  const isLarge = size === 'large';
+  return (
+    <div
+      className={`grid grid-cols-3 grid-rows-3 absolute inset-0 pointer-events-none ${
+        isLarge ? 'gap-1 p-2.5' : 'gap-0.5 p-1.5'
+      }`}
+    >
+      {Array.from({ length: GRID_SIZE }).map((_, index) => {
+        const isPipActive = PIP_POSITIONS[val]?.includes(index);
+        return (
+          <div
+            key={index}
+            className={`rounded-full transition-all duration-200 justify-self-center self-center ${
+              isLarge ? 'w-2 h-2' : 'w-1.5 h-1.5'
+            } ${
+              isPipActive
+                ? isIndigo
+                  ? 'bg-white scale-100'
+                  : isSelected
+                    ? 'bg-emerald-700 dark:bg-emerald-100 scale-100'
+                    : bustState
+                      ? 'bg-red-500 scale-100'
+                      : 'bg-gray-800 dark:bg-gray-100 scale-100'
+                : 'bg-transparent scale-0'
+            }`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Die({ die, isSelected, isDieTumbling, bustState, onToggle }: DieProps) {
   return (
     <motion.button
@@ -31,6 +76,7 @@ export default function Die({ die, isSelected, isDieTumbling, bustState, onToggl
         rotate: { repeat: isDieTumbling ? Infinity : 0, duration: 0.2 },
         y: { repeat: isDieTumbling ? Infinity : 0, duration: 0.15 },
       }}
+      style={{ color: 'transparent' }}
       className={`die w-14 h-14 relative flex items-center justify-center text-transparent select-none outline-none focus:outline-none focus:ring-0 transition-all border-2
         ${isSelected
           ? 'bg-emerald-100 border-emerald-500 dark:bg-slate-700 dark:border-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-110 z-10'
@@ -45,25 +91,7 @@ export default function Die({ die, isSelected, isDieTumbling, bustState, onToggl
       aria-label={`Die showing ${die.val}, ${isSelected ? 'selected' : 'not selected'}`}
     >
       {die.val}
-      <div className="grid grid-cols-3 grid-rows-3 gap-1 absolute inset-0 p-2.5 pointer-events-none">
-        {Array.from({ length: GRID_SIZE }).map((_, index) => {
-          const isPipActive = PIP_POSITIONS[die.val]?.includes(index);
-          return (
-            <div
-              key={index}
-              className={`w-2 h-2 rounded-full transition-all duration-200 justify-self-center self-center ${
-                isPipActive
-                  ? isSelected
-                    ? 'bg-emerald-700 dark:bg-emerald-100 scale-100'
-                    : bustState
-                      ? 'bg-red-500 scale-100'
-                      : 'bg-gray-800 dark:bg-gray-100 scale-100'
-                  : 'bg-transparent scale-0'
-              }`}
-            />
-          );
-        })}
-      </div>
+      <DiePips val={die.val} isSelected={isSelected} bustState={bustState} size="large" />
     </motion.button>
   );
 }
