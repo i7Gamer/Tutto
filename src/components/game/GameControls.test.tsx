@@ -212,6 +212,21 @@ describe('GameControls spectator view (online, not my turn)', () => {
     expect(screen.getByText('2').className).toContain('border-red-300');
     expect(screen.getByText('4').className).toContain('border-red-300');
   });
+
+  it('applies color transparent style to kept and roll spectator dice to visually hide text numbers', () => {
+    renderSpectator(
+      {
+        turnScore: 450,
+        keptDice: [{ id: 'a', val: 1 }],
+        currentRoll: [{ id: 'r1', val: 5, selected: false }],
+        kniffelProgress: [],
+        tuttosThisTurn: 0,
+      },
+      '200'
+    );
+    expect(screen.getByText('1').style.color).toBe('transparent');
+    expect(screen.getByText('5').style.color).toBe('transparent');
+  });
 });
 
 describe('GameControls physical dice interactions', () => {

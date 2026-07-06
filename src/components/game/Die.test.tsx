@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import Die from './Die';
+import Die, { DiePips } from './Die';
 import type { Die as DieType } from '../../types';
 
 vi.mock('framer-motion', () => ({
@@ -98,5 +98,47 @@ describe('Die', () => {
     const button = screen.getByRole('button');
     expect(button.className).toContain('bg-red-50');
     expect(button.className).toContain('border-red-300');
+  });
+
+  it('applies color transparent inline style to visually hide text numbers', () => {
+    render(
+      <Die
+        die={defaultDie}
+        isSelected={false}
+        isDieTumbling={false}
+        bustState={false}
+        onToggle={() => {}}
+      />
+    );
+    const button = screen.getByRole('button');
+    expect(button.style.color).toBe('transparent');
+  });
+
+  describe('DiePips', () => {
+    it('renders DiePips with large size layout by default', () => {
+      const { container } = render(
+        <DiePips val={5} isSelected={false} bustState={false} />
+      );
+      const grid = container.firstChild as HTMLElement;
+      expect(grid.className).toContain('gap-1');
+      expect(grid.className).toContain('p-2.5');
+    });
+
+    it('renders DiePips with small size layout when specified', () => {
+      const { container } = render(
+        <DiePips val={5} isSelected={false} bustState={false} size="small" />
+      );
+      const grid = container.firstChild as HTMLElement;
+      expect(grid.className).toContain('gap-0.5');
+      expect(grid.className).toContain('p-1.5');
+    });
+
+    it('renders DiePips with white pips when isIndigo is true', () => {
+      const { container } = render(
+        <DiePips val={5} isSelected={false} bustState={false} size="small" isIndigo={true} />
+      );
+      const pips = container.querySelectorAll('.bg-white');
+      expect(pips.length).toBeGreaterThan(0);
+    });
   });
 });
