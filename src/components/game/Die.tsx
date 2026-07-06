@@ -23,7 +23,6 @@ const GRID_SIZE = 9;
 export default function Die({ die, isSelected, isDieTumbling, bustState, onToggle }: DieProps) {
   return (
     <motion.button
-      layout
       animate={{
         rotate: isDieTumbling ? [0, 90, 180, 270, 360] : 0,
         y: isDieTumbling ? [0, -20, 0] : 0,
@@ -32,7 +31,7 @@ export default function Die({ die, isSelected, isDieTumbling, bustState, onToggl
         rotate: { repeat: isDieTumbling ? Infinity : 0, duration: 0.2 },
         y: { repeat: isDieTumbling ? Infinity : 0, duration: 0.15 },
       }}
-      className={`die w-14 h-14 relative flex items-center justify-center text-transparent select-none transition-all border-2
+      className={`die w-14 h-14 relative flex items-center justify-center text-transparent select-none outline-none focus:outline-none focus:ring-0 transition-all border-2
         ${isSelected
           ? 'bg-emerald-100 border-emerald-500 dark:bg-slate-700 dark:border-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-110 z-10'
           : bustState
