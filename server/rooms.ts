@@ -45,6 +45,7 @@ export const createRoom = (hostSocketId: string): Room => ({
     previousLeaders: null,
     previousPlayerName: null,
     enforcedDiceMode: null,
+    historyLog: [],
   },
 });
 

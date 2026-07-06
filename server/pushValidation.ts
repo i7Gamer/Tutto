@@ -1,4 +1,4 @@
-import type { CardType, InitialCards, DiceSnapshot } from '../src/types';
+import { MAX_HISTORY_LOG_SIZE, type CardType, type InitialCards, type DiceSnapshot, type HistoryEntry } from '../src/types';
 import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
   isValidEnforcedDiceMode,
@@ -107,6 +107,41 @@ const sanitizeDiceSnapshot = (v: DiceSnapshot): DiceSnapshot => {
   return clean;
 };
 
+const isValidHistoryEntry = (v: unknown): v is HistoryEntry => {
+  if (typeof v !== 'object' || v === null) return false;
+  const entry = v as Record<string, unknown>;
+  const validTypes = ['success', 'bust', 'skip', 'fail'];
+  const validCards = ['Kleeblatt', 'Feuerwerk', 'Stop', 'Kniffel', 'Plus_Minus', 'x2', '200', '300', '400', '500', '600'];
+
+  if (!(typeof entry.id === 'string' && entry.id.length > 0 && entry.id.length <= 100)) return false;
+  if (!(typeof entry.round === 'number' && Number.isInteger(entry.round) && entry.round >= 1 && entry.round <= MAX_ROUNDS)) return false;
+  if (!(typeof entry.playerName === 'string' && entry.playerName.length > 0 && entry.playerName.length <= MAX_PLAYER_NAME_LENGTH)) return false;
+  if (entry.playerColor !== undefined && !(typeof entry.playerColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(entry.playerColor))) return false;
+  if (!(typeof entry.card === 'string' && validCards.includes(entry.card))) return false;
+  if (!(typeof entry.type === 'string' && validTypes.includes(entry.type))) return false;
+  if (!(typeof entry.score === 'number' && Number.isFinite(entry.score) && Math.abs(entry.score) <= MAX_SCORE_MAGNITUDE)) return false;
+  if (entry.deductedPlayers !== undefined) {
+    if (!Array.isArray(entry.deductedPlayers)) return false;
+    if (entry.deductedPlayers.length > 100) return false;
+    if (!entry.deductedPlayers.every(name => typeof name === 'string' && name.length > 0 && name.length <= MAX_PLAYER_NAME_LENGTH)) return false;
+  }
+  return true;
+};
+
+const sanitizeHistoryEntry = (v: HistoryEntry): HistoryEntry => {
+  const clean: HistoryEntry = {
+    id: v.id,
+    round: v.round,
+    playerName: v.playerName,
+    card: v.card,
+    type: v.type,
+    score: v.score,
+  };
+  if (v.playerColor) clean.playerColor = v.playerColor;
+  if (v.deductedPlayers) clean.deductedPlayers = [...v.deductedPlayers];
+  return clean;
+};
+
 const HOST_ONLY_FIELDS = new Set<string>([
   'status', 'winningScore', 'initialCards', 'randomOrder',
   'turnDuration', 'reconnectTimeout', 'enforcedDiceMode',
@@ -117,7 +152,7 @@ const ACTIVE_PLAYER_FIELDS = new Set<string>([
   'finished', 'previousCard', 'previousScore', 'previousLeaders',
   'previousWasBust', 'previousHighestTurnScore', 'previousPlayerName',
   'chartValues', 'chartNames', 'chartLabels', 'gameTimeInSeconds',
-  'players', 'liveTurnState',
+  'players', 'liveTurnState', 'historyLog',
 ]);
 
 // Same length cap joinRoom enforces on a player's name.
@@ -317,6 +352,11 @@ export const applyPushedState = (
     } else if (key === 'enforcedDiceMode') {
       const v = newState.enforcedDiceMode;
       if (isValidEnforcedDiceMode(v)) state.enforcedDiceMode = v;
+    } else if (key === 'historyLog') {
+      const v = newState.historyLog;
+      if (Array.isArray(v) && v.length <= MAX_HISTORY_LOG_SIZE && v.every(isValidHistoryEntry)) {
+        state.historyLog = v.map(sanitizeHistoryEntry);
+      }
     }
   }
 };

@@ -9,6 +9,7 @@ import { buildTurnKey } from '../utils/diceTurnState';
 import { DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE } from '../utils/configValidation';
 import playerColorsData from '../../playerColors.json';
 import type { Player, CoreGameState } from '../types';
+import { MAX_HISTORY_LOG_SIZE } from '../types';
 import { getSocket } from './socketRef';
 import type { GameStore, ImmerStateCreator } from './storeTypes';
 
@@ -139,6 +140,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.cards = deck;
       state.currentPlayerIndex = 0;
       state.liveTurnState = null;
+      state.historyLog = [];
     });
     localStorage.removeItem('tutto_dice_turn_state');
 
@@ -172,6 +174,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       chartValues: [],
       chartNames: [],
       chartLabels: [],
+      historyLog: [],
     });
     localStorage.removeItem('tutto_dice_turn_state');
     if (get().isOnline) get().pushState();
@@ -217,6 +220,11 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       }
       state.liveTurnState = null;
       localStorage.removeItem('tutto_dice_turn_state');
+      if (!state.historyLog) state.historyLog = [];
+      state.historyLog.push(result.historyEntry);
+      if (state.historyLog.length > MAX_HISTORY_LOG_SIZE) {
+        state.historyLog.shift();
+      }
     });
 
     // Stats are intentionally only tracked for online games. Local games do not
@@ -255,6 +263,9 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       // snapshot no longer corresponds to anything once the score is reverted
       // and the turn reassigned, so it must not keep showing to spectators.
       state.liveTurnState = null;
+      if (state.historyLog) {
+        state.historyLog.pop();
+      }
     });
     localStorage.removeItem('tutto_dice_turn_state');
 

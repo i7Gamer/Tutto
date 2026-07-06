@@ -285,5 +285,13 @@
   "help.faq.q6": "How does the Undo button work?",
   "help.faq.a6": "In both local and online games, players can undo the previous turn if a mistake was made, reverting the game state. In online games, only the active player or the host can trigger the Undo.",
   "help.faq.q7": "How do physical dice work?",
-  "help.faq.a7": "You roll real dice on your table and enter the values into the app's prompt."
+  "help.faq.a7": "You roll real dice on your table and enter the values into the app's prompt.",
+  "history.title": "Activity Log",
+  "history.empty": "No turns taken yet.",
+  "history.skip": "{{name}} skipped (Stop)",
+  "history.bust": "{{name}} busted on {{card}}",
+  "history.fail": "{{name}} failed {{card}}",
+  "history.success": "{{name}} scored {{score}} pts on {{card}}",
+  "history.plusMinusDeducted": "{{name}} scored 1000 pts ({{deducted}} lost 1000)",
+  "history.kleeblatt": "{{name}} completed Kleeblatt and won!"
 }

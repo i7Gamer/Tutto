@@ -495,6 +495,52 @@ describe('applyPushedState', () => {
         kniffelProgress: [],
       });
     });
+
+    it('historyLog: validates and sanitizes pushed history log', () => {
+      const state = makeState();
+      const validEntry = {
+        id: '1-Alice-1',
+        round: 1,
+        playerName: 'Alice',
+        card: 'x2',
+        type: 'success',
+        score: 1000,
+        playerColor: '#ffffff',
+      };
+
+      // Valid push
+      applyPushedState(state, { historyLog: [validEntry] }, asActivePlayer);
+      expect(state.historyLog).toEqual([validEntry]);
+
+      // Invalid field: score too large
+      applyPushedState(state, { historyLog: [{ ...validEntry, score: 2_000_000 }] }, asActivePlayer);
+      expect(state.historyLog).toEqual([validEntry]); // should reject and keep valid
+
+      // Invalid type
+      applyPushedState(state, { historyLog: [{ ...validEntry, type: 'cheated' }] }, asActivePlayer);
+      expect(state.historyLog).toEqual([validEntry]);
+
+      // Invalid card type
+      applyPushedState(state, { historyLog: [{ ...validEntry, card: 'SuperCard' }] }, asActivePlayer);
+      expect(state.historyLog).toEqual([validEntry]);
+
+      // Invalid player name length
+      applyPushedState(state, { historyLog: [{ ...validEntry, playerName: 'a'.repeat(31) }] }, asActivePlayer);
+      expect(state.historyLog).toEqual([validEntry]);
+
+      // Valid optional deducted players
+      const validPlusMinus = {
+        id: '2-Bob-3',
+        round: 2,
+        playerName: 'Bob',
+        card: 'Plus_Minus',
+        type: 'success',
+        score: 1000,
+        deductedPlayers: ['Alice'],
+      };
+      applyPushedState(state, { historyLog: [validPlusMinus] }, asActivePlayer);
+      expect(state.historyLog).toEqual([validPlusMinus]);
+    });
   });
 });
 

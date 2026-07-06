@@ -69,6 +69,21 @@ export interface Player {
   winStreak?: number;
 }
 
+export type HistoryEventType = 'success' | 'bust' | 'skip' | 'fail';
+
+export interface HistoryEntry {
+  id: string;
+  round: number;
+  playerName: string;
+  playerColor?: string;
+  card: CardType;
+  type: HistoryEventType;
+  score: number;
+  deductedPlayers?: string[];
+}
+
+export const MAX_HISTORY_LOG_SIZE = 50;
+
 export interface CoreGameState {
   players: Player[];
   currentPlayerIndex: number | null;
@@ -91,6 +106,7 @@ export interface CoreGameState {
   finished: boolean;
   gameStartTime: number | null;
   gameTimeInSeconds: number;
+  historyLog: HistoryEntry[];
 }
 
 export interface Toast {
@@ -144,6 +160,7 @@ export interface NextTurnResult {
   previousPlayerName: string;
   newDeck: CardType[];
   drawnCard: CardType | null;
+  historyEntry: HistoryEntry;
 }
 
 export interface UndoResult {

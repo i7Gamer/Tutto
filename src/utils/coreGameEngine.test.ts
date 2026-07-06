@@ -1104,4 +1104,86 @@ describe('coreGameEngine', () => {
       expect(digital.players[1].score).toBe(1000);
     });
   });
+
+  describe('History Log Entry Generation', () => {
+    it('generates a correct historyEntry for a Stop card (skip)', () => {
+      const state = makeState({ currentCard: 'Stop' });
+      const result = calculateNextTurn(state, 0, false);
+      expect(result.historyEntry).toBeDefined();
+      expect(result.historyEntry.type).toBe('skip');
+      expect(result.historyEntry.playerName).toBe('Alice');
+      expect(result.historyEntry.card).toBe('Stop');
+      expect(result.historyEntry.score).toBe(0);
+      expect(result.historyEntry.round).toBe(1);
+      expect(result.historyEntry.id).toBe('1-Alice-1');
+    });
+
+    it('generates a correct historyEntry for a bust', () => {
+      const state = makeState({ currentCard: 'x2' });
+      const result = calculateNextTurn(state, 0, false);
+      expect(result.historyEntry.type).toBe('bust');
+      expect(result.historyEntry.playerName).toBe('Alice');
+      expect(result.historyEntry.card).toBe('x2');
+      expect(result.historyEntry.score).toBe(0);
+    });
+
+    it('generates a correct historyEntry for a successful turn', () => {
+      const state = makeState({ currentCard: '300' });
+      const result = calculateNextTurn(state, 500, true);
+      expect(result.historyEntry.type).toBe('success');
+      expect(result.historyEntry.playerName).toBe('Alice');
+      expect(result.historyEntry.card).toBe('300');
+      expect(result.historyEntry.score).toBe(500);
+    });
+
+    it('generates deductedPlayers when Plus_Minus resolves and player is not the leader', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 400 }), makePlayer('Bob', { score: 0 })],
+        currentPlayerIndex: 1, // Bob
+        currentCard: 'Plus_Minus',
+      });
+      const result = calculateNextTurn(state, 0, true);
+      expect(result.historyEntry.type).toBe('success');
+      expect(result.historyEntry.playerName).toBe('Bob');
+      expect(result.historyEntry.score).toBe(1000);
+      expect(result.historyEntry.deductedPlayers).toEqual(['Alice']);
+    });
+
+    it('does not generate deductedPlayers when Plus_Minus resolves and player is already the leader', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 400 }), makePlayer('Bob', { score: 0 })],
+        currentPlayerIndex: 0, // Alice (leader)
+        currentCard: 'Plus_Minus',
+      });
+      const result = calculateNextTurn(state, 0, true);
+      expect(result.historyEntry.type).toBe('success');
+      expect(result.historyEntry.playerName).toBe('Alice');
+      expect(result.historyEntry.score).toBe(1000);
+      expect(result.historyEntry.deductedPlayers).toBeUndefined();
+    });
+
+    it('generates a correct historyEntry for Kniffel success and failure', () => {
+      const stateSuccess = makeState({ currentCard: 'Kniffel' });
+      const resultSuccess = calculateNextTurn(stateSuccess, 0, true);
+      expect(resultSuccess.historyEntry.type).toBe('success');
+      expect(resultSuccess.historyEntry.score).toBe(2000);
+
+      const stateFail = makeState({ currentCard: 'Kniffel' });
+      const resultFail = calculateNextTurn(stateFail, 0, false);
+      expect(resultFail.historyEntry.type).toBe('fail');
+      expect(resultFail.historyEntry.score).toBe(0);
+    });
+
+    it('generates a correct historyEntry for Kleeblatt success and failure', () => {
+      const stateSuccess = makeState({ currentCard: 'Kleeblatt' });
+      const resultSuccess = calculateNextTurn(stateSuccess, 0, true);
+      expect(resultSuccess.historyEntry.type).toBe('success');
+      expect(resultSuccess.historyEntry.score).toBe(0);
+
+      const stateFail = makeState({ currentCard: 'Kleeblatt' });
+      const resultFail = calculateNextTurn(stateFail, 0, false);
+      expect(resultFail.historyEntry.type).toBe('fail');
+      expect(resultFail.historyEntry.score).toBe(0);
+    });
+  });
 });

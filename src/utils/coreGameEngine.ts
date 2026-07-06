@@ -6,6 +6,8 @@ import type {
   GlobalStatsPayload,
   NextTurnResult,
   UndoResult,
+  HistoryEntry,
+  HistoryEventType,
 } from '../types';
 
 // A deck with every card type at 0 leaves currentCard permanently null and the
@@ -215,6 +217,29 @@ export const calculateNextTurn = (
   if (currentCard === 'x2') currentPlayer.x2PointsScored = (currentPlayer.x2PointsScored ?? 0) + turnScore;
   if (currentCard === 'Feuerwerk') currentPlayer.feuerwerkPointsScored = (currentPlayer.feuerwerkPointsScored ?? 0) + turnScore;
 
+  let historyType: HistoryEventType = 'success';
+  if (currentCard === 'Stop') {
+    historyType = 'skip';
+  } else if (wasBust) {
+    historyType = 'bust';
+  } else if (currentCard && ['Plus_Minus', 'Kniffel', 'Kleeblatt'].includes(currentCard)) {
+    historyType = isSuccess ? 'success' : 'fail';
+  }
+
+  const historyEntry: HistoryEntry = {
+    id: `${round}-${currentPlayer.name}-${currentPlayer.totalTurns}`,
+    round,
+    playerName: currentPlayer.name,
+    playerColor: currentPlayer.color,
+    card: currentCard ?? 'Stop',
+    type: historyType,
+    score: currentCard === 'Kleeblatt' && isSuccess ? 0 : turnScore,
+  };
+
+  if (currentCard === 'Plus_Minus' && isSuccess && snapshotLeaders) {
+    historyEntry.deductedPlayers = snapshotLeaders.map(l => l.name);
+  }
+
   if (currentCard === 'Kleeblatt' && isSuccess) {
     currentPlayer.timesKleeblattCompleted = (currentPlayer.timesKleeblattCompleted ?? 0) + 1;
     // Kleeblatt is a binary instant-win, not a scored turn — the dice rolled to
@@ -235,6 +260,7 @@ export const calculateNextTurn = (
       previousHighestTurnScore: currentPlayer.highestTurnScore ?? 0,
       previousPlayerName: currentPlayer.name,
       newDeck: cards, drawnCard: null,
+      historyEntry,
     };
   } else if (currentCard === 'Kleeblatt') {
     currentPlayer.timesKleeblattFailed = (currentPlayer.timesKleeblattFailed ?? 0) + 1;
@@ -277,6 +303,7 @@ export const calculateNextTurn = (
     previousLeaders: snapshotLeaders, previousWasBust: wasBust,
     previousHighestTurnScore, previousPlayerName: currentPlayer.name,
     newDeck, drawnCard,
+    historyEntry,
   };
 };
 

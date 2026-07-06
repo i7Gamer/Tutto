@@ -502,6 +502,66 @@ describe('useGameStore', () => {
     expect(state.previousCard).toBeNull();
   });
 
+  it('appends history log on nextTurn and pops on undo', () => {
+    useGameStore.getState().addPlayer('P1');
+    useGameStore.getState().addPlayer('P2');
+    useGameStore.setState({
+      status: 'playing',
+      currentPlayerIndex: 0,
+      round: 1,
+      currentCard: '300',
+      historyLog: []
+    });
+
+    useGameStore.getState().nextTurn(500, true);
+    let state = useGameStore.getState();
+    expect(state.historyLog.length).toBe(1);
+    expect(state.historyLog[0].playerName).toBe('P1');
+    expect(state.historyLog[0].type).toBe('success');
+    expect(state.historyLog[0].score).toBe(500);
+
+    // Let's set up undo-able turn state
+    useGameStore.setState({
+      previousCard: '300',
+      previousScore: 500,
+      previousLeaders: [],
+      previousPlayerName: 'P1',
+      currentPlayerIndex: 1,
+      round: 1,
+      players: [{ name: 'P1', score: 500 }, { name: 'P2', score: 0 }]
+    });
+
+    useGameStore.getState().undo();
+    state = useGameStore.getState();
+    expect(state.historyLog.length).toBe(0);
+  });
+
+  it('caps historyLog at MAX_HISTORY_LOG_SIZE', () => {
+    const log = Array.from({ length: 50 }, (_, i) => ({
+      id: `rnd-P1-${i}`,
+      round: 1,
+      playerName: 'P1',
+      card: '300' as const,
+      type: 'success' as const,
+      score: 100,
+    }));
+    useGameStore.getState().addPlayer('P1');
+    useGameStore.setState({
+      status: 'playing',
+      currentPlayerIndex: 0,
+      round: 1,
+      currentCard: '300',
+      historyLog: log,
+    });
+
+    useGameStore.getState().nextTurn(100, true);
+    const state = useGameStore.getState();
+    expect(state.historyLog.length).toBe(50);
+    // The oldest entry should have been shifted out
+    expect(state.historyLog[0].id).toBe('rnd-P1-1');
+    expect(state.historyLog[49].id).toBe('1-P1-1');
+  });
+
   it('undo clears the current player\'s live dice snapshot and cache, not just the previous-turn bookkeeping', () => {
     // Undo can be triggered while the CURRENT player is mid-roll (digital dice).
     // Without clearing liveTurnState/the localStorage cache too, spectators keep

@@ -285,5 +285,13 @@
   "help.faq.q6": "Wie funktioniert die Rückgängig-Funktion (Undo)?",
   "help.faq.a6": "Sowohl in lokalen als auch in Online-Spielen kann der letzte Zug rückgängig gemacht werden, um Fehler zu korrigieren. Bei Online-Spielen können nur der aktive Spieler oder der Host Undo auslösen.",
   "help.faq.q7": "Wie funktionieren physische Würfel?",
-  "help.faq.a7": "Du würfelst echte Würfel auf dem Tisch und gibst die Werte in der App ein."
+  "help.faq.a7": "Du würfelst echte Würfel auf dem Tisch und gibst die Werte in der App ein.",
+  "history.title": "Aktivitätsprotokoll",
+  "history.empty": "Noch keine Spielzüge aufgezeichnet.",
+  "history.skip": "{{name}} übersprungen (Stop)",
+  "history.bust": "{{name}} Niete bei {{card}}",
+  "history.fail": "{{name}} Fehlschlag bei {{card}}",
+  "history.success": "{{name}} erzielt {{score}} Pkt. bei {{card}}",
+  "history.plusMinusDeducted": "{{name}} erzielt 1000 Pkt. ({{deducted}} abgezogen 1000)",
+  "history.kleeblatt": "{{name}} erzielt Kleeblatt und gewinnt!"
 }

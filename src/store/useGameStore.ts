@@ -67,6 +67,7 @@ const initialLocalState: Omit<CoreGameState, never> & {
   liveTurnState: null,
   justReconnected: false,
   preGameStats: null,
+  historyLog: [],
 };
 
 export const useGameStore = create<GameStore>()(

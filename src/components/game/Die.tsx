@@ -9,6 +9,17 @@ interface DieProps {
   onToggle: (id: string) => void;
 }
 
+const PIP_POSITIONS: Record<number, number[]> = {
+  1: [4],
+  2: [0, 8],
+  3: [0, 4, 8],
+  4: [0, 2, 6, 8],
+  5: [0, 2, 4, 6, 8],
+  6: [0, 2, 3, 5, 6, 8],
+};
+
+const GRID_SIZE = 9;
+
 export default function Die({ die, isSelected, isDieTumbling, bustState, onToggle }: DieProps) {
   return (
     <motion.button
@@ -21,12 +32,12 @@ export default function Die({ die, isSelected, isDieTumbling, bustState, onToggl
         rotate: { repeat: isDieTumbling ? Infinity : 0, duration: 0.2 },
         y: { repeat: isDieTumbling ? Infinity : 0, duration: 0.15 },
       }}
-      className={`die w-14 h-14 rounded-xl flex items-center justify-center text-2xl font-bold transition-all border-2
+      className={`die w-14 h-14 rounded-xl flex items-center justify-center text-transparent select-none transition-all border-2
         ${isSelected
-          ? 'bg-emerald-100 border-emerald-500 text-emerald-700 dark:bg-slate-700 dark:border-emerald-400 dark:text-emerald-100 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-110 z-10'
+          ? 'bg-emerald-100 border-emerald-500 text-transparent dark:bg-slate-700 dark:border-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-110 z-10'
           : bustState
-            ? 'bg-red-50 border-red-300 text-red-500 opacity-70 cursor-default'
-            : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 text-gray-800 dark:text-gray-100 shadow-sm ' + (isDieTumbling ? '' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50')
+            ? 'bg-red-50 border-red-300 text-transparent opacity-70 cursor-default'
+            : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 text-transparent shadow-sm ' + (isDieTumbling ? '' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50')
         }
       `}
       onClick={() => onToggle(die.id)}
@@ -35,6 +46,25 @@ export default function Die({ die, isSelected, isDieTumbling, bustState, onToggl
       aria-label={`Die showing ${die.val}, ${isSelected ? 'selected' : 'not selected'}`}
     >
       {die.val}
+      <div className="grid grid-cols-3 grid-rows-3 gap-1 absolute inset-0 p-2.5">
+        {Array.from({ length: GRID_SIZE }).map((_, index) => {
+          const isPipActive = PIP_POSITIONS[die.val]?.includes(index);
+          return (
+            <div
+              key={index}
+              className={`w-2 h-2 rounded-full transition-all duration-200 justify-self-center align-self-center ${
+                isPipActive
+                  ? isSelected
+                    ? 'bg-emerald-700 dark:bg-emerald-100 scale-100'
+                    : bustState
+                      ? 'bg-red-500 scale-100'
+                      : 'bg-gray-800 dark:bg-gray-100 scale-100'
+                  : 'bg-transparent scale-0'
+              }`}
+            />
+          );
+        })}
+      </div>
     </motion.button>
   );
 }

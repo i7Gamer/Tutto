@@ -19,6 +19,7 @@ import CardDisplay from './game/CardDisplay';
 import GameControls from './game/GameControls';
 import ReactionBar from './game/ReactionBar';
 import DiceGame from './DiceGame';
+import HistoryLog from './game/HistoryLog';
 
 export default function Game() {
   const { t } = useTranslation();
@@ -407,6 +408,14 @@ export default function Game() {
               {t('game.goalPrefix', 'Goal: First to reach')} <strong className="text-indigo-600">{winningScore}</strong> {t('game.goalSuffix', 'points wins!')}
             </div>
           )}
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="md:col-span-2"
+        >
+          <HistoryLog />
         </motion.div>
       </div>
 
