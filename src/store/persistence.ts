@@ -20,7 +20,7 @@ const STABLE_LOCAL_GAME_KEYS = [
   'turnDuration', 'reconnectTimeout', 'finished',
   'previousScore', 'previousCard', 'previousLeaders',
   'previousWasBust', 'previousHighestTurnScore', 'previousPlayerName',
-  'chartValues', 'chartNames', 'chartLabels', 'status',
+  'chartValues', 'chartNames', 'chartLabels', 'status', 'historyLog',
 ] as const satisfies readonly (keyof GameStore)[];
 
 const LOCAL_GAME_STATE_KEYS = [...STABLE_LOCAL_GAME_KEYS, 'gameTimeInSeconds'] as const satisfies readonly (keyof GameStore)[];

@@ -321,6 +321,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
         previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
         previousPlayerName, chartValues, chartNames, chartLabels, status, liveTurnState, enforcedDiceMode,
+        historyLog,
       } = s;
       socket.emit('pushState', {
         roomId: s.roomId,
@@ -329,6 +330,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
           previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
           previousPlayerName, chartValues, chartNames, chartLabels, status, liveTurnState, enforcedDiceMode,
+          historyLog,
         },
       });
     }

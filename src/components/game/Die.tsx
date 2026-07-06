@@ -32,12 +32,12 @@ export default function Die({ die, isSelected, isDieTumbling, bustState, onToggl
         rotate: { repeat: isDieTumbling ? Infinity : 0, duration: 0.2 },
         y: { repeat: isDieTumbling ? Infinity : 0, duration: 0.15 },
       }}
-      className={`die w-14 h-14 rounded-xl flex items-center justify-center text-transparent select-none transition-all border-2
+      className={`die w-14 h-14 relative flex items-center justify-center text-transparent select-none transition-all border-2
         ${isSelected
-          ? 'bg-emerald-100 border-emerald-500 text-transparent dark:bg-slate-700 dark:border-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-110 z-10'
+          ? 'bg-emerald-100 border-emerald-500 dark:bg-slate-700 dark:border-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-110 z-10'
           : bustState
-            ? 'bg-red-50 border-red-300 text-transparent opacity-70 cursor-default'
-            : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 text-transparent shadow-sm ' + (isDieTumbling ? '' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50')
+            ? 'bg-red-50 border-red-300 opacity-70 cursor-default'
+            : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 shadow-sm ' + (isDieTumbling ? '' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50')
         }
       `}
       onClick={() => onToggle(die.id)}
@@ -46,7 +46,7 @@ export default function Die({ die, isSelected, isDieTumbling, bustState, onToggl
       aria-label={`Die showing ${die.val}, ${isSelected ? 'selected' : 'not selected'}`}
     >
       {die.val}
-      <div className="grid grid-cols-3 grid-rows-3 gap-1 absolute inset-0 p-2.5">
+      <div className="grid grid-cols-3 grid-rows-3 gap-1 absolute inset-0 p-2.5 pointer-events-none">
         {Array.from({ length: GRID_SIZE }).map((_, index) => {
           const isPipActive = PIP_POSITIONS[die.val]?.includes(index);
           return (
