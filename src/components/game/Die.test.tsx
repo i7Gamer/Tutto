@@ -100,7 +100,7 @@ describe('Die', () => {
     expect(button.className).toContain('border-red-300');
   });
 
-  it('applies color transparent inline style to visually hide text numbers', () => {
+  it('applies text-transparent class to visually hide text numbers', () => {
     render(
       <Die
         die={defaultDie}
@@ -111,7 +111,24 @@ describe('Die', () => {
       />
     );
     const button = screen.getByRole('button');
-    expect(button.style.color).toBe('transparent');
+    expect(button.className).toContain('text-transparent');
+  });
+
+  it('ensures die text is transparent (via class, not inline style)', () => {
+    render(
+      <Die
+        die={defaultDie}
+        isSelected={false}
+        isDieTumbling={false}
+        bustState={false}
+        onToggle={() => {}}
+      />
+    );
+    const button = screen.getByRole('button');
+    // Should have text-transparent class for transparency
+    expect(button.className).toContain('text-transparent');
+    // Should NOT have redundant inline color style
+    expect(button.style.color).not.toBe('transparent');
   });
 
   describe('DiePips', () => {

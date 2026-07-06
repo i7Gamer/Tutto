@@ -213,7 +213,7 @@ describe('GameControls spectator view (online, not my turn)', () => {
     expect(screen.getByText('4').className).toContain('border-red-300');
   });
 
-  it('applies color transparent style to kept and roll spectator dice to visually hide text numbers', () => {
+  it('applies text-transparent class to kept and roll spectator dice to visually hide text numbers', () => {
     renderSpectator(
       {
         turnScore: 450,
@@ -224,8 +224,31 @@ describe('GameControls spectator view (online, not my turn)', () => {
       },
       '200'
     );
-    expect(screen.getByText('1').style.color).toBe('transparent');
-    expect(screen.getByText('5').style.color).toBe('transparent');
+    // Kept dice uses DiePips with indigo styling
+    expect(screen.getByText('1').className).toContain('text-transparent');
+    // Roll dice uses DiePips
+    expect(screen.getByText('5').className).toContain('text-transparent');
+  });
+
+  it('ensures spectator dice text is transparent (via class, not inline style)', () => {
+    renderSpectator(
+      {
+        turnScore: 450,
+        keptDice: [{ id: 'a', val: 1 }],
+        currentRoll: [{ id: 'r1', val: 5, selected: false }],
+        kniffelProgress: [],
+        tuttosThisTurn: 0,
+      },
+      '200'
+    );
+    const keptDie = screen.getByText('1');
+    const rollDie = screen.getByText('5');
+    // Should use text-transparent class
+    expect(keptDie.className).toContain('text-transparent');
+    expect(rollDie.className).toContain('text-transparent');
+    // Should NOT have redundant inline color style
+    expect(keptDie.style.color).not.toBe('transparent');
+    expect(rollDie.style.color).not.toBe('transparent');
   });
 });
 
