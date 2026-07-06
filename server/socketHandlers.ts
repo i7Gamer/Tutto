@@ -432,6 +432,13 @@ export const registerSocketHandlers = (io: Server): void => {
       room.statsRecordedForGame.devices.add(deviceId);
       try {
         await updateDeviceStats(deviceId, sanitizeStats(stats));
+        // The win/loss just recorded above may have changed this device's streak.
+        // `player` still holds the value from when they joined, so without this
+        // refresh + broadcast, the streak shown next to the player (leaderboard,
+        // spectators) stays stale until they rejoin a room.
+        const updatedStats = await getDeviceStats(deviceId);
+        player.winStreak = updatedStats?.currentWinStreak ?? 0;
+        emitRoomState(io, currentRoom as string);
       } catch (err) {
         room.statsRecordedForGame.devices.delete(deviceId);
         console.error(err);

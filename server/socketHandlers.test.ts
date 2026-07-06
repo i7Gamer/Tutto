@@ -121,6 +121,30 @@ describe('stats dedup rollback on DB failure', () => {
 
     client.disconnect();
   });
+
+  it('endGameStats: refreshes the winning player\'s in-room winStreak and broadcasts it, instead of leaving it stale until the next join', async () => {
+    mockedUpdateDeviceStats.mockResolvedValue(true);
+    // Player joined with no prior streak...
+    mockedGetDeviceStats.mockResolvedValueOnce(null);
+    client = await connectAndJoin('STATS_STREAK_ROOM', 'Alice', 'dev-streak-1');
+
+    // deviceId is stripped from broadcast state (it's a reconnect credential), so
+    // match by name instead — same as the client would.
+    const gameStatePromise = new Promise<{ players: { name: string; winStreak?: number }[] }>(resolve => {
+      client.on('gameState', (state) => {
+        const alice = state.players.find((p: { name: string }) => p.name === 'Alice');
+        if (alice?.winStreak === 4) resolve(state);
+      });
+    });
+
+    // ...but just won, extending the streak to 4 (as computed server-side by the DB layer).
+    mockedGetDeviceStats.mockResolvedValueOnce({ currentWinStreak: 4 } as Awaited<ReturnType<typeof getDeviceStats>>);
+    client.emit('endGameStats', { deviceId: 'dev-streak-1', stats: { gamesPlayed: 1, wins: 1 } });
+
+    await gameStatePromise;
+
+    client.disconnect();
+  });
 });
 
 describe('room membership (kick host migration, mid-game rename guard)', () => {
