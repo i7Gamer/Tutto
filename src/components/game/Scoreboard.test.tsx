@@ -66,4 +66,30 @@ describe('Scoreboard Component', () => {
     render(<Scoreboard game={game} formattedTime="10:00" />);
     expect(screen.getByText('game.score')).toBeInTheDocument();
   });
+
+  it('renders win streak badge when winStreak >= 3', () => {
+    const game = {
+      players: [{ name: 'StreakPlayer', score: 100, socketId: 'abc', winStreak: 3 }],
+      currentPlayerIndex: 0,
+      isOnline: true,
+      myName: 'Player 1',
+      round: 1,
+      winningScore: 1000,
+    };
+    render(<Scoreboard game={game as any} formattedTime="10:00" />);
+    expect(screen.getByText('🔥 3')).toBeInTheDocument();
+  });
+
+  it('does not render win streak badge when winStreak < 3', () => {
+    const game = {
+      players: [{ name: 'StreakPlayer', score: 100, socketId: 'abc', winStreak: 2 }],
+      currentPlayerIndex: 0,
+      isOnline: true,
+      myName: 'Player 1',
+      round: 1,
+      winningScore: 1000,
+    };
+    render(<Scoreboard game={game as any} formattedTime="10:00" />);
+    expect(screen.queryByText('🔥 2')).not.toBeInTheDocument();
+  });
 });

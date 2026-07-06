@@ -397,3 +397,26 @@ describe('HapticsSettingSelector', () => {
     expect(container.firstChild).toBeNull();
   });
 });
+
+describe('PlayerList win streak', () => {
+  it('renders win streak badge for players with winStreak >= 3', () => {
+    const players = [
+      { name: 'P1', winStreak: 3, score: 0, socketId: '1', position: 0, deviceId: 'a', color: '#ff0000', disconnected: false },
+      { name: 'P2', winStreak: 2, score: 0, socketId: '2', position: 1, deviceId: 'b', color: '#00ff00', disconnected: false }
+    ];
+    render(
+      <PlayerList 
+        players={players as any} 
+        reorderPlayers={vi.fn()} 
+        isOnline={true} 
+        myName="P1" 
+        hostId="1" 
+        isHost={true} 
+        changeColor={vi.fn()} 
+        onRemovePlayer={vi.fn()} 
+      />
+    );
+    expect(screen.getByText('🔥 3')).toBeInTheDocument();
+    expect(screen.queryByText('🔥 2')).not.toBeInTheDocument();
+  });
+});

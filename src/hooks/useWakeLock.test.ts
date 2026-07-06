@@ -101,4 +101,21 @@ describe('useWakeLock', () => {
 
     expect(request).toHaveBeenCalledTimes(1);
   });
+
+  it('re-requests the lock once the tab becomes visible again if the initial request was rejected', async () => {
+    const sentinel = createFakeSentinel();
+    const request = vi.fn()
+      .mockRejectedValueOnce(new Error('denied'))
+      .mockResolvedValueOnce(sentinel);
+    Object.defineProperty(navigator, 'wakeLock', { value: { request }, configurable: true });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    renderHook(() => useWakeLock());
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+  });
 });

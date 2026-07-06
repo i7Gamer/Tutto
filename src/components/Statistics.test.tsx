@@ -174,6 +174,48 @@ describe('Statistics Component', () => {
     // It should render empty states or zeros
     expect(screen.getByText('statistics.noPersonalGames')).toBeInTheDocument();
     
+    expect(screen.getByText('statistics.noPersonalGames')).toBeInTheDocument();
+    
     consoleSpy.mockRestore();
+  });
+
+  it('renders currentWinStreak and bestWinStreak correctly', async () => {
+    const mockPersonalStats = {
+      gamesPlayed: 10,
+      wins: 6,
+      currentWinStreak: 3,
+      bestWinStreak: 5,
+    };
+
+    global.fetch = vi.fn((url) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.includes('global') ? {} : mockPersonalStats),
+    }));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+    expect(screen.getByText('🔥 3')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.getByText('statistics.currentWinStreak')).toBeInTheDocument();
+    expect(screen.getByText('statistics.bestWinStreak')).toBeInTheDocument();
+  });
+
+  it('renders currentWinStreak without fire icon if < 3', async () => {
+    const mockPersonalStats = {
+      gamesPlayed: 10,
+      wins: 6,
+      currentWinStreak: 2,
+    };
+
+    global.fetch = vi.fn((url) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.includes('global') ? {} : mockPersonalStats),
+    }));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+    expect(screen.queryByText('🔥 2')).not.toBeInTheDocument();
   });
 });

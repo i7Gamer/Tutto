@@ -1020,5 +1020,31 @@ describe('Game Component Integration', () => {
 
       expect(vibrateTurnUrgent).not.toHaveBeenCalled();
     });
+
+    it('renders win streak badge when winStreak >= 3', () => {
+      useGameStore.setState({
+        isOnline: true,
+        myName: 'Alice',
+        currentPlayerIndex: 0,
+        players: [
+          { name: 'Alice', socketId: 'socket1', score: 0, position: 1, winStreak: 4 },
+        ],
+      });
+      render(<Game />);
+      expect(screen.getAllByText('🔥 4').length).toBeGreaterThan(0);
+    });
+
+    it('does not render win streak badge when winStreak < 3', () => {
+      useGameStore.setState({
+        isOnline: true,
+        myName: 'Alice',
+        currentPlayerIndex: 0,
+        players: [
+          { name: 'Alice', socketId: 'socket1', score: 0, position: 1, winStreak: 2 },
+        ],
+      });
+      render(<Game />);
+      expect(screen.queryByText('🔥 2')).not.toBeInTheDocument();
+    });
   });
 });
