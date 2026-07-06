@@ -376,6 +376,11 @@ export default function Game() {
                     <div className="flex-1 font-bold flex items-center flex-wrap gap-2" style={{ color: p.color || 'var(--text-color, #1f2937)' }}>
                       <span>{p.name}</span>
                       {isOnline && game.hostId === p.socketId && <span title={t('game.host', 'Host')} className="text-lg leading-none">👑</span>}
+                      {p.winStreak !== undefined && p.winStreak >= 3 && (
+                        <span title={t('game.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak: p.winStreak })} className="text-amber-500 text-[10px] sm:text-xs font-bold bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 flex items-center gap-0.5 whitespace-nowrap">
+                          🔥 {p.winStreak}
+                        </span>
+                      )}
                       {p.disconnected && (
                         <>
                           <span className="text-red-500 text-[10px] sm:text-xs font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50 whitespace-nowrap">{t('game.disconnected', 'Disconnected')}</span>

@@ -4,6 +4,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io } from 'socket.io-client';
 import { spawn } from 'child_process';
+import dotenv from 'dotenv';
+dotenv.config();
 
 describe('Server Socket E2E Simulation', () => {
   let serverProcess;
@@ -2463,6 +2465,60 @@ describe('Server Socket E2E Simulation', () => {
           });
         });
       });
+    });
+  });
+
+  it('attaches win streak from device statistics database to joining players', () => {
+    return new Promise((resolve, reject) => {
+      const deviceId = 'dev-streak-socket-test';
+      const roomId = 'STREAK_SOCKET_ROOM';
+      const realFetch = (globalThis as { __nativeFetch?: typeof fetch }).__nativeFetch ?? fetch;
+
+      // Seed a win streak of 5 by sending 5 consecutive wins
+      const seedStats = async () => {
+        for (let i = 0; i < 5; i++) {
+          const res = await realFetch(`http://127.0.0.1:${PORT}/api/stats/${deviceId}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-tutto-token': process.env.API_TOKEN || 'tutto-local-dev-token'
+            },
+            body: JSON.stringify({
+              gamesPlayed: 1,
+              wins: 1
+            })
+          });
+          expect(res.status).toBe(200);
+        }
+      };
+
+      seedStats().then(() => {
+        const s1 = io(`http://127.0.0.1:${PORT}`);
+        const cleanup = () => { s1.disconnect(); };
+        const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Timed out')); }, 6000);
+
+        s1.on('connect', () => {
+          s1.emit('joinRoom', { roomId, name: 'Alice', deviceId, color: '#ff0000' }, (res2) => {
+            expect(res2.success).toBe(true);
+          });
+        });
+
+        s1.on('gameState', (state) => {
+          try {
+            const alice = state.players.find((p) => p.name === 'Alice');
+            if (alice) {
+              expect(alice.winStreak).toBe(5);
+              clearTimeout(timeoutId);
+              cleanup();
+              resolve(undefined);
+            }
+          } catch (e) {
+            clearTimeout(timeoutId);
+            cleanup();
+            reject(e);
+          }
+        });
+      }).catch(reject);
     });
   });
 });

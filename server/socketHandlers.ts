@@ -1,5 +1,5 @@
 import { Server, Socket } from 'socket.io';
-import { updateDeviceStats, updateGlobalStats } from './database';
+import { getDeviceStats, updateDeviceStats, updateGlobalStats } from './database';
 import { sanitizeStats } from './sanitize';
 import { DEFAULT_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
 import { REACTION_EMOJIS } from '../src/utils/reactions';
@@ -16,7 +16,7 @@ export const registerSocketHandlers = (io: Server): void => {
     let currentRoom: string | null = null;
     let username: string | null = null;
 
-    socket.on('joinRoom', (
+    socket.on('joinRoom', async (
       payload: { roomId?: string; name?: string; deviceId?: string; color?: string; initialConfig?: Record<string, unknown> } | null | undefined,
       callback: (result: { success: boolean; isHost?: boolean; socketId?: string; error?: string; name?: string }) => void
     ) => {
@@ -81,6 +81,8 @@ export const registerSocketHandlers = (io: Server): void => {
 
       const existingPlayer = room.state.players.find(p => p.deviceId === deviceId);
       if (existingPlayer) {
+        const stats = await getDeviceStats(deviceId);
+        existingPlayer.winStreak = stats?.currentWinStreak ?? 0;
         if (room.state.status === 'lobby') {
           // Disconnected players keep their name reserved too (same rule as the
           // fresh-join path below) — otherwise a rejoining device could rename
@@ -147,6 +149,9 @@ export const registerSocketHandlers = (io: Server): void => {
       if (!assignedColor) assignedColor = PLAYER_COLORS.find((c: string) => !usedColors.includes(c)) ?? null;
       if (!assignedColor) assignedColor = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)] as string;
 
+      const stats = await getDeviceStats(deviceId);
+      const winStreak = stats?.currentWinStreak ?? 0;
+
       const newPlayer: ServerPlayer = {
         name,
         deviceId,
@@ -171,6 +176,7 @@ export const registerSocketHandlers = (io: Server): void => {
         position: 0,
         color: assignedColor,
         disconnected: false,
+        winStreak,
       };
       room.state.players.push(newPlayer);
 

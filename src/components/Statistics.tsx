@@ -30,6 +30,8 @@ interface PersonalStats {
   highestTurnScore?: number;
   fastestWinTurns?: number | null;
   fastestLossTurns?: number | null;
+  currentWinStreak?: number;
+  bestWinStreak?: number;
 }
 
 interface GlobalStats {
@@ -246,6 +248,22 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                     <StatTile icon={<Trophy size={32} className="text-amber-500" />} value={`${pWinRate}%`} label={t('statistics.winRate', 'Win Rate')} colorClass="text-amber-600 dark:text-amber-400" bgClass="bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-500/30" />
                     <StatTile icon={<Clock size={32} className="text-indigo-400" />} value={formatTime(pAvgDuration)} label={t('statistics.avgDuration', 'Avg Duration')} />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                    <StatTile 
+                      icon={<Zap size={32} className={`text-amber-500 ${(p.currentWinStreak || 0) >= 3 ? 'animate-pulse' : ''}`} />} 
+                      value={(p.currentWinStreak || 0) >= 3 ? `🔥 ${p.currentWinStreak}` : (p.currentWinStreak || 0)} 
+                      label={t('statistics.currentWinStreak', 'Current Win Streak')} 
+                      colorClass={(p.currentWinStreak || 0) >= 3 ? 'text-amber-600 dark:text-amber-400 font-extrabold' : 'text-amber-600 dark:text-amber-400'} 
+                      bgClass={(p.currentWinStreak || 0) >= 3 ? 'bg-amber-100/70 dark:bg-amber-900/40 border-amber-200 dark:border-amber-500/50 shadow-sm animate-pulse' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-500/30'} 
+                    />
+                    <StatTile 
+                      icon={<Trophy size={32} className="text-amber-500" />} 
+                      value={p.bestWinStreak || 0} 
+                      label={t('statistics.bestWinStreak', 'Best Win Streak')} 
+                      colorClass="text-amber-600 dark:text-amber-400" 
+                      bgClass="bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-500/30" 
+                    />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                     <StatTile icon={<TrendingDown size={32} className="text-red-400" />} value={`${pBustRate}%`} label={t('statistics.bustRate', 'Bust Rate')} colorClass="text-red-600 dark:text-red-400" bgClass="bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-500/30" />

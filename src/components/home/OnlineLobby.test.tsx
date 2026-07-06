@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import OnlineLobby from './OnlineLobby';
 
 describe('OnlineLobby', () => {
@@ -191,5 +191,48 @@ describe('OnlineLobby dice mode enforcement', () => {
     expect(screen.getByText('lobby.digitalDice')).toBeInTheDocument();
     expect(screen.getByText('lobby.physicalDice')).toBeInTheDocument();
     expect(screen.queryByText(/lobby.diceModeEnforcedBadge/)).not.toBeInTheDocument();
+  });
+});
+
+describe('OnlineLobby recent rooms history', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('renders recent rooms from localStorage if present', () => {
+    localStorage.setItem(
+      'tutto_recent_rooms',
+      JSON.stringify([
+        { roomId: 'ROOM123', name: 'Bob', timestamp: Date.now() }
+      ])
+    );
+    const mockGame = {
+      joinRoom: vi.fn(),
+    };
+    render(<OnlineLobby game={mockGame} />);
+    expect(screen.getByText('lobby.online.recentRooms')).toBeInTheDocument();
+    expect(screen.getByText(/ROOM123/)).toBeInTheDocument();
+  });
+
+  it('clicking a recent room populates the room code and name fields', () => {
+    localStorage.setItem(
+      'tutto_recent_rooms',
+      JSON.stringify([
+        { roomId: 'ROOM123', name: 'Bob', timestamp: Date.now() }
+      ])
+    );
+    const mockGame = {
+      joinRoom: vi.fn(),
+    };
+    render(<OnlineLobby game={mockGame} />);
+    
+    const recentBtn = screen.getByText(/ROOM123/).closest('button')!;
+    fireEvent.click(recentBtn);
+
+    const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder') as HTMLInputElement;
+    const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder') as HTMLInputElement;
+
+    expect(roomInput.value).toBe('ROOM123');
+    expect(nameInput.value).toBe('Bob');
   });
 });

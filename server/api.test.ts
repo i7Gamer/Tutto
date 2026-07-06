@@ -199,7 +199,7 @@ describe('CORS_ORIGIN configuration', () => {
 
 describe('GET /api/stats/global rate limiting', () => {
   let serverProcess;
-  const PORT = '3009';
+  const PORT = '3012';
 
   beforeAll(() => {
     if (globalThis.__nativeFetch) {

@@ -16,6 +16,7 @@ import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
 vi.mock('./database', () => ({
   updateDeviceStats: vi.fn(),
   updateGlobalStats: vi.fn(),
+  getDeviceStats: vi.fn().mockResolvedValue(null),
 }));
 
 import { updateDeviceStats, updateGlobalStats } from './database';

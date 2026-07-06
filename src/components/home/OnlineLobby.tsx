@@ -24,6 +24,21 @@ export default function OnlineLobby({ game }: OnlineLobbyProps) {
   const { t } = useTranslation();
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  interface RecentRoom {
+    roomId: string;
+    name: string;
+    timestamp: number;
+  }
+
+  const [recentRooms, setRecentRooms] = useState<RecentRoom[]>(() => {
+    try {
+      const raw = localStorage.getItem('tutto_recent_rooms');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const getStoredValue = (key: string): string => {
     try { return localStorage.getItem(key) || ''; } catch { return ''; }
   };
@@ -59,7 +74,25 @@ export default function OnlineLobby({ game }: OnlineLobbyProps) {
     } else {
       localStorage.setItem('tutto_last_room', inputRoomCode);
       localStorage.setItem('tutto_last_name', inputName);
+      
+      try {
+        const raw = localStorage.getItem('tutto_recent_rooms');
+        let list: RecentRoom[] = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(list)) list = [];
+        list = list.filter(item => item.roomId !== inputRoomCode);
+        list.unshift({ roomId: inputRoomCode, name: inputName, timestamp: Date.now() });
+        list = list.slice(0, 5);
+        localStorage.setItem('tutto_recent_rooms', JSON.stringify(list));
+        setRecentRooms(list);
+      } catch (e) {
+        console.error('Failed to update recent rooms', e);
+      }
     }
+  };
+
+  const handleSelectRecentRoom = (room: RecentRoom) => {
+    setInputRoomCode(room.roomId);
+    setInputName(room.name);
   };
 
   if (!roomId) {
@@ -96,6 +129,24 @@ export default function OnlineLobby({ game }: OnlineLobbyProps) {
           >
             {t('lobby.online.joinCreateButton', 'Join / Create')}
           </motion.button>
+
+          {recentRooms.length > 0 && (
+            <div className="flex flex-col gap-2 mt-4 border-t border-gray-150 dark:border-slate-700 pt-4">
+              <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('lobby.online.recentRooms', 'Recent Rooms')}</label>
+              <div className="flex flex-col gap-1">
+                {recentRooms.map((room) => (
+                  <button
+                    key={room.roomId}
+                    onClick={() => handleSelectRecentRoom(room)}
+                    className="flex justify-between items-center bg-gray-50 hover:bg-indigo-50/50 dark:bg-slate-800/30 dark:hover:bg-slate-700/40 border border-gray-200/80 dark:border-slate-700 rounded-lg px-3 py-2 text-sm transition-colors text-left font-medium text-gray-700 dark:text-gray-200 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
+                  >
+                    <span>{room.roomId} <span className="text-gray-400 dark:text-gray-500 text-xs font-normal">({room.name})</span></span>
+                    <span className="text-[10px] text-gray-400 dark:text-gray-500 font-normal">{new Date(room.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </motion.div>
     );

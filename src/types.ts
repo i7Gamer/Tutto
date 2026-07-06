@@ -66,6 +66,7 @@ export interface Player {
   deviceId?: string;
   disconnected?: boolean;
   highestTurnScore?: number;
+  winStreak?: number;
 }
 
 export interface CoreGameState {
