@@ -182,16 +182,6 @@ export const useGameStore = create<GameStore>()(
           Object.assign(state, parsed);
         }
 
-        // If switching to local, ensure we don't accidentally load online settings
-        // that somehow snuck into the local save file in older versions.
-        if (isLocal && parsed) {
-           if (parsed.winningScore !== undefined) state.winningScore = parsed.winningScore;
-           if (parsed.randomOrder !== undefined) state.randomOrder = parsed.randomOrder;
-           if (parsed.turnDuration !== undefined) state.turnDuration = parsed.turnDuration;
-           if (parsed.reconnectTimeout !== undefined) state.reconnectTimeout = parsed.reconnectTimeout;
-           if (parsed.initialCards !== undefined) state.initialCards = parsed.initialCards;
-        }
-
         if (isLocal) {
           reanchorLocalClock(state);
         }

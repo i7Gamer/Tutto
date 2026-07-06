@@ -15,6 +15,7 @@ export const registerSocketHandlers = (io: Server): void => {
   io.on('connection', (socket: Socket) => {
     let currentRoom: string | null = null;
     let username: string | null = null;
+    let lastReactionTime = 0;
 
     socket.on('joinRoom', async (
       payload: { roomId?: string; name?: string; deviceId?: string; color?: string; initialConfig?: Record<string, unknown> } | null | undefined,
@@ -260,6 +261,11 @@ export const registerSocketHandlers = (io: Server): void => {
       // the room this socket is actually seated in.
       if (!currentRoom || !rooms[currentRoom]) return;
       if (typeof emoji !== 'string' || !(REACTION_EMOJIS as readonly string[]).includes(emoji)) return;
+
+      const now = Date.now();
+      if (now - lastReactionTime < 1000) return;
+      lastReactionTime = now;
+
       const room = rooms[currentRoom];
       const sender = room.state.players.find(p => p.socketId === socket.id);
       if (!sender) return;

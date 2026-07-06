@@ -301,6 +301,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       status: 'lobby',
       roomId: null,
       isHost: false,
+      hostId: null,
       myName: null,
       liveTurnState: null,
     });
