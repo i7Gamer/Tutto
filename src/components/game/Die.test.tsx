@@ -70,6 +70,19 @@ describe('Die', () => {
     expect(screen.getByRole('button')).toBeDisabled();
   });
 
+  it('rounds the die corners (Tailwind class, not a legacy stylesheet rule)', () => {
+    render(
+      <Die
+        die={defaultDie}
+        isSelected={false}
+        isDieTumbling={false}
+        bustState={false}
+        onToggle={() => {}}
+      />
+    );
+    expect(screen.getByRole('button').className).toMatch(/\brounded-\w+\b/);
+  });
+
   it('applies correct styling classes for selected state', () => {
     render(
       <Die
