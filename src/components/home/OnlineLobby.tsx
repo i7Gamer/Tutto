@@ -20,15 +20,15 @@ interface OnlineLobbyProps {
   game: GameStore;
 }
 
+interface RecentRoom {
+  roomId: string;
+  name: string;
+  timestamp: number;
+}
+
 export default function OnlineLobby({ game }: OnlineLobbyProps) {
   const { t } = useTranslation();
   const [showAdvanced, setShowAdvanced] = useState(false);
-
-  interface RecentRoom {
-    roomId: string;
-    name: string;
-    timestamp: number;
-  }
 
   const [recentRooms, setRecentRooms] = useState<RecentRoom[]>(() => {
     try {
@@ -131,7 +131,7 @@ export default function OnlineLobby({ game }: OnlineLobbyProps) {
           </motion.button>
 
           {recentRooms.length > 0 && (
-            <div className="flex flex-col gap-2 mt-4 border-t border-gray-150 dark:border-slate-700 pt-4">
+            <div className="flex flex-col gap-2 mt-4 border-t border-gray-200 dark:border-slate-700 pt-4">
               <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('lobby.online.recentRooms', 'Recent Rooms')}</label>
               <div className="flex flex-col gap-1">
                 {recentRooms.map((room) => (

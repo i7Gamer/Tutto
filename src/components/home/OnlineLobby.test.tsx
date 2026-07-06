@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import OnlineLobby from './OnlineLobby';
 
@@ -234,5 +234,71 @@ describe('OnlineLobby recent rooms history', () => {
 
     expect(roomInput.value).toBe('ROOM123');
     expect(nameInput.value).toBe('Bob');
+  });
+
+  it('deduplicates recent rooms on join and moves the most recent to the top', async () => {
+    localStorage.setItem(
+      'tutto_recent_rooms',
+      JSON.stringify([
+        { roomId: 'ROOM123', name: 'Bob', timestamp: 1000 },
+        { roomId: 'ROOM456', name: 'Alice', timestamp: 2000 }
+      ])
+    );
+    const mockGame = {
+      joinRoom: vi.fn().mockResolvedValue({}),
+    };
+    render(<OnlineLobby game={mockGame as any} />);
+    
+    const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder') as HTMLInputElement;
+    const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder') as HTMLInputElement;
+    const joinBtn = screen.getByText('lobby.online.joinCreateButton');
+
+    fireEvent.change(roomInput, { target: { value: 'ROOM123' } });
+    fireEvent.change(nameInput, { target: { value: 'Bob2' } });
+    fireEvent.click(joinBtn);
+
+    await waitFor(() => {
+      const updatedRaw = localStorage.getItem('tutto_recent_rooms');
+      const updated = JSON.parse(updatedRaw!);
+      expect(updated.length).toBe(2);
+      expect(updated[0].roomId).toBe('ROOM123');
+      expect(updated[0].name).toBe('Bob2');
+      expect(updated[1].roomId).toBe('ROOM456');
+    });
+  });
+
+  it('caps recent rooms to a maximum of 5', async () => {
+    const seed = Array.from({ length: 5 }).map((_, i) => ({
+      roomId: `ROOM${i}`, name: 'Bob', timestamp: i * 1000
+    }));
+    localStorage.setItem('tutto_recent_rooms', JSON.stringify(seed));
+    
+    const mockGame = {
+      joinRoom: vi.fn().mockResolvedValue({}),
+    };
+    render(<OnlineLobby game={mockGame as any} />);
+    
+    const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder') as HTMLInputElement;
+    const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder') as HTMLInputElement;
+    const joinBtn = screen.getByText('lobby.online.joinCreateButton');
+
+    fireEvent.change(roomInput, { target: { value: 'ROOM_NEW' } });
+    fireEvent.change(nameInput, { target: { value: 'Bob' } });
+    fireEvent.click(joinBtn);
+
+    await waitFor(() => {
+      const updatedRaw = localStorage.getItem('tutto_recent_rooms');
+      const updated = JSON.parse(updatedRaw!);
+      expect(updated.length).toBe(5);
+      expect(updated[0].roomId).toBe('ROOM_NEW');
+      expect(updated.find((r: any) => r.roomId === 'ROOM4')).toBeUndefined();
+    });
+  });
+
+  it('handles malformed localStorage data gracefully', () => {
+    localStorage.setItem('tutto_recent_rooms', 'not json');
+    const mockGame = { joinRoom: vi.fn() };
+    render(<OnlineLobby game={mockGame as any} />);
+    expect(screen.queryByText('lobby.online.recentRooms')).not.toBeInTheDocument();
   });
 });
