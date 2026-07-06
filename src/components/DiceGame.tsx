@@ -323,7 +323,6 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
   const { canStop, isRollAgainApplicable, stopButtonText: stopButtonTextKey } = deriveTurnControls({
     currentCard,
     hasRolled,
-    isRolling,
     bustState,
     isMakingTutto,
     tuttosThisTurn,
@@ -436,8 +435,8 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row gap-4 justify-center mt-8 pt-6 border-t border-gray-100 dark:border-slate-700">
                   {isRollAgainApplicable && (
                     <button
-                      className={`flex-1 flex justify-center items-center gap-2 py-4 rounded-xl font-bold text-lg transition-all ${validation.valid ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/30' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
-                      disabled={!validation.valid}
+                      className={`flex-1 flex justify-center items-center gap-2 py-4 rounded-xl font-bold text-lg transition-all ${validation.valid && !isRolling ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/30' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+                      disabled={!validation.valid || isRolling}
                       onClick={() => handleAction('roll')}
                     >
                       <RotateCw size={20} /> {t('dice.roll_again', 'Roll Again')}
@@ -445,8 +444,8 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
                   )}
                   {canStop && (
                     <button
-                      className={`flex-1 flex justify-center items-center gap-2 py-4 rounded-xl font-bold text-lg transition-all ${validation.valid ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
-                      disabled={!validation.valid}
+                      className={`flex-1 flex justify-center items-center gap-2 py-4 rounded-xl font-bold text-lg transition-all ${validation.valid && !isRolling ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+                      disabled={!validation.valid || isRolling}
                       onClick={() => handleAction('stop')}
                     >
                       <Hand size={20} /> {stopButtonText}

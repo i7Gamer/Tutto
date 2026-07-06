@@ -504,3 +504,57 @@ describe('DiceGame pending timer cleanup on unmount', () => {
     expect(playTone).not.toHaveBeenCalled();
   });
 });
+
+describe('DiceGame roll-again mid-animation button stability', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    rollQueue.length = 0;
+    // Disable the test-env fast path so isRolling actually stays true for a
+    // stretch after Roll Again, instead of the roll resolving synchronously.
+    isTestEnvMock.mockReturnValue(false);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    isTestEnvMock.mockReturnValue(true);
+    localStorage.clear();
+  });
+
+  it('disables Roll Again and Stop & Score in place mid-reroll, instead of unmounting Stop & Score', () => {
+    queueRoll([1, 2, 3, 4, 6, 6]);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />);
+
+    fireEvent.click(screen.getByText('dice.roll_6_dice'));
+    // advanceTimersByTime, not runAllTimers: the tumbling-display effect runs
+    // a recurring setInterval while dice are rolling (isTestEnv() is false in
+    // this suite), which runAllTimers would spin on forever.
+    act(() => { vi.advanceTimersByTime(2000); }); // let the first roll's animation settle
+
+    fireEvent.click(screen.getAllByLabelText('Die showing 1, not selected')[0]); // a lone 1 scores: valid
+
+    const rollAgainBefore = screen.getByText('dice.roll_again').closest('button');
+    const stopBefore = screen.getByText('dice.stop_and_score').closest('button');
+    expect(rollAgainBefore).not.toBeDisabled();
+    expect(stopBefore).not.toBeDisabled();
+
+    queueRoll([2, 3, 4, 6, 1]); // reroll of the 5 dice not kept (includes a 1 so it isn't a bust)
+    fireEvent.click(screen.getByText('dice.roll_again')); // starts the reroll: isRolling(true)
+
+    // Mid-animation, before the reroll's timers have run: both buttons must
+    // still be the same mounted nodes, merely disabled — previously canStop
+    // unmounted Stop & Score here, snapping Roll Again to full width.
+    const rollAgainDuring = screen.getByText('dice.roll_again').closest('button');
+    const stopDuring = screen.getByText('dice.stop_and_score').closest('button');
+    expect(rollAgainDuring).toBe(rollAgainBefore);
+    expect(stopDuring).toBe(stopBefore);
+    expect(rollAgainDuring).toBeDisabled();
+    expect(stopDuring).toBeDisabled();
+
+    act(() => { vi.advanceTimersByTime(2000); }); // finish the reroll animation
+
+    // Still the same nodes once isRolling clears — no remount either way.
+    expect(screen.getByText('dice.roll_again').closest('button')).toBe(rollAgainBefore);
+    expect(screen.getByText('dice.stop_and_score').closest('button')).toBe(stopBefore);
+  });
+});

@@ -6,7 +6,6 @@ describe('diceTurnControls', () => {
   const base = {
     currentCard: '300',
     hasRolled: true,
-    isRolling: false,
     bustState: false,
     isMakingTutto: false,
     tuttosThisTurn: 0,
@@ -26,8 +25,7 @@ describe('diceTurnControls', () => {
       expect(deriveTurnControls(base).canStop).toBe(true);
     });
 
-    it('blocks stopping while rolling, busted, or before a roll', () => {
-      expect(deriveTurnControls({ ...base, isRolling: true }).canStop).toBe(false);
+    it('blocks stopping while busted or before a roll', () => {
       expect(deriveTurnControls({ ...base, bustState: true }).canStop).toBe(false);
       expect(deriveTurnControls({ ...base, hasRolled: false }).canStop).toBe(false);
     });
