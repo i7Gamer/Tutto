@@ -45,11 +45,6 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
               {isOnline && game.hostId === currentPlayer.socketId && <span title={t('game.host', 'Host')} className="text-xl leading-none">👑</span>}
               {isOnline && isMyTurn ? t('game.you', 'You ({{name}})', { name: currentPlayer.name }) : currentPlayer.name}
             </span>
-            {currentPlayer.winStreak !== undefined && currentPlayer.winStreak >= 3 && (
-              <span title={t('game.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak: currentPlayer.winStreak })} className="text-amber-500 text-[10px] md:text-xs font-bold bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 leading-tight flex items-center gap-0.5 whitespace-nowrap">
-                🔥 {currentPlayer.winStreak}
-              </span>
-            )}
             {currentPlayer.disconnected && <span className="text-red-500 text-[10px] md:text-xs font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50 leading-tight">{t('game.disconnected', 'Disconnected')}</span>}
           </div>
         </motion.div>
