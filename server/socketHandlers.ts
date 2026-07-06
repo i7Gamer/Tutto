@@ -81,8 +81,14 @@ export const registerSocketHandlers = (io: Server): void => {
 
       const existingPlayer = room.state.players.find(p => p.deviceId === deviceId);
       if (existingPlayer) {
-        const stats = await getDeviceStats(deviceId);
-        existingPlayer.winStreak = stats?.currentWinStreak ?? 0;
+        let winStreak = 0;
+        try {
+          const stats = await getDeviceStats(deviceId);
+          winStreak = stats?.currentWinStreak ?? 0;
+        } catch (err) {
+          console.error('[joinRoom] getDeviceStats error:', err);
+        }
+        existingPlayer.winStreak = winStreak;
         if (room.state.status === 'lobby') {
           // Disconnected players keep their name reserved too (same rule as the
           // fresh-join path below) — otherwise a rejoining device could rename
@@ -149,8 +155,13 @@ export const registerSocketHandlers = (io: Server): void => {
       if (!assignedColor) assignedColor = PLAYER_COLORS.find((c: string) => !usedColors.includes(c)) ?? null;
       if (!assignedColor) assignedColor = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)] as string;
 
-      const stats = await getDeviceStats(deviceId);
-      const winStreak = stats?.currentWinStreak ?? 0;
+      let winStreak = 0;
+      try {
+        const stats = await getDeviceStats(deviceId);
+        winStreak = stats?.currentWinStreak ?? 0;
+      } catch (err) {
+        console.error('[joinRoom] getDeviceStats error:', err);
+      }
 
       const newPlayer: ServerPlayer = {
         name,

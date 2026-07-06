@@ -19,13 +19,14 @@ vi.mock('./database', () => ({
   getDeviceStats: vi.fn().mockResolvedValue(null),
 }));
 
-import { updateDeviceStats, updateGlobalStats } from './database';
+import { updateDeviceStats, updateGlobalStats, getDeviceStats } from './database';
 import { registerSocketHandlers } from './socketHandlers';
 import { rooms, createRoom, MAX_PLAYERS_PER_ROOM } from './rooms';
 import type { ServerPlayer } from './roomTypes';
 
 const mockedUpdateDeviceStats = vi.mocked(updateDeviceStats);
 const mockedUpdateGlobalStats = vi.mocked(updateGlobalStats);
+const mockedGetDeviceStats = vi.mocked(getDeviceStats);
 
 describe('stats dedup rollback on DB failure', () => {
   let httpServer: HttpServer;
@@ -52,6 +53,8 @@ describe('stats dedup rollback on DB failure', () => {
   beforeEach(() => {
     mockedUpdateDeviceStats.mockReset();
     mockedUpdateGlobalStats.mockReset();
+    mockedGetDeviceStats.mockReset();
+    mockedGetDeviceStats.mockResolvedValue(null);
   });
 
   const connectAndJoin = (roomId: string, name: string, deviceId: string): Promise<ClientSocket> =>
@@ -236,6 +239,17 @@ describe('room membership (kick host migration, mid-game rename guard)', () => {
     expect(res.success).toBe(false);
     expect(res.error).toBe('Username already exists in this room');
     expect(rooms['RENAME_CONFLICT_ROOM'].state.players.map(p => p.name).sort()).toEqual(['Carol', 'Dave']);
+  });
+
+  it('handles getDeviceStats failure gracefully during joinRoom', async () => {
+    mockedGetDeviceStats.mockRejectedValueOnce(new Error('db down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { res } = await joinRaw('DB_FAIL_ROOM', 'Eve', 'dev-fail-1');
+
+    expect(res.success).toBe(true);
+    expect(res.name).toBe('Eve');
+    expect(rooms['DB_FAIL_ROOM'].state.players[0].winStreak).toBe(0);
   });
 });
 
