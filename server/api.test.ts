@@ -196,3 +196,45 @@ describe('CORS_ORIGIN configuration', () => {
     expect(res.headers.get('access-control-allow-origin')).toBe(CORS_ORIGIN);
   });
 });
+
+describe('GET /api/stats/global rate limiting', () => {
+  let serverProcess;
+  const PORT = '3009';
+
+  beforeAll(() => {
+    if (globalThis.__nativeFetch) {
+      globalThis.fetch = globalThis.__nativeFetch;
+    }
+
+    return new Promise((resolve, reject) => {
+      serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
+        env: { ...process.env, PORT, TEST_DB: 'true', FORCE_INIT_DB: 'true' },
+        stdio: 'pipe'
+      });
+
+      let stdout = '';
+      serverProcess.stdout.on('data', (data) => {
+        stdout += data.toString();
+        if (stdout.includes('Database migrated')) resolve();
+      });
+      serverProcess.stderr.on('data', (data) => console.error(data.toString()));
+
+      serverProcess.on('error', (err) => reject(err));
+    });
+  }, 20000);
+
+  afterAll(() => {
+    if (serverProcess) serverProcess.kill();
+  });
+
+  it('starts rejecting with 429 once a client exceeds the stats per-window request cap', async () => {
+    const get = () => fetch(`http://127.0.0.1:${PORT}/api/stats/global`);
+
+    // The endpoint's limit is 60/window; fire 65 requests.
+    const responses = await Promise.all(Array.from({ length: 65 }, () => get()));
+    const statuses = responses.map(r => r.status);
+
+    expect(statuses.some(s => s === 200)).toBe(true);
+    expect(statuses.some(s => s === 429)).toBe(true);
+  }, 15000);
+});

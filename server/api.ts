@@ -15,6 +15,9 @@ const CRASH_FIELD_MAX = 2000;
 const CRASH_LOG_RATE_LIMIT_WINDOW_MS = 60_000;
 const CRASH_LOG_RATE_LIMIT_MAX = 20;
 
+const STATS_RATE_LIMIT_WINDOW_MS = 60_000;
+const STATS_RATE_LIMIT_MAX = 60;
+
 // Reads env at call time (not import time) so it runs after index.ts has
 // loaded .env via dotenv — module bodies are hoisted above that statement.
 export const registerApiRoutes = (app: express.Express): void => {
@@ -46,6 +49,11 @@ export const registerApiRoutes = (app: express.Express): void => {
     max: CRASH_LOG_RATE_LIMIT_MAX,
   });
 
+  const statsRateLimiter = createRateLimiter({
+    windowMs: STATS_RATE_LIMIT_WINDOW_MS,
+    max: STATS_RATE_LIMIT_MAX,
+  });
+
   app.post('/api/log/client-error', crashLogRateLimiter, (req: express.Request, res: express.Response) => {
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
     const field = (key: string): string => String(body[key] ?? '').slice(0, CRASH_FIELD_MAX);
@@ -56,7 +64,7 @@ export const registerApiRoutes = (app: express.Express): void => {
     res.json({ success: true });
   });
 
-  app.get('/api/stats/global', async (_req: express.Request, res: express.Response) => {
+  app.get('/api/stats/global', statsRateLimiter, async (_req: express.Request, res: express.Response) => {
     try {
       const stats = await getGlobalStats();
       res.json(stats ?? {});
@@ -76,7 +84,7 @@ export const registerApiRoutes = (app: express.Express): void => {
     }
   });
 
-  app.get('/api/stats/:deviceId', async (req: express.Request, res: express.Response) => {
+  app.get('/api/stats/:deviceId', statsRateLimiter, async (req: express.Request, res: express.Response) => {
     try {
       const stats = await getDeviceStats(req.params.deviceId as string);
       res.json(stats ?? {});

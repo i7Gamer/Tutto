@@ -17,24 +17,27 @@ export const registerSocketHandlers = (io: Server): void => {
     let username: string | null = null;
 
     socket.on('joinRoom', (
-      { roomId, name, deviceId, color, initialConfig }: { roomId: string; name: string; deviceId: string; color?: string; initialConfig?: Record<string, unknown> } =
-        {} as { roomId: string; name: string; deviceId: string; color?: string; initialConfig?: Record<string, unknown> },
+      payload: { roomId?: string; name?: string; deviceId?: string; color?: string; initialConfig?: Record<string, unknown> } | null | undefined,
       callback: (result: { success: boolean; isHost?: boolean; socketId?: string; error?: string; name?: string }) => void
     ) => {
       // Reject malformed payloads before any field is used. Without these guards a
       // client that omits the ack callback or sends a non-string name crashes the
       // handler (e.g. name.toLowerCase() throws), which can take down the server.
       if (typeof callback !== 'function') return;
+      if (!payload || typeof payload !== 'object') {
+        return callback({ success: false, error: 'Invalid payload' });
+      }
+      const { roomId, name: rawName, deviceId, color, initialConfig } = payload;
       if (typeof roomId !== 'string' || roomId.length === 0 || roomId.length > 100) {
         return callback({ success: false, error: 'Invalid room' });
       }
       if (typeof deviceId !== 'string' || deviceId.length === 0 || deviceId.length > 200) {
         return callback({ success: false, error: 'Invalid device' });
       }
-      if (typeof name !== 'string') {
+      if (typeof rawName !== 'string') {
         return callback({ success: false, error: 'Invalid name' });
       }
-      name = name.trim();
+      let name = rawName.trim();
       if (name.length === 0 || name.length > 30) {
         return callback({ success: false, error: 'Invalid name' });
       }
@@ -139,7 +142,7 @@ export const registerSocketHandlers = (io: Server): void => {
       username = name;
 
       const colorRe = /^#[0-9a-fA-F]{6}$/i;
-      let assignedColor: string | null = color && colorRe.test(color) ? color : null;
+      let assignedColor: string | null = (typeof color === 'string' && colorRe.test(color)) ? color : null;
       const usedColors = room.state.players.map(p => p.color);
       if (!assignedColor) assignedColor = PLAYER_COLORS.find((c: string) => !usedColors.includes(c)) ?? null;
       if (!assignedColor) assignedColor = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)] as string;
@@ -175,18 +178,18 @@ export const registerSocketHandlers = (io: Server): void => {
       emitRoomState(io, roomId);
     });
 
-    socket.on('updateConfig', ({
-      roomId, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode,
-    }: {
-      roomId: string;
+    socket.on('updateConfig', (data: {
+      roomId?: string;
       winningScore?: number;
       initialCards?: unknown;
       randomOrder?: boolean;
       turnDuration?: number;
       reconnectTimeout?: number;
       enforcedDiceMode?: DiceMode | null;
-    }) => {
-      if (!rooms[roomId] || rooms[roomId].host !== socket.id) return;
+    } | null | undefined) => {
+      if (!data || typeof data !== 'object') return;
+      const { roomId, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode } = data;
+      if (typeof roomId !== 'string' || !rooms[roomId] || rooms[roomId].host !== socket.id) return;
       applyValidatedConfig(rooms[roomId].state, { winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode });
       // Resync the pending expiry to the (possibly just-changed) turnDuration. A
       // no-op if no turn is in progress; startServerTurnTimer's own guards handle that.
@@ -194,9 +197,10 @@ export const registerSocketHandlers = (io: Server): void => {
       emitRoomState(io, roomId);
     });
 
-    socket.on('reorderPlayers', ({ roomId, newPlayers }: { roomId: string; newPlayers: { name: string }[] } =
-      {} as { roomId: string; newPlayers: { name: string }[] }) => {
-      if (!rooms[roomId] || rooms[roomId].host !== socket.id) return;
+    socket.on('reorderPlayers', (data: { roomId?: string; newPlayers?: { name: string }[] } | null | undefined) => {
+      if (!data || typeof data !== 'object') return;
+      const { roomId, newPlayers } = data;
+      if (typeof roomId !== 'string' || !rooms[roomId] || rooms[roomId].host !== socket.id) return;
       if (rooms[roomId].state.status !== 'lobby') return;
       // Guard against non-array payloads, which would throw on the .map/.length below.
       if (!Array.isArray(newPlayers)) return;
@@ -217,10 +221,13 @@ export const registerSocketHandlers = (io: Server): void => {
       }
     });
 
-    socket.on('updatePlayerColor', ({ roomId, color }: { roomId: string; color: string }) => {
+    socket.on('updatePlayerColor', (data: { roomId?: string; color?: string } | null | undefined) => {
+      if (!data || typeof data !== 'object') return;
+      const { roomId, color } = data;
+      if (typeof roomId !== 'string' || typeof color !== 'string') return;
       if (!rooms[roomId]) return;
       const colorRe = /^#[0-9a-fA-F]{6}$/i;
-      if (!color || !colorRe.test(color)) return;
+      if (!colorRe.test(color)) return;
       const player = rooms[roomId].state.players.find(p => p.socketId === socket.id);
       if (player) {
         player.color = color;
@@ -228,7 +235,9 @@ export const registerSocketHandlers = (io: Server): void => {
       }
     });
 
-    socket.on('sendReaction', ({ emoji }: { emoji: string } = {} as { emoji: string }) => {
+    socket.on('sendReaction', (data: { emoji?: string } | null | undefined) => {
+      if (!data || typeof data !== 'object') return;
+      const { emoji } = data;
       // Uses `currentRoom` (this socket's own tracked room) rather than a
       // client-supplied roomId — a reaction only ever needs to broadcast to
       // the room this socket is actually seated in.
@@ -287,10 +296,13 @@ export const registerSocketHandlers = (io: Server): void => {
       if (targetSocket) targetSocket.leave(currentRoom);
     });
 
-    socket.on('pushState', ({ roomId, newState }: { roomId: string; newState: Record<string, unknown> }) => {
+    socket.on('pushState', (data: { roomId?: string; newState?: Record<string, unknown> } | null | undefined) => {
       try {
+        if (!data || typeof data !== 'object') return;
+        const { roomId, newState } = data;
+        if (typeof roomId !== 'string' || !newState || typeof newState !== 'object') return;
         const room = rooms[roomId];
-        if (!room || !newState || typeof newState !== 'object') return;
+        if (!room) return;
 
         const isHost = room.host === socket.id;
         const activePlayer = room.state.currentPlayerIndex !== null
@@ -350,15 +362,17 @@ export const registerSocketHandlers = (io: Server): void => {
         // Backstop: validation above should make this unreachable, but a crash here
         // would otherwise take down the whole process (every room, every player) —
         // see advanceTurnOnTimeout for the same reasoning.
-        console.error(`[pushState] Failed to apply state for room ${roomId}:`, err);
+        console.error(`[pushState] Failed to apply state for room:`, err);
       }
     });
 
-    socket.on('submitGlobalStats', async ({ roomId, payload }: { roomId: string; payload: unknown } =
-      {} as { roomId: string; payload: unknown }) => {
+    socket.on('submitGlobalStats', async (data: { roomId?: string; payload?: unknown } | null | undefined) => {
+      if (!data || typeof data !== 'object') return;
+      const { roomId, payload } = data;
+      if (typeof roomId !== 'string') return;
       // Only the room host may submit global stats, authenticated by socket identity.
       // No token needed — the WebSocket session is the credential.
-      const room = roomId ? rooms[roomId] : null;
+      const room = rooms[roomId];
       if (!room || room.host !== socket.id) return;
       // A reconnect/reload after the game already finished (but before anyone
       // leaves the room) makes the client think "finished just became true" again,
@@ -377,9 +391,10 @@ export const registerSocketHandlers = (io: Server): void => {
       }
     });
 
-    socket.on('endGameStats', async ({ deviceId, stats }: { deviceId: string; stats: unknown } =
-      {} as { deviceId: string; stats: unknown }) => {
-      if (!deviceId) return;
+    socket.on('endGameStats', async (data: { deviceId?: string; stats?: unknown } | null | undefined) => {
+      if (!data || typeof data !== 'object') return;
+      const { deviceId, stats } = data;
+      if (typeof deviceId !== 'string') return;
       // A socket may only submit stats for its OWN device, and only while it is a
       // member of its current room. This mirrors the token gate on the HTTP path
       // (POST /api/stats/:deviceId) so the socket route can't be used to write

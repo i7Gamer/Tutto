@@ -2422,4 +2422,47 @@ describe('Server Socket E2E Simulation', () => {
       });
     });
   }, 14000);
+
+  it('tolerates malformed (null/primitive) socket payloads and custom objects without crashing the server', () => {
+    return new Promise((resolve, reject) => {
+      const roomId = 'MALFORMED_PAYLOAD_TEST_ROOM';
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const cleanup = () => { s1.disconnect(); };
+      const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 6000);
+
+      s1.on('connect', () => {
+        // Emit null to joinRoom
+        s1.emit('joinRoom', null, (res) => {
+          expect(res.success).toBe(false);
+          
+          // Join properly
+          s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-mal-a', color: '#ff0000' }, (res2) => {
+            expect(res2.success).toBe(true);
+
+            // Send malformed configs, colors, reactions, and pushState
+            s1.emit('updateConfig', null);
+            s1.emit('updateConfig', 'string-payload');
+            s1.emit('reorderPlayers', null);
+            s1.emit('updatePlayerColor', null);
+            s1.emit('updatePlayerColor', { roomId, color: null });
+            s1.emit('updatePlayerColor', { roomId, color: { toString: () => { throw new Error('crash') } } });
+            s1.emit('sendReaction', null);
+            s1.emit('pushState', null);
+            s1.emit('submitGlobalStats', null);
+            s1.emit('endGameStats', null);
+
+            // Wait a moment and verify that the server is still running and responsive
+            setTimeout(() => {
+              s1.emit('updateConfig', { roomId, winningScore: 5000 });
+              setTimeout(() => {
+                clearTimeout(timeoutId);
+                cleanup();
+                resolve(undefined);
+              }, 300);
+            }, 500);
+          });
+        });
+      });
+    });
+  });
 });
