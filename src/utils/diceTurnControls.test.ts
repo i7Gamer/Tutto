@@ -8,7 +8,6 @@ describe('diceTurnControls', () => {
     hasRolled: true,
     isRolling: false,
     bustState: false,
-    validationValid: true,
     isMakingTutto: false,
     tuttosThisTurn: 0,
   };
@@ -23,12 +22,8 @@ describe('diceTurnControls', () => {
   });
 
   describe('deriveTurnControls — canStop', () => {
-    it('allows stopping on a normal card with a valid selection', () => {
+    it('allows stopping on a normal card after rolling', () => {
       expect(deriveTurnControls(base).canStop).toBe(true);
-    });
-
-    it('blocks stopping when nothing valid is selected', () => {
-      expect(deriveTurnControls({ ...base, validationValid: false }).canStop).toBe(false);
     });
 
     it('blocks stopping while rolling, busted, or before a roll', () => {

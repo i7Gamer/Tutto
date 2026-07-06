@@ -325,7 +325,6 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
     hasRolled,
     isRolling,
     bustState,
-    validationValid: validation.valid,
     isMakingTutto,
     tuttosThisTurn,
   });
@@ -353,7 +352,10 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
           <>
             <div className="text-center mb-8">
               <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1">{t('dice.current_score', 'Current Score')}</div>
-              <motion.div key={turnScore + (validation.valid ? validation.score : 0)} initial={{ scale: 1.2 }} animate={{ scale: 1 }} className="text-5xl font-black text-indigo-600 dark:text-indigo-400">
+              {/* Keyed by turnScore alone (not the live selection) so the pop
+                  animation plays when a roll is banked, not on every die
+                  click that flips the selection valid/invalid. */}
+              <motion.div key={turnScore} data-testid="dice-current-score" initial={{ scale: 1.2 }} animate={{ scale: 1 }} className="text-5xl font-black text-indigo-600 dark:text-indigo-400">
                 {turnScore + (validation.valid ? validation.score : 0)}
               </motion.div>
               {currentCard === 'Kleeblatt' && (
@@ -413,9 +415,16 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
                   )}
                   {!bustState && (
                     <div className="text-center mt-3 min-h-[24px]">
-                      {!validation.valid && selectedRolls.length > 0 && (
-                        <span className="text-red-500 font-bold bg-red-50 px-3 py-1 rounded-full border border-red-100">{t('dice.invalid_selection', 'Invalid selection')}</span>
-                      )}
+                      {/* Always mounted (visibility toggled, not presence) so
+                          this line's reserved space never pops in/out as the
+                          selection flips valid/invalid. */}
+                      <span
+                        className={`text-red-500 font-bold bg-red-50 px-3 py-1 rounded-full border border-red-100 ${
+                          !validation.valid && selectedRolls.length > 0 ? '' : 'invisible'
+                        }`}
+                      >
+                        {t('dice.invalid_selection', 'Invalid selection')}
+                      </span>
                     </div>
                   )}
                 </>

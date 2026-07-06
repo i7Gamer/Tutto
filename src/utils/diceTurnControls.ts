@@ -22,7 +22,6 @@ interface DeriveTurnControlsInput {
   hasRolled: boolean;
   isRolling: boolean;
   bustState: boolean;
-  validationValid: boolean;
   isMakingTutto: boolean;
   tuttosThisTurn: number;
 }
@@ -32,14 +31,18 @@ export const deriveTurnControls = ({
   hasRolled,
   isRolling,
   bustState,
-  validationValid,
   isMakingTutto,
   tuttosThisTurn,
 }: DeriveTurnControlsInput): TurnControls => {
   const special = isSpecialCard(currentCard);
 
+  // Selection validity is deliberately excluded here: it changes on every die
+  // click, and folding it in would mount/unmount this button on every toggle
+  // (a visible layout jump as the sibling Roll Again button resizes). The
+  // component disables the button via validation.valid instead, the same way
+  // it already does for Roll Again.
   const canStop =
-    hasRolled && !isRolling && !bustState && validationValid &&
+    hasRolled && !isRolling && !bustState &&
     currentCard !== 'Feuerwerk' && (isMakingTutto || !special);
 
   const isRollAgainApplicable = !(isMakingTutto && currentCard !== 'Feuerwerk');

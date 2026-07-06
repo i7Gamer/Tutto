@@ -263,7 +263,58 @@ describe('DiceGame interactive turn logic', () => {
 
     expect(screen.getByText('dice.invalid_selection')).toBeInTheDocument();
     expect(screen.getByText('dice.roll_again').closest('button')).toBeDisabled();
-    expect(screen.queryByText('dice.stop_and_score')).not.toBeInTheDocument();
+    // Stop & Score stays mounted (disabled), not removed — removing it used
+    // to resize the sibling Roll Again button, producing a visible layout jump.
+    expect(screen.getByText('dice.stop_and_score').closest('button')).toBeDisabled();
+  });
+
+  it('keeps Stop & Score mounted in place when selection validity toggles, instead of unmounting it', () => {
+    queueRoll([1, 2, 3, 4, 6, 6]);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />);
+
+    rollDice();
+    clickDie(1); // a lone 1 scores: valid
+    const stopButtonWhenValid = screen.getByText('dice.stop_and_score').closest('button');
+    expect(stopButtonWhenValid).not.toBeDisabled();
+
+    clickDie(2); // 1+2 together don't score: invalid
+    const stopButtonWhenInvalid = screen.getByText('dice.stop_and_score').closest('button');
+
+    // Same DOM node across the toggle proves it was disabled in place rather
+    // than unmounted and re-mounted (which would resize the button row).
+    expect(stopButtonWhenInvalid).toBe(stopButtonWhenValid);
+    expect(stopButtonWhenInvalid).toBeDisabled();
+  });
+
+  it('keeps the invalid-selection indicator mounted and only toggles its visibility', () => {
+    queueRoll([1, 2, 3, 4, 6, 6]);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />);
+
+    rollDice();
+    clickDie(1); // valid: indicator hidden
+    const indicatorWhenValid = screen.getByText('dice.invalid_selection');
+    expect(indicatorWhenValid.className).toMatch(/invisible/);
+
+    clickDie(2); // invalid: indicator visible
+    const indicatorWhenInvalid = screen.getByText('dice.invalid_selection');
+    expect(indicatorWhenInvalid.className).not.toMatch(/invisible/);
+
+    // Same node — no pop-in remount.
+    expect(indicatorWhenInvalid).toBe(indicatorWhenValid);
+  });
+
+  it('does not remount the score display when only selection validity changes', () => {
+    queueRoll([1, 2, 3, 4, 6, 6]);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />);
+
+    rollDice();
+    clickDie(1); // valid
+    const scoreNodeWhenValid = screen.getByTestId('dice-current-score');
+
+    clickDie(2); // invalid
+    const scoreNodeWhenInvalid = screen.getByTestId('dice-current-score');
+
+    expect(scoreNodeWhenInvalid).toBe(scoreNodeWhenValid);
   });
 
   it('busting a regular card ends the turn with 0 points', async () => {
