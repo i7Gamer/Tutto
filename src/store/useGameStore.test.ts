@@ -559,7 +559,7 @@ describe('useGameStore', () => {
     expect(state.historyLog.length).toBe(50);
     // The oldest entry should have been shifted out
     expect(state.historyLog[0].id).toBe('rnd-P1-1');
-    expect(state.historyLog[49].id).toBe('1-P1-1');
+    expect(state.historyLog[49].id.startsWith('1-P1-1-')).toBe(true);
   });
 
   it('undo clears the current player\'s live dice snapshot and cache, not just the previous-turn bookkeeping', () => {

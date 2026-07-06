@@ -114,6 +114,11 @@ describe('Server-side turn timer', () => {
     expect(state.previousScore).toBe(0);
     const alice = state.players.find(p => p.name === 'Alice');
     expect(alice.busts).toBe(1); // no manual action was taken → counts as a bust, like a real timeout
+    expect(state.historyLog).toBeDefined();
+    expect(state.historyLog.length).toBe(1);
+    expect(state.historyLog[0].playerName).toBe('Alice');
+    expect(state.historyLog[0].type).toBe('bust');
+    expect(state.historyLog[0].card).toBe('200');
 
     hostSock.disconnect();
     guestSock.disconnect();

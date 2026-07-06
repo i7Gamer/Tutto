@@ -227,7 +227,7 @@ export const calculateNextTurn = (
   }
 
   const historyEntry: HistoryEntry = {
-    id: `${round}-${currentPlayer.name}-${currentPlayer.totalTurns}`,
+    id: `${round}-${currentPlayer.name}-${currentPlayer.totalTurns}-${Math.random().toString(36).substring(2, 8)}`,
     round,
     playerName: currentPlayer.name,
     playerColor: currentPlayer.color,

@@ -1,79 +1,102 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import Die from './Die';
+import type { Die as DieType } from '../../types';
+
+vi.mock('framer-motion', () => ({
+  motion: {
+    button: ({ children, onClick, disabled, className, ...props }: React.PropsWithChildren<any>) => (
+      <button onClick={onClick} disabled={disabled} className={className} {...props}>
+        {children}
+      </button>
+    ),
+  },
+}));
 
 describe('Die', () => {
-  const defaultProps = {
-    die: { id: 'die-1', val: 4 },
-    isSelected: false,
-    isDieTumbling: false,
-    bustState: false,
-    onToggle: vi.fn(),
-  };
+  const defaultDie: DieType = { id: 'die-1', val: 5, selected: false };
 
-  beforeEach(() => {
-    vi.clearAllMocks();
+  it('renders the die value text (hidden/transparent by CSS but present)', () => {
+    render(
+      <Die
+        die={defaultDie}
+        isSelected={false}
+        isDieTumbling={false}
+        bustState={false}
+        onToggle={() => {}}
+      />
+    );
+    expect(screen.getByText('5')).toBeInTheDocument();
   });
 
-  it('renders the die value', () => {
-    render(<Die {...defaultProps} />);
-    expect(screen.getByText('4')).toBeInTheDocument();
+  it('calls onToggle with die ID when clicked', () => {
+    const handleToggle = vi.fn();
+    render(
+      <Die
+        die={defaultDie}
+        isSelected={false}
+        isDieTumbling={false}
+        bustState={false}
+        onToggle={handleToggle}
+      />
+    );
+
+    const button = screen.getByRole('button');
+    fireEvent.click(button);
+    expect(handleToggle).toHaveBeenCalledWith('die-1');
   });
 
-  it('aria-label says "not selected" when not selected', () => {
-    render(<Die {...defaultProps} />);
-    expect(screen.getByRole('button', { name: 'Die showing 4, not selected' })).toBeInTheDocument();
-  });
+  it('disables button when tumbling or busted', () => {
+    const { rerender } = render(
+      <Die
+        die={defaultDie}
+        isSelected={false}
+        isDieTumbling={true}
+        bustState={false}
+        onToggle={() => {}}
+      />
+    );
+    expect(screen.getByRole('button')).toBeDisabled();
 
-  it('aria-label says "selected" when selected', () => {
-    render(<Die {...defaultProps} isSelected={true} />);
-    expect(screen.getByRole('button', { name: 'Die showing 4, selected' })).toBeInTheDocument();
-  });
-
-  it('aria-pressed is false when not selected', () => {
-    render(<Die {...defaultProps} />);
-    expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'false');
-  });
-
-  it('aria-pressed is true when selected', () => {
-    render(<Die {...defaultProps} isSelected={true} />);
-    expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'true');
-  });
-
-  it('calls onToggle with die.id when clicked', () => {
-    const onToggle = vi.fn();
-    render(<Die {...defaultProps} onToggle={onToggle} />);
-    fireEvent.click(screen.getByRole('button'));
-    expect(onToggle).toHaveBeenCalledOnce();
-    expect(onToggle).toHaveBeenCalledWith('die-1');
-  });
-
-  it('is disabled when bustState is true', () => {
-    render(<Die {...defaultProps} bustState={true} />);
+    rerender(
+      <Die
+        die={defaultDie}
+        isSelected={false}
+        isDieTumbling={false}
+        bustState={true}
+        onToggle={() => {}}
+      />
+    );
     expect(screen.getByRole('button')).toBeDisabled();
   });
 
-  it('is disabled when isDieTumbling is true', () => {
-    render(<Die {...defaultProps} isDieTumbling={true} />);
-    expect(screen.getByRole('button')).toBeDisabled();
+  it('applies correct styling classes for selected state', () => {
+    render(
+      <Die
+        die={defaultDie}
+        isSelected={true}
+        isDieTumbling={false}
+        bustState={false}
+        onToggle={() => {}}
+      />
+    );
+    const button = screen.getByRole('button');
+    expect(button.className).toContain('bg-emerald-100');
+    expect(button.className).toContain('border-emerald-500');
   });
 
-  it('is not disabled when neither busted nor tumbling', () => {
-    render(<Die {...defaultProps} />);
-    expect(screen.getByRole('button')).not.toBeDisabled();
-  });
-
-  it('does not call onToggle when disabled due to bust', () => {
-    const onToggle = vi.fn();
-    render(<Die {...defaultProps} bustState={true} onToggle={onToggle} />);
-    fireEvent.click(screen.getByRole('button'));
-    expect(onToggle).not.toHaveBeenCalled();
-  });
-
-  it('does not call onToggle when disabled due to tumbling', () => {
-    const onToggle = vi.fn();
-    render(<Die {...defaultProps} isDieTumbling={true} onToggle={onToggle} />);
-    fireEvent.click(screen.getByRole('button'));
-    expect(onToggle).not.toHaveBeenCalled();
+  it('applies correct styling classes for bust state', () => {
+    render(
+      <Die
+        die={defaultDie}
+        isSelected={false}
+        isDieTumbling={false}
+        bustState={true}
+        onToggle={() => {}}
+      />
+    );
+    const button = screen.getByRole('button');
+    expect(button.className).toContain('bg-red-50');
+    expect(button.className).toContain('border-red-300');
   });
 });

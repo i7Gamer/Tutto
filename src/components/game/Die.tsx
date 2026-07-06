@@ -51,7 +51,7 @@ export default function Die({ die, isSelected, isDieTumbling, bustState, onToggl
           return (
             <div
               key={index}
-              className={`w-2 h-2 rounded-full transition-all duration-200 justify-self-center align-self-center ${
+              className={`w-2 h-2 rounded-full transition-all duration-200 justify-self-center self-center ${
                 isPipActive
                   ? isSelected
                     ? 'bg-emerald-700 dark:bg-emerald-100 scale-100'

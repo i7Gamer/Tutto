@@ -46,12 +46,13 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       finished: room.state.finished,
       gameStartTime: null,
       gameTimeInSeconds: room.state.gameTimeInSeconds,
+      historyLog: room.state.historyLog ?? [],
     };
 
     // Timeout = the player neither scored nor answered in time, same as a manual
     // "Stop & Score 0" — matches what the client used to send on host-side expiry.
     const result = calculateNextTurn(
-      stateForCalc as unknown as CoreGameState & { currentPlayerIndex: number },
+      stateForCalc as CoreGameState & { currentPlayerIndex: number },
       0,
       false,
     );
