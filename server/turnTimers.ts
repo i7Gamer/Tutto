@@ -1,5 +1,5 @@
 import type { Server } from 'socket.io';
-import type { CoreGameState } from '../src/types';
+import { MAX_HISTORY_LOG_SIZE, type CoreGameState } from '../src/types';
 import { calculateNextTurn } from '../src/utils/coreGameEngine';
 import type { Room, ServerPlayer } from './roomTypes';
 import { rooms, calculateRemainingTurnTime, emitRoomState } from './rooms';
@@ -64,6 +64,12 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
     room.state.previousHighestTurnScore = result.previousHighestTurnScore;
     room.state.previousPlayerName = result.previousPlayerName;
     room.state.liveTurnState = null;
+
+    if (!room.state.historyLog) room.state.historyLog = [];
+    room.state.historyLog.push(result.historyEntry);
+    if (room.state.historyLog.length > MAX_HISTORY_LOG_SIZE) {
+      room.state.historyLog.shift();
+    }
 
     if (result.isRoundEnd) {
       room.state.chartValues.forEach((vals, i) => vals.push(result.players[i]?.score ?? 0));
