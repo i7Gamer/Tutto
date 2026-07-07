@@ -278,7 +278,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
   buildGlobalStatsPayload: () => {
     const s = get();
     const isDefaultGame = s.winningScore === DEFAULT_WINNING_SCORE && JSON.stringify(s.initialCards) === JSON.stringify(DEFAULT_INITIAL_CARDS);
-    return buildGlobalStatsPayload(s.players, s.gameTimeInSeconds, isDefaultGame);
+    return buildGlobalStatsPayload(s.players, s.gameTimeInSeconds, isDefaultGame, s.round);
   },
 
   setPreGameStats: (stats) => set({ preGameStats: stats }),

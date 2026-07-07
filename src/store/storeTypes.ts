@@ -35,6 +35,8 @@ export interface PreGameStats {
   highestTurnScore: number | null;
   fastestWinTurns: number | null;
   fastestLossTurns: number | null;
+  highestFeuerwerkTurnScore: number | null;
+  highestX2TurnScore: number | null;
 }
 
 export interface GameStore extends CoreGameState {

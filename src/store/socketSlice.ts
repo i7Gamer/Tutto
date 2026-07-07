@@ -359,6 +359,10 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           highestTurnScore: me.highestTurnScore || 0, totalScore: me.score || 0,
           fastestWinTurns: didIWin ? (me.totalTurns || 0) : null,
           fastestLossTurns: !didIWin ? (me.totalTurns || 0) : null,
+          totalPlayersSum: s.players.length, mostPlayersInGame: s.players.length,
+          totalRoundsSum: s.round || 0, longestGameRounds: s.round || 0,
+          highestFeuerwerkTurnScore: me.highestFeuerwerkTurnScore || 0,
+          highestX2TurnScore: me.highestX2TurnScore || 0,
         },
       });
     }

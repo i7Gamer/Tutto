@@ -864,7 +864,31 @@ describe('Game Component Integration', () => {
       await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
       expect(global.fetch).toHaveBeenCalledWith('/api/stats/device-1');
-      expect(setPreGameStats).toHaveBeenCalledWith({ highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null });
+      expect(setPreGameStats).toHaveBeenCalledWith({
+        highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null,
+        highestFeuerwerkTurnScore: null, highestX2TurnScore: null,
+      });
+    });
+
+    it('includes highestFeuerwerkTurnScore/highestX2TurnScore in the pre-game stats snapshot when present', async () => {
+      const setPreGameStats = vi.fn();
+      global.fetch = vi.fn(() => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null,
+          highestFeuerwerkTurnScore: 700, highestX2TurnScore: 900,
+        }),
+      })) as unknown as typeof fetch;
+
+      useGameStore.setState({ isOnline: true, deviceId: 'device-1', setPreGameStats });
+      render(<Game />);
+
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+      expect(setPreGameStats).toHaveBeenCalledWith({
+        highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null,
+        highestFeuerwerkTurnScore: 700, highestX2TurnScore: 900,
+      });
     });
 
     it('does not fetch pre-game stats for local games', () => {

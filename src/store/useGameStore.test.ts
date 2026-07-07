@@ -656,6 +656,47 @@ describe('useGameStore', () => {
       }));
     });
 
+    it('includes players-per-game, rounds, and feuerwerk/x2 turn maxima in endGameStats and submitGlobalStats payloads', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: true, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
+        players: [
+          { name: 'Bob', score: 2000, times1000PointsDeducted: 0 },
+          { name: 'Alice', score: 5500, times1000PointsDeducted: 0, highestFeuerwerkTurnScore: 300, highestX2TurnScore: 400 },
+        ],
+        currentPlayerIndex: 1, status: 'playing', finished: false,
+        winningScore: 6000, initialCards: {}, round: 4,
+      });
+
+      mockEmit.mockClear();
+
+      // Winning turn for the last player in the round doesn't advance the round further.
+      useGameStore.getState().nextTurn(500, true);
+
+      expect(mockEmit).toHaveBeenCalledWith('endGameStats', expect.objectContaining({
+        deviceId: 'dev-alice',
+        stats: expect.objectContaining({
+          totalPlayersSum: 2,
+          mostPlayersInGame: 2,
+          totalRoundsSum: 4,
+          longestGameRounds: 4,
+          highestFeuerwerkTurnScore: 300,
+          highestX2TurnScore: 400,
+        }),
+      }));
+
+      expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', expect.objectContaining({
+        roomId: 'ROOM1',
+        payload: expect.objectContaining({
+          totalPlayersSum: 2,
+          mostPlayersInGame: 2,
+          totalRoundsSum: 4,
+          longestGameRounds: 4,
+        }),
+      }));
+    });
+
     it('does not double-submit stats when the server echoes the finished gameState back to the host', () => {
       // The host's own pushState() round-trips through the server and comes back
       // as a 'gameState' broadcast (the host isn't excluded from their own room's
