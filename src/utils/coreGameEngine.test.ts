@@ -297,7 +297,7 @@ describe('coreGameEngine', () => {
         }
       ];
 
-      const payload = buildGlobalStatsPayload(finalPlayers, 120, true);
+      const payload = buildGlobalStatsPayload(finalPlayers, 120, true, 7);
 
       expect(payload).toEqual({
         gamesPlayed: 1,
@@ -321,8 +321,31 @@ describe('coreGameEngine', () => {
         highestTurnScore: 0,
         fastestWinTurns: 5,
         fastestLossTurns: 3,
-        isDefaultGame: true
+        isDefaultGame: true,
+        totalPlayersSum: 2,
+        mostPlayersInGame: 2,
+        totalRoundsSum: 7,
+        longestGameRounds: 7,
+        highestFeuerwerkTurnScore: 0,
+        highestX2TurnScore: 0
       });
+    });
+
+    it('reports the player count, round count, and the game-wide highest Feuerwerk/x2 turn scores', () => {
+      const finalPlayers = [
+        makePlayer('Alice', { highestFeuerwerkTurnScore: 300, highestX2TurnScore: 100 }),
+        makePlayer('Bob', { highestFeuerwerkTurnScore: 150, highestX2TurnScore: 600 }),
+        makePlayer('Cara', { highestFeuerwerkTurnScore: 0, highestX2TurnScore: 0 })
+      ];
+
+      const payload = buildGlobalStatsPayload(finalPlayers, 60, true, 12);
+
+      expect(payload.totalRoundsSum).toBe(12);
+      expect(payload.longestGameRounds).toBe(12);
+      expect(payload.totalPlayersSum).toBe(3);
+      expect(payload.mostPlayersInGame).toBe(3);
+      expect(payload.highestFeuerwerkTurnScore).toBe(300);
+      expect(payload.highestX2TurnScore).toBe(600);
     });
   });
 
@@ -612,6 +635,31 @@ describe('coreGameEngine', () => {
     it('records the highest turn score', () => {
       const result = calculateNextTurn(makeState(), 1200, true);
       expect(result.players[0].highestTurnScore).toBe(1200);
+    });
+
+    it('records the highest Feuerwerk turn score', () => {
+      const result = calculateNextTurn(makeState({ currentCard: 'Feuerwerk' }), 800, true);
+      expect(result.players[0].highestFeuerwerkTurnScore).toBe(800);
+    });
+
+    it('records the highest x2 turn score', () => {
+      const result = calculateNextTurn(makeState({ currentCard: 'x2' }), 900, true);
+      expect(result.players[0].highestX2TurnScore).toBe(900);
+    });
+
+    it('does not update highestFeuerwerkTurnScore/highestX2TurnScore for unrelated card types', () => {
+      const result = calculateNextTurn(makeState({ currentCard: '200' }), 200, true);
+      expect(result.players[0].highestFeuerwerkTurnScore).toBeUndefined();
+      expect(result.players[0].highestX2TurnScore).toBeUndefined();
+    });
+
+    it('keeps the higher of two Feuerwerk turn scores rather than overwriting with a lower one', () => {
+      const state = makeState({
+        currentCard: 'Feuerwerk',
+        players: [makePlayer('Alice', { highestFeuerwerkTurnScore: 500 }), makePlayer('Bob')],
+      });
+      const result = calculateNextTurn(state, 300, true);
+      expect(result.players[0].highestFeuerwerkTurnScore).toBe(500);
     });
 
     it('returns a brand new players array and player objects (so React detects changes)', () => {
@@ -951,6 +999,24 @@ describe('coreGameEngine', () => {
       });
       const result = calculateUndo(state);
       expect(result.players[0].highestTurnScore).toBe(1000);
+    });
+
+    it('restores highestFeuerwerkTurnScore and highestX2TurnScore', () => {
+      const state = makeState({
+        players: [
+          makePlayer('Alice', { highestFeuerwerkTurnScore: 900, highestX2TurnScore: 700 }),
+          makePlayer('Bob'),
+        ],
+        currentPlayerIndex: 1,
+        previousCard: 'Feuerwerk',
+        previousScore: 300,
+        previousHighestFeuerwerkTurnScore: 600,
+        previousHighestX2TurnScore: 700,
+        previousPlayerName: 'Alice',
+      });
+      const result = calculateUndo(state);
+      expect(result.players[0].highestFeuerwerkTurnScore).toBe(600);
+      expect(result.players[0].highestX2TurnScore).toBe(700);
     });
 
     it('reverses Kleeblatt failure', () => {

@@ -111,6 +111,7 @@ export const buildGlobalStatsPayload = (
   finalPlayers: Player[],
   finalTime: number,
   isDefaultGame: boolean,
+  finalRound: number,
 ): GlobalStatsPayload => {
   let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0,
     totalKleeblatt = 0, totalKleeblattCompleted = 0, totalx2 = 0;
@@ -119,6 +120,8 @@ export const buildGlobalStatsPayload = (
   let totalFeuerwerkPoints = 0, totalx2Points = 0;
   let totalFeuerwerkBusts = 0, totalx2Busts = 0, totalBusts = 0;
   let highestTurnScore = 0;
+  let highestFeuerwerkTurnScore = 0;
+  let highestX2TurnScore = 0;
   let fastestWinTurns: number | null = null;
   let fastestLossTurns: number | null = null;
 
@@ -145,6 +148,12 @@ export const buildGlobalStatsPayload = (
     if ((p.highestTurnScore ?? 0) > highestTurnScore) {
       highestTurnScore = p.highestTurnScore ?? 0;
     }
+    if ((p.highestFeuerwerkTurnScore ?? 0) > highestFeuerwerkTurnScore) {
+      highestFeuerwerkTurnScore = p.highestFeuerwerkTurnScore ?? 0;
+    }
+    if ((p.highestX2TurnScore ?? 0) > highestX2TurnScore) {
+      highestX2TurnScore = p.highestX2TurnScore ?? 0;
+    }
     if (isWinner(p)) {
       if (fastestWinTurns === null || p.totalTurns < fastestWinTurns) {
         fastestWinTurns = p.totalTurns;
@@ -163,6 +172,9 @@ export const buildGlobalStatsPayload = (
     totalTurns, totalScore, totalPlusMinusCompleted, totalKniffelCompleted,
     totalFeuerwerkPoints, totalx2Points, totalFeuerwerkBusts, totalx2Busts, totalBusts,
     highestTurnScore, fastestWinTurns, fastestLossTurns, isDefaultGame,
+    totalPlayersSum: finalPlayers.length, mostPlayersInGame: finalPlayers.length,
+    totalRoundsSum: finalRound, longestGameRounds: finalRound,
+    highestFeuerwerkTurnScore, highestX2TurnScore,
   };
 };
 
@@ -258,6 +270,8 @@ export const calculateNextTurn = (
       previousCard: currentCard, previousScore: turnScore,
       previousLeaders: snapshotLeaders, previousWasBust: wasBust,
       previousHighestTurnScore: currentPlayer.highestTurnScore ?? 0,
+      previousHighestFeuerwerkTurnScore: currentPlayer.highestFeuerwerkTurnScore ?? 0,
+      previousHighestX2TurnScore: currentPlayer.highestX2TurnScore ?? 0,
       previousPlayerName: currentPlayer.name,
       newDeck: cards, drawnCard: null,
       historyEntry,
@@ -267,8 +281,16 @@ export const calculateNextTurn = (
   }
 
   const previousHighestTurnScore = currentPlayer.highestTurnScore ?? 0;
+  const previousHighestFeuerwerkTurnScore = currentPlayer.highestFeuerwerkTurnScore ?? 0;
+  const previousHighestX2TurnScore = currentPlayer.highestX2TurnScore ?? 0;
   if (turnScore > (currentPlayer.highestTurnScore ?? 0)) {
     currentPlayer.highestTurnScore = turnScore;
+  }
+  if (currentCard === 'Feuerwerk' && turnScore > previousHighestFeuerwerkTurnScore) {
+    currentPlayer.highestFeuerwerkTurnScore = turnScore;
+  }
+  if (currentCard === 'x2' && turnScore > previousHighestX2TurnScore) {
+    currentPlayer.highestX2TurnScore = turnScore;
   }
   currentPlayer.score += turnScore;
 
@@ -301,7 +323,8 @@ export const calculateNextTurn = (
     nextIndex,
     nextRound, previousCard: currentCard, previousScore: turnScore,
     previousLeaders: snapshotLeaders, previousWasBust: wasBust,
-    previousHighestTurnScore, previousPlayerName: currentPlayer.name,
+    previousHighestTurnScore, previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore,
+    previousPlayerName: currentPlayer.name,
     newDeck, drawnCard,
     historyEntry,
   };
@@ -310,7 +333,8 @@ export const calculateNextTurn = (
 export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
   const {
     players, currentPlayerIndex, round, previousCard, previousScore,
-    previousLeaders, previousWasBust, previousHighestTurnScore, previousPlayerName,
+    previousLeaders, previousWasBust, previousHighestTurnScore,
+    previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore, previousPlayerName,
     currentCard, cards,
   } = gameState;
 
@@ -384,6 +408,8 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
   }
 
   if (previousHighestTurnScore !== undefined) p.highestTurnScore = previousHighestTurnScore;
+  if (previousHighestFeuerwerkTurnScore !== undefined) p.highestFeuerwerkTurnScore = previousHighestFeuerwerkTurnScore;
+  if (previousHighestX2TurnScore !== undefined) p.highestX2TurnScore = previousHighestX2TurnScore;
   p.score -= (previousScore ?? 0);
 
   return {

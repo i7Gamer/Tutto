@@ -66,6 +66,8 @@ export interface Player {
   deviceId?: string;
   disconnected?: boolean;
   highestTurnScore?: number;
+  highestFeuerwerkTurnScore?: number;
+  highestX2TurnScore?: number;
   winStreak?: number;
 }
 
@@ -97,6 +99,8 @@ export interface CoreGameState {
   previousLeaders: Player[] | null;
   previousWasBust: boolean;
   previousHighestTurnScore: number;
+  previousHighestFeuerwerkTurnScore: number;
+  previousHighestX2TurnScore: number;
   // Name of the player who took the previous (undoable) turn. Undo looks this
   // player up by name rather than by "currentPlayerIndex - 1" — the roster can
   // shift (mid-game leave/kick/reconnect-timeout) between that turn and now, so
@@ -144,6 +148,12 @@ export interface GlobalStatsPayload {
   fastestWinTurns: number | null;
   fastestLossTurns: number | null;
   isDefaultGame: boolean;
+  totalPlayersSum: number;
+  mostPlayersInGame: number;
+  totalRoundsSum: number;
+  longestGameRounds: number;
+  highestFeuerwerkTurnScore: number;
+  highestX2TurnScore: number;
 }
 
 export interface NextTurnResult {
@@ -157,6 +167,8 @@ export interface NextTurnResult {
   previousLeaders: Player[] | null;
   previousWasBust: boolean;
   previousHighestTurnScore: number;
+  previousHighestFeuerwerkTurnScore: number;
+  previousHighestX2TurnScore: number;
   previousPlayerName: string;
   newDeck: CardType[];
   drawnCard: CardType | null;
