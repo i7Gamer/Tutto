@@ -113,12 +113,11 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     const bobRollBtn = pageB.getByRole('button', { name: /Roll Dice/i });
     await expect(bobRollBtn).toBeVisible({ timeout: 20000 });
 
-    // 6. Bob (non-host) rolls — DiceGame pushes his live turn snapshot through
-    //    pushState as the active player.
+    // 6. Bob (non-host) rolls — opening the panel auto-rolls once its entrance
+    //    animation finishes (no manual "Roll 6 Dice" button anymore), and
+    //    DiceGame pushes his live turn snapshot through pushState as the
+    //    active player.
     await bobRollBtn.click();
-    const bobRoll6Btn = pageB.getByRole('button', { name: /Roll 6 Dice/i });
-    await expect(bobRoll6Btn).toBeVisible();
-    await bobRoll6Btn.click();
 
     // 7. The push must round-trip through the server to Alice: her spectator
     //    view renders Bob's live turn (name + dice) only from the broadcast

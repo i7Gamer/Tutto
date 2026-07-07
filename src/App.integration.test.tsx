@@ -4,6 +4,7 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import App from './App';
 import * as diceLogic from './utils/diceLogic';
 import { useGameStore } from './store/useGameStore';
+import { DICE_PANEL_ENTRANCE_MS } from './utils/uiTimings';
 
 // Mock confetti
 vi.mock('canvas-confetti', () => ({
@@ -108,9 +109,11 @@ describe('App Integration (End-to-End)', () => {
     // Wait for modal to render
     await screen.findByRole('heading', { name: /dice.title/i });
 
-    // Click the Roll 6 Dice button inside the modal
-    const actualRollButton = await screen.findByRole('button', { name: /dice.roll_6_dice/i });
-    fireEvent.click(actualRollButton);
+    // The dice auto-roll once the panel's entrance delay elapses — there's no
+    // manual roll button anymore.
+    await act(async () => {
+      await new Promise(r => setTimeout(r, DICE_PANEL_ENTRANCE_MS + 50));
+    });
 
     await waitFor(() => {
       const dice = screen.getAllByText('1');
@@ -147,8 +150,10 @@ describe('App Integration (End-to-End)', () => {
 
     await screen.findByRole('heading', { name: /dice.title/i });
 
-    const actualRollBob = await screen.findByRole('button', { name: /dice.roll_6_dice/i });
-    fireEvent.click(actualRollBob);
+    // The dice auto-roll once the panel's entrance delay elapses.
+    await act(async () => {
+      await new Promise(r => setTimeout(r, DICE_PANEL_ENTRANCE_MS + 50));
+    });
 
     // We make Bob score just 100 points and stop
     await waitFor(() => {

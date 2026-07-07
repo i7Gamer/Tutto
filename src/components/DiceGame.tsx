@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Dices, X, Hand, RotateCw } from 'lucide-react';
+import { Hand, RotateCw } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { playBuzzer, playSuccess, playTone, vibrateBust, vibrateSuccess } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
@@ -10,7 +10,7 @@ import { deriveTurnControls, sortKeptDiceForDisplay } from '../utils/diceTurnCon
 import { useAutoContinueCountdown } from '../hooks/useAutoContinueCountdown';
 import { isTestEnv } from '../utils/env';
 import { motion, AnimatePresence } from 'framer-motion';
-import Die from './game/Die';
+import Die, { DiePips } from './game/Die';
 import DiceSummary from './game/DiceSummary';
 import type { CardType, Die as DieType, DiceSnapshot } from '../types';
 
@@ -21,13 +21,12 @@ interface DiceGameProps {
   // every test in this file that doesn't pass it and predates this prop.
   turnKey?: string;
   onComplete: (score: number, isSuccess: boolean) => void;
-  onCancel: () => void;
   onStateChange?: (snapshot: DiceSnapshot | null) => void;
-  // Lets the parent mirror the same "can this be dismissed?" rule the in-game
-  // X button already applies to itself (hidden once hasRolled) to any dismiss
-  // affordance it renders around this component (e.g. a backdrop click or
-  // Escape) — see Game.tsx.
-  onHasRolledChange?: (hasRolled: boolean) => void;
+  // Signals that the panel's own entrance animation has finished, so the dice
+  // can start rolling automatically without visually overlapping it. Defaults
+  // to true for callers (e.g. tests) that render this panel without an
+  // entrance animation of their own.
+  panelReady?: boolean;
 }
 
 interface SummaryData {
@@ -45,7 +44,7 @@ const CARD_NAME_MAP: Partial<Record<CardType, string>> = {
   '600': '600 Bonus',
 };
 
-export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, onStateChange, onHasRolledChange }: DiceGameProps) {
+export default function DiceGame({ currentCard, turnKey, onComplete, onStateChange, panelReady = true }: DiceGameProps) {
   const { t } = useTranslation();
 
   const getDisplayCardName = (cardName: CardType | null): string => {
@@ -198,6 +197,16 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
     }
   };
 
+  // Auto-starts the first roll once the panel has finished appearing — there's
+  // no manual "Roll" button anymore. Skipped when initRestoredRef.current is
+  // true (checked here, not `hasRolled`, since that state update from the
+  // restoration effect above hasn't flushed into this render's closure yet).
+  useEffect(() => {
+    if (!panelReady || initRestoredRef.current) return;
+    roll(6);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panelReady]);
+
   useEffect(() => {
     if (rollingDiceIndices.size === 0) return;
     if (isTestEnv()) return;
@@ -280,12 +289,6 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
   const onStateChangeRef = useRef(onStateChange);
   useEffect(() => { onStateChangeRef.current = onStateChange; }, [onStateChange]);
 
-  const onHasRolledChangeRef = useRef(onHasRolledChange);
-  useEffect(() => { onHasRolledChangeRef.current = onHasRolledChange; }, [onHasRolledChange]);
-  useEffect(() => {
-    onHasRolledChangeRef.current?.(hasRolled);
-  }, [hasRolled]);
-
   useEffect(() => {
     if (!onStateChangeRef.current || !hasRolled || isRolling || bustState) return;
     const timer = setTimeout(() => {
@@ -332,24 +335,19 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
   const displayKeptDice = sortKeptDiceForDisplay(keptDice, currentCard, kniffelProgress);
 
   return (
-    <div className="bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden rounded-3xl flex flex-col items-center w-full max-h-[90vh]">
+    <div className="bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden rounded-3xl flex flex-col items-center w-full h-full sm:h-auto sm:max-h-[90vh]">
       {!showSummary && (
         <div className="w-full shrink-0 bg-black/5 dark:bg-white/5 border-b border-gray-200 dark:border-slate-600 p-4 flex justify-between items-center">
           <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 m-0">{t('dice.title', 'Dice Game')} - {getDisplayCardName(currentCard)}</h2>
-          {!hasRolled && (
-            <button className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors" onClick={onCancel} aria-label="Cancel dice roll">
-              <X size={20} />
-            </button>
-          )}
         </div>
       )}
 
-      <div className="p-8 w-full overflow-y-auto">
+      <div className="px-8 pt-6 pb-8 sm:p-8 w-full flex-1 overflow-y-auto">
         {showSummary ? (
           <DiceSummary summaryData={summaryData} continueCountdown={continueCountdown} finishGame={finishGame} currentCard={currentCard} />
         ) : (
           <>
-            <div className="text-center mb-8">
+            <div className="text-center mb-6 sm:mb-8">
               <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1">{t('dice.current_score', 'Current Score')}</div>
               {/* Keyed by turnScore alone (not the live selection) so the pop
                   animation plays when a roll is banked, not on every die
@@ -372,8 +370,8 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
                       display, and index keys would pin AnimatePresence's enter/
                       exit animations to the wrong die after a reorder. */}
                   {displayKeptDice.map(d => (
-                    <motion.div key={d.id} initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} className="die w-14 h-14 bg-indigo-600 text-white rounded-xl shadow-md flex items-center justify-center text-2xl font-bold border-2 border-indigo-400">
-                      {d.val}
+                    <motion.div key={d.id} initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} className="die relative w-14 h-14 bg-indigo-600 text-white rounded-xl shadow-md flex items-center justify-center border-2 border-indigo-400">
+                      <DiePips val={d.val} isSelected={false} bustState={false} size="large" isIndigo />
                     </motion.div>
                   ))}
                 </AnimatePresence>
@@ -382,7 +380,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
             </div>
 
             <div className="mb-8">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-2 sm:mb-3">
                 <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('dice.current_roll', 'Current Roll')}</h4>
                 {hasRolled && !isRolling && !bustState && (
                   <button className="text-xs font-bold px-2.5 py-1 rounded-md border border-indigo-300 dark:border-indigo-600 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors" onClick={selectAllValid}>
@@ -390,43 +388,33 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onCancel, o
                   </button>
                 )}
               </div>
-              {!hasRolled ? (
-                <div className="py-8 text-center flex justify-center">
-                  <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl text-xl font-bold flex items-center gap-3 shadow-lg shadow-indigo-500/30 transition-all" onClick={() => roll(6)}>
-                    <Dices size={28} /> {t('dice.roll_6_dice', 'Roll 6 Dice')}
-                  </motion.button>
+              <div className="min-h-[80px] p-4 bg-white dark:bg-slate-800 rounded-2xl flex gap-3 flex-wrap justify-center border border-gray-200 dark:border-slate-600 shadow-sm">
+                {displayRoll.map(d => {
+                  const isDieTumbling = rollingDiceIndices.has(d.id);
+                  const isSelected = currentRoll.find(cr => cr.id === d.id)?.selected ?? false;
+                  return (
+                    <Die key={d.id} die={d} isSelected={isSelected} isDieTumbling={isDieTumbling} bustState={bustState} onToggle={toggleDie} />
+                  );
+                })}
+              </div>
+              {bustState && (
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="text-center text-red-500 text-2xl font-black mt-6 bg-red-50 py-3 rounded-xl border border-red-100">
+                  {t('dice.bust_description', 'Bust! (Volltreffer/Niete)')}
+                </motion.div>
+              )}
+              {!bustState && (
+                <div className="text-center mt-3 min-h-[24px]">
+                  {/* Always mounted (visibility toggled, not presence) so
+                      this line's reserved space never pops in/out as the
+                      selection flips valid/invalid. */}
+                  <span
+                    className={`text-red-500 font-bold bg-red-50 px-3 py-1 rounded-full border border-red-100 ${
+                      !validation.valid && selectedRolls.length > 0 ? '' : 'invisible'
+                    }`}
+                  >
+                    {t('dice.invalid_selection', 'Invalid selection')}
+                  </span>
                 </div>
-              ) : (
-                <>
-                  <div className="min-h-[80px] p-4 bg-white dark:bg-slate-800 rounded-2xl flex gap-3 flex-wrap justify-center border border-gray-200 dark:border-slate-600 shadow-sm">
-                    {displayRoll.map(d => {
-                      const isDieTumbling = rollingDiceIndices.has(d.id);
-                      const isSelected = currentRoll.find(cr => cr.id === d.id)?.selected ?? false;
-                      return (
-                        <Die key={d.id} die={d} isSelected={isSelected} isDieTumbling={isDieTumbling} bustState={bustState} onToggle={toggleDie} />
-                      );
-                    })}
-                  </div>
-                  {bustState && (
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="text-center text-red-500 text-2xl font-black mt-6 bg-red-50 py-3 rounded-xl border border-red-100">
-                      {t('dice.bust_description', 'Bust! (Volltreffer/Niete)')}
-                    </motion.div>
-                  )}
-                  {!bustState && (
-                    <div className="text-center mt-3 min-h-[24px]">
-                      {/* Always mounted (visibility toggled, not presence) so
-                          this line's reserved space never pops in/out as the
-                          selection flips valid/invalid. */}
-                      <span
-                        className={`text-red-500 font-bold bg-red-50 px-3 py-1 rounded-full border border-red-100 ${
-                          !validation.valid && selectedRolls.length > 0 ? '' : 'invisible'
-                        }`}
-                      >
-                        {t('dice.invalid_selection', 'Invalid selection')}
-                      </span>
-                    </div>
-                  )}
-                </>
               )}
             </div>
 

@@ -159,7 +159,7 @@ describe('DiceGame restored-state bust rendering', () => {
       busted: true,
     }));
 
-    render(<DiceGame currentCard="Kleeblatt" onComplete={vi.fn()} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="Kleeblatt" onComplete={vi.fn()} />);
 
     expect(screen.getByText('dice.bust')).toBeInTheDocument();
     expect(screen.queryByText('dice.success')).not.toBeInTheDocument();
@@ -193,20 +193,21 @@ describe('DiceGame stale turn restoration (turnKey)', () => {
   it('restores the snapshot when turnKey matches the current turn', () => {
     localStorage.setItem('tutto_dice_turn_state', JSON.stringify(staleSnapshot));
 
-    render(<DiceGame currentCard="Kleeblatt" turnKey="ROOM1:2:0:Kleeblatt" onComplete={vi.fn()} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="Kleeblatt" turnKey="ROOM1:2:0:Kleeblatt" onComplete={vi.fn()} />);
 
     expect(screen.getByText('dice.bust')).toBeInTheDocument();
   });
 
   it('discards a snapshot stamped for a different turn instead of resuming it', () => {
     localStorage.setItem('tutto_dice_turn_state', JSON.stringify(staleSnapshot));
+    queueRoll([1, 2, 3, 4, 6, 6]); // includes a 1 so the fresh auto-roll can't bust
 
     // Same player and card, but the round has advanced — a later turn, not a
     // resumable one.
-    render(<DiceGame currentCard="Kleeblatt" turnKey="ROOM1:3:0:Kleeblatt" onComplete={vi.fn()} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="Kleeblatt" turnKey="ROOM1:3:0:Kleeblatt" onComplete={vi.fn()} />);
 
-    // A fresh turn shows the roll button, not the stale bust summary.
-    expect(screen.getByText('dice.roll_6_dice')).toBeInTheDocument();
+    // A fresh turn auto-rolls immediately, not the stale bust summary.
+    expect(screen.getAllByLabelText(/Die showing/).length).toBe(6);
     expect(screen.queryByText('dice.bust')).not.toBeInTheDocument();
     // Cleared, not just ignored, so it can't resurface on a later mount either.
     expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
@@ -215,7 +216,7 @@ describe('DiceGame stale turn restoration (turnKey)', () => {
   it('restores unconditionally when the caller does not pass turnKey (backward compatible)', () => {
     localStorage.setItem('tutto_dice_turn_state', JSON.stringify(staleSnapshot));
 
-    render(<DiceGame currentCard="Kleeblatt" onComplete={vi.fn()} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="Kleeblatt" onComplete={vi.fn()} />);
 
     expect(screen.getByText('dice.bust')).toBeInTheDocument();
   });
@@ -232,7 +233,6 @@ describe('DiceGame interactive turn logic', () => {
     localStorage.clear();
   });
 
-  const rollDice = () => fireEvent.click(screen.getByText('dice.roll_6_dice'));
   const selectAllValid = () => fireEvent.click(screen.getByText('dice.select_all_valid'));
   const clickDie = (val: number) => {
     const dice = screen.getAllByLabelText(`Die showing ${val}, not selected`);
@@ -242,9 +242,8 @@ describe('DiceGame interactive turn logic', () => {
   it('scores the selected dice and completes the turn on Stop & Score', async () => {
     const onComplete = vi.fn();
     queueRoll([1, 5, 2, 2, 3, 4]);
-    render(<DiceGame currentCard="200" onComplete={onComplete} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="200" onComplete={onComplete} />);
 
-    rollDice();
     clickDie(1);
     clickDie(5);
     fireEvent.click(screen.getByText('dice.stop_and_score'));
@@ -254,11 +253,23 @@ describe('DiceGame interactive turn logic', () => {
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(150, true));
   });
 
+  it('renders kept dice as pip faces, not raw digits, matching the current-roll dice style', () => {
+    queueRoll([1, 5, 2, 2, 3, 4]);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+
+    clickDie(1);
+    fireEvent.click(screen.getByText('dice.roll_again'));
+
+    const keptDiceBox = screen.getByText('dice.kept_dice').nextElementSibling as HTMLElement;
+    // A pip face is a 3x3 grid of dot divs (see DiePips), not the bare "1".
+    expect(keptDiceBox.querySelector('.grid-cols-3')).not.toBeNull();
+    expect(keptDiceBox).not.toHaveTextContent('1');
+  });
+
   it('marks a non-scoring selection invalid and disables both action buttons', () => {
     queueRoll([1, 2, 3, 4, 6, 6]);
-    render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
 
-    rollDice();
     clickDie(2); // a lone 2 can never score
 
     expect(screen.getByText('dice.invalid_selection')).toBeInTheDocument();
@@ -270,9 +281,8 @@ describe('DiceGame interactive turn logic', () => {
 
   it('keeps Stop & Score mounted in place when selection validity toggles, instead of unmounting it', () => {
     queueRoll([1, 2, 3, 4, 6, 6]);
-    render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
 
-    rollDice();
     clickDie(1); // a lone 1 scores: valid
     const stopButtonWhenValid = screen.getByText('dice.stop_and_score').closest('button');
     expect(stopButtonWhenValid).not.toBeDisabled();
@@ -288,9 +298,8 @@ describe('DiceGame interactive turn logic', () => {
 
   it('keeps the invalid-selection indicator mounted and only toggles its visibility', () => {
     queueRoll([1, 2, 3, 4, 6, 6]);
-    render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
 
-    rollDice();
     clickDie(1); // valid: indicator hidden
     const indicatorWhenValid = screen.getByText('dice.invalid_selection');
     expect(indicatorWhenValid.className).toMatch(/invisible/);
@@ -305,9 +314,8 @@ describe('DiceGame interactive turn logic', () => {
 
   it('does not remount the score display when only selection validity changes', () => {
     queueRoll([1, 2, 3, 4, 6, 6]);
-    render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
 
-    rollDice();
     clickDie(1); // valid
     const scoreNodeWhenValid = screen.getByTestId('dice-current-score');
 
@@ -320,9 +328,8 @@ describe('DiceGame interactive turn logic', () => {
   it('busting a regular card ends the turn with 0 points', async () => {
     const onComplete = vi.fn();
     queueRoll([2, 2, 3, 3, 4, 6]); // no 1/5 and no triplet → bust
-    render(<DiceGame currentCard="300" onComplete={onComplete} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="300" onComplete={onComplete} />);
 
-    rollDice();
 
     expect(screen.getByText('dice.bust')).toBeInTheDocument();
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, false));
@@ -331,9 +338,8 @@ describe('DiceGame interactive turn logic', () => {
   it('a Tutto on a bonus card ends the turn immediately with the bonus applied', async () => {
     const onComplete = vi.fn();
     queueRoll([1, 1, 1, 5, 5, 5]);
-    render(<DiceGame currentCard="400" onComplete={onComplete} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="400" onComplete={onComplete} />);
 
-    rollDice();
     selectAllValid();
     fireEvent.click(screen.getByText('dice.stop_and_score'));
 
@@ -345,9 +351,8 @@ describe('DiceGame interactive turn logic', () => {
   it('a Tutto on x2 doubles the turn score', async () => {
     const onComplete = vi.fn();
     queueRoll([1, 1, 1, 5, 5, 5]);
-    render(<DiceGame currentCard="x2" onComplete={onComplete} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="x2" onComplete={onComplete} />);
 
-    rollDice();
     selectAllValid();
     fireEvent.click(screen.getByText('dice.stop_and_score'));
 
@@ -357,9 +362,8 @@ describe('DiceGame interactive turn logic', () => {
   it('Feuerwerk keeps rolling after a Tutto and banks all points on the eventual bust', async () => {
     const onComplete = vi.fn();
     queueRoll([1, 1, 1, 5, 5, 5]); // first roll: full Tutto worth 1500
-    render(<DiceGame currentCard="Feuerwerk" onComplete={onComplete} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="Feuerwerk" onComplete={onComplete} />);
 
-    rollDice();
     selectAllValid();
 
     // Feuerwerk never offers Stop — only Roll Again.
@@ -376,9 +380,8 @@ describe('DiceGame interactive turn logic', () => {
   it('Feuerwerk busting on the first roll scores 0 and counts as a loss', async () => {
     const onComplete = vi.fn();
     queueRoll([2, 2, 3, 3, 4, 6]);
-    render(<DiceGame currentCard="Feuerwerk" onComplete={onComplete} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="Feuerwerk" onComplete={onComplete} />);
 
-    rollDice();
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, false));
   });
@@ -388,9 +391,8 @@ describe('DiceGame interactive turn logic', () => {
     queueRoll([1, 1, 1, 5, 5, 5]);
     // The first Tutto immediately triggers the second 6-dice roll — queue it up front.
     queueRoll([1, 1, 1, 5, 5, 5]);
-    render(<DiceGame currentCard="Kleeblatt" onComplete={onComplete} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="Kleeblatt" onComplete={onComplete} />);
 
-    rollDice();
     selectAllValid();
     fireEvent.click(screen.getByText('dice.roll_2nd_tutto'));
 
@@ -408,9 +410,8 @@ describe('DiceGame interactive turn logic', () => {
   it('Kleeblatt busting forfeits the card as a loss', async () => {
     const onComplete = vi.fn();
     queueRoll([2, 2, 3, 3, 4, 6]);
-    render(<DiceGame currentCard="Kleeblatt" onComplete={onComplete} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="Kleeblatt" onComplete={onComplete} />);
 
-    rollDice();
 
     expect(screen.getByText('dice.bust')).toBeInTheDocument();
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, false));
@@ -419,9 +420,8 @@ describe('DiceGame interactive turn logic', () => {
   it('Kniffel builds the run across rolls and completes with score 0 (engine awards the 2000)', async () => {
     const onComplete = vi.fn();
     queueRoll([1, 2, 3, 2, 4, 6]);
-    render(<DiceGame currentCard="Kniffel" onComplete={onComplete} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="Kniffel" onComplete={onComplete} />);
 
-    rollDice();
     selectAllValid(); // picks the 1-2-3-4 run
     queueRoll([5, 6]); // two dice remain; the run needs 5 then 6
     fireEvent.click(screen.getByText('dice.roll_again'));
@@ -435,25 +435,22 @@ describe('DiceGame interactive turn logic', () => {
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, true));
   });
 
-  it('invokes onCancel via the close button before the first roll', () => {
-    const onCancel = vi.fn();
-    render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={onCancel} />);
+  it('does not roll automatically while the panel is still appearing (panelReady=false)', () => {
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} panelReady={false} />);
 
-    fireEvent.click(screen.getByLabelText('Cancel dice roll'));
-    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(screen.queryAllByLabelText(/Die showing/).length).toBe(0);
+    expect(playTone).not.toHaveBeenCalled();
   });
 
-  it('reports hasRolled to the parent so it can apply the same dismiss rule as the X button', () => {
-    const onHasRolledChange = vi.fn();
+  it('auto-rolls as soon as panelReady flips to true', () => {
     queueRoll([1, 5, 2, 2, 3, 4]);
-    render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} onHasRolledChange={onHasRolledChange} />);
+    const { rerender } = render(<DiceGame currentCard="200" onComplete={vi.fn()} panelReady={false} />);
 
-    expect(onHasRolledChange).toHaveBeenCalledWith(false);
-    onHasRolledChange.mockClear();
+    expect(screen.queryAllByLabelText(/Die showing/).length).toBe(0);
 
-    rollDice();
+    rerender(<DiceGame currentCard="200" onComplete={vi.fn()} panelReady={true} />);
 
-    expect(onHasRolledChange).toHaveBeenCalledWith(true);
+    expect(screen.getAllByLabelText(/Die showing/).length).toBe(6);
 
     // This describe block's beforeEach clears mocks before each test, but not
     // after the last one — leaving this roll's playTone calls to bleed into
@@ -487,10 +484,9 @@ describe('DiceGame pending timer cleanup on unmount', () => {
     // with pendingTimers cleanup deleted entirely (verified by temporarily
     // removing it — the callback-spy version still passed, a false negative).
     const { unmount } = render(
-      <DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />
+      <DiceGame currentCard="200" onComplete={vi.fn()} />
     );
 
-    fireEvent.click(screen.getByText('dice.roll_6_dice'));
     expect(playTone).toHaveBeenCalledTimes(1); // the synchronous "shake" tone only
 
     // Unmount immediately — before any of the 6 staggered per-die timers fire.
@@ -523,9 +519,8 @@ describe('DiceGame roll-again mid-animation button stability', () => {
 
   it('disables Roll Again and Stop & Score in place mid-reroll, instead of unmounting Stop & Score', () => {
     queueRoll([1, 2, 3, 4, 6, 6]);
-    render(<DiceGame currentCard="200" onComplete={vi.fn()} onCancel={vi.fn()} />);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
 
-    fireEvent.click(screen.getByText('dice.roll_6_dice'));
     // advanceTimersByTime, not runAllTimers: the tumbling-display effect runs
     // a recurring setInterval while dice are rolling (isTestEnv() is false in
     // this suite), which runAllTimers would spin on forever.

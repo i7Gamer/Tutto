@@ -17,14 +17,7 @@ vi.mock('canvas-confetti', () => ({
 }));
 
 vi.mock('./DiceGame', () => ({
-  default: ({ onHasRolledChange }: { onHasRolledChange?: (hasRolled: boolean) => void }) => (
-    <div data-testid="mock-dice-game">
-      Dice Game
-      <button data-testid="simulate-has-rolled" onClick={() => onHasRolledChange?.(true)}>
-        simulate roll
-      </button>
-    </div>
-  ),
+  default: () => <div data-testid="mock-dice-game">Dice Game</div>,
 }));
 
 describe('Game Component Integration', () => {
@@ -584,7 +577,7 @@ describe('Game Component Integration', () => {
       // (it was never opened because there was no cached state at mount)
     });
 
-    it('clears liveTurnState in store on cancel for local mode', () => {
+    it('clears liveTurnState in the store when the dice turn ends in local mode', () => {
       const cachedState = { turnScore: 100, keptDice: [], currentRoll: [], turnKey: 'local:1:0:x2' };
       localStorage.setItem('tutto_dice_turn_state', JSON.stringify(cachedState));
 
@@ -603,8 +596,7 @@ describe('Game Component Integration', () => {
 
       expect(useGameStore.getState().liveTurnState).not.toBeNull();
 
-      // handleCancelDiceGame should clear liveTurnState even in local mode
-      // We verify by checking that setLiveTurnState clears it
+      // Verify the store's setLiveTurnState clears it once the turn resolves.
       act(() => {
         useGameStore.getState().setLiveTurnState(null);
       });
@@ -769,51 +761,24 @@ describe('Game Component Integration', () => {
       expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
     });
 
-    it('Escape closes the dice-roll modal', () => {
+    it('Escape does not close the dice-roll modal — it auto-rolls immediately and cannot be backed out of', () => {
       useGameStore.setState({ diceMode: 'digital', currentCard: 'x2' });
       render(<Game />);
 
       fireEvent.keyDown(window, { key: ' ' });
       expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
-
-      fireEvent.keyDown(window, { key: 'Escape' });
-      expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
-    });
-
-    it('Escape does not close the dice-roll modal once the player has rolled — same rule as the X button', () => {
-      // Regression test: previously Escape (and the backdrop click below) could
-      // discard an in-progress/resolved turn without ever advancing to the next
-      // player, letting the same player reopen "Roll Dice" and replay their bust.
-      useGameStore.setState({ diceMode: 'digital', currentCard: 'x2' });
-      render(<Game />);
-
-      fireEvent.keyDown(window, { key: ' ' });
-      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
-
-      fireEvent.click(screen.getByTestId('simulate-has-rolled'));
 
       fireEvent.keyDown(window, { key: 'Escape' });
       expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
       expect(mockNextTurn).not.toHaveBeenCalled();
     });
 
-    it('clicking the backdrop closes the dice-roll modal before rolling', () => {
+    it('clicking the backdrop does not close the dice-roll modal', () => {
       useGameStore.setState({ diceMode: 'digital', currentCard: 'x2' });
       render(<Game />);
 
       fireEvent.keyDown(window, { key: ' ' });
       expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
-
-      fireEvent.click(screen.getByTestId('dice-game-backdrop'));
-      expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
-    });
-
-    it('clicking the backdrop does not close the dice-roll modal once the player has rolled', () => {
-      useGameStore.setState({ diceMode: 'digital', currentCard: 'x2' });
-      render(<Game />);
-
-      fireEvent.keyDown(window, { key: ' ' });
-      fireEvent.click(screen.getByTestId('simulate-has-rolled'));
 
       fireEvent.click(screen.getByTestId('dice-game-backdrop'));
       expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();

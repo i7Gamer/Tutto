@@ -13,3 +13,9 @@ export const STOP_CARD_AUTO_CONTINUE_MS = 5000;
 // that finishes, otherwise it scrolls against a height that is still
 // animating and can land short of the final position.
 export const HELP_SECTION_OPEN_ANIMATION_MS = 350;
+
+// The dice-roll panel's entrance also uses framer-motion's default tween
+// (300ms). Game.tsx waits this long before telling DiceGame it's safe to
+// auto-roll, so the dice don't start tumbling while the panel itself is still
+// animating in.
+export const DICE_PANEL_ENTRANCE_MS = 350;

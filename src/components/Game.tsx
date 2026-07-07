@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { formatTime } from '../utils/formatTime';
 import { buildTurnKey, parseSavedDiceState } from '../utils/diceTurnState';
 import { parseJsonObject } from '../utils/parseJson';
-import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS } from '../utils/uiTimings';
+import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, DICE_PANEL_ENTRANCE_MS } from '../utils/uiTimings';
 import { useWakeLock } from '../hooks/useWakeLock';
 import type { PreGameStats } from '../store/storeTypes';
 
@@ -68,12 +68,10 @@ export default function Game() {
   const [scoreInput, setScoreInput] = useState('');
   const [applyBonus, setApplyBonus] = useState(false);
   const [showDiceGame, setShowDiceGame] = useState(false);
-  // Mirrors DiceGame's own `hasRolled` so the backdrop-click/Escape dismiss
-  // paths below can apply the exact same "no more bailing out" rule DiceGame
-  // already applies to its own X button (hidden once hasRolled) — without
-  // this, either path could discard a bust/roll without ever advancing the
-  // turn, letting the same player reopen "Roll Dice" and replay it.
-  const [diceHasRolled, setDiceHasRolled] = useState(false);
+  // Tracks whether the dice panel's own entrance animation has finished, so
+  // DiceGame knows when it's safe to start rolling automatically. Reset once
+  // the panel closes so the next opening waits for its own animation again.
+  const [diceGamePanelReady, setDiceGamePanelReady] = useState(false);
   const confettiFiredRef = useRef(false);
   const reconnectHandledRef = useRef(false);
   const onlineReconnectHandledRef = useRef(false);
@@ -117,6 +115,18 @@ export default function Game() {
     return () => {
       document.body.style.overflow = 'unset';
     };
+  }, [showDiceGame]);
+
+  useEffect(() => {
+    if (!showDiceGame) {
+      // Resets synchronously (not via a timer) so the very next opening can't
+      // race a stale `true` from the previous session into an instant re-roll.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDiceGamePanelReady(false);
+      return;
+    }
+    const timer = setTimeout(() => setDiceGamePanelReady(true), DICE_PANEL_ENTRANCE_MS);
+    return () => clearTimeout(timer);
   }, [showDiceGame]);
 
   // Snapshot this device's lifetime records once, right as the game begins —
@@ -263,35 +273,20 @@ export default function Game() {
     nextTurn(score, isSuccess);
   }, [nextTurn]);
 
-  const handleCancelDiceGame = useCallback(() => {
-    // Once the player has rolled, this must not be dismissable — same rule as
-    // DiceGame's own X button (see its `!hasRolled` guard) — otherwise a
-    // backdrop click or Escape after a bust would silently drop the turn
-    // without ever advancing to the next player, letting it be replayed.
-    if (diceHasRolled) return;
-    setShowDiceGame(false);
-    localStorage.removeItem('tutto_dice_turn_state');
-    setLiveTurnState(null);
-  }, [diceHasRolled, setLiveTurnState]);
-
   const currentCardHasInput = !['Stop', 'Plus_Minus', 'Kniffel', 'Kleeblatt'].includes(currentCard ?? '');
   const currentCardHasYesNo = ['Plus_Minus', 'Kniffel', 'Kleeblatt'].includes(currentCard ?? '');
   const isStopCard = currentCard === 'Stop';
 
   // Keyboard shortcuts: Space/Enter triggers whatever GameControls' primary
-  // button is for the current turn state, Esc closes the dice-roll modal.
-  // Ignored while typing in an input (e.g. the physical-mode score field) so
-  // it doesn't hijack normal text entry.
+  // button is for the current turn state. There's no dice-roll modal dismiss
+  // shortcut — once opened it auto-rolls immediately and can't be backed out
+  // of. Ignored while typing in an input (e.g. the physical-mode score field)
+  // so it doesn't hijack normal text entry.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.repeat) return;
       const tag = (document.activeElement as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-
-      if (e.key === 'Escape') {
-        if (showDiceGame) handleCancelDiceGame();
-        return;
-      }
 
       if (e.key !== ' ' && e.key !== 'Enter') return;
       if (!isMyTurn) return;
@@ -312,7 +307,7 @@ export default function Game() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isMyTurn, isStopCard, currentCardHasYesNo, currentCardHasInput, effectiveDiceMode, showDiceGame, handleNextTurn, handleYesNo, handleCancelDiceGame]);
+  }, [isMyTurn, isStopCard, currentCardHasYesNo, currentCardHasInput, effectiveDiceMode, showDiceGame, handleNextTurn, handleYesNo]);
 
   const canUndo = !game.finished && !!game.previousCard && game.previousCard !== 'Stop' && game.currentPlayerIndex !== null && !!game.previousPlayerName && (!isOnline || isMyTurn || isHost);
 
@@ -420,21 +415,19 @@ export default function Game() {
       </div>
 
       {showDiceGame && (
-        <div data-testid="dice-game-backdrop" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={handleCancelDiceGame}>
+        <div data-testid="dice-game-backdrop" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <motion.div
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="w-full max-w-4xl rounded-3xl"
-            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-4xl h-full sm:h-auto rounded-3xl"
           >
             <DiceGame
               currentCard={currentCard}
               turnKey={buildTurnKey(roomId, round, currentPlayerIndex, currentCard)}
               onComplete={handleDiceComplete}
-              onCancel={handleCancelDiceGame}
               onStateChange={effectiveDiceMode === 'digital' ? setLiveTurnState : undefined}
-              onHasRolledChange={setDiceHasRolled}
+              panelReady={diceGamePanelReady}
             />
           </motion.div>
         </div>
