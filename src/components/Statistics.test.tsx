@@ -275,6 +275,40 @@ describe('Statistics Component', () => {
     expect(screen.queryByText(/statistics\.globalRecord/)).not.toBeInTheDocument();
   });
 
+  it('shows a record badge on all 5 eligible tiles when each personal value ties its own global counterpart', async () => {
+    // Pins down that each tile compares against its OWN matching global field
+    // (not some other field via a copy-paste mistake) by giving every one of
+    // the 5 record-eligible stats a distinct tied value.
+    const mockPersonalStats = {
+      gamesPlayed: 1,
+      wins: 1,
+      highestTurnScore: 1000,
+      fastestWinTurns: 5,
+      longestGameRounds: 12,
+      highestFeuerwerkTurnScore: 700,
+      highestX2TurnScore: 900,
+    };
+    const mockGlobalStats = {
+      totalGamesPlayed: 5,
+      totalPlaytime: 500,
+      highestTurnScore: 1000,
+      fastestWinTurns: 5,
+      longestGameRounds: 12,
+      highestFeuerwerkTurnScore: 700,
+      highestX2TurnScore: 900,
+    };
+
+    global.fetch = vi.fn((url) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : mockPersonalStats),
+    }));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+    expect(screen.getAllByText(/statistics\.globalRecord/)).toHaveLength(5);
+  });
+
   it('shows a green "better than global avg" badge when personal bust rate is lower than global', async () => {
     const mockPersonalStats = {
       gamesPlayed: 5,

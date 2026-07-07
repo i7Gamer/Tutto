@@ -74,9 +74,14 @@ describe('End-to-End Statistics Integration', () => {
 
     expect(useGameStore.getState().finished).toBe(true);
 
+    // Captured before Game 2's startGame() resets round/players — this is the
+    // real per-game round count and player count sendOnlineStats would have sent.
+    const round1 = useGameStore.getState().round;
+    const playerCount1 = useGameStore.getState().players.length;
+
     const payload1 = useGameStore.getState().buildGlobalStatsPayload();
     await database.updateGlobalStats(payload1);
-    
+
     const me1 = useGameStore.getState().players[0]; // Alice
     const didAliceWin1 = 1;
     await database.updateDeviceStats(mockDeviceId, {
@@ -102,7 +107,13 @@ describe('End-to-End Statistics Integration', () => {
       totalScore: me1.score || 0,
       highestTurnScore: me1.highestTurnScore || 0,
       fastestWinTurns: didAliceWin1 ? (me1.totalTurns || 0) : null,
-      fastestLossTurns: !didAliceWin1 ? (me1.totalTurns || 0) : null
+      fastestLossTurns: !didAliceWin1 ? (me1.totalTurns || 0) : null,
+      totalPlayersSum: playerCount1,
+      mostPlayersInGame: playerCount1,
+      totalRoundsSum: round1,
+      longestGameRounds: round1,
+      highestFeuerwerkTurnScore: me1.highestFeuerwerkTurnScore || 0,
+      highestX2TurnScore: me1.highestX2TurnScore || 0,
     });
 
     // ==========================================
@@ -130,6 +141,9 @@ describe('End-to-End Statistics Integration', () => {
     store.nextTurn(0, true);
 
     expect(useGameStore.getState().finished).toBe(true);
+
+    const round2 = useGameStore.getState().round;
+    const playerCount2 = useGameStore.getState().players.length;
 
     const payload2 = useGameStore.getState().buildGlobalStatsPayload();
     await database.updateGlobalStats(payload2);
@@ -159,7 +173,13 @@ describe('End-to-End Statistics Integration', () => {
       totalScore: me2.score || 0,
       highestTurnScore: me2.highestTurnScore || 0,
       fastestWinTurns: didAliceWin2 ? (me2.totalTurns || 0) : null,
-      fastestLossTurns: !didAliceWin2 ? (me2.totalTurns || 0) : null
+      fastestLossTurns: !didAliceWin2 ? (me2.totalTurns || 0) : null,
+      totalPlayersSum: playerCount2,
+      mostPlayersInGame: playerCount2,
+      totalRoundsSum: round2,
+      longestGameRounds: round2,
+      highestFeuerwerkTurnScore: me2.highestFeuerwerkTurnScore || 0,
+      highestX2TurnScore: me2.highestX2TurnScore || 0,
     });
 
     // ==========================================
@@ -201,7 +221,29 @@ describe('End-to-End Statistics Integration', () => {
     expect(deviceStats.kniffelCompleted).toBe(1);
     expect(deviceStats.kleeblattCompleted).toBe(1);
     expect(deviceStats.highestTurnScore).toBe(6000);
-    
+
+    // Global row is shared across the whole test suite, so only the additive
+    // sums/maxima can be pinned exactly relative to their pre-this-test value;
+    // use >= for those that other tests could also have nudged upward.
+    expect(globalStats.totalPlayersSum).toBeGreaterThanOrEqual(playerCount1 + playerCount2);
+    expect(globalStats.mostPlayersInGame).toBeGreaterThanOrEqual(2);
+    expect(globalStats.totalRoundsSum).toBeGreaterThanOrEqual(round1 + round2);
+    expect(globalStats.longestGameRounds).toBeGreaterThanOrEqual(Math.max(round1, round2));
+    // Alice's Feuerwerk turn (game 1, turn 1) scored 1000; Bob's x2 turn (game 1, turn 2) scored 2000.
+    expect(globalStats.highestFeuerwerkTurnScore).toBeGreaterThanOrEqual(1000);
+    expect(globalStats.highestX2TurnScore).toBeGreaterThanOrEqual(2000);
+
+    // deviceStats is scoped to this test's unique mockDeviceId (Alice only),
+    // so these can be asserted exactly.
+    expect(deviceStats.totalPlayersSum).toBe(playerCount1 + playerCount2);
+    expect(deviceStats.mostPlayersInGame).toBe(Math.max(playerCount1, playerCount2));
+    expect(deviceStats.totalRoundsSum).toBe(round1 + round2);
+    expect(deviceStats.longestGameRounds).toBe(Math.max(round1, round2));
+    // Alice herself only ever drew Feuerwerk (game 1, scored 1000) — Bob drew
+    // the x2 card, so Alice's own highestX2TurnScore stays 0.
+    expect(deviceStats.highestFeuerwerkTurnScore).toBe(1000);
+    expect(deviceStats.highestX2TurnScore).toBe(0);
+
     vi.useRealTimers();
   });
 });

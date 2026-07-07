@@ -662,6 +662,31 @@ describe('coreGameEngine', () => {
       expect(result.players[0].highestFeuerwerkTurnScore).toBe(500);
     });
 
+    it('keeps the higher of two x2 turn scores rather than overwriting with a lower one', () => {
+      const state = makeState({
+        currentCard: 'x2',
+        players: [makePlayer('Alice', { highestX2TurnScore: 600 }), makePlayer('Bob')],
+      });
+      const result = calculateNextTurn(state, 250, true);
+      expect(result.players[0].highestX2TurnScore).toBe(600);
+    });
+
+    // Deliberate design choice: highestFeuerwerkTurnScore/highestX2TurnScore
+    // update on turnScore alone, the same way the card-agnostic
+    // highestTurnScore already does (see the block above it in
+    // calculateNextTurn) — neither is gated on `wasBust`. A future refactor
+    // that "fixes" this by adding a bust gate would silently change behavior,
+    // so it's pinned down here explicitly.
+    it('still records a Feuerwerk/x2 turn score even when the turn is a bust', () => {
+      const feuerwerkResult = calculateNextTurn(makeState({ currentCard: 'Feuerwerk' }), 450, false);
+      expect(feuerwerkResult.players[0].feuerwerkBusts).toBe(1);
+      expect(feuerwerkResult.players[0].highestFeuerwerkTurnScore).toBe(450);
+
+      const x2Result = calculateNextTurn(makeState({ currentCard: 'x2' }), 550, false);
+      expect(x2Result.players[0].x2Busts).toBe(1);
+      expect(x2Result.players[0].highestX2TurnScore).toBe(550);
+    });
+
     it('returns a brand new players array and player objects (so React detects changes)', () => {
       const state = makeState();
       const result = calculateNextTurn(state, 200, true);
