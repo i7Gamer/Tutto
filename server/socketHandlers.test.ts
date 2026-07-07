@@ -583,7 +583,7 @@ describe('emoji reactions', () => {
 
     let threw = false;
     rogue.on('connect_error', () => { threw = true; });
-    rogue.emit('sendReaction', { emoji: '👍' });
+    rogue.emit('sendReaction', { emoji: '❤️' });
     await settle();
 
     expect(threw).toBe(false);

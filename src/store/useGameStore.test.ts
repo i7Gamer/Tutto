@@ -419,13 +419,13 @@ describe('useGameStore', () => {
     useGameStore.setState({
       reactions: [
         { id: 1, emoji: '🔥', senderName: 'Alice' },
-        { id: 2, emoji: '👍', senderName: 'Bob' },
+        { id: 2, emoji: '❤️', senderName: 'Bob' },
       ],
     });
 
     useGameStore.getState().removeReaction(1);
 
-    expect(useGameStore.getState().reactions).toEqual([{ id: 2, emoji: '👍', senderName: 'Bob' }]);
+    expect(useGameStore.getState().reactions).toEqual([{ id: 2, emoji: '❤️', senderName: 'Bob' }]);
   });
 
   it('starts local game', () => {
