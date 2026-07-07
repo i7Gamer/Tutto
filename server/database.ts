@@ -45,6 +45,12 @@ export interface DeviceStatsRow {
   fastestLossTurns: number | null;
   currentWinStreak: number;
   bestWinStreak: number;
+  mostPlayersInGame: number | null;
+  totalPlayersSum: number;
+  longestGameRounds: number | null;
+  totalRoundsSum: number;
+  highestFeuerwerkTurnScore: number | null;
+  highestX2TurnScore: number | null;
 }
 
 export type StatsPayload = Record<string, number | boolean | null>;
@@ -68,6 +74,7 @@ export const updateDeviceStats = async (deviceId: string, stats: StatsPayload): 
     'feuerwerkReceived', 'kleeblattFailed', 'kleeblattCompleted', 'x2Received',
     'totalPlaytime', 'totalTurns', 'busts', 'feuerwerkBusts', 'x2Busts',
     'feuerwerkPointsScored', 'x2PointsScored', 'totalScore',
+    'totalPlayersSum', 'totalRoundsSum',
   ];
 
   const data: Record<string, unknown> = { deviceId };
@@ -127,6 +134,46 @@ export const updateDeviceStats = async (deviceId: string, stats: StatsPayload): 
       END
     `);
   }
+  if (stats.mostPlayersInGame !== undefined) {
+    data.mostPlayersInGame = stats.mostPlayersInGame;
+    mergeCols.mostPlayersInGame = knex.raw(`
+      CASE
+        WHEN EXCLUDED.mostPlayersInGame IS NULL THEN device_statistics.mostPlayersInGame
+        WHEN device_statistics.mostPlayersInGame IS NULL THEN EXCLUDED.mostPlayersInGame
+        ELSE MAX(device_statistics.mostPlayersInGame, EXCLUDED.mostPlayersInGame)
+      END
+    `);
+  }
+  if (stats.longestGameRounds !== undefined) {
+    data.longestGameRounds = stats.longestGameRounds;
+    mergeCols.longestGameRounds = knex.raw(`
+      CASE
+        WHEN EXCLUDED.longestGameRounds IS NULL THEN device_statistics.longestGameRounds
+        WHEN device_statistics.longestGameRounds IS NULL THEN EXCLUDED.longestGameRounds
+        ELSE MAX(device_statistics.longestGameRounds, EXCLUDED.longestGameRounds)
+      END
+    `);
+  }
+  if (stats.highestFeuerwerkTurnScore !== undefined) {
+    data.highestFeuerwerkTurnScore = stats.highestFeuerwerkTurnScore;
+    mergeCols.highestFeuerwerkTurnScore = knex.raw(`
+      CASE
+        WHEN EXCLUDED.highestFeuerwerkTurnScore IS NULL THEN device_statistics.highestFeuerwerkTurnScore
+        WHEN device_statistics.highestFeuerwerkTurnScore IS NULL THEN EXCLUDED.highestFeuerwerkTurnScore
+        ELSE MAX(device_statistics.highestFeuerwerkTurnScore, EXCLUDED.highestFeuerwerkTurnScore)
+      END
+    `);
+  }
+  if (stats.highestX2TurnScore !== undefined) {
+    data.highestX2TurnScore = stats.highestX2TurnScore;
+    mergeCols.highestX2TurnScore = knex.raw(`
+      CASE
+        WHEN EXCLUDED.highestX2TurnScore IS NULL THEN device_statistics.highestX2TurnScore
+        WHEN device_statistics.highestX2TurnScore IS NULL THEN EXCLUDED.highestX2TurnScore
+        ELSE MAX(device_statistics.highestX2TurnScore, EXCLUDED.highestX2TurnScore)
+      END
+    `);
+  }
 
   try {
     await knex('device_statistics')
@@ -165,6 +212,12 @@ export interface GlobalStatsRow {
   highestTurnScore: number | null;
   fastestWinTurns: number | null;
   fastestLossTurns: number | null;
+  mostPlayersInGame: number | null;
+  totalPlayersSum: number;
+  longestGameRounds: number | null;
+  totalRoundsSum: number;
+  highestFeuerwerkTurnScore: number | null;
+  highestX2TurnScore: number | null;
 }
 
 export const getGlobalStats = async (): Promise<GlobalStatsRow | null> => {
@@ -201,6 +254,8 @@ export const updateGlobalStats = async (stats: StatsPayload): Promise<number> =>
     totalFeuerwerkBusts: (stats.totalFeuerwerkBusts as number | undefined) ?? 0,
     totalx2Busts: (stats.totalx2Busts as number | undefined) ?? 0,
     totalBusts: (stats.totalBusts as number | undefined) ?? 0,
+    totalPlayersSum: (stats.totalPlayersSum as number | undefined) ?? 0,
+    totalRoundsSum: (stats.totalRoundsSum as number | undefined) ?? 0,
   };
 
   const updateData: Record<string, Knex.Raw> = {};
@@ -235,6 +290,42 @@ export const updateGlobalStats = async (stats: StatsPayload): Promise<number> =>
         ELSE MIN(global_statistics.fastestLossTurns, ?)
       END
     `, [stats.fastestLossTurns, stats.fastestLossTurns, stats.fastestLossTurns]);
+  }
+  if (stats.mostPlayersInGame !== undefined) {
+    updateData.mostPlayersInGame = knex.raw(`
+      CASE
+        WHEN ? IS NULL THEN global_statistics.mostPlayersInGame
+        WHEN global_statistics.mostPlayersInGame IS NULL THEN ?
+        ELSE MAX(global_statistics.mostPlayersInGame, ?)
+      END
+    `, [stats.mostPlayersInGame, stats.mostPlayersInGame, stats.mostPlayersInGame]);
+  }
+  if (stats.longestGameRounds !== undefined) {
+    updateData.longestGameRounds = knex.raw(`
+      CASE
+        WHEN ? IS NULL THEN global_statistics.longestGameRounds
+        WHEN global_statistics.longestGameRounds IS NULL THEN ?
+        ELSE MAX(global_statistics.longestGameRounds, ?)
+      END
+    `, [stats.longestGameRounds, stats.longestGameRounds, stats.longestGameRounds]);
+  }
+  if (stats.highestFeuerwerkTurnScore !== undefined) {
+    updateData.highestFeuerwerkTurnScore = knex.raw(`
+      CASE
+        WHEN ? IS NULL THEN global_statistics.highestFeuerwerkTurnScore
+        WHEN global_statistics.highestFeuerwerkTurnScore IS NULL THEN ?
+        ELSE MAX(global_statistics.highestFeuerwerkTurnScore, ?)
+      END
+    `, [stats.highestFeuerwerkTurnScore, stats.highestFeuerwerkTurnScore, stats.highestFeuerwerkTurnScore]);
+  }
+  if (stats.highestX2TurnScore !== undefined) {
+    updateData.highestX2TurnScore = knex.raw(`
+      CASE
+        WHEN ? IS NULL THEN global_statistics.highestX2TurnScore
+        WHEN global_statistics.highestX2TurnScore IS NULL THEN ?
+        ELSE MAX(global_statistics.highestX2TurnScore, ?)
+      END
+    `, [stats.highestX2TurnScore, stats.highestX2TurnScore, stats.highestX2TurnScore]);
   }
 
   try {

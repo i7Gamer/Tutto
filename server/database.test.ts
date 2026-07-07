@@ -262,6 +262,48 @@ describe('Database Statistics Integration', () => {
     expect(retrievedStats.totalScore).toBe(initialStats.totalScore);
   });
 
+  it('should store and retrieve the new game-level stats (players, rounds, feuerwerk/x2 turn maxima) for a device', async () => {
+    const mockDeviceId = 'game-stats-device-' + Date.now();
+
+    await database.updateDeviceStats(mockDeviceId, {
+      gamesPlayed: 1,
+      totalPlayersSum: 4,
+      mostPlayersInGame: 4,
+      totalRoundsSum: 12,
+      longestGameRounds: 12,
+      highestFeuerwerkTurnScore: 300,
+      highestX2TurnScore: 400,
+    });
+
+    const stats = await database.getDeviceStats(mockDeviceId);
+    expect(stats.totalPlayersSum).toBe(4);
+    expect(stats.mostPlayersInGame).toBe(4);
+    expect(stats.totalRoundsSum).toBe(12);
+    expect(stats.longestGameRounds).toBe(12);
+    expect(stats.highestFeuerwerkTurnScore).toBe(300);
+    expect(stats.highestX2TurnScore).toBe(400);
+  });
+
+  it('should store and retrieve the new game-level stats for global stats', async () => {
+    await database.updateGlobalStats({
+      gamesPlayed: 1,
+      totalPlayersSum: 3,
+      mostPlayersInGame: 3,
+      totalRoundsSum: 9,
+      longestGameRounds: 9,
+      highestFeuerwerkTurnScore: 250,
+      highestX2TurnScore: 350,
+    });
+
+    const stats = await database.getGlobalStats();
+    expect(stats.totalPlayersSum).toBeGreaterThanOrEqual(3);
+    expect(stats.mostPlayersInGame).toBeGreaterThanOrEqual(3);
+    expect(stats.totalRoundsSum).toBeGreaterThanOrEqual(9);
+    expect(stats.longestGameRounds).toBeGreaterThanOrEqual(9);
+    expect(stats.highestFeuerwerkTurnScore).toBeGreaterThanOrEqual(250);
+    expect(stats.highestX2TurnScore).toBeGreaterThanOrEqual(350);
+  });
+
   it('should correctly accumulate values on multiple updates for global stats', async () => {
     const initialStats = await database.getGlobalStats() || { totalGamesPlayed: 0, totalScore: 0, totalBusts: 0 };
     

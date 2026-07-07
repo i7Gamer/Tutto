@@ -307,6 +307,117 @@ describe('Statistics Saving - Personal and Global', () => {
     });
   });
 
+  describe('Players-per-game / longest-game / feuerwerk-x2 turn stats', () => {
+    it('should sum totalPlayersSum/totalRoundsSum and track mostPlayersInGame/longestGameRounds as running maxima for a device', async () => {
+      const deviceId = 'device-game-stats-' + Date.now();
+
+      await database.updateDeviceStats(deviceId, {
+        gamesPlayed: 1, totalPlayersSum: 3, mostPlayersInGame: 3, totalRoundsSum: 5, longestGameRounds: 5,
+      });
+      let saved = await database.getDeviceStats(deviceId);
+      expect(saved.totalPlayersSum).toBe(3);
+      expect(saved.mostPlayersInGame).toBe(3);
+      expect(saved.totalRoundsSum).toBe(5);
+      expect(saved.longestGameRounds).toBe(5);
+
+      // A bigger game: sums add, maxima update.
+      await database.updateDeviceStats(deviceId, {
+        gamesPlayed: 1, totalPlayersSum: 6, mostPlayersInGame: 6, totalRoundsSum: 9, longestGameRounds: 9,
+      });
+      saved = await database.getDeviceStats(deviceId);
+      expect(saved.totalPlayersSum).toBe(9);
+      expect(saved.mostPlayersInGame).toBe(6);
+      expect(saved.totalRoundsSum).toBe(14);
+      expect(saved.longestGameRounds).toBe(9);
+
+      // A smaller game afterwards: sums keep adding, maxima stay put.
+      await database.updateDeviceStats(deviceId, {
+        gamesPlayed: 1, totalPlayersSum: 2, mostPlayersInGame: 2, totalRoundsSum: 3, longestGameRounds: 3,
+      });
+      saved = await database.getDeviceStats(deviceId);
+      expect(saved.totalPlayersSum).toBe(11);
+      expect(saved.mostPlayersInGame).toBe(6);
+      expect(saved.totalRoundsSum).toBe(17);
+      expect(saved.longestGameRounds).toBe(9);
+    });
+
+    it('should track highestFeuerwerkTurnScore/highestX2TurnScore as running maxima for a device', async () => {
+      const deviceId = 'device-firework-x2-' + Date.now();
+
+      await database.updateDeviceStats(deviceId, {
+        gamesPlayed: 1, highestFeuerwerkTurnScore: 200, highestX2TurnScore: 300,
+      });
+      let saved = await database.getDeviceStats(deviceId);
+      expect(saved.highestFeuerwerkTurnScore).toBe(200);
+      expect(saved.highestX2TurnScore).toBe(300);
+
+      // Lower this game — maxima must not regress.
+      await database.updateDeviceStats(deviceId, {
+        gamesPlayed: 1, highestFeuerwerkTurnScore: 100, highestX2TurnScore: 150,
+      });
+      saved = await database.getDeviceStats(deviceId);
+      expect(saved.highestFeuerwerkTurnScore).toBe(200);
+      expect(saved.highestX2TurnScore).toBe(300);
+
+      // A new record for both.
+      await database.updateDeviceStats(deviceId, {
+        gamesPlayed: 1, highestFeuerwerkTurnScore: 500, highestX2TurnScore: 600,
+      });
+      saved = await database.getDeviceStats(deviceId);
+      expect(saved.highestFeuerwerkTurnScore).toBe(500);
+      expect(saved.highestX2TurnScore).toBe(600);
+    });
+
+    it('should not overwrite the new max-type stats with null, for both device and global', async () => {
+      const deviceId = 'device-null-safe-game-stats-' + Date.now();
+
+      await database.updateDeviceStats(deviceId, {
+        gamesPlayed: 1, mostPlayersInGame: 5, longestGameRounds: 10,
+        highestFeuerwerkTurnScore: 300, highestX2TurnScore: 400,
+      });
+      await database.updateDeviceStats(deviceId, {
+        gamesPlayed: 1, mostPlayersInGame: null, longestGameRounds: null,
+        highestFeuerwerkTurnScore: null, highestX2TurnScore: null,
+      });
+      const saved = await database.getDeviceStats(deviceId);
+      expect(saved.mostPlayersInGame).toBe(5);
+      expect(saved.longestGameRounds).toBe(10);
+      expect(saved.highestFeuerwerkTurnScore).toBe(300);
+      expect(saved.highestX2TurnScore).toBe(400);
+
+      await database.updateGlobalStats({
+        gamesPlayed: 1, mostPlayersInGame: 5, longestGameRounds: 10,
+        highestFeuerwerkTurnScore: 300, highestX2TurnScore: 400,
+      });
+      let globalSaved = await database.getGlobalStats();
+      const beforeNull = { ...globalSaved };
+
+      await database.updateGlobalStats({
+        gamesPlayed: 1, mostPlayersInGame: null, longestGameRounds: null,
+        highestFeuerwerkTurnScore: null, highestX2TurnScore: null,
+      });
+      globalSaved = await database.getGlobalStats();
+      expect(globalSaved.mostPlayersInGame).toBe(beforeNull.mostPlayersInGame);
+      expect(globalSaved.longestGameRounds).toBe(beforeNull.longestGameRounds);
+      expect(globalSaved.highestFeuerwerkTurnScore).toBe(beforeNull.highestFeuerwerkTurnScore);
+      expect(globalSaved.highestX2TurnScore).toBe(beforeNull.highestX2TurnScore);
+    });
+
+    it('should sum totalPlayersSum/totalRoundsSum and track maxima for global stats', async () => {
+      const before = await database.getGlobalStats();
+
+      await database.updateGlobalStats({
+        gamesPlayed: 1, totalPlayersSum: 4, mostPlayersInGame: 4, totalRoundsSum: 8, longestGameRounds: 8,
+        isDefaultGame: true,
+      });
+      const saved = await database.getGlobalStats();
+      expect(saved.totalPlayersSum).toBe((before?.totalPlayersSum ?? 0) + 4);
+      expect(saved.totalRoundsSum).toBe((before?.totalRoundsSum ?? 0) + 8);
+      expect(saved.mostPlayersInGame).toBeGreaterThanOrEqual(4);
+      expect(saved.longestGameRounds).toBeGreaterThanOrEqual(8);
+    });
+  });
+
   describe('Statistics Persistence and Accuracy', () => {
     it('should not lose precision when accumulating large numbers', async () => {
       const deviceId = 'device-large-' + Date.now();
