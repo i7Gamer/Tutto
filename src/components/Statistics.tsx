@@ -32,6 +32,12 @@ interface PersonalStats {
   fastestLossTurns?: number | null;
   currentWinStreak?: number;
   bestWinStreak?: number;
+  mostPlayersInGame?: number;
+  totalPlayersSum?: number;
+  longestGameRounds?: number;
+  totalRoundsSum?: number;
+  highestFeuerwerkTurnScore?: number;
+  highestX2TurnScore?: number;
 }
 
 interface GlobalStats {
@@ -55,6 +61,12 @@ interface GlobalStats {
   totalx2Points?: number;
   highestTurnScore?: number;
   fastestWinTurns?: number | null;
+  mostPlayersInGame?: number;
+  totalPlayersSum?: number;
+  longestGameRounds?: number;
+  totalRoundsSum?: number;
+  highestFeuerwerkTurnScore?: number;
+  highestX2TurnScore?: number;
 }
 
 const getWinLoseRate = (wins: number, fails: number): string => {
@@ -63,21 +75,60 @@ const getWinLoseRate = (wins: number, fails: number): string => {
   return `${((wins / total) * 100).toFixed(0)}%`;
 };
 
+// This device (tied-for-)holds the record when its value matches the global
+// max/min exactly — only meaningful once both sides have real data.
+const isRecordHolder = (personal?: number | null, global?: number | null): boolean =>
+  !!(personal && global && personal > 0 && global > 0 && personal === global);
+
+interface GlobalComparison {
+  pct: number;
+  isBetter: boolean;
+}
+
+// `global <= 0` covers both "no global games recorded yet" and the (rare)
+// legitimate zero baseline — either way there's nothing meaningful to divide by.
+const compareToGlobal = (personal: number | null, global: number | null, lowerIsBetter: boolean): GlobalComparison | null => {
+  if (personal == null || global == null || global <= 0) return null;
+  const diffPct = ((personal - global) / global) * 100;
+  if (diffPct === 0) return null;
+  const isBetter = lowerIsBetter ? diffPct < 0 : diffPct > 0;
+  return { pct: Math.abs(Math.round(diffPct)), isBetter };
+};
+
 interface StatTileProps {
   icon: React.ReactNode;
   value: React.ReactNode;
   label: string;
   colorClass?: string;
   bgClass?: string;
+  badge?: React.ReactNode;
 }
 
-const StatTile = ({ icon, value, label, colorClass = 'text-indigo-600 dark:text-indigo-400', bgClass = 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-500/30' }: StatTileProps) => (
+const StatTile = ({ icon, value, label, colorClass = 'text-indigo-600 dark:text-indigo-400', bgClass = 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-500/30', badge }: StatTileProps) => (
   <div className={`p-6 rounded-2xl border relative text-left overflow-hidden shadow-sm ${bgClass}`}>
     <div className="absolute top-4 right-4 opacity-50">{icon}</div>
     <div className={`text-3xl font-black mt-2 ${colorClass}`}>{value}</div>
     <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-1 pr-8">{label}</div>
+    {badge && <div className="text-xs font-bold mt-2">{badge}</div>}
   </div>
 );
+
+const RecordBadge = () => {
+  const { t } = useTranslation();
+  return <span className="text-amber-500 dark:text-amber-400">🏆 {t('statistics.globalRecord', 'Global Record!')}</span>;
+};
+
+const ComparisonBadge = ({ comparison }: { comparison: GlobalComparison | null }) => {
+  const { t } = useTranslation();
+  if (!comparison) return null;
+  return (
+    <span className={comparison.isBetter ? 'text-green-500 dark:text-green-400' : 'text-red-500 dark:text-red-400'}>
+      {comparison.pct}% {comparison.isBetter
+        ? t('statistics.betterThanGlobalAvg', 'better than global avg')
+        : t('statistics.worseThanGlobalAvg', 'worse than global avg')}
+    </span>
+  );
+};
 
 interface BigStatTileProps {
   value: React.ReactNode;
@@ -202,6 +253,18 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   const gAvgDuration = g?.totalGamesPlayed ? g.totalPlaytime / g.totalGamesPlayed : 0;
   const gBustRate = g?.totalTurns ? (((g.totalBusts ?? 0) / g.totalTurns) * 100).toFixed(0) : '0';
 
+  const pBustRateNum = p?.totalTurns ? ((p.busts ?? 0) / p.totalTurns) * 100 : null;
+  const gBustRateNum = g?.totalTurns ? ((g.totalBusts ?? 0) / g.totalTurns) * 100 : null;
+  const pAvgPtsPerTurnNum = p?.totalTurns ? (p.totalScore ?? 0) / p.totalTurns : null;
+  const gAvgPtsPerTurnNum = g?.totalTurns ? (g.totalScore ?? 0) / g.totalTurns : null;
+  const bustRateComparison = compareToGlobal(pBustRateNum, gBustRateNum, true);
+  const avgPtsPerTurnComparison = compareToGlobal(pAvgPtsPerTurnNum, gAvgPtsPerTurnNum, false);
+
+  const pAvgPlayersPerGame = p?.gamesPlayed ? Math.round((p.totalPlayersSum ?? 0) / p.gamesPlayed) : 0;
+  const pAvgRoundsPerGame = p?.gamesPlayed ? Math.round((p.totalRoundsSum ?? 0) / p.gamesPlayed) : 0;
+  const gAvgPlayersPerGame = g?.totalGamesPlayed ? Math.round((g.totalPlayersSum ?? 0) / g.totalGamesPlayed) : 0;
+  const gAvgRoundsPerGame = g?.totalGamesPlayed ? Math.round((g.totalRoundsSum ?? 0) / g.totalGamesPlayed) : 0;
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-3xl flex flex-col items-center">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-2xl rounded-3xl p-8 relative overflow-hidden">
@@ -245,9 +308,10 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                     <BigStatTile value={p.gamesPlayed} label={t('statistics.gamesPlayed', 'Games Played')} />
                     <BigStatTile value={p.wins} label={t('statistics.gamesWon', 'Games Won')} colorClass="text-emerald-500 dark:text-emerald-400" bgClass="bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-500/30" />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                     <StatTile icon={<Trophy size={32} className="text-amber-500" />} value={`${pWinRate}%`} label={t('statistics.winRate', 'Win Rate')} colorClass="text-amber-600 dark:text-amber-400" bgClass="bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-500/30" />
                     <StatTile icon={<Clock size={32} className="text-indigo-400" />} value={formatTime(pAvgDuration)} label={t('statistics.avgDuration', 'Avg Duration')} />
+                    <StatTile icon={<Repeat size={32} className="text-gray-400" />} value={p.totalTurns || 0} label={t('statistics.totalTurns', 'Total Turns')} colorClass="text-gray-700 dark:text-gray-200" bgClass="bg-black/5 dark:bg-white/5 border-gray-200 dark:border-slate-600" />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                     <StatTile 
@@ -266,22 +330,29 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                     />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                    <StatTile icon={<TrendingDown size={32} className="text-red-400" />} value={`${pBustRate}%`} label={t('statistics.bustRate', 'Bust Rate')} colorClass="text-red-600 dark:text-red-400" bgClass="bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-500/30" />
                     <StatTile icon={<XCircle size={32} className="text-red-400" />} value={p.pointsDeducted || 0} label={t('statistics.ptsEaten', '-1000 Pts Eaten')} colorClass="text-red-600 dark:text-red-400" bgClass="bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-500/30" />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                    <StatTile icon={<Repeat size={32} className="text-gray-400" />} value={p.totalTurns || 0} label={t('statistics.totalTurns', 'Total Turns')} colorClass="text-gray-700 dark:text-gray-200" bgClass="bg-black/5 dark:bg-white/5 border-gray-200 dark:border-slate-600" />
                     <StatTile icon={<Clock size={32} className="text-gray-400" />} value={formatTime(p.totalPlaytime)} label={t('statistics.totalPlaytime', 'Total Playtime')} colorClass="text-gray-700 dark:text-gray-200" bgClass="bg-black/5 dark:bg-white/5 border-gray-200 dark:border-slate-600" />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                     <StatTile icon={<Hash size={32} className="text-red-400" />} value={p.busts || 0} label={t('statistics.totalBusts', 'Total Busts')} colorClass="text-red-600 dark:text-red-400" bgClass="bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-500/30" />
                     <StatTile icon={<Hash size={32} className="text-red-400" />} value={p.gamesPlayed ? Math.round((p.busts || 0) / p.gamesPlayed) : 0} label={t('statistics.avgBustsPerGame', 'Avg Busts / Game')} colorClass="text-red-600 dark:text-red-400" bgClass="bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-500/30" />
+                    <StatTile icon={<TrendingDown size={32} className="text-red-400" />} value={`${pBustRate}%`} label={t('statistics.bustRate', 'Bust Rate')} colorClass="text-red-600 dark:text-red-400" bgClass="bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-500/30" badge={<ComparisonBadge comparison={bustRateComparison} />} />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                    <StatTile icon={<Zap size={32} className="text-yellow-400" />} value={p.highestTurnScore || 0} label={t('statistics.highestTurn', 'Highest Turn')} colorClass="text-yellow-600 dark:text-yellow-400" bgClass="bg-yellow-50 dark:bg-yellow-900/20 border-yellow-100 dark:border-yellow-500/30" />
-                    <StatTile icon={<TrendingUp size={32} className="text-indigo-400" />} value={p.totalTurns ? Math.round((p.totalScore || 0) / p.totalTurns) : 0} label={t('statistics.avgPointsPerTurn', 'Avg Points/Turn')} />
-                    <StatTile icon={<FastForward size={32} className="text-green-400" />} value={p.fastestWinTurns || '-'} label={t('statistics.fastestWinTurns', 'Fastest Win (Turns)')} colorClass="text-green-600 dark:text-green-400" bgClass="bg-green-50 dark:bg-green-900/20 border-green-100 dark:border-green-500/30" />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                    <StatTile icon={<Zap size={32} className="text-yellow-400" />} value={p.highestTurnScore || 0} label={t('statistics.highestTurn', 'Highest Turn')} colorClass="text-yellow-600 dark:text-yellow-400" bgClass="bg-yellow-50 dark:bg-yellow-900/20 border-yellow-100 dark:border-yellow-500/30" badge={isRecordHolder(p.highestTurnScore, g?.highestTurnScore) && <RecordBadge />} />
+                    <StatTile icon={<TrendingUp size={32} className="text-indigo-400" />} value={p.totalTurns ? Math.round((p.totalScore || 0) / p.totalTurns) : 0} label={t('statistics.avgPointsPerTurn', 'Avg Points/Turn')} badge={<ComparisonBadge comparison={avgPtsPerTurnComparison} />} />
+                    <StatTile icon={<FastForward size={32} className="text-green-400" />} value={p.fastestWinTurns || '-'} label={t('statistics.fastestWinTurns', 'Fastest Win (Turns)')} colorClass="text-green-600 dark:text-green-400" bgClass="bg-green-50 dark:bg-green-900/20 border-green-100 dark:border-green-500/30" badge={isRecordHolder(p.fastestWinTurns, g?.fastestWinTurns) && <RecordBadge />} />
                     <StatTile icon={<Skull size={32} className="text-red-400" />} value={p.fastestLossTurns || '-'} label={t('statistics.fastestLossTurns', 'Fastest Loss (Turns)')} colorClass="text-red-600 dark:text-red-400" bgClass="bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-500/30" />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                    <StatTile icon={<Hash size={32} className="text-sky-400" />} value={p.mostPlayersInGame || 0} label={t('statistics.mostPlayersInGame', 'Most Players in a Game')} colorClass="text-sky-600 dark:text-sky-400" bgClass="bg-sky-50 dark:bg-sky-900/20 border-sky-100 dark:border-sky-500/30" />
+                    <StatTile icon={<Hash size={32} className="text-sky-400" />} value={pAvgPlayersPerGame} label={t('statistics.avgPlayersPerGame', 'Avg Players/Game')} colorClass="text-sky-600 dark:text-sky-400" bgClass="bg-sky-50 dark:bg-sky-900/20 border-sky-100 dark:border-sky-500/30" />
+                    <StatTile icon={<Repeat size={32} className="text-purple-400" />} value={p.longestGameRounds || 0} label={t('statistics.longestGameRounds', 'Longest Game (Rounds)')} colorClass="text-purple-600 dark:text-purple-400" bgClass="bg-purple-50 dark:bg-purple-900/20 border-purple-100 dark:border-purple-500/30" badge={isRecordHolder(p.longestGameRounds, g?.longestGameRounds) && <RecordBadge />} />
+                    <StatTile icon={<Repeat size={32} className="text-purple-400" />} value={pAvgRoundsPerGame} label={t('statistics.avgRoundsPerGame', 'Avg Rounds/Game')} colorClass="text-purple-600 dark:text-purple-400" bgClass="bg-purple-50 dark:bg-purple-900/20 border-purple-100 dark:border-purple-500/30" />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+                    <StatTile icon={<Zap size={32} className="text-orange-400" />} value={p.highestFeuerwerkTurnScore || 0} label={t('statistics.highestFeuerwerkTurn', 'Highest Feuerwerk Turn')} colorClass="text-orange-600 dark:text-orange-400" bgClass="bg-orange-50 dark:bg-orange-900/20 border-orange-100 dark:border-orange-500/30" badge={isRecordHolder(p.highestFeuerwerkTurnScore, g?.highestFeuerwerkTurnScore) && <RecordBadge />} />
+                    <StatTile icon={<Zap size={32} className="text-pink-400" />} value={p.highestX2TurnScore || 0} label={t('statistics.highestX2Turn', 'Highest x2 Turn')} colorClass="text-pink-600 dark:text-pink-400" bgClass="bg-pink-50 dark:bg-pink-900/20 border-pink-100 dark:border-pink-500/30" badge={isRecordHolder(p.highestX2TurnScore, g?.highestX2TurnScore) && <RecordBadge />} />
                   </div>
                   <h4 className="text-lg font-extrabold text-gray-800 dark:text-gray-100 border-t border-gray-200 dark:border-slate-600 pt-8 pb-6 text-center uppercase tracking-widest flex items-center justify-center gap-3">
                     <span className="text-2xl">🃏</span> {t('statistics.cardBreakdown', 'Card Breakdown')}
@@ -316,22 +387,30 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                     <BigStatTile value={g.totalGamesPlayed} label={t('statistics.totalGames', 'Total Games')} />
                     <BigStatTile value={formatTime(g.totalPlaytime)} label={t('statistics.totalPlaytime', 'Total Playtime')} />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                     <StatTile icon={<Clock size={32} className="text-emerald-400" />} value={formatTime(gAvgDuration)} label={t('statistics.avgGameDuration', 'Avg Game Duration')} colorClass="text-emerald-600 dark:text-emerald-400" bgClass="bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-500/30" />
                     <StatTile icon={<Zap size={32} className="text-indigo-400" />} value={g.totalScore || 0} label={t('statistics.totalPointsScored', 'Total Points Scored')} />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                     <StatTile icon={<Repeat size={32} className="text-gray-400" />} value={g.totalTurns || 0} label={t('statistics.totalTurnsPlayed', 'Total Turns Played')} colorClass="text-gray-700 dark:text-gray-200" bgClass="bg-black/5 dark:bg-white/5 border-gray-200 dark:border-slate-600" />
-                    <StatTile icon={<TrendingDown size={32} className="text-red-400" />} value={`${gBustRate}%`} label={t('statistics.globalBustRate', 'Global Bust Rate')} colorClass="text-red-600 dark:text-red-400" bgClass="bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-500/30" />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                     <StatTile icon={<Zap size={32} className="text-yellow-400" />} value={g.highestTurnScore || 0} label={t('statistics.highestTurnGlobal', 'Highest Turn (Global)')} colorClass="text-yellow-600 dark:text-yellow-400" bgClass="bg-yellow-50 dark:bg-yellow-900/20 border-yellow-100 dark:border-yellow-500/30" />
                     <StatTile icon={<TrendingUp size={32} className="text-indigo-400" />} value={g.totalTurns ? Math.round((g.totalScore || 0) / g.totalTurns) : 0} label={t('statistics.avgPointsPerTurn', 'Avg Points/Turn')} />
                     <StatTile icon={<FastForward size={32} className="text-green-400" />} value={g.fastestWinTurns || '-'} label={t('statistics.fastestWinTurns', 'Fastest Win (Turns)')} colorClass="text-green-600 dark:text-green-400" bgClass="bg-green-50 dark:bg-green-900/20 border-green-100 dark:border-green-500/30" />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                    <StatTile icon={<Hash size={32} className="text-sky-400" />} value={g.mostPlayersInGame || 0} label={t('statistics.mostPlayersInGame', 'Most Players in a Game')} colorClass="text-sky-600 dark:text-sky-400" bgClass="bg-sky-50 dark:bg-sky-900/20 border-sky-100 dark:border-sky-500/30" />
+                    <StatTile icon={<Hash size={32} className="text-sky-400" />} value={gAvgPlayersPerGame} label={t('statistics.avgPlayersPerGame', 'Avg Players/Game')} colorClass="text-sky-600 dark:text-sky-400" bgClass="bg-sky-50 dark:bg-sky-900/20 border-sky-100 dark:border-sky-500/30" />
+                    <StatTile icon={<Repeat size={32} className="text-purple-400" />} value={g.longestGameRounds || 0} label={t('statistics.longestGameRounds', 'Longest Game (Rounds)')} colorClass="text-purple-600 dark:text-purple-400" bgClass="bg-purple-50 dark:bg-purple-900/20 border-purple-100 dark:border-purple-500/30" />
+                    <StatTile icon={<Repeat size={32} className="text-purple-400" />} value={gAvgRoundsPerGame} label={t('statistics.avgRoundsPerGame', 'Avg Rounds/Game')} colorClass="text-purple-600 dark:text-purple-400" bgClass="bg-purple-50 dark:bg-purple-900/20 border-purple-100 dark:border-purple-500/30" />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                    <StatTile icon={<Zap size={32} className="text-orange-400" />} value={g.highestFeuerwerkTurnScore || 0} label={t('statistics.highestFeuerwerkTurn', 'Highest Feuerwerk Turn')} colorClass="text-orange-600 dark:text-orange-400" bgClass="bg-orange-50 dark:bg-orange-900/20 border-orange-100 dark:border-orange-500/30" />
+                    <StatTile icon={<Zap size={32} className="text-pink-400" />} value={g.highestX2TurnScore || 0} label={t('statistics.highestX2Turn', 'Highest x2 Turn')} colorClass="text-pink-600 dark:text-pink-400" bgClass="bg-pink-50 dark:bg-pink-900/20 border-pink-100 dark:border-pink-500/30" />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
                     <StatTile icon={<Hash size={32} className="text-red-400" />} value={g.totalBusts || 0} label={t('statistics.totalBusts', 'Total Busts')} colorClass="text-red-600 dark:text-red-400" bgClass="bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-500/30" />
                     <StatTile icon={<Hash size={32} className="text-red-400" />} value={g.totalGamesPlayed ? Math.round((g.totalBusts || 0) / g.totalGamesPlayed) : 0} label={t('statistics.avgBustsPerGame', 'Avg Busts / Game')} colorClass="text-red-600 dark:text-red-400" bgClass="bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-500/30" />
+                    <StatTile icon={<TrendingDown size={32} className="text-red-400" />} value={`${gBustRate}%`} label={t('statistics.globalBustRate', 'Global Bust Rate')} colorClass="text-red-600 dark:text-red-400" bgClass="bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-500/30" />
                   </div>
                   <h4 className="text-lg font-extrabold text-gray-800 dark:text-gray-100 border-t border-gray-200 dark:border-slate-600 pt-8 pb-6 text-center uppercase tracking-widest flex items-center justify-center gap-3">
                     <span className="text-2xl">🃏</span> {t('statistics.cardBreakdown', 'Card Breakdown')}

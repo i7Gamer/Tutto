@@ -79,7 +79,11 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
     && (preGameStats.fastestWinTurns == null || me.totalTurns < preGameStats.fastestWinTurns));
   const newFastestLoss = !!(preGameStats && me && !isWinner
     && (preGameStats.fastestLossTurns == null || me.totalTurns < preGameStats.fastestLossTurns));
-  const hasNewRecord = newHighScore || newFastestWin || newFastestLoss;
+  const newHighestFeuerwerk = !!(preGameStats && me?.highestFeuerwerkTurnScore
+    && me.highestFeuerwerkTurnScore > (preGameStats.highestFeuerwerkTurnScore ?? 0));
+  const newHighestX2 = !!(preGameStats && me?.highestX2TurnScore
+    && me.highestX2TurnScore > (preGameStats.highestX2TurnScore ?? 0));
+  const hasNewRecord = newHighScore || newFastestWin || newFastestLoss || newHighestFeuerwerk || newHighestX2;
 
   // Same rule as the lobby's StartGameButton: don't let the host restart while
   // someone is disconnected — their turns would just burn down via the server
@@ -250,6 +254,24 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                 <div>
                   <div className="text-2xl font-black text-red-600 dark:text-red-400">{me?.totalTurns}</div>
                   <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.newFastestLoss', 'New Fastest Loss (turns) — ouch!')}</div>
+                </div>
+              </div>
+            )}
+            {newHighestFeuerwerk && (
+              <div className="flex items-center gap-4 bg-orange-50 dark:bg-orange-900/20 rounded-2xl p-4 border border-orange-100 dark:border-orange-800">
+                <Award size={36} className="text-orange-500 flex-shrink-0" />
+                <div>
+                  <div className="text-2xl font-black text-orange-600 dark:text-orange-400">{me?.highestFeuerwerkTurnScore}</div>
+                  <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.newHighestFeuerwerk', 'New Personal Best Feuerwerk Turn!')}</div>
+                </div>
+              </div>
+            )}
+            {newHighestX2 && (
+              <div className="flex items-center gap-4 bg-pink-50 dark:bg-pink-900/20 rounded-2xl p-4 border border-pink-100 dark:border-pink-800">
+                <Award size={36} className="text-pink-500 flex-shrink-0" />
+                <div>
+                  <div className="text-2xl font-black text-pink-600 dark:text-pink-400">{me?.highestX2TurnScore}</div>
+                  <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.newHighestX2', 'New Personal Best x2 Turn!')}</div>
                 </div>
               </div>
             )}

@@ -201,6 +201,160 @@ describe('Statistics Component', () => {
     expect(screen.getByText('statistics.bestWinStreak')).toBeInTheDocument();
   });
 
+  it('renders the new players/rounds/feuerwerk/x2 tiles with correct values and averages', async () => {
+    const mockPersonalStats = {
+      gamesPlayed: 4,
+      wins: 2,
+      totalPlayersSum: 12,
+      mostPlayersInGame: 5,
+      totalRoundsSum: 40,
+      longestGameRounds: 15,
+      highestFeuerwerkTurnScore: 700,
+      highestX2TurnScore: 900,
+    };
+    const mockGlobalStats = {
+      totalGamesPlayed: 10,
+      totalPlaytime: 1000,
+      totalPlayersSum: 30,
+      mostPlayersInGame: 6,
+      totalRoundsSum: 90,
+      longestGameRounds: 20,
+      highestFeuerwerkTurnScore: 700,
+      highestX2TurnScore: 1200,
+    };
+
+    global.fetch = vi.fn((url) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : mockPersonalStats),
+    }));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+    expect(screen.getByText('statistics.mostPlayersInGame')).toBeInTheDocument();
+    expect(screen.getAllByText('5').length).toBeGreaterThan(0); // personal mostPlayersInGame
+    expect(screen.getByText('3')).toBeInTheDocument(); // personal avgPlayersPerGame: 12/4
+    expect(screen.getByText('statistics.longestGameRounds')).toBeInTheDocument();
+    expect(screen.getByText('15')).toBeInTheDocument();
+    expect(screen.getByText('10')).toBeInTheDocument(); // personal avgRoundsPerGame: 40/4
+    expect(screen.getByText('statistics.highestFeuerwerkTurn')).toBeInTheDocument();
+    expect(screen.getByText('700')).toBeInTheDocument();
+    expect(screen.getByText('statistics.highestX2Turn')).toBeInTheDocument();
+    expect(screen.getByText('900')).toBeInTheDocument();
+
+    // personal highestFeuerwerkTurnScore (700) ties the global max (700) — record badge shown.
+    expect(screen.getByText(/statistics\.globalRecord/)).toBeInTheDocument();
+  });
+
+  it('does not show a record badge when personal and global values differ or are both zero', async () => {
+    const mockPersonalStats = {
+      gamesPlayed: 1,
+      wins: 0,
+      highestTurnScore: 500,
+      highestFeuerwerkTurnScore: 0,
+      highestX2TurnScore: 0,
+      longestGameRounds: 0,
+    };
+    const mockGlobalStats = {
+      totalGamesPlayed: 5,
+      totalPlaytime: 500,
+      highestTurnScore: 900,
+      highestFeuerwerkTurnScore: 0,
+      highestX2TurnScore: 0,
+      longestGameRounds: 0,
+    };
+
+    global.fetch = vi.fn((url) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : mockPersonalStats),
+    }));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+    expect(screen.queryByText(/statistics\.globalRecord/)).not.toBeInTheDocument();
+  });
+
+  it('shows a green "better than global avg" badge when personal bust rate is lower than global', async () => {
+    const mockPersonalStats = {
+      gamesPlayed: 5,
+      wins: 3,
+      totalTurns: 100,
+      busts: 5, // 5% bust rate
+      totalScore: 10000,
+    };
+    const mockGlobalStats = {
+      totalGamesPlayed: 50,
+      totalPlaytime: 5000,
+      totalTurns: 1000,
+      totalBusts: 100, // 10% bust rate — personal is better (lower)
+      totalScore: 90000,
+    };
+
+    global.fetch = vi.fn((url) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : mockPersonalStats),
+    }));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+    // (5-10)/10 * 100 = -50% -> 50% better (lower bust rate is better)
+    const betterBadge = screen.getByText(/50% statistics\.betterThanGlobalAvg/);
+    expect(betterBadge).toBeInTheDocument();
+    expect(betterBadge).toHaveClass('text-green-500');
+  });
+
+  it('shows a red "worse than global avg" badge when personal avg points/turn is lower than global', async () => {
+    const mockPersonalStats = {
+      gamesPlayed: 5,
+      wins: 3,
+      totalTurns: 100,
+      totalScore: 40000, // avg 400/turn
+    };
+    const mockGlobalStats = {
+      totalGamesPlayed: 50,
+      totalPlaytime: 5000,
+      totalTurns: 1000,
+      totalScore: 500000, // avg 500/turn — personal is worse (lower)
+    };
+
+    global.fetch = vi.fn((url) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : mockPersonalStats),
+    }));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+    // (400-500)/500 * 100 = -20% -> 20% worse (lower avg points/turn is worse)
+    const worseBadge = screen.getByText(/20% statistics\.worseThanGlobalAvg/);
+    expect(worseBadge).toBeInTheDocument();
+    expect(worseBadge).toHaveClass('text-red-500');
+  });
+
+  it('hides the comparison badge when there is no global baseline yet', async () => {
+    const mockPersonalStats = {
+      gamesPlayed: 5,
+      wins: 3,
+      totalTurns: 100,
+      busts: 5,
+      totalScore: 10000,
+    };
+    const mockGlobalStats = {}; // no games recorded globally yet
+
+    global.fetch = vi.fn((url) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : mockPersonalStats),
+    }));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+    expect(screen.queryByText(/statistics\.betterThanGlobalAvg/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/statistics\.worseThanGlobalAvg/)).not.toBeInTheDocument();
+  });
+
   it('renders currentWinStreak without fire icon if < 3', async () => {
     const mockPersonalStats = {
       gamesPlayed: 10,

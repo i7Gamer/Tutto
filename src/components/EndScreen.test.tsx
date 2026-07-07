@@ -415,6 +415,36 @@ describe('EndScreen Component', () => {
       expect(queryByText('end.newPersonalBestTurnScore')).not.toBeInTheDocument();
       expect(queryByText('end.newFastestWin')).not.toBeInTheDocument();
     });
+
+    it('shows a new highest Feuerwerk/x2 turn record when this game exceeds the pre-game snapshot', () => {
+      useGameStore.setState({
+        isOnline: true,
+        myName: 'Alice',
+        players: [
+          { name: 'Alice', score: 10000, position: 1, totalTurns: 8, highestTurnScore: 1500, highestFeuerwerkTurnScore: 700, highestX2TurnScore: 900 },
+          { name: 'Bob', score: 5000, position: 2, totalTurns: 12, highestTurnScore: 800 },
+        ],
+        preGameStats: { highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null, highestFeuerwerkTurnScore: 500, highestX2TurnScore: 600 },
+      });
+      const { getByText } = render(<EndScreen deviceId="d1" />);
+      expect(getByText('end.newHighestFeuerwerk')).toBeInTheDocument();
+      expect(getByText('end.newHighestX2')).toBeInTheDocument();
+    });
+
+    it('does not flag a new Feuerwerk/x2 record when this game merely ties the pre-game snapshot', () => {
+      useGameStore.setState({
+        isOnline: true,
+        myName: 'Alice',
+        players: [
+          { name: 'Alice', score: 10000, position: 1, totalTurns: 8, highestTurnScore: 1500, highestFeuerwerkTurnScore: 500, highestX2TurnScore: 600 },
+          { name: 'Bob', score: 5000, position: 2, totalTurns: 12, highestTurnScore: 800 },
+        ],
+        preGameStats: { highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null, highestFeuerwerkTurnScore: 500, highestX2TurnScore: 600 },
+      });
+      const { queryByText } = render(<EndScreen deviceId="d1" />);
+      expect(queryByText('end.newHighestFeuerwerk')).not.toBeInTheDocument();
+      expect(queryByText('end.newHighestX2')).not.toBeInTheDocument();
+    });
   });
 
   describe('win streak tiles', () => {
