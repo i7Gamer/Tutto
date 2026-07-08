@@ -422,7 +422,7 @@ export default function Game() {
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="w-full max-w-4xl h-full sm:h-auto rounded-3xl"
+            className="w-full max-w-4xl rounded-3xl"
           >
             <DiceGame
               currentCard={currentCard}

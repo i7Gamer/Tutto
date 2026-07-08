@@ -254,7 +254,8 @@ describe('DiceGame interactive turn logic', () => {
   });
 
   it('renders kept dice as pip faces, not raw digits, matching the current-roll dice style', () => {
-    queueRoll([1, 5, 2, 2, 3, 4]);
+    queueRoll([1, 5, 2, 2, 3, 4]); // first (auto) roll
+    queueRoll([5, 2, 3, 4, 6]); // reroll of the 5 dice not kept — includes a 5 so it isn't a bust
     render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
 
     clickDie(1);
