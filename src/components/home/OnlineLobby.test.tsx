@@ -1,6 +1,7 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import OnlineLobby from './OnlineLobby';
+import type { GameStore } from '../../store/useGameStore';
 
 describe('OnlineLobby', () => {
   it('renders join/create room form if no roomId', () => {
@@ -48,26 +49,36 @@ describe('OnlineLobby copy room code button', () => {
   });
 
   it('copies the room code to the clipboard and shows a toast', async () => {
+    vi.useFakeTimers();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     const addToast = vi.fn();
 
     render(<OnlineLobby game={makeGame({ addToast })} />);
-    fireEvent.click(screen.getByTitle('lobby.online.copyRoomCode'));
+    
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('lobby.online.copyRoomCode'));
+    });
 
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith('1234'));
     expect(addToast).toHaveBeenCalledWith('lobby.online.roomCodeCopied');
+    vi.useRealTimers();
   });
 
   it('shows a failure toast when the clipboard write rejects', async () => {
+    vi.useFakeTimers();
     const writeText = vi.fn().mockRejectedValue(new Error('denied'));
     Object.assign(navigator, { clipboard: { writeText } });
     const addToast = vi.fn();
 
     render(<OnlineLobby game={makeGame({ addToast })} />);
-    fireEvent.click(screen.getByTitle('lobby.online.copyRoomCode'));
+    
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('lobby.online.copyRoomCode'));
+    });
 
     await vi.waitFor(() => expect(addToast).toHaveBeenCalledWith('lobby.online.roomCodeCopyFailed'));
+    vi.useRealTimers();
   });
 });
 
@@ -247,7 +258,7 @@ describe('OnlineLobby recent rooms history', () => {
     const mockGame = {
       joinRoom: vi.fn().mockResolvedValue({}),
     };
-    render(<OnlineLobby game={mockGame as any} />);
+    render(<OnlineLobby game={mockGame as unknown as GameStore} />);
     
     const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder') as HTMLInputElement;
     const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder') as HTMLInputElement;
@@ -255,7 +266,10 @@ describe('OnlineLobby recent rooms history', () => {
 
     fireEvent.change(roomInput, { target: { value: 'ROOM123' } });
     fireEvent.change(nameInput, { target: { value: 'Bob2' } });
-    fireEvent.click(joinBtn);
+    
+    await act(async () => {
+      fireEvent.click(joinBtn);
+    });
 
     await waitFor(() => {
       const updatedRaw = localStorage.getItem('tutto_recent_rooms');
@@ -276,7 +290,7 @@ describe('OnlineLobby recent rooms history', () => {
     const mockGame = {
       joinRoom: vi.fn().mockResolvedValue({}),
     };
-    render(<OnlineLobby game={mockGame as any} />);
+    render(<OnlineLobby game={mockGame as unknown as GameStore} />);
     
     const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder') as HTMLInputElement;
     const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder') as HTMLInputElement;
@@ -284,21 +298,24 @@ describe('OnlineLobby recent rooms history', () => {
 
     fireEvent.change(roomInput, { target: { value: 'ROOM_NEW' } });
     fireEvent.change(nameInput, { target: { value: 'Bob' } });
-    fireEvent.click(joinBtn);
+    
+    await act(async () => {
+      fireEvent.click(joinBtn);
+    });
 
     await waitFor(() => {
       const updatedRaw = localStorage.getItem('tutto_recent_rooms');
       const updated = JSON.parse(updatedRaw!);
       expect(updated.length).toBe(5);
       expect(updated[0].roomId).toBe('ROOM_NEW');
-      expect(updated.find((r: any) => r.roomId === 'ROOM4')).toBeUndefined();
+      expect(updated.find((r: { roomId: string }) => r.roomId === 'ROOM4')).toBeUndefined();
     });
   });
 
   it('handles malformed localStorage data gracefully', () => {
     localStorage.setItem('tutto_recent_rooms', 'not json');
     const mockGame = { joinRoom: vi.fn() };
-    render(<OnlineLobby game={mockGame as any} />);
+    render(<OnlineLobby game={mockGame as unknown as GameStore} />);
     expect(screen.queryByText('lobby.online.recentRooms')).not.toBeInTheDocument();
   });
 });

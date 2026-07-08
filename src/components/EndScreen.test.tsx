@@ -1,4 +1,4 @@
-import { render, act } from '@testing-library/react';
+import { render, act, cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import EndScreen from './EndScreen';
@@ -21,6 +21,7 @@ interface ChartDataset { label: string; data: number[]; borderColor: string; bac
 
 describe('EndScreen Component', () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     useGameStore.setState({
       players: [
         { name: 'Alice', score: 10000, position: 1 },
@@ -33,6 +34,12 @@ describe('EndScreen Component', () => {
       round: 10,
       winningScore: 6000
     });
+  });
+
+  afterEach(() => {
+    cleanup();
+    useGameStore.setState({ isOnline: false, isHost: false, myName: null, preGameStats: null });
+    vi.useRealTimers();
   });
 
   it('fires confetti once on mount when the winner screen shows', async () => {
@@ -237,9 +244,6 @@ describe('EndScreen Component', () => {
   });
 
   describe('Play Again disconnected-player guard', () => {
-    afterEach(() => {
-      useGameStore.setState({ isOnline: false, isHost: false });
-    });
 
     it('disables Play Again with the waiting message while an online player is disconnected (same rule as the lobby)', () => {
       useGameStore.setState({
@@ -291,7 +295,6 @@ describe('EndScreen Component', () => {
   describe('device stats fetching', () => {
     afterEach(() => {
       vi.restoreAllMocks();
-      useGameStore.setState({ isOnline: false });
     });
 
     it('does not fetch device stats for local games', () => {
@@ -349,7 +352,6 @@ describe('EndScreen Component', () => {
 
     afterEach(() => {
       vi.restoreAllMocks();
-      useGameStore.setState({ isOnline: false, myName: null, preGameStats: null });
     });
 
     it('does not render the panel when there is no pre-game snapshot', () => {
@@ -450,7 +452,6 @@ describe('EndScreen Component', () => {
   describe('win streak tiles', () => {
     afterEach(() => {
       vi.restoreAllMocks();
-      useGameStore.setState({ isOnline: false });
     });
 
     it('renders current and best win streak from device stats', async () => {

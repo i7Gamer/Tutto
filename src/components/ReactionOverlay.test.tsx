@@ -1,15 +1,16 @@
 import { render, screen } from '@testing-library/react';
+import { PropsWithChildren } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import ReactionOverlay from './ReactionOverlay';
 import { useGameStore } from '../store/useGameStore';
 
 vi.mock('framer-motion', () => ({
   motion: {
-    div: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => (
+    div: ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => (
       <div {...props}>{children}</div>
     ),
   },
-  AnimatePresence: ({ children }: React.PropsWithChildren) => <>{children}</>,
+  AnimatePresence: ({ children }: PropsWithChildren) => <>{children}</>,
 }));
 
 describe('ReactionOverlay', () => {

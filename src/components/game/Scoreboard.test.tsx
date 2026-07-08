@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import Scoreboard from './Scoreboard';
+import type { GameStore } from '../../store/useGameStore';
 
 // Mock framer-motion
 vi.mock('framer-motion', () => {
@@ -27,7 +28,7 @@ describe('Scoreboard Component', () => {
       hostId: 'abc'
     };
 
-    render(<Scoreboard game={game} formattedTime="10:00" />);
+    render(<Scoreboard game={game as unknown as GameStore} formattedTime="10:00" />);
 
     expect(screen.getByText('game.currentPlayer')).toBeInTheDocument();
     expect(screen.getByTitle('game.host')).toBeInTheDocument();
@@ -49,7 +50,7 @@ describe('Scoreboard Component', () => {
       winningScore: 1000,
     };
 
-    render(<Scoreboard game={game} formattedTime="10:00" />);
+    render(<Scoreboard game={game as unknown as GameStore} formattedTime="10:00" />);
     expect(screen.getByText('game.disconnected')).toBeInTheDocument();
   });
 
@@ -63,7 +64,7 @@ describe('Scoreboard Component', () => {
       winningScore: 1000,
     };
 
-    render(<Scoreboard game={game} formattedTime="10:00" />);
+    render(<Scoreboard game={game as unknown as GameStore} formattedTime="10:00" />);
     expect(screen.getByText('game.score')).toBeInTheDocument();
   });
 
@@ -76,7 +77,7 @@ describe('Scoreboard Component', () => {
       round: 1,
       winningScore: 1000,
     };
-    render(<Scoreboard game={game as any} formattedTime="10:00" />);
+    render(<Scoreboard game={game as unknown as GameStore} formattedTime="10:00" />);
     expect(screen.queryByText('🔥 5')).not.toBeInTheDocument();
   });
 });

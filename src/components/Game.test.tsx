@@ -559,7 +559,9 @@ describe('Game Component Integration', () => {
       render(<Game />);
 
       const mockAddToast = vi.fn();
-      useGameStore.setState({ addToast: mockAddToast });
+      act(() => {
+        useGameStore.setState({ addToast: mockAddToast });
+      });
 
       // Simulate liveTurnState being written after first dice roll (DiceGame calls onStateChange)
       act(() => {

@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { StartGameButton, PlayerList, AdvancedOptionsPanel, HapticsSettingSelector } from './LobbyShared';
+import type { Player } from '../../types';
 
 describe('StartGameButton', () => {
   it('renders "Start Game!" when not disabled and playersCount >= 2', () => {
@@ -400,13 +401,13 @@ describe('HapticsSettingSelector', () => {
 
 describe('PlayerList win streak', () => {
   it('renders win streak badge for players with winStreak >= 3', () => {
-    const players = [
+    const players: Player[] = [
       { name: 'P1', winStreak: 3, score: 0, socketId: '1', position: 0, deviceId: 'a', color: '#ff0000', disconnected: false },
       { name: 'P2', winStreak: 2, score: 0, socketId: '2', position: 1, deviceId: 'b', color: '#00ff00', disconnected: false }
     ];
     render(
       <PlayerList 
-        players={players as any} 
+        players={players} 
         reorderPlayers={vi.fn()} 
         isOnline={true} 
         myName="P1" 

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Home from './Home';
 import { useGameStore } from '../store/useGameStore';
@@ -34,6 +34,7 @@ describe('Home handleModeChange', () => {
   const originalLeaveRoom = useGameStore.getState().leaveRoom;
 
   afterEach(() => {
+    cleanup();
     useGameStore.setState({ setMode: originalSetMode, leaveRoom: originalLeaveRoom, roomId: null, mode: 'local' });
     vi.restoreAllMocks();
   });

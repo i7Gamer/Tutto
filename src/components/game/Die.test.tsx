@@ -1,11 +1,12 @@
 import { render, screen, fireEvent } from '@testing-library/react';
+import { PropsWithChildren, ButtonHTMLAttributes } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import Die, { DiePips } from './Die';
 import type { Die as DieType } from '../../types';
 
 vi.mock('framer-motion', () => ({
   motion: {
-    button: ({ children, onClick, disabled, className, ...props }: React.PropsWithChildren<any>) => (
+    button: ({ children, onClick, disabled, className, ...props }: PropsWithChildren<ButtonHTMLAttributes<HTMLButtonElement>>) => (
       <button onClick={onClick} disabled={disabled} className={className} {...props}>
         {children}
       </button>
