@@ -6,11 +6,34 @@ import { getSocket, setSocket } from './socketRef';
 import { REACTION_DISPLAY_MS } from '../utils/reactions';
 import type { Reaction, DiceSnapshot } from '../types';
 import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from './storeTypes';
+import { makeToast } from './gameSlice';
 
 type SocketSlice = Pick<GameStore,
   | 'connectSocket' | 'joinRoom' | 'leaveRoom' | 'kickPlayer'
   | 'cancelReconnect' | 'pushState' | 'pushLiveTurnState' | 'sendOnlineStats'
 >;
+
+// Shared by every path that abandons the current online room (leaveRoom, the
+// 'kicked' handler, cancelReconnect, and useGameStore's reset) so these
+// ~12 room-identity/game fields can't drift out of sync between them the
+// way they were previously duplicated as separate hand-written literals.
+export const clearRoomState = (): Pick<GameStore,
+  | 'players' | 'currentPlayerIndex' | 'currentCard' | 'cards' | 'round' | 'finished'
+  | 'status' | 'roomId' | 'isHost' | 'hostId' | 'myName' | 'liveTurnState'
+> => ({
+  players: [],
+  currentPlayerIndex: null,
+  currentCard: null,
+  cards: [],
+  round: 1,
+  finished: false,
+  status: 'lobby',
+  roomId: null,
+  isHost: false,
+  hostId: null,
+  myName: null,
+  liveTurnState: null,
+});
 
 export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => ({
   cancelReconnect: (roomId?: string | null, name?: string | null) => {
@@ -27,19 +50,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     // page load (store roomId never set — the roomId argument here identifies
     // the room to leave server-side) must not wipe a restored local game.
     if (get().roomId) {
-      set({
-        players: [],
-        currentPlayerIndex: null,
-        currentCard: null,
-        cards: [],
-        round: 1,
-        finished: false,
-        status: 'lobby',
-        roomId: null,
-        isHost: false,
-        hostId: null,
-        myName: null,
-      });
+      set(clearRoomState());
     }
 
     if (!roomId) return;
@@ -81,34 +92,25 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
 
           if (prev.mode === 'online' && prev.status === 'lobby' && serverState.status === 'lobby') {
             if (prev.winningScore !== serverState.winningScore) {
-              prev.toasts.push({
-                id: Date.now() + Math.random(),
-                message: i18n.t('game.toastWinningScore', {
-                  defaultValue: 'Winning score: {{value}}',
-                  value: serverState.winningScore,
-                }),
-              });
+              prev.toasts.push(makeToast(i18n.t('game.toastWinningScore', {
+                defaultValue: 'Winning score: {{value}}',
+                value: serverState.winningScore,
+              })));
             }
             if (prev.turnDuration !== serverState.turnDuration) {
               const value = serverState.turnDuration === 0
                 ? i18n.t('common.disabled', 'Disabled')
                 : i18n.t('game.timeSeconds', { defaultValue: '{{time}}s', time: serverState.turnDuration });
-              prev.toasts.push({
-                id: Date.now() + Math.random(),
-                message: i18n.t('game.toastTurnTimer', { defaultValue: 'Turn timer: {{value}}', value }),
-              });
+              prev.toasts.push(makeToast(i18n.t('game.toastTurnTimer', { defaultValue: 'Turn timer: {{value}}', value })));
             }
             if (prev.reconnectTimeout !== serverState.reconnectTimeout) {
-              prev.toasts.push({
-                id: Date.now() + Math.random(),
-                message: i18n.t('game.toastKickTimer', {
-                  defaultValue: 'Kick timer: {{value}}',
-                  value: `${serverState.reconnectTimeout}s`,
-                }),
-              });
+              prev.toasts.push(makeToast(i18n.t('game.toastKickTimer', {
+                defaultValue: 'Kick timer: {{value}}',
+                value: `${serverState.reconnectTimeout}s`,
+              })));
             }
             if (JSON.stringify(prev.initialCards) !== JSON.stringify(serverState.initialCards)) {
-              prev.toasts.push({ id: Date.now() + Math.random(), message: i18n.t('game.toastDeckChanged', 'Deck composition changed') });
+              prev.toasts.push(makeToast(i18n.t('game.toastDeckChanged', 'Deck composition changed')));
             }
             if (prev.enforcedDiceMode !== serverState.enforcedDiceMode) {
               const value = serverState.enforcedDiceMode === null
@@ -116,14 +118,11 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
                 : serverState.enforcedDiceMode === 'digital'
                   ? i18n.t('lobby.digitalDice', 'Digital Dice')
                   : i18n.t('lobby.physicalDice', 'Physical Dice');
-              prev.toasts.push({
-                id: Date.now() + Math.random(),
-                message: i18n.t('game.toastDiceModeEnforced', { defaultValue: 'Dice mode: {{value}}', value }),
-              });
+              prev.toasts.push(makeToast(i18n.t('game.toastDiceModeEnforced', { defaultValue: 'Dice mode: {{value}}', value })));
             }
           }
           if (prev.mode === 'online' && prev.status === 'playing' && serverState.status === 'lobby' && !prev.finished && (serverState.players?.length ?? 0) >= 2) {
-            prev.toasts.push({ id: Date.now() + Math.random(), message: i18n.t('game.toastHostEndedEarly', 'Host ended game early') });
+            prev.toasts.push(makeToast(i18n.t('game.toastHostEndedEarly', 'Host ended game early')));
           }
           Object.assign(prev, serverState);
 
@@ -204,20 +203,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         // only overwrites the keys a saved local game happens to contain, so
         // without clearing the online room's roster/game state here too, it
         // bleeds into local mode whenever there's no local save to overwrite it.
-        set({
-          players: [],
-          currentPlayerIndex: null,
-          currentCard: null,
-          cards: [],
-          round: 1,
-          finished: false,
-          status: 'lobby',
-          roomId: null,
-          isHost: false,
-          hostId: null,
-          myName: null,
-          liveTurnState: null,
-        });
+        set(clearRoomState());
         get().setMode('local');
       });
 
@@ -300,20 +286,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     get().stopOnlineTimers();
     sessionStorage.removeItem('tutto_online_session');
     localStorage.removeItem('tutto_dice_turn_state');
-    set({
-      players: [],
-      currentPlayerIndex: null,
-      currentCard: null,
-      cards: [],
-      round: 1,
-      finished: false,
-      status: 'lobby',
-      roomId: null,
-      isHost: false,
-      hostId: null,
-      myName: null,
-      liveTurnState: null,
-    });
+    set(clearRoomState());
   },
 
   kickPlayer: (targetSocketId) => {

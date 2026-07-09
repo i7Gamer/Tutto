@@ -12,16 +12,6 @@ exports.up = function(knex) {
     });
 };
 
-exports.down = function(knex) {
-  return knex.schema
-    .alterTable('device_statistics', table => {
-      table.dropColumn('highestTurnScore');
-      table.dropColumn('fastestWinTurns');
-      table.dropColumn('fastestLossTurns');
-      table.dropColumn('totalScore');
-    })
-    .alterTable('global_statistics', table => {
-      table.dropColumn('highestTurnScore');
-      table.dropColumn('fastestWinTurns');
-    });
+exports.down = function(_knex) {
+  // We won't drop columns on down, to prevent data loss.
 };

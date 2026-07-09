@@ -11,7 +11,7 @@ import type { GameStore, GameStatus, ReconnectSession, PreGameStats } from './st
 import { validateOnlineConfig, reanchorLocalClock, attachPersistence, pickLocalGameState } from './persistence';
 import { createTimerSlice } from './timers';
 import { createConfigSlice } from './configSlice';
-import { createSocketSlice } from './socketSlice';
+import { createSocketSlice, clearRoomState } from './socketSlice';
 import { createGameSlice } from './gameSlice';
 import { disconnectSocket } from './socketRef';
 
@@ -92,12 +92,9 @@ export const useGameStore = create<GameStore>()(
     reset: () => {
       set({
         ...initialLocalState,
+        ...clearRoomState(),
         mode: 'local',
         isOnline: false,
-        roomId: null,
-        isHost: false,
-        hostId: null,
-        myName: null,
         toasts: [],
         reactions: [],
         showReconnectPopup: false,

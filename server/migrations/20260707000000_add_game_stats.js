@@ -37,22 +37,6 @@ exports.up = async function(knex) {
   });
 };
 
-exports.down = function(knex) {
-  return knex.schema
-    .alterTable('device_statistics', table => {
-      table.dropColumn('mostPlayersInGame');
-      table.dropColumn('totalPlayersSum');
-      table.dropColumn('longestGameRounds');
-      table.dropColumn('totalRoundsSum');
-      table.dropColumn('highestFeuerwerkTurnScore');
-      table.dropColumn('highestX2TurnScore');
-    })
-    .alterTable('global_statistics', table => {
-      table.dropColumn('mostPlayersInGame');
-      table.dropColumn('totalPlayersSum');
-      table.dropColumn('longestGameRounds');
-      table.dropColumn('totalRoundsSum');
-      table.dropColumn('highestFeuerwerkTurnScore');
-      table.dropColumn('highestX2TurnScore');
-    });
+exports.down = function(_knex) {
+  // We won't drop columns on down, to prevent data loss.
 };

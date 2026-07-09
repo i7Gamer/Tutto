@@ -8,7 +8,7 @@ import {
 import { buildTurnKey } from '../utils/diceTurnState';
 import { DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE } from '../utils/configValidation';
 import playerColorsData from '../../playerColors.json';
-import type { Player, CoreGameState } from '../types';
+import type { Player, CoreGameState, Toast } from '../types';
 import { MAX_HISTORY_LOG_SIZE } from '../types';
 import { getSocket } from './socketRef';
 import type { GameStore, ImmerStateCreator } from './storeTypes';
@@ -31,9 +31,18 @@ type GameSlice = Pick<GameStore,
   | 'buildGlobalStatsPayload' | 'setPreGameStats'
 >;
 
+// Single source of truth for toast id generation, shared with socketSlice's
+// gameState listener — that listener pushes toasts directly onto an Immer
+// draft it's already building (mid-producer), so it can't safely call the
+// addToast action below (a nested set() call there would be based on a
+// pre-producer snapshot and get lost when the outer producer commits). This
+// stays a plain pure helper, not a store action, so both call sites can use
+// it without that hazard.
+export const makeToast = (message: string): Toast => ({ id: Date.now() + Math.random(), message });
+
 export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
   addToast: (message) => set((state) => {
-    state.toasts.push({ id: Date.now() + Math.random(), message });
+    state.toasts.push(makeToast(message));
   }),
   removeToast: (id) => set((state) => {
     state.toasts = state.toasts.filter(t => t.id !== id);

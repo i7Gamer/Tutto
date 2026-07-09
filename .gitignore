@@ -49,6 +49,10 @@ GEMINI.md
 *.sqlite
 *.db
 *.backup
+*.bak*
 
 # TypeScript build cache
 *.tsbuildinfo
+
+# Token Savior MCP code index cache (generated, machine/path-specific)
+.token-savior-cache.json

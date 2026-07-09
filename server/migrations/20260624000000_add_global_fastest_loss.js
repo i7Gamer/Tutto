@@ -7,8 +7,6 @@ exports.up = async function(knex) {
   }
 };
 
-exports.down = async function(knex) {
-  await knex.schema.table('global_statistics', table => {
-    table.dropColumn('fastestLossTurns');
-  });
+exports.down = async function(_knex) {
+  // We won't drop columns on down, to prevent data loss.
 };

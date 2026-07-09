@@ -5,9 +5,6 @@ exports.up = function(knex) {
   });
 };
 
-exports.down = function(knex) {
-  return knex.schema.alterTable('device_statistics', table => {
-    table.dropColumn('currentWinStreak');
-    table.dropColumn('bestWinStreak');
-  });
+exports.down = function(_knex) {
+  // We won't drop columns on down, to prevent data loss.
 };

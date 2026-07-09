@@ -62,9 +62,9 @@ The drawn card dictates specific bonuses or rules for your turn:
 
 5. **Start the Development Server:**
    ```bash
-   npm run dev
+   npm start
    ```
-   This command starts both the Vite frontend server and the Node.js backend server simultaneously.
+   This command starts both the Vite frontend server and the Node.js backend server simultaneously. (`npm run dev` starts only the Vite frontend, without the backend.)
 
 6. **Open in Browser:**
    Navigate to `http://localhost:5173` in your browser.

@@ -101,14 +101,14 @@ describe('20260707000000_add_game_stats migration', () => {
     expect(row.highestX2TurnScore).toBe(0);
   });
 
-  it('down() drops all 6 new columns from both tables', async () => {
+  it('down() is a no-op and does not drop the new columns (avoids destructive rollbacks)', async () => {
     const db = await setupPreMigrationDb();
     await migration.up(db);
     await migration.down(db);
 
     const hasDeviceCol = await db.schema.hasColumn('device_statistics', 'totalPlayersSum');
     const hasGlobalCol = await db.schema.hasColumn('global_statistics', 'totalRoundsSum');
-    expect(hasDeviceCol).toBe(false);
-    expect(hasGlobalCol).toBe(false);
+    expect(hasDeviceCol).toBe(true);
+    expect(hasGlobalCol).toBe(true);
   });
 });

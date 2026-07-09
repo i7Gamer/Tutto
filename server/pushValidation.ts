@@ -111,13 +111,12 @@ const isValidHistoryEntry = (v: unknown): v is HistoryEntry => {
   if (typeof v !== 'object' || v === null) return false;
   const entry = v as Record<string, unknown>;
   const validTypes = ['success', 'bust', 'skip', 'fail'];
-  const validCards = ['Kleeblatt', 'Feuerwerk', 'Stop', 'Kniffel', 'Plus_Minus', 'x2', '200', '300', '400', '500', '600'];
 
   if (!(typeof entry.id === 'string' && entry.id.length > 0 && entry.id.length <= 100)) return false;
   if (!(typeof entry.round === 'number' && Number.isInteger(entry.round) && entry.round >= 1 && entry.round <= MAX_ROUNDS)) return false;
   if (!(typeof entry.playerName === 'string' && entry.playerName.length > 0 && entry.playerName.length <= MAX_PLAYER_NAME_LENGTH)) return false;
   if (entry.playerColor !== undefined && !(typeof entry.playerColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(entry.playerColor))) return false;
-  if (!(typeof entry.card === 'string' && validCards.includes(entry.card))) return false;
+  if (!(typeof entry.card === 'string' && (VALID_CARD_TYPES as readonly string[]).includes(entry.card))) return false;
   if (!(typeof entry.type === 'string' && validTypes.includes(entry.type))) return false;
   if (!(typeof entry.score === 'number' && Number.isFinite(entry.score) && Math.abs(entry.score) <= MAX_SCORE_MAGNITUDE)) return false;
   if (entry.deductedPlayers !== undefined) {
