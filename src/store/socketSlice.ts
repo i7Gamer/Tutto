@@ -4,12 +4,12 @@ import i18n from '../i18n';
 import { validateOnlineConfig } from './persistence';
 import { getSocket, setSocket } from './socketRef';
 import { REACTION_DISPLAY_MS } from '../utils/reactions';
-import type { Reaction } from '../types';
+import type { Reaction, DiceSnapshot } from '../types';
 import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from './storeTypes';
 
 type SocketSlice = Pick<GameStore,
   | 'connectSocket' | 'joinRoom' | 'leaveRoom' | 'kickPlayer'
-  | 'cancelReconnect' | 'pushState' | 'sendOnlineStats'
+  | 'cancelReconnect' | 'pushState' | 'pushLiveTurnState' | 'sendOnlineStats'
 >;
 
 export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => ({
@@ -186,6 +186,15 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         set({ isHost: hostSocketId === sock.id, hostId: hostSocketId });
       });
 
+      // Dedicated low-frequency-cost path for live dice-roll updates (see
+      // pushLiveTurnState) — a plain single-field merge, deliberately not
+      // routed through the 'gameState' handler above so a dice tick doesn't
+      // re-run its toast-diffing/justReconnected/timer-sync/stats side
+      // effects, none of which apply here.
+      sock.on('liveTurnState', (payload: { liveTurnState: DiceSnapshot | null }) => {
+        set({ liveTurnState: payload.liveTurnState });
+      });
+
       sock.on('kicked', () => {
         get().addToast(i18n.t('game.kickedByHost', 'You were kicked by the host'));
         get().stopOnlineTimers();
@@ -310,6 +319,19 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
   kickPlayer: (targetSocketId) => {
     const socket = getSocket();
     if (get().isHost && socket) socket.emit('kickPlayer', targetSocketId);
+  },
+
+  // Dedicated low-overhead sibling to pushState, used only for the
+  // ~300ms-cadence live dice-roll snapshot (see gameSlice.setLiveTurnState).
+  // Sends just this one field instead of the full state bundle pushState
+  // gathers below — pushState itself is untouched and still carries
+  // liveTurnState as part of the full sync for every other mutation.
+  pushLiveTurnState: (snapshot) => {
+    const s = get();
+    const socket = getSocket();
+    if (s.isOnline && socket) {
+      socket.emit('liveTurnState', { roomId: s.roomId, liveTurnState: snapshot });
+    }
   },
 
   pushState: () => {

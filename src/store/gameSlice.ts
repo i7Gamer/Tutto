@@ -103,7 +103,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       };
       localStorage.setItem('tutto_dice_turn_state', JSON.stringify(snapshotWithPlayer));
     }
-    if (get().isOnline) get().pushState();
+    if (get().isOnline) get().pushLiveTurnState(snapshot);
   },
 
   startGame: () => {

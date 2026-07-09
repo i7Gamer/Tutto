@@ -4,7 +4,7 @@ import { sanitizeStats } from './sanitize';
 import { DEFAULT_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
 import { REACTION_EMOJIS } from '../src/utils/reactions';
 import type { DiceMode } from '../src/types';
-import { applyValidatedConfig, applyPushedState } from './pushValidation';
+import { applyValidatedConfig, applyPushedState, isValidDiceSnapshot, sanitizeDiceSnapshot } from './pushValidation';
 import { clearServerTurnTimer, startServerTurnTimer, abortGameIfLowPlayers } from './turnTimers';
 import type { ServerPlayer } from './roomTypes';
 import { rooms, createRoom, deleteRoom, handleActivePlayerRemoved, emitRoomState, MAX_PLAYERS_PER_ROOM } from './rooms';
@@ -387,6 +387,45 @@ export const registerSocketHandlers = (io: Server): void => {
         // would otherwise take down the whole process (every room, every player) —
         // see advanceTurnOnTimeout for the same reasoning.
         console.error(`[pushState] Failed to apply state for room:`, err);
+      }
+    });
+
+    // Dedicated low-overhead path for live dice-roll updates (fired ~every
+    // 300ms while a player is rolling). Deliberately separate from pushState:
+    // that handler re-serializes and broadcasts the ENTIRE room snapshot
+    // (players, historyLog, chart arrays, ...) on every call via
+    // emitRoomState, which is wasteful for an update where only
+    // liveTurnState actually changed. This handler updates just that one
+    // field and broadcasts a small, standalone event instead — pushState,
+    // applyPushedState, and emitRoomState are untouched and still carry
+    // liveTurnState as part of the full sync for reconnect/fresh-join.
+    socket.on('liveTurnState', (data: { roomId?: string; liveTurnState?: unknown } | null | undefined) => {
+      try {
+        if (!data || typeof data !== 'object') return;
+        const { roomId, liveTurnState } = data;
+        if (typeof roomId !== 'string') return;
+        const room = rooms[roomId];
+        if (!room) return;
+
+        const isHost = room.host === socket.id;
+        const activePlayer = room.state.currentPlayerIndex !== null
+          ? room.state.players[room.state.currentPlayerIndex]
+          : null;
+        const isActivePlayer = activePlayer?.socketId === socket.id;
+
+        if (!isHost && !isActivePlayer) return;
+
+        if (liveTurnState === null) {
+          room.state.liveTurnState = null;
+        } else if (isValidDiceSnapshot(liveTurnState)) {
+          room.state.liveTurnState = sanitizeDiceSnapshot(liveTurnState);
+        } else {
+          return;
+        }
+
+        io.to(roomId).emit('liveTurnState', { liveTurnState: room.state.liveTurnState });
+      } catch (err) {
+        console.error(`[liveTurnState] Failed to apply live turn state for room:`, err);
       }
     });
 

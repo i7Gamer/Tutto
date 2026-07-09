@@ -2138,7 +2138,7 @@ describe('useGameStore', () => {
       expect(useGameStore.getState().liveTurnState).toEqual(snapshot);
     });
 
-    it('setLiveTurnState triggers pushState when online', () => {
+    it('setLiveTurnState pushes via the dedicated liveTurnState event when online, not the full pushState event', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
       useGameStore.setState({
@@ -2151,9 +2151,10 @@ describe('useGameStore', () => {
       const snapshot = { turnScore: 350, keptDice: [{ val: 5 }], currentRoll: [{ val: 3, selected: false }] };
       useGameStore.getState().setLiveTurnState(snapshot);
 
-      expect(mockEmit).toHaveBeenCalledWith('pushState', expect.objectContaining({
-        newState: expect.objectContaining({ liveTurnState: snapshot }),
-      }));
+      // A dedicated, small event — not the full state-bundle 'pushState' event
+      // (see server/socketHandlers.ts's separate 'liveTurnState' handler).
+      expect(mockEmit).toHaveBeenCalledWith('liveTurnState', { roomId: 'ROOM1', liveTurnState: snapshot });
+      expect(mockEmit).not.toHaveBeenCalledWith('pushState', expect.anything());
     });
 
     it('setLiveTurnState does not include playerName in the liveTurnState pushed to the server', () => {
@@ -2170,11 +2171,29 @@ describe('useGameStore', () => {
       const snapshot = { turnScore: 350, keptDice: [], currentRoll: [] };
       useGameStore.getState().setLiveTurnState(snapshot);
 
-      const pushCall = mockEmit.mock.calls.find(([ev]) => ev === 'pushState');
+      const pushCall = mockEmit.mock.calls.find(([ev]) => ev === 'liveTurnState');
       expect(pushCall).toBeDefined();
-      expect(pushCall![1].newState.liveTurnState).not.toHaveProperty('playerName');
+      expect(pushCall![1].liveTurnState).not.toHaveProperty('playerName');
       // Also verify in-memory store has no playerName on liveTurnState
       expect(useGameStore.getState().liveTurnState).not.toHaveProperty('playerName');
+    });
+
+    it('the liveTurnState socket event merges into the store without touching other fields', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.setState({
+        isOnline: true, roomId: 'ROOM1', myName: 'Alice',
+        players: [makeOnlinePlayer('Alice'), makeOnlinePlayer('Bob')],
+        round: 3, historyLog: [],
+      });
+
+      const incoming = { turnScore: 500, keptDice: [{ val: 6 }], currentRoll: [] };
+      mockOnHandlers['liveTurnState']({ liveTurnState: incoming });
+
+      expect(useGameStore.getState().liveTurnState).toEqual(incoming);
+      // Untouched by the targeted merge — proves this doesn't run through the
+      // full 'gameState' Object.assign path.
+      expect(useGameStore.getState().round).toBe(3);
+      expect(useGameStore.getState().myName).toBe('Alice');
     });
 
     it('nextTurn clears liveTurnState', () => {

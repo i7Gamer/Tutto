@@ -1025,6 +1025,121 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
+  it('active player can push liveTurnState via the dedicated event and it is forwarded without a full gameState broadcast', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — active player
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        s2.disconnect();
+        reject(new Error('Timed out waiting for liveTurnState event'));
+      }, 8000);
+
+      let gameStarted = false;
+      let sawFullGameStateAfterStart = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'LIVE_TURN_EVENT_ROOM', name: 'Alice', deviceId: 'dev-lte-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'LIVE_TURN_EVENT_ROOM', name: 'Bob', deviceId: 'dev-lte-b', color: '#00ff00' }, () => {
+            const players = [
+              { name: 'Alice', deviceId: 'dev-lte-a', socketId: s1.id, disconnected: false, score: 0 },
+              { name: 'Bob',   deviceId: 'dev-lte-b', socketId: s2.id, disconnected: false, score: 0 },
+            ];
+            s1.emit('pushState', { roomId: 'LIVE_TURN_EVENT_ROOM', newState: { players, status: 'playing', currentPlayerIndex: 1 } });
+
+            setTimeout(() => {
+              // Bob pushes a live turn state snapshot via the new dedicated event,
+              // not 'pushState'.
+              s2.emit('liveTurnState', {
+                roomId: 'LIVE_TURN_EVENT_ROOM',
+                liveTurnState: {
+                  turnScore: 425, keptDice: [{ id: 'die-1', val: 1 }], currentRoll: [{ id: 'die-2', val: 5, selected: false }],
+                  kniffelProgress: [], tuttosThisTurn: 0,
+                },
+              });
+            }, 200);
+          });
+        });
+      });
+
+      // A full gameState broadcast after the game started would mean the new
+      // event still triggers the old full-snapshot path — it must not.
+      s1.on('gameState', (state) => {
+        if (!gameStarted && state.status === 'playing') {
+          gameStarted = true;
+          return;
+        }
+        if (gameStarted) sawFullGameStateAfterStart = true;
+      });
+
+      s1.on('liveTurnState', (payload) => {
+        if (payload?.liveTurnState?.turnScore === 425) {
+          clearTimeout(timeoutId);
+          expect(sawFullGameStateAfterStart).toBe(false);
+          s1.disconnect();
+          s2.disconnect();
+          resolve();
+        }
+      });
+    });
+  }, 10000);
+
+  it('ignores a liveTurnState push from a socket that is neither host nor the active player', () => {
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — active player
+      const s3 = io(`http://127.0.0.1:${PORT}`); // Carol — bystander, neither host nor active
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        s2.disconnect();
+        s3.disconnect();
+        resolve(); // no liveTurnState event ever arriving is the expected (passing) outcome
+      }, 3000);
+
+      let gameStarted = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'LIVE_TURN_UNAUTH_ROOM', name: 'Alice', deviceId: 'dev-ltu-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId: 'LIVE_TURN_UNAUTH_ROOM', name: 'Bob', deviceId: 'dev-ltu-b', color: '#00ff00' }, () => {
+            s3.emit('joinRoom', { roomId: 'LIVE_TURN_UNAUTH_ROOM', name: 'Carol', deviceId: 'dev-ltu-c', color: '#0000ff' }, () => {
+              const players = [
+                { name: 'Alice', deviceId: 'dev-ltu-a', socketId: s1.id, disconnected: false, score: 0 },
+                { name: 'Bob',   deviceId: 'dev-ltu-b', socketId: s2.id, disconnected: false, score: 0 },
+                { name: 'Carol', deviceId: 'dev-ltu-c', socketId: s3.id, disconnected: false, score: 0 },
+              ];
+              s1.emit('pushState', { roomId: 'LIVE_TURN_UNAUTH_ROOM', newState: { players, status: 'playing', currentPlayerIndex: 1 } });
+
+              setTimeout(() => {
+                s3.emit('liveTurnState', {
+                  roomId: 'LIVE_TURN_UNAUTH_ROOM',
+                  liveTurnState: {
+                    turnScore: 999, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+                  },
+                });
+              }, 200);
+            });
+          });
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (!gameStarted && state.status === 'playing') gameStarted = true;
+      });
+
+      s1.on('liveTurnState', (payload) => {
+        if (payload?.liveTurnState?.turnScore === 999) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          s2.disconnect();
+          s3.disconnect();
+          reject(new Error('Bystander was able to push liveTurnState'));
+        }
+      });
+    });
+  }, 10000);
+
   it('closes room when host leaves and all remaining players are disconnected', () => {
     return new Promise((resolve, reject) => {
       const roomId = 'HOST_LEAVE_ALL_DISC';

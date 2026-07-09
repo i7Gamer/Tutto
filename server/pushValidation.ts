@@ -94,7 +94,7 @@ export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
 // else the sender attached. isValidDiceSnapshot only checks shape — without
 // this, applyPushedState would still store (and rebroadcast) the client's
 // object as-is, extra properties included.
-const sanitizeDiceSnapshot = (v: DiceSnapshot): DiceSnapshot => {
+export const sanitizeDiceSnapshot = (v: DiceSnapshot): DiceSnapshot => {
   const clean: DiceSnapshot = {
     turnScore: v.turnScore,
     keptDice: v.keptDice.map(d => ({ id: d.id, val: d.val })),

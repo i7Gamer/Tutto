@@ -106,6 +106,7 @@ export interface GameStore extends CoreGameState {
   kickPlayer: (targetSocketId: string) => void;
   setLiveTurnState: (snapshot: DiceSnapshot | null) => void;
   pushState: () => void;
+  pushLiveTurnState: (snapshot: DiceSnapshot | null) => void;
   startLocalTimers: () => void;
   stopLocalTimers: () => void;
   syncOnlineTimers: (serverRemaining?: number | null) => void;
