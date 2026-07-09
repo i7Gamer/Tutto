@@ -64,3 +64,29 @@ export const createRateLimiter = ({ windowMs, max, maxTrackedKeys = 10_000 }: Ra
     next();
   };
 };
+
+export interface SocketEventLimiterOptions {
+  windowMs: number;
+  max: number;
+}
+
+// A fixed-window limiter scoped to a single call site's own closure — meant
+// to be instantiated once per Socket.IO connection, one instance per event
+// name. Unlike createRateLimiter's per-IP Map (built for HTTP, where many
+// clients share one middleware instance), a socket event handler already
+// runs inside a per-connection closure, so a plain counter is enough: no
+// keying or eviction bookkeeping needed.
+export const createSocketEventLimiter = ({ windowMs, max }: SocketEventLimiterOptions) => {
+  let count = 0;
+  let resetAt = 0;
+
+  return (): boolean => {
+    const now = Date.now();
+    if (now >= resetAt) {
+      count = 0;
+      resetAt = now + windowMs;
+    }
+    count += 1;
+    return count <= max;
+  };
+};

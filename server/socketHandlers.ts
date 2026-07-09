@@ -8,14 +8,35 @@ import { applyValidatedConfig, applyPushedState, isValidDiceSnapshot, sanitizeDi
 import { clearServerTurnTimer, startServerTurnTimer, abortGameIfLowPlayers } from './turnTimers';
 import type { ServerPlayer } from './roomTypes';
 import { rooms, createRoom, deleteRoom, handleActivePlayerRemoved, emitRoomState, MAX_PLAYERS_PER_ROOM } from './rooms';
+import { createSocketEventLimiter } from './rateLimit';
 import playerColorsData from '../playerColors.json';
 const { PLAYER_COLORS } = playerColorsData;
+
+// Per-connection event caps — generous enough for the fastest legitimate
+// cadence of each event (e.g. liveTurnState fires ~every 300ms while a
+// player is rolling) while still bounding a scripted/malicious flood. Each
+// socket gets its own limiter instances (see createSocketEventLimiter).
+const JOIN_ROOM_LIMIT = { windowMs: 10_000, max: 10 };
+const PUSH_STATE_LIMIT = { windowMs: 1_000, max: 20 };
+const UPDATE_CONFIG_LIMIT = { windowMs: 1_000, max: 20 };
+const KICK_PLAYER_LIMIT = { windowMs: 1_000, max: 5 };
+const LIVE_TURN_STATE_LIMIT = { windowMs: 1_000, max: 15 };
+const SUBMIT_GLOBAL_STATS_LIMIT = { windowMs: 10_000, max: 5 };
+const END_GAME_STATS_LIMIT = { windowMs: 10_000, max: 5 };
 
 export const registerSocketHandlers = (io: Server): void => {
   io.on('connection', (socket: Socket) => {
     let currentRoom: string | null = null;
     let username: string | null = null;
     let lastReactionTime = 0;
+
+    const joinRoomLimiter = createSocketEventLimiter(JOIN_ROOM_LIMIT);
+    const pushStateLimiter = createSocketEventLimiter(PUSH_STATE_LIMIT);
+    const updateConfigLimiter = createSocketEventLimiter(UPDATE_CONFIG_LIMIT);
+    const kickPlayerLimiter = createSocketEventLimiter(KICK_PLAYER_LIMIT);
+    const liveTurnStateLimiter = createSocketEventLimiter(LIVE_TURN_STATE_LIMIT);
+    const submitGlobalStatsLimiter = createSocketEventLimiter(SUBMIT_GLOBAL_STATS_LIMIT);
+    const endGameStatsLimiter = createSocketEventLimiter(END_GAME_STATS_LIMIT);
 
     socket.on('joinRoom', async (
       payload: { roomId?: string; name?: string; deviceId?: string; color?: string; initialConfig?: Record<string, unknown> } | null | undefined,
@@ -25,6 +46,7 @@ export const registerSocketHandlers = (io: Server): void => {
       // client that omits the ack callback or sends a non-string name crashes the
       // handler (e.g. name.toLowerCase() throws), which can take down the server.
       if (typeof callback !== 'function') return;
+      if (!joinRoomLimiter()) return callback({ success: false, error: 'Too many requests' });
       if (!payload || typeof payload !== 'object') {
         return callback({ success: false, error: 'Invalid payload' });
       }
@@ -205,6 +227,7 @@ export const registerSocketHandlers = (io: Server): void => {
       reconnectTimeout?: number;
       enforcedDiceMode?: DiceMode | null;
     } | null | undefined) => {
+      if (!updateConfigLimiter()) return;
       if (!data || typeof data !== 'object') return;
       const { roomId, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode } = data;
       if (typeof roomId !== 'string' || !rooms[roomId] || rooms[roomId].host !== socket.id) return;
@@ -278,6 +301,7 @@ export const registerSocketHandlers = (io: Server): void => {
     });
 
     socket.on('kickPlayer', (targetSocketId: string) => {
+      if (!kickPlayerLimiter()) return;
       if (typeof targetSocketId !== 'string') return;
       if (!currentRoom || !rooms[currentRoom] || rooms[currentRoom].host !== socket.id) return;
       const room = rooms[currentRoom];
@@ -322,6 +346,7 @@ export const registerSocketHandlers = (io: Server): void => {
 
     socket.on('pushState', (data: { roomId?: string; newState?: Record<string, unknown> } | null | undefined) => {
       try {
+        if (!pushStateLimiter()) return;
         if (!data || typeof data !== 'object') return;
         const { roomId, newState } = data;
         if (typeof roomId !== 'string' || !newState || typeof newState !== 'object') return;
@@ -401,6 +426,7 @@ export const registerSocketHandlers = (io: Server): void => {
     // liveTurnState as part of the full sync for reconnect/fresh-join.
     socket.on('liveTurnState', (data: { roomId?: string; liveTurnState?: unknown } | null | undefined) => {
       try {
+        if (!liveTurnStateLimiter()) return;
         if (!data || typeof data !== 'object') return;
         const { roomId, liveTurnState } = data;
         if (typeof roomId !== 'string') return;
@@ -430,6 +456,7 @@ export const registerSocketHandlers = (io: Server): void => {
     });
 
     socket.on('submitGlobalStats', async (data: { roomId?: string; payload?: unknown } | null | undefined) => {
+      if (!submitGlobalStatsLimiter()) return;
       if (!data || typeof data !== 'object') return;
       const { roomId, payload } = data;
       if (typeof roomId !== 'string') return;
@@ -455,6 +482,7 @@ export const registerSocketHandlers = (io: Server): void => {
     });
 
     socket.on('endGameStats', async (data: { deviceId?: string; stats?: unknown } | null | undefined) => {
+      if (!endGameStatsLimiter()) return;
       if (!data || typeof data !== 'object') return;
       const { deviceId, stats } = data;
       if (typeof deviceId !== 'string') return;

@@ -147,6 +147,64 @@ describe('stats dedup rollback on DB failure', () => {
   });
 });
 
+describe('Socket event rate limiting (SERVER-XC-3)', () => {
+  let httpServer: HttpServer;
+  let ioServer: Server;
+  let port: number;
+  let client: ClientSocket;
+
+  beforeAll(async () => {
+    httpServer = createServer();
+    ioServer = new Server(httpServer);
+    registerSocketHandlers(ioServer);
+    await new Promise<void>(resolve => httpServer.listen(0, () => resolve()));
+    port = (httpServer.address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    if (client) client.disconnect();
+    await ioServer.close();
+  });
+
+  const connectAndJoin = (roomId: string, name: string, deviceId: string): Promise<ClientSocket> =>
+    new Promise((resolve, reject) => {
+      const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+      sock.on('connect', () => {
+        sock.emit('joinRoom', { roomId, name, deviceId, color: '#ff0000' }, (res: { success: boolean; error?: string }) => {
+          if (!res.success) return reject(new Error(res.error));
+          resolve(sock);
+        });
+      });
+      sock.on('connect_error', reject);
+    });
+
+  const settle = (): Promise<void> => new Promise(r => setTimeout(r, 300));
+
+  it('drops updateConfig events past the per-connection cap instead of applying every one', async () => {
+    client = await connectAndJoin('RATE_LIMIT_CONFIG', 'Host', 'dev-ratelimit-1');
+
+    let latestWinningScore: number | undefined;
+    client.on('gameState', (state: { winningScore: number }) => {
+      latestWinningScore = state.winningScore;
+    });
+
+    // updateConfig's cap is 20/second — fire one more than that in immediate
+    // succession, each with a distinct winningScore so the applied count is
+    // directly observable in the broadcast state.
+    for (let i = 0; i < 21; i++) {
+      client.emit('updateConfig', { roomId: 'RATE_LIMIT_CONFIG', winningScore: 1000 + i });
+    }
+
+    await settle();
+
+    // The 21st call (winningScore 1020) must have been dropped by the
+    // limiter before ever reaching applyValidatedConfig/emitRoomState.
+    expect(latestWinningScore).toBe(1019);
+
+    client.disconnect();
+  });
+});
+
 describe('room membership (kick host migration, mid-game rename guard)', () => {
   let httpServer: HttpServer;
   let ioServer: Server;

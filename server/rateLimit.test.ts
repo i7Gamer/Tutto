@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createRateLimiter } from './rateLimit';
+import { createRateLimiter, createSocketEventLimiter } from './rateLimit';
 
 const makeReq = (ip: string): { ip: string } => ({ ip });
 
@@ -137,5 +137,49 @@ describe('createRateLimiter', () => {
     const resA = makeRes();
     limiter(makeReq('a') as never, resA as never, next);
     expect(resA.statusCode).toBe(200);
+  });
+});
+
+describe('createSocketEventLimiter', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('allows calls within the limit', () => {
+    const allow = createSocketEventLimiter({ windowMs: 1000, max: 3 });
+    expect(allow()).toBe(true);
+    expect(allow()).toBe(true);
+    expect(allow()).toBe(true);
+  });
+
+  it('rejects once the limit is exceeded within the window', () => {
+    const allow = createSocketEventLimiter({ windowMs: 1000, max: 2 });
+    expect(allow()).toBe(true);
+    expect(allow()).toBe(true);
+    expect(allow()).toBe(false);
+    expect(allow()).toBe(false);
+  });
+
+  it('resets the count once the window elapses', () => {
+    const allow = createSocketEventLimiter({ windowMs: 1000, max: 1 });
+    expect(allow()).toBe(true);
+    expect(allow()).toBe(false);
+
+    vi.advanceTimersByTime(1001);
+
+    expect(allow()).toBe(true);
+  });
+
+  it('tracks each limiter instance independently', () => {
+    const allowA = createSocketEventLimiter({ windowMs: 1000, max: 1 });
+    const allowB = createSocketEventLimiter({ windowMs: 1000, max: 1 });
+
+    expect(allowA()).toBe(true);
+    expect(allowA()).toBe(false);
+    expect(allowB()).toBe(true);
   });
 });
