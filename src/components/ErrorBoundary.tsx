@@ -1,5 +1,8 @@
 import React from 'react';
 import { recordCrash } from '../utils/crashLog';
+// Class components can't use the useTranslation hook — the i18next instance
+// itself is directly importable and usable outside of React's render cycle.
+import i18n from '../i18n';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -33,7 +36,10 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     }
   }
 
-  clearCacheAndReload() {
+  // Arrow-function class field so `this` stays bound to the instance
+  // regardless of how the method is later invoked (e.g. passed directly as
+  // an event handler rather than through an arrow-wrapped call site).
+  clearCacheAndReload = () => {
     // last_crash_time is deliberately left alone here — componentDidCatch just set
     // it to throttle auto-reloads. Clearing it here meant a persistent render crash
     // found no last_crash_time on every reload and auto-reloaded forever, never
@@ -51,19 +57,19 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     } else {
       window.location.reload();
     }
-  }
+  };
 
   render() {
     if (this.state.hasError) {
       return (
         <div style={{ padding: '2rem', textAlign: 'center', fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', backgroundColor: '#f4f7f6', color: '#1a1a1a' }}>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem', color: '#dc2626' }}>Oops! Something went wrong.</h2>
-          <p style={{ marginBottom: '2rem' }}>The application encountered an unexpected error and needs to reload.</p>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem', color: '#dc2626' }}>{i18n.t('errorBoundary.title', 'Oops! Something went wrong.')}</h2>
+          <p style={{ marginBottom: '2rem' }}>{i18n.t('errorBoundary.description', 'The application encountered an unexpected error and needs to reload.')}</p>
           <button
             onClick={() => { localStorage.removeItem('last_crash_time'); this.clearCacheAndReload(); }}
             style={{ padding: '12px 24px', fontSize: '16px', cursor: 'pointer', background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
           >
-            Clear Cache & Reload
+            {i18n.t('home.clearCache', 'Clear Cache & Reload')}
           </button>
         </div>
       );

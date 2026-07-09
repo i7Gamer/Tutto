@@ -34,4 +34,17 @@ describe('LanguageSwitcher', () => {
     fireEvent.click(deButton);
     expect(changeLanguageMock).toHaveBeenCalledWith('de');
   });
+
+  it('exposes aria-label and aria-pressed reflecting the active language (COMP-ISSUE-37)', () => {
+    useTranslation.mockReturnValue({
+      i18n: { language: 'en', changeLanguage: vi.fn() },
+    });
+
+    render(<LanguageSwitcher />);
+
+    const enButton = screen.getByRole('button', { name: 'Switch to English' });
+    const deButton = screen.getByRole('button', { name: 'Switch to German' });
+    expect(enButton).toHaveAttribute('aria-pressed', 'true');
+    expect(deButton).toHaveAttribute('aria-pressed', 'false');
+  });
 });

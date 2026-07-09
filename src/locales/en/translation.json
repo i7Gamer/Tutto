@@ -7,6 +7,8 @@
   "home.restore.yes": "Yes, Reconnect",
   "home.restore.cancel": "No, Cancel",
   "home.restore.failed": "Failed to reconnect to the game",
+  "errorBoundary.title": "Oops! Something went wrong.",
+  "errorBoundary.description": "The application encountered an unexpected error and needs to reload.",
   "dice.stop_and_score": "Stop & Score",
   "dice.roll_2nd_tutto": "Roll 2nd Tutto",
   "dice.finish_card": "Finish Card",

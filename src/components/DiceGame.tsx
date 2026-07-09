@@ -44,13 +44,13 @@ const CARD_NAME_MAP: Partial<Record<CardType, string>> = {
   '600': '600 Bonus',
 };
 
+const getDisplayCardName = (cardName: CardType | null): string => {
+  if (!cardName) return '';
+  return CARD_NAME_MAP[cardName] ?? cardName;
+};
+
 export default function DiceGame({ currentCard, turnKey, onComplete, onStateChange, panelReady = true }: DiceGameProps) {
   const { t } = useTranslation();
-
-  const getDisplayCardName = (cardName: CardType | null): string => {
-    if (!cardName) return '';
-    return CARD_NAME_MAP[cardName] ?? cardName;
-  };
 
   const initRestoredRef = useRef(false);
 
@@ -107,12 +107,17 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const selectedRolls = currentRoll.filter(d => d.selected);
   const selectedVals = selectedRolls.map(d => d.val);
 
-  const validation = useMemo(() => checkValidityAndScore(selectedVals, currentCard, kniffelProgress), [selectedVals, currentCard, kniffelProgress]);
+  // Deliberately depends on currentRoll (not selectedVals, which is derived
+  // from it via .filter/.map and so is a brand-new array reference every
+  // render) — otherwise this memo is invalidated on every render regardless
+  // of whether the actual selection changed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const validation = useMemo(() => checkValidityAndScore(selectedVals, currentCard, kniffelProgress), [currentRoll, currentCard, kniffelProgress]);
 
   const pendingTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => () => pendingTimers.current.forEach(clearTimeout), []);
 
-  const roll = (numDice: number, kniffelArray: number[] | null = null, scoreSoFar = 0) => {
+  const roll = useCallback((numDice: number, kniffelArray: number[] | null = null, scoreSoFar = 0) => {
     pendingTimers.current.forEach(clearTimeout);
     pendingTimers.current = [];
     setIsRolling(true);
@@ -195,7 +200,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     } else {
       pendingTimers.current.push(setTimeout(finalizeRoll, totalAnimationTime + 100));
     }
-  };
+  }, [currentCard, kniffelProgress]);
 
   // Auto-starts the first roll once the panel has finished appearing — there's
   // no manual "Roll" button anymore. Skipped when initRestoredRef.current is

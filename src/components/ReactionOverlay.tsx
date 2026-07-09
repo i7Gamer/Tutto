@@ -13,6 +13,15 @@ const REACTION_HORIZONTAL_SPREAD_COUNT = 5;
 const REACTION_HORIZONTAL_SPREAD_STEP_PX = 40;
 const REACTION_HORIZONTAL_SPREAD_OFFSET_PX = 80;
 
+// Derived from the reaction's own id, not its position in the `reactions`
+// array — that array shrinks as older reactions expire, so an index-based
+// spread silently reassigns a still-visible reaction to a different
+// horizontal slot (a visible jump) whenever an earlier one is removed.
+const spreadSlotForReaction = (id: number): number => {
+  const slot = Math.floor(id) % REACTION_HORIZONTAL_SPREAD_COUNT;
+  return slot < 0 ? slot + REACTION_HORIZONTAL_SPREAD_COUNT : slot;
+};
+
 // Rendered once at the App level (like ToastMessage/HelpPopup) rather than
 // inside Scoreboard's own card. That card is a framer-motion `layout` element
 // — while it's mid-transition (its width changes as often as a player's name
@@ -29,7 +38,7 @@ export default function ReactionOverlay() {
 
   return (
     <AnimatePresence>
-      {reactions?.map((r, i) => (
+      {reactions?.map((r) => (
         <motion.div
           key={r.id}
           initial={{ opacity: 0, y: REACTION_SPAWN_OFFSET_PX, scale: 0.5, x: 0 }}
@@ -37,7 +46,7 @@ export default function ReactionOverlay() {
             opacity: 1,
             y: -REACTION_RISE_DISTANCE_PX,
             scale: 2,
-            x: (i % REACTION_HORIZONTAL_SPREAD_COUNT) * REACTION_HORIZONTAL_SPREAD_STEP_PX - REACTION_HORIZONTAL_SPREAD_OFFSET_PX,
+            x: spreadSlotForReaction(r.id) * REACTION_HORIZONTAL_SPREAD_STEP_PX - REACTION_HORIZONTAL_SPREAD_OFFSET_PX,
           }}
           exit={{ opacity: 0, y: -REACTION_EXIT_RISE_DISTANCE_PX }}
           transition={{ duration: REACTION_ANIMATION_DURATION_S }}

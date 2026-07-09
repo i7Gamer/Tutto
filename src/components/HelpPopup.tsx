@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, ReactNode } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HelpCircle, X, ChevronRight, ChevronDown } from 'lucide-react';
@@ -59,6 +59,45 @@ export default function HelpPopup() {
   const [activeSection, setActiveSection] = useState<string>('general');
   const activeCardRef = useRef<HTMLDivElement>(null);
   const openedDuringPlayRef = useRef(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const openButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Focus management for the modal: move focus into the dialog on open, and
+  // back to the button that opened it on close — otherwise keyboard/screen
+  // reader focus is left on (or silently lost from) a control that's no
+  // longer visible.
+  useEffect(() => {
+    if (isOpen) {
+      closeButtonRef.current?.focus();
+    } else {
+      openButtonRef.current?.focus();
+    }
+  }, [isOpen]);
+
+  const handleDialogKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      setIsOpen(false);
+      return;
+    }
+    if (e.key !== 'Tab' || !dialogRef.current) return;
+    // Trap Tab/Shift+Tab within the dialog's own focusable elements so
+    // keyboard focus can't silently escape to the page underneath.
+    const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
 
   // When opening during gameplay, check if we have a current card
   useLayoutEffect(() => {
@@ -83,19 +122,21 @@ export default function HelpPopup() {
     return () => clearTimeout(timer);
   }, [activeSection, currentCard]);
 
-  const toggleSection = (id: string) => {
+  const toggleSection = useCallback((id: string) => {
     setActiveSection(prev => prev === id ? '' : id);
-  };
+  }, []);
 
-  const tocSections = [
+  // Memoized against `t` (not moved to module scope — the labels/text are
+  // translated, so they must still be recomputed when the language changes).
+  const tocSections = useMemo(() => [
     { id: 'general', label: t('help.toc.general', 'General Rules') },
     { id: 'cards', label: t('help.toc.cards', 'Cards') },
     { id: 'settings', label: t('help.toc.settings', 'Settings') },
     { id: 'statistics', label: t('help.toc.statistics', 'Statistics') },
     { id: 'faq', label: t('help.toc.faq', 'FAQ') },
-  ];
+  ], [t]);
 
-  const faqs = [
+  const faqs = useMemo(() => [
     { q: t('help.faq.q1'), a: t('help.faq.a1') },
     { q: t('help.faq.q2'), a: t('help.faq.a2') },
     { q: t('help.faq.q3'), a: t('help.faq.a3') },
@@ -103,11 +144,12 @@ export default function HelpPopup() {
     { q: t('help.faq.q5'), a: t('help.faq.a5') },
     { q: t('help.faq.q6'), a: t('help.faq.a6') },
     { q: t('help.faq.q7'), a: t('help.faq.a7') },
-  ];
+  ], [t]);
 
   return (
     <>
       <button
+        ref={openButtonRef}
         onClick={() => setIsOpen(true)}
         className="fixed bottom-6 left-6 w-12 h-12 bg-white dark:bg-slate-800 rounded-full shadow-lg flex items-center justify-center hover:scale-110 transition-transform z-50 text-indigo-500 dark:text-indigo-400 border border-gray-100 dark:border-slate-700"
         title={t('help.buttonTitle', 'Open Help / Wiki')}
@@ -119,6 +161,11 @@ export default function HelpPopup() {
         {isOpen && (
           <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6" onClick={() => setIsOpen(false)}>
             <motion.div
+              ref={dialogRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="help-dialog-title"
+              onKeyDown={handleDialogKeyDown}
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -127,14 +174,16 @@ export default function HelpPopup() {
             >
               {/* Header */}
               <div className="relative flex items-center justify-center p-4 sm:p-6 border-b border-gray-100 dark:border-slate-800">
-                <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                <h2 id="help-dialog-title" className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
                   <HelpCircle className="text-indigo-500 w-5 h-5 sm:w-6 sm:h-6" />
                   {t('help.title', 'Tutto Wiki')}
                 </h2>
                 <button
+                  ref={closeButtonRef}
                   onClick={() => setIsOpen(false)}
                   className="absolute right-4 sm:right-6 top-1/2 -translate-y-1/2 p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 bg-gray-100 dark:bg-slate-800 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors"
                   title={t('help.close', 'Close')}
+                  aria-label={t('help.close', 'Close')}
                 >
                   <X size={20} />
                 </button>

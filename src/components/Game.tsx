@@ -351,7 +351,13 @@ export default function Game() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isMyTurn, isStopCard, currentCardHasYesNo, currentCardHasInput, effectiveDiceMode, showDiceGame, handleNextTurn, handleYesNo]);
 
-  const canUndo = !game.finished && !!game.previousCard && game.previousCard !== 'Stop' && game.currentPlayerIndex !== null && !!game.previousPlayerName && (!isOnline || isMyTurn || isHost);
+  // A turn exists to undo at all...
+  const hasUndoableTurn = !game.finished && !!game.previousCard && game.previousCard !== 'Stop'
+    && game.currentPlayerIndex !== null && !!game.previousPlayerName;
+  // ...and this client is allowed to act on it (offline, or online as the
+  // active player/host).
+  const canActOnUndo = !isOnline || isMyTurn || isHost;
+  const canUndo = hasUndoableTurn && canActOnUndo;
 
   return (
     <div className="container mx-auto px-2 md:px-4 pt-2 md:pt-4 pb-20 max-w-3xl flex flex-col gap-2 md:gap-4">
@@ -413,10 +419,16 @@ export default function Game() {
                     <div className="w-12 font-medium text-gray-600 dark:text-gray-300">{p.position}.</div>
                     <div className="flex-1 font-bold flex items-center flex-wrap gap-2" style={{ color: p.color || 'var(--text-color, #1f2937)' }}>
                       <span>{p.name}</span>
-                      {isOnline && game.hostId === p.socketId && <span title={t('game.host', 'Host')} className="text-lg leading-none">👑</span>}
+                      {isOnline && game.hostId === p.socketId && (
+                        <span title={t('game.host', 'Host')} className="text-lg leading-none">
+                          <span aria-hidden="true">👑</span>
+                          <span className="sr-only">{t('game.host', 'Host')}</span>
+                        </span>
+                      )}
                       {p.winStreak !== undefined && p.winStreak >= 3 && (
                         <span title={t('game.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak: p.winStreak })} className="text-amber-500 text-[10px] sm:text-xs font-bold bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 flex items-center gap-0.5 whitespace-nowrap">
-                          🔥 {p.winStreak}
+                          <span aria-hidden="true">🔥 {p.winStreak}</span>
+                          <span className="sr-only">{t('game.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak: p.winStreak })}</span>
                         </span>
                       )}
                       {p.disconnected && (

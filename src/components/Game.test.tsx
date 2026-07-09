@@ -1038,6 +1038,21 @@ describe('Game Component Integration', () => {
       render(<Game />);
       expect(screen.queryByText('🔥 2')).not.toBeInTheDocument();
     });
+
+    it('exposes the host/win-streak emoji badges to screen readers via visually-hidden text (COMP-ISSUE-10)', () => {
+      useGameStore.setState({
+        isOnline: true,
+        myName: 'Alice',
+        hostId: 'socket1',
+        currentPlayerIndex: 0,
+        players: [
+          { name: 'Alice', socketId: 'socket1', score: 0, position: 1, winStreak: 4 },
+        ],
+      });
+      render(<Game />);
+      expect(screen.getAllByText('game.host').length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/game.winStreakTitle/).length).toBeGreaterThan(0);
+    });
   });
 
   describe('re-render scope', () => {

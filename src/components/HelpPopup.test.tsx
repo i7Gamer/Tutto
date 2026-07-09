@@ -103,4 +103,52 @@ describe('HelpPopup', () => {
       window.HTMLElement.prototype.scrollIntoView = vi.fn();
     }
   });
+
+  describe('modal accessibility (COMP-ISSUE-25/26)', () => {
+    it('exposes dialog role, aria-modal, and a labelled title', () => {
+      render(<HelpPopup />);
+      fireEvent.click(screen.getByTitle('help.buttonTitle'));
+
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toHaveAttribute('aria-modal', 'true');
+      const labelledBy = dialog.getAttribute('aria-labelledby');
+      expect(labelledBy).toBeTruthy();
+      expect(document.getElementById(labelledBy!)).toHaveTextContent('help.title');
+    });
+
+    it('gives the close button an accessible name beyond title alone', () => {
+      render(<HelpPopup />);
+      fireEvent.click(screen.getByTitle('help.buttonTitle'));
+
+      expect(screen.getByRole('button', { name: 'help.close' })).toBeInTheDocument();
+    });
+
+    it('moves focus into the dialog on open and back to the trigger on close', async () => {
+      render(<HelpPopup />);
+      const openButton = screen.getByTitle('help.buttonTitle');
+      fireEvent.click(openButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'help.close' })).toHaveFocus();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'help.close' }));
+
+      await waitFor(() => {
+        expect(openButton).toHaveFocus();
+      });
+    });
+
+    it('closes on Escape', async () => {
+      render(<HelpPopup />);
+      fireEvent.click(screen.getByTitle('help.buttonTitle'));
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+    });
+  });
 });

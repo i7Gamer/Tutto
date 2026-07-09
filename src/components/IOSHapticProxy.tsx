@@ -18,6 +18,10 @@ export default function IOSHapticProxy() {
   const labelRef = useRef<HTMLLabelElement>(null);
 
   useEffect(() => {
+    // Guarded here too (not just the render's early return below) — otherwise
+    // this runs unconditionally on every mount, including on platforms where
+    // the <label> below is never rendered, always registering a null ref.
+    if (!supportsIOSSwitchHaptic()) return;
     setIOSSwitchHapticElement(labelRef.current);
     return () => setIOSSwitchHapticElement(null);
   }, []);

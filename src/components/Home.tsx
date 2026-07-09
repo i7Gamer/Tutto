@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -15,7 +16,7 @@ export default function Home({ onShowStats }: HomeProps) {
   const game = useGameStore();
   const { mode, setMode, roomId, leaveRoom } = game;
 
-  const handleModeChange = (newMode: 'local' | 'online') => {
+  const handleModeChange = useCallback((newMode: 'local' | 'online') => {
     if (newMode === 'local' && roomId) {
       if (window.confirm(t('lobby.online.leaveConfirm', 'Do you really want to leave the room?'))) {
         leaveRoom();
@@ -24,9 +25,9 @@ export default function Home({ onShowStats }: HomeProps) {
     } else {
       setMode(newMode);
     }
-  };
+  }, [roomId, t, leaveRoom, setMode]);
 
-  const handleClearCache = () => {
+  const handleClearCache = useCallback(() => {
     localStorage.removeItem('tutto_dice_turn_state');
     localStorage.removeItem('tutto_local_game');
     localStorage.removeItem('last_crash_time');
@@ -53,7 +54,7 @@ export default function Home({ onShowStats }: HomeProps) {
         window.location.reload();
       });
     }).catch(() => window.location.reload());
-  };
+  }, []);
 
   return (
     // pb-20 mirrors Game.tsx's own bottom padding — without it, this page's
