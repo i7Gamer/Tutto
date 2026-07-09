@@ -2,6 +2,7 @@ import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
 } from '../utils/configValidation';
 import { closeAudioContext } from '../utils/soundEffects';
+import { validateOnlineConfig } from './persistence';
 import { getSocket } from './socketRef';
 import type { GameStore, ImmerStateCreator } from './storeTypes';
 
@@ -37,7 +38,12 @@ export const createConfigSlice: ImmerStateCreator<ConfigSlice> = (set, get) => (
   },
 
   updateConfig: (config) => {
-    set((state) => { Object.assign(state, config); });
+    // Same field-by-field validation the lobby applies when restoring a saved
+    // online config — a defensive net here too, so a NaN/out-of-range value
+    // can never reach the Immer draft even if a future call site skips its
+    // own normalization (see LobbyShared.tsx's snapDisableableDuration).
+    const validated = validateOnlineConfig(config);
+    set((state) => { Object.assign(state, validated); });
     const s = get();
     const socket = getSocket();
     if (s.isOnline && s.isHost && s.roomId && socket) {

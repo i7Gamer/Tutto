@@ -234,13 +234,12 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
         state.currentCard = result.drawnCard;
       }
       state.liveTurnState = null;
-      localStorage.removeItem('tutto_dice_turn_state');
-      if (!state.historyLog) state.historyLog = [];
       state.historyLog.push(result.historyEntry);
       if (state.historyLog.length > MAX_HISTORY_LOG_SIZE) {
         state.historyLog.shift();
       }
     });
+    localStorage.removeItem('tutto_dice_turn_state');
 
     // Stats are intentionally only tracked for online games. Local games do not
     // submit statistics — by design, not an oversight.

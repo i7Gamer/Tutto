@@ -168,9 +168,9 @@ export default function App() {
   }, [theme]);
 
   const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light';
-    setTheme(newTheme);
-    document.documentElement.setAttribute('data-theme', newTheme);
+    // The effect above applies the DOM attribute (and persists it) whenever
+    // `theme` changes — no need to also set it here.
+    setTheme(theme === 'light' ? 'dark' : 'light');
   };
 
   return (

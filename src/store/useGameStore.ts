@@ -172,7 +172,7 @@ export const useGameStore = create<GameStore>()(
         state.randomOrder = initialLocalState.randomOrder;
         state.turnDuration = initialLocalState.turnDuration;
         state.reconnectTimeout = initialLocalState.reconnectTimeout;
-        state.initialCards = JSON.parse(JSON.stringify(initialLocalState.initialCards));
+        state.initialCards = { ...initialLocalState.initialCards };
         // Meaningless offline (no host to enforce it) and never part of a local
         // save — reset so a leftover online enforcement doesn't survive a
         // switch to local and then bleed into the next online room.

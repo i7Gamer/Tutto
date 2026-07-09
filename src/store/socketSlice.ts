@@ -1,4 +1,4 @@
-import { io } from 'socket.io-client';
+import { io, type Socket } from 'socket.io-client';
 import { getLeaders } from '../utils/coreGameEngine';
 import i18n from '../i18n';
 import { validateOnlineConfig } from './persistence';
@@ -51,8 +51,177 @@ export const clearRoomState = (): Pick<GameStore,
   liveTurnState: null,
 });
 
+// Tracks the in-flight cancelReconnect attempt (if any) so a second rapid
+// call cancels the first's throwaway socket instead of leaving it dangling
+// alongside a new one.
+let pendingCancelReconnectCleanup: (() => void) | null = null;
+
+type SocketSliceSet = Parameters<ImmerStateCreator<SocketSlice>>[0];
+type SocketSliceGet = Parameters<ImmerStateCreator<SocketSlice>>[1];
+
+// Wires every server->client event for one socket connection. Extracted out of
+// connectSocket (which just creates the socket and delegates here) so the
+// event-bus itself is a standalone, independently readable unit rather than a
+// 150-line inline factory.
+const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSliceSet): void => {
+  sock.on('gameState', (serverState: Partial<GameStore>) => {
+    const wasFinished = get().finished;
+    set((prev) => {
+      const wasDisconnected = prev.showReconnectPopup;
+
+      if (prev.mode === 'online' && prev.status === 'lobby' && serverState.status === 'lobby') {
+        if (prev.winningScore !== serverState.winningScore) {
+          prev.toasts.push(makeToast(i18n.t('game.toastWinningScore', {
+            defaultValue: 'Winning score: {{value}}',
+            value: serverState.winningScore,
+          })));
+        }
+        if (prev.turnDuration !== serverState.turnDuration) {
+          const value = serverState.turnDuration === 0
+            ? i18n.t('common.disabled', 'Disabled')
+            : i18n.t('game.timeSeconds', { defaultValue: '{{time}}s', time: serverState.turnDuration });
+          prev.toasts.push(makeToast(i18n.t('game.toastTurnTimer', { defaultValue: 'Turn timer: {{value}}', value })));
+        }
+        if (prev.reconnectTimeout !== serverState.reconnectTimeout) {
+          prev.toasts.push(makeToast(i18n.t('game.toastKickTimer', {
+            defaultValue: 'Kick timer: {{value}}',
+            value: `${serverState.reconnectTimeout}s`,
+          })));
+        }
+        if (JSON.stringify(prev.initialCards) !== JSON.stringify(serverState.initialCards)) {
+          prev.toasts.push(makeToast(i18n.t('game.toastDeckChanged', 'Deck composition changed')));
+        }
+        if (prev.enforcedDiceMode !== serverState.enforcedDiceMode) {
+          const value = serverState.enforcedDiceMode === null
+            ? i18n.t('common.disabled', 'Disabled')
+            : serverState.enforcedDiceMode === 'digital'
+              ? i18n.t('lobby.digitalDice', 'Digital Dice')
+              : i18n.t('lobby.physicalDice', 'Physical Dice');
+          prev.toasts.push(makeToast(i18n.t('game.toastDiceModeEnforced', { defaultValue: 'Dice mode: {{value}}', value })));
+        }
+      }
+      if (prev.mode === 'online' && prev.status === 'playing' && serverState.status === 'lobby' && !prev.finished && (serverState.players?.length ?? 0) >= 2) {
+        prev.toasts.push(makeToast(i18n.t('game.toastHostEndedEarly', 'Host ended game early')));
+      }
+      for (const key of GAME_STATE_SYNC_KEYS) {
+        if (key in serverState) (prev as Record<string, unknown>)[key] = serverState[key];
+      }
+
+      const isNewReconnect = wasDisconnected && serverState.status === 'playing';
+      if (isNewReconnect) {
+        prev.justReconnected = true;
+      } else if (prev.justReconnected) {
+        // Self-clearing: true for exactly one gameState event's processing
+        // window, then reset here on the next one — regardless of whether
+        // any component (e.g. Game.tsx) was mounted to react to it and
+        // clear it itself. Without this it could get stuck true forever
+        // (e.g. reconnecting as a spectator, or on physical dice) and
+        // wrongly resurface on a later, unrelated turn.
+        prev.justReconnected = false;
+      }
+      prev.showReconnectPopup = false;
+    });
+    // Pass the server-computed remaining turn time so the display countdown
+    // resyncs to it (see syncOnlineTimers for why it is authoritative).
+    get().syncOnlineTimers(serverState.turnTimeRemaining);
+
+    if (!wasFinished && get().finished) {
+      get().sendOnlineStats();
+    }
+  });
+
+  sock.on('playerDisconnected', (name: string) => {
+    const seconds = get().reconnectTimeout;
+    // 0 = the kick timer is disabled for this room (see configValidation.ts)
+    // — there is no deadline, so a message inventing one is misleading.
+    if (!seconds) {
+      get().addToast(i18n.t('game.playerDisconnectedNoTimeout', {
+        defaultValue: '{{name}} disconnected!',
+        name,
+      }));
+      return;
+    }
+    get().addToast(i18n.t('game.playerDisconnected', {
+      defaultValue: '{{name}} disconnected! They have {{seconds}} seconds to reconnect.',
+      name,
+      seconds,
+    }));
+  });
+
+  sock.on('nameConflictWithDisconnected', (name: string) => {
+    get().addToast(i18n.t('game.nameConflictWithDisconnected', {
+      defaultValue: 'Someone tried to join as "{{name}}", which belongs to a disconnected player. Kick them below to free up the name.',
+      name,
+    }));
+  });
+
+  sock.on('playerReaction', (reaction: Reaction) => {
+    set((state) => { state.reactions.push(reaction); });
+    // Self-pruning, like toasts — the sender only needs the id/timing
+    // contract, not a per-reaction cleanup call from the UI layer.
+    setTimeout(() => get().removeReaction(reaction.id), REACTION_DISPLAY_MS);
+  });
+
+  sock.on('hostId', (hostSocketId: string) => {
+    set({ isHost: hostSocketId === sock.id, hostId: hostSocketId });
+  });
+
+  // Dedicated low-frequency-cost path for live dice-roll updates (see
+  // pushLiveTurnState) — a plain single-field merge, deliberately not
+  // routed through the 'gameState' handler above so a dice tick doesn't
+  // re-run its toast-diffing/justReconnected/timer-sync/stats side
+  // effects, none of which apply here.
+  sock.on('liveTurnState', (payload: { liveTurnState: DiceSnapshot | null }) => {
+    set({ liveTurnState: payload.liveTurnState });
+  });
+
+  sock.on('kicked', () => {
+    get().addToast(i18n.t('game.kickedByHost', 'You were kicked by the host'));
+    get().stopOnlineTimers();
+    sessionStorage.removeItem('tutto_online_session');
+    localStorage.removeItem('tutto_dice_turn_state');
+    // Mirrors leaveRoom's reset (see its comment): setMode('local') below
+    // only overwrites the keys a saved local game happens to contain, so
+    // without clearing the online room's roster/game state here too, it
+    // bleeds into local mode whenever there's no local save to overwrite it.
+    set(clearRoomState());
+    get().setMode('local');
+  });
+
+  sock.on('gameAborted', () => {
+    get().addToast(i18n.t('game.aborted'));
+  });
+
+  sock.on('disconnect', () => {
+    if (get().mode === 'online') set({ showReconnectPopup: true });
+  });
+
+  sock.on('connect', () => {
+    const { roomId, myName, deviceId } = get();
+    if (roomId && myName) {
+      const savedColor = localStorage.getItem('tutto_color');
+      sock.emit('joinRoom', { roomId, name: myName, deviceId, color: savedColor }, (res: JoinRoomResponse) => {
+        if (res.success) {
+          set({ isHost: res.isHost ?? false, myName: res.name ?? myName });
+          return;
+        }
+        // The seat is unrecoverable (room deleted after the reconnect
+        // timeout, name reclaimed, …) — retrying on the next 'connect'
+        // can never succeed, so stop showing the "attempting to
+        // reconnect" popup and drop back to the online join form.
+        get().addToast(res.error || i18n.t('home.restore.failed', 'Failed to reconnect to the game'));
+        get().leaveRoom();
+        set({ showReconnectPopup: false, hostId: null });
+      });
+    }
+  });
+};
+
 export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => ({
   cancelReconnect: (roomId?: string | null, name?: string | null) => {
+    pendingCancelReconnectCleanup?.();
+    pendingCancelReconnectCleanup = null;
+
     localStorage.removeItem('tutto_dice_turn_state');
     sessionStorage.removeItem('tutto_online_session');
     set({ pendingReconnectSession: null, liveTurnState: null, showReconnectPopup: false });
@@ -78,7 +247,9 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       cleanedUp = true;
       clearTimeout(timeoutId);
       tempSocket.disconnect();
+      if (pendingCancelReconnectCleanup === cleanup) pendingCancelReconnectCleanup = null;
     };
+    pendingCancelReconnectCleanup = cleanup;
     const timeoutId = setTimeout(cleanup, 10000);
 
     tempSocket.on('connect_error', cleanup);
@@ -100,158 +271,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     if (!getSocket()) {
       const sock = io(url ?? window.location.origin);
       setSocket(sock);
-
-      sock.on('gameState', (serverState: Partial<GameStore>) => {
-        const wasFinished = get().finished;
-        set((prev) => {
-          const wasDisconnected = prev.showReconnectPopup;
-
-          if (prev.mode === 'online' && prev.status === 'lobby' && serverState.status === 'lobby') {
-            if (prev.winningScore !== serverState.winningScore) {
-              prev.toasts.push(makeToast(i18n.t('game.toastWinningScore', {
-                defaultValue: 'Winning score: {{value}}',
-                value: serverState.winningScore,
-              })));
-            }
-            if (prev.turnDuration !== serverState.turnDuration) {
-              const value = serverState.turnDuration === 0
-                ? i18n.t('common.disabled', 'Disabled')
-                : i18n.t('game.timeSeconds', { defaultValue: '{{time}}s', time: serverState.turnDuration });
-              prev.toasts.push(makeToast(i18n.t('game.toastTurnTimer', { defaultValue: 'Turn timer: {{value}}', value })));
-            }
-            if (prev.reconnectTimeout !== serverState.reconnectTimeout) {
-              prev.toasts.push(makeToast(i18n.t('game.toastKickTimer', {
-                defaultValue: 'Kick timer: {{value}}',
-                value: `${serverState.reconnectTimeout}s`,
-              })));
-            }
-            if (JSON.stringify(prev.initialCards) !== JSON.stringify(serverState.initialCards)) {
-              prev.toasts.push(makeToast(i18n.t('game.toastDeckChanged', 'Deck composition changed')));
-            }
-            if (prev.enforcedDiceMode !== serverState.enforcedDiceMode) {
-              const value = serverState.enforcedDiceMode === null
-                ? i18n.t('common.disabled', 'Disabled')
-                : serverState.enforcedDiceMode === 'digital'
-                  ? i18n.t('lobby.digitalDice', 'Digital Dice')
-                  : i18n.t('lobby.physicalDice', 'Physical Dice');
-              prev.toasts.push(makeToast(i18n.t('game.toastDiceModeEnforced', { defaultValue: 'Dice mode: {{value}}', value })));
-            }
-          }
-          if (prev.mode === 'online' && prev.status === 'playing' && serverState.status === 'lobby' && !prev.finished && (serverState.players?.length ?? 0) >= 2) {
-            prev.toasts.push(makeToast(i18n.t('game.toastHostEndedEarly', 'Host ended game early')));
-          }
-          for (const key of GAME_STATE_SYNC_KEYS) {
-            if (key in serverState) (prev as Record<string, unknown>)[key] = serverState[key];
-          }
-
-          const isNewReconnect = wasDisconnected && serverState.status === 'playing';
-          if (isNewReconnect) {
-            prev.justReconnected = true;
-          } else if (prev.justReconnected) {
-            // Self-clearing: true for exactly one gameState event's processing
-            // window, then reset here on the next one — regardless of whether
-            // any component (e.g. Game.tsx) was mounted to react to it and
-            // clear it itself. Without this it could get stuck true forever
-            // (e.g. reconnecting as a spectator, or on physical dice) and
-            // wrongly resurface on a later, unrelated turn.
-            prev.justReconnected = false;
-          }
-          prev.showReconnectPopup = false;
-        });
-        // Pass the server-computed remaining turn time so the display countdown
-        // resyncs to it (see syncOnlineTimers for why it is authoritative).
-        get().syncOnlineTimers(serverState.turnTimeRemaining);
-
-        if (!wasFinished && get().finished) {
-          get().sendOnlineStats();
-        }
-      });
-
-      sock.on('playerDisconnected', (name: string) => {
-        const seconds = get().reconnectTimeout;
-        // 0 = the kick timer is disabled for this room (see configValidation.ts)
-        // — there is no deadline, so a message inventing one is misleading.
-        if (!seconds) {
-          get().addToast(i18n.t('game.playerDisconnectedNoTimeout', {
-            defaultValue: '{{name}} disconnected!',
-            name,
-          }));
-          return;
-        }
-        get().addToast(i18n.t('game.playerDisconnected', {
-          defaultValue: '{{name}} disconnected! They have {{seconds}} seconds to reconnect.',
-          name,
-          seconds,
-        }));
-      });
-
-      sock.on('nameConflictWithDisconnected', (name: string) => {
-        get().addToast(i18n.t('game.nameConflictWithDisconnected', {
-          defaultValue: 'Someone tried to join as "{{name}}", which belongs to a disconnected player. Kick them below to free up the name.',
-          name,
-        }));
-      });
-
-      sock.on('playerReaction', (reaction: Reaction) => {
-        set((state) => { state.reactions.push(reaction); });
-        // Self-pruning, like toasts — the sender only needs the id/timing
-        // contract, not a per-reaction cleanup call from the UI layer.
-        setTimeout(() => get().removeReaction(reaction.id), REACTION_DISPLAY_MS);
-      });
-
-      sock.on('hostId', (hostSocketId: string) => {
-        set({ isHost: hostSocketId === sock.id, hostId: hostSocketId });
-      });
-
-      // Dedicated low-frequency-cost path for live dice-roll updates (see
-      // pushLiveTurnState) — a plain single-field merge, deliberately not
-      // routed through the 'gameState' handler above so a dice tick doesn't
-      // re-run its toast-diffing/justReconnected/timer-sync/stats side
-      // effects, none of which apply here.
-      sock.on('liveTurnState', (payload: { liveTurnState: DiceSnapshot | null }) => {
-        set({ liveTurnState: payload.liveTurnState });
-      });
-
-      sock.on('kicked', () => {
-        get().addToast(i18n.t('game.kickedByHost', 'You were kicked by the host'));
-        get().stopOnlineTimers();
-        sessionStorage.removeItem('tutto_online_session');
-        localStorage.removeItem('tutto_dice_turn_state');
-        // Mirrors leaveRoom's reset (see its comment): setMode('local') below
-        // only overwrites the keys a saved local game happens to contain, so
-        // without clearing the online room's roster/game state here too, it
-        // bleeds into local mode whenever there's no local save to overwrite it.
-        set(clearRoomState());
-        get().setMode('local');
-      });
-
-      sock.on('gameAborted', () => {
-        get().addToast(i18n.t('game.aborted'));
-      });
-
-      sock.on('disconnect', () => {
-        if (get().mode === 'online') set({ showReconnectPopup: true });
-      });
-
-      sock.on('connect', () => {
-        const { roomId, myName, deviceId } = get();
-        if (roomId && myName) {
-          const savedColor = localStorage.getItem('tutto_color');
-          sock.emit('joinRoom', { roomId, name: myName, deviceId, color: savedColor }, (res: JoinRoomResponse) => {
-            if (res.success) {
-              set({ isHost: res.isHost ?? false, myName: res.name ?? myName });
-              return;
-            }
-            // The seat is unrecoverable (room deleted after the reconnect
-            // timeout, name reclaimed, …) — retrying on the next 'connect'
-            // can never succeed, so stop showing the "attempting to
-            // reconnect" popup and drop back to the online join form.
-            get().addToast(res.error || i18n.t('home.restore.failed', 'Failed to reconnect to the game'));
-            get().leaveRoom();
-            set({ showReconnectPopup: false, hostId: null });
-          });
-        }
-      });
+      registerSocketHandlers(sock, get, set);
     }
   },
 

@@ -285,6 +285,17 @@ describe('useGameStore', () => {
     expect(state.randomOrder).toBe(false);
   });
 
+  it('updateConfig drops out-of-range/invalid values instead of applying them (STORE-SMELL-4)', () => {
+    useGameStore.setState({ winningScore: 6000, turnDuration: 120 });
+
+    // @ts-expect-error -- intentionally invalid input to verify the guard
+    useGameStore.getState().updateConfig({ winningScore: NaN, turnDuration: -5 });
+
+    const state = useGameStore.getState();
+    expect(state.winningScore).toBe(6000);
+    expect(state.turnDuration).toBe(120);
+  });
+
   describe('configSlice remaining setters and resets', () => {
     it('setDiceMode updates state and persists to localStorage', () => {
       useGameStore.getState().setDiceMode('digital');
@@ -1875,23 +1886,32 @@ describe('useGameStore', () => {
       useGameStore.setState({ deviceId: originalDeviceId });
     });
 
-    it('cancelReconnect called multiple times creates multiple io socket attempts', async () => {
+    it('cancelReconnect called multiple times disconnects the prior temp socket instead of leaving it dangling (STORE-SMELL-7)', async () => {
       const { io } = await import('socket.io-client');
       io.mockClear();
+      mockDisconnect.mockClear();
 
       const store = useGameStore.getState();
 
-      // First call with roomId - creates temp socket
+      // First call with roomId - creates a temp socket, not yet disconnected.
       store.cancelReconnect('ROOM_1', 'Alice');
       expect(io).toHaveBeenCalledTimes(1);
+      // Clears any disconnect triggered by this call cleaning up a dangling
+      // attempt left pending by an earlier test — isolates this test to just
+      // what happens from here on.
+      mockDisconnect.mockClear();
 
-      // Second call with roomId - creates another temp socket
+      // Second call with roomId - the first attempt is cancelled (disconnected)
+      // before a second temp socket is created.
       store.cancelReconnect('ROOM_2', 'Bob');
       expect(io).toHaveBeenCalledTimes(2);
+      expect(mockDisconnect).toHaveBeenCalledTimes(1);
 
-      // Call without roomId - does NOT create temp socket
+      // Call without roomId - does NOT create a temp socket, but does clean up
+      // the still-pending second attempt.
       store.cancelReconnect();
       expect(io).toHaveBeenCalledTimes(2);
+      expect(mockDisconnect).toHaveBeenCalledTimes(2);
 
       // Verify handlers were registered for both socket attempts
       expect(mockOnHandlers['connect_error']).toBeDefined();
