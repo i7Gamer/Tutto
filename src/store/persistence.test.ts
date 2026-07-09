@@ -39,4 +39,19 @@ describe('pickLocalGameState', () => {
     expect(picked).toEqual({ round: 5 });
     expect(Object.keys(picked)).toEqual(['round']);
   });
+
+  it('passes a whitelisted field\'s value through unvalidated, even when its type is corrupted (STORE-TEST-3 / STORE-SEC-2)', () => {
+    // pickLocalGameState whitelists KEYS only — it copies whatever value a
+    // whitelisted key holds without checking its shape/type. A hand-edited or
+    // corrupted localStorage save can therefore put a string where the store
+    // expects a number/array, which surfaces as a crash further downstream
+    // wherever that field is used (e.g. players.map, round arithmetic). This
+    // test pins today's pass-through behavior so a future fix (adding value
+    // validation) changes it deliberately rather than by accident.
+    const parsed = { round: 'five', players: 'not-an-array', winningScore: null };
+    const picked = pickLocalGameState(parsed);
+    expect(picked.round).toBe('five');
+    expect(picked.players).toBe('not-an-array');
+    expect(picked.winningScore).toBeNull();
+  });
 });
