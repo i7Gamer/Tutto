@@ -43,6 +43,8 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       previousLeaders: room.state.previousLeaders,
       previousWasBust: room.state.previousWasBust ?? false,
       previousHighestTurnScore: room.state.previousHighestTurnScore ?? 0,
+      previousHighestFeuerwerkTurnScore: room.state.previousHighestFeuerwerkTurnScore ?? 0,
+      previousHighestX2TurnScore: room.state.previousHighestX2TurnScore ?? 0,
       finished: room.state.finished,
       gameStartTime: null,
       gameTimeInSeconds: room.state.gameTimeInSeconds,
@@ -63,6 +65,8 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
     room.state.previousLeaders = result.previousLeaders as ServerPlayer[] | null;
     room.state.previousWasBust = result.previousWasBust;
     room.state.previousHighestTurnScore = result.previousHighestTurnScore;
+    room.state.previousHighestFeuerwerkTurnScore = result.previousHighestFeuerwerkTurnScore;
+    room.state.previousHighestX2TurnScore = result.previousHighestX2TurnScore;
     room.state.previousPlayerName = result.previousPlayerName;
     room.state.liveTurnState = null;
 

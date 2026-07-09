@@ -139,6 +139,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.previousLeaders = null;
       state.previousWasBust = false;
       state.previousHighestTurnScore = 0;
+      state.previousHighestFeuerwerkTurnScore = 0;
+      state.previousHighestX2TurnScore = 0;
       state.previousPlayerName = null;
       state.status = 'playing';
 
@@ -179,6 +181,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       previousLeaders: null,
       previousWasBust: false,
       previousHighestTurnScore: 0,
+      previousHighestFeuerwerkTurnScore: 0,
+      previousHighestX2TurnScore: 0,
       previousPlayerName: null,
       chartValues: [],
       chartNames: [],
@@ -206,6 +210,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.previousLeaders = result.previousLeaders;
       state.previousWasBust = result.previousWasBust;
       state.previousHighestTurnScore = result.previousHighestTurnScore;
+      state.previousHighestFeuerwerkTurnScore = result.previousHighestFeuerwerkTurnScore;
+      state.previousHighestX2TurnScore = result.previousHighestX2TurnScore;
       state.previousPlayerName = result.previousPlayerName;
 
       if (result.isRoundEnd) {
@@ -267,6 +273,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.previousLeaders = null;
       state.previousWasBust = false;
       state.previousHighestTurnScore = 0;
+      state.previousHighestFeuerwerkTurnScore = 0;
+      state.previousHighestX2TurnScore = 0;
       state.previousPlayerName = null;
       // The turn being undone may have been mid-roll (digital dice) — its
       // snapshot no longer corresponds to anything once the score is reverted

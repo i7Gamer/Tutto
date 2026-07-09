@@ -363,6 +363,17 @@ describe('coreGameEngine', () => {
       expect(result.drawnCard).toBe('200');
     });
 
+    it('treats non-finite scoreInput (NaN/Infinity) as 0 instead of corrupting the score (regression for ENGINE-BUG-1)', () => {
+      // `scoreInput || 0` only catches falsy inputs (0, NaN, ""), so a truthy
+      // but non-finite value like Infinity used to flow straight into the
+      // player's score unguarded.
+      const nanResult = calculateNextTurn(makeState(), NaN, true);
+      expect(nanResult.players[0].score).toBe(0);
+
+      const infResult = calculateNextTurn(makeState(), Infinity, true);
+      expect(infResult.players[0].score).toBe(0);
+    });
+
     it('counts a 0-point result on a regular card as a bust', () => {
       const result = calculateNextTurn(makeState(), 0, false);
       expect(result.players[0].busts).toBe(1);
@@ -998,6 +1009,25 @@ describe('coreGameEngine', () => {
       const result = calculateUndo(state);
       expect(result.newDeck).toEqual(['Stop', '600']);
       expect(result.drawnCard).toBe('200');
+    });
+
+    it('does not inject null into newDeck when undoing while currentCard is null (regression for ENGINE-BUG-5)', () => {
+      // currentCard can be null (e.g. a momentarily exhausted deck) without the
+      // game being finished — `[currentCard as CardType, ...cards]` used to cast
+      // right past that null and push it into the deck array.
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 500, totalTurns: 1 }), makePlayer('Bob')],
+        currentPlayerIndex: 1,
+        currentCard: null,
+        cards: ['200', '600'],
+        previousCard: '200',
+        previousScore: 500,
+        previousPlayerName: 'Alice',
+        finished: false,
+      });
+      const result = calculateUndo(state);
+      expect(result.newDeck).toEqual(['200', '600']);
+      expect(result.newDeck).not.toContain(null);
     });
 
     it('returns null when undoing on round 1, player 0', () => {

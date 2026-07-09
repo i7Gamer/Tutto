@@ -213,6 +213,52 @@ describe('useGameStore', () => {
     expect(useGameStore.getState().previousHighestTurnScore).toBe(800);
   });
 
+  it('persists previousHighestFeuerwerkTurnScore/previousHighestX2TurnScore so undo after a reload stays accurate', () => {
+    // Same hazard as the previousHighestTurnScore test above, but for the
+    // Feuerwerk/x2 siblings: calculateUndo restores
+    // highestFeuerwerkTurnScore/highestX2TurnScore from these two fields, so
+    // dropping them from the save resets both to 0 on a post-reload undo.
+    useGameStore.setState({
+      mode: 'local', status: 'playing',
+      players: [{ ...namedPlayers('Alice')[0], score: 500, highestFeuerwerkTurnScore: 900, highestX2TurnScore: 700 }],
+      currentPlayerIndex: 0, previousCard: 'Feuerwerk', previousScore: 300,
+      previousHighestFeuerwerkTurnScore: 600, previousHighestX2TurnScore: 700,
+    });
+
+    const savedRaw = localStorage.getItem('tutto_local_game')!;
+    const saved = JSON.parse(savedRaw);
+    expect(saved.previousHighestFeuerwerkTurnScore).toBe(600);
+    expect(saved.previousHighestX2TurnScore).toBe(700);
+
+    useGameStore.getState().reset();
+    localStorage.setItem('tutto_local_game', savedRaw);
+    useGameStore.getState().init('device-123');
+
+    expect(useGameStore.getState().previousHighestFeuerwerkTurnScore).toBe(600);
+    expect(useGameStore.getState().previousHighestX2TurnScore).toBe(700);
+  });
+
+  it('nextTurn propagates previousHighestFeuerwerkTurnScore/X2TurnScore so a subsequent undo restores them instead of zeroing them (regression for STORE-BUG-1)', () => {
+    useGameStore.setState({
+      mode: 'local', status: 'playing', finished: false,
+      players: [
+        { ...namedPlayers('Alice')[0], score: 500, highestFeuerwerkTurnScore: 900 },
+        { ...namedPlayers('Bob')[0], score: 200 },
+      ],
+      currentPlayerIndex: 0, currentCard: 'Feuerwerk', cards: ['200'],
+      initialCards: { '200': 5 }, round: 1,
+    });
+
+    // Alice takes a 300-point Feuerwerk turn — below her existing 900 record,
+    // so highestFeuerwerkTurnScore must stay 900, and the store must remember
+    // that prior 900 so undo can restore it correctly.
+    useGameStore.getState().nextTurn(300, true);
+    expect(useGameStore.getState().previousHighestFeuerwerkTurnScore).toBe(900);
+
+    useGameStore.getState().undo();
+    expect(useGameStore.getState().players[0].highestFeuerwerkTurnScore).toBe(900);
+  });
+
   it('adds and removes players', () => {
     useGameStore.getState().addPlayer('Player 1');
     useGameStore.getState().addPlayer('Player 2');

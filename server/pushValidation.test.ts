@@ -381,6 +381,18 @@ describe('applyPushedState', () => {
       }
     });
 
+    it('previousHighestFeuerwerkTurnScore/previousHighestX2TurnScore: non-negative magnitude-capped numbers', () => {
+      const state = makeState();
+      applyPushedState(state, { previousHighestFeuerwerkTurnScore: 900, previousHighestX2TurnScore: 700 }, asActivePlayer);
+      expect(state.previousHighestFeuerwerkTurnScore).toBe(900);
+      expect(state.previousHighestX2TurnScore).toBe(700);
+      for (const bad of [-1, 1_000_001, NaN]) {
+        applyPushedState(state, { previousHighestFeuerwerkTurnScore: bad, previousHighestX2TurnScore: bad }, asActivePlayer);
+        expect(state.previousHighestFeuerwerkTurnScore).toBe(900);
+        expect(state.previousHighestX2TurnScore).toBe(700);
+      }
+    });
+
     it('previousPlayerName: null or a non-empty string up to 30 chars', () => {
       const state = makeState();
       applyPushedState(state, { previousPlayerName: 'Alice' }, asActivePlayer);

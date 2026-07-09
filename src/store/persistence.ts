@@ -19,7 +19,8 @@ const STABLE_LOCAL_GAME_KEYS = [
   'winningScore', 'diceMode', 'initialCards', 'randomOrder',
   'turnDuration', 'reconnectTimeout', 'finished',
   'previousScore', 'previousCard', 'previousLeaders',
-  'previousWasBust', 'previousHighestTurnScore', 'previousPlayerName',
+  'previousWasBust', 'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
+  'previousHighestX2TurnScore', 'previousPlayerName',
   'chartValues', 'chartNames', 'chartLabels', 'status', 'historyLog',
 ] as const satisfies readonly (keyof GameStore)[];
 

@@ -315,6 +315,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
         randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
         previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
+        previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore,
         previousPlayerName, chartValues, chartNames, chartLabels, status, liveTurnState, enforcedDiceMode,
         historyLog,
       } = s;
@@ -324,6 +325,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
           randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
           previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
+          previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore,
           previousPlayerName, chartValues, chartNames, chartLabels, status, liveTurnState, enforcedDiceMode,
           historyLog,
         },

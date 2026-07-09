@@ -185,7 +185,7 @@ export const calculateNextTurn = (
 ): NextTurnResult => {
   const { players, currentPlayerIndex, currentCard, round, winningScore, cards, initialCards } = gameState;
 
-  let turnScore = scoreInput || 0;
+  let turnScore = Number.isFinite(scoreInput) ? scoreInput : 0;
   const newPlayers = players.map(p => ({ ...p }));
   const currentPlayer = newPlayers[currentPlayerIndex];
   let snapshotLeaders: Player[] | null = null;
@@ -417,7 +417,7 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
     nextIndex: prevIndex,
     nextRound: newRound,
     isRoundEndUndo,
-    newDeck: [currentCard as CardType, ...cards],
+    newDeck: currentCard ? [currentCard, ...cards] : [...cards],
     drawnCard: previousCard as CardType,
   };
 };

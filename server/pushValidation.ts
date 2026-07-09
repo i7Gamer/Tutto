@@ -149,7 +149,8 @@ const HOST_ONLY_FIELDS = new Set<string>([
 const ACTIVE_PLAYER_FIELDS = new Set<string>([
   'currentCard', 'cards', 'currentPlayerIndex', 'round',
   'finished', 'previousCard', 'previousScore', 'previousLeaders',
-  'previousWasBust', 'previousHighestTurnScore', 'previousPlayerName',
+  'previousWasBust', 'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
+  'previousHighestX2TurnScore', 'previousPlayerName',
   'chartValues', 'chartNames', 'chartLabels', 'gameTimeInSeconds',
   'players', 'liveTurnState', 'historyLog',
 ]);
@@ -312,6 +313,16 @@ export const applyPushedState = (
       const v = newState.previousHighestTurnScore;
       if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= MAX_SCORE_MAGNITUDE) {
         state.previousHighestTurnScore = v;
+      }
+    } else if (key === 'previousHighestFeuerwerkTurnScore') {
+      const v = newState.previousHighestFeuerwerkTurnScore;
+      if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= MAX_SCORE_MAGNITUDE) {
+        state.previousHighestFeuerwerkTurnScore = v;
+      }
+    } else if (key === 'previousHighestX2TurnScore') {
+      const v = newState.previousHighestX2TurnScore;
+      if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= MAX_SCORE_MAGNITUDE) {
+        state.previousHighestX2TurnScore = v;
       }
     } else if (key === 'previousPlayerName') {
       const v = newState.previousPlayerName;

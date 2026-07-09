@@ -33,6 +33,8 @@ export interface RoomState {
   previousLeaders: ServerPlayer[] | null;
   previousWasBust?: boolean;
   previousHighestTurnScore?: number;
+  previousHighestFeuerwerkTurnScore?: number;
+  previousHighestX2TurnScore?: number;
   // Name of the player who took the previous turn — see CoreGameState in
   // src/types.ts for why undo keys off this instead of a roster index.
   previousPlayerName?: string | null;
