@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, ReactNode } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HelpCircle, X, ChevronRight, ChevronDown } from 'lucide-react';
@@ -75,7 +75,7 @@ export default function HelpPopup() {
     }
   }, [isOpen]);
 
-  const handleDialogKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+  const handleDialogKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
     if (e.key === 'Escape') {
       e.stopPropagation();
       setIsOpen(false);

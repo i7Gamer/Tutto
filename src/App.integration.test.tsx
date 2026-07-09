@@ -809,9 +809,13 @@ describe('App Integration (End-to-End)', () => {
     useGameStore.getState().startGame();
     expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
 
-    await new Promise(resolve => setTimeout(resolve, 1100));
-    let localGameTime = useGameStore.getState().gameTimeInSeconds;
-    expect(localGameTime).toBeGreaterThanOrEqual(1);
+    // Poll instead of a fixed sleep: the store's game clock ticks on a real
+    // 1000ms setInterval, so under full-suite load a fixed wait can check
+    // just before the tick lands and flake.
+    await vi.waitFor(
+      () => expect(useGameStore.getState().gameTimeInSeconds).toBeGreaterThanOrEqual(1),
+      { timeout: 5000, interval: 50 },
+    );
 
     // Clean up for online test
     useGameStore.getState().reset();
@@ -830,8 +834,10 @@ describe('App Integration (End-to-End)', () => {
     useGameStore.getState().syncOnlineTimers();
     expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
 
-    await new Promise(resolve => setTimeout(resolve, 1100));
-    let onlineGameTime = useGameStore.getState().gameTimeInSeconds;
-    expect(onlineGameTime).toBeGreaterThanOrEqual(1);
+    // Same polling rationale as the local-game assertion above.
+    await vi.waitFor(
+      () => expect(useGameStore.getState().gameTimeInSeconds).toBeGreaterThanOrEqual(1),
+      { timeout: 5000, interval: 50 },
+    );
   });
 });
