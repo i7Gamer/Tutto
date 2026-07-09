@@ -1,8 +1,10 @@
 import path from 'path';
+import crypto from 'crypto';
 import express from 'express';
 import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } from './database';
 import { sanitizeStats } from './sanitize';
 import { createRateLimiter } from './rateLimit';
+import { DEV_DEFAULT_API_TOKEN, validateApiTokenForStartup } from './startupGuards';
 
 // Client crash reports from the ErrorBoundary (see src/utils/crashLog.ts).
 // Unauthenticated by design — crash reporting must work for any player — so
@@ -26,18 +28,30 @@ export const registerApiRoutes = (app: express.Express): void => {
   // client bundle. Deliberately NOT prefixed with VITE_: Vite compiles any
   // referenced VITE_* env var into the public bundle, so the prefix would turn
   // one careless import.meta.env reference into a leaked server secret.
-  if (process.env.NODE_ENV === 'production' && !process.env.API_TOKEN) {
-    console.error('[SECURITY] API_TOKEN is not set. Refusing to start in production.');
+  const apiTokenError = validateApiTokenForStartup(process.env);
+  if (apiTokenError) {
+    console.error(apiTokenError);
     process.exit(1);
   }
-  const API_TOKEN = process.env.API_TOKEN || 'tutto-local-dev-token';
+  const API_TOKEN = process.env.API_TOKEN || DEV_DEFAULT_API_TOKEN;
+  const expectedTokenBuffer = Buffer.from(API_TOKEN);
+
+  // Constant-time comparison — a plain !== leaks the token character-by-character
+  // via response-timing, since string comparison short-circuits at the first
+  // mismatched byte.
+  const isValidToken = (supplied: unknown): boolean => {
+    if (typeof supplied !== 'string') return false;
+    const suppliedBuffer = Buffer.from(supplied);
+    if (suppliedBuffer.length !== expectedTokenBuffer.length) return false;
+    return crypto.timingSafeEqual(suppliedBuffer, expectedTokenBuffer);
+  };
 
   const requireToken = (
     req: express.Request,
     res: express.Response,
     next: express.NextFunction
   ): void => {
-    if (req.headers['x-tutto-token'] !== API_TOKEN) {
+    if (!isValidToken(req.headers['x-tutto-token'])) {
       res.status(403).json({ error: 'Forbidden' });
       return;
     }

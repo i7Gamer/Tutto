@@ -17,6 +17,22 @@ type SocketSlice = Pick<GameStore,
 // 'kicked' handler, cancelReconnect, and useGameStore's reset) so these
 // ~12 room-identity/game fields can't drift out of sync between them the
 // way they were previously duplicated as separate hand-written literals.
+// Fields the server's 'gameState' broadcast is allowed to overwrite on the
+// client store — mirrors RoomState (server/roomTypes.ts), the authoritative
+// game state the server actually spreads into that payload. Without this
+// allowlist, Object.assign(prev, serverState) would apply every key a
+// (compromised or buggy) server sends, including store action functions like
+// startGame/sendOnlineStats, since serverState is typed as Partial<GameStore>.
+export const GAME_STATE_SYNC_KEYS = [
+  'players', 'status', 'initialCards', 'winningScore', 'randomOrder',
+  'turnDuration', 'reconnectTimeout', 'currentCard', 'cards', 'round',
+  'currentPlayerIndex', 'finished', 'chartValues', 'chartNames', 'chartLabels',
+  'gameTimeInSeconds', 'previousCard', 'previousScore', 'previousLeaders',
+  'previousWasBust', 'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
+  'previousHighestX2TurnScore', 'previousPlayerName', 'liveTurnState',
+  'enforcedDiceMode', 'historyLog',
+] as const satisfies readonly (keyof GameStore)[];
+
 export const clearRoomState = (): Pick<GameStore,
   | 'players' | 'currentPlayerIndex' | 'currentCard' | 'cards' | 'round' | 'finished'
   | 'status' | 'roomId' | 'isHost' | 'hostId' | 'myName' | 'liveTurnState'
@@ -124,7 +140,9 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           if (prev.mode === 'online' && prev.status === 'playing' && serverState.status === 'lobby' && !prev.finished && (serverState.players?.length ?? 0) >= 2) {
             prev.toasts.push(makeToast(i18n.t('game.toastHostEndedEarly', 'Host ended game early')));
           }
-          Object.assign(prev, serverState);
+          for (const key of GAME_STATE_SYNC_KEYS) {
+            if (key in serverState) (prev as Record<string, unknown>)[key] = serverState[key];
+          }
 
           const isNewReconnect = wasDisconnected && serverState.status === 'playing';
           if (isNewReconnect) {

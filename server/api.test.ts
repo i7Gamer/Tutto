@@ -63,6 +63,24 @@ describe('API Endpoints Token Protection', () => {
     expect(res.status).toBe(403);
   });
 
+  it('POST /api/stats/global fails with an incorrect token of the same length', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/global`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-tutto-token': 'x'.repeat(API_TOKEN.length) },
+      body: JSON.stringify({})
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('POST /api/stats/global fails with a token of a different length', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/global`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-tutto-token': API_TOKEN + 'extra' },
+      body: JSON.stringify({})
+    });
+    expect(res.status).toBe(403);
+  });
+
   it('POST /api/stats/global succeeds with token', async () => {
     const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/global`, {
       method: 'POST',

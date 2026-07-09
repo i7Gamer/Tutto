@@ -2131,6 +2131,26 @@ describe('useGameStore', () => {
     });
   });
 
+  describe('gameState sync allowlist (STORE-SEC-1)', () => {
+    it('only applies known game-state fields from the server, ignoring anything else in the payload', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      const originalStartGame = useGameStore.getState().startGame;
+
+      // A compromised/buggy server sending an extra, unexpected key (here,
+      // even an action name) must not reach the store — only fields on the
+      // allowlist may be applied.
+      mockOnHandlers['gameState']({
+        status: 'lobby', players: [], winningScore: 9999,
+        startGame: 'hacked', someUnknownField: 'hacked',
+      } as never);
+
+      expect(useGameStore.getState().winningScore).toBe(9999);
+      expect(useGameStore.getState().startGame).toBe(originalStartGame);
+      expect((useGameStore.getState() as unknown as Record<string, unknown>).someUnknownField).toBeUndefined();
+    });
+  });
+
   describe('online turn timer', () => {
     // Turn expiry is authoritative on the server (server/index.ts startServerTurnTimer /
     // advanceTurnOnTimeout) so it still fires even if the host disconnects or backgrounds

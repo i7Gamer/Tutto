@@ -9,6 +9,7 @@ import cors from 'cors';
 import { registerSocketHandlers } from './socketHandlers';
 import { registerApiRoutes } from './api';
 import { initDb } from './database';
+import { validateCorsOriginForStartup } from './startupGuards';
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection, shutting down:', reason);
@@ -19,6 +20,15 @@ process.on('unhandledRejection', (reason) => {
 // unset. Set CORS_ORIGIN to the deployed origin (e.g. https://tutto.rzipas.win)
 // in production to lock this down.
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+
+// A wildcard origin in production would let any site make authenticated
+// cross-origin requests against this server — mirrors the API_TOKEN
+// production guard in api.ts.
+const corsOriginError = validateCorsOriginForStartup(process.env);
+if (corsOriginError) {
+  console.error(corsOriginError);
+  process.exit(1);
+}
 
 const app = express();
 
