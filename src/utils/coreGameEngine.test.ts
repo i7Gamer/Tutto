@@ -1236,7 +1236,7 @@ describe('coreGameEngine', () => {
       expect(result.historyEntry.card).toBe('Stop');
       expect(result.historyEntry.score).toBe(0);
       expect(result.historyEntry.round).toBe(1);
-      expect(result.historyEntry.id.startsWith('1-Alice-1-')).toBe(true);
+      expect(result.historyEntry.id).toBe('1-Alice-1');
     });
 
     it('generates a correct historyEntry for a bust', () => {

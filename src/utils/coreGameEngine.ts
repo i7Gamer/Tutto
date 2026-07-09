@@ -9,6 +9,12 @@ import type {
   HistoryEntry,
   HistoryEventType,
 } from '../types';
+import { isSpecialCard } from './diceTurnControls';
+
+// Awarded turn score for successfully completing these Yes/No cards — not
+// incremental dice points, a fixed value the card itself defines.
+const PLUS_MINUS_SCORE = 1000;
+const KNIFFEL_SCORE = 2000;
 
 // A deck with every card type at 0 leaves currentCard permanently null and the
 // game unplayable — both lobbies must refuse to start in that state.
@@ -113,12 +119,22 @@ export const buildGlobalStatsPayload = (
   isDefaultGame: boolean,
   finalRound: number,
 ): GlobalStatsPayload => {
-  let totalPlusMinus = 0, totalKniffel = 0, totalStop = 0, totalFeuerwerk = 0,
-    totalKleeblatt = 0, totalKleeblattCompleted = 0, totalx2 = 0;
-  let totalTurns = 0, totalScore = 0;
-  let totalPlusMinusCompleted = 0, totalKniffelCompleted = 0;
-  let totalFeuerwerkPoints = 0, totalx2Points = 0;
-  let totalFeuerwerkBusts = 0, totalx2Busts = 0, totalBusts = 0;
+  let totalPlusMinus = 0;
+  let totalKniffel = 0;
+  let totalStop = 0;
+  let totalFeuerwerk = 0;
+  let totalKleeblatt = 0;
+  let totalKleeblattCompleted = 0;
+  let totalx2 = 0;
+  let totalTurns = 0;
+  let totalScore = 0;
+  let totalPlusMinusCompleted = 0;
+  let totalKniffelCompleted = 0;
+  let totalFeuerwerkPoints = 0;
+  let totalx2Points = 0;
+  let totalFeuerwerkBusts = 0;
+  let totalx2Busts = 0;
+  let totalBusts = 0;
   let highestTurnScore = 0;
   let highestFeuerwerkTurnScore = 0;
   let highestX2TurnScore = 0;
@@ -191,8 +207,7 @@ export const calculateNextTurn = (
   let snapshotLeaders: Player[] | null = null;
 
   currentPlayer.totalTurns = (currentPlayer.totalTurns ?? 0) + 1;
-  const isYesNoCard = ((['Plus_Minus', 'Kniffel', 'Kleeblatt'] as string[]).includes(currentCard ?? ''));
-  const wasBust = !isSuccess && !isYesNoCard && currentCard !== 'Stop';
+  const wasBust = !isSuccess && !isSpecialCard(currentCard) && currentCard !== 'Stop';
   if (wasBust) {
     currentPlayer.busts = (currentPlayer.busts ?? 0) + 1;
     if (currentCard === 'Feuerwerk') currentPlayer.feuerwerkBusts = (currentPlayer.feuerwerkBusts ?? 0) + 1;
@@ -200,14 +215,14 @@ export const calculateNextTurn = (
   }
 
   if (currentCard === 'Plus_Minus' && isSuccess) {
-    turnScore = 1000;
+    turnScore = PLUS_MINUS_SCORE;
     const leaders = getLeaders(newPlayers);
     const isLeader = leaders.find(l => l.name === currentPlayer.name);
     if (!isLeader) {
       snapshotLeaders = leaders.map(l => ({ ...l }));
       leaders.forEach(l => {
         const p = newPlayers.find(np => np.name === l.name);
-        if (p) { p.times1000PointsDeducted = (p.times1000PointsDeducted ?? 0) + 1; p.score -= 1000; }
+        if (p) { p.times1000PointsDeducted = (p.times1000PointsDeducted ?? 0) + 1; p.score -= PLUS_MINUS_SCORE; }
       });
     }
     currentPlayer.timesPlusMinusCompleted = (currentPlayer.timesPlusMinusCompleted ?? 0) + 1;
@@ -220,7 +235,7 @@ export const calculateNextTurn = (
   if (currentCard === 'Stop') currentPlayer.timesSkipped = (currentPlayer.timesSkipped ?? 0) + 1;
 
   if (currentCard === 'Kniffel' && isSuccess) {
-    turnScore = 2000;
+    turnScore = KNIFFEL_SCORE;
     currentPlayer.timesKniffelCompleted = (currentPlayer.timesKniffelCompleted ?? 0) + 1;
   } else if (currentCard === 'Kniffel') {
     currentPlayer.timesKniffelFailed = (currentPlayer.timesKniffelFailed ?? 0) + 1;
@@ -234,12 +249,14 @@ export const calculateNextTurn = (
     historyType = 'skip';
   } else if (wasBust) {
     historyType = 'bust';
-  } else if (currentCard && ['Plus_Minus', 'Kniffel', 'Kleeblatt'].includes(currentCard)) {
+  } else if (isSpecialCard(currentCard)) {
     historyType = isSuccess ? 'success' : 'fail';
   }
 
   const historyEntry: HistoryEntry = {
-    id: `${round}-${currentPlayer.name}-${currentPlayer.totalTurns}-${Math.random().toString(36).substring(2, 8)}`,
+    // round-player-totalTurns is already a unique triple (totalTurns strictly
+    // increments per player each turn) — no random suffix needed.
+    id: `${round}-${currentPlayer.name}-${currentPlayer.totalTurns}`,
     round,
     playerName: currentPlayer.name,
     playerColor: currentPlayer.color,
@@ -368,8 +385,7 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
   if (previousCard === 'Feuerwerk') p.timesFeuerwerkReceived = Math.max(0, (p.timesFeuerwerkReceived ?? 0) - 1);
   p.totalTurns = Math.max(0, (p.totalTurns ?? 0) - 1);
 
-  const wasYesNoCard = ((['Plus_Minus', 'Kniffel', 'Kleeblatt'] as string[]).includes(previousCard));
-  if (previousWasBust && !wasYesNoCard) {
+  if (previousWasBust && !isSpecialCard(previousCard)) {
     p.busts = Math.max(0, (p.busts ?? 0) - 1);
     if (previousCard === 'Feuerwerk') p.feuerwerkBusts = Math.max(0, (p.feuerwerkBusts ?? 0) - 1);
     if (previousCard === 'x2') p.x2Busts = Math.max(0, (p.x2Busts ?? 0) - 1);
@@ -389,14 +405,14 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
   }
 
   if (previousCard === 'Plus_Minus') {
-    if (previousScore === 1000) p.timesPlusMinusCompleted = Math.max(0, (p.timesPlusMinusCompleted ?? 0) - 1);
+    if (previousScore === PLUS_MINUS_SCORE) p.timesPlusMinusCompleted = Math.max(0, (p.timesPlusMinusCompleted ?? 0) - 1);
     else p.timesPlusMinusFailed = Math.max(0, (p.timesPlusMinusFailed ?? 0) - 1);
   }
 
   if (previousCard === 'x2') p.timesx2Received = Math.max(0, (p.timesx2Received ?? 0) - 1);
 
   if (previousCard === 'Kniffel') {
-    if (previousScore === 2000) p.timesKniffelCompleted = Math.max(0, (p.timesKniffelCompleted ?? 0) - 1);
+    if (previousScore === KNIFFEL_SCORE) p.timesKniffelCompleted = Math.max(0, (p.timesKniffelCompleted ?? 0) - 1);
     else p.timesKniffelFailed = Math.max(0, (p.timesKniffelFailed ?? 0) - 1);
   }
 

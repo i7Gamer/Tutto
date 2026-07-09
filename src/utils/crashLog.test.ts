@@ -127,5 +127,17 @@ describe('crashLog', () => {
       warnAboutRecentCrash();
       expect(warnSpy).not.toHaveBeenCalled();
     });
+
+    it('does not throw or print "undefined" when a stored entry is missing expected fields (ENGINE-SMELL-8)', () => {
+      // readCrashLog only validates that the parsed JSON is an array — an
+      // older-format or hand-edited entry can be missing message/timestamp entirely.
+      localStorage.setItem(CRASH_LOG_KEY, JSON.stringify([{ stack: 'x' }]));
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      expect(() => warnAboutRecentCrash()).not.toThrow();
+
+      expect(warnSpy.mock.calls[0][0]).toContain('(unknown time)');
+      expect(warnSpy.mock.calls[0][0]).toContain('(unknown)');
+    });
   });
 });

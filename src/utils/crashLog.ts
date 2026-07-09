@@ -70,8 +70,11 @@ export const warnAboutRecentCrash = (): void => {
   const log = readCrashLog();
   const last = log[log.length - 1];
   if (last) {
+    // readCrashLog only checks that the parsed JSON is an array, not that each
+    // element actually has the CrashLogEntry shape — an older/foreign entry
+    // could be missing these fields entirely.
     console.warn(
-      `[tutto] ${log.length} stored crash report(s); most recent at ${last.timestamp}: ${last.message}`,
+      `[tutto] ${log.length} stored crash report(s); most recent at ${last?.timestamp ?? '(unknown time)'}: ${last?.message ?? '(unknown)'}`,
       last,
     );
   }

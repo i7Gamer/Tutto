@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { playTone, playBuzzer, playSuccess, vibrateBust, vibrateSuccess, vibrateYourTurn, vibrateTurnUrgent } from './soundEffects';
+import { playTone, playBuzzer, playSuccess, vibrateBust, vibrateSuccess, vibrateYourTurn, vibrateTurnUrgent, closeAudioContext } from './soundEffects';
 import { useGameStore } from '../store/useGameStore';
 import { supportsIOSSwitchHaptic, triggerIOSSwitchHaptic } from './iosSwitchHaptic';
 
@@ -31,7 +31,8 @@ describe('soundEffects', () => {
     createOscillator: vi.fn(() => mockOscillator),
     createGain: vi.fn(() => mockGainNode),
     destination: {},
-    resume: vi.fn().mockResolvedValue()
+    resume: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockImplementation(() => { mockAudioContext.state = 'closed'; return Promise.resolve(); })
   };
 
   beforeEach(() => {
@@ -68,6 +69,44 @@ describe('soundEffects', () => {
     playSuccess();
     await new Promise(r => setTimeout(r, 0));
     expect(mockAudioContext.createOscillator).toHaveBeenCalledTimes(3);
+  });
+
+  describe('closeAudioContext', () => {
+    it('closes the underlying AudioContext once one has been created', async () => {
+      await playTone(440, 'sine', 1);
+      expect(mockAudioContext.close).not.toHaveBeenCalled();
+
+      await closeAudioContext();
+
+      expect(mockAudioContext.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('is a no-op when no AudioContext has been created yet', async () => {
+      await closeAudioContext();
+      expect(mockAudioContext.close).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op when the context is already closed', async () => {
+      mockAudioContext.state = 'closed';
+      await playTone(440, 'sine', 1); // creates a fresh context (state starts 'closed' above)
+      mockAudioContext.state = 'closed';
+      mockAudioContext.close.mockClear();
+
+      await closeAudioContext();
+
+      expect(mockAudioContext.close).not.toHaveBeenCalled();
+    });
+
+    it('lets a subsequent playTone create a fresh context after closing', async () => {
+      await playTone(440, 'sine', 1);
+      await closeAudioContext();
+
+      mockAudioContext.state = 'running';
+      const callsBefore = (window.AudioContext as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+      await playTone(440, 'sine', 1);
+
+      expect((window.AudioContext as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsBefore + 1);
+    });
   });
 
   describe('vibration', () => {

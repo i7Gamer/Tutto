@@ -17,6 +17,17 @@ const getAudioContext = async (): Promise<AudioContext> => {
   return audioCtx;
 };
 
+// Releases the underlying audio hardware/thread instead of leaving it idle
+// forever — call when the user turns sound off (see configSlice.setAudioEnabled).
+// A later playTone() call transparently creates a fresh context (see
+// getAudioContext's `state === 'closed'` check above).
+export const closeAudioContext = async (): Promise<void> => {
+  if (audioCtx && audioCtx.state !== 'closed') {
+    await audioCtx.close();
+  }
+  audioCtx = null;
+};
+
 export const playTone = async (
   frequency: number,
   type: OscillatorType,

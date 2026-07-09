@@ -1,6 +1,7 @@
 import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
 } from '../utils/configValidation';
+import { closeAudioContext } from '../utils/soundEffects';
 import { getSocket } from './socketRef';
 import type { GameStore, ImmerStateCreator } from './storeTypes';
 
@@ -27,6 +28,7 @@ export const createConfigSlice: ImmerStateCreator<ConfigSlice> = (set, get) => (
   setAudioEnabled: (val) => {
     set({ audioEnabled: val });
     localStorage.setItem('tutto_audioEnabled', String(val));
+    if (!val) void closeAudioContext();
   },
 
   setHapticsEnabled: (val) => {
