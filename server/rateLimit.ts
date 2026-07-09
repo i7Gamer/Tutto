@@ -56,6 +56,8 @@ export const createRateLimiter = ({ windowMs, max, maxTrackedKeys = 10_000 }: Ra
     }
 
     if (existing.count >= max) {
+      const retryAfterSeconds = Math.ceil((existing.resetAt - now) / 1000);
+      res.set('Retry-After', String(retryAfterSeconds));
       res.status(429).json({ error: 'Too many requests' });
       return;
     }

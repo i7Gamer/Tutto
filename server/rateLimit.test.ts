@@ -7,12 +7,17 @@ const makeRes = () => {
   const res = {
     statusCode: 200,
     body: undefined as unknown,
+    headers: {} as Record<string, string>,
     status(code: number) {
       res.statusCode = code;
       return res;
     },
     json(payload: unknown) {
       res.body = payload;
+      return res;
+    },
+    set(name: string, value: string) {
+      res.headers[name] = value;
       return res;
     },
   };
@@ -53,6 +58,19 @@ describe('createRateLimiter', () => {
     expect(next).toHaveBeenCalledTimes(2);
     expect(res.statusCode).toBe(429);
     expect(res.body).toEqual({ error: 'Too many requests' });
+  });
+
+  it('sets Retry-After to the remaining window time on a 429 (RL-2)', () => {
+    const limiter = createRateLimiter({ windowMs: 5000, max: 1 });
+    const next = vi.fn();
+    const res = makeRes();
+
+    limiter(makeReq('1.2.3.4') as never, res as never, next);
+    vi.advanceTimersByTime(3000); // 2000ms left in the window
+    limiter(makeReq('1.2.3.4') as never, res as never, next);
+
+    expect(res.statusCode).toBe(429);
+    expect(res.headers['Retry-After']).toBe('2');
   });
 
   it('tracks each key independently', () => {

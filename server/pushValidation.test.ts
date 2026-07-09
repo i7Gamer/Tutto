@@ -481,12 +481,15 @@ describe('applyPushedState', () => {
       const state = makeState();
       const snapshot = { turnScore: 0, tuttosThisTurn: 0, keptDice: [], currentRoll: [], kniffelProgress: [] };
 
+      // createRoom() initializes liveTurnState to null — a rejected push
+      // leaves that untouched (RT-1: the field is required, always one of
+      // DiceSnapshot | null, never undefined).
       applyPushedState(state, { liveTurnState: { ...snapshot, rollingDiceIds: [123] } }, asActivePlayer);
-      expect(state.liveTurnState).toBeUndefined();
+      expect(state.liveTurnState).toBeNull();
       applyPushedState(state, { liveTurnState: { ...snapshot, rollingDiceIds: Array(7).fill('d1') } }, asActivePlayer);
-      expect(state.liveTurnState).toBeUndefined();
+      expect(state.liveTurnState).toBeNull();
       applyPushedState(state, { liveTurnState: { ...snapshot, busted: 'yes' } }, asActivePlayer);
-      expect(state.liveTurnState).toBeUndefined();
+      expect(state.liveTurnState).toBeNull();
 
       applyPushedState(state, { liveTurnState: { ...snapshot, rollingDiceIds: ['d1', 'd2'], busted: true } }, asActivePlayer);
       expect(state.liveTurnState).toEqual({ ...snapshot, rollingDiceIds: ['d1', 'd2'], busted: true });

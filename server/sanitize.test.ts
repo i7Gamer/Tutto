@@ -40,6 +40,12 @@ describe('sanitizeStats', () => {
     expect(sanitizeStats({ a: 'abc', b: NaN, c: Infinity, d: {}, keep: 7 })).toEqual({ keep: 7 });
   });
 
+  it('drops arrays instead of coercing them via Array.prototype.toString (SA-3)', () => {
+    // Number([42]) === 42 and Number([]) === 0 — both would otherwise slip
+    // past a bare Number(val)/Number.isFinite check as valid stats.
+    expect(sanitizeStats({ totalScore: [42], busts: [], keep: 7 })).toEqual({ keep: 7 });
+  });
+
   it('handles a realistic mixed payload', () => {
     expect(sanitizeStats({
       gamesPlayed: 1,

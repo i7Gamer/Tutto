@@ -41,14 +41,14 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       previousCard: room.state.previousCard,
       previousScore: room.state.previousScore,
       previousLeaders: room.state.previousLeaders,
-      previousWasBust: room.state.previousWasBust ?? false,
-      previousHighestTurnScore: room.state.previousHighestTurnScore ?? 0,
-      previousHighestFeuerwerkTurnScore: room.state.previousHighestFeuerwerkTurnScore ?? 0,
-      previousHighestX2TurnScore: room.state.previousHighestX2TurnScore ?? 0,
+      previousWasBust: room.state.previousWasBust,
+      previousHighestTurnScore: room.state.previousHighestTurnScore,
+      previousHighestFeuerwerkTurnScore: room.state.previousHighestFeuerwerkTurnScore,
+      previousHighestX2TurnScore: room.state.previousHighestX2TurnScore,
       finished: room.state.finished,
       gameStartTime: null,
       gameTimeInSeconds: room.state.gameTimeInSeconds,
-      historyLog: room.state.historyLog ?? [],
+      historyLog: room.state.historyLog,
     };
 
     // Timeout = the player neither scored nor answered in time, same as a manual

@@ -141,24 +141,26 @@ const sanitizeHistoryEntry = (v: HistoryEntry): HistoryEntry => {
   return clean;
 };
 
-const HOST_ONLY_FIELDS = new Set<string>([
+// Frozen so a later `.add()`/`.delete()` fails loudly (TypeError) instead of
+// silently expanding/shrinking what a push is allowed to touch.
+const HOST_ONLY_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>([
   'status', 'winningScore', 'initialCards', 'randomOrder',
   'turnDuration', 'reconnectTimeout', 'enforcedDiceMode',
-]);
+]));
 
-const ACTIVE_PLAYER_FIELDS = new Set<string>([
+const ACTIVE_PLAYER_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>([
   'currentCard', 'cards', 'currentPlayerIndex', 'round',
   'finished', 'previousCard', 'previousScore', 'previousLeaders',
   'previousWasBust', 'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
   'previousHighestX2TurnScore', 'previousPlayerName',
   'chartValues', 'chartNames', 'chartLabels', 'gameTimeInSeconds',
   'players', 'liveTurnState', 'historyLog',
-]);
+]));
 
 // Same length cap joinRoom enforces on a player's name.
 const MAX_PLAYER_NAME_LENGTH = 30;
 
-const ALL_FIELDS = new Set<string>([...HOST_ONLY_FIELDS, ...ACTIVE_PLAYER_FIELDS]);
+const ALL_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>([...HOST_ONLY_FIELDS, ...ACTIVE_PLAYER_FIELDS]));
 
 // Sanity-guard bounds for the two timers arriving via pushState — not a UX
 // rule (pushState mirrors state the client already ran through updateConfig,

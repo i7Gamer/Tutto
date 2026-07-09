@@ -18,6 +18,20 @@ export const initDb = async (): Promise<void> => {
   }
 };
 
+// A nullable-safe MAX/MIN merge expression, shared by updateDeviceStats'
+// onConflict.merge() (where the incoming value is referenced as
+// `EXCLUDED.col`) and updateGlobalStats' plain update() (where it's a bound
+// `?` parameter, repeated once per occurrence below). sqlite's scalar
+// MAX(x, NULL)/MIN(x, NULL) is NULL, so without the explicit NULL branches a
+// null in the incoming payload would silently wipe the stored best-so-far.
+const nullSafeExtreme = (agg: 'MAX' | 'MIN', table: string, col: string, newValueSql: string): string => `
+  CASE
+    WHEN ${newValueSql} IS NULL THEN ${table}.${col}
+    WHEN ${table}.${col} IS NULL THEN ${newValueSql}
+    ELSE ${agg}(${table}.${col}, ${newValueSql})
+  END
+`;
+
 export interface DeviceStatsRow {
   deviceId: string;
   gamesPlayed: number;
@@ -102,77 +116,19 @@ export const updateDeviceStats = async (deviceId: string, stats: StatsPayload): 
     END
   `);
 
-  if (stats.highestTurnScore !== undefined) {
-    data.highestTurnScore = stats.highestTurnScore;
-    // sqlite's scalar MAX(x, NULL) is NULL, so a null in the payload would wipe
-    // the stored maximum without the explicit NULL handling.
-    mergeCols.highestTurnScore = knex.raw(`
-      CASE
-        WHEN EXCLUDED.highestTurnScore IS NULL THEN device_statistics.highestTurnScore
-        WHEN device_statistics.highestTurnScore IS NULL THEN EXCLUDED.highestTurnScore
-        ELSE MAX(device_statistics.highestTurnScore, EXCLUDED.highestTurnScore)
-      END
-    `);
-  }
-  if (stats.fastestWinTurns !== undefined) {
-    data.fastestWinTurns = stats.fastestWinTurns;
-    mergeCols.fastestWinTurns = knex.raw(`
-      CASE
-        WHEN EXCLUDED.fastestWinTurns IS NULL THEN device_statistics.fastestWinTurns
-        WHEN device_statistics.fastestWinTurns IS NULL THEN EXCLUDED.fastestWinTurns
-        ELSE MIN(device_statistics.fastestWinTurns, EXCLUDED.fastestWinTurns)
-      END
-    `);
-  }
-  if (stats.fastestLossTurns !== undefined) {
-    data.fastestLossTurns = stats.fastestLossTurns;
-    mergeCols.fastestLossTurns = knex.raw(`
-      CASE
-        WHEN EXCLUDED.fastestLossTurns IS NULL THEN device_statistics.fastestLossTurns
-        WHEN device_statistics.fastestLossTurns IS NULL THEN EXCLUDED.fastestLossTurns
-        ELSE MIN(device_statistics.fastestLossTurns, EXCLUDED.fastestLossTurns)
-      END
-    `);
-  }
-  if (stats.mostPlayersInGame !== undefined) {
-    data.mostPlayersInGame = stats.mostPlayersInGame;
-    mergeCols.mostPlayersInGame = knex.raw(`
-      CASE
-        WHEN EXCLUDED.mostPlayersInGame IS NULL THEN device_statistics.mostPlayersInGame
-        WHEN device_statistics.mostPlayersInGame IS NULL THEN EXCLUDED.mostPlayersInGame
-        ELSE MAX(device_statistics.mostPlayersInGame, EXCLUDED.mostPlayersInGame)
-      END
-    `);
-  }
-  if (stats.longestGameRounds !== undefined) {
-    data.longestGameRounds = stats.longestGameRounds;
-    mergeCols.longestGameRounds = knex.raw(`
-      CASE
-        WHEN EXCLUDED.longestGameRounds IS NULL THEN device_statistics.longestGameRounds
-        WHEN device_statistics.longestGameRounds IS NULL THEN EXCLUDED.longestGameRounds
-        ELSE MAX(device_statistics.longestGameRounds, EXCLUDED.longestGameRounds)
-      END
-    `);
-  }
-  if (stats.highestFeuerwerkTurnScore !== undefined) {
-    data.highestFeuerwerkTurnScore = stats.highestFeuerwerkTurnScore;
-    mergeCols.highestFeuerwerkTurnScore = knex.raw(`
-      CASE
-        WHEN EXCLUDED.highestFeuerwerkTurnScore IS NULL THEN device_statistics.highestFeuerwerkTurnScore
-        WHEN device_statistics.highestFeuerwerkTurnScore IS NULL THEN EXCLUDED.highestFeuerwerkTurnScore
-        ELSE MAX(device_statistics.highestFeuerwerkTurnScore, EXCLUDED.highestFeuerwerkTurnScore)
-      END
-    `);
-  }
-  if (stats.highestX2TurnScore !== undefined) {
-    data.highestX2TurnScore = stats.highestX2TurnScore;
-    mergeCols.highestX2TurnScore = knex.raw(`
-      CASE
-        WHEN EXCLUDED.highestX2TurnScore IS NULL THEN device_statistics.highestX2TurnScore
-        WHEN device_statistics.highestX2TurnScore IS NULL THEN EXCLUDED.highestX2TurnScore
-        ELSE MAX(device_statistics.highestX2TurnScore, EXCLUDED.highestX2TurnScore)
-      END
-    `);
+  const deviceExtremeCols: [col: string, agg: 'MAX' | 'MIN'][] = [
+    ['highestTurnScore', 'MAX'],
+    ['fastestWinTurns', 'MIN'],
+    ['fastestLossTurns', 'MIN'],
+    ['mostPlayersInGame', 'MAX'],
+    ['longestGameRounds', 'MAX'],
+    ['highestFeuerwerkTurnScore', 'MAX'],
+    ['highestX2TurnScore', 'MAX'],
+  ];
+  for (const [col, agg] of deviceExtremeCols) {
+    if (stats[col] === undefined) continue;
+    data[col] = stats[col];
+    mergeCols[col] = knex.raw(nullSafeExtreme(agg, 'device_statistics', col, `EXCLUDED.${col}`));
   }
 
   try {
@@ -263,69 +219,19 @@ export const updateGlobalStats = async (stats: StatsPayload): Promise<number> =>
     updateData[col] = knex.raw(`global_statistics.${col} + ?`, [val]);
   }
 
-  if (stats.highestTurnScore !== undefined) {
-    // See updateDeviceStats: MAX(x, NULL) is NULL in sqlite.
-    updateData.highestTurnScore = knex.raw(`
-      CASE
-        WHEN ? IS NULL THEN global_statistics.highestTurnScore
-        WHEN global_statistics.highestTurnScore IS NULL THEN ?
-        ELSE MAX(global_statistics.highestTurnScore, ?)
-      END
-    `, [stats.highestTurnScore, stats.highestTurnScore, stats.highestTurnScore]);
-  }
-  if (stats.fastestWinTurns !== undefined) {
-    updateData.fastestWinTurns = knex.raw(`
-      CASE
-        WHEN ? IS NULL THEN global_statistics.fastestWinTurns
-        WHEN global_statistics.fastestWinTurns IS NULL THEN ?
-        ELSE MIN(global_statistics.fastestWinTurns, ?)
-      END
-    `, [stats.fastestWinTurns, stats.fastestWinTurns, stats.fastestWinTurns]);
-  }
-  if (stats.fastestLossTurns !== undefined) {
-    updateData.fastestLossTurns = knex.raw(`
-      CASE
-        WHEN ? IS NULL THEN global_statistics.fastestLossTurns
-        WHEN global_statistics.fastestLossTurns IS NULL THEN ?
-        ELSE MIN(global_statistics.fastestLossTurns, ?)
-      END
-    `, [stats.fastestLossTurns, stats.fastestLossTurns, stats.fastestLossTurns]);
-  }
-  if (stats.mostPlayersInGame !== undefined) {
-    updateData.mostPlayersInGame = knex.raw(`
-      CASE
-        WHEN ? IS NULL THEN global_statistics.mostPlayersInGame
-        WHEN global_statistics.mostPlayersInGame IS NULL THEN ?
-        ELSE MAX(global_statistics.mostPlayersInGame, ?)
-      END
-    `, [stats.mostPlayersInGame, stats.mostPlayersInGame, stats.mostPlayersInGame]);
-  }
-  if (stats.longestGameRounds !== undefined) {
-    updateData.longestGameRounds = knex.raw(`
-      CASE
-        WHEN ? IS NULL THEN global_statistics.longestGameRounds
-        WHEN global_statistics.longestGameRounds IS NULL THEN ?
-        ELSE MAX(global_statistics.longestGameRounds, ?)
-      END
-    `, [stats.longestGameRounds, stats.longestGameRounds, stats.longestGameRounds]);
-  }
-  if (stats.highestFeuerwerkTurnScore !== undefined) {
-    updateData.highestFeuerwerkTurnScore = knex.raw(`
-      CASE
-        WHEN ? IS NULL THEN global_statistics.highestFeuerwerkTurnScore
-        WHEN global_statistics.highestFeuerwerkTurnScore IS NULL THEN ?
-        ELSE MAX(global_statistics.highestFeuerwerkTurnScore, ?)
-      END
-    `, [stats.highestFeuerwerkTurnScore, stats.highestFeuerwerkTurnScore, stats.highestFeuerwerkTurnScore]);
-  }
-  if (stats.highestX2TurnScore !== undefined) {
-    updateData.highestX2TurnScore = knex.raw(`
-      CASE
-        WHEN ? IS NULL THEN global_statistics.highestX2TurnScore
-        WHEN global_statistics.highestX2TurnScore IS NULL THEN ?
-        ELSE MAX(global_statistics.highestX2TurnScore, ?)
-      END
-    `, [stats.highestX2TurnScore, stats.highestX2TurnScore, stats.highestX2TurnScore]);
+  const globalExtremeCols: [col: string, agg: 'MAX' | 'MIN'][] = [
+    ['highestTurnScore', 'MAX'],
+    ['fastestWinTurns', 'MIN'],
+    ['fastestLossTurns', 'MIN'],
+    ['mostPlayersInGame', 'MAX'],
+    ['longestGameRounds', 'MAX'],
+    ['highestFeuerwerkTurnScore', 'MAX'],
+    ['highestX2TurnScore', 'MAX'],
+  ];
+  for (const [col, agg] of globalExtremeCols) {
+    if (stats[col] === undefined) continue;
+    const val = stats[col];
+    updateData[col] = knex.raw(nullSafeExtreme(agg, 'global_statistics', col, '?'), [val, val, val]);
   }
 
   try {

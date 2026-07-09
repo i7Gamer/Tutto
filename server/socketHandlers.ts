@@ -12,6 +12,8 @@ import { createSocketEventLimiter } from './rateLimit';
 import playerColorsData from '../playerColors.json';
 const { PLAYER_COLORS } = playerColorsData;
 
+const COLOR_RE = /^#[0-9a-fA-F]{6}$/i;
+
 // Per-connection event caps — generous enough for the fastest legitimate
 // cadence of each event (e.g. liveTurnState fires ~every 300ms while a
 // player is rolling) while still bounding a scripted/malicious flood. Each
@@ -171,8 +173,7 @@ export const registerSocketHandlers = (io: Server): void => {
       currentRoom = roomId;
       username = name;
 
-      const colorRe = /^#[0-9a-fA-F]{6}$/i;
-      let assignedColor: string | null = (typeof color === 'string' && colorRe.test(color)) ? color : null;
+      let assignedColor: string | null = (typeof color === 'string' && COLOR_RE.test(color)) ? color : null;
       const usedColors = room.state.players.map(p => p.color);
       if (!assignedColor) assignedColor = PLAYER_COLORS.find((c: string) => !usedColors.includes(c)) ?? null;
       if (!assignedColor) assignedColor = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)] as string;
@@ -273,8 +274,7 @@ export const registerSocketHandlers = (io: Server): void => {
       const { roomId, color } = data;
       if (typeof roomId !== 'string' || typeof color !== 'string') return;
       if (!rooms[roomId]) return;
-      const colorRe = /^#[0-9a-fA-F]{6}$/i;
-      if (!colorRe.test(color)) return;
+      if (!COLOR_RE.test(color)) return;
       const player = rooms[roomId].state.players.find(p => p.socketId === socket.id);
       if (player) {
         player.color = color;
@@ -515,7 +515,7 @@ export const registerSocketHandlers = (io: Server): void => {
         emitRoomState(io, currentRoom as string);
       } catch (err) {
         room.statsRecordedForGame.devices.delete(deviceId);
-        console.error(err);
+        console.error('[endGameStats] error:', err);
       }
     });
 
@@ -568,7 +568,6 @@ export const registerSocketHandlers = (io: Server): void => {
         emitRoomState(io, currentRoom);
         io.to(currentRoom).emit('playerDisconnected', username);
 
-        if (!room.disconnectTimers) room.disconnectTimers = {};
         const timeoutSecs = room.state.reconnectTimeout ?? DEFAULT_RECONNECT_TIMEOUT;
         if (timeoutSecs === 0) {
           if (room.state.players.every(p => p.disconnected)) {

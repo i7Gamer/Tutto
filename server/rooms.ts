@@ -43,7 +43,12 @@ export const createRoom = (hostSocketId: string): Room => ({
     previousCard: null,
     previousScore: null,
     previousLeaders: null,
+    previousWasBust: false,
+    previousHighestTurnScore: 0,
+    previousHighestFeuerwerkTurnScore: 0,
+    previousHighestX2TurnScore: 0,
     previousPlayerName: null,
+    liveTurnState: null,
     enforcedDiceMode: null,
     historyLog: [],
   },
@@ -76,6 +81,10 @@ export const drawNextCardForRoom = (state: RoomState): void => {
 
 export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void => {
   const state = room.state;
+  // chartValues/chartNames are player-indexed (one entry per player), so the
+  // removed player's slot is spliced out of both. chartLabels is NOT spliced
+  // here — it's round-indexed (one entry per completed round, shared across
+  // all players), so a player leaving never removes an entry from it.
   if (Array.isArray(state.chartValues) && removedIdx < state.chartValues.length) {
     state.chartValues.splice(removedIdx, 1);
   }
