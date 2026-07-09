@@ -112,7 +112,13 @@ describe('API Endpoints Token Protection', () => {
 
 describe('POST /api/log/client-error rate limiting', () => {
   let serverProcess;
-  const PORT = '3008';
+  // Was '3008', which server/socket.test.ts's 'Socket updateConfig' describe
+  // block also hardcodes — two different test files spawning real server
+  // subprocesses on the same port race for the bind whenever vitest runs
+  // both files in parallel (its default), intermittently producing
+  // "websocket error" client-side in whichever test loses the race. Every
+  // PORT across server/*.test.ts must stay unique for the same reason.
+  const PORT = '3013';
 
   beforeAll(() => {
     if (globalThis.__nativeFetch) {
