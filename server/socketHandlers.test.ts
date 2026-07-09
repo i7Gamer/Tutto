@@ -21,7 +21,7 @@ vi.mock('./database', () => ({
 
 import { updateDeviceStats, updateGlobalStats, getDeviceStats } from './database';
 import { registerSocketHandlers } from './socketHandlers';
-import { rooms, createRoom, MAX_PLAYERS_PER_ROOM } from './rooms';
+import { rooms, createRoom, deleteRoom, MAX_PLAYERS_PER_ROOM } from './rooms';
 import type { ServerPlayer } from './roomTypes';
 
 const mockedUpdateDeviceStats = vi.mocked(updateDeviceStats);
@@ -202,6 +202,145 @@ describe('Socket event rate limiting (SERVER-XC-3)', () => {
     expect(latestWinningScore).toBe(1019);
 
     client.disconnect();
+  });
+
+  it('drops reorderPlayers events past the per-connection cap instead of applying every one', async () => {
+    client = await connectAndJoin('RATE_LIMIT_REORDER', 'Host', 'dev-ratelimit-reorder-1');
+    const peer = await connectAndJoin('RATE_LIMIT_REORDER', 'Peer', 'dev-ratelimit-reorder-2');
+
+    // The cap is 5/second — fire 6 alternating permutations. Odd emits flip
+    // the order, even emits restore it: with exactly 5 applied the roster
+    // ends flipped; if the 6th (restoring) call were applied too, it would
+    // end in the original order.
+    const flipped = [{ name: 'Peer' }, { name: 'Host' }];
+    const original = [{ name: 'Host' }, { name: 'Peer' }];
+    for (let i = 0; i < 6; i++) {
+      client.emit('reorderPlayers', { roomId: 'RATE_LIMIT_REORDER', newPlayers: i % 2 === 0 ? flipped : original });
+    }
+
+    await settle();
+
+    expect(rooms['RATE_LIMIT_REORDER'].state.players.map(p => p.name)).toEqual(['Peer', 'Host']);
+
+    peer.disconnect();
+  });
+
+  it('drops updatePlayerColor events past the per-connection cap instead of applying every one', async () => {
+    client = await connectAndJoin('RATE_LIMIT_COLOR', 'Host', 'dev-ratelimit-color-1');
+
+    // The cap is 20/second — fire 21 distinct colors. The 20th (i=19,
+    // '#000023') must be the last one applied; the 21st ('#000024') dropped.
+    for (let i = 0; i < 21; i++) {
+      client.emit('updatePlayerColor', { roomId: 'RATE_LIMIT_COLOR', color: `#0000${(16 + i).toString(16)}` });
+    }
+
+    await settle();
+
+    expect(rooms['RATE_LIMIT_COLOR'].state.players[0].color).toBe('#000023');
+  });
+});
+
+describe('joinRoom await-window races (BUG-3)', () => {
+  let httpServer: HttpServer;
+  let ioServer: Server;
+  let port: number;
+  const sockets: ClientSocket[] = [];
+
+  interface JoinAck { success: boolean; error?: string }
+
+  beforeAll(async () => {
+    httpServer = createServer();
+    ioServer = new Server(httpServer);
+    registerSocketHandlers(ioServer);
+    await new Promise<void>(resolve => httpServer.listen(0, () => resolve()));
+    port = (httpServer.address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    sockets.forEach(s => s.disconnect());
+    await ioServer.close();
+    mockedGetDeviceStats.mockReset();
+    mockedGetDeviceStats.mockResolvedValue(null);
+  });
+
+  beforeEach(() => {
+    mockedGetDeviceStats.mockReset();
+    mockedGetDeviceStats.mockResolvedValue(null);
+  });
+
+  const connectSock = (): Promise<ClientSocket> =>
+    new Promise((resolve, reject) => {
+      const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+      sockets.push(sock);
+      sock.on('connect', () => resolve(sock));
+      sock.on('connect_error', reject);
+    });
+
+  const emitJoin = (sock: ClientSocket, roomId: string, name: string, deviceId: string): Promise<JoinAck> =>
+    new Promise(resolve => {
+      sock.emit('joinRoom', { roomId, name, deviceId, color: '#ff0000' }, resolve);
+    });
+
+  const waitFor = async (cond: () => boolean, timeoutMs = 3000): Promise<void> => {
+    const start = Date.now();
+    while (!cond()) {
+      if (Date.now() - start > timeoutMs) throw new Error('waitFor timed out');
+      await new Promise(r => setTimeout(r, 10));
+    }
+  };
+
+  it('seats a device in at most one room when two fresh joins interleave at the stats fetch', async () => {
+    // Hold BOTH joins' getDeviceStats calls open simultaneously, so each
+    // one's membership checks would run against a registry the other hasn't
+    // written to yet if any check-then-mutate spanned the await.
+    const releases: Array<() => void> = [];
+    mockedGetDeviceStats.mockImplementation(
+      () => new Promise(resolve => { releases.push(() => resolve(null)); }),
+    );
+
+    const [sockA, sockB] = await Promise.all([connectSock(), connectSock()]);
+    const ackA = emitJoin(sockA, 'RACE_DEVICE_A', 'Alice', 'dev-race-shared');
+    const ackB = emitJoin(sockB, 'RACE_DEVICE_B', 'Alice', 'dev-race-shared');
+
+    await waitFor(() => releases.length === 2);
+    releases.forEach(release => release());
+
+    const results = await Promise.all([ackA, ackB]);
+
+    // Exactly one join wins; the other is rejected by the one-room-per-device rule.
+    expect(results.filter(r => r.success).length).toBe(1);
+    const seatedRooms = ['RACE_DEVICE_A', 'RACE_DEVICE_B']
+      .filter(id => rooms[id]?.state.players.some(p => p.deviceId === 'dev-race-shared'));
+    expect(seatedRooms.length).toBe(1);
+  });
+
+  it('keeps the ack and the room registry consistent when the room is torn down mid-join', async () => {
+    // Normal first join creates and seats the room.
+    const sockA = await connectSock();
+    const first = await emitJoin(sockA, 'RACE_TEARDOWN', 'Alice', 'dev-race-teardown');
+    expect(first.success).toBe(true);
+
+    // Simulated reload: a second socket rejoins the same seat, with its stats
+    // fetch held open. While it is pending, the room is torn down — the same
+    // effect a reconnect-timeout timer firing at that moment has.
+    let release: (() => void) | undefined;
+    mockedGetDeviceStats.mockImplementation(
+      () => new Promise(resolve => { release = () => resolve(null); }),
+    );
+    const sockB = await connectSock();
+    const ackPromise = emitJoin(sockB, 'RACE_TEARDOWN', 'Alice', 'dev-race-teardown');
+    await waitFor(() => release !== undefined);
+
+    deleteRoom('RACE_TEARDOWN');
+    release!();
+
+    const ack = await ackPromise;
+
+    // Success must mean actually seated in a live room — pre-fix, the handler
+    // mutated the deleted room object, acked success, and left the registry
+    // empty (the client believed it was in a room the server didn't have).
+    expect(ack.success).toBe(true);
+    expect(rooms['RACE_TEARDOWN']?.state.players.some(p => p.deviceId === 'dev-race-teardown')).toBe(true);
   });
 });
 

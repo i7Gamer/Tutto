@@ -99,6 +99,21 @@ describe('API Endpoints Token Protection', () => {
     expect(res.status).toBe(200);
   });
 
+  it('GET /api/stats/:deviceId rejects an oversized device id with 400', async () => {
+    // Same 200-char cap the socket path enforces in joinRoom.
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/${'x'.repeat(201)}`);
+    expect(res.status).toBe(400);
+  });
+
+  it('POST /api/stats/:deviceId rejects an oversized device id with 400 even with a valid token', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/${'x'.repeat(201)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-tutto-token': API_TOKEN },
+      body: JSON.stringify({})
+    });
+    expect(res.status).toBe(400);
+  });
+
   it('POST /api/log/client-error accepts crash reports without a token', async () => {
     const res = await fetch(`http://127.0.0.1:${PORT}/api/log/client-error`, {
       method: 'POST',

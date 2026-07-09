@@ -189,6 +189,13 @@ export const getGlobalStats = async (): Promise<GlobalStatsRow | null> => {
 export const updateGlobalStats = async (stats: StatsPayload): Promise<number> => {
   if (!stats || Object.keys(stats).length === 0) return 0;
 
+  // A game is only actually being recorded when the payload carries the
+  // isDefaultGame flag (buildGlobalStatsPayload always includes it). Partial
+  // updates — e.g. an admin POST /api/stats/global adjusting one counter —
+  // must not count a phantom game: these two columns previously always summed
+  // to +1 per call, drifting apart from totalGamesPlayed.
+  const recordsGame = 'isDefaultGame' in stats;
+
   const globalMapping: Record<string, number> = {
     totalGamesPlayed: (stats.gamesPlayed as number | undefined) ?? 0,
     totalPlaytime: (stats.totalPlaytime as number | undefined) ?? 0,
@@ -205,8 +212,8 @@ export const updateGlobalStats = async (stats: StatsPayload): Promise<number> =>
     totalKniffelCompleted: (stats.totalKniffelCompleted as number | undefined) ?? 0,
     totalFeuerwerkPoints: (stats.totalFeuerwerkPoints as number | undefined) ?? 0,
     totalx2Points: (stats.totalx2Points as number | undefined) ?? 0,
-    defaultGamesPlayed: stats.isDefaultGame ? 1 : 0,
-    customGamesPlayed: stats.isDefaultGame ? 0 : 1,
+    defaultGamesPlayed: recordsGame && stats.isDefaultGame ? 1 : 0,
+    customGamesPlayed: recordsGame && !stats.isDefaultGame ? 1 : 0,
     totalFeuerwerkBusts: (stats.totalFeuerwerkBusts as number | undefined) ?? 0,
     totalx2Busts: (stats.totalx2Busts as number | undefined) ?? 0,
     totalBusts: (stats.totalBusts as number | undefined) ?? 0,

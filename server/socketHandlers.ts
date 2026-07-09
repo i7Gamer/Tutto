@@ -25,6 +25,12 @@ const KICK_PLAYER_LIMIT = { windowMs: 1_000, max: 5 };
 const LIVE_TURN_STATE_LIMIT = { windowMs: 1_000, max: 15 };
 const SUBMIT_GLOBAL_STATS_LIMIT = { windowMs: 10_000, max: 5 };
 const END_GAME_STATS_LIMIT = { windowMs: 10_000, max: 5 };
+// Reordering is a discrete button click in the lobby — same cap as kicking.
+const REORDER_PLAYERS_LIMIT = { windowMs: 1_000, max: 5 };
+// The color picker fires continuously while dragging (React onChange maps to
+// the native input event) — same generous cap as the other continuous-UI
+// events (pushState/updateConfig).
+const UPDATE_PLAYER_COLOR_LIMIT = { windowMs: 1_000, max: 20 };
 
 export const registerSocketHandlers = (io: Server): void => {
   io.on('connection', (socket: Socket) => {
@@ -39,6 +45,8 @@ export const registerSocketHandlers = (io: Server): void => {
     const liveTurnStateLimiter = createSocketEventLimiter(LIVE_TURN_STATE_LIMIT);
     const submitGlobalStatsLimiter = createSocketEventLimiter(SUBMIT_GLOBAL_STATS_LIMIT);
     const endGameStatsLimiter = createSocketEventLimiter(END_GAME_STATS_LIMIT);
+    const reorderPlayersLimiter = createSocketEventLimiter(REORDER_PLAYERS_LIMIT);
+    const updatePlayerColorLimiter = createSocketEventLimiter(UPDATE_PLAYER_COLOR_LIMIT);
 
     socket.on('joinRoom', async (
       payload: { roomId?: string; name?: string; deviceId?: string; color?: string; initialConfig?: Record<string, unknown> } | null | undefined,
@@ -65,6 +73,25 @@ export const registerSocketHandlers = (io: Server): void => {
       let name = rawName.trim();
       if (name.length === 0 || name.length > 30) {
         return callback({ success: false, error: 'Invalid name' });
+      }
+
+      // The ONLY await in this handler, done before any room state is read or
+      // mutated: everything below runs synchronously, so no other event (a
+      // concurrent join, a disconnect-timeout timer, a kick) can interleave
+      // between a check and the mutation it guards. Fetching the streak needs
+      // only the deviceId, so hoisting it here costs nothing — when it sat
+      // mid-handler it opened two real races: a pending disconnect-timeout
+      // could fire mid-await and splice the very seat being rejoined (the
+      // handler then mutated a dead object and acked success against a
+      // deleted room), and two interleaved fresh joins from one device could
+      // both pass the one-room-per-device check before either had seated
+      // itself.
+      let winStreak = 0;
+      try {
+        const stats = await getDeviceStats(deviceId);
+        winStreak = stats?.currentWinStreak ?? 0;
+      } catch (err) {
+        console.error('[joinRoom] getDeviceStats error:', err);
       }
 
       // A socket may only be an active member of one room at a time. Without this,
@@ -106,13 +133,6 @@ export const registerSocketHandlers = (io: Server): void => {
 
       const existingPlayer = room.state.players.find(p => p.deviceId === deviceId);
       if (existingPlayer) {
-        let winStreak = 0;
-        try {
-          const stats = await getDeviceStats(deviceId);
-          winStreak = stats?.currentWinStreak ?? 0;
-        } catch (err) {
-          console.error('[joinRoom] getDeviceStats error:', err);
-        }
         existingPlayer.winStreak = winStreak;
         if (room.state.status === 'lobby') {
           // Disconnected players keep their name reserved too (same rule as the
@@ -178,14 +198,6 @@ export const registerSocketHandlers = (io: Server): void => {
       if (!assignedColor) assignedColor = PLAYER_COLORS.find((c: string) => !usedColors.includes(c)) ?? null;
       if (!assignedColor) assignedColor = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)] as string;
 
-      let winStreak = 0;
-      try {
-        const stats = await getDeviceStats(deviceId);
-        winStreak = stats?.currentWinStreak ?? 0;
-      } catch (err) {
-        console.error('[joinRoom] getDeviceStats error:', err);
-      }
-
       const newPlayer: ServerPlayer = {
         name,
         deviceId,
@@ -213,12 +225,10 @@ export const registerSocketHandlers = (io: Server): void => {
         winStreak,
       };
       room.state.players.push(newPlayer);
-      // Joined only now that the player is already in room.state.players —
-      // joining earlier (before the getDeviceStats await above resolves)
-      // would leave a window where this socket is in the Socket.IO room but
-      // absent from the roster, so a concurrent broadcast during that gap
-      // (e.g. another player's pushState) would reach it showing a player
-      // list that doesn't include itself yet.
+      // Joined only now that the player is already in room.state.players — a
+      // socket must never be in the Socket.IO room while absent from the
+      // roster, or a concurrent broadcast (e.g. another player's pushState)
+      // would reach it showing a player list that doesn't include itself.
       socket.join(roomId);
 
       callback({ success: true, isHost: room.host === socket.id, socketId: socket.id, name });
@@ -246,6 +256,7 @@ export const registerSocketHandlers = (io: Server): void => {
     });
 
     socket.on('reorderPlayers', (data: { roomId?: string; newPlayers?: { name: string }[] } | null | undefined) => {
+      if (!reorderPlayersLimiter()) return;
       if (!data || typeof data !== 'object') return;
       const { roomId, newPlayers } = data;
       if (typeof roomId !== 'string' || !rooms[roomId] || rooms[roomId].host !== socket.id) return;
@@ -270,6 +281,7 @@ export const registerSocketHandlers = (io: Server): void => {
     });
 
     socket.on('updatePlayerColor', (data: { roomId?: string; color?: string } | null | undefined) => {
+      if (!updatePlayerColorLimiter()) return;
       if (!data || typeof data !== 'object') return;
       const { roomId, color } = data;
       if (typeof roomId !== 'string' || typeof color !== 'string') return;

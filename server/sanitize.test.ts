@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { describe, it, expect } from 'vitest';
-import { sanitizeStats, STATS_VALUE_CAP } from './sanitize';
+import { sanitizeStats, sanitizeLogHeaderField, indentLogContinuationLines, STATS_VALUE_CAP } from './sanitize';
 
 describe('sanitizeStats', () => {
   it('returns an empty object for non-object input', () => {
@@ -68,5 +68,33 @@ describe('sanitizeStats', () => {
   it('clamps fastestWinTurns and fastestLossTurns to >= 1', () => {
     expect(sanitizeStats({ fastestWinTurns: 0 })).toEqual({ fastestWinTurns: 1 });
     expect(sanitizeStats({ fastestLossTurns: 0 })).toEqual({ fastestLossTurns: 1 });
+  });
+});
+
+describe('sanitizeLogHeaderField', () => {
+  it('strips CR/LF so a crafted field cannot forge extra log lines', () => {
+    expect(sanitizeLogHeaderField('2026-01-01\n[client-error] forged entry')).toBe('2026-01-01 [client-error] forged entry');
+    expect(sanitizeLogHeaderField('a\r\nb\rc\nd')).toBe('a b c d');
+  });
+
+  it('leaves single-line values untouched', () => {
+    expect(sanitizeLogHeaderField('plain message, no newlines')).toBe('plain message, no newlines');
+    expect(sanitizeLogHeaderField('')).toBe('');
+  });
+});
+
+describe('indentLogContinuationLines', () => {
+  it('indents every continuation line so none can masquerade as a top-level entry', () => {
+    expect(indentLogContinuationLines('Error: boom\n[client-error] forged\nat Game'))
+      .toBe('Error: boom\n    [client-error] forged\n    at Game');
+  });
+
+  it('normalizes CRLF line endings while indenting', () => {
+    expect(indentLogContinuationLines('line1\r\nline2')).toBe('line1\n    line2');
+  });
+
+  it('leaves single-line values untouched', () => {
+    expect(indentLogContinuationLines('at DiceGame')).toBe('at DiceGame');
+    expect(indentLogContinuationLines('')).toBe('');
   });
 });

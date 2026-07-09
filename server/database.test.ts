@@ -205,6 +205,36 @@ describe('Database Statistics Integration', () => {
     expect(retrievedStats.totalKleeblattCompleted).toBe(initialStats.totalKleeblattCompleted);
   });
 
+  it('does not count a default/custom game when the payload lacks isDefaultGame (partial update)', async () => {
+    // e.g. an admin POST /api/stats/global adjusting a single counter — must
+    // not increment either games-played-by-type column.
+    const before = await database.getGlobalStats();
+    await database.updateGlobalStats({ totalPlaytime: 10 });
+    const after = await database.getGlobalStats();
+
+    expect(after.defaultGamesPlayed).toBe(before.defaultGamesPlayed);
+    expect(after.customGamesPlayed).toBe(before.customGamesPlayed);
+    expect(after.totalPlaytime).toBe(before.totalPlaytime + 10);
+  });
+
+  it('counts exactly one default game when isDefaultGame is true', async () => {
+    const before = await database.getGlobalStats();
+    await database.updateGlobalStats({ gamesPlayed: 1, isDefaultGame: true });
+    const after = await database.getGlobalStats();
+
+    expect(after.defaultGamesPlayed).toBe(before.defaultGamesPlayed + 1);
+    expect(after.customGamesPlayed).toBe(before.customGamesPlayed);
+  });
+
+  it('counts exactly one custom game when isDefaultGame is false', async () => {
+    const before = await database.getGlobalStats();
+    await database.updateGlobalStats({ gamesPlayed: 1, isDefaultGame: false });
+    const after = await database.getGlobalStats();
+
+    expect(after.customGamesPlayed).toBe(before.customGamesPlayed + 1);
+    expect(after.defaultGamesPlayed).toBe(before.defaultGamesPlayed);
+  });
+
   it('should track currentWinStreak/bestWinStreak across consecutive wins, a loss reset, and a longer streak', async () => {
     const mockDeviceId = 'win-streak-device-' + Date.now();
 

@@ -2,7 +2,7 @@ import path from 'path';
 import crypto from 'crypto';
 import express from 'express';
 import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } from './database';
-import { sanitizeStats } from './sanitize';
+import { sanitizeStats, sanitizeLogHeaderField, indentLogContinuationLines } from './sanitize';
 import { createRateLimiter } from './rateLimit';
 import { DEV_DEFAULT_API_TOKEN, validateApiTokenForStartup } from './startupGuards';
 
@@ -19,6 +19,10 @@ const CRASH_LOG_RATE_LIMIT_MAX = 20;
 
 const STATS_RATE_LIMIT_WINDOW_MS = 60_000;
 const STATS_RATE_LIMIT_MAX = 60;
+
+// Same length cap joinRoom enforces on deviceIds (socketHandlers.ts) — the
+// HTTP and socket paths must not accept different shapes for the same key.
+const MAX_DEVICE_ID_LENGTH = 200;
 
 // Reads env at call time (not import time) so it runs after index.ts has
 // loaded .env via dotenv — module bodies are hoisted above that statement.
@@ -58,6 +62,19 @@ export const registerApiRoutes = (app: express.Express): void => {
     next();
   };
 
+  const requireValidDeviceId = (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ): void => {
+    const deviceId = req.params.deviceId;
+    if (typeof deviceId !== 'string' || deviceId.length === 0 || deviceId.length > MAX_DEVICE_ID_LENGTH) {
+      res.status(400).json({ error: 'Invalid device id' });
+      return;
+    }
+    next();
+  };
+
   const crashLogRateLimiter = createRateLimiter({
     windowMs: CRASH_LOG_RATE_LIMIT_WINDOW_MS,
     max: CRASH_LOG_RATE_LIMIT_MAX,
@@ -71,9 +88,14 @@ export const registerApiRoutes = (app: express.Express): void => {
   app.post('/api/log/client-error', crashLogRateLimiter, (req: express.Request, res: express.Response) => {
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
     const field = (key: string): string => String(body[key] ?? '').slice(0, CRASH_FIELD_MAX);
+    // Header-line fields are newline-stripped and multi-line stack fields get
+    // their continuation lines indented — otherwise a crafted report could
+    // forge standalone "[client-error]" entries in the server log.
+    const headerField = (key: string): string => sanitizeLogHeaderField(field(key));
+    const blockField = (key: string): string => indentLogContinuationLines(field(key));
     console.error(
-      `[client-error] ${field('timestamp') || new Date().toISOString()} ${field('message')}\n` +
-      `stack: ${field('stack')}\ncomponentStack: ${field('componentStack')}`
+      `[client-error] ${headerField('timestamp') || new Date().toISOString()} ${headerField('message')}\n` +
+      `stack: ${blockField('stack')}\ncomponentStack: ${blockField('componentStack')}`
     );
     res.json({ success: true });
   });
@@ -98,7 +120,7 @@ export const registerApiRoutes = (app: express.Express): void => {
     }
   });
 
-  app.get('/api/stats/:deviceId', statsRateLimiter, async (req: express.Request, res: express.Response) => {
+  app.get('/api/stats/:deviceId', statsRateLimiter, requireValidDeviceId, async (req: express.Request, res: express.Response) => {
     try {
       const stats = await getDeviceStats(req.params.deviceId as string);
       res.json(stats ?? {});
@@ -108,7 +130,7 @@ export const registerApiRoutes = (app: express.Express): void => {
     }
   });
 
-  app.post('/api/stats/:deviceId', requireToken, async (req: express.Request, res: express.Response) => {
+  app.post('/api/stats/:deviceId', requireToken, requireValidDeviceId, async (req: express.Request, res: express.Response) => {
     try {
       await updateDeviceStats(req.params.deviceId as string, sanitizeStats(req.body));
       res.json({ success: true });
