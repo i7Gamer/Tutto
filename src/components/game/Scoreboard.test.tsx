@@ -7,9 +7,15 @@ import type { GameStore } from '../../store/useGameStore';
 vi.mock('framer-motion', () => {
   return {
     motion: {
-      div: ({ children, ...props }) => (
-        <div {...props}>{children}</div>
-      ),
+      div: ({ children, ...props }) => {
+        const cleanProps = { ...props };
+        delete cleanProps.layout;
+        delete cleanProps.transition;
+        delete cleanProps.initial;
+        delete cleanProps.animate;
+        delete cleanProps.exit;
+        return <div {...cleanProps}>{children}</div>;
+      },
     },
     AnimatePresence: ({ children }) => <>{children}</>,
   };

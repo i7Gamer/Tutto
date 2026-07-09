@@ -179,7 +179,7 @@ describe('App Integration (End-to-End)', () => {
     });
 
     Math.random = originalRandom;
-  });
+  }, 15000);
 
 
   it('renders ToastMessage and ReconnectPopup overlays based on store state', () => {

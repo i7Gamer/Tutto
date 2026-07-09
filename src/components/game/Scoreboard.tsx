@@ -65,7 +65,7 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
 
         <AnimatePresence>
           {turnTimeRemaining !== null && turnTimeRemaining !== undefined && (
-            <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }} className={`flex-1 min-w-[100px] md:min-w-[120px] phone-landscape:min-w-[75px] backdrop-blur border rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center transition-colors ${isTurnTimerUrgent ? 'bg-red-50/90 border-red-200' : 'bg-white dark:bg-slate-800/80 border-white/40'}`}>
+            <motion.div layout initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }} className={`flex-1 min-w-[100px] md:min-w-[120px] phone-landscape:min-w-[75px] backdrop-blur border rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm flex flex-col justify-center items-center transition-colors ${isTurnTimerUrgent ? 'bg-red-50/90 border-red-200' : 'bg-white dark:bg-slate-800/80 border-white/40'}`}>
               <div className={`text-[10px] md:text-sm font-bold uppercase tracking-wider mb-0.5 md:mb-1 ${isTurnTimerUrgent ? 'text-red-600' : 'text-gray-500 dark:text-gray-400'}`}>{t('game.turnTimer', 'Turn Timer')}</div>
               <motion.div key={turnTimeRemaining} initial={{ scale: 1.2 }} animate={{ scale: 1 }} className={`text-lg md:text-3xl font-black ${isTurnTimerUrgent ? 'text-red-600' : 'text-gray-800 dark:text-gray-100'}`}>
                 {t('game.timeSeconds', '{{time}}s', { time: turnTimeRemaining })}

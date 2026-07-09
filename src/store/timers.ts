@@ -100,14 +100,17 @@ export const createTimerSlice: ImmerStateCreator<TimerSlice> = (set, get) => ({
           // the turn and pushes the resulting gameState even if every client,
           // including the host, is disconnected or backgrounded. This interval
           // just stops counting at 0 and waits for that gameState to arrive.
-          turnTimerInterval = setInterval(() => {
+          const intervalId = setInterval(() => {
             const timeLeft = (get().turnTimeRemaining ?? 0) - 1;
             set({ turnTimeRemaining: timeLeft > 0 ? timeLeft : 0 });
             if (timeLeft <= 0) {
-              clearInterval(turnTimerInterval!);
-              turnTimerInterval = null;
+              clearInterval(intervalId);
+              if (turnTimerInterval === intervalId) {
+                turnTimerInterval = null;
+              }
             }
           }, 1000);
+          turnTimerInterval = intervalId;
         }
       } else {
         clearTurnTimer();

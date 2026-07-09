@@ -44,10 +44,10 @@
               caches.keys().then(function(names) {
                 return Promise.all(names.map(function(name) { return caches.delete(name); }));
               }).then(function() {
-                window.location.reload(true);
+                window.location.reload();
               });
             } else {
-              window.location.reload(true);
+              window.location.reload();
             }
           } else {
             console.log('[Auto-reload skipped] Too soon since last reload');

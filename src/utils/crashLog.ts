@@ -20,7 +20,13 @@ export interface CrashLogEntry {
 const truncate = (value: unknown): string => String(value ?? '').slice(0, MAX_FIELD_LENGTH);
 
 export const buildCrashEntry = (error: unknown, componentStack?: string | null): CrashLogEntry => ({
-  message: truncate(error instanceof Error ? error.message : error),
+  message: truncate(
+    error instanceof Error
+      ? error.message
+      : typeof error === 'object' && error !== null
+      ? JSON.stringify(error)
+      : error
+  ),
   stack: truncate(error instanceof Error ? error.stack : ''),
   componentStack: truncate(componentStack),
   timestamp: new Date().toISOString(),

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import database from './database';
 import { useGameStore } from '../src/store/useGameStore';
 
@@ -8,6 +8,10 @@ process.env.TEST_DB = 'true';
 describe('End-to-End Statistics Integration', () => {
   beforeAll(async () => {
     await database.initDb();
+  });
+
+  afterAll(async () => {
+    await database.knex.destroy();
   });
 
   beforeEach(() => {

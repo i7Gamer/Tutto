@@ -1,11 +1,15 @@
 process.env.TEST_DB = 'true';
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import database from './database';
 
 describe('Statistics Saving - Personal and Global', () => {
   beforeAll(async () => {
     await database.initDb();
+  });
+
+  afterAll(async () => {
+    await database.knex.destroy();
   });
 
   describe('Personal Statistics Saving', () => {

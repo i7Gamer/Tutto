@@ -1,11 +1,15 @@
 process.env.TEST_DB = 'true';
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import database from './database';
 
 describe('Database Statistics Integration', () => {
   beforeAll(async () => {
     await database.initDb();
+  });
+
+  afterAll(async () => {
+    await database.knex.destroy();
   });
   it('should store and retrieve all device statistics without SQL errors', async () => {
     const mockDeviceId = 'unique-test-device-' + Date.now();

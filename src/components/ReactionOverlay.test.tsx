@@ -6,9 +6,15 @@ import { useGameStore } from '../store/useGameStore';
 
 vi.mock('framer-motion', () => ({
   motion: {
-    div: ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => (
-      <div {...props}>{children}</div>
-    ),
+    div: ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => {
+      const cleanProps = { ...props };
+      delete cleanProps.layout;
+      delete cleanProps.transition;
+      delete cleanProps.initial;
+      delete cleanProps.animate;
+      delete cleanProps.exit;
+      return <div {...cleanProps}>{children}</div>;
+    },
   },
   AnimatePresence: ({ children }: PropsWithChildren) => <>{children}</>,
 }));

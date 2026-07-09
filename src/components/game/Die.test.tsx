@@ -6,11 +6,16 @@ import type { Die as DieType } from '../../types';
 
 vi.mock('framer-motion', () => ({
   motion: {
-    button: ({ children, onClick, disabled, className, ...props }: PropsWithChildren<ButtonHTMLAttributes<HTMLButtonElement>>) => (
-      <button onClick={onClick} disabled={disabled} className={className} {...props}>
-        {children}
-      </button>
-    ),
+    button: ({ children, onClick, disabled, className, ...props }: PropsWithChildren<ButtonHTMLAttributes<HTMLButtonElement>>) => {
+      const cleanProps: Record<string, unknown> = { ...props };
+      delete cleanProps.animate;
+      delete cleanProps.transition;
+      return (
+        <button onClick={onClick} disabled={disabled} className={className} {...cleanProps}>
+          {children}
+        </button>
+      );
+    },
   },
 }));
 
