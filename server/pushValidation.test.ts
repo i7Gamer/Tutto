@@ -209,13 +209,19 @@ describe('applyPushedState', () => {
       expect(state.players[1].score).toBe(7);
     });
 
-    it('falls back to merge-in-place when the pushed list has duplicate names', () => {
+    it('rejects the whole players push when the pushed list has duplicate names (SERVER-PV-1)', () => {
+      // Two pushed entries claiming the same name would both match that one
+      // existing player in mergeMutable's name-keyed lookup — applying the
+      // first and silently ignoring the second, while whichever other real
+      // player the name doesn't belong to never gets its own update applied.
+      // Safer to reject the entire players update than guess which was meant.
       const state = makeState();
       applyPushedState(state, {
         players: [{ name: 'Bob', score: 7 }, { name: 'Bob', score: 8 }],
       }, asHostStarting);
       expect(state.players.map(p => p.name)).toEqual(['Alice', 'Bob']);
-      expect(state.players[1].score).toBe(7); // first match wins
+      expect(state.players[0].score).toBe(0);
+      expect(state.players[1].score).toBe(0);
     });
   });
 
@@ -618,6 +624,10 @@ describe('validatePushedPlayers', () => {
     expect(validatePushedPlayers(existing, [{ name: 'Alice' }])).toBe(false);
     expect(validatePushedPlayers(existing, [{ name: 'Alice' }, { name: 'Eve' }])).toBe(false);
     expect(validatePushedPlayers(existing, [{ name: 'Alice' }, null])).toBe(false);
+  });
+
+  it('rejects a pushed list with duplicate names, even if every name is otherwise known (SERVER-PV-1)', () => {
+    expect(validatePushedPlayers(existing, [{ name: 'Bob' }, { name: 'Bob' }])).toBe(false);
   });
 });
 

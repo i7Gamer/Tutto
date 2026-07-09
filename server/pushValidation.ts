@@ -201,6 +201,12 @@ const PLAYER_MUTABLE: (keyof ServerPlayer)[] = [
 export const validatePushedPlayers = (existing: ServerPlayer[], pushed: unknown[]): boolean => {
   if (!Array.isArray(pushed) || pushed.length !== existing.length) return false;
   const existingNames = new Set(existing.map(p => p.name));
+  const pushedNames = pushed.map(p => (typeof p === 'object' && p !== null ? (p as { name?: string }).name : undefined) ?? '');
+  // Two entries claiming the same name would both match the same existing
+  // player in mergeMutable's name-keyed lookup — the first is applied, the
+  // second silently ignored, and whichever other existing player that name
+  // actually belongs to never gets its own pushed update applied at all.
+  if (new Set(pushedNames).size !== pushedNames.length) return false;
   return pushed.every(p => typeof p === 'object' && p !== null && existingNames.has((p as { name?: string }).name ?? ''));
 };
 

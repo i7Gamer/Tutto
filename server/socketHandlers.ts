@@ -168,7 +168,6 @@ export const registerSocketHandlers = (io: Server): void => {
         return callback({ success: false, error: 'Username already exists in this room' });
       }
 
-      socket.join(roomId);
       currentRoom = roomId;
       username = name;
 
@@ -213,6 +212,13 @@ export const registerSocketHandlers = (io: Server): void => {
         winStreak,
       };
       room.state.players.push(newPlayer);
+      // Joined only now that the player is already in room.state.players —
+      // joining earlier (before the getDeviceStats await above resolves)
+      // would leave a window where this socket is in the Socket.IO room but
+      // absent from the roster, so a concurrent broadcast during that gap
+      // (e.g. another player's pushState) would reach it showing a player
+      // list that doesn't include itself yet.
+      socket.join(roomId);
 
       callback({ success: true, isHost: room.host === socket.id, socketId: socket.id, name });
       emitRoomState(io, roomId);

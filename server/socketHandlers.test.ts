@@ -205,6 +205,99 @@ describe('Socket event rate limiting (SERVER-XC-3)', () => {
   });
 });
 
+describe('joinRoom race window (SERVER-SH-3)', () => {
+  let httpServer: HttpServer;
+  let ioServer: Server;
+  let port: number;
+  let hostClient: ClientSocket;
+  let joiningClient: ClientSocket;
+
+  beforeAll(async () => {
+    httpServer = createServer();
+    ioServer = new Server(httpServer);
+    registerSocketHandlers(ioServer);
+    await new Promise<void>(resolve => httpServer.listen(0, () => resolve()));
+    port = (httpServer.address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    if (hostClient) hostClient.disconnect();
+    if (joiningClient) joiningClient.disconnect();
+    await ioServer.close();
+    mockedGetDeviceStats.mockReset();
+    mockedGetDeviceStats.mockResolvedValue(null);
+  });
+
+  it('never lets a joining socket receive a room broadcast before it is in room.state.players', async () => {
+    // getDeviceStats is the awaited call that used to sit between socket.join()
+    // and room.state.players.push() — hold it open here to widen that window
+    // as much as possible, so a lingering race would be very likely to show up.
+    let resolveStats: (() => void) | undefined;
+    mockedGetDeviceStats.mockImplementation(
+      () => new Promise(resolve => { resolveStats = () => resolve(null); }),
+    );
+    const waitForPendingStatsCall = (): Promise<void> => new Promise(resolve => {
+      const check = (): void => { if (resolveStats) resolve(); else setTimeout(check, 10); };
+      check();
+    });
+
+    const hostConnected = new Promise<ClientSocket>((resolve, reject) => {
+      const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+      sock.on('connect', () => resolve(sock));
+      sock.on('connect_error', reject);
+    });
+    hostClient = await hostConnected;
+
+    const hostJoinPromise = new Promise<{ success: boolean; error?: string }>((resolve, reject) => {
+      hostClient.emit('joinRoom', { roomId: 'RACE_ROOM', name: 'Host', deviceId: 'dev-race-host', color: '#ff0000' }, (res: { success: boolean; error?: string }) => {
+        if (!res.success) return reject(new Error(res.error));
+        resolve(res);
+      });
+    });
+    // The host's own join also awaits getDeviceStats — let it resolve so only
+    // the joining client's call is left hanging below.
+    await waitForPendingStatsCall();
+    resolveStats!();
+    await hostJoinPromise;
+
+    // Reset the mock so the joining client's own call gets a fresh, still-pending promise.
+    resolveStats = undefined;
+
+    const receivedBeforeJoin: unknown[] = [];
+    joiningClient = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+    joiningClient.on('gameState', (state) => receivedBeforeJoin.push(state));
+
+    const joinPromise = new Promise<{ success: boolean; error?: string }>(resolve => {
+      joiningClient.on('connect', () => {
+        joiningClient.emit('joinRoom', { roomId: 'RACE_ROOM', name: 'Joiner', deviceId: 'dev-race-joiner', color: '#00ff00' }, resolve);
+      });
+    });
+
+    // Wait until the joining client's getDeviceStats call is actually pending.
+    await waitForPendingStatsCall();
+
+    // While the joiner's join is still pending, the host triggers a broadcast.
+    // Pre-fix, the joiner's socket had already called socket.join(roomId) at
+    // this point (before its own await), so it would receive this and see a
+    // roster missing itself. Post-fix, it hasn't joined the Socket.IO room
+    // yet, so it must receive nothing here.
+    hostClient.emit('updateConfig', { roomId: 'RACE_ROOM', winningScore: 5000 });
+    await new Promise(r => setTimeout(r, 150));
+    expect(receivedBeforeJoin).toEqual([]);
+
+    // Now let the joiner's own getDeviceStats resolve and complete the join.
+    resolveStats!();
+    const joinResult = await joinPromise;
+    expect(joinResult.success).toBe(true);
+
+    // The very first broadcast the joiner receives (its own join's
+    // emitRoomState) must already include itself.
+    await new Promise(r => setTimeout(r, 150));
+    const firstState = receivedBeforeJoin[0] as { players: { name: string }[] } | undefined;
+    expect(firstState?.players.some(p => p.name === 'Joiner')).toBe(true);
+  });
+});
+
 describe('room membership (kick host migration, mid-game rename guard)', () => {
   let httpServer: HttpServer;
   let ioServer: Server;
