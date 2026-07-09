@@ -1,4 +1,5 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useTranslation } from 'react-i18next';
 import { Line } from 'react-chartjs-2';
 import confetti from 'canvas-confetti';
@@ -50,7 +51,25 @@ interface EndScreenProps {
 
 export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   const { t } = useTranslation();
-  const game = useGameStore();
+  // Narrowed to only the fields this screen reads, with shallow equality —
+  // EndScreen only mounts briefly at game-over, but a whole-store subscription
+  // would still re-render it (and re-run confetti-adjacent effects) on every
+  // unrelated store mutation (toasts, reactions) while it's on screen.
+  const game = useGameStore(useShallow(state => ({
+    players: state.players,
+    round: state.round,
+    gameTimeInSeconds: state.gameTimeInSeconds,
+    startGame: state.startGame,
+    endGame: state.endGame,
+    chartLabels: state.chartLabels,
+    chartNames: state.chartNames,
+    chartValues: state.chartValues,
+    leaveRoom: state.leaveRoom,
+    myName: state.myName,
+    preGameStats: state.preGameStats,
+    isOnline: state.isOnline,
+    isHost: state.isHost,
+  })));
   const { players, round, gameTimeInSeconds, startGame, endGame, chartLabels, chartNames, chartValues, leaveRoom, myName, preGameStats } = game;
 
   const snapshotRef = useRef<Player[]>(players);
@@ -135,16 +154,16 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
     confetti({ particleCount: 150, spread: 100, origin: { y: 0.4 } });
   }, []);
 
-  if (!winner) return null;
-
   const textColor = theme === 'dark' ? '#f8fafc' : '#1a1a1a';
   const gridColor = theme === 'dark' ? '#334155' : '#e5e7eb';
 
   // Bind each line to the player that owns the data series (players[i] is
   // index-aligned with chartValues[i]), so the name and color stay in sync with
   // the leaderboard even after the start-of-game shuffle or custom color picks.
-  // chartNames is kept only as a defensive fallback.
-  const chartData = {
+  // chartNames is kept only as a defensive fallback. Memoized so unrelated
+  // re-renders (e.g. deviceStats arriving) don't hand react-chartjs-2 a new
+  // object identity every time and defeat its internal diffing.
+  const chartData = useMemo(() => ({
     labels: chartLabels,
     datasets: chartValues.map((data, i) => {
       const player = players[i];
@@ -157,9 +176,9 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
         tension: 0.2,
       };
     }),
-  };
+  }), [chartLabels, chartValues, chartNames, players]);
 
-  const chartOptions = {
+  const chartOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
@@ -170,7 +189,9 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
       y: { ticks: { color: textColor }, grid: { color: gridColor } },
       x: { ticks: { color: textColor }, grid: { color: gridColor } },
     },
-  };
+  }), [textColor, gridColor, t]);
+
+  if (!winner) return null;
 
   return (
     <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8 max-w-3xl flex flex-col gap-4 sm:gap-8">

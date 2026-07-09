@@ -4,6 +4,10 @@ import knexConfig from './knexfile';
 
 const knex = knexLib(knexConfig);
 
+// Callers (server/index.ts in production, individual test files in TEST_DB
+// mode) are responsible for awaiting this before the server accepts traffic
+// or a test touches the database — it is intentionally not run as an
+// import-time side effect so startup can't race ahead of migrations.
 export const initDb = async (): Promise<void> => {
   try {
     await knex.migrate.latest();
@@ -13,10 +17,6 @@ export const initDb = async (): Promise<void> => {
     throw err;
   }
 };
-
-if ((process.env.NODE_ENV !== 'test' && !process.env.TEST_DB) || process.env.FORCE_INIT_DB) {
-  void initDb();
-}
 
 export interface DeviceStatsRow {
   deviceId: string;

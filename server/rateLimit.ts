@@ -26,8 +26,25 @@ export const createRateLimiter = ({ windowMs, max, maxTrackedKeys = 10_000 }: Ra
     const now = Date.now();
 
     if (hits.size > maxTrackedKeys) {
+      let expiredAny = false;
       for (const [k, hit] of hits) {
-        if (hit.resetAt <= now) hits.delete(k);
+        if (hit.resetAt <= now) {
+          hits.delete(k);
+          expiredAny = true;
+        }
+      }
+      // Nothing expired yet (e.g. many distinct keys within one window) — the
+      // cap must still be enforced, so fall back to evicting the oldest
+      // entries. Map iteration order is insertion order, so the first keys
+      // yielded are the oldest.
+      if (!expiredAny) {
+        const excess = hits.size - maxTrackedKeys;
+        const oldestKeys = hits.keys();
+        for (let i = 0; i < excess; i++) {
+          const oldest = oldestKeys.next().value;
+          if (oldest === undefined) break;
+          hits.delete(oldest);
+        }
       }
     }
 

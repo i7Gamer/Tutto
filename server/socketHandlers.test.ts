@@ -220,6 +220,30 @@ describe('room membership (kick host migration, mid-game rename guard)', () => {
     expect(rooms['NORMAL_KICK_ROOM'].state.players.map(p => p.name)).toEqual(['Host']);
   });
 
+  it('ignores a kickPlayer payload that is not a string', async () => {
+    const host = await connectAndJoin('MALFORMED_KICK_ROOM', 'Host', 'dev-mk-h');
+    const peer = await connectAndJoin('MALFORMED_KICK_ROOM', 'Peer', 'dev-mk-p');
+
+    const peerKicked = vi.fn();
+    peer.on('kicked', peerKicked);
+
+    host.emit('kickPlayer', { socketId: peer.id });
+    host.emit('kickPlayer', null);
+    host.emit('kickPlayer', 42);
+
+    // Give the malformed emits a tick to be (mis)handled, then confirm a
+    // real kick still works — proving the handler didn't crash or leave the
+    // room in a bad state.
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(peerKicked).not.toHaveBeenCalled();
+    expect(rooms['MALFORMED_KICK_ROOM'].state.players.map(p => p.name)).toEqual(['Host', 'Peer']);
+
+    const validKick = new Promise<void>(resolve => peer.on('kicked', () => resolve()));
+    host.emit('kickPlayer', peer.id);
+    await validKick;
+    expect(rooms['MALFORMED_KICK_ROOM'].state.players.map(p => p.name)).toEqual(['Host']);
+  });
+
   it('a mid-game rejoin with a different name keeps the seat name and returns it in the ack', async () => {
     // Names are the identity key for pushState merging and the chart series —
     // renaming mid-game corrupted both, so the server refuses it and tells the

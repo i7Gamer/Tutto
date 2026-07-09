@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { HelpCircle, X, ChevronRight, ChevronDown } from 'lucide-react';
 import { useGameStore } from '../store/useGameStore';
 import { HELP_SECTION_OPEN_ANIMATION_MS } from '../utils/uiTimings';
+import { renderBoldMarkdown } from '../utils/renderBoldMarkdown';
 
 interface SectionProps {
   title: string;
@@ -204,19 +205,19 @@ export default function HelpPopup() {
                     </div>
                     <div ref={currentCard === 'Feuerwerk' ? activeCardRef : undefined} className={currentCard === 'Feuerwerk' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
                       <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.fireworks', 'Fireworks')}</h4>
-                      <p className="text-sm border-l-2 border-orange-400 pl-3 mt-1 italic text-orange-800 dark:text-orange-200" dangerouslySetInnerHTML={{ __html: t('help.cards.fireworksDesc').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p>
+                      <p className="text-sm border-l-2 border-orange-400 pl-3 mt-1 italic text-orange-800 dark:text-orange-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(t('help.cards.fireworksDesc')) }}></p>
                     </div>
                     <div ref={currentCard === 'Kniffel' ? activeCardRef : undefined} className={currentCard === 'Kniffel' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
                       <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.kniffel', 'Kniffel')}</h4>
-                      <p className="text-sm border-l-2 border-indigo-400 pl-3 mt-1 italic text-indigo-800 dark:text-indigo-200" dangerouslySetInnerHTML={{ __html: t('help.cards.kniffelDesc').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p>
+                      <p className="text-sm border-l-2 border-indigo-400 pl-3 mt-1 italic text-indigo-800 dark:text-indigo-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(t('help.cards.kniffelDesc')) }}></p>
                     </div>
                     <div ref={currentCard === 'Plus_Minus' ? activeCardRef : undefined} className={currentCard === 'Plus_Minus' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
                       <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.plusMinus', 'Plus/Minus')}</h4>
-                      <p className="text-sm border-l-2 border-red-400 pl-3 mt-1 italic text-red-800 dark:text-red-200" dangerouslySetInnerHTML={{ __html: t('help.cards.plusMinusDesc').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p>
+                      <p className="text-sm border-l-2 border-red-400 pl-3 mt-1 italic text-red-800 dark:text-red-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(t('help.cards.plusMinusDesc')) }}></p>
                     </div>
                     <div ref={currentCard === 'Kleeblatt' ? activeCardRef : undefined} className={currentCard === 'Kleeblatt' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
                       <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.kleeblatt', 'Kleeblatt')}</h4>
-                      <p className="text-sm border-l-2 border-green-400 pl-3 mt-1 italic text-green-800 dark:text-green-200" dangerouslySetInnerHTML={{ __html: t('help.cards.kleeblattDesc').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p>
+                      <p className="text-sm border-l-2 border-green-400 pl-3 mt-1 italic text-green-800 dark:text-green-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(t('help.cards.kleeblattDesc')) }}></p>
                     </div>
                   </div>
                 </Section>

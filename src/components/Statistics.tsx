@@ -215,6 +215,8 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchStats = async () => {
       try {
         setLoading(true);
@@ -222,15 +224,21 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
           fetch(`/api/stats/${deviceId}`),
           fetch('/api/stats/global'),
         ]);
+        if (!isMounted) return;
         if (personalRes.ok) setPersonalStats(await parseJsonObject<PersonalStats>(personalRes));
+        if (!isMounted) return;
         if (globalRes.ok) setGlobalStats(await parseJsonObject<GlobalStats>(globalRes));
       } catch (err) {
         console.error('Failed to load statistics:', err);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
     void fetchStats();
+
+    return () => {
+      isMounted = false;
+    };
   }, [deviceId]);
 
   if (loading) {

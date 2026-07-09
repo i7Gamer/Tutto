@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import { Profiler } from 'react';
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Game from './Game';
@@ -1036,6 +1037,42 @@ describe('Game Component Integration', () => {
       });
       render(<Game />);
       expect(screen.queryByText('🔥 2')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('re-render scope', () => {
+    it('does not re-render when an unrelated store slice (toasts) changes', () => {
+      let renderCount = 0;
+      render(
+        <Profiler id="game" onRender={() => { renderCount += 1; }}>
+          <Game />
+        </Profiler>
+      );
+
+      const countAfterMount = renderCount;
+
+      act(() => {
+        useGameStore.setState({ toasts: [{ id: 1, message: 'unrelated' }] });
+      });
+
+      expect(renderCount).toBe(countAfterMount);
+    });
+
+    it('does re-render when a field it actually reads (currentCard) changes', () => {
+      let renderCount = 0;
+      render(
+        <Profiler id="game" onRender={() => { renderCount += 1; }}>
+          <Game />
+        </Profiler>
+      );
+
+      const countAfterMount = renderCount;
+
+      act(() => {
+        useGameStore.setState({ currentCard: '300' });
+      });
+
+      expect(renderCount).toBeGreaterThan(countAfterMount);
     });
   });
 });

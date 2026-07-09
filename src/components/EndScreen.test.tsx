@@ -337,6 +337,43 @@ describe('EndScreen Component', () => {
     });
   });
 
+  describe('chart data/options memoization', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('keeps the same chart data/options object references across an unrelated re-render', async () => {
+      vi.useFakeTimers();
+      global.fetch = vi.fn(() => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ gamesPlayed: 3, wins: 1, pointsDeducted: 0, kniffelCompleted: 2 }),
+      }));
+      useGameStore.setState({
+        isOnline: true,
+        round: 5,
+        chartLabels: ['R1', 'R2'],
+        chartValues: [[100, 200]],
+        chartNames: ['Alice'],
+      });
+
+      render(<EndScreen deviceId="device-online-memo" />);
+      const firstData = chartCapture.data;
+      expect(firstData).not.toBeNull();
+
+      // deviceStats arriving triggers an internal setState/re-render that has
+      // nothing to do with the chart's own inputs (chartLabels/chartValues/
+      // chartNames/players) — the chart data object should not be rebuilt.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(chartCapture.data).toBe(firstData);
+      vi.useRealTimers();
+    });
+  });
+
   describe('personal-best records panel', () => {
     const setupOnlineGame = (overrides: Record<string, unknown> = {}) => {
       useGameStore.setState({

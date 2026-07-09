@@ -80,6 +80,33 @@ describe('OnlineLobby copy room code button', () => {
     await vi.waitFor(() => expect(addToast).toHaveBeenCalledWith('lobby.online.roomCodeCopyFailed'));
     vi.useRealTimers();
   });
+
+  it('clears the pending copy-feedback timeout on unmount instead of leaving it armed', async () => {
+    vi.useFakeTimers();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    const { unmount } = render(<OnlineLobby game={makeGame()} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('lobby.online.copyRoomCode'));
+    });
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalled());
+
+    // The copy-feedback timeout is now scheduled (alongside unrelated timers
+    // owned by other parts of the component tree, e.g. framer-motion).
+    const timersBeforeUnmount = vi.getTimerCount();
+    expect(timersBeforeUnmount).toBeGreaterThan(0);
+
+    unmount();
+
+    // Unmounting must clear the copy-feedback timeout rather than leave it
+    // armed to fire setRoomCodeCopied(false) against a gone component — so
+    // exactly one fewer timer should remain pending.
+    expect(vi.getTimerCount()).toBe(timersBeforeUnmount - 1);
+
+    vi.useRealTimers();
+  });
 });
 
 describe('OnlineLobby start button / waiting indicator', () => {

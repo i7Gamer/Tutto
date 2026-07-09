@@ -278,6 +278,7 @@ export const registerSocketHandlers = (io: Server): void => {
     });
 
     socket.on('kickPlayer', (targetSocketId: string) => {
+      if (typeof targetSocketId !== 'string') return;
       if (!currentRoom || !rooms[currentRoom] || rooms[currentRoom].host !== socket.id) return;
       const room = rooms[currentRoom];
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { Copy, Check } from 'lucide-react';
@@ -50,13 +50,17 @@ export default function OnlineLobby({ game }: OnlineLobbyProps) {
 
   const { players, startGame, reorderPlayers, changeMyColor, isHost, hostId, joinRoom, leaveRoom, roomId, myName, kickPlayer, addToast } = game;
 
+  const copyFeedbackTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(copyFeedbackTimer.current), []);
+
   const handleCopyRoomCode = async () => {
     if (!roomId) return;
     try {
       await navigator.clipboard.writeText(roomId);
       setRoomCodeCopied(true);
       addToast(t('lobby.online.roomCodeCopied', 'Room code copied!'));
-      setTimeout(() => setRoomCodeCopied(false), COPY_FEEDBACK_MS);
+      clearTimeout(copyFeedbackTimer.current);
+      copyFeedbackTimer.current = setTimeout(() => setRoomCodeCopied(false), COPY_FEEDBACK_MS);
     } catch {
       addToast(t('lobby.online.roomCodeCopyFailed', 'Could not copy room code'));
     }

@@ -120,4 +120,22 @@ describe('createRateLimiter', () => {
     limiter(makeReq('a') as never, res as never, next);
     expect(res.statusCode).toBe(200);
   });
+
+  it('evicts the oldest entries once the tracked-key cap is exceeded even if nothing has expired yet', () => {
+    // A long window means the sweep-on-expiry path never fires; the cap must
+    // still be enforced by falling back to evicting the oldest entries.
+    const limiter = createRateLimiter({ windowMs: 100_000, max: 1, maxTrackedKeys: 2 });
+    const next = vi.fn();
+
+    limiter(makeReq('a') as never, makeRes() as never, next); // size 1
+    limiter(makeReq('b') as never, makeRes() as never, next); // size 2 (== cap, no sweep yet)
+    limiter(makeReq('c') as never, makeRes() as never, next); // size 3 (> cap on next request)
+
+    // This request pushes the map over the cap with nothing expired, so the
+    // oldest entry ('a') should be evicted before this request is processed —
+    // meaning it's treated as a fresh key rather than blocked by its stale hit.
+    const resA = makeRes();
+    limiter(makeReq('a') as never, resA as never, next);
+    expect(resA.statusCode).toBe(200);
+  });
 });

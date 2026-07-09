@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../store/useGameStore';
 import confetti from 'canvas-confetti';
 import { playBuzzer, playSuccess, vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
@@ -21,9 +22,48 @@ import ReactionBar from './game/ReactionBar';
 import DiceGame from './DiceGame';
 import HistoryLog from './game/HistoryLog';
 
+// Only the fields Game actually reads (directly or via game.X below / the
+// Scoreboard prop) are selected here, with shallow equality — so a store
+// mutation that touches an unrelated slice (toasts, reactions, other
+// players' rooms) doesn't force this component and its whole subtree to
+// re-render. See HistoryLog.tsx/HelpPopup.tsx for the same narrow-selector
+// pattern applied via single-field selectors instead.
+const useGameSlice = () => useGameStore(useShallow(state => ({
+  currentCard: state.currentCard,
+  cards: state.cards,
+  nextTurn: state.nextTurn,
+  undo: state.undo,
+  endGame: state.endGame,
+  isOnline: state.isOnline,
+  myName: state.myName,
+  winningScore: state.winningScore,
+  players: state.players,
+  currentPlayerIndex: state.currentPlayerIndex,
+  gameTimeInSeconds: state.gameTimeInSeconds,
+  liveTurnState: state.liveTurnState,
+  setLiveTurnState: state.setLiveTurnState,
+  diceMode: state.diceMode,
+  enforcedDiceMode: state.enforcedDiceMode,
+  isHost: state.isHost,
+  kickPlayer: state.kickPlayer,
+  justReconnected: state.justReconnected,
+  roomId: state.roomId,
+  round: state.round,
+  deviceId: state.deviceId,
+  setPreGameStats: state.setPreGameStats,
+  turnTimeRemaining: state.turnTimeRemaining,
+  addToast: state.addToast,
+  leaveRoom: state.leaveRoom,
+  sendReaction: state.sendReaction,
+  hostId: state.hostId,
+  finished: state.finished,
+  previousCard: state.previousCard,
+  previousPlayerName: state.previousPlayerName,
+})));
+
 export default function Game() {
   const { t } = useTranslation();
-  const game = useGameStore();
+  const game = useGameSlice();
   const {
     currentCard,
     cards,

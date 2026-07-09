@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { GameStore } from '../../store/useGameStore';
 
 interface ScoreboardProps {
-  game: GameStore;
+  game: Pick<GameStore, 'players' | 'currentPlayerIndex' | 'isOnline' | 'myName' | 'round' | 'winningScore' | 'turnTimeRemaining' | 'hostId'>;
   formattedTime: string;
 }
 
