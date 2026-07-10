@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
+// How long a navigation waits for the network before falling back to the
+// cached HTML shell (offline PWA start / dead connection).
+const NAVIGATION_NETWORK_TIMEOUT_S = 3
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   // Falls back to localhost for local dev. Set ALLOWED_HOST to the deployed
@@ -18,13 +22,25 @@ export default defineConfig(({ mode }) => {
       VitePWA({
         registerType: 'autoUpdate',
         workbox: {
-          globPatterns: ['**/*.{js,ts,css,html,png,svg,webmanifest}'],
+          // The HTML shell is deliberately NOT precached (no 'html' here) and
+          // navigateFallback is disabled: navigations go NetworkFirst below,
+          // so a new deploy reaches every client on its next launch instead
+          // of flashing the stale cached shell and force-reloading once the
+          // service worker updates. The cached copy still serves when the
+          // network doesn't answer in time (offline PWA start).
+          globPatterns: ['**/*.{js,css,png,svg,webmanifest}'],
           globIgnores: ['**/assets/old/**'],
           skipWaiting: true,
           clientsClaim: true,
-          // Don't cache the HTML entry point — always fetch it fresh from network
-          navigateFallbackDenylist: [],
+          navigateFallback: null,
           runtimeCaching: [
+            {
+              // Serialized into the generated service worker — must stay
+              // self-contained (no closure variables).
+              urlPattern: ({ request }) => request.mode === 'navigate',
+              handler: 'NetworkFirst',
+              options: { cacheName: 'html-cache', networkTimeoutSeconds: NAVIGATION_NETWORK_TIMEOUT_S }
+            },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',

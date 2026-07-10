@@ -54,6 +54,14 @@ export const isValidCardEntry = (key: string, val: unknown): val is number =>
   (VALID_CARD_TYPES as readonly string[]).includes(key) &&
   Number.isInteger(val) && (val as number) >= 0 && (val as number) <= MAX_CARD_COUNT;
 
+// Key-wise deck equality: two decks are the same iff every card type has the
+// same count in both, a missing entry counting as 0. Deliberately not
+// JSON.stringify — that comparison is key-ORDER-sensitive, so the same deck
+// serialized with another key order would wrongly register as different
+// (e.g. a default deck miscounted as "custom" in the global stats).
+export const areInitialCardsEqual = (a: InitialCards, b: InitialCards): boolean =>
+  VALID_CARD_TYPES.every(card => (a[card] ?? 0) === (b[card] ?? 0));
+
 // null = every player uses their own device's diceMode preference (default);
 // a DiceMode value = the host has pinned that mode for every player's own turn.
 export const isValidEnforcedDiceMode = (v: unknown): v is DiceMode | null =>

@@ -902,4 +902,21 @@ describe('emoji reactions', () => {
 
     expect(threw).toBe(false);
   });
+
+  it('broadcasts at most one reaction per second per connection', async () => {
+    const alice = await connectAndJoin('REACT_ROOM_C', 'Alice', 'dev-react-5');
+    const bob = await connectAndJoin('REACT_ROOM_C', 'Bob', 'dev-react-6');
+
+    let received = 0;
+    bob.on('playerReaction', () => { received += 1; });
+
+    // Three rapid-fire reactions well inside one cooldown window — only the
+    // first may go out.
+    alice.emit('sendReaction', { emoji: '🔥' });
+    alice.emit('sendReaction', { emoji: '❤️' });
+    alice.emit('sendReaction', { emoji: '🔥' });
+    await settle();
+
+    expect(received).toBe(1);
+  });
 });

@@ -6,7 +6,7 @@ import {
   buildGlobalStatsPayload,
 } from '../utils/coreGameEngine';
 import { buildTurnKey } from '../utils/diceTurnState';
-import { DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE } from '../utils/configValidation';
+import { DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, areInitialCardsEqual } from '../utils/configValidation';
 import playerColorsData from '../../playerColors.json';
 import type { Player, CoreGameState, Toast } from '../types';
 import { MAX_HISTORY_LOG_SIZE } from '../types';
@@ -293,7 +293,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
 
   buildGlobalStatsPayload: () => {
     const s = get();
-    const isDefaultGame = s.winningScore === DEFAULT_WINNING_SCORE && JSON.stringify(s.initialCards) === JSON.stringify(DEFAULT_INITIAL_CARDS);
+    const isDefaultGame = s.winningScore === DEFAULT_WINNING_SCORE && areInitialCardsEqual(s.initialCards, DEFAULT_INITIAL_CARDS);
     return buildGlobalStatsPayload(s.players, s.gameTimeInSeconds, isDefaultGame, s.round);
   },
 

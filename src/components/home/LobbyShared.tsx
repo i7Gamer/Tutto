@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { InputHTMLAttributes, KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, Play, ChevronUp, ChevronDown, Trash2, UserMinus, Crown, RotateCcw } from 'lucide-react';
@@ -11,6 +11,7 @@ import {
 import type { Player, CardType, DiceMode } from '../../types';
 import type { GameStore } from '../../store/useGameStore';
 import { supportsIOSSwitchHaptic } from '../../utils/iosSwitchHaptic';
+import { REORDER_PRESS_RELEASE_MS } from '../../utils/uiTimings';
 
 interface PlayerListProps {
   players: Player[];
@@ -35,23 +36,32 @@ export function PlayerList({
 }: PlayerListProps) {
   const { t } = useTranslation();
 
-  // The reorder is deferred by 50ms (together with the blur() in the onClick
-  // handlers): on mobile, swapping the rows synchronously re-renders while the
-  // tap's hover/active state is still held, leaving that highlight stuck on a
-  // DIFFERENT row's button after the press. The short delay lets the browser
-  // release the pressed state on the original button first.
+  // The reorder is deferred (together with the blur() in the onClick
+  // handlers) — see REORDER_PRESS_RELEASE_MS for why. Only one deferred
+  // reorder is ever pending: two presses inside the window would both have
+  // been computed from the same pre-swap roster, so applying both would just
+  // replay the earlier, stale one — last press wins instead.
+  const pendingReorderTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(pendingReorderTimer.current), []);
+
+  const deferReorder = (newPlayers: Player[]) => {
+    if (!reorderPlayers) return;
+    clearTimeout(pendingReorderTimer.current);
+    pendingReorderTimer.current = setTimeout(() => reorderPlayers(newPlayers), REORDER_PRESS_RELEASE_MS);
+  };
+
   const handleMoveUp = (index: number) => {
     if (index === 0) return;
     const newPlayers = [...players];
     [newPlayers[index - 1], newPlayers[index]] = [newPlayers[index], newPlayers[index - 1]];
-    if (reorderPlayers) setTimeout(() => reorderPlayers(newPlayers), 50);
+    deferReorder(newPlayers);
   };
 
   const handleMoveDown = (index: number) => {
     if (index === players.length - 1) return;
     const newPlayers = [...players];
     [newPlayers[index + 1], newPlayers[index]] = [newPlayers[index], newPlayers[index + 1]];
-    if (reorderPlayers) setTimeout(() => reorderPlayers(newPlayers), 50);
+    deferReorder(newPlayers);
   };
 
   if (!players || players.length === 0) return null;

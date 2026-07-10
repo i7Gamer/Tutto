@@ -31,12 +31,15 @@ const REORDER_PLAYERS_LIMIT = { windowMs: 1_000, max: 5 };
 // the native input event) — same generous cap as the other continuous-UI
 // events (pushState/updateConfig).
 const UPDATE_PLAYER_COLOR_LIMIT = { windowMs: 1_000, max: 20 };
+// One reaction per second per connection — a deliberate UX pace, not just
+// abuse protection, so it uses the same limiter mechanism as every other
+// event instead of the ad-hoc timestamp cooldown it replaced.
+const SEND_REACTION_LIMIT = { windowMs: 1_000, max: 1 };
 
 export const registerSocketHandlers = (io: Server): void => {
   io.on('connection', (socket: Socket) => {
     let currentRoom: string | null = null;
     let username: string | null = null;
-    let lastReactionTime = 0;
 
     const joinRoomLimiter = createSocketEventLimiter(JOIN_ROOM_LIMIT);
     const pushStateLimiter = createSocketEventLimiter(PUSH_STATE_LIMIT);
@@ -47,6 +50,7 @@ export const registerSocketHandlers = (io: Server): void => {
     const endGameStatsLimiter = createSocketEventLimiter(END_GAME_STATS_LIMIT);
     const reorderPlayersLimiter = createSocketEventLimiter(REORDER_PLAYERS_LIMIT);
     const updatePlayerColorLimiter = createSocketEventLimiter(UPDATE_PLAYER_COLOR_LIMIT);
+    const sendReactionLimiter = createSocketEventLimiter(SEND_REACTION_LIMIT);
 
     socket.on('joinRoom', async (
       payload: { roomId?: string; name?: string; deviceId?: string; color?: string; initialConfig?: Record<string, unknown> } | null | undefined,
@@ -295,6 +299,7 @@ export const registerSocketHandlers = (io: Server): void => {
     });
 
     socket.on('sendReaction', (data: { emoji?: string } | null | undefined) => {
+      if (!sendReactionLimiter()) return;
       if (!data || typeof data !== 'object') return;
       const { emoji } = data;
       // Uses `currentRoom` (this socket's own tracked room) rather than a
@@ -302,10 +307,6 @@ export const registerSocketHandlers = (io: Server): void => {
       // the room this socket is actually seated in.
       if (!currentRoom || !rooms[currentRoom]) return;
       if (typeof emoji !== 'string' || !(REACTION_EMOJIS as readonly string[]).includes(emoji)) return;
-
-      const now = Date.now();
-      if (now - lastReactionTime < 1000) return;
-      lastReactionTime = now;
 
       const room = rooms[currentRoom];
       const sender = room.state.players.find(p => p.socketId === socket.id);

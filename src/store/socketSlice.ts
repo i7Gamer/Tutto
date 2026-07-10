@@ -1,6 +1,7 @@
 import { io, type Socket } from 'socket.io-client';
 import { getLeaders } from '../utils/coreGameEngine';
 import i18n from '../i18n';
+import { areInitialCardsEqual } from '../utils/configValidation';
 import { validateOnlineConfig } from './persistence';
 import { getSocket, setSocket } from './socketRef';
 import { REACTION_DISPLAY_MS } from '../utils/reactions';
@@ -88,7 +89,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
             value: `${serverState.reconnectTimeout}s`,
           })));
         }
-        if (JSON.stringify(prev.initialCards) !== JSON.stringify(serverState.initialCards)) {
+        if (serverState.initialCards && !areInitialCardsEqual(prev.initialCards, serverState.initialCards)) {
           prev.toasts.push(makeToast(i18n.t('game.toastDeckChanged', 'Deck composition changed')));
         }
         if (prev.enforcedDiceMode !== serverState.enforcedDiceMode) {

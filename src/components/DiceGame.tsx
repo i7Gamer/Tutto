@@ -8,6 +8,10 @@ import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus, getMaxValidSel
 import { parseSavedDiceState, buildDiceSnapshot } from '../utils/diceTurnState';
 import { deriveTurnControls, sortKeptDiceForDisplay } from '../utils/diceTurnControls';
 import { useAutoContinueCountdown } from '../hooks/useAutoContinueCountdown';
+import {
+  DIE_TUMBLE_MS, DIE_STAGGER_MS, DIE_FACE_SHUFFLE_MS, ROLL_SETTLE_BUFFER_MS,
+  BUST_SUMMARY_DELAY_MS, LIVE_SNAPSHOT_DEBOUNCE_MS,
+} from '../utils/uiTimings';
 import { isTestEnv } from '../utils/env';
 import { motion, AnimatePresence } from 'framer-motion';
 import Die, { DiePips } from './game/Die';
@@ -138,8 +142,8 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     setRollingDiceIndices(initialRolling);
 
     const isTest = isTestEnv();
-    const baseTumbleTime = isTest ? 0 : 400;
-    const staggerDelay = isTest ? 0 : 150;
+    const baseTumbleTime = isTest ? 0 : DIE_TUMBLE_MS;
+    const staggerDelay = isTest ? 0 : DIE_STAGGER_MS;
 
     finalRolls.forEach((r, idx) => {
       if (isTest) {
@@ -189,7 +193,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
                 setSummaryData({ won: false, score: 0, isTutto: false });
               }
               setShowSummary(true);
-            }, 1500));
+            }, BUST_SUMMARY_DELAY_MS));
           }
         }
       }
@@ -198,7 +202,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     if (isTest) {
       finalizeRoll();
     } else {
-      pendingTimers.current.push(setTimeout(finalizeRoll, totalAnimationTime + 100));
+      pendingTimers.current.push(setTimeout(finalizeRoll, totalAnimationTime + ROLL_SETTLE_BUFFER_MS));
     }
   }, [currentCard, kniffelProgress]);
 
@@ -222,7 +226,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         const isSettled = correctVal !== undefined && d.val === correctVal;
         return isDieRolling && !isSettled ? { ...d, val: Math.floor(Math.random() * 6) + 1 } : d;
       }));
-    }, 80);
+    }, DIE_FACE_SHUFFLE_MS);
     return () => clearInterval(interval);
   }, [rollingDiceIndices, currentRoll]);
 
@@ -300,7 +304,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
       onStateChangeRef.current?.(buildDiceSnapshot({
         turnScore, keptDice, currentRoll, kniffelProgress, tuttosThisTurn, rollingDiceIndices,
       }));
-    }, 300);
+    }, LIVE_SNAPSHOT_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [keptDice, currentRoll, turnScore, hasRolled, rollingDiceIndices, isRolling, bustState, kniffelProgress, tuttosThisTurn]);
 

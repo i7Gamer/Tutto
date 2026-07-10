@@ -20,6 +20,7 @@ import {
   isValidDiceMode,
   DEFAULT_DICE_MODE,
   snapDisableableDuration,
+  areInitialCardsEqual,
 } from './configValidation';
 
 describe('configValidation', () => {
@@ -372,6 +373,30 @@ describe('configValidation', () => {
     it('is digital, and is itself a valid dice mode', () => {
       expect(DEFAULT_DICE_MODE).toBe('digital');
       expect(isValidDiceMode(DEFAULT_DICE_MODE)).toBe(true);
+    });
+  });
+
+  describe('areInitialCardsEqual', () => {
+    it('is true for the same counts regardless of key order', () => {
+      // JSON.stringify comparison (the pattern this helper replaces) is
+      // key-order-sensitive and would call these two different.
+      const reordered = Object.fromEntries(Object.entries(DEFAULT_INITIAL_CARDS).reverse());
+      expect(areInitialCardsEqual(reordered, DEFAULT_INITIAL_CARDS)).toBe(true);
+    });
+
+    it('is false when any card count differs', () => {
+      expect(areInitialCardsEqual({ ...DEFAULT_INITIAL_CARDS, Stop: 9 }, DEFAULT_INITIAL_CARDS)).toBe(false);
+    });
+
+    it('treats a missing entry as 0', () => {
+      const withoutKleeblatt = { ...DEFAULT_INITIAL_CARDS };
+      delete withoutKleeblatt.Kleeblatt;
+      expect(areInitialCardsEqual(withoutKleeblatt, { ...DEFAULT_INITIAL_CARDS, Kleeblatt: 0 })).toBe(true);
+      expect(areInitialCardsEqual(withoutKleeblatt, DEFAULT_INITIAL_CARDS)).toBe(false);
+    });
+
+    it('is true for two empty decks', () => {
+      expect(areInitialCardsEqual({}, {})).toBe(true);
     });
   });
 });
