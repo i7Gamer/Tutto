@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { render, screen, act } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import LocalLobby from './LocalLobby';
-import type { GameStore } from '../../store/useGameStore';
+import { useGameStore } from '../../store/useGameStore';
+import type { Player } from '../../types';
 
 interface StartGameButtonProps {
   disabled?: boolean;
@@ -21,53 +22,41 @@ vi.mock('./LobbyShared', () => ({
 }));
 
 describe('LocalLobby', () => {
-  const mockGame: Partial<GameStore> = {
-    players: [],
-    addPlayer: vi.fn(),
-    removePlayer: vi.fn(),
-    startGame: vi.fn(),
-    winningScore: 10000,
-    setWinningScore: vi.fn(),
-    initialCards: { '100': 1 },
-    setInitialCards: vi.fn(),
-    reorderPlayers: vi.fn(),
-    randomOrder: false,
-    setRandomOrder: vi.fn(),
-    changePlayerColor: vi.fn(),
-    diceMode: 'digital',
-    setDiceMode: vi.fn()
-  };
+  // LocalLobby subscribes to the store itself (no more `game` prop) — stage
+  // state with setState and restore the pristine snapshot afterwards.
+  const pristineStore = useGameStore.getState();
+
+  afterEach(() => {
+    act(() => {
+      useGameStore.setState(pristineStore, true);
+    });
+  });
 
   it('renders translation keys', () => {
-    render(<LocalLobby game={mockGame as GameStore} />);
+    render(<LocalLobby />);
     expect(screen.getByText('lobby.playersTitle')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('lobby.newPlayerPlaceholder')).toBeInTheDocument();
     expect(screen.getByText('lobby.addPlayerButton')).toBeInTheDocument();
   });
 
   it('disables StartGameButton when player count is less than 2', () => {
-    const gameWithNoPlayers = {
-      ...mockGame,
-      players: [],
-    };
-    const { rerender } = render(<LocalLobby game={gameWithNoPlayers as GameStore} />);
+    useGameStore.setState({ players: [] });
+    render(<LocalLobby />);
     expect(screen.getByTestId('start-game-button')).toHaveAttribute('data-disabled', 'true');
 
-    const gameWithOnePlayer = {
-      ...mockGame,
-      players: [{ name: 'Alice', color: '#ff0000', id: '1' }],
-    };
-    rerender(<LocalLobby game={gameWithOnePlayer as GameStore} />);
+    act(() => {
+      useGameStore.setState({ players: [{ name: 'Alice', color: '#ff0000', score: 0 } as Player] });
+    });
     expect(screen.getByTestId('start-game-button')).toHaveAttribute('data-disabled', 'true');
 
-    const gameWithTwoPlayers = {
-      ...mockGame,
-      players: [
-        { name: 'Alice', color: '#ff0000', id: '1' },
-        { name: 'Bob', color: '#00ff00', id: '2' },
-      ],
-    };
-    rerender(<LocalLobby game={gameWithTwoPlayers as GameStore} />);
+    act(() => {
+      useGameStore.setState({
+        players: [
+          { name: 'Alice', color: '#ff0000', score: 0 } as Player,
+          { name: 'Bob', color: '#00ff00', score: 0 } as Player,
+        ],
+      });
+    });
     expect(screen.getByTestId('start-game-button')).toHaveAttribute('data-disabled', 'false');
   });
 });

@@ -1,7 +1,15 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { StartGameButton, PlayerList, AdvancedOptionsPanel, HapticsSettingSelector } from './LobbyShared';
+import { useGameStore } from '../../store/useGameStore';
+import type { GameStore } from '../../store/useGameStore';
 import type { Player } from '../../types';
+
+// AdvancedOptionsPanel subscribes to the store itself (no more `game` prop),
+// so its tests stage state/action-spies with setState and restore the
+// pristine snapshot afterwards.
+const pristineStore = useGameStore.getState();
+const stageStore = (partial: Partial<GameStore>) => useGameStore.setState(partial);
 
 describe('StartGameButton', () => {
   it('renders "Start Game!" when not disabled and playersCount >= 2', () => {
@@ -88,14 +96,17 @@ describe('PlayerList', () => {
 });
 
 describe('AdvancedOptionsPanel', () => {
+  afterEach(() => {
+    act(() => {
+      useGameStore.setState(pristineStore, true);
+    });
+  });
+
   it('updates card count using object syntax instead of functional update', () => {
     const mockSetInitialCards = vi.fn();
-    const game = {
-      initialCards: { Kleeblatt: 1, Stop: 10 },
-      setInitialCards: mockSetInitialCards
-    };
+    stageStore({ initialCards: { Kleeblatt: 1, Stop: 10 }, setInitialCards: mockSetInitialCards });
 
-    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={true} />);
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={true} />);
 
     // Find the input for 'Kleeblatt'
     const input = screen.getByDisplayValue('1');
@@ -110,13 +121,9 @@ describe('AdvancedOptionsPanel', () => {
   });
   it('clamps negative winning scores up to the 1000 minimum the server accepts', () => {
     const mockSetWinningScore = vi.fn();
-    const game = {
-      winningScore: 6000,
-      setWinningScore: mockSetWinningScore,
-      initialCards: {}
-    };
+    stageStore({ winningScore: 6000, setWinningScore: mockSetWinningScore, initialCards: {} });
 
-    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={false} />);
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={false} />);
 
     const input = screen.getByDisplayValue('6000');
     fireEvent.change(input, { target: { value: '-10' } });
@@ -130,13 +137,9 @@ describe('AdvancedOptionsPanel', () => {
     // drops smaller values, which left the host seeing a different score than
     // everyone else. The input must never commit such a value.
     const mockSetWinningScore = vi.fn();
-    const game = {
-      winningScore: 6000,
-      setWinningScore: mockSetWinningScore,
-      initialCards: {}
-    };
+    stageStore({ winningScore: 6000, setWinningScore: mockSetWinningScore, initialCards: {} });
 
-    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={false} />);
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={false} />);
 
     const input = screen.getByDisplayValue('6000');
     fireEvent.change(input, { target: { value: '500' } });
@@ -149,17 +152,12 @@ describe('AdvancedOptionsPanel', () => {
     // can't express the hole, so 1-9 snaps up to 10 rather than being silently
     // rejected by the server.
     const mockSetTurnDuration = vi.fn();
-    const game = {
-      winningScore: 6000,
-      setWinningScore: vi.fn(),
-      turnDuration: 120,
-      setTurnDuration: mockSetTurnDuration,
-      reconnectTimeout: 60,
-      setReconnectTimeout: vi.fn(),
-      initialCards: {}
-    };
+    stageStore({
+      winningScore: 6000, turnDuration: 120, setTurnDuration: mockSetTurnDuration,
+      reconnectTimeout: 60, initialCards: {},
+    });
 
-    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={true} />);
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={true} />);
 
     const input = screen.getByDisplayValue('120');
     fireEvent.change(input, { target: { value: '5' } });
@@ -173,17 +171,12 @@ describe('AdvancedOptionsPanel', () => {
 
   it('snaps a kick timer in the 1-9s gap up to the 10s minimum (0 stays disabled)', () => {
     const mockSetReconnectTimeout = vi.fn();
-    const game = {
-      winningScore: 6000,
-      setWinningScore: vi.fn(),
-      turnDuration: 120,
-      setTurnDuration: vi.fn(),
-      reconnectTimeout: 60,
-      setReconnectTimeout: mockSetReconnectTimeout,
-      initialCards: {}
-    };
+    stageStore({
+      winningScore: 6000, turnDuration: 120,
+      reconnectTimeout: 60, setReconnectTimeout: mockSetReconnectTimeout, initialCards: {},
+    });
 
-    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={true} />);
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={true} />);
 
     const input = screen.getByDisplayValue('60');
     fireEvent.change(input, { target: { value: '3' } });
@@ -197,13 +190,9 @@ describe('AdvancedOptionsPanel', () => {
 
   it('clamps winningScore to 99999 when value exceeds the upper bound', () => {
     const mockSetWinningScore = vi.fn();
-    const game = {
-      winningScore: 6000,
-      setWinningScore: mockSetWinningScore,
-      initialCards: {}
-    };
+    stageStore({ winningScore: 6000, setWinningScore: mockSetWinningScore, initialCards: {} });
 
-    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={false} />);
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={false} />);
 
     const input = screen.getByDisplayValue('6000');
     fireEvent.change(input, { target: { value: '200000' } });
@@ -213,17 +202,12 @@ describe('AdvancedOptionsPanel', () => {
 
   it('clamps turnDuration to 600 when value exceeds the upper bound', () => {
     const mockSetTurnDuration = vi.fn();
-    const game = {
-      winningScore: 6000,
-      setWinningScore: vi.fn(),
-      turnDuration: 120,
-      setTurnDuration: mockSetTurnDuration,
-      reconnectTimeout: 60,
-      setReconnectTimeout: vi.fn(),
-      initialCards: {}
-    };
+    stageStore({
+      winningScore: 6000, turnDuration: 120, setTurnDuration: mockSetTurnDuration,
+      reconnectTimeout: 60, initialCards: {},
+    });
 
-    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={true} />);
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={true} />);
 
     const input = screen.getByDisplayValue('120');
     fireEvent.change(input, { target: { value: '800' } });
@@ -233,17 +217,12 @@ describe('AdvancedOptionsPanel', () => {
 
   it('clamps reconnectTimeout to 3600 when value exceeds the upper bound', () => {
     const mockSetReconnectTimeout = vi.fn();
-    const game = {
-      winningScore: 6000,
-      setWinningScore: vi.fn(),
-      turnDuration: 120,
-      setTurnDuration: vi.fn(),
-      reconnectTimeout: 60,
-      setReconnectTimeout: mockSetReconnectTimeout,
-      initialCards: {}
-    };
+    stageStore({
+      winningScore: 6000, turnDuration: 120,
+      reconnectTimeout: 60, setReconnectTimeout: mockSetReconnectTimeout, initialCards: {},
+    });
 
-    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={true} />);
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={true} />);
 
     const input = screen.getByDisplayValue('60');
     fireEvent.change(input, { target: { value: '5000' } });
@@ -253,17 +232,12 @@ describe('AdvancedOptionsPanel', () => {
 
   it('does not trigger onValueChange on blur if the input was not modified', () => {
     const mockSetWinningScore = vi.fn();
-    const game = {
-      winningScore: 6000,
-      setWinningScore: mockSetWinningScore,
-      turnDuration: 120,
-      setTurnDuration: vi.fn(),
-      reconnectTimeout: 60,
-      setReconnectTimeout: vi.fn(),
-      initialCards: {}
-    };
+    stageStore({
+      winningScore: 6000, setWinningScore: mockSetWinningScore,
+      turnDuration: 120, reconnectTimeout: 60, initialCards: {},
+    });
 
-    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={true} />);
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={true} />);
 
     const input = screen.getByDisplayValue('6000');
     fireEvent.blur(input);
@@ -273,18 +247,13 @@ describe('AdvancedOptionsPanel', () => {
 
   it('does not trigger onValueChange on unmount if input was not modified', () => {
     const mockSetWinningScore = vi.fn();
-    const game = {
-      winningScore: 6000,
-      setWinningScore: mockSetWinningScore,
-      turnDuration: 120,
-      setTurnDuration: vi.fn(),
-      reconnectTimeout: 60,
-      setReconnectTimeout: vi.fn(),
-      initialCards: {}
-    };
+    stageStore({
+      winningScore: 6000, setWinningScore: mockSetWinningScore,
+      turnDuration: 120, reconnectTimeout: 60, initialCards: {},
+    });
 
-    const { unmount } = render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={true} />);
-    
+    const { unmount } = render(<AdvancedOptionsPanel showAdvanced={true} isOnline={true} />);
+
     unmount();
     // BlurInput should not call commit() during unmount since isDirty is false
     expect(mockSetWinningScore).not.toHaveBeenCalled();
@@ -292,22 +261,13 @@ describe('AdvancedOptionsPanel', () => {
 
   it('calls onResetGeneralSettings when reset button is clicked', () => {
     const mockResetGeneralSettings = vi.fn();
-    const game = {
-      winningScore: 5000,
-      setWinningScore: vi.fn(),
-      randomOrder: false,
-      setRandomOrder: vi.fn(),
-      turnDuration: 300,
-      setTurnDuration: vi.fn(),
-      reconnectTimeout: 120,
-      setReconnectTimeout: vi.fn(),
-      initialCards: {}
-    };
+    stageStore({
+      winningScore: 5000, randomOrder: false, turnDuration: 300, reconnectTimeout: 120, initialCards: {},
+    });
 
     render(
       <AdvancedOptionsPanel
         showAdvanced={true}
-        game={game}
         isOnline={true}
         onResetGeneralSettings={mockResetGeneralSettings}
         onResetCards={vi.fn()}
@@ -324,19 +284,13 @@ describe('AdvancedOptionsPanel', () => {
 
   it('calls onResetCards when reset cards button is clicked', () => {
     const mockResetCards = vi.fn();
-    const game = {
-      winningScore: 6000,
-      setWinningScore: vi.fn(),
-      randomOrder: true,
-      setRandomOrder: vi.fn(),
-      initialCards: { Kleeblatt: 5, Stop: 20 },
-      setInitialCards: vi.fn()
-    };
+    stageStore({
+      winningScore: 6000, randomOrder: true, initialCards: { Kleeblatt: 5, Stop: 20 },
+    });
 
     render(
       <AdvancedOptionsPanel
         showAdvanced={true}
-        game={game}
         isOnline={false}
         onResetGeneralSettings={vi.fn()}
         onResetCards={mockResetCards}
@@ -352,15 +306,9 @@ describe('AdvancedOptionsPanel', () => {
   });
 
   it('hides reset buttons when callbacks are not provided', () => {
-    const game = {
-      winningScore: 6000,
-      setWinningScore: vi.fn(),
-      randomOrder: true,
-      setRandomOrder: vi.fn(),
-      initialCards: {}
-    };
+    stageStore({ winningScore: 6000, randomOrder: true, initialCards: {} });
 
-    render(<AdvancedOptionsPanel showAdvanced={true} game={game} isOnline={false} />);
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={false} />);
 
     expect(screen.queryByTitle('Reset general settings to defaults')).toBeNull();
     expect(screen.queryByTitle('Reset cards to default values')).toBeNull();

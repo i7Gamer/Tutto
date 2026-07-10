@@ -590,7 +590,7 @@ export const registerSocketHandlers = (io: Server): void => {
         }
 
         const roomIdSnapshot = currentRoom;
-        const hostSocketId = socket.id;
+        const disconnectedSocketId = socket.id;
 
         room.disconnectTimers[player.deviceId] = setTimeout(() => {
           const r = rooms[roomIdSnapshot];
@@ -607,7 +607,7 @@ export const registerSocketHandlers = (io: Server): void => {
           if (r.state.players.length === 0) {
             deleteRoom(roomIdSnapshot);
           } else {
-            if (r.host === hostSocketId) {
+            if (r.host === disconnectedSocketId) {
               // Prefer a connected player — players[0] may itself be disconnected,
               // which would leave the room with a dead socket as host (no config /
               // kick / restart) until that player reconnects or times out. If
