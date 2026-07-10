@@ -1,5 +1,9 @@
 import type { StoreApi } from 'zustand';
-import { isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry, isValidEnforcedDiceMode } from '../utils/configValidation';
+import {
+  isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
+  isValidEnforcedDiceMode, isValidDiceMode, VALID_CARD_TYPES, MAX_CARD_COUNT,
+} from '../utils/configValidation';
+import { MAX_HISTORY_LOG_SIZE } from '../types';
 import type { CardType, InitialCards } from '../types';
 import type { GameStore, GameMode, GameStatus, ConfigKeys } from './storeTypes';
 
@@ -26,14 +30,96 @@ const STABLE_LOCAL_GAME_KEYS = [
 
 const LOCAL_GAME_STATE_KEYS = [...STABLE_LOCAL_GAME_KEYS, 'gameTimeInSeconds'] as const satisfies readonly (keyof GameStore)[];
 
-// Whitelists a parsed `tutto_local_game` value down to known fields before
-// it's Object.assign'd into the store — see STABLE_LOCAL_GAME_KEYS above.
+// A fully-loaded deck holds at most MAX_CARD_COUNT of each card type — same
+// bound the server enforces on pushed decks (see server/pushValidation.ts).
+const MAX_SAVED_DECK_SIZE = MAX_CARD_COUNT * VALID_CARD_TYPES.length;
+
+const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isBoolean = (v: unknown): v is boolean => typeof v === 'boolean';
+const isCardOrNull = (v: unknown): boolean =>
+  v === null || (VALID_CARD_TYPES as readonly string[]).includes(v as string);
+const isCardArray = (v: unknown): boolean =>
+  Array.isArray(v) && v.length <= MAX_SAVED_DECK_SIZE &&
+  v.every(c => (VALID_CARD_TYPES as readonly string[]).includes(c as string));
+const isNonNegativeNumber = (v: unknown): boolean => isFiniteNumber(v) && v >= 0;
+
+// A restored player must have the identity/score fields the engine does
+// arithmetic and lookups on; every other present field may only be a
+// primitive (stat counters, color, connection flags) — an object or NaN in
+// any of them would flow into score math or React rendering downstream.
+const isPlausiblePlayer = (v: unknown): boolean => {
+  if (typeof v !== 'object' || v === null) return false;
+  const p = v as Record<string, unknown>;
+  if (typeof p.name !== 'string' || p.name.length === 0) return false;
+  if (!isFiniteNumber(p.score)) return false;
+  return Object.entries(p).every(([key, val]) =>
+    key === 'name' || val === undefined || val === null ||
+    typeof val === 'string' || typeof val === 'boolean' || isFiniteNumber(val));
+};
+
+// Display-only, but rendered directly into JSX (HistoryLog.tsx) — a malformed
+// entry would crash the render for the restored game.
+const isPlausibleHistoryEntry = (v: unknown): boolean => {
+  if (typeof v !== 'object' || v === null) return false;
+  const entry = v as Record<string, unknown>;
+  return typeof entry.id === 'string' && typeof entry.playerName === 'string'
+    && typeof entry.card === 'string' && typeof entry.type === 'string'
+    && Number.isInteger(entry.round) && isFiniteNumber(entry.score);
+};
+
+// One shape check per restorable field. A key whose value fails its check is
+// dropped — the store keeps its initial default for that field — rather than
+// crashing the app downstream wherever the corrupted value is first used.
+const LOCAL_GAME_VALIDATORS: Record<(typeof LOCAL_GAME_STATE_KEYS)[number], (v: unknown) => boolean> = {
+  players: v => Array.isArray(v) && v.every(isPlausiblePlayer),
+  currentPlayerIndex: v => v === null || (Number.isInteger(v) && (v as number) >= 0),
+  currentCard: isCardOrNull,
+  cards: isCardArray,
+  round: v => Number.isInteger(v) && (v as number) >= 1,
+  winningScore: isValidWinningScore,
+  diceMode: isValidDiceMode,
+  initialCards: v => typeof v === 'object' && v !== null &&
+    Object.entries(v).every(([key, val]) => isValidCardEntry(key, val)),
+  randomOrder: isBoolean,
+  turnDuration: isValidTurnDuration,
+  reconnectTimeout: isValidReconnectTimeout,
+  finished: isBoolean,
+  previousScore: v => v === null || isFiniteNumber(v),
+  previousCard: isCardOrNull,
+  previousLeaders: v => v === null || (Array.isArray(v) && v.every(isPlausiblePlayer)),
+  previousWasBust: isBoolean,
+  previousHighestTurnScore: isNonNegativeNumber,
+  previousHighestFeuerwerkTurnScore: isNonNegativeNumber,
+  previousHighestX2TurnScore: isNonNegativeNumber,
+  previousPlayerName: v => v === null || (typeof v === 'string' && v.length > 0),
+  chartValues: v => Array.isArray(v) && v.every(row => Array.isArray(row) && row.every(isFiniteNumber)),
+  chartNames: v => Array.isArray(v) && v.every(name => typeof name === 'string'),
+  chartLabels: v => Array.isArray(v) && v.every(isFiniteNumber),
+  status: v => v === 'lobby' || v === 'playing',
+  historyLog: v => Array.isArray(v) && v.length <= MAX_HISTORY_LOG_SIZE && v.every(isPlausibleHistoryEntry),
+  gameTimeInSeconds: isNonNegativeNumber,
+};
+
+// Whitelists a parsed `tutto_local_game` value down to known fields AND known
+// shapes before it's Object.assign'd into the store — see
+// STABLE_LOCAL_GAME_KEYS and LOCAL_GAME_VALIDATORS above. Key-only
+// whitelisting used to let a corrupted or hand-edited save put e.g. a string
+// where the store expects an array, crashing the app at first use.
 export const pickLocalGameState = (parsed: unknown): Partial<GameStore> => {
   if (typeof parsed !== 'object' || parsed === null) return {};
   const source = parsed as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const key of LOCAL_GAME_STATE_KEYS) {
-    if (key in source) out[key] = source[key];
+    if (key in source && LOCAL_GAME_VALIDATORS[key](source[key])) out[key] = source[key];
+  }
+  // Cross-field sanity: an index is only meaningful against the roster it was
+  // saved with. If the players array was dropped (or the index points past
+  // it), restoring the index alone would mark a turn as active for a player
+  // who does not exist.
+  const players = out.players as unknown[] | undefined;
+  if (typeof out.currentPlayerIndex === 'number' &&
+      (!players || out.currentPlayerIndex >= players.length)) {
+    delete out.currentPlayerIndex;
   }
   return out as Partial<GameStore>;
 };

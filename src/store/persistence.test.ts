@@ -40,18 +40,81 @@ describe('pickLocalGameState', () => {
     expect(Object.keys(picked)).toEqual(['round']);
   });
 
-  it('passes a whitelisted field\'s value through unvalidated, even when its type is corrupted (STORE-TEST-3 / STORE-SEC-2)', () => {
-    // pickLocalGameState whitelists KEYS only — it copies whatever value a
-    // whitelisted key holds without checking its shape/type. A hand-edited or
-    // corrupted localStorage save can therefore put a string where the store
-    // expects a number/array, which surfaces as a crash further downstream
-    // wherever that field is used (e.g. players.map, round arithmetic). This
-    // test pins today's pass-through behavior so a future fix (adding value
-    // validation) changes it deliberately rather than by accident.
-    const parsed = { round: 'five', players: 'not-an-array', winningScore: null };
+  it('drops whitelisted keys whose values fail their shape check (STORE-TEST-3 / STORE-SEC-2)', () => {
+    // A hand-edited or corrupted save must not be able to put a string where
+    // the store expects a number/array — the store keeps its initial default
+    // for that field instead of crashing at first use (players.map, round
+    // arithmetic, chart rendering, ...).
+    const parsed = { round: 'five', players: 'not-an-array', winningScore: null, diceMode: 'digital' };
     const picked = pickLocalGameState(parsed);
-    expect(picked.round).toBe('five');
-    expect(picked.players).toBe('not-an-array');
-    expect(picked.winningScore).toBeNull();
+    expect(picked).toEqual({ diceMode: 'digital' });
+  });
+
+  it('drops corrupted values field-by-field while keeping the valid rest of the save', () => {
+    const picked = pickLocalGameState({
+      players: [{ name: 'Alice', score: 100 }],
+      round: 4,
+      cards: ['Stop', 'NotACard'],
+      status: 'corrupted-status',
+      chartValues: [[100, 200], 'not-a-row'],
+      historyLog: [{ id: '1-Alice-1', playerName: 'Alice', card: 'Stop', type: 'skip', round: 1, score: 0 }, 'junk'],
+      gameTimeInSeconds: -5,
+    });
+    expect(picked).toEqual({ players: [{ name: 'Alice', score: 100 }], round: 4 });
+  });
+
+  it('rejects players with a missing/corrupted identity or score, or non-primitive stat fields', () => {
+    expect(pickLocalGameState({ players: [{ name: '', score: 0 }] })).toEqual({});
+    expect(pickLocalGameState({ players: [{ name: 'Alice', score: NaN }] })).toEqual({});
+    expect(pickLocalGameState({ players: [{ name: 'Alice', score: 10, busts: { evil: true } }] })).toEqual({});
+    expect(pickLocalGameState({ players: [{ name: 'Alice' }] })).toEqual({});
+  });
+
+  it('drops a currentPlayerIndex that points past the restored roster (or has no roster at all)', () => {
+    // Index saved against a 3-player roster, but the roster itself was
+    // corrupted and dropped — the index alone would activate a turn for a
+    // player who does not exist.
+    expect(pickLocalGameState({ currentPlayerIndex: 2, players: 'corrupt' })).toEqual({});
+    expect(pickLocalGameState({ currentPlayerIndex: 2, players: [{ name: 'A', score: 0 }] })).toEqual({
+      players: [{ name: 'A', score: 0 }],
+    });
+    // In-bounds index with its roster restores fine; null is always allowed.
+    expect(pickLocalGameState({ currentPlayerIndex: 0, players: [{ name: 'A', score: 0 }] })).toEqual({
+      currentPlayerIndex: 0,
+      players: [{ name: 'A', score: 0 }],
+    });
+    expect(pickLocalGameState({ currentPlayerIndex: null })).toEqual({ currentPlayerIndex: null });
+  });
+
+  it('restores a realistic well-formed mid-game save unchanged', () => {
+    const save = {
+      players: [
+        { name: 'Alice', score: 1200, busts: 1, totalTurns: 5, color: '#ff0000' },
+        { name: 'Bob', score: 800, busts: 0, totalTurns: 5 },
+      ],
+      currentPlayerIndex: 1,
+      currentCard: 'Feuerwerk',
+      cards: ['Stop', '200', 'Kniffel'],
+      round: 6,
+      winningScore: 6000,
+      diceMode: 'physical',
+      randomOrder: false,
+      turnDuration: 120,
+      reconnectTimeout: 60,
+      finished: false,
+      previousScore: 350,
+      previousCard: '300',
+      previousLeaders: null,
+      previousWasBust: false,
+      previousHighestTurnScore: 350,
+      previousPlayerName: 'Alice',
+      chartValues: [[200, 700, 1200], [300, 500, 800]],
+      chartNames: ['Alice', 'Bob'],
+      chartLabels: [1, 2, 3],
+      status: 'playing',
+      historyLog: [{ id: '6-Alice-5', playerName: 'Alice', card: '300', type: 'success', round: 6, score: 350 }],
+      gameTimeInSeconds: 480,
+    };
+    expect(pickLocalGameState(save)).toEqual(save);
   });
 });
