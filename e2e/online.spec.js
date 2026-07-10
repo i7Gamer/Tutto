@@ -1,14 +1,22 @@
 import { test, expect } from '@playwright/test';
 
+// Every browser project (chromium/firefox/webkit) runs against the SAME
+// spawned server, and a room's player names stay reserved for the whole
+// reconnect timeout after a context closes — so a fixed room id makes the
+// second browser's join collide with the first browser's ghost players.
+// Unique ids per project/worker/run keep the tests isolated.
+const uniqueRoomId = (label, testInfo) =>
+  `E2E-${label}-${testInfo.project.name}-w${testInfo.workerIndex}-${Date.now()}`;
+
 test.describe('Tutto Online Ghost Lobbies', () => {
-  test('host reconnects and retains status without breaking lobby', async ({ browser }) => {
+  test('host reconnects and retains status without breaking lobby', async ({ browser }, testInfo) => {
     const contextA = await browser.newContext();
     const pageA = await contextA.newPage();
-    
+
     const contextB = await browser.newContext();
     const pageB = await contextB.newPage();
 
-    const roomId = 'E2E-TEST-ROOM-1';
+    const roomId = uniqueRoomId('ROOM1', testInfo);
 
     // 1. Host creates room
     await pageA.goto('/');
@@ -51,7 +59,7 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     await expect(startGameBtn).toBeVisible();
   });
 
-  test('non-host players can push game state', async ({ browser }) => {
+  test('non-host players can push game state', async ({ browser }, testInfo) => {
     test.setTimeout(90000);
 
     const contextA = await browser.newContext();
@@ -60,7 +68,7 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     const contextB = await browser.newContext();
     const pageB = await contextB.newPage();
 
-    const roomId = 'E2E-TEST-ROOM-2';
+    const roomId = uniqueRoomId('ROOM2', testInfo);
 
     // 1. Host creates room
     await pageA.goto('/');
