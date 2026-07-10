@@ -53,16 +53,27 @@ export default defineConfig(({ mode }) => {
           short_name: 'Tutto',
           description: 'Tutto scorecard and game manager',
           theme_color: '#4f46e5',
+          // Rendered from public/favicon.svg — see scripts/generate-icons.mjs.
+          // The previous config declared the 200x200 logo.png as both the 192
+          // and 512 icon, so installed-app icons rendered upscaled and blurry.
           icons: [
             {
-              src: 'assets/logo.png',
+              src: 'assets/icon-192.png',
               sizes: '192x192',
-              type: 'image/png'
+              type: 'image/png',
+              purpose: 'any'
             },
             {
-              src: 'assets/logo.png',
+              src: 'assets/icon-512.png',
               sizes: '512x512',
-              type: 'image/png'
+              type: 'image/png',
+              purpose: 'any'
+            },
+            {
+              src: 'assets/icon-512-maskable.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable'
             }
           ]
         }
