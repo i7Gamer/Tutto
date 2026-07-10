@@ -2,19 +2,38 @@ import { useState } from 'react';
 import { UserPlus } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, AudioSettingSelector, HapticsSettingSelector } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
-import type { GameStore } from '../../store/useGameStore';
+import { useGameStore } from '../../store/useGameStore';
 
-interface LocalLobbyProps {
-  game: GameStore;
-}
-
-export default function LocalLobby({ game }: LocalLobbyProps) {
+export default function LocalLobby() {
   const { t } = useTranslation();
   const [newPlayerName, setNewPlayerName] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const { players, addPlayer, removePlayer, startGame, reorderPlayers, changePlayerColor } = game;
+  // Selects only what this lobby renders — the whole store used to arrive as
+  // a prop from Home, re-rendering the entire lobby tree on any store change.
+  const {
+    players, addPlayer, removePlayer, startGame, reorderPlayers, changePlayerColor,
+    diceMode, setDiceMode, audioEnabled, setAudioEnabled, hapticsEnabled, setHapticsEnabled,
+    initialCards, resetGeneralSettings, resetInitialCards,
+  } = useGameStore(useShallow((s) => ({
+    players: s.players,
+    addPlayer: s.addPlayer,
+    removePlayer: s.removePlayer,
+    startGame: s.startGame,
+    reorderPlayers: s.reorderPlayers,
+    changePlayerColor: s.changePlayerColor,
+    diceMode: s.diceMode,
+    setDiceMode: s.setDiceMode,
+    audioEnabled: s.audioEnabled,
+    setAudioEnabled: s.setAudioEnabled,
+    hapticsEnabled: s.hapticsEnabled,
+    setHapticsEnabled: s.setHapticsEnabled,
+    initialCards: s.initialCards,
+    resetGeneralSettings: s.resetGeneralSettings,
+    resetInitialCards: s.resetInitialCards,
+  })));
 
   const handleAddPlayer = () => {
     const trimmedName = newPlayerName.trim();
@@ -60,25 +79,24 @@ export default function LocalLobby({ game }: LocalLobbyProps) {
       </div>
 
       <div className="flex flex-row flex-wrap justify-center items-stretch gap-2 sm:gap-4 mb-8">
-        <DiceModeSelector diceMode={game.diceMode} setDiceMode={game.setDiceMode} nameSuffix="Local" />
-        <AudioSettingSelector audioEnabled={game.audioEnabled} setAudioEnabled={game.setAudioEnabled} nameSuffix="Local" />
-        <HapticsSettingSelector hapticsEnabled={game.hapticsEnabled} setHapticsEnabled={game.setHapticsEnabled} nameSuffix="Local" />
+        <DiceModeSelector diceMode={diceMode} setDiceMode={setDiceMode} nameSuffix="Local" />
+        <AudioSettingSelector audioEnabled={audioEnabled} setAudioEnabled={setAudioEnabled} nameSuffix="Local" />
+        <HapticsSettingSelector hapticsEnabled={hapticsEnabled} setHapticsEnabled={setHapticsEnabled} nameSuffix="Local" />
         <AdvancedOptionsToggle showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} />
       </div>
 
       <AdvancedOptionsPanel
         showAdvanced={showAdvanced}
-        game={game}
         isOnline={false}
-        onResetGeneralSettings={() => game.resetGeneralSettings()}
-        onResetCards={() => game.resetInitialCards()}
+        onResetGeneralSettings={() => resetGeneralSettings()}
+        onResetCards={() => resetInitialCards()}
       />
 
       <StartGameButton
         startGame={startGame}
         playersCount={players ? players.length : 0}
-        disabled={(players ? players.length : 0) < 2 || !hasPlayableDeck(game.initialCards)}
-        disabledMessage={!hasPlayableDeck(game.initialCards) ? t('lobby.emptyDeck', 'Add at least one card to the deck') : undefined}
+        disabled={(players ? players.length : 0) < 2 || !hasPlayableDeck(initialCards)}
+        disabledMessage={!hasPlayableDeck(initialCards) ? t('lobby.emptyDeck', 'Add at least one card to the deck') : undefined}
       />
     </motion.div>
   );

@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { Copy, Check } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList,
   AudioSettingSelector, HapticsSettingSelector, EnforceDiceModeToggle, DiceModeEnforcedBadge,
 } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
-import type { GameStore } from '../../store/useGameStore';
+import { useGameStore } from '../../store/useGameStore';
 
 // How long the copy button shows its "copied" checkmark before reverting.
 const COPY_FEEDBACK_MS = 1500;
@@ -16,17 +17,13 @@ interface JoinRoomResult {
   error?: string;
 }
 
-interface OnlineLobbyProps {
-  game: GameStore;
-}
-
 interface RecentRoom {
   roomId: string;
   name: string;
   timestamp: number;
 }
 
-export default function OnlineLobby({ game }: OnlineLobbyProps) {
+export default function OnlineLobby() {
   const { t } = useTranslation();
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -48,7 +45,39 @@ export default function OnlineLobby({ game }: OnlineLobbyProps) {
   const [errorMsg, setErrorMsg] = useState('');
   const [roomCodeCopied, setRoomCodeCopied] = useState(false);
 
-  const { players, startGame, reorderPlayers, changeMyColor, isHost, hostId, joinRoom, leaveRoom, roomId, myName, kickPlayer, addToast } = game;
+  // Selects only what this lobby renders — the whole store used to arrive as
+  // a prop from Home, re-rendering the entire lobby tree on any store change.
+  const {
+    players, startGame, reorderPlayers, changeMyColor, isHost, hostId, joinRoom,
+    leaveRoom, roomId, myName, kickPlayer, addToast,
+    diceMode, setDiceMode, enforcedDiceMode, setEnforcedDiceMode,
+    audioEnabled, setAudioEnabled, hapticsEnabled, setHapticsEnabled,
+    initialCards, resetGeneralSettings, resetInitialCards,
+  } = useGameStore(useShallow((s) => ({
+    players: s.players,
+    startGame: s.startGame,
+    reorderPlayers: s.reorderPlayers,
+    changeMyColor: s.changeMyColor,
+    isHost: s.isHost,
+    hostId: s.hostId,
+    joinRoom: s.joinRoom,
+    leaveRoom: s.leaveRoom,
+    roomId: s.roomId,
+    myName: s.myName,
+    kickPlayer: s.kickPlayer,
+    addToast: s.addToast,
+    diceMode: s.diceMode,
+    setDiceMode: s.setDiceMode,
+    enforcedDiceMode: s.enforcedDiceMode,
+    setEnforcedDiceMode: s.setEnforcedDiceMode,
+    audioEnabled: s.audioEnabled,
+    setAudioEnabled: s.setAudioEnabled,
+    hapticsEnabled: s.hapticsEnabled,
+    setHapticsEnabled: s.setHapticsEnabled,
+    initialCards: s.initialCards,
+    resetGeneralSettings: s.resetGeneralSettings,
+    resetInitialCards: s.resetInitialCards,
+  })));
 
   const copyFeedbackTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(copyFeedbackTimer.current), []);
@@ -209,19 +238,19 @@ export default function OnlineLobby({ game }: OnlineLobbyProps) {
               override this per-device default by enforcing a single mode for
               everyone (EnforceDiceModeToggle below) — a non-host's own selector
               is hidden while that's active since it would no longer do anything. */}
-          {(isHost || !game.enforcedDiceMode) && (
-            <DiceModeSelector diceMode={game.diceMode} setDiceMode={game.setDiceMode} nameSuffix="Online" />
+          {(isHost || !enforcedDiceMode) && (
+            <DiceModeSelector diceMode={diceMode} setDiceMode={setDiceMode} nameSuffix="Online" />
           )}
-          {!isHost && game.enforcedDiceMode && (
-            <DiceModeEnforcedBadge enforcedDiceMode={game.enforcedDiceMode} />
+          {!isHost && enforcedDiceMode && (
+            <DiceModeEnforcedBadge enforcedDiceMode={enforcedDiceMode} />
           )}
-          <AudioSettingSelector audioEnabled={game.audioEnabled} setAudioEnabled={game.setAudioEnabled} nameSuffix="Online" />
-          <HapticsSettingSelector hapticsEnabled={game.hapticsEnabled} setHapticsEnabled={game.setHapticsEnabled} nameSuffix="Online" />
+          <AudioSettingSelector audioEnabled={audioEnabled} setAudioEnabled={setAudioEnabled} nameSuffix="Online" />
+          <HapticsSettingSelector hapticsEnabled={hapticsEnabled} setHapticsEnabled={setHapticsEnabled} nameSuffix="Online" />
           {isHost && (
             <EnforceDiceModeToggle
-              diceMode={game.diceMode}
-              enforcedDiceMode={game.enforcedDiceMode}
-              setEnforcedDiceMode={game.setEnforcedDiceMode}
+              diceMode={diceMode}
+              enforcedDiceMode={enforcedDiceMode}
+              setEnforcedDiceMode={setEnforcedDiceMode}
             />
           )}
           <AdvancedOptionsToggle showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} />
@@ -229,11 +258,10 @@ export default function OnlineLobby({ game }: OnlineLobbyProps) {
 
         <AdvancedOptionsPanel
           showAdvanced={showAdvanced}
-          game={game}
           isOnline={true}
           readOnly={!isHost}
-          onResetGeneralSettings={isHost ? () => game.resetGeneralSettings() : null}
-          onResetCards={isHost ? () => game.resetInitialCards() : null}
+          onResetGeneralSettings={isHost ? () => resetGeneralSettings() : null}
+          onResetCards={isHost ? () => resetInitialCards() : null}
         />
       </div>
 
@@ -242,8 +270,8 @@ export default function OnlineLobby({ game }: OnlineLobbyProps) {
           <StartGameButton
             startGame={startGame}
             playersCount={players ? players.length : 0}
-            disabled={players.length < 2 || players?.some(p => p.disconnected) || !hasPlayableDeck(game.initialCards)}
-            disabledMessage={!hasPlayableDeck(game.initialCards) ? t('lobby.emptyDeck', 'Add at least one card to the deck') : undefined}
+            disabled={players.length < 2 || players?.some(p => p.disconnected) || !hasPlayableDeck(initialCards)}
+            disabledMessage={!hasPlayableDeck(initialCards) ? t('lobby.emptyDeck', 'Add at least one card to the deck') : undefined}
           />
         ) : (
           <motion.div

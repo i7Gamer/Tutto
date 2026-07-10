@@ -1,14 +1,26 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import OnlineLobby from './OnlineLobby';
+import { useGameStore } from '../../store/useGameStore';
 import type { GameStore } from '../../store/useGameStore';
+import type { Player } from '../../types';
+
+// OnlineLobby subscribes to the store itself (no more `game` prop), so tests
+// stage state/action-spies with setState and restore the pristine snapshot
+// afterwards.
+const pristineStore = useGameStore.getState();
+const stageStore = (partial: Partial<GameStore>) => useGameStore.setState(partial);
+
+const asPlayers = (players: Array<Partial<Player> & { name: string }>): Player[] =>
+  players.map(p => ({ score: 0, ...p } as Player));
+
+afterEach(() => {
+  useGameStore.setState(pristineStore, true);
+});
 
 describe('OnlineLobby', () => {
   it('renders join/create room form if no roomId', () => {
-    const mockGame = {
-      joinRoom: vi.fn(),
-    };
-    render(<OnlineLobby game={mockGame} />);
+    render(<OnlineLobby />);
     expect(screen.getByText('lobby.online.joinOrCreateRoom')).toBeInTheDocument();
     expect(screen.getByText('lobby.online.roomCode')).toBeInTheDocument();
     expect(screen.getByText('lobby.online.yourName')).toBeInTheDocument();
@@ -16,17 +28,13 @@ describe('OnlineLobby', () => {
   });
 
   it('renders room lobby if roomId is present', () => {
-    const mockGame = {
+    stageStore({
       roomId: '1234',
       myName: 'Alice',
       isHost: true,
-      players: [{ id: 1, name: 'Alice' }],
-      diceMode: '2d',
-      setDiceMode: vi.fn(),
-      changeMyColor: vi.fn(),
-      kickPlayer: vi.fn(),
-    };
-    render(<OnlineLobby game={mockGame} />);
+      players: asPlayers([{ name: 'Alice' }]),
+    });
+    render(<OnlineLobby />);
     expect(screen.getByText('lobby.online.room')).toBeInTheDocument();
     expect(screen.getByText('lobby.online.youAre')).toBeInTheDocument();
     expect(screen.getByText('lobby.online.leaveRoom')).toBeInTheDocument();
@@ -35,16 +43,11 @@ describe('OnlineLobby', () => {
 });
 
 describe('OnlineLobby copy room code button', () => {
-  const makeGame = (overrides = {}) => ({
+  const stageRoom = (overrides: Partial<GameStore> = {}) => stageStore({
     roomId: '1234',
     myName: 'Alice',
     isHost: true,
-    players: [{ name: 'Alice' }],
-    diceMode: 'digital',
-    setDiceMode: vi.fn(),
-    changeMyColor: vi.fn(),
-    kickPlayer: vi.fn(),
-    addToast: vi.fn(),
+    players: asPlayers([{ name: 'Alice' }]),
     ...overrides,
   });
 
@@ -53,9 +56,10 @@ describe('OnlineLobby copy room code button', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     const addToast = vi.fn();
+    stageRoom({ addToast });
 
-    render(<OnlineLobby game={makeGame({ addToast })} />);
-    
+    render(<OnlineLobby />);
+
     await act(async () => {
       fireEvent.click(screen.getByTitle('lobby.online.copyRoomCode'));
     });
@@ -70,9 +74,10 @@ describe('OnlineLobby copy room code button', () => {
     const writeText = vi.fn().mockRejectedValue(new Error('denied'));
     Object.assign(navigator, { clipboard: { writeText } });
     const addToast = vi.fn();
+    stageRoom({ addToast });
 
-    render(<OnlineLobby game={makeGame({ addToast })} />);
-    
+    render(<OnlineLobby />);
+
     await act(async () => {
       fireEvent.click(screen.getByTitle('lobby.online.copyRoomCode'));
     });
@@ -85,8 +90,9 @@ describe('OnlineLobby copy room code button', () => {
     vi.useFakeTimers();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
+    stageRoom({ addToast: vi.fn() });
 
-    const { unmount } = render(<OnlineLobby game={makeGame()} />);
+    const { unmount } = render(<OnlineLobby />);
 
     await act(async () => {
       fireEvent.click(screen.getByTitle('lobby.online.copyRoomCode'));
@@ -110,53 +116,49 @@ describe('OnlineLobby copy room code button', () => {
 });
 
 describe('OnlineLobby start button / waiting indicator', () => {
-  const makeGame = (overrides = {}) => ({
+  const stageRoom = (overrides: Partial<GameStore> = {}) => stageStore({
     roomId: '1234',
     myName: 'Alice',
     isHost: true,
     hostId: 'socket-alice',
-    players: [
+    players: asPlayers([
       { name: 'Alice', socketId: 'socket-alice', color: '#ff0000', disconnected: false },
       { name: 'Bob',   socketId: 'socket-bob',   color: '#00ff00', disconnected: false },
-    ],
-    diceMode: 'digital',
-    setDiceMode: vi.fn(),
-    changeMyColor: vi.fn(),
-    kickPlayer: vi.fn(),
-    startGame: vi.fn(),
-    reorderPlayers: vi.fn(),
-    initialCards: { Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5, x2: 5, '200': 5, '300': 5, '400': 5, '500': 5, '600': 5 },
+    ]),
     ...overrides,
   });
 
   it('renders enabled start button for host with 2+ connected players', () => {
-    render(<OnlineLobby game={makeGame()} />);
+    stageRoom();
+    render(<OnlineLobby />);
     const startText = screen.getByText('lobby.startGame');
     expect(startText).toBeInTheDocument();
     expect(startText.closest('button')).not.toBeDisabled();
   });
 
   it('renders disabled start button with reconnect message when a player is disconnected', () => {
-    const game = makeGame({
-      players: [
+    stageRoom({
+      players: asPlayers([
         { name: 'Alice', socketId: 'socket-alice', color: '#ff0000', disconnected: false },
         { name: 'Bob',   socketId: 'socket-bob',   color: '#00ff00', disconnected: true },
-      ],
+      ]),
     });
-    render(<OnlineLobby game={game} />);
+    render(<OnlineLobby />);
     const msg = screen.getByText('lobby.waitingForPlayersToReconnect');
     expect(msg).toBeInTheDocument();
     expect(msg.closest('button')).toBeDisabled();
   });
 
   it('renders waiting-for-host spinner and no start button for non-host', () => {
-    render(<OnlineLobby game={makeGame({ isHost: false })} />);
+    stageRoom({ isHost: false });
+    render(<OnlineLobby />);
     expect(screen.getByText('lobby.online.waitingForHost')).toBeInTheDocument();
     expect(screen.queryByText('lobby.startGame')).not.toBeInTheDocument();
   });
 
   it('places start button outside the mb-8 room-header section', () => {
-    render(<OnlineLobby game={makeGame()} />);
+    stageRoom();
+    render(<OnlineLobby />);
     const startText = screen.getByText('lobby.startGame');
     const leaveText = screen.getByText('lobby.online.leaveRoom');
     // Leave button lives inside the mb-8 wrapper; start button must not
@@ -166,29 +168,23 @@ describe('OnlineLobby start button / waiting indicator', () => {
 });
 
 describe('OnlineLobby dice mode enforcement', () => {
-  const makeGame = (overrides = {}) => ({
+  const stageRoom = (overrides: Partial<GameStore> = {}) => stageStore({
     roomId: '1234',
     myName: 'Alice',
     isHost: true,
     hostId: 'socket-alice',
-    players: [
+    players: asPlayers([
       { name: 'Alice', socketId: 'socket-alice', color: '#ff0000', disconnected: false },
       { name: 'Bob',   socketId: 'socket-bob',   color: '#00ff00', disconnected: false },
-    ],
+    ]),
     diceMode: 'physical',
-    setDiceMode: vi.fn(),
     enforcedDiceMode: null,
-    setEnforcedDiceMode: vi.fn(),
-    changeMyColor: vi.fn(),
-    kickPlayer: vi.fn(),
-    startGame: vi.fn(),
-    reorderPlayers: vi.fn(),
-    initialCards: { Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5, x2: 5, '200': 5, '300': 5, '400': 5, '500': 5, '600': 5 },
     ...overrides,
   });
 
   it('host sees the enforce checkbox and their own dice mode selector', () => {
-    render(<OnlineLobby game={makeGame()} />);
+    stageRoom();
+    render(<OnlineLobby />);
     expect(screen.getByText('lobby.enforceDiceMode')).toBeInTheDocument();
     expect(screen.getByText('lobby.digitalDice')).toBeInTheDocument();
     expect(screen.getByText('lobby.physicalDice')).toBeInTheDocument();
@@ -197,7 +193,8 @@ describe('OnlineLobby dice mode enforcement', () => {
 
   it('checking the enforce checkbox enforces the host\'s current dice mode', () => {
     const setEnforcedDiceMode = vi.fn();
-    render(<OnlineLobby game={makeGame({ diceMode: 'digital', setEnforcedDiceMode })} />);
+    stageRoom({ diceMode: 'digital', setEnforcedDiceMode });
+    render(<OnlineLobby />);
 
     const checkbox = screen.getByText('lobby.enforceDiceMode').closest('label')!.querySelector('input[type="checkbox"]')!;
     fireEvent.click(checkbox);
@@ -207,7 +204,8 @@ describe('OnlineLobby dice mode enforcement', () => {
 
   it('unchecking the enforce checkbox turns enforcement off', () => {
     const setEnforcedDiceMode = vi.fn();
-    render(<OnlineLobby game={makeGame({ enforcedDiceMode: 'physical', setEnforcedDiceMode })} />);
+    stageRoom({ enforcedDiceMode: 'physical', setEnforcedDiceMode });
+    render(<OnlineLobby />);
 
     const checkbox = screen.getByText('lobby.enforceDiceMode').closest('label')!.querySelector('input[type="checkbox"]')!;
     expect(checkbox).toBeChecked();
@@ -217,7 +215,8 @@ describe('OnlineLobby dice mode enforcement', () => {
   });
 
   it('non-host sees a read-only badge instead of the selector once enforcement is on', () => {
-    render(<OnlineLobby game={makeGame({ isHost: false, enforcedDiceMode: 'digital' })} />);
+    stageRoom({ isHost: false, enforcedDiceMode: 'digital' });
+    render(<OnlineLobby />);
     expect(screen.getByText(/lobby.diceModeEnforcedBadge/)).toBeInTheDocument();
     expect(screen.queryByText('lobby.digitalDice')).not.toBeInTheDocument();
     expect(screen.queryByText('lobby.physicalDice')).not.toBeInTheDocument();
@@ -225,7 +224,8 @@ describe('OnlineLobby dice mode enforcement', () => {
   });
 
   it('non-host still sees their own selector when enforcement is off', () => {
-    render(<OnlineLobby game={makeGame({ isHost: false, enforcedDiceMode: null })} />);
+    stageRoom({ isHost: false, enforcedDiceMode: null });
+    render(<OnlineLobby />);
     expect(screen.getByText('lobby.digitalDice')).toBeInTheDocument();
     expect(screen.getByText('lobby.physicalDice')).toBeInTheDocument();
     expect(screen.queryByText(/lobby.diceModeEnforcedBadge/)).not.toBeInTheDocument();
@@ -244,10 +244,7 @@ describe('OnlineLobby recent rooms history', () => {
         { roomId: 'ROOM123', name: 'Bob', timestamp: Date.now() }
       ])
     );
-    const mockGame = {
-      joinRoom: vi.fn(),
-    };
-    render(<OnlineLobby game={mockGame} />);
+    render(<OnlineLobby />);
     expect(screen.getByText('lobby.online.recentRooms')).toBeInTheDocument();
     expect(screen.getByText(/ROOM123/)).toBeInTheDocument();
   });
@@ -259,11 +256,8 @@ describe('OnlineLobby recent rooms history', () => {
         { roomId: 'ROOM123', name: 'Bob', timestamp: Date.now() }
       ])
     );
-    const mockGame = {
-      joinRoom: vi.fn(),
-    };
-    render(<OnlineLobby game={mockGame} />);
-    
+    render(<OnlineLobby />);
+
     const recentBtn = screen.getByText(/ROOM123/).closest('button')!;
     fireEvent.click(recentBtn);
 
@@ -282,18 +276,16 @@ describe('OnlineLobby recent rooms history', () => {
         { roomId: 'ROOM456', name: 'Alice', timestamp: 2000 }
       ])
     );
-    const mockGame = {
-      joinRoom: vi.fn().mockResolvedValue({}),
-    };
-    render(<OnlineLobby game={mockGame as unknown as GameStore} />);
-    
+    stageStore({ joinRoom: vi.fn().mockResolvedValue({ success: true }) });
+    render(<OnlineLobby />);
+
     const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder') as HTMLInputElement;
     const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder') as HTMLInputElement;
     const joinBtn = screen.getByText('lobby.online.joinCreateButton');
 
     fireEvent.change(roomInput, { target: { value: 'ROOM123' } });
     fireEvent.change(nameInput, { target: { value: 'Bob2' } });
-    
+
     await act(async () => {
       fireEvent.click(joinBtn);
     });
@@ -313,19 +305,17 @@ describe('OnlineLobby recent rooms history', () => {
       roomId: `ROOM${i}`, name: 'Bob', timestamp: i * 1000
     }));
     localStorage.setItem('tutto_recent_rooms', JSON.stringify(seed));
-    
-    const mockGame = {
-      joinRoom: vi.fn().mockResolvedValue({}),
-    };
-    render(<OnlineLobby game={mockGame as unknown as GameStore} />);
-    
+
+    stageStore({ joinRoom: vi.fn().mockResolvedValue({ success: true }) });
+    render(<OnlineLobby />);
+
     const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder') as HTMLInputElement;
     const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder') as HTMLInputElement;
     const joinBtn = screen.getByText('lobby.online.joinCreateButton');
 
     fireEvent.change(roomInput, { target: { value: 'ROOM_NEW' } });
     fireEvent.change(nameInput, { target: { value: 'Bob' } });
-    
+
     await act(async () => {
       fireEvent.click(joinBtn);
     });
@@ -341,8 +331,7 @@ describe('OnlineLobby recent rooms history', () => {
 
   it('handles malformed localStorage data gracefully', () => {
     localStorage.setItem('tutto_recent_rooms', 'not json');
-    const mockGame = { joinRoom: vi.fn() };
-    render(<OnlineLobby game={mockGame as unknown as GameStore} />);
+    render(<OnlineLobby />);
     expect(screen.queryByText('lobby.online.recentRooms')).not.toBeInTheDocument();
   });
 });

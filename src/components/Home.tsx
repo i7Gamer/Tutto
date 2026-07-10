@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../store/useGameStore';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -13,8 +14,11 @@ interface HomeProps {
 
 export default function Home({ onShowStats }: HomeProps) {
   const { t } = useTranslation();
-  const game = useGameStore();
-  const { mode, setMode, roomId, leaveRoom } = game;
+  // Narrow subscription — the lobbies select their own fields themselves, so
+  // Home no longer re-renders the whole page on every store change.
+  const { mode, setMode, roomId, leaveRoom } = useGameStore(useShallow((s) => ({
+    mode: s.mode, setMode: s.setMode, roomId: s.roomId, leaveRoom: s.leaveRoom,
+  })));
 
   const handleModeChange = useCallback((newMode: 'local' | 'online') => {
     if (newMode === 'local' && roomId) {
@@ -90,7 +94,7 @@ export default function Home({ onShowStats }: HomeProps) {
         />
 
         <div className="bg-black/5 dark:bg-white/5 rounded-2xl p-4 sm:p-6 border border-gray-100 dark:border-slate-700">
-          {mode === 'local' ? <LocalLobby game={game} /> : <OnlineLobby game={game} />}
+          {mode === 'local' ? <LocalLobby /> : <OnlineLobby />}
         </div>
 
         <div className="text-center mt-10 text-sm text-gray-500 dark:text-gray-400 font-medium">

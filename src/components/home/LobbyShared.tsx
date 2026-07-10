@@ -9,7 +9,8 @@ import {
   snapDisableableDuration,
 } from '../../utils/configValidation';
 import type { Player, CardType, DiceMode } from '../../types';
-import type { GameStore } from '../../store/useGameStore';
+import { useShallow } from 'zustand/react/shallow';
+import { useGameStore } from '../../store/useGameStore';
 import { supportsIOSSwitchHaptic } from '../../utils/iosSwitchHaptic';
 import { REORDER_PRESS_RELEASE_MS } from '../../utils/uiTimings';
 
@@ -286,7 +287,6 @@ export function AdvancedOptionsToggle({ showAdvanced, setShowAdvanced }: Advance
 
 interface AdvancedOptionsPanelProps {
   showAdvanced: boolean;
-  game: GameStore;
   isOnline?: boolean;
   readOnly?: boolean;
   onResetGeneralSettings?: (() => void) | null;
@@ -354,7 +354,6 @@ function BlurInput({ value, onValueChange, minVal = 0, maxVal = 99999, normalize
 
 export function AdvancedOptionsPanel({
   showAdvanced,
-  game,
   isOnline = false,
   readOnly = false,
   onResetGeneralSettings = null,
@@ -362,10 +361,28 @@ export function AdvancedOptionsPanel({
 }: AdvancedOptionsPanelProps) {
   const { t } = useTranslation();
 
+  // Subscribes to its own config slice instead of receiving the whole store
+  // as a prop from the lobbies (which forced them to drill it through).
+  const {
+    winningScore, setWinningScore, turnDuration, setTurnDuration,
+    reconnectTimeout, setReconnectTimeout, randomOrder, setRandomOrder,
+    enforcedDiceMode, initialCards, setInitialCards,
+  } = useGameStore(useShallow((s) => ({
+    winningScore: s.winningScore,
+    setWinningScore: s.setWinningScore,
+    turnDuration: s.turnDuration,
+    setTurnDuration: s.setTurnDuration,
+    reconnectTimeout: s.reconnectTimeout,
+    setReconnectTimeout: s.setReconnectTimeout,
+    randomOrder: s.randomOrder,
+    setRandomOrder: s.setRandomOrder,
+    enforcedDiceMode: s.enforcedDiceMode,
+    initialCards: s.initialCards,
+    setInitialCards: s.setInitialCards,
+  })));
+
   const updateCardCount = (card: string, count: number) => {
-    if (game.setInitialCards) {
-      game.setInitialCards({ ...game.initialCards, [card as CardType]: count });
-    }
+    setInitialCards({ ...initialCards, [card as CardType]: count });
   };
 
   return (
@@ -381,31 +398,31 @@ export function AdvancedOptionsPanel({
             <div className="bg-white dark:bg-slate-800/40 p-3 sm:p-5 rounded-xl border border-gray-200 dark:border-slate-600">
               <div className="flex flex-wrap gap-2 mb-4">
                 <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
-                  {t('lobby.winningScore', 'Winning Score')}: <strong>{game.winningScore}</strong>
+                  {t('lobby.winningScore', 'Winning Score')}: <strong>{winningScore}</strong>
                 </span>
                 {isOnline && (
                   <>
                     <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
-                      {t('lobby.turnTimer', 'Turn Timer')}: <strong>{game.turnDuration > 0 ? `${game.turnDuration}s` : t('common.disabled', 'Disabled')}</strong>
+                      {t('lobby.turnTimer', 'Turn Timer')}: <strong>{turnDuration > 0 ? `${turnDuration}s` : t('common.disabled', 'Disabled')}</strong>
                     </span>
                     <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
-                      {t('lobby.kickTimer', 'Kick Timer')}: <strong>{game.reconnectTimeout > 0 ? `${game.reconnectTimeout}s` : t('common.disabled', 'Disabled')}</strong>
+                      {t('lobby.kickTimer', 'Kick Timer')}: <strong>{reconnectTimeout > 0 ? `${reconnectTimeout}s` : t('common.disabled', 'Disabled')}</strong>
                     </span>
                   </>
                 )}
                 <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
-                  {t('lobby.randomOrder', 'Random Order')}: <strong>{game.randomOrder !== false ? t('game.controls.yes', 'Yes') : t('game.controls.no', 'No')}</strong>
+                  {t('lobby.randomOrder', 'Random Order')}: <strong>{randomOrder !== false ? t('game.controls.yes', 'Yes') : t('game.controls.no', 'No')}</strong>
                 </span>
-                {isOnline && game.enforcedDiceMode && (
+                {isOnline && enforcedDiceMode && (
                   <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
-                    {t('lobby.diceMode', 'Dice Mode')}: <strong>{game.enforcedDiceMode === 'digital' ? t('lobby.digitalDice', 'Digital Dice') : t('lobby.physicalDice', 'Physical Dice')}</strong>
+                    {t('lobby.diceMode', 'Dice Mode')}: <strong>{enforcedDiceMode === 'digital' ? t('lobby.digitalDice', 'Digital Dice') : t('lobby.physicalDice', 'Physical Dice')}</strong>
                   </span>
                 )}
               </div>
               <div className="pt-4 border-t border-gray-200 dark:border-slate-600">
                 <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{t('lobby.cardsInDeck', 'Cards in Deck')}</h4>
                 <div className="flex flex-wrap gap-2">
-                  {game.initialCards && Object.entries(game.initialCards).map(([card, count]) => (
+                  {initialCards && Object.entries(initialCards).map(([card, count]) => (
                     <span key={card} className="px-2.5 py-1 bg-gray-100 dark:bg-slate-700/50 text-gray-700 dark:text-gray-300 rounded-md text-sm font-medium border border-gray-200 dark:border-slate-600">
                       {card.replace('_', '/')}: <strong>{count}</strong>
                     </span>
@@ -434,8 +451,8 @@ export function AdvancedOptionsPanel({
                   <BlurInput
                     type="number" minVal={MIN_WINNING_SCORE} maxVal={MAX_WINNING_SCORE} inputMode="numeric" pattern="[0-9]*"
                     className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
-                    value={game.winningScore}
-                    onValueChange={(val) => game.setWinningScore(val)}
+                    value={winningScore}
+                    onValueChange={(val) => setWinningScore(val)}
                   />
                 </label>
                 {isOnline && (
@@ -446,8 +463,8 @@ export function AdvancedOptionsPanel({
                         type="number" minVal={0} maxVal={MAX_TURN_DURATION} inputMode="numeric" pattern="[0-9]*"
                         normalize={(val) => snapDisableableDuration(val, MIN_ENABLED_TURN_DURATION)}
                         className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
-                        value={game.turnDuration}
-                        onValueChange={(val) => game.setTurnDuration(val)}
+                        value={turnDuration}
+                        onValueChange={(val) => setTurnDuration(val)}
                         placeholder="0"
                       />
                     </label>
@@ -457,24 +474,24 @@ export function AdvancedOptionsPanel({
                         type="number" minVal={0} maxVal={MAX_RECONNECT_TIMEOUT} inputMode="numeric" pattern="[0-9]*"
                         normalize={(val) => snapDisableableDuration(val, MIN_ENABLED_RECONNECT_TIMEOUT)}
                         className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
-                        value={game.reconnectTimeout}
-                        onValueChange={(val) => game.setReconnectTimeout(val)}
+                        value={reconnectTimeout}
+                        onValueChange={(val) => setReconnectTimeout(val)}
                         placeholder="0"
                       />
                     </label>
                   </>
                 )}
                 <div
-                  onClick={() => game.setRandomOrder(!game.randomOrder)}
+                  onClick={() => setRandomOrder(!randomOrder)}
                   className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
                 >
                   <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2 py-1">{t('lobby.randomOrder', 'Random Order')}</span>
-                  <div className={`w-10 h-5 rounded-full flex items-center p-0.5 transition-colors ${game.randomOrder !== false ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-slate-600'}`}>
+                  <div className={`w-10 h-5 rounded-full flex items-center p-0.5 transition-colors ${randomOrder !== false ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-slate-600'}`}>
                     <motion.div
                       layout
                       transition={{ type: 'spring', stiffness: 700, damping: 30 }}
                       className="w-4 h-4 bg-white rounded-full shadow-sm"
-                      style={{ marginLeft: game.randomOrder !== false ? '20px' : '0px' }}
+                      style={{ marginLeft: randomOrder !== false ? '20px' : '0px' }}
                     />
                   </div>
                 </div>
@@ -494,7 +511,7 @@ export function AdvancedOptionsPanel({
                 )}
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
-                {game.initialCards && Object.entries(game.initialCards).map(([card, count]) => (
+                {initialCards && Object.entries(initialCards).map(([card, count]) => (
                   <label key={card} className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                     <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{card.replace('_', '/')}</span>
                     <BlurInput
