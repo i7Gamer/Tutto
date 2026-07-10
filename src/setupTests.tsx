@@ -77,7 +77,15 @@ globalThis.fetch = vi.fn((url: string) => {
       ok: true, json: () => Promise.resolve({ gamesPlayed: 5, wins: 2 }),
     } as Response);
   }
-  return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+  // Crash reports are fire-and-forget with their own catch (see
+  // crashLog.recordCrash) — acknowledge them so intentional ErrorBoundary
+  // tests don't each surface a rejected-promise distraction.
+  if (url === '/api/log/client-error') {
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) } as Response);
+  }
+  // Anything else is a missing mock, not a real endpoint — fail loudly so a
+  // new fetch call site can't silently ride on a fake {ok: true} response.
+  return Promise.reject(new Error(`Unmocked fetch in test: ${url}`));
 }) as unknown as typeof fetch;
 
 (globalThis as Record<string, unknown>).ResizeObserver = class {

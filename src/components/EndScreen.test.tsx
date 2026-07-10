@@ -1,7 +1,9 @@
 import { render, act, cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import EndScreen from './EndScreen';
+import EndScreen, {
+  STATS_FETCH_MAX_RETRIES, STATS_FETCH_RETRY_DELAY_MS, STATS_FETCH_INITIAL_DELAY_MS,
+} from './EndScreen';
 import { useGameStore } from '../store/useGameStore';
 
 // Capture the chart's `data` prop instead of rendering a real canvas.
@@ -515,6 +517,38 @@ describe('EndScreen Component', () => {
       expect(currentStreakLabel.previousElementSibling?.textContent).toBe('2');
       expect(bestStreakLabel.previousElementSibling?.textContent).toBe('4');
       vi.useRealTimers();
+    });
+
+    it('cancels the pending stats retry when unmounted mid-retry', async () => {
+      const originalFetch = global.fetch;
+      // Force the retry path: the server-side stats write for this game
+      // hasn't landed yet, so gamesPlayed comes back 0 and a retry is scheduled.
+      const fetchMock = vi.fn(() => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ gamesPlayed: 0 }),
+      }));
+      global.fetch = fetchMock as unknown as typeof fetch;
+      useGameStore.setState({ isOnline: true });
+
+      const { unmount } = render(<EndScreen deviceId="device-retry-unmount" />);
+
+      // The initial delayed fetch fires and resolves — with gamesPlayed 0 the
+      // next retry is now pending.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STATS_FETCH_INITIAL_DELAY_MS);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      unmount();
+
+      // Advance far past every possible retry: the unmount cleanup must have
+      // cancelled the pending timer, so no further fetch may land.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STATS_FETCH_RETRY_DELAY_MS * (STATS_FETCH_MAX_RETRIES + 2));
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      global.fetch = originalFetch;
     });
   });
 });

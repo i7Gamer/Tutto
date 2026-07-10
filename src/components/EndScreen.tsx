@@ -30,9 +30,10 @@ const colors = [
 
 // The lifetime-stats fetch races the server-side stats write triggered by the
 // same game finish, so it retries until gamesPlayed shows up (or gives up).
-const STATS_FETCH_MAX_RETRIES = 5;
-const STATS_FETCH_RETRY_DELAY_MS = 1000;
-const STATS_FETCH_INITIAL_DELAY_MS = 500;
+// Exported for the retry-lifecycle tests.
+export const STATS_FETCH_MAX_RETRIES = 5;
+export const STATS_FETCH_RETRY_DELAY_MS = 1000;
+export const STATS_FETCH_INITIAL_DELAY_MS = 500;
 
 interface DeviceStats {
   gamesPlayed: number;
