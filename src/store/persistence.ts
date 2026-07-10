@@ -70,8 +70,17 @@ const isPlausibleHistoryEntry = (v: unknown): boolean => {
 // One shape check per restorable field. A key whose value fails its check is
 // dropped — the store keeps its initial default for that field — rather than
 // crashing the app downstream wherever the corrupted value is first used.
+// Same case-insensitive uniqueness rule the server's joinRoom and
+// LocalLobby's handleAddPlayer both enforce at the only points a save is
+// normally built — so a well-formed save can never actually hit this. It
+// only matters for a hand-edited/corrupted save: duplicate names break
+// every name-keyed lookup (Plus/Minus deduction, undo, pushState merging)
+// and produce duplicate React keys.
+const hasUniquePlayerNames = (players: { name: string }[]): boolean =>
+  new Set(players.map(p => p.name.toLowerCase())).size === players.length;
+
 const LOCAL_GAME_VALIDATORS: Record<(typeof LOCAL_GAME_STATE_KEYS)[number], (v: unknown) => boolean> = {
-  players: v => Array.isArray(v) && v.every(isPlausiblePlayer),
+  players: v => Array.isArray(v) && v.every(isPlausiblePlayer) && hasUniquePlayerNames(v),
   currentPlayerIndex: v => v === null || (Number.isInteger(v) && (v as number) >= 0),
   currentCard: isCardOrNull,
   cards: isCardArray,

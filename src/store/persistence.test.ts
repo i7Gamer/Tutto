@@ -70,6 +70,20 @@ describe('pickLocalGameState', () => {
     expect(pickLocalGameState({ players: [{ name: 'Alice' }] })).toEqual({});
   });
 
+  it('rejects the whole roster when it contains duplicate names (case-insensitive)', () => {
+    // Duplicate names break every name-keyed lookup (Plus/Minus deduction,
+    // undo, React keys) — the server and LocalLobby both refuse to create
+    // this state normally, so it can only arise from a hand-edited save.
+    expect(pickLocalGameState({
+      players: [{ name: 'Alice', score: 100 }, { name: 'alice', score: 50 }],
+    })).toEqual({});
+    expect(pickLocalGameState({
+      players: [{ name: 'Alice', score: 100 }, { name: 'Bob', score: 50 }],
+    })).toEqual({
+      players: [{ name: 'Alice', score: 100 }, { name: 'Bob', score: 50 }],
+    });
+  });
+
   it('drops a currentPlayerIndex that points past the restored roster (or has no roster at all)', () => {
     // Index saved against a 3-player roster, but the roster itself was
     // corrupted and dropped — the index alone would activate a turn for a
