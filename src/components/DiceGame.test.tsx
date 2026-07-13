@@ -554,3 +554,39 @@ describe('DiceGame roll-again mid-animation button stability', () => {
     expect(screen.getByText('dice.stop_and_score').closest('button')).toBe(stopBefore);
   });
 });
+
+describe('DiceGame Kleeblatt bust delay', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    rollQueue.length = 0;
+    isTestEnvMock.mockReturnValue(false);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    isTestEnvMock.mockReturnValue(true);
+    localStorage.clear();
+  });
+
+  it('delays showing the summary when busting on Kleeblatt card', () => {
+    const onComplete = vi.fn();
+    queueRoll([2, 2, 3, 3, 4, 6]); // A bust roll
+    render(<DiceGame currentCard="Kleeblatt" onComplete={onComplete} />);
+
+    // Let the dice roll animation complete
+    // totalAnimationTime is baseTumbleTime + 5 * staggerDelay = 400 + 5 * 150 = 1150ms
+    // finalizeRoll runs totalAnimationTime + ROLL_SETTLE_BUFFER_MS (100ms) = 1250ms
+    act(() => { vi.advanceTimersByTime(1250); });
+
+    // After roll settles, we should be busted, but the summary is delayed
+    expect(screen.queryByText('dice.bust')).toBeNull();
+
+    // Advance by BUST_SUMMARY_DELAY_MS (1500ms)
+    act(() => { vi.advanceTimersByTime(1500); });
+
+    // Now the bust summary should be visible
+    expect(screen.getByText('dice.bust')).toBeInTheDocument();
+  });
+});
+

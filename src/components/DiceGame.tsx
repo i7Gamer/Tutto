@@ -174,27 +174,24 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         setBustState(true);
         playBuzzer();
         vibrateBust();
-        if (currentCard === 'Kleeblatt') {
-          setShowSummary(true);
-          setSummaryData({ won: false, score: 0 });
-        } else {
-          if (isTest) {
-            if (currentCard === 'Feuerwerk') {
-              setSummaryData({ won: scoreSoFar > 0, score: scoreSoFar, isTutto: false });
-            } else {
-              setSummaryData({ won: false, score: 0, isTutto: false });
-            }
-            setShowSummary(true);
+        const getSummary = () => {
+          if (currentCard === 'Kleeblatt') {
+            return { won: false, score: 0 };
+          } else if (currentCard === 'Feuerwerk') {
+            return { won: scoreSoFar > 0, score: scoreSoFar, isTutto: false };
           } else {
-            pendingTimers.current.push(setTimeout(() => {
-              if (currentCard === 'Feuerwerk') {
-                setSummaryData({ won: scoreSoFar > 0, score: scoreSoFar, isTutto: false });
-              } else {
-                setSummaryData({ won: false, score: 0, isTutto: false });
-              }
-              setShowSummary(true);
-            }, BUST_SUMMARY_DELAY_MS));
+            return { won: false, score: 0, isTutto: false };
           }
+        };
+
+        if (isTest) {
+          setSummaryData(getSummary());
+          setShowSummary(true);
+        } else {
+          pendingTimers.current.push(setTimeout(() => {
+            setSummaryData(getSummary());
+            setShowSummary(true);
+          }, BUST_SUMMARY_DELAY_MS));
         }
       }
     };
