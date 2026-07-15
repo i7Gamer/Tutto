@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../store/useGameStore';
 import { motion } from 'framer-motion';
@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import ModeSelector from './home/ModeSelector';
 import LocalLobby from './home/LocalLobby';
 import OnlineLobby from './home/OnlineLobby';
+import ConfirmModal from './ConfirmModal';
 
 interface HomeProps {
   onShowStats: () => void;
@@ -20,16 +21,18 @@ export default function Home({ onShowStats }: HomeProps) {
     mode: s.mode, setMode: s.setMode, roomId: s.roomId, leaveRoom: s.leaveRoom,
   })));
 
+  // The only branch of handleModeChange that ever needs confirmation is
+  // switching away from an active online room — there's no other pending
+  // target mode to remember once confirmed, it's always 'local'.
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+
   const handleModeChange = useCallback((newMode: 'local' | 'online') => {
     if (newMode === 'local' && roomId) {
-      if (window.confirm(t('lobby.online.leaveConfirm', 'Do you really want to leave the room?'))) {
-        leaveRoom();
-        setMode('local');
-      }
-    } else {
-      setMode(newMode);
+      setShowLeaveConfirm(true);
+      return;
     }
-  }, [roomId, t, leaveRoom, setMode]);
+    setMode(newMode);
+  }, [roomId, setMode]);
 
   const handleClearCache = useCallback(() => {
     localStorage.removeItem('tutto_dice_turn_state');
@@ -104,6 +107,18 @@ export default function Home({ onShowStats }: HomeProps) {
           </button>
         </div>
       </motion.div>
+
+      <ConfirmModal
+        open={showLeaveConfirm}
+        danger
+        message={t('lobby.online.leaveConfirm', 'Do you really want to leave the room?')}
+        onCancel={() => setShowLeaveConfirm(false)}
+        onConfirm={() => {
+          setShowLeaveConfirm(false);
+          leaveRoom();
+          setMode('local');
+        }}
+      />
     </div>
   );
 }

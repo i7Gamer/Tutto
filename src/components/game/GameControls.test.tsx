@@ -353,54 +353,62 @@ describe('GameControls end/leave game confirmation dialogs', () => {
 
   it('offline: shows End Game, and only calls endGame once the confirm dialog is accepted', () => {
     const endGame = vi.fn();
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<GameControls {...baseProps({ isOnline: false, isHost: true, endGame })} />);
 
     expect(screen.queryByText('game.controls.leaveGame')).toBeNull();
     fireEvent.click(screen.getByText('game.controls.endGame'));
-    expect(confirmSpy).toHaveBeenCalledWith('game.controls.endGameConfirm');
+    expect(screen.getByText('game.controls.endGameConfirm')).toBeInTheDocument();
     expect(endGame).not.toHaveBeenCalled();
 
-    confirmSpy.mockReturnValue(true);
+    fireEvent.click(screen.getByText('common.cancel'));
+    expect(endGame).not.toHaveBeenCalled();
+    expect(screen.queryByText('game.controls.endGameConfirm')).toBeNull();
+
     fireEvent.click(screen.getByText('game.controls.endGame'));
+    fireEvent.click(screen.getByText('common.confirm'));
     expect(endGame).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('game.controls.endGameConfirm')).toBeNull();
   });
 
   it('online + host: still shows End Game (not Leave Game)', () => {
     const endGame = vi.fn();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<GameControls {...baseProps({ isOnline: true, isHost: true, endGame })} />);
 
     fireEvent.click(screen.getByText('game.controls.endGame'));
+    fireEvent.click(screen.getByText('common.confirm'));
     expect(endGame).toHaveBeenCalledTimes(1);
   });
 
   it('online + non-host: shows Leave Game, and only calls leaveRoom once the confirm dialog is accepted', () => {
     const leaveRoom = vi.fn();
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<GameControls {...baseProps({ isOnline: true, isHost: false, leaveRoom })} />);
 
     expect(screen.queryByText('game.controls.endGame')).toBeNull();
     fireEvent.click(screen.getByText('game.controls.leaveGame'));
-    expect(confirmSpy).toHaveBeenCalledWith('game.controls.leaveGameConfirm');
+    expect(screen.getByText('game.controls.leaveGameConfirm')).toBeInTheDocument();
     expect(leaveRoom).not.toHaveBeenCalled();
 
-    confirmSpy.mockReturnValue(true);
+    fireEvent.click(screen.getByText('common.cancel'));
+    expect(leaveRoom).not.toHaveBeenCalled();
+
     fireEvent.click(screen.getByText('game.controls.leaveGame'));
+    fireEvent.click(screen.getByText('common.confirm'));
     expect(leaveRoom).toHaveBeenCalledTimes(1);
   });
 
   it('undo: only calls undo once the confirm dialog is accepted', () => {
     const undo = vi.fn();
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<GameControls {...baseProps({ undo })} />);
 
     fireEvent.click(screen.getByText('game.controls.undo'));
-    expect(confirmSpy).toHaveBeenCalledWith('game.controls.undoConfirm');
+    expect(screen.getByText('game.controls.undoConfirm')).toBeInTheDocument();
     expect(undo).not.toHaveBeenCalled();
 
-    confirmSpy.mockReturnValue(true);
+    fireEvent.click(screen.getByText('common.cancel'));
+    expect(undo).not.toHaveBeenCalled();
+
     fireEvent.click(screen.getByText('game.controls.undo'));
+    fireEvent.click(screen.getByText('common.confirm'));
     expect(undo).toHaveBeenCalledTimes(1);
   });
 

@@ -115,6 +115,41 @@ describe('OnlineLobby copy room code button', () => {
   });
 });
 
+describe('OnlineLobby leave-room confirmation', () => {
+  const stageRoom = (overrides: Partial<GameStore> = {}) => stageStore({
+    roomId: '1234',
+    myName: 'Alice',
+    isHost: true,
+    players: asPlayers([{ name: 'Alice' }]),
+    ...overrides,
+  });
+
+  it('does not leave the room when the confirm dialog is declined', () => {
+    const leaveRoom = vi.fn();
+    stageRoom({ leaveRoom });
+    render(<OnlineLobby />);
+
+    fireEvent.click(screen.getByText('lobby.online.leaveRoom'));
+    expect(screen.getByText('lobby.online.leaveConfirm')).toBeInTheDocument();
+    expect(leaveRoom).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('common.cancel'));
+    expect(leaveRoom).not.toHaveBeenCalled();
+    expect(screen.queryByText('lobby.online.leaveConfirm')).toBeNull();
+  });
+
+  it('leaves the room once the confirm dialog is accepted', () => {
+    const leaveRoom = vi.fn();
+    stageRoom({ leaveRoom });
+    render(<OnlineLobby />);
+
+    fireEvent.click(screen.getByText('lobby.online.leaveRoom'));
+    fireEvent.click(screen.getByText('common.confirm'));
+
+    expect(leaveRoom).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('OnlineLobby start button / waiting indicator', () => {
   const stageRoom = (overrides: Partial<GameStore> = {}) => stageStore({
     roomId: '1234',

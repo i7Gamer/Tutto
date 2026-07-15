@@ -9,6 +9,7 @@ import {
 } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
 import { useGameStore } from '../../store/useGameStore';
+import ConfirmModal from '../ConfirmModal';
 
 // How long the copy button shows its "copied" checkmark before reverting.
 const COPY_FEEDBACK_MS = 1500;
@@ -26,6 +27,7 @@ interface RecentRoom {
 export default function OnlineLobby() {
   const { t } = useTranslation();
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
 
   const [recentRooms, setRecentRooms] = useState<RecentRoom[]>(() => {
     try {
@@ -206,9 +208,7 @@ export default function OnlineLobby() {
           </div>
           <button
             className="text-red-500 hover:bg-red-50 border border-red-200 px-4 py-2 rounded-lg font-medium transition-colors"
-            onClick={() => {
-              if (window.confirm(t('lobby.online.leaveConfirm', 'Do you really want to leave the room?'))) leaveRoom();
-            }}
+            onClick={() => setShowLeaveConfirm(true)}
           >
             {t('lobby.online.leaveRoom', 'Leave Room')}
           </button>
@@ -286,6 +286,17 @@ export default function OnlineLobby() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <ConfirmModal
+        open={showLeaveConfirm}
+        danger
+        message={t('lobby.online.leaveConfirm', 'Do you really want to leave the room?')}
+        onCancel={() => setShowLeaveConfirm(false)}
+        onConfirm={() => {
+          setShowLeaveConfirm(false);
+          leaveRoom();
+        }}
+      />
     </motion.div>
   );
 }

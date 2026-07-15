@@ -177,6 +177,8 @@
   "statistics.avgPts": "Ø Pkt",
   "common.back": "Zurück",
   "common.disabled": "Deaktiviert",
+  "common.confirm": "Bestätigen",
+  "common.cancel": "Abbrechen",
   "statistics.title": "Statistiken",
   "statistics.personal": "Persönlich",
   "statistics.globalCommunity": "Globale Community",

@@ -7,6 +7,7 @@ import { sortKeptDiceForDisplay } from '../../utils/diceTurnControls';
 import { CARD_FLIP_MS } from '../../utils/uiTimings';
 import type { CardType, DiceMode, DiceSnapshot, Player } from '../../types';
 import { DiePips } from './Die';
+import ConfirmModal from '../ConfirmModal';
 
 interface GameControlsProps {
   currentCard: CardType | null;
@@ -59,6 +60,10 @@ export default function GameControls({
   const [prevCardsLength, setPrevCardsLength] = useState(cardsLength);
   const [prevCard, setPrevCard] = useState<CardType | null>(currentCard);
   const [isFlipping, setIsFlipping] = useState(false);
+  // Which of the three confirm-gated actions below is pending a yes/no from
+  // ConfirmModal — replaces the blocking window.confirm() every one of them
+  // used to call directly.
+  const [pendingAction, setPendingAction] = useState<'end' | 'leave' | 'undo' | null>(null);
 
   // Synchronous render-time derived state: must run before paint so isFlipping
   // is true on the same frame the new card arrives, preventing a visible flash.
@@ -285,32 +290,45 @@ export default function GameControls({
         {(!isOnline || isHost) ? (
           <button
             className="flex items-center gap-2 text-red-500 hover:bg-red-50 px-4 py-2 rounded-lg font-medium transition-colors"
-            onClick={() => {
-              if (window.confirm(t('game.controls.endGameConfirm', 'Do you really want to end the game?'))) endGame();
-            }}
+            onClick={() => setPendingAction('end')}
           >
             <X size={18} /> {t('game.controls.endGame', 'End Game')}
           </button>
         ) : (
           <button
             className="flex items-center gap-2 text-red-500 hover:bg-red-50 px-4 py-2 rounded-lg font-medium transition-colors"
-            onClick={() => {
-              if (window.confirm(t('game.controls.leaveGameConfirm', 'Do you really want to leave the game?'))) leaveRoom();
-            }}
+            onClick={() => setPendingAction('leave')}
           >
             <X size={18} /> {t('game.controls.leaveGame', 'Leave Game')}
           </button>
         )}
         <button
           className="flex items-center gap-2 text-gray-500 dark:text-gray-400 hover:bg-black/5 dark:bg-white/5 hover:text-gray-800 dark:text-gray-100 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:pointer-events-none"
-          onClick={() => {
-            if (window.confirm(t('game.controls.undoConfirm', 'Undo the last turn?'))) undo();
-          }}
+          onClick={() => setPendingAction('undo')}
           disabled={!canUndo}
         >
           <Undo2 size={18} /> {t('game.controls.undo', 'Undo')}
         </button>
       </div>
+
+      <ConfirmModal
+        open={pendingAction !== null}
+        danger={pendingAction === 'end' || pendingAction === 'leave'}
+        message={
+          pendingAction === 'end'
+            ? t('game.controls.endGameConfirm', 'Do you really want to end the game?')
+            : pendingAction === 'leave'
+              ? t('game.controls.leaveGameConfirm', 'Do you really want to leave the game?')
+              : t('game.controls.undoConfirm', 'Undo the last turn?')
+        }
+        onCancel={() => setPendingAction(null)}
+        onConfirm={() => {
+          if (pendingAction === 'end') endGame();
+          else if (pendingAction === 'leave') leaveRoom();
+          else if (pendingAction === 'undo') undo();
+          setPendingAction(null);
+        }}
+      />
     </div>
   );
 }

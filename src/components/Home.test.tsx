@@ -62,25 +62,29 @@ describe('Home handleModeChange', () => {
   it('does not leave or switch mode when the leave-room confirm is declined', () => {
     const setMode = vi.fn();
     const leaveRoom = vi.fn();
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
     useGameStore.setState({ mode: 'online', roomId: 'ROOM1', setMode, leaveRoom });
     render(<Home onShowStats={() => {}} />);
 
     fireEvent.click(screen.getByText('home.localPlay'));
 
-    expect(window.confirm).toHaveBeenCalledWith('lobby.online.leaveConfirm');
+    expect(screen.getByText('lobby.online.leaveConfirm')).toBeInTheDocument();
     expect(leaveRoom).not.toHaveBeenCalled();
     expect(setMode).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('common.cancel'));
+    expect(leaveRoom).not.toHaveBeenCalled();
+    expect(setMode).not.toHaveBeenCalled();
+    expect(screen.queryByText('lobby.online.leaveConfirm')).toBeNull();
   });
 
   it('leaves the room and switches to local mode when the leave-room confirm is accepted', () => {
     const setMode = vi.fn();
     const leaveRoom = vi.fn();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     useGameStore.setState({ mode: 'online', roomId: 'ROOM1', setMode, leaveRoom });
     render(<Home onShowStats={() => {}} />);
 
     fireEvent.click(screen.getByText('home.localPlay'));
+    fireEvent.click(screen.getByText('common.confirm'));
 
     expect(leaveRoom).toHaveBeenCalledTimes(1);
     expect(setMode).toHaveBeenCalledWith('local');
