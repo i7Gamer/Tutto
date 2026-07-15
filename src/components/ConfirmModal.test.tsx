@@ -1,4 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import ConfirmModal from './ConfirmModal';
 
@@ -58,5 +59,72 @@ describe('ConfirmModal', () => {
     render(<ConfirmModal open={true} message="Are you sure?" onConfirm={vi.fn()} onCancel={onCancel} />);
     fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  describe('focus management', () => {
+    // A stateful wrapper — a real trigger button, plus an open/close cycle
+    // driven by the same onCancel callback a real caller wires up (GameControls,
+    // Home, OnlineLobby), rather than toggling the `open` prop directly.
+    function Wrapper() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Trigger</button>
+          <ConfirmModal
+            open={open}
+            message="Are you sure?"
+            onConfirm={vi.fn()}
+            onCancel={() => setOpen(false)}
+          />
+        </>
+      );
+    }
+
+    it('moves focus into the dialog (onto Cancel) when opened, and back to the trigger when closed', async () => {
+      render(<Wrapper />);
+      const trigger = screen.getByText('Trigger');
+      trigger.focus();
+      expect(trigger).toHaveFocus();
+
+      fireEvent.click(trigger);
+      await waitFor(() => {
+        expect(screen.getByText('common.cancel')).toHaveFocus();
+      });
+
+      fireEvent.click(screen.getByText('common.cancel'));
+      await waitFor(() => {
+        expect(trigger).toHaveFocus();
+      });
+    });
+
+    it('responds to Escape via real focus, not just a manually targeted event — the bug the manually-targeted test above would miss', async () => {
+      render(<Wrapper />);
+      fireEvent.click(screen.getByText('Trigger'));
+      await waitFor(() => {
+        expect(screen.getByText('common.cancel')).toHaveFocus();
+      });
+
+      // Dispatched on whatever currently has focus (not on the dialog
+      // directly) — this is what a real keypress targets, and is exactly
+      // the case the earlier Escape test (fireEvent.keyDown on the dialog
+      // itself) doesn't actually exercise.
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+
+      await waitFor(() => {
+        expect(screen.queryByText('Are you sure?')).toBeNull();
+      });
+    });
+
+    it('wraps Tab focus between the two buttons instead of letting it escape the dialog', () => {
+      render(<ConfirmModal open={true} message="Are you sure?" onConfirm={vi.fn()} onCancel={vi.fn()} />);
+      const cancelBtn = screen.getByText('common.cancel');
+      const confirmBtn = screen.getByText('common.confirm');
+
+      fireEvent.keyDown(cancelBtn, { key: 'Tab', shiftKey: true });
+      expect(confirmBtn).toHaveFocus();
+
+      fireEvent.keyDown(confirmBtn, { key: 'Tab' });
+      expect(cancelBtn).toHaveFocus();
+    });
   });
 });

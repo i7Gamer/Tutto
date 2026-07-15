@@ -842,6 +842,26 @@ describe('Game Component Integration', () => {
 
       expect(mockNextTurn).not.toHaveBeenCalled();
     });
+
+    it('ignores the shortcut while a confirm dialog (e.g. Leave Game) is open, instead of answering a Yes/No card behind it', () => {
+      // GameControls is NOT mocked in this file, so this exercises the real
+      // ConfirmModal it opens — window.confirm used to make this safe for
+      // free (a blocking native dialog swallows all page keyboard input);
+      // ConfirmModal doesn't, so without a guard this keypress bubbled
+      // straight through to the global shortcut below and answered "Yes" on
+      // the Kniffel card while the "leave game?" dialog was still showing.
+      useGameStore.setState({ diceMode: 'physical', currentCard: 'Kniffel', isOnline: true, isHost: false });
+      render(<Game />);
+
+      fireEvent.click(screen.getByText('game.controls.leaveGame'));
+      expect(screen.getByText('game.controls.leaveGameConfirm')).toBeInTheDocument();
+
+      fireEvent.keyDown(window, { key: ' ' });
+
+      expect(mockNextTurn).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
+      expect(screen.getByText('game.controls.leaveGameConfirm')).toBeInTheDocument();
+    });
   });
 
   describe('pre-game stats snapshot', () => {

@@ -195,7 +195,11 @@ describe('App Integration (End-to-End)', () => {
     });
     expect(screen.getByText('home.reconnect.title')).toBeInTheDocument();
     expect(screen.getByText(/home.reconnect.description/)).toBeInTheDocument();
-    
+    // aria-modal is what Game.tsx's global keyboard-shortcut guard checks for
+    // — without it, a mid-game disconnect (Game stays mounted underneath
+    // this popup) would let Space/Enter presses fall through to it.
+    expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true');
+
     fireEvent.click(screen.getByText('home.reconnect.returnMenu'));
     expect(screen.queryByText('home.reconnect.title')).not.toBeInTheDocument();
     expect(useGameStore.getState().mode).toBe('local');
@@ -210,6 +214,7 @@ describe('App Integration (End-to-End)', () => {
 
     expect(screen.getByText('home.restore.title')).toBeInTheDocument();
     expect(screen.getByText(/home.restore.description/)).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true');
 
     const cancelButton = screen.getByText('home.restore.cancel');
     fireEvent.click(cancelButton);

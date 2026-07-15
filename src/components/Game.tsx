@@ -329,6 +329,15 @@ export default function Game() {
       if (e.repeat) return;
       const tag = (document.activeElement as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      // Any open modal (ConfirmModal, HelpPopup, ReconnectPopup, ...) owns
+      // keyboard input while it's up. Unlike the window.confirm() this
+      // shortcut used to coexist with (a truly blocking native dialog that
+      // swallows all page input for free), a React overlay doesn't stop this
+      // listener on its own — without this check, Space/Enter pressed while
+      // one is open bubbles straight through and can silently roll dice or
+      // answer a Yes/No card behind the dialog the player hasn't dismissed
+      // yet. Every modal in this app sets aria-modal="true" while shown.
+      if (document.querySelector('[aria-modal="true"]')) return;
 
       if (e.key !== ' ' && e.key !== 'Enter') return;
       if (!isMyTurn) return;
