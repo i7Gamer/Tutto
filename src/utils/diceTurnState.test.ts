@@ -96,6 +96,58 @@ describe('diceTurnState', () => {
       const legacy = JSON.stringify({ turnScore: 100 });
       expect(parseSavedDiceState(legacy)!.turnKey).toBeUndefined();
     });
+
+    it('drops malformed entries/fields back to their defaults instead of propagating them', () => {
+      // A corrupted tutto_dice_turn_state (hand-edited or from an older,
+      // incompatible build) must not restore garbage into DiceGame's state —
+      // e.g. currentRoll.filter/keptDice.map would throw if these weren't
+      // arrays, crashing the render on mount.
+      const raw = JSON.stringify({
+        turnScore: 'not-a-number',
+        keptDice: [{}],
+        currentRoll: [{ id: 'r1', val: 5 }], // missing the required `selected`
+        kniffelProgress: [7, 'x', 0],
+        tuttosThisTurn: -1,
+      });
+      expect(parseSavedDiceState(raw)).toEqual({
+        turnScore: 0,
+        keptDice: [],
+        currentRoll: [],
+        kniffelProgress: [],
+        tuttosThisTurn: 0,
+        busted: false,
+      });
+    });
+
+    it('resets keptDice/currentRoll to [] when the stored value is not an array at all', () => {
+      const raw = JSON.stringify({ keptDice: 'nope', currentRoll: 42 });
+      const parsed = parseSavedDiceState(raw)!;
+      expect(parsed.keptDice).toEqual([]);
+      expect(parsed.currentRoll).toEqual([]);
+    });
+
+    it('keeps a well-formed keptDice/currentRoll/kniffelProgress unchanged', () => {
+      const raw = JSON.stringify({
+        turnScore: 300,
+        keptDice: [{ id: 'k1', val: 6 }],
+        currentRoll: [{ id: 'r1', val: 1, selected: true }, { id: 'r2', val: 3, selected: false }],
+        kniffelProgress: [1, 2, 3],
+        tuttosThisTurn: 1,
+      });
+      expect(parseSavedDiceState(raw)).toEqual({
+        turnScore: 300,
+        keptDice: [{ id: 'k1', val: 6 }],
+        currentRoll: [{ id: 'r1', val: 1, selected: true }, { id: 'r2', val: 3, selected: false }],
+        kniffelProgress: [1, 2, 3],
+        tuttosThisTurn: 1,
+        busted: false,
+      });
+    });
+
+    it('drops a non-string playerName instead of propagating a corrupted value', () => {
+      expect(parseSavedDiceState(JSON.stringify({ playerName: 12345 }))!.playerName).toBeUndefined();
+      expect(parseSavedDiceState(JSON.stringify({ playerName: 'Alice' }))!.playerName).toBe('Alice');
+    });
   });
 
   describe('buildDiceSnapshot', () => {
