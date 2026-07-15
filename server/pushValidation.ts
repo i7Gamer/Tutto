@@ -347,7 +347,14 @@ export const applyPushedState = (
       }
     } else if (key === 'chartNames') {
       const v = newState.chartNames;
-      if (Array.isArray(v) && v.length === state.players.length && v.every(n => typeof n === 'string')) {
+      // Entries are player names, so they follow the same 1-30 char rule as
+      // previousPlayerName/historyLog.playerName. Without the length cap this
+      // was the one client-pushed string stored unbounded — and rebroadcast
+      // to every client on each subsequent emitRoomState.
+      if (
+        Array.isArray(v) && v.length === state.players.length &&
+        v.every(n => typeof n === 'string' && n.length > 0 && n.length <= MAX_PLAYER_NAME_LENGTH)
+      ) {
         state.chartNames = v as string[];
       }
     } else if (key === 'chartLabels') {

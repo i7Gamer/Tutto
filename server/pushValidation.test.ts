@@ -422,12 +422,20 @@ describe('applyPushedState', () => {
       expect(state.chartValues).toEqual([[100], [200]]);
     });
 
-    it('chartNames: one string per player', () => {
+    it('chartNames: one non-empty string per player, capped at name length', () => {
       const state = makeState();
       applyPushedState(state, { chartNames: ['Alice', 'Bob'] }, asActivePlayer);
       expect(state.chartNames).toEqual(['Alice', 'Bob']);
-      applyPushedState(state, { chartNames: ['Alice', 42] }, asActivePlayer);
-      expect(state.chartNames).toEqual(['Alice', 'Bob']);
+      // These are player names, so they follow the same 1-30 char rule as
+      // previousPlayerName/historyLog — without the cap this was the one
+      // client-pushed string the server stored unbounded and re-broadcast to
+      // every client on each subsequent state change.
+      for (const bad of [['Alice', 42], ['Alice', ''], ['Alice', 'x'.repeat(31)]]) {
+        applyPushedState(state, { chartNames: bad }, asActivePlayer);
+        expect(state.chartNames).toEqual(['Alice', 'Bob']);
+      }
+      applyPushedState(state, { chartNames: ['Alice', 'x'.repeat(30)] }, asActivePlayer);
+      expect(state.chartNames).toEqual(['Alice', 'x'.repeat(30)]);
     });
 
     it('chartLabels: finite numbers within the rounds cap', () => {
