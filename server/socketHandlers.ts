@@ -555,6 +555,15 @@ export const registerSocketHandlers = (io: Server): void => {
         } else if (room.host === socket.id) {
           const nextHost = room.state.players.find(p => !p.disconnected);
           if (!nextHost) {
+            // Intended policy: a host who EXPLICITLY leaves while no other
+            // player is connected tears the room down immediately — even if
+            // disconnected players still have reconnect timers pending. This
+            // deliberately differs from a host DISCONNECT (the timeout path
+            // below keeps the room alive so the others can reconnect into
+            // it): leaving is a conscious act of abandoning the room, not an
+            // accident to recover from. The 'kicked' emits are best-effort
+            // (the targets are disconnected, so usually no-ops) and
+            // deleteRoom cancels the pending timers.
             for (const p of room.state.players) {
               io.to(p.socketId).emit('kicked');
             }
