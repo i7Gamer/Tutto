@@ -12,16 +12,28 @@
   <body>
     <div id="root"></div>
     <script>
+      // Recovers from a stale service-worker cache serving an old HTML shell
+      // that references JS chunks the current deploy no longer has (a failed
+      // dynamic import, or a <script> tag itself 404ing/erroring). Runs before
+      // main.tsx (and any React error boundary) even executes, so it can't
+      // rely on any app code being loaded yet.
+      //
+      // Throttled to at most once per RELOAD_COOLDOWN_MS so a persistently
+      // broken deploy triggers one reload attempt, not a refresh loop.
+      var RELOAD_COOLDOWN_MS = 60000;
+      // isExcluded guards against ever auto-reloading for an unrelated
+      // third-party <script> error (analytics, a CDN widget, etc.) that
+      // happens to load from '/assets/' or '/src/' in its own URL. The app
+      // currently loads no such scripts — every external resource it uses
+      // (Google Fonts) comes in via a CSS @import, which this listener never
+      // sees — so this list is inert today; kept as a guard for if one is
+      // ever added.
+      var EXCLUDED_SCRIPT_SRC_SUBSTRINGS = ['socket.io', 'google', 'fonts.googleapis', 'cdn', 'analytics'];
+
       window.addEventListener('error', function(e) {
         var isChunkError = e.message && (e.message.includes('Failed to fetch dynamically imported module') || e.message.includes('Importing a module script failed'));
         var isAppScript = e.target && e.target.src && (e.target.src.includes('/assets/') || e.target.src.includes('/src/'));
-        var isExcluded = e.target && e.target.src && (
-          e.target.src.includes('socket.io') ||
-          e.target.src.includes('google') ||
-          e.target.src.includes('fonts.googleapis') ||
-          e.target.src.includes('cdn') ||
-          e.target.src.includes('analytics')
-        );
+        var isExcluded = e.target && e.target.src && EXCLUDED_SCRIPT_SRC_SUBSTRINGS.some(function(s) { return e.target.src.includes(s); });
         var isScriptError = e.target && e.target.tagName === 'SCRIPT' && isAppScript && !isExcluded;
 
         if (isChunkError || isScriptError) {
@@ -37,7 +49,7 @@
             timeSinceLastReload: lastReload ? (now - parseInt(lastReload)) + 'ms' : 'never'
           });
 
-          if (!lastReload || (now - parseInt(lastReload)) > 60000) {
+          if (!lastReload || (now - parseInt(lastReload)) > RELOAD_COOLDOWN_MS) {
             console.error('[Auto-reloading] Triggering reload due to:', e.message || e.target?.src);
             localStorage.setItem('tutto_last_reload', now.toString());
             if ('caches' in window) {
