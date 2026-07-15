@@ -130,6 +130,17 @@ export const pickLocalGameState = (parsed: unknown): Partial<GameStore> => {
       (!players || out.currentPlayerIndex >= players.length)) {
     delete out.currentPlayerIndex;
   }
+  // chartValues/chartNames are player-indexed (one row per player) — same
+  // cross-field rule as the index above. Restoring rows for a roster of a
+  // different size would make nextTurn's round-end bookkeeping index
+  // players[i] past the end of the roster (a crash) or chart the wrong
+  // player. Normal saves always match (startGame sizes the rows from the
+  // roster), so this only ever drops hand-edited/corrupted data.
+  for (const key of ['chartValues', 'chartNames'] as const) {
+    if (key in out && (!players || (out[key] as unknown[]).length !== players.length)) {
+      delete out[key];
+    }
+  }
   return out as Partial<GameStore>;
 };
 

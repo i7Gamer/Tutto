@@ -100,6 +100,28 @@ describe('pickLocalGameState', () => {
     expect(pickLocalGameState({ currentPlayerIndex: null })).toEqual({ currentPlayerIndex: null });
   });
 
+  it('drops chart rows saved for a roster of a different size', () => {
+    // chartValues/chartNames are player-indexed (one row per player) —
+    // restoring rows for a bigger roster makes nextTurn's round-end
+    // bookkeeping index players[i] past the end of the restored roster and
+    // crash on the next round end.
+    const players = [{ name: 'A', score: 0 }, { name: 'B', score: 0 }];
+    expect(pickLocalGameState({
+      players,
+      chartValues: [[10], [20], [30]],
+      chartNames: ['A', 'B', 'C'],
+      chartLabels: [1],
+    })).toEqual({ players, chartLabels: [1] });
+
+    // Matching lengths restore unchanged.
+    expect(pickLocalGameState({
+      players, chartValues: [[1], [2]], chartNames: ['A', 'B'],
+    })).toEqual({ players, chartValues: [[1], [2]], chartNames: ['A', 'B'] });
+
+    // No roster restored at all — the rows have nothing to align to.
+    expect(pickLocalGameState({ chartValues: [[1]], chartNames: ['A'] })).toEqual({});
+  });
+
   it('restores a realistic well-formed mid-game save unchanged', () => {
     const save = {
       players: [
