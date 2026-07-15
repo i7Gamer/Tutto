@@ -6,6 +6,12 @@ export const VALID_CARD_TYPES: readonly CardType[] = [
 ];
 export const MAX_CARD_COUNT = 99;
 
+// The online path enforces this server-side (socketHandlers.ts joinRoom,
+// pushValidation.ts's own MAX_PLAYER_NAME_LENGTH — keep all three in sync).
+// LocalLobby has no server round-trip to catch an oversized name, so it
+// enforces the same cap client-side before a name ever reaches the store.
+export const MAX_PLAYER_NAME_LENGTH = 30;
+
 // Single source of truth for the game-config defaults, shared by the client
 // store (initial state / reset actions) and the server (new-room state) so the
 // two can never drift apart. Consumers that store these in mutable state should

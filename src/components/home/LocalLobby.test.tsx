@@ -1,4 +1,4 @@
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import LocalLobby from './LocalLobby';
 import { useGameStore } from '../../store/useGameStore';
@@ -58,5 +58,60 @@ describe('LocalLobby', () => {
       });
     });
     expect(screen.getByTestId('start-game-button')).toHaveAttribute('data-disabled', 'false');
+  });
+});
+
+describe('LocalLobby handleAddPlayer name validation', () => {
+  const pristineStore = useGameStore.getState();
+
+  afterEach(() => {
+    act(() => {
+      useGameStore.setState(pristineStore, true);
+    });
+  });
+
+  const addPlayerViaInput = (name: string) => {
+    fireEvent.change(screen.getByPlaceholderText('lobby.newPlayerPlaceholder'), { target: { value: name } });
+    fireEvent.click(screen.getByText('lobby.addPlayerButton'));
+  };
+
+  it('rejects an over-length name with a toast instead of adding it', () => {
+    const addPlayer = vi.fn();
+    const addToast = vi.fn();
+    useGameStore.setState({ players: [], addPlayer, addToast });
+    render(<LocalLobby />);
+
+    addPlayerViaInput('x'.repeat(31));
+
+    expect(addPlayer).not.toHaveBeenCalled();
+    expect(addToast).toHaveBeenCalledWith('lobby.playerNameTooLongAlert');
+  });
+
+  it('accepts a name exactly at the length cap', () => {
+    const addPlayer = vi.fn();
+    useGameStore.setState({ players: [], addPlayer });
+    render(<LocalLobby />);
+
+    addPlayerViaInput('x'.repeat(30));
+
+    expect(addPlayer).toHaveBeenCalledWith('x'.repeat(30));
+  });
+
+  it('rejects a duplicate name (case-insensitive) with a toast instead of window.alert', () => {
+    const addPlayer = vi.fn();
+    const addToast = vi.fn();
+    const alertSpy = vi.spyOn(window, 'alert');
+    useGameStore.setState({
+      players: [{ name: 'Alice', color: '#ff0000', score: 0 } as Player],
+      addPlayer,
+      addToast,
+    });
+    render(<LocalLobby />);
+
+    addPlayerViaInput('alice');
+
+    expect(addPlayer).not.toHaveBeenCalled();
+    expect(addToast).toHaveBeenCalledWith('lobby.playerExistsAlert');
+    expect(alertSpy).not.toHaveBeenCalled();
   });
 });

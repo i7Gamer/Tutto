@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, AudioSettingSelector, HapticsSettingSelector } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
+import { MAX_PLAYER_NAME_LENGTH } from '../../utils/configValidation';
 import { useGameStore } from '../../store/useGameStore';
 
 export default function LocalLobby() {
@@ -16,7 +17,7 @@ export default function LocalLobby() {
   const {
     players, addPlayer, removePlayer, startGame, reorderPlayers, changePlayerColor,
     diceMode, setDiceMode, audioEnabled, setAudioEnabled, hapticsEnabled, setHapticsEnabled,
-    initialCards, resetGeneralSettings, resetInitialCards,
+    initialCards, resetGeneralSettings, resetInitialCards, addToast,
   } = useGameStore(useShallow((s) => ({
     players: s.players,
     addPlayer: s.addPlayer,
@@ -33,13 +34,24 @@ export default function LocalLobby() {
     initialCards: s.initialCards,
     resetGeneralSettings: s.resetGeneralSettings,
     resetInitialCards: s.resetInitialCards,
+    addToast: s.addToast,
   })));
 
   const handleAddPlayer = () => {
     const trimmedName = newPlayerName.trim();
     if (trimmedName === '') return;
+    // Same 30-char cap the server enforces on the online path (joinRoom) —
+    // LocalLobby has no server round-trip to catch an oversized name, so it
+    // must reject it here instead of letting it distort every roster/
+    // leaderboard render and get persisted to localStorage as-is.
+    if (trimmedName.length > MAX_PLAYER_NAME_LENGTH) {
+      addToast(t('lobby.playerNameTooLongAlert', { defaultValue: 'Player name must be {{max}} characters or fewer', max: MAX_PLAYER_NAME_LENGTH }));
+      return;
+    }
     if (players.some(p => p.name.toLowerCase() === trimmedName.toLowerCase())) {
-      alert(t('lobby.playerExistsAlert', 'A player with this name already exists!'));
+      // Toasted instead of a blocking window.alert(), consistent with the
+      // rest of the app's non-blocking notifications.
+      addToast(t('lobby.playerExistsAlert', 'A player with this name already exists!'));
       return;
     }
     addPlayer(trimmedName);
@@ -53,6 +65,7 @@ export default function LocalLobby() {
         <div className="flex items-center gap-3 mb-6">
           <input
             type="text"
+            maxLength={MAX_PLAYER_NAME_LENGTH}
             placeholder={t('lobby.newPlayerPlaceholder', 'Name of new player')}
             value={newPlayerName}
             onChange={(e) => setNewPlayerName(e.target.value)}

@@ -140,6 +140,7 @@
   "lobby.waitingForPlayersToReconnect": "Waiting for players to reconnect...",
   "lobby.startGame": "Start Game!",
   "lobby.playerExistsAlert": "A player with this name already exists!",
+  "lobby.playerNameTooLongAlert": "Player name must be {{max}} characters or fewer",
   "lobby.playersTitle": "Players",
   "lobby.newPlayerPlaceholder": "Player name",
   "lobby.addPlayerButton": "Add",
