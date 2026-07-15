@@ -254,7 +254,21 @@ export const registerSocketHandlers = (io: Server): void => {
       if (!data || typeof data !== 'object') return;
       const { roomId, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode } = data;
       if (typeof roomId !== 'string' || !rooms[roomId] || rooms[roomId].host !== socket.id) return;
-      applyValidatedConfig(rooms[roomId].state, { winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode });
+      const state = rooms[roomId].state;
+      if (state.status === 'lobby') {
+        applyValidatedConfig(state, { winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode });
+      } else {
+        // Every field except turnDuration is a lobby-only concept — a stray
+        // or malicious mid-game event must not be able to flip the win
+        // condition (winningScore) or rebuild the deck (initialCards) out
+        // from under an active game, same rule reorderPlayers enforces just
+        // above. turnDuration is the deliberate exception: the host can
+        // shorten it to 0 mid-turn to cancel a pending expiry — no current
+        // UI exposes this, but the server supports it intentionally (see
+        // turnTimer.test.ts's "turnDuration=0 mid-turn cancels a pending
+        // expiry").
+        applyValidatedConfig(state, { turnDuration });
+      }
       // Resync the pending expiry to the (possibly just-changed) turnDuration. A
       // no-op if no turn is in progress; startServerTurnTimer's own guards handle that.
       startServerTurnTimer(io, roomId);

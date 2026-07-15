@@ -845,6 +845,47 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
+  it('updateConfig is blocked when the game is already playing', () => {
+    // Same rule reorderPlayers already enforces (test above): config is a
+    // lobby-only concept. Without this, a client could flip the win condition
+    // (winningScore) or rebuild the deck (initialCards) out from under an
+    // in-progress game.
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+
+      const timeoutId = setTimeout(() => {
+        // If no state change was received with the tampered winningScore
+        // after game start, the test passes.
+        s1.disconnect();
+        resolve();
+      }, 2000);
+
+      let gameStarted = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'UPDATECONFIG_MIDGAME', name: 'Alice', deviceId: 'dev-ucmg-a', color: '#ff0000' }, () => {
+          const players = [
+            { name: 'Alice', deviceId: 'dev-ucmg-a', socketId: s1.id, disconnected: false, score: 0 },
+          ];
+          s1.emit('pushState', { roomId: 'UPDATECONFIG_MIDGAME', newState: { players, status: 'playing', currentPlayerIndex: 0, winningScore: 6000 } });
+
+          setTimeout(() => {
+            gameStarted = true;
+            s1.emit('updateConfig', { roomId: 'UPDATECONFIG_MIDGAME', winningScore: 1000 });
+          }, 300);
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (gameStarted && state.status === 'playing' && state.winningScore === 1000) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          reject(new Error('Server allowed updateConfig during a live game'));
+        }
+      });
+    });
+  }, 10000);
+
   it('non-host active player can deduct Plus_Minus score from the host-leader', () => {
     // Regression test: the server previously rejected changes to other players' rows
     // pushed by a non-host, silently discarding the Plus_Minus -1000 deduction from
