@@ -265,6 +265,32 @@ describe('Database Statistics Integration', () => {
     expect(stats.bestWinStreak).toBe(3);
   });
 
+  it('preserves the win streak on a partial update that records no game result', async () => {
+    const mockDeviceId = 'partial-update-streak-device-' + Date.now();
+
+    // Two wins build a streak of 2.
+    await database.updateDeviceStats(mockDeviceId, { gamesPlayed: 1, wins: 1 });
+    await database.updateDeviceStats(mockDeviceId, { gamesPlayed: 1, wins: 1 });
+
+    // A partial update without a `wins` key (e.g. an admin POST adjusting
+    // totalPlaytime alone) must not reset the streak — only a payload that
+    // actually records a game result may touch it.
+    await database.updateDeviceStats(mockDeviceId, { totalPlaytime: 100 });
+
+    const stats = await database.getDeviceStats(mockDeviceId);
+    expect(stats.currentWinStreak).toBe(2);
+    expect(stats.bestWinStreak).toBe(2);
+    expect(stats.totalPlaytime).toBe(100);
+  });
+
+  it('creates a fresh row with a zero streak when the first update is partial', async () => {
+    const mockDeviceId = 'partial-first-update-device-' + Date.now();
+    await database.updateDeviceStats(mockDeviceId, { totalPlaytime: 50 });
+    const stats = await database.getDeviceStats(mockDeviceId);
+    expect(stats.currentWinStreak).toBe(0);
+    expect(stats.bestWinStreak).toBe(0);
+  });
+
   it('should handle edge cases with missing fields gracefully in device stats', async () => {
     const mockDeviceId = 'edge-case-device-' + Date.now();
     const almostEmptyStats = { dummy: 1 }; // Needs at least one key to bypass the early return optimization

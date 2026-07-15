@@ -100,21 +100,27 @@ export const updateDeviceStats = async (deviceId: string, stats: StatsPayload): 
   });
 
   // Streak isn't additive like the columns above — it depends on whether
-  // THIS game was a win, not a running sum. `wins` (0 or 1) is always present
-  // via deviceCols, so this can run unconditionally alongside it.
-  const wonThisGame = data.wins ? 1 : 0;
-  data.currentWinStreak = wonThisGame;
-  data.bestWinStreak = wonThisGame;
-  mergeCols.currentWinStreak = knex.raw(`
-    CASE WHEN EXCLUDED.wins = 1 THEN device_statistics.currentWinStreak + 1 ELSE 0 END
-  `);
-  mergeCols.bestWinStreak = knex.raw(`
-    CASE
-      WHEN EXCLUDED.wins = 1 AND device_statistics.currentWinStreak + 1 > device_statistics.bestWinStreak
-        THEN device_statistics.currentWinStreak + 1
-      ELSE device_statistics.bestWinStreak
-    END
-  `);
+  // THIS game was a win, not a running sum. Only touched when the payload
+  // actually records a game result (`wins` present): a partial update (e.g.
+  // an admin POST /api/stats/:deviceId adjusting totalPlaytime alone) would
+  // otherwise read as a loss and silently reset currentWinStreak to 0.
+  // Mirrors updateGlobalStats' recordsGame gate below. A fresh row created
+  // by a partial update gets the columns' schema default (0) instead.
+  if ('wins' in stats) {
+    const wonThisGame = data.wins ? 1 : 0;
+    data.currentWinStreak = wonThisGame;
+    data.bestWinStreak = wonThisGame;
+    mergeCols.currentWinStreak = knex.raw(`
+      CASE WHEN EXCLUDED.wins = 1 THEN device_statistics.currentWinStreak + 1 ELSE 0 END
+    `);
+    mergeCols.bestWinStreak = knex.raw(`
+      CASE
+        WHEN EXCLUDED.wins = 1 AND device_statistics.currentWinStreak + 1 > device_statistics.bestWinStreak
+          THEN device_statistics.currentWinStreak + 1
+        ELSE device_statistics.bestWinStreak
+      END
+    `);
+  }
 
   const deviceExtremeCols: [col: string, agg: 'MAX' | 'MIN'][] = [
     ['highestTurnScore', 'MAX'],
