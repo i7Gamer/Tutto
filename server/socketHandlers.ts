@@ -1,4 +1,5 @@
 import { Server, Socket } from 'socket.io';
+import { v4 as uuidv4 } from 'uuid';
 import { getDeviceStats, updateDeviceStats, updateGlobalStats } from './database';
 import { sanitizeStats } from './sanitize';
 import { DEFAULT_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
@@ -203,6 +204,7 @@ export const registerSocketHandlers = (io: Server): void => {
       if (!assignedColor) assignedColor = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)] as string;
 
       const newPlayer: ServerPlayer = {
+        id: uuidv4(),
         name,
         deviceId,
         socketId: socket.id,

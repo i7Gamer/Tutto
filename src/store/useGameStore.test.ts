@@ -2027,6 +2027,32 @@ describe('useGameStore', () => {
     });
   });
 
+  describe('player identity (Player.id)', () => {
+    it('mints a non-empty, unique id for each new player', () => {
+      useGameStore.getState().addPlayer('Alice');
+      useGameStore.getState().addPlayer('Bob');
+      const [alice, bob] = useGameStore.getState().players;
+
+      expect(alice.id).toBeTruthy();
+      expect(bob.id).toBeTruthy();
+      expect(alice.id).not.toBe(bob.id);
+    });
+
+    it('preserves each player’s id across the startGame stat reset', () => {
+      // randomOrder is on by default — startGame legitimately reshuffles the
+      // roster, so this compares the SET of ids (not array order) before and
+      // after, to isolate "did startGame mint fresh ids" from "did it shuffle".
+      useGameStore.getState().addPlayer('Alice');
+      useGameStore.getState().addPlayer('Bob');
+      const idsBefore = new Set(useGameStore.getState().players.map(p => p.id));
+
+      useGameStore.getState().startGame();
+
+      const idsAfter = new Set(useGameStore.getState().players.map(p => p.id));
+      expect(idsAfter).toEqual(idsBefore);
+    });
+  });
+
   describe('default vs custom game detection (global stats payload)', () => {
     const DEFAULT_CARDS = {
       Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5,

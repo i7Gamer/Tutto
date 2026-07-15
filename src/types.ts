@@ -42,6 +42,17 @@ export interface DiceSnapshot {
 }
 
 export interface Player {
+  // Stable per-player identity, minted once at creation (client
+  // createInitialPlayer / server joinRoom) and carried through every reset
+  // (startGame) and merge (server pushValidation). Currently used only for
+  // React keys — every name-keyed lookup (Plus/Minus deduction, undo,
+  // pushState merging, reorderPlayers) is unchanged and still matches by
+  // name; see the Player.id staging notes in implementation_plan.md for why
+  // migrating those is its own, larger follow-up. Optional (not every
+  // in-memory Player literal across the codebase sets one, e.g. test
+  // fixtures and old localStorage saves) — callers that render a key from it
+  // fall back to `name` when absent.
+  id?: string;
   name: string;
   score: number;
   times1000PointsDeducted: number;

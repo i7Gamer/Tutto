@@ -8,6 +8,7 @@ import {
 import { buildTurnKey } from '../utils/diceTurnState';
 import { DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, areInitialCardsEqual } from '../utils/configValidation';
 import playerColorsData from '../../playerColors.json';
+import { v4 as uuidv4 } from 'uuid';
 import type { Player, CoreGameState, Toast } from '../types';
 import { MAX_HISTORY_LOG_SIZE } from '../types';
 import { getSocket } from './socketRef';
@@ -16,6 +17,7 @@ import type { GameStore, ImmerStateCreator } from './storeTypes';
 export const PLAYER_COLORS: string[] = playerColorsData.PLAYER_COLORS;
 
 export const createInitialPlayer = (name: string): Player => ({
+  id: uuidv4(),
   name, score: 0, times1000PointsDeducted: 0, timesKniffelCompleted: 0,
   timesPlusMinusCompleted: 0, timesKniffelFailed: 0, timesKleeblattFailed: 0,
   timesKleeblattCompleted: 0, timesPlusMinusFailed: 0, timesFeuerwerkReceived: 0,
@@ -122,6 +124,11 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     set((state) => {
       const resetPlayers = state.players.map(p => ({
         ...createInitialPlayer(p.name),
+        // createInitialPlayer mints a fresh id on every call — override it
+        // with the player's existing one so a restart doesn't hand out a new
+        // identity for the same seat (breaking React's reconciliation across
+        // the reset, same as color/socketId/disconnected below).
+        id: p.id,
         color: p.color,
         socketId: p.socketId,
         disconnected: p.disconnected,

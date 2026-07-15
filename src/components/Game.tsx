@@ -413,7 +413,7 @@ export default function Game() {
                 return (
                   <motion.div
                     layout
-                    key={p.name}
+                    key={p.id ?? p.name}
                     className={`flex items-center px-4 py-3 border-b border-gray-50 dark:border-slate-700/50 last:border-0 transition-colors ${isCurrent ? 'bg-indigo-100 dark:bg-indigo-900/30' : 'hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
                   >
                     <div className="w-12 font-medium text-gray-600 dark:text-gray-300">{p.position}.</div>

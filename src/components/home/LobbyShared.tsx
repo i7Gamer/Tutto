@@ -80,7 +80,7 @@ export function PlayerList({
             const isMe = isOnline ? p.name === myName : true;
             return (
               <motion.div
-                key={p.name}
+                key={p.id ?? p.name}
                 layout
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}

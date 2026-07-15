@@ -348,7 +348,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
             <div className="flex border-b border-gray-200 dark:border-slate-600 bg-black/5 dark:bg-white/5">
               <div className="p-4 w-56 flex-shrink-0 font-bold text-gray-600 dark:text-gray-300">{t('end.stat', 'Stat')}</div>
               {sortedPlayers.map(p => (
-                <div key={p.name} className="p-4 w-32 flex-shrink-0 font-bold text-center" style={{ color: p.color || 'var(--text-color, #4f46e5)' }}>{p.name}</div>
+                <div key={p.id ?? p.name} className="p-4 w-32 flex-shrink-0 font-bold text-center" style={{ color: p.color || 'var(--text-color, #4f46e5)' }}>{p.name}</div>
               ))}
             </div>
             <div className="flex flex-col">
@@ -367,7 +367,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                 <div key={label} className="flex border-b border-gray-100 dark:border-slate-700/50 last:border-0 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                   <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{label}</div>
                   {sortedPlayers.map(p => (
-                    <div key={p.name} className="p-4 w-32 flex-shrink-0 text-center">{render(p)}</div>
+                    <div key={p.id ?? p.name} className="p-4 w-32 flex-shrink-0 text-center">{render(p)}</div>
                   ))}
                 </div>
               ))}
