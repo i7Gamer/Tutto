@@ -99,6 +99,23 @@ describe('API Endpoints Token Protection', () => {
     expect(res.status).toBe(200);
   });
 
+  it('rejects an unmatched /api/* route with 404 instead of the SPA fallback', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/does-not-exist`);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'Not found' });
+  });
+
+  it('rejects an unmatched /api/* route for any HTTP method', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/global/extra`, { method: 'POST' });
+    expect(res.status).toBe(404);
+  });
+
+  it('still serves the SPA fallback for a non-API unmatched route', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/some/client/route`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+  });
+
   it('GET /api/stats/:deviceId rejects an oversized device id with 400', async () => {
     // Same 200-char cap the socket path enforces in joinRoom.
     const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/${'x'.repeat(201)}`);

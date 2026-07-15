@@ -140,6 +140,16 @@ export const registerApiRoutes = (app: express.Express): void => {
     }
   });
 
+  // Any /api/* path that didn't match a route above is a typo'd or unknown
+  // endpoint, not a client-side route — without this it fell through to the
+  // SPA fallback below and got a 200 + index.html, masking client bugs (a
+  // failed fetch silently "succeeding") and giving probes a misleading
+  // response instead of a clear 404. Registered after every real route so it
+  // only catches what nothing else did.
+  app.use('/api', (_req: express.Request, res: express.Response) => {
+    res.status(404).json({ error: 'Not found' });
+  });
+
   // SPA fallback — must be registered last so it doesn't shadow the API routes.
   app.use((_req: express.Request, res: express.Response) => {
     res.sendFile(path.join(__dirname, '../dist/index.html'), (err: Error | null) => {
