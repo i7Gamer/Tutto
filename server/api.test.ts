@@ -23,7 +23,7 @@ describe('API Endpoints Token Protection', () => {
       let stdout = '';
       serverProcess.stdout.on('data', (data) => {
         stdout += data.toString();
-        if (stdout.includes('Database migrated')) resolve();
+        if (stdout.includes('Server running on port')) resolve();
       });
       serverProcess.stderr.on('data', (data) => console.error(data.toString()));
 
@@ -233,7 +233,7 @@ describe('CORS_ORIGIN configuration', () => {
       let stdout = '';
       serverProcess.stdout.on('data', (data) => {
         stdout += data.toString();
-        if (stdout.includes('Database migrated')) resolve();
+        if (stdout.includes('Server running on port')) resolve();
       });
       serverProcess.stderr.on('data', (data) => console.error(data.toString()));
 
@@ -271,7 +271,7 @@ describe('GET /api/stats/global rate limiting', () => {
       let stdout = '';
       serverProcess.stdout.on('data', (data) => {
         stdout += data.toString();
-        if (stdout.includes('Database migrated')) resolve();
+        if (stdout.includes('Server running on port')) resolve();
       });
       serverProcess.stderr.on('data', (data) => console.error(data.toString()));
 
