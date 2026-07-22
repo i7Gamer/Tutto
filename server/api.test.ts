@@ -199,7 +199,7 @@ describe('POST /api/log/client-error rate limiting', () => {
       let stdout = '';
       serverProcess.stdout.on('data', (data) => {
         stdout += data.toString();
-        if (stdout.includes('Database migrated')) resolve();
+        if (stdout.includes('Server running on port')) resolve();
       });
       serverProcess.stderr.on('data', (data) => {
         const msg = data.toString();

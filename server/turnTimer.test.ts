@@ -22,6 +22,7 @@ describe('Server-side turn timer', () => {
           API_TOKEN: 'test-token',
           TEST_DB: 'true',
           FORCE_INIT_DB: 'true',
+          TEST_TIMER_SCALE: '0.2',
         },
         stdio: 'pipe',
       });
@@ -170,13 +171,13 @@ describe('Server-side turn timer', () => {
         cards: ['300'], round: 1, turnDuration: 1,
       },
     });
-    await delay(200);
+    await delay(50);
 
     hostSock.disconnect();
     guestSock.disconnect();
 
     // Give the server time to run advanceTurnOnTimeout with zero sockets attached.
-    await delay(1100);
+    await delay(250);
 
     // Reconnect as Alice (same deviceId) to observe the room's current state.
     const { state } = await joinRoom(roomId, 'Alice');
@@ -202,8 +203,8 @@ describe('Server-side turn timer', () => {
       },
     });
 
-    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 1200);
-    const state = await waitForState(hostSock, (s) => s.currentPlayerIndex === 1, 3000);
+    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 300);
+    const state = await waitForState(hostSock, (s) => s.currentPlayerIndex === 1, 1000);
     expect(state.previousCard).toBe('Feuerwerk');
 
     hostSock.disconnect();
@@ -228,8 +229,8 @@ describe('Server-side turn timer', () => {
       },
     });
 
-    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 700);
-    const state = await waitForState(hostSock, (s) => s.currentPlayerIndex === 1, 2500);
+    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 200);
+    const state = await waitForState(hostSock, (s) => s.currentPlayerIndex === 1, 800);
     expect(state.previousCard).toBe('Kleeblatt');
 
     hostSock.disconnect();
@@ -336,10 +337,10 @@ describe('Server-side turn timer', () => {
         cards: ['300'], round: 1, turnDuration: 1,
       },
     });
-    await delay(200);
+    await delay(50);
 
-    // Disable the timer before the 1s deadline. If updateConfig didn't resync
-    // (clear) the pending expiry, the original timeout would still fire ~800ms later.
+    // Disable the timer before the deadline. If updateConfig didn't resync
+    // (clear) the pending expiry, the original timeout would still fire ~150ms later.
     hostSock.emit('updateConfig', { roomId, turnDuration: 0 });
 
     await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 400);
@@ -368,7 +369,7 @@ describe('Server-side turn timer', () => {
         cards: ['300', '400'], round: 1, turnDuration: 2,
       },
     });
-    await delay(1200); // ~1.2s of Bob's 2s turn has elapsed
+    await delay(200); // ~200ms of Bob's 400ms turn has elapsed
 
     // Host kicks Bob mid-turn. Bob wasn't last in turn order (Carol, at index 2,
     // hasn't gone yet this round) so the round must NOT bump — Carol simply
@@ -386,10 +387,10 @@ describe('Server-side turn timer', () => {
     // completes the round, wrapping to round 2. If the reschedule didn't happen,
     // the STALE timer (armed at t=0 for the ORIGINAL 2s window, ~0.8s remaining
     // at kick time) would fire ~800ms after the kick and force this prematurely.
-    await expectNoAdvanceWithin(hostSock, (s) => s.round === 2, 1200);
+    await expectNoAdvanceWithin(hostSock, (s) => s.round === 2, 200);
 
-    // ~2s after the kick, Carol's rescheduled turn must have expired.
-    const state = await waitForState(hostSock, (s) => s.round === 2, 2500);
+    // ~400ms after the kick, Carol's rescheduled turn must have expired.
+    const state = await waitForState(hostSock, (s) => s.round === 2, 1000);
     expect(state.players.length).toBe(2);
 
     hostSock.disconnect();
@@ -490,8 +491,8 @@ describe('Server-side turn timer', () => {
     sock.emit('leaveRoom');
     sock.disconnect();
 
-    // Wait past the original 1s deadline so the now-orphaned timeout fires.
-    await delay(1100);
+    // Wait past the original deadline so the now-orphaned timeout fires.
+    await delay(250);
 
     // Prove the server process is still alive and responsive.
     const { state } = await joinRoom('timer-room-deleted-followup', 'Fresh');

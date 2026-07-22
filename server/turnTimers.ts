@@ -141,7 +141,9 @@ export const startServerTurnTimer = (io: Server, roomId: string): void => {
     return;
   }
 
-  room.turnExpireTimer = setTimeout(() => advanceTurnOnTimeout(io, roomId), remainingSeconds * 1000);
+  const timerScale = process.env.TEST_TIMER_SCALE ? parseFloat(process.env.TEST_TIMER_SCALE) : 1;
+  const timeoutMs = Math.max(10, Math.floor(remainingSeconds * 1000 * timerScale));
+  room.turnExpireTimer = setTimeout(() => advanceTurnOnTimeout(io, roomId), timeoutMs);
 };
 
 export const abortGameIfLowPlayers = (io: Server, room: Room, roomId: string): boolean => {
