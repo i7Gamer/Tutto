@@ -22,7 +22,7 @@ describe('Server-side turn timer', () => {
           API_TOKEN: 'test-token',
           TEST_DB: 'true',
           FORCE_INIT_DB: 'true',
-          TEST_TIMER_SCALE: '0.1',
+          TEST_TIMER_SCALE: '0.2',
         },
         stdio: 'pipe',
       });
