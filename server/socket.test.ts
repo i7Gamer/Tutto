@@ -125,13 +125,14 @@ describe('Socket security and timer fixes', () => {
           API_TOKEN: 'test-token',
           TEST_DB: 'true',
           FORCE_INIT_DB: 'true',
+          TEST_TIMER_SCALE: '0.2',
         },
         stdio: 'pipe',
       });
       let stdout = '';
       serverProcess.stdout.on('data', (data) => {
         stdout += data.toString();
-        if (stdout.includes('Database migrated')) resolve();
+        if (stdout.includes('Server running on port')) resolve();
       });
       serverProcess.stderr.on('data', (data) => console.error('[server]', data.toString()));
       serverProcess.on('error', reject);

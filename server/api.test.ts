@@ -28,7 +28,7 @@ describe('API Endpoints Token Protection', () => {
 
     return new Promise((resolve, reject) => {
       serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: { ...process.env, PORT, API_TOKEN, TEST_DB: 'true', FORCE_INIT_DB: 'true' },
+        env: { ...process.env, PORT, API_TOKEN, TEST_DB: 'true', FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2' },
         stdio: 'pipe'
       });
 
@@ -192,7 +192,7 @@ describe('POST /api/log/client-error rate limiting', () => {
 
     return new Promise((resolve, reject) => {
       serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: { ...process.env, PORT, TEST_DB: 'true', FORCE_INIT_DB: 'true' },
+        env: { ...process.env, PORT, TEST_DB: 'true', FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2' },
         stdio: 'pipe'
       });
 
@@ -244,7 +244,7 @@ describe('CORS_ORIGIN configuration', () => {
 
     return new Promise((resolve, reject) => {
       serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: { ...process.env, PORT, CORS_ORIGIN, TEST_DB: 'true', FORCE_INIT_DB: 'true' },
+        env: { ...process.env, PORT, CORS_ORIGIN, TEST_DB: 'true', FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2' },
         stdio: 'pipe'
       });
 
@@ -282,7 +282,7 @@ describe('GET /api/stats/global rate limiting', () => {
 
     return new Promise((resolve, reject) => {
       serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: { ...process.env, PORT, TEST_DB: 'true', FORCE_INIT_DB: 'true' },
+        env: { ...process.env, PORT, TEST_DB: 'true', FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2' },
         stdio: 'pipe'
       });
 
