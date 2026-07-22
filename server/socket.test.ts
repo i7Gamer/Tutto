@@ -18,6 +18,7 @@ describe('Socket updateConfig — upper-bound validation', () => {
           API_TOKEN: 'test-token',
           TEST_DB: 'true',
           FORCE_INIT_DB: 'true',
+          TEST_TIMER_SCALE: '0.2',
         },
         stdio: 'pipe',
       });
@@ -244,9 +245,9 @@ describe('Socket security and timer fixes', () => {
     });
     expect(playingState.turnTimeRemaining).toBe(60);
 
-    // Age the timer by 2+ seconds so the stale baseline is measurably different
-    // from a fresh reset: without fix → 60-2=58, with fix → 60-0=60
-    await new Promise(r => setTimeout(r, 2100));
+    // Age the timer by 400ms+ (with TEST_TIMER_SCALE=0.2, turnDuration 60 becomes 12s)
+    // so the stale baseline is measurably different from a fresh reset.
+    await new Promise(r => setTimeout(r, 450));
 
     // Host kicks the active player — fix resets turnStartTime to Date.now()
     const stateAfterKick = await new Promise(r => {

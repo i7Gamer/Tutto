@@ -21,13 +21,13 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
   beforeAll(() => {
     return new Promise((resolve, reject) => {
       serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: { ...process.env, PORT, API_TOKEN: 'test-token', TEST_DB: 'true', FORCE_INIT_DB: 'true' },
+        env: { ...process.env, PORT, API_TOKEN: 'test-token', TEST_DB: 'true', FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2' },
         stdio: 'pipe',
       });
       let stdout = '';
       serverProcess.stdout.on('data', (data) => {
         stdout += data.toString();
-        if (stdout.includes('Database migrated')) resolve();
+        if (stdout.includes('Server running on port')) resolve();
       });
       serverProcess.stderr.on('data', (data) => console.error('[server]', data.toString()));
       serverProcess.on('error', reject);
@@ -189,9 +189,9 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
         ];
         s1.emit('pushState', { roomId, newState: { players, status: 'playing', currentPlayerIndex: 0 } });
 
-        // Let the first game's clock accumulate >1s of runtime before aborting it,
+        // Let the first game's clock accumulate >200ms of runtime before aborting it,
         // so a leaked gameActualStartTime is distinguishable from a fresh one.
-        await new Promise((r) => setTimeout(r, 1100));
+        await new Promise((r) => setTimeout(r, 350));
 
         let restarted = false;
         s1.on('gameState', (state) => {
