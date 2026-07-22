@@ -617,6 +617,8 @@ export const registerSocketHandlers = (io: Server): void => {
         const roomIdSnapshot = currentRoom;
         const disconnectedSocketId = socket.id;
 
+        const timerScale = process.env.TEST_TIMER_SCALE ? parseFloat(process.env.TEST_TIMER_SCALE) : 1;
+        const disconnectMs = Math.max(10, Math.floor(timeoutSecs * 1000 * timerScale));
         room.disconnectTimers[player.deviceId] = setTimeout(() => {
           const r = rooms[roomIdSnapshot];
           if (!r) return;
@@ -645,7 +647,7 @@ export const registerSocketHandlers = (io: Server): void => {
             if (!aborted) startServerTurnTimer(io, roomIdSnapshot);
             emitRoomState(io, roomIdSnapshot);
           }
-        }, timeoutSecs * 1000);
+        }, disconnectMs);
       }
     };
 

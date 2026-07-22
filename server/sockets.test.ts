@@ -20,7 +20,7 @@ describe('Server Socket E2E Simulation', () => {
       // FORCE_INIT_DB makes the child run migrations against its in-memory DB so the
       // endGameStats persistence tests can observe real writes (and verify scoping).
       serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: { ...process.env, PORT, FORCE_INIT_DB: 'true' },
+        env: { ...process.env, PORT, FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2' },
         stdio: 'pipe'
       });
 
@@ -1772,7 +1772,7 @@ describe('Server Socket E2E Simulation', () => {
         const bob = state.players?.find(p => p.name === 'Bob');
         if (bob?.disconnected && !bobDisconnectSeen) {
           bobDisconnectSeen = true;
-          // Wait 1500ms — longer than the 1s kick timer used in reconnectTimeout=1 tests.
+          // Wait 350ms — longer than the 200ms kick timer (1s * 0.2 scale) used in reconnectTimeout=1 tests.
           // Bob must remain in the room (marked disconnected but not removed).
           setTimeout(() => {
             expect(latestState.players.length).toBe(2);
@@ -1780,7 +1780,7 @@ describe('Server Socket E2E Simulation', () => {
             clearTimeout(timeoutId);
             s1.disconnect();
             resolve();
-          }, 1500);
+          }, 350);
         }
       });
     });
@@ -1792,15 +1792,15 @@ describe('Server Socket E2E Simulation', () => {
       const timeoutId = setTimeout(() => {
         s1.disconnect();
         resolve(); // No invalid state observed — all bad payloads were correctly rejected.
-      }, 2500);
+      }, 350);
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'CARDS_INVALID', name: 'Alice', deviceId: 'dev-ci-a', color: '#ff0000' }, () => {
-          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { injected: 5, '200': 5 } }), 100);
-          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': -1 } }), 400);
-          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': 1.5 } }), 700);
-          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': 100 } }), 1000); // > MAX_CARD_COUNT=99
-          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: {} }), 1300);          // empty object
+          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { injected: 5, '200': 5 } }), 50);
+          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': -1 } }), 100);
+          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': 1.5 } }), 150);
+          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': 100 } }), 200); // > MAX_CARD_COUNT=99
+          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: {} }), 250);          // empty object
         });
       });
 
@@ -2443,7 +2443,7 @@ describe('Server Socket E2E Simulation', () => {
             s3 = io(`http://127.0.0.1:${PORT}`);
             s3.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-kr-b', color: '#00ff00' }, (res) => {
               expect(res.success).toBe(true);
-              // Wait past the original 1s reconnect timer: the stale timer must
+              // Wait past the 200ms reconnect timer (1s * 0.2 scale): the stale timer must
               // NOT remove the rejoined Bob.
               setTimeout(() => {
                 expect(latestState.players.map((p) => p.name).sort()).toEqual(['Alice', 'Bob']);
@@ -2451,7 +2451,7 @@ describe('Server Socket E2E Simulation', () => {
                 clearTimeout(timeoutId);
                 cleanup();
                 resolve(undefined);
-              }, 1500);
+              }, 350);
             });
           }, 200);
         }
@@ -2506,8 +2506,8 @@ describe('Server Socket E2E Simulation', () => {
           s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-hts-b', color: '#00ff00' }, () => {
             s3.emit('joinRoom', { roomId, name: 'Charlie', deviceId: 'dev-hts-c', color: '#0000ff' }, () => {
               s1.emit('pushState', { roomId, newState: { reconnectTimeout: 1 } });
-              setTimeout(() => s1.disconnect(), 200);      // Alice's timer fires at ~1.2s
-              setTimeout(() => s2.disconnect(), 800);      // Bob's timer fires at ~1.8s
+              setTimeout(() => s1.disconnect(), 100);      // Alice's timer fires at ~300ms (100ms + 200ms scaled timeout)
+              setTimeout(() => s2.disconnect(), 250);      // Bob's timer fires at ~450ms (250ms + 200ms scaled timeout)
             });
           });
         });
@@ -2538,7 +2538,7 @@ describe('Server Socket E2E Simulation', () => {
 
                   // Bob times out — his fired timer must not leave a stale entry.
                   s2.disconnect();
-                  await new Promise(r => setTimeout(r, 1500));
+                  await new Promise(r => setTimeout(r, 350));
 
                   // Disable reconnect timers, then Alice and Charlie passively
                   // disconnect (marked disconnected, no timers armed).
