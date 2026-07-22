@@ -9,13 +9,19 @@ import type { Player } from '../../types';
 // stage state/action-spies with setState and restore the pristine snapshot
 // afterwards.
 const pristineStore = useGameStore.getState();
-const stageStore = (partial: Partial<GameStore>) => useGameStore.setState(partial);
+const stageStore = (partial: Partial<GameStore>) => {
+  act(() => {
+    useGameStore.setState(partial);
+  });
+};
 
 const asPlayers = (players: Array<Partial<Player> & { name: string }>): Player[] =>
   players.map(p => ({ score: 0, ...p } as Player));
 
 afterEach(() => {
-  useGameStore.setState(pristineStore, true);
+  act(() => {
+    useGameStore.setState(pristineStore, true);
+  });
 });
 
 describe('OnlineLobby', () => {
@@ -129,11 +135,15 @@ describe('OnlineLobby leave-room confirmation', () => {
     stageRoom({ leaveRoom });
     render(<OnlineLobby />);
 
-    fireEvent.click(screen.getByText('lobby.online.leaveRoom'));
+    act(() => {
+      fireEvent.click(screen.getByText('lobby.online.leaveRoom'));
+    });
     expect(screen.getByText('lobby.online.leaveConfirm')).toBeInTheDocument();
     expect(leaveRoom).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByText('common.cancel'));
+    act(() => {
+      fireEvent.click(screen.getByText('common.cancel'));
+    });
     expect(leaveRoom).not.toHaveBeenCalled();
     expect(screen.queryByText('lobby.online.leaveConfirm')).toBeNull();
   });
@@ -143,8 +153,12 @@ describe('OnlineLobby leave-room confirmation', () => {
     stageRoom({ leaveRoom });
     render(<OnlineLobby />);
 
-    fireEvent.click(screen.getByText('lobby.online.leaveRoom'));
-    fireEvent.click(screen.getByText('common.confirm'));
+    act(() => {
+      fireEvent.click(screen.getByText('lobby.online.leaveRoom'));
+    });
+    act(() => {
+      fireEvent.click(screen.getByText('common.confirm'));
+    });
 
     expect(leaveRoom).toHaveBeenCalledTimes(1);
   });
@@ -232,7 +246,9 @@ describe('OnlineLobby dice mode enforcement', () => {
     render(<OnlineLobby />);
 
     const checkbox = screen.getByText('lobby.enforceDiceMode').closest('label')!.querySelector('input[type="checkbox"]')!;
-    fireEvent.click(checkbox);
+    act(() => {
+      fireEvent.click(checkbox);
+    });
 
     expect(setEnforcedDiceMode).toHaveBeenCalledWith('digital');
   });
@@ -244,7 +260,9 @@ describe('OnlineLobby dice mode enforcement', () => {
 
     const checkbox = screen.getByText('lobby.enforceDiceMode').closest('label')!.querySelector('input[type="checkbox"]')!;
     expect(checkbox).toBeChecked();
-    fireEvent.click(checkbox);
+    act(() => {
+      fireEvent.click(checkbox);
+    });
 
     expect(setEnforcedDiceMode).toHaveBeenCalledWith(null);
   });
@@ -294,7 +312,9 @@ describe('OnlineLobby recent rooms history', () => {
     render(<OnlineLobby />);
 
     const recentBtn = screen.getByText(/ROOM123/).closest('button')!;
-    fireEvent.click(recentBtn);
+    act(() => {
+      fireEvent.click(recentBtn);
+    });
 
     const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder') as HTMLInputElement;
     const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder') as HTMLInputElement;
@@ -318,8 +338,10 @@ describe('OnlineLobby recent rooms history', () => {
     const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder') as HTMLInputElement;
     const joinBtn = screen.getByText('lobby.online.joinCreateButton');
 
-    fireEvent.change(roomInput, { target: { value: 'ROOM123' } });
-    fireEvent.change(nameInput, { target: { value: 'Bob2' } });
+    act(() => {
+      fireEvent.change(roomInput, { target: { value: 'ROOM123' } });
+      fireEvent.change(nameInput, { target: { value: 'Bob2' } });
+    });
 
     await act(async () => {
       fireEvent.click(joinBtn);
@@ -348,8 +370,10 @@ describe('OnlineLobby recent rooms history', () => {
     const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder') as HTMLInputElement;
     const joinBtn = screen.getByText('lobby.online.joinCreateButton');
 
-    fireEvent.change(roomInput, { target: { value: 'ROOM_NEW' } });
-    fireEvent.change(nameInput, { target: { value: 'Bob' } });
+    act(() => {
+      fireEvent.change(roomInput, { target: { value: 'ROOM_NEW' } });
+      fireEvent.change(nameInput, { target: { value: 'Bob' } });
+    });
 
     await act(async () => {
       fireEvent.click(joinBtn);
@@ -379,8 +403,10 @@ describe('OnlineLobby recent rooms history', () => {
     const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder');
     const joinBtn = screen.getByText('lobby.online.joinCreateButton');
 
-    fireEvent.change(roomInput, { target: { value: '   ' } });
-    fireEvent.change(nameInput, { target: { value: 'Alice' } });
+    act(() => {
+      fireEvent.change(roomInput, { target: { value: '   ' } });
+      fireEvent.change(nameInput, { target: { value: 'Alice' } });
+    });
 
     await act(async () => {
       fireEvent.click(joinBtn);
@@ -399,8 +425,10 @@ describe('OnlineLobby recent rooms history', () => {
     const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder');
     const joinBtn = screen.getByText('lobby.online.joinCreateButton');
 
-    fireEvent.change(roomInput, { target: { value: '  ROOM123  ' } });
-    fireEvent.change(nameInput, { target: { value: '  Alice  ' } });
+    act(() => {
+      fireEvent.change(roomInput, { target: { value: '  ROOM123  ' } });
+      fireEvent.change(nameInput, { target: { value: '  Alice  ' } });
+    });
 
     await act(async () => {
       fireEvent.click(joinBtn);

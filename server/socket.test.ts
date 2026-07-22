@@ -24,7 +24,7 @@ describe('Socket updateConfig — upper-bound validation', () => {
       let stdout = '';
       serverProcess.stdout.on('data', (data) => {
         stdout += data.toString();
-        if (stdout.includes('Database migrated')) resolve();
+        if (stdout.includes('Server running on port')) resolve();
       });
       serverProcess.stderr.on('data', (data) => console.error('[server]', data.toString()));
       serverProcess.on('error', reject);
