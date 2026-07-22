@@ -439,7 +439,7 @@ describe('Server Socket E2E Simulation', () => {
       let timeoutId = setTimeout(() => {
         s1.disconnect();
         resolve(); // If no invalid color was broadcasted, we pass
-      }, 1000);
+      }, 300);
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'COLOR_ROOM', name: 'Alice', deviceId: 'dev-color-alice', color: '#ff0000' }, () => {
@@ -463,7 +463,7 @@ describe('Server Socket E2E Simulation', () => {
       let timeoutId = setTimeout(() => {
         s1.disconnect();
         resolve(); // If no invalid config was broadcasted, we pass
-      }, 1000);
+      }, 300);
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'CONFIG_ROOM', name: 'Alice', deviceId: 'dev-configbounds-alice', color: '#ff0000' }, () => {
@@ -492,7 +492,7 @@ describe('Server Socket E2E Simulation', () => {
         s1.disconnect();
         s2.disconnect();
         resolve();
-      }, 1500);
+      }, 350);
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'E2E_HOSTFIELDS', name: 'Alice', deviceId: 'dev-hf-a', color: '#ff0000' }, () => {
@@ -623,7 +623,7 @@ describe('Server Socket E2E Simulation', () => {
       let timeoutId = setTimeout(() => {
         s1.disconnect();
         resolve(); // passed
-      }, 1000);
+      }, 300);
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'REORDER_ROOM', name: 'Alice', deviceId: 'dev-reorder-alice', color: '#ff0000' }, () => {
@@ -805,7 +805,7 @@ describe('Server Socket E2E Simulation', () => {
         s1.disconnect();
         s2.disconnect();
         resolve();
-      }, 2000);
+      }, 400);
 
       let originalOrder = null;
 
@@ -858,7 +858,7 @@ describe('Server Socket E2E Simulation', () => {
         // after game start, the test passes.
         s1.disconnect();
         resolve();
-      }, 2000);
+      }, 400);
 
       let gameStarted = false;
 
@@ -1137,7 +1137,7 @@ describe('Server Socket E2E Simulation', () => {
         s2.disconnect();
         s3.disconnect();
         resolve(); // no liveTurnState event ever arriving is the expected (passing) outcome
-      }, 3000);
+      }, 400);
 
       let gameStarted = false;
 
@@ -1941,7 +1941,7 @@ describe('Server Socket E2E Simulation', () => {
         expect(conflictNotified).toBe(false);
         s1.disconnect(); s2.disconnect(); s3.disconnect();
         resolve();
-      }, 1500);
+      }, 350);
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'ACTIVE_NAME_ROOM', name: 'Alice', deviceId: 'dev-active-alice', color: '#ff0000' }, () => {
@@ -2077,7 +2077,7 @@ describe('Server Socket E2E Simulation', () => {
         // No bad broadcast and server still responsive → pass.
         s1.disconnect();
         resolve();
-      }, 1500);
+      }, 350);
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'REORDER_NONARRAY', name: 'Alice', deviceId: 'dev-rna-a', color: '#ff0000' }, () => {

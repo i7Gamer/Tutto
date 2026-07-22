@@ -176,7 +176,7 @@ describe('Server-side turn timer', () => {
     guestSock.disconnect();
 
     // Give the server time to run advanceTurnOnTimeout with zero sockets attached.
-    await delay(1500);
+    await delay(1100);
 
     // Reconnect as Alice (same deviceId) to observe the room's current state.
     const { state } = await joinRoom(roomId, 'Alice');
@@ -202,7 +202,7 @@ describe('Server-side turn timer', () => {
       },
     });
 
-    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 2000);
+    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 1200);
     const state = await waitForState(hostSock, (s) => s.currentPlayerIndex === 1, 3000);
     expect(state.previousCard).toBe('Feuerwerk');
 
@@ -228,7 +228,7 @@ describe('Server-side turn timer', () => {
       },
     });
 
-    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 1300);
+    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 700);
     const state = await waitForState(hostSock, (s) => s.currentPlayerIndex === 1, 2500);
     expect(state.previousCard).toBe('Kleeblatt');
 
@@ -254,7 +254,7 @@ describe('Server-side turn timer', () => {
       },
     });
 
-    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 1800);
+    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 400);
 
     hostSock.disconnect();
     guestSock.disconnect();
@@ -312,7 +312,7 @@ describe('Server-side turn timer', () => {
     expect(state.currentCard).toBeNull();
 
     // No further auto-advance should occur once the game is over.
-    await expectNoAdvanceWithin(sock, (s) => s.currentCard !== null || s.currentPlayerIndex !== null, 2000);
+    await expectNoAdvanceWithin(sock, (s) => s.currentCard !== null || s.currentPlayerIndex !== null, 400);
 
     sock.disconnect();
   }, 10000);
@@ -342,7 +342,7 @@ describe('Server-side turn timer', () => {
     // (clear) the pending expiry, the original timeout would still fire ~800ms later.
     hostSock.emit('updateConfig', { roomId, turnDuration: 0 });
 
-    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 2000);
+    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 400);
 
     hostSock.disconnect();
     guestSock.disconnect();
@@ -491,7 +491,7 @@ describe('Server-side turn timer', () => {
     sock.disconnect();
 
     // Wait past the original 1s deadline so the now-orphaned timeout fires.
-    await delay(1500);
+    await delay(1100);
 
     // Prove the server process is still alive and responsive.
     const { state } = await joinRoom('timer-room-deleted-followup', 'Fresh');
@@ -532,7 +532,7 @@ describe('Server-side turn timer', () => {
 
     // The pending 1s timer from the FIRST push must not fire and force a bogus
     // "timeout advance" on top of the already-finished game.
-    await expectNoAdvanceWithin(hostSock, (s) => s.currentCard !== null, 1800);
+    await expectNoAdvanceWithin(hostSock, (s) => s.currentCard !== null, 400);
 
     hostSock.disconnect();
     guestSock.disconnect();

@@ -37,7 +37,10 @@ describe('API Endpoints Token Protection', () => {
         stdout += data.toString();
         if (stdout.includes('Server running on port')) resolve();
       });
-      serverProcess.stderr.on('data', (data) => console.error(data.toString()));
+      serverProcess.stderr.on('data', (data) => {
+        const msg = data.toString();
+        if (!msg.includes('[client-error]')) console.error(msg);
+      });
 
       serverProcess.on('error', (err) => reject(err));
     });
@@ -198,7 +201,10 @@ describe('POST /api/log/client-error rate limiting', () => {
         stdout += data.toString();
         if (stdout.includes('Database migrated')) resolve();
       });
-      serverProcess.stderr.on('data', (data) => console.error(data.toString()));
+      serverProcess.stderr.on('data', (data) => {
+        const msg = data.toString();
+        if (!msg.includes('[client-error]')) console.error(msg);
+      });
 
       serverProcess.on('error', (err) => reject(err));
     });

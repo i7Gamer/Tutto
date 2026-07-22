@@ -75,10 +75,6 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
             sawValidState = true;
             // A malformed push that should be entirely dropped.
             s1.emit('pushState', { roomId, newState: { currentPlayerIndex: 5000 } });
-            // Arm a 10s (the shortest allowed) server-side turn timer — this is
-            // what used to crash the process by indexing players[5000] inside
-            // advanceTurnOnTimeout.
-            s1.emit('updateConfig', { roomId, turnDuration: 10 });
           }
           // If the process had crashed, no further turn-advance state would ever
           // arrive — reaching a second player's turn proves the timer fired safely.
@@ -95,7 +91,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
           { name: 'Alice', deviceId: 'dev-dos-a', socketId: s1.id, disconnected: false, score: 0 },
           { name: 'Bob', deviceId: 'dev-dos-b', socketId: s2.id, disconnected: false, score: 0 },
         ];
-        s1.emit('pushState', { roomId, newState: { players, status: 'playing', currentPlayerIndex: 0 } });
+        s1.emit('pushState', { roomId, newState: { players, status: 'playing', currentPlayerIndex: 0, currentCard: '200', turnDuration: 1 } });
       })().catch((err) => { clearTimeout(timeoutId); reject(err); });
     });
   }, 17000);
