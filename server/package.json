@@ -20,5 +20,8 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.6"
+  },
+  "overrides": {
+    "tar": ">=7.5.19"
   }
 }
