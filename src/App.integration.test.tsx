@@ -110,19 +110,17 @@ describe('App Integration (End-to-End)', () => {
     await screen.findByRole('heading', { name: /dice.title/i });
 
     // The dice auto-roll once the panel's entrance delay elapses — there's no
-    // manual roll button anymore.
-    await act(async () => {
-      await new Promise(r => setTimeout(r, DICE_PANEL_ENTRANCE_MS + 50));
-    });
+    // manual roll button anymore. isTestEnv() is true here, so DiceGame's
+    // roll() finalizes synchronously (see DiceGame.tsx) — only Game.tsx's
+    // real DICE_PANEL_ENTRANCE_MS setTimeout needs to elapse; no separate
+    // wait for the rolling animation is needed once it does.
+    vi.useFakeTimers();
+    act(() => { vi.advanceTimersByTime(DICE_PANEL_ENTRANCE_MS + 50); });
+    vi.useRealTimers();
 
     await waitFor(() => {
       const dice = screen.getAllByText('1');
       expect(dice.length).toBeGreaterThanOrEqual(6);
-    });
-
-    // Wait 600ms for the rolling animation to finish so isRolling is false
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 600));
     });
 
     const diceElements = screen.getAllByText('1');
@@ -150,19 +148,17 @@ describe('App Integration (End-to-End)', () => {
 
     await screen.findByRole('heading', { name: /dice.title/i });
 
-    // The dice auto-roll once the panel's entrance delay elapses.
-    await act(async () => {
-      await new Promise(r => setTimeout(r, DICE_PANEL_ENTRANCE_MS + 50));
-    });
+    // The dice auto-roll once the panel's entrance delay elapses (see the
+    // matching comment on Alice's turn above for why no separate wait for
+    // the rolling animation is needed).
+    vi.useFakeTimers();
+    act(() => { vi.advanceTimersByTime(DICE_PANEL_ENTRANCE_MS + 50); });
+    vi.useRealTimers();
 
     // We make Bob score just 100 points and stop
     await waitFor(() => {
       const dice = screen.getAllByText('1');
       expect(dice.length).toBeGreaterThanOrEqual(6);
-    });
-
-    await act(async () => {
-      await new Promise(r => setTimeout(r, 600));
     });
 
     const bobDice = screen.getAllByText('1').filter(el => el.classList.contains('die'));
@@ -700,30 +696,39 @@ describe('App Integration (End-to-End)', () => {
   });
 
   it('Game time syncs from server on start and is maintained during play', async () => {
-    act(() => {
-      useGameStore.setState({
-        mode: 'local',
-        isOnline: false,
-        players: [{ name: 'Alice', score: 0 }],
-        status: 'lobby',
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        useGameStore.setState({
+          mode: 'local',
+          isOnline: false,
+          players: [{ name: 'Alice', score: 0 }],
+          status: 'lobby',
+        });
       });
-    });
 
-    render(<App />);
+      render(<App />);
 
-    // Start game
-    act(() => {
-      useGameStore.getState().startGame();
-    });
+      // Start game
+      act(() => {
+        useGameStore.getState().startGame();
+      });
 
-    // Game time should initialize to 0
-    expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
-    expect(useGameStore.getState().status).toBe('playing');
+      // Game time should initialize to 0
+      expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
+      expect(useGameStore.getState().status).toBe('playing');
 
-    // Wait for timer to tick — wrapped in waitFor to avoid act() warning
-    await waitFor(() => {
+      // The local game clock ticks on a real 1000ms setInterval (see
+      // startLocalTimers in store/timers.ts) — advance it instead of
+      // sleeping a real second.
+      act(() => {
+        vi.advanceTimersByTime(1100);
+      });
       expect(useGameStore.getState().gameTimeInSeconds).toBeGreaterThanOrEqual(1);
-    }, { timeout: 2000 });
+    } finally {
+      _resetTimersForTests();
+      vi.useRealTimers();
+    }
   });
 
   it('Game time resyncs from server without drift on reconnect', async () => {

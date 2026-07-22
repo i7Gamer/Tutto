@@ -1353,75 +1353,10 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
-  it('gameTimeInSeconds is server-calculated and increases monotonically across pushState calls', () => {
-    return new Promise((resolve, reject) => {
-      const roomId = 'GAME_TIME_MONOTONIC';
-      const s1 = io(`http://127.0.0.1:${PORT}`);
-
-      const timeoutId = setTimeout(() => {
-        s1.disconnect();
-        reject(new Error('Test timed out'));
-      }, 8000);
-
-      let gameStarted = false;
-      let firstGameTime = null;
-
-      s1.on('connect', () => {
-        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-gtm-a', color: '#ff0000' }, () => {
-          s1.emit('pushState', {
-            roomId,
-            newState: {
-              status: 'playing',
-              currentCard: '200',
-              cards: [],
-              currentPlayerIndex: 0,
-              round: 1,
-              finished: false,
-              gameTimeInSeconds: 999, // Client sends stale/wrong value — server must override
-              players: [{ name: 'Alice', deviceId: 'dev-gtm-a', score: 0 }],
-            }
-          });
-        });
-      });
-
-      s1.on('gameState', (state) => {
-        if (state.status !== 'playing') return;
-
-        if (!gameStarted) {
-          gameStarted = true;
-          firstGameTime = state.gameTimeInSeconds;
-
-          // Server should override 999 with its own calculation (~0)
-          expect(firstGameTime).toBeLessThan(5);
-
-          setTimeout(() => {
-            s1.emit('pushState', {
-              roomId,
-              newState: {
-                status: 'playing',
-                currentCard: '300',
-                cards: [],
-                currentPlayerIndex: 0,
-                round: 1,
-                finished: false,
-                gameTimeInSeconds: 999, // Still stale — server must still override
-                players: [{ name: 'Alice', deviceId: 'dev-gtm-a', score: 0 }],
-              }
-            });
-          }, 200);
-        } else {
-          // Second update: still server-calculated (not 999)
-          expect(state.gameTimeInSeconds).toBeLessThan(5);
-          // Monotonically non-decreasing
-          expect(state.gameTimeInSeconds).toBeGreaterThanOrEqual(firstGameTime);
-
-          clearTimeout(timeoutId);
-          s1.disconnect();
-          resolve();
-        }
-      });
-    });
-  }, 10000);
+  // 'gameTimeInSeconds is server-calculated and increases monotonically
+  // across pushState calls' moved to socketHandlers.test.ts's in-process
+  // 'game clock' suite, which backdates the server's gameActualStartTime
+  // anchor instead of sleeping real wall-clock seconds.
 
   it('gameTimeInSeconds is reset when game returns to lobby', () => {
     return new Promise((resolve, reject) => {
@@ -1484,206 +1419,11 @@ describe('Server Socket E2E Simulation', () => {
     });
   }, 10000);
 
-  it('gameTimeInSeconds on game-end is the server-calculated elapsed time, not the stale client-pushed value', () => {
-    return new Promise((resolve, reject) => {
-      const roomId = 'GAME_TIME_END_SNAPSHOT';
-      const s1 = io(`http://127.0.0.1:${PORT}`);
-
-      const timeoutId = setTimeout(() => {
-        s1.disconnect();
-        reject(new Error('Test timed out'));
-      }, 8000);
-
-      let seenPlaying = false;
-
-      s1.on('connect', () => {
-        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-gtes-a', color: '#ff0000' }, () => {
-          s1.emit('pushState', {
-            roomId,
-            newState: {
-              status: 'playing',
-              currentCard: '200',
-              cards: [],
-              currentPlayerIndex: 0,
-              round: 1,
-              finished: false,
-              gameTimeInSeconds: 0,
-              players: [{ name: 'Alice', deviceId: 'dev-gtes-a', score: 0 }],
-            }
-          });
-        });
-      });
-
-      s1.on('gameState', (state) => {
-        if (state.status === 'playing' && !seenPlaying) {
-          seenPlaying = true;
-
-          // Wait >1s so the server's authoritative elapsed time is at least 1
-          setTimeout(() => {
-            s1.emit('pushState', {
-              roomId,
-              newState: {
-                status: 'playing',
-                currentCard: '200',
-                cards: [],
-                currentPlayerIndex: 0,
-                round: 1,
-                finished: true,   // Game ends
-                gameTimeInSeconds: 999, // Stale client value — server must snapshot the real time
-                players: [{ name: 'Alice', deviceId: 'dev-gtes-a', score: 100 }],
-              }
-            });
-          }, 1200);
-        } else if (state.finished && seenPlaying) {
-          // Server must have snapshotted the real elapsed time (~1-2s), not the stale 999
-          expect(state.gameTimeInSeconds).toBeGreaterThanOrEqual(1);
-          expect(state.gameTimeInSeconds).toBeLessThan(5);
-
-          clearTimeout(timeoutId);
-          s1.disconnect();
-          resolve();
-        }
-      });
-    });
-  }, 10000);
-
-  it('gameTimeInSeconds continues from correct server time on reconnect', () => {
-    return new Promise((resolve, reject) => {
-      const roomId = 'GAME_TIME_RECONNECT';
-      const s1 = io(`http://127.0.0.1:${PORT}`); // Host / active player
-      const s2 = io(`http://127.0.0.1:${PORT}`); // Observer (reconnects)
-
-      const timeoutId = setTimeout(() => {
-        s1.disconnect();
-        s2.disconnect();
-        reject(new Error('Test timed out'));
-      }, 10000);
-
-      let s2GameTimeAtDisconnect = null;
-      let s2Connected = false;
-
-      s1.on('connect', () => {
-        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-gtr2-a', color: '#ff0000' }, () => {
-          s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-gtr2-b', color: '#00ff00' }, () => {
-            s1.emit('pushState', {
-              roomId,
-              newState: {
-                status: 'playing',
-                currentCard: '200',
-                cards: [],
-                currentPlayerIndex: 0,
-                round: 1,
-                finished: false,
-                gameTimeInSeconds: 0,
-                players: [
-                  { name: 'Alice', deviceId: 'dev-gtr2-a', score: 0 },
-                  { name: 'Bob', deviceId: 'dev-gtr2-b', score: 0 },
-                ],
-              }
-            });
-          });
-        });
-      });
-
-      s2.on('gameState', (state) => {
-        if (state.status !== 'playing' || s2Connected) return;
-        s2Connected = true;
-
-        // Wait so server game time advances a bit, then disconnect
-        setTimeout(() => {
-          s2GameTimeAtDisconnect = state.gameTimeInSeconds;
-          s2.disconnect();
-
-          setTimeout(() => {
-            const s2New = io(`http://127.0.0.1:${PORT}`);
-            s2New.on('connect', () => {
-              s2New.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-gtr2-b', color: '#00ff00' }, () => {});
-            });
-
-            s2New.on('gameState', (newState) => {
-              if (newState.status !== 'playing') return;
-              // Server-calculated time should be >= what it was at disconnect
-              expect(newState.gameTimeInSeconds).toBeGreaterThanOrEqual(s2GameTimeAtDisconnect);
-              // Should not be the stale client value (e.g. 0 from initial push or 999)
-              expect(newState.gameTimeInSeconds).toBeLessThan(10);
-
-              clearTimeout(timeoutId);
-              s1.disconnect();
-              s2New.disconnect();
-              resolve();
-            });
-          }, 300);
-        }, 200);
-      });
-    });
-  }, 10000);
-
-  it('gameActualStartTime is preserved across turn/card changes (not reset on subsequent pushState)', () => {
-    return new Promise((resolve, reject) => {
-      const roomId = 'GAME_TIME_PERSIST';
-      const s1 = io(`http://127.0.0.1:${PORT}`);
-
-      const timeoutId = setTimeout(() => {
-        s1.disconnect();
-        reject(new Error('Test timed out'));
-      }, 8000);
-
-      let firstGameTime = null;
-      let seenFirstState = false;
-
-      s1.on('connect', () => {
-        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-gtp-a', color: '#ff0000' }, () => {
-          s1.emit('pushState', {
-            roomId,
-            newState: {
-              status: 'playing',
-              currentCard: '200',
-              cards: [],
-              currentPlayerIndex: 0,
-              round: 1,
-              finished: false,
-              gameTimeInSeconds: 0,
-              players: [{ name: 'Alice', deviceId: 'dev-gtp-a', score: 0 }],
-            }
-          });
-        });
-      });
-
-      s1.on('gameState', (state) => {
-        if (state.status !== 'playing') return;
-
-        if (!seenFirstState) {
-          seenFirstState = true;
-          firstGameTime = state.gameTimeInSeconds;
-          // Wait > 1 second, then push another state with a different card
-          setTimeout(() => {
-            s1.emit('pushState', {
-              roomId,
-              newState: {
-                status: 'playing',
-                currentCard: '300',  // Different card — should NOT reset gameActualStartTime
-                cards: [],
-                currentPlayerIndex: 0,
-                round: 1,
-                finished: false,
-                gameTimeInSeconds: 999,  // Stale client value — server must override
-                players: [{ name: 'Alice', deviceId: 'dev-gtp-a', score: 0 }],
-              }
-            });
-          }, 1200);
-        } else {
-          // After 1.2s, server time must be >= 1 — proving gameActualStartTime was NOT reset
-          expect(state.gameTimeInSeconds).toBeGreaterThanOrEqual(1);
-          expect(state.gameTimeInSeconds).toBeLessThan(5);
-          expect(state.gameTimeInSeconds).toBeGreaterThan(firstGameTime);
-
-          clearTimeout(timeoutId);
-          s1.disconnect();
-          resolve();
-        }
-      });
-    });
-  }, 10000);
+  // 'gameTimeInSeconds on game-end is the server-calculated elapsed time...',
+  // 'gameTimeInSeconds continues from correct server time on reconnect', and
+  // 'gameActualStartTime is preserved across turn/card changes...' moved to
+  // socketHandlers.test.ts's in-process 'game clock' suite for the same
+  // reason as the monotonic test above.
 
   it('promotes first connected player to host when host leaves, skipping disconnected players', () => {
     return new Promise((resolve, reject) => {
@@ -2051,7 +1791,7 @@ describe('Server Socket E2E Simulation', () => {
                 });
                 // updatePlayerColor triggers a fresh emitRoomState to assert on.
                 hostB.emit('updatePlayerColor', { roomId: 'XKICK_ROOM_B', color: '#123456' });
-              }, 800);
+              }, 200);
             });
           });
         });
@@ -2122,11 +1862,11 @@ describe('Server Socket E2E Simulation', () => {
       // URLs; the real implementation is preserved on global.__nativeFetch.
       const realFetch = (globalThis as { __nativeFetch?: typeof fetch }).__nativeFetch ?? fetch;
       const pollStats = async () => {
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 50; i++) {
           const res = await realFetch(`http://127.0.0.1:${PORT}/api/stats/${deviceId}`);
           const body = await res.json();
           if (body && body.gamesPlayed >= 1) return body;
-          await new Promise(r => setTimeout(r, 100));
+          await new Promise(r => setTimeout(r, 40));
         }
         return null;
       };
@@ -2161,11 +1901,11 @@ describe('Server Socket E2E Simulation', () => {
 
       const realFetch = (globalThis as { __nativeFetch?: typeof fetch }).__nativeFetch ?? fetch;
       const pollDeviceScore = async (expected) => {
-        for (let i = 0; i < 30; i++) {
+        for (let i = 0; i < 75; i++) {
           const res = await realFetch(`http://127.0.0.1:${PORT}/api/stats/${deviceId}`);
           const body = await res.json();
           if (body?.totalScore === expected) return body;
-          await new Promise(r => setTimeout(r, 100));
+          await new Promise(r => setTimeout(r, 40));
         }
         throw new Error(`totalScore never reached ${expected}`);
       };
@@ -2228,9 +1968,9 @@ describe('Server Socket E2E Simulation', () => {
         return body.totalScore ?? 0;
       };
       const pollGlobalTotalScore = async (expected) => {
-        for (let i = 0; i < 30; i++) {
+        for (let i = 0; i < 75; i++) {
           if ((await getGlobalTotalScore()) === expected) return;
-          await new Promise(r => setTimeout(r, 100));
+          await new Promise(r => setTimeout(r, 40));
         }
         throw new Error(`global totalScore never reached ${expected}`);
       };
@@ -2288,7 +2028,7 @@ describe('Server Socket E2E Simulation', () => {
               s1.disconnect();
               reject(e);
             }
-          }, 600);
+          }, 200);
         });
       });
     });
@@ -2343,6 +2083,8 @@ describe('Server Socket E2E Simulation', () => {
       });
 
       // Wait for the server to process the disconnect and delete the room.
+      // reconnectTimeout=0 deletes the room synchronously in the disconnect
+      // handler (no timer involved), so a short margin is enough.
       setTimeout(() => {
         s2 = io(`http://127.0.0.1:${PORT}`);
         s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-pdo-b', color: '#00ff00' }, () => {});
@@ -2356,7 +2098,7 @@ describe('Server Socket E2E Simulation', () => {
           cleanup();
           resolve(undefined);
         });
-      }, 1000);
+      }, 300);
     });
   }, 10000);
 
@@ -2371,11 +2113,11 @@ describe('Server Socket E2E Simulation', () => {
 
       const realFetch = (globalThis as { __nativeFetch?: typeof fetch }).__nativeFetch ?? fetch;
       const pollDeviceScore = async (expected) => {
-        for (let i = 0; i < 30; i++) {
+        for (let i = 0; i < 75; i++) {
           const res = await realFetch(`http://127.0.0.1:${PORT}/api/stats/${deviceId}`);
           const body = await res.json();
           if (body?.totalScore === expected) return body;
-          await new Promise(r => setTimeout(r, 100));
+          await new Promise(r => setTimeout(r, 40));
         }
         throw new Error(`totalScore never reached ${expected}`);
       };
@@ -2394,7 +2136,7 @@ describe('Server Socket E2E Simulation', () => {
 
               // Game 1: normal lobby→playing start, then finish and record stats.
               s1.emit('pushState', { roomId, newState: { players, status: 'playing', currentPlayerIndex: 0 } });
-              await new Promise(r => setTimeout(r, 200));
+              await new Promise(r => setTimeout(r, 80));
               s1.emit('pushState', { roomId, newState: { finished: true } });
               s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, totalScore: 100 } });
               await pollDeviceScore(100);
@@ -2412,7 +2154,7 @@ describe('Server Socket E2E Simulation', () => {
                   status: 'playing', finished: false, currentPlayerIndex: 0,
                 },
               });
-              await new Promise(r => setTimeout(r, 200));
+              await new Promise(r => setTimeout(r, 80));
 
               // The new shuffle must be adopted, not discarded.
               expect(latestState.players.map((p) => p.name)).toEqual(['Bob', 'Alice']);
@@ -2631,8 +2373,8 @@ describe('Server Socket E2E Simulation', () => {
                 clearTimeout(timeoutId);
                 cleanup();
                 resolve(undefined);
-              }, 300);
-            }, 500);
+              }, 100);
+            }, 150);
           });
         });
       });
