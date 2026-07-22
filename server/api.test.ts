@@ -3,6 +3,18 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+
+const ensureDistIndexHtml = () => {
+  const distDir = path.join(__dirname, '../dist');
+  const indexPath = path.join(distDir, 'index.html');
+  if (!fs.existsSync(indexPath)) {
+    fs.mkdirSync(distDir, { recursive: true });
+    fs.writeFileSync(indexPath, '<!DOCTYPE html><html><body>SPA Fallback Test</body></html>');
+  }
+};
+ensureDistIndexHtml();
 
 describe('API Endpoints Token Protection', () => {
   let serverProcess;
