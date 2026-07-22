@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import App from './App';
 import * as diceLogic from './utils/diceLogic';
-import { useGameStore } from './store/useGameStore';
+import { useGameStore, _resetTimersForTests } from './store/useGameStore';
 import { DICE_PANEL_ENTRANCE_MS } from './utils/uiTimings';
 
 // Mock confetti
@@ -756,12 +756,19 @@ describe('App Integration (End-to-End)', () => {
     expect(resyncElapsed).toBe(35);
 
     // Wait a bit and verify time continues to advance from correct reference
-    await new Promise(resolve => setTimeout(resolve, 500));
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
 
-    state = useGameStore.getState();
-    const afterWait = Math.floor((Date.now() - state.gameStartTime) / 1000);
-    // Should be ~35.5 seconds
-    expect(afterWait).toBeGreaterThanOrEqual(35);
+      state = useGameStore.getState();
+      const afterWait = Math.floor((Date.now() - state.gameStartTime) / 1000);
+      // Should be ~35.5 seconds
+      expect(afterWait).toBeGreaterThanOrEqual(35);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('Game time does not drift across multiple server updates', async () => {
@@ -803,46 +810,50 @@ describe('App Integration (End-to-End)', () => {
   });
 
   it('Game time sync works for both online and local games', async () => {
-    // Local game
-    act(() => {
-      useGameStore.setState({
-        mode: 'local',
-        isOnline: false,
-        players: [{ name: 'Alice', score: 0 }],
-        status: 'lobby',
+    vi.useFakeTimers();
+    try {
+      // Local game
+      act(() => {
+        useGameStore.setState({
+          mode: 'local',
+          isOnline: false,
+          players: [{ name: 'Alice', score: 0 }],
+          status: 'lobby',
+        });
       });
-    });
 
-    useGameStore.getState().startGame();
-    expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
+      useGameStore.getState().startGame();
+      expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
 
-    // Simulate clock tick without waiting 1s in real time
-    act(() => {
-      useGameStore.setState(s => ({ gameTimeInSeconds: s.gameTimeInSeconds + 1 }));
-    });
-    expect(useGameStore.getState().gameTimeInSeconds).toBeGreaterThanOrEqual(1);
-
-    // Clean up for online test
-    useGameStore.getState().reset();
-
-    // Online game
-    act(() => {
-      useGameStore.setState({
-        mode: 'online',
-        isOnline: true,
-        status: 'playing',
-        currentPlayerIndex: 0,
-        gameTimeInSeconds: 0,
+      act(() => {
+        vi.advanceTimersByTime(1100);
       });
-    });
+      expect(useGameStore.getState().gameTimeInSeconds).toBeGreaterThanOrEqual(1);
 
-    useGameStore.getState().syncOnlineTimers();
-    expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
+      useGameStore.getState().reset();
+      _resetTimersForTests();
 
-    // Simulate clock tick without waiting 1s in real time
-    act(() => {
-      useGameStore.setState(s => ({ gameTimeInSeconds: s.gameTimeInSeconds + 1 }));
-    });
-    expect(useGameStore.getState().gameTimeInSeconds).toBeGreaterThanOrEqual(1);
+      // Online game
+      act(() => {
+        useGameStore.setState({
+          mode: 'online',
+          isOnline: true,
+          status: 'playing',
+          currentPlayerIndex: 0,
+          gameTimeInSeconds: 0,
+        });
+      });
+
+      useGameStore.getState().syncOnlineTimers();
+      expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
+
+      act(() => {
+        vi.advanceTimersByTime(1100);
+      });
+      expect(useGameStore.getState().gameTimeInSeconds).toBeGreaterThanOrEqual(1);
+    } finally {
+      _resetTimersForTests();
+      vi.useRealTimers();
+    }
   });
 });

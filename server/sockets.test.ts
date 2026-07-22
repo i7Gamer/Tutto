@@ -14,6 +14,8 @@ describe('Server Socket E2E Simulation', () => {
 
   // We will run the server on port 3005 for testing
   const PORT = '3005';
+  const SCALE = process.env.TEST_TIMER_SCALE ? parseFloat(process.env.TEST_TIMER_SCALE) : 1;
+  const testDelay = (ms: number) => Math.max(20, Math.floor(ms * SCALE));
 
   beforeAll(() => {
     return new Promise((resolve, reject) => {
@@ -1762,7 +1764,7 @@ describe('Server Socket E2E Simulation', () => {
               roomId: 'RECONNECT_OFF',
               newState: { players, status: 'playing', currentPlayerIndex: 0, reconnectTimeout: 0 },
             });
-            setTimeout(() => s2.disconnect(), 300);
+            setTimeout(() => s2.disconnect(), testDelay(300));
           });
         });
       });
@@ -1772,15 +1774,14 @@ describe('Server Socket E2E Simulation', () => {
         const bob = state.players?.find(p => p.name === 'Bob');
         if (bob?.disconnected && !bobDisconnectSeen) {
           bobDisconnectSeen = true;
-          // Wait 350ms — longer than the 200ms kick timer (1s * 0.2 scale) used in reconnectTimeout=1 tests.
-          // Bob must remain in the room (marked disconnected but not removed).
+          // Wait testDelay(350) — longer than scaled kick timer. Bob must remain in room.
           setTimeout(() => {
             expect(latestState.players.length).toBe(2);
             expect(latestState.players.find(p => p.name === 'Bob')?.disconnected).toBe(true);
             clearTimeout(timeoutId);
             s1.disconnect();
             resolve();
-          }, 350);
+          }, testDelay(350));
         }
       });
     });
@@ -1791,16 +1792,19 @@ describe('Server Socket E2E Simulation', () => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const timeoutId = setTimeout(() => {
         s1.disconnect();
-        resolve(); // No invalid state observed — all bad payloads were correctly rejected.
-      }, 350);
+        reject(new Error('Test timed out waiting for invalid card rejection marker'));
+      }, 5000);
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'CARDS_INVALID', name: 'Alice', deviceId: 'dev-ci-a', color: '#ff0000' }, () => {
-          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { injected: 5, '200': 5 } }), 50);
-          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': -1 } }), 100);
-          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': 1.5 } }), 150);
-          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': 100 } }), 200); // > MAX_CARD_COUNT=99
-          setTimeout(() => s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: {} }), 250);          // empty object
+          s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { injected: 5, '200': 5 } });
+          s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': -1 } });
+          s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': 1.5 } });
+          s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': 100 } });
+          s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: {} });
+
+          // Marker: valid config update causes server to emit gameState with winningScore: 6000
+          s1.emit('updateConfig', { roomId: 'CARDS_INVALID', winningScore: 6000 });
         });
       });
 
@@ -1815,6 +1819,14 @@ describe('Server Socket E2E Simulation', () => {
           clearTimeout(timeoutId);
           s1.disconnect();
           reject(new Error(`Server accepted invalid initialCards: ${JSON.stringify(cards)}`));
+          return;
+        }
+
+        // Marker gameState arrived after all bad updateConfig attempts were processed and rejected
+        if (state.winningScore === 6000) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          resolve();
         }
       });
     });
@@ -2166,7 +2178,7 @@ describe('Server Socket E2E Simulation', () => {
             // client's "finished just became true" path) — must be ignored. If it
             // were applied, totalScore would become 100 + 99999.
             s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, totalScore: 99999 } });
-            await new Promise(r => setTimeout(r, 300));
+            await new Promise(r => setTimeout(r, testDelay(300)));
             const stillOne = await realFetch(`http://127.0.0.1:${PORT}/api/stats/${deviceId}`).then(r => r.json());
             expect(stillOne.totalScore).toBe(100);
             expect(stillOne.gamesPlayed).toBe(1);
@@ -2179,7 +2191,7 @@ describe('Server Socket E2E Simulation', () => {
                 status: 'playing', currentPlayerIndex: 0,
               },
             });
-            await new Promise(r => setTimeout(r, 200));
+            await new Promise(r => setTimeout(r, testDelay(200)));
 
             // Now a submission for the NEW game must be accepted.
             s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, totalScore: 50 } });
@@ -2230,7 +2242,7 @@ describe('Server Socket E2E Simulation', () => {
 
             // Duplicate for the same game — must be ignored, not added again.
             s1.emit('submitGlobalStats', { roomId, payload: { totalScore: 99999 } });
-            await new Promise(r => setTimeout(r, 300));
+            await new Promise(r => setTimeout(r, testDelay(300)));
             expect(await getGlobalTotalScore()).toBe(before + 100);
 
             clearTimeout(timeoutId);
@@ -2534,25 +2546,25 @@ describe('Server Socket E2E Simulation', () => {
                 try {
                   // Marker config so a leaked room is distinguishable from a fresh one.
                   s1.emit('pushState', { roomId, newState: { winningScore: 7777, reconnectTimeout: 1 } });
-                  await new Promise(r => setTimeout(r, 200));
+                  await new Promise(r => setTimeout(r, testDelay(200)));
 
                   // Bob times out — his fired timer must not leave a stale entry.
                   s2.disconnect();
-                  await new Promise(r => setTimeout(r, 350));
+                  await new Promise(r => setTimeout(r, testDelay(350)));
 
                   // Disable reconnect timers, then Alice and Charlie passively
                   // disconnect (marked disconnected, no timers armed).
                   s1.emit('pushState', { roomId, newState: { reconnectTimeout: 0 } });
-                  await new Promise(r => setTimeout(r, 200));
+                  await new Promise(r => setTimeout(r, testDelay(200)));
                   s1.disconnect();
-                  await new Promise(r => setTimeout(r, 300));
+                  await new Promise(r => setTimeout(r, testDelay(300)));
                   s3.disconnect();
-                  await new Promise(r => setTimeout(r, 300));
+                  await new Promise(r => setTimeout(r, testDelay(300)));
 
                   // Dave explicit-leaves: everyone remaining is disconnected and no
                   // timers are pending, so the room must be deleted.
                   s4.emit('leaveRoom');
-                  await new Promise(r => setTimeout(r, 300));
+                  await new Promise(r => setTimeout(r, testDelay(300)));
 
                   // Probe: a new join must land in a FRESH room (default config,
                   // sole member = host), not the leaked one.

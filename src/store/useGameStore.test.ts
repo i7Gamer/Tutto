@@ -1448,35 +1448,41 @@ describe('useGameStore', () => {
       expect(elapsedSeconds).toBe(newServerTime);
     });
 
-    it('game time does not drift on repeated syncs', async () => {
-      const syncTimes = [];
+    it('game time does not drift on repeated syncs', () => {
+      vi.useFakeTimers();
+      try {
+        const syncTimes = [];
 
-      // Simulate 3 syncs over 2+ seconds
-      for (let i = 0; i < 3; i++) {
-        const serverTime = 10 + i;  // Server advances: 10, 11, 12
-        useGameStore.setState({
-          mode: 'online',
-          isOnline: true,
-          status: 'playing',
-          currentPlayerIndex: 0,
-          gameTimeInSeconds: serverTime,
+        // Simulate 3 syncs over 2+ seconds
+        for (let i = 0; i < 3; i++) {
+          const serverTime = 10 + i;  // Server advances: 10, 11, 12
+          useGameStore.setState({
+            mode: 'online',
+            isOnline: true,
+            status: 'playing',
+            currentPlayerIndex: 0,
+            gameTimeInSeconds: serverTime,
+          });
+
+          useGameStore.getState().syncOnlineTimers();
+          const state = useGameStore.getState();
+          const elapsedMs = Date.now() - state.gameStartTime;
+          const elapsedSeconds = Math.floor(elapsedMs / 1000);
+
+          syncTimes.push({ server: serverTime, local: elapsedSeconds });
+
+          // Fast-forward simulated time between syncs
+          if (i < 2) vi.advanceTimersByTime(1100);
+        }
+
+        // Verify no large drifts between server and local times
+        syncTimes.forEach(({ server, local }) => {
+          expect(Math.abs(server - local)).toBeLessThanOrEqual(1);
         });
-
-        useGameStore.getState().syncOnlineTimers();
-        const state = useGameStore.getState();
-        const elapsedMs = Date.now() - state.gameStartTime;
-        const elapsedSeconds = Math.floor(elapsedMs / 1000);
-
-        syncTimes.push({ server: serverTime, local: elapsedSeconds });
-
-        // Wait between syncs
-        if (i < 2) await new Promise(resolve => setTimeout(resolve, 1100));
+      } finally {
+        _resetTimersForTests();
+        vi.useRealTimers();
       }
-
-      // Verify no large drifts between server and local times
-      syncTimes.forEach(({ server, local }) => {
-        expect(Math.abs(server - local)).toBeLessThanOrEqual(1);
-      });
     });
 
     it('game timer respects gameStartTime being set', () => {
