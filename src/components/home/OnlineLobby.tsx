@@ -98,24 +98,26 @@ export default function OnlineLobby() {
   };
 
   const handleJoin = async () => {
-    if (!inputRoomCode || !inputName) {
+    const trimmedRoomCode = inputRoomCode.trim();
+    const trimmedName = inputName.trim();
+    if (!trimmedRoomCode || !trimmedName) {
       setErrorMsg(t('lobby.online.enterBoth', 'Please enter both a Room Code and a Name.'));
       return;
     }
     setErrorMsg('');
-    const res = await joinRoom(inputRoomCode, inputName) as JoinRoomResult | undefined;
+    const res = await joinRoom(trimmedRoomCode, trimmedName) as JoinRoomResult | undefined;
     if (res && res.error) {
       setErrorMsg(res.error);
     } else {
-      localStorage.setItem('tutto_last_room', inputRoomCode);
-      localStorage.setItem('tutto_last_name', inputName);
+      localStorage.setItem('tutto_last_room', trimmedRoomCode);
+      localStorage.setItem('tutto_last_name', trimmedName);
       
       try {
         const raw = localStorage.getItem('tutto_recent_rooms');
         let list: RecentRoom[] = raw ? JSON.parse(raw) : [];
         if (!Array.isArray(list)) list = [];
-        list = list.filter(item => item.roomId !== inputRoomCode);
-        list.unshift({ roomId: inputRoomCode, name: inputName, timestamp: Date.now() });
+        list = list.filter(item => item.roomId !== trimmedRoomCode);
+        list.unshift({ roomId: trimmedRoomCode, name: trimmedName, timestamp: Date.now() });
         list = list.slice(0, 5);
         localStorage.setItem('tutto_recent_rooms', JSON.stringify(list));
         setRecentRooms(list);

@@ -369,4 +369,46 @@ describe('OnlineLobby recent rooms history', () => {
     render(<OnlineLobby />);
     expect(screen.queryByText('lobby.online.recentRooms')).not.toBeInTheDocument();
   });
+
+  it('rejects whitespace-only room code or name with error message', async () => {
+    const joinRoom = vi.fn();
+    stageStore({ joinRoom });
+    render(<OnlineLobby />);
+
+    const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder');
+    const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder');
+    const joinBtn = screen.getByText('lobby.online.joinCreateButton');
+
+    fireEvent.change(roomInput, { target: { value: '   ' } });
+    fireEvent.change(nameInput, { target: { value: 'Alice' } });
+
+    await act(async () => {
+      fireEvent.click(joinBtn);
+    });
+
+    expect(screen.getByText('lobby.online.enterBoth')).toBeInTheDocument();
+    expect(joinRoom).not.toHaveBeenCalled();
+  });
+
+  it('trims leading and trailing whitespace from room code and name before joining and storing', async () => {
+    const joinRoom = vi.fn().mockResolvedValue({ success: true });
+    stageStore({ joinRoom });
+    render(<OnlineLobby />);
+
+    const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder');
+    const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder');
+    const joinBtn = screen.getByText('lobby.online.joinCreateButton');
+
+    fireEvent.change(roomInput, { target: { value: '  ROOM123  ' } });
+    fireEvent.change(nameInput, { target: { value: '  Alice  ' } });
+
+    await act(async () => {
+      fireEvent.click(joinBtn);
+    });
+
+    expect(joinRoom).toHaveBeenCalledWith('ROOM123', 'Alice');
+    expect(localStorage.getItem('tutto_last_room')).toBe('ROOM123');
+    expect(localStorage.getItem('tutto_last_name')).toBe('Alice');
+  });
 });
+
