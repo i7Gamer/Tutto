@@ -1774,7 +1774,9 @@ describe('Server Socket E2E Simulation', () => {
         const bob = state.players?.find(p => p.name === 'Bob');
         if (bob?.disconnected && !bobDisconnectSeen) {
           bobDisconnectSeen = true;
-          // Wait testDelay(350) — longer than scaled kick timer. Bob must remain in room.
+          // reconnectTimeout: 0 means the server never arms a kick timer, so Bob stays
+          // disconnected indefinitely. testDelay(350) gives the server time to process the
+          // disconnect event and emit the updated gameState — no kick can fire anyway.
           setTimeout(() => {
             expect(latestState.players.length).toBe(2);
             expect(latestState.players.find(p => p.name === 'Bob')?.disconnected).toBe(true);
@@ -1803,8 +1805,9 @@ describe('Server Socket E2E Simulation', () => {
           s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: { '200': 100 } });
           s1.emit('updateConfig', { roomId: 'CARDS_INVALID', initialCards: {} });
 
-          // Marker: valid config update causes server to emit gameState with winningScore: 6000
-          s1.emit('updateConfig', { roomId: 'CARDS_INVALID', winningScore: 6000 });
+          // Marker: valid config update with a non-default winningScore (5999 ≠ DEFAULT_WINNING_SCORE=6000).
+          // The server emits a gameState after processing this, proving all prior bad payloads were handled.
+          s1.emit('updateConfig', { roomId: 'CARDS_INVALID', winningScore: 5999 });
         });
       });
 
@@ -1822,8 +1825,8 @@ describe('Server Socket E2E Simulation', () => {
           return;
         }
 
-        // Marker gameState arrived after all bad updateConfig attempts were processed and rejected
-        if (state.winningScore === 6000) {
+        // Marker gameState: server has drained all prior socket events. All bad cards updates were rejected.
+        if (state.winningScore === 5999) {
           clearTimeout(timeoutId);
           s1.disconnect();
           resolve();

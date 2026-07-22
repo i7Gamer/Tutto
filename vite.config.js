@@ -113,7 +113,11 @@ export default defineConfig(({ mode }) => {
       setupFiles: ['./src/setupTests.tsx'],
       exclude: ['node_modules', 'dist', '.idea', '.git', '.cache', 'e2e/**', 'server/node_modules/**'],
       env: {
-        TEST_DB: 'true'
+        TEST_DB: 'true',
+        // Makes testDelay(ms) in socket/server integration tests scale down
+        // orchestration sleeps (e.g. 300ms → 60ms) in the same way TEST_TIMER_SCALE
+        // already accelerates the spawned server child processes.
+        TEST_TIMER_SCALE: '0.2',
       }
     }
   }
