@@ -157,6 +157,8 @@
   "lobby.online.yourName": "Your Name",
   "lobby.online.yourNamePlaceholder": "e.g. Alice",
   "lobby.online.joinCreateButton": "Join / Create",
+  "lobby.online.joining": "Joining…",
+  "lobby.online.joinTimeout": "No response from the server. Please try again.",
   "lobby.online.recentRooms": "Recent Rooms",
   "lobby.online.room": "Room: {{roomId}}",
   "lobby.online.copyRoomCode": "Copy room code",

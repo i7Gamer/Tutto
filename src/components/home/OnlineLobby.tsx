@@ -14,6 +14,12 @@ import ConfirmModal from '../ConfirmModal';
 // How long the copy button shows its "copied" checkmark before reverting.
 const COPY_FEEDBACK_MS = 1500;
 
+// How long a join attempt may stay pending before the form unlocks again.
+// joinRoom only resolves on the server's ack, and socket.io buffers the emit
+// while the server is unreachable — without this deadline the promise may
+// never settle and the button would stay disabled forever.
+const JOIN_TIMEOUT_MS = 10_000;
+
 interface JoinRoomResult {
   error?: string;
 }
@@ -46,6 +52,12 @@ export default function OnlineLobby() {
   const [inputName, setInputName] = useState(() => getStoredValue('tutto_last_name'));
   const [errorMsg, setErrorMsg] = useState('');
   const [roomCodeCopied, setRoomCodeCopied] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
+  // Re-entrancy guard for handleJoin. A ref, not the state above: two clicks
+  // in the same frame both read the pre-render `isJoining === false` from
+  // their shared closure (and `disabled` hasn't been committed yet either),
+  // so only a synchronously-written ref actually blocks the second call.
+  const joiningRef = useRef(false);
 
   // Selects only what this lobby renders — the whole store used to arrive as
   // a prop from Home, re-rendering the entire lobby tree on any store change.
@@ -98,6 +110,9 @@ export default function OnlineLobby() {
   };
 
   const handleJoin = async () => {
+    // A double-click before the ack returns would fire a second joinRoom emit
+    // for the same device (a duplicate seat, or a spurious "name taken").
+    if (joiningRef.current) return;
     const trimmedRoomCode = inputRoomCode.trim();
     const trimmedName = inputName.trim();
     if (!trimmedRoomCode || !trimmedName) {
@@ -105,7 +120,28 @@ export default function OnlineLobby() {
       return;
     }
     setErrorMsg('');
-    const res = await joinRoom(trimmedRoomCode, trimmedName) as JoinRoomResult | undefined;
+    joiningRef.current = true;
+    setIsJoining(true);
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const res = await Promise.race([
+        joinRoom(trimmedRoomCode, trimmedName) as Promise<JoinRoomResult | undefined>,
+        new Promise<JoinRoomResult>((resolve) => {
+          watchdog = setTimeout(
+            () => resolve({ error: t('lobby.online.joinTimeout', 'No response from the server. Please try again.') }),
+            JOIN_TIMEOUT_MS,
+          );
+        }),
+      ]);
+      handleJoinResult(res, trimmedRoomCode, trimmedName);
+    } finally {
+      clearTimeout(watchdog);
+      joiningRef.current = false;
+      setIsJoining(false);
+    }
+  };
+
+  const handleJoinResult = (res: JoinRoomResult | undefined, trimmedRoomCode: string, trimmedName: string) => {
     if (res && res.error) {
       setErrorMsg(res.error);
     } else {
@@ -161,10 +197,13 @@ export default function OnlineLobby() {
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl mt-2 shadow-lg shadow-indigo-500/30 transition-all"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl mt-2 shadow-lg shadow-indigo-500/30 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            disabled={isJoining}
             onClick={() => void handleJoin()}
           >
-            {t('lobby.online.joinCreateButton', 'Join / Create')}
+            {isJoining
+              ? t('lobby.online.joining', 'Joining…')
+              : t('lobby.online.joinCreateButton', 'Join / Create')}
           </motion.button>
 
           {recentRooms.length > 0 && (

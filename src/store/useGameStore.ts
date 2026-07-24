@@ -120,9 +120,18 @@ export const useGameStore = create<GameStore>()(
         if (session) state.pendingReconnectSession = session;
       });
 
-      // Validation of dice turn state cache ownership
+      // Validation of dice turn state cache ownership. init() runs at app
+      // mount, BEFORE a pending online reconnect can be accepted
+      // (setMode('online') only fires from the reconnect popup), so `mode` is
+      // still 'local' here even when the cache belongs to an online game —
+      // the pending session (restored just above) is the discriminator.
+      // Judging an online game's cache against the local roster would nearly
+      // always mismatch and silently delete the reconnecting player's
+      // in-progress turn. DiceGame's turnKey check (run later, against real
+      // post-reconnect state) discards genuinely stale snapshots in every
+      // mode, including this one.
       const restoredDice = parseSavedDiceState(localStorage.getItem('tutto_dice_turn_state'));
-      if (restoredDice && restoredDice.playerName && get().mode === 'local') {
+      if (restoredDice && restoredDice.playerName && !get().pendingReconnectSession) {
         const activePlayer = get().currentPlayerIndex !== null ? get().players[get().currentPlayerIndex!] : null;
         if (!activePlayer || activePlayer.name !== restoredDice.playerName) {
           localStorage.removeItem('tutto_dice_turn_state');

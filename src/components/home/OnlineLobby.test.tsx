@@ -48,6 +48,79 @@ describe('OnlineLobby', () => {
   });
 });
 
+describe('OnlineLobby join double-submit guard', () => {
+  const fillJoinForm = () => {
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.roomCodePlaceholder'), { target: { value: 'R1' } });
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.yourNamePlaceholder'), { target: { value: 'Alice' } });
+  };
+
+  it('fires joinRoom only once for a rapid double-click while the ack is pending', async () => {
+    let resolveJoin!: (v: { error?: string }) => void;
+    const joinRoom = vi.fn(() => new Promise<{ error?: string }>(res => { resolveJoin = res; }));
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+
+    render(<OnlineLobby />);
+    fillJoinForm();
+
+    const btn = screen.getByText('lobby.online.joinCreateButton');
+    await act(async () => {
+      fireEvent.click(btn);
+      fireEvent.click(btn); // second click before the server ack returns
+    });
+
+    expect(joinRoom).toHaveBeenCalledTimes(1);
+
+    await act(async () => { resolveJoin({ error: 'nope' }); });
+  });
+
+  it('re-enables the button once a failed attempt settles, so the user can retry', async () => {
+    let resolveJoin!: (v: { error?: string }) => void;
+    const joinRoom = vi.fn(() => new Promise<{ error?: string }>(res => { resolveJoin = res; }));
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+
+    render(<OnlineLobby />);
+    fillJoinForm();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('lobby.online.joinCreateButton'));
+    });
+    await act(async () => { resolveJoin({ error: 'Username already exists in this room' }); });
+
+    expect(screen.getByText('Username already exists in this room')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('lobby.online.joinCreateButton'));
+    });
+    expect(joinRoom).toHaveBeenCalledTimes(2);
+
+    await act(async () => { resolveJoin({ error: 'nope' }); });
+  });
+
+  it('re-enables the button when the server never acks, via the join timeout watchdog', async () => {
+    vi.useFakeTimers();
+    // Never resolves — simulates socket.io buffering the emit with the server unreachable.
+    const joinRoom = vi.fn(() => new Promise<{ error?: string }>(() => {}));
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+
+    render(<OnlineLobby />);
+    fillJoinForm();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('lobby.online.joinCreateButton'));
+    });
+    // While pending, the button is locked (label swaps to the joining state).
+    expect(screen.queryByText('lobby.online.joinCreateButton')).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+
+    expect(screen.getByText('lobby.online.joinTimeout')).toBeInTheDocument();
+    expect(screen.getByText('lobby.online.joinCreateButton')).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+});
+
 describe('OnlineLobby copy room code button', () => {
   const stageRoom = (overrides: Partial<GameStore> = {}) => stageStore({
     roomId: '1234',

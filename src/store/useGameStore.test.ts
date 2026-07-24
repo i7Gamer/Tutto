@@ -2642,22 +2642,29 @@ describe('useGameStore', () => {
       expect(localStorage.getItem('tutto_dice_turn_state')).not.toBeNull();
     });
 
-    it('does not delete tutto_dice_turn_state in online mode even if names mismatch', () => {
-      // The validation block is local-only; online games restore from the server
+    it('does not delete tutto_dice_turn_state when an online reconnect is pending, even if names mismatch the local roster', () => {
+      // init() runs at app mount, BEFORE the reconnect popup can set
+      // mode='online' — so the pending session (restored from sessionStorage
+      // inside init itself) is the only signal that the cache belongs to an
+      // online game. Judging it against the local roster here would delete the
+      // reconnecting player's in-progress turn; DiceGame's turnKey check
+      // (which runs after the reconnect against real state) is the validator
+      // for this path.
+      sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'ROOM1', myName: 'Alice' }));
       useGameStore.setState({
-        mode: 'online',
-        players: namedPlayers('Alice', 'Bob'),
+        mode: 'local', // what init() actually observes at mount
+        players: namedPlayers('Carol', 'Bob'),
         currentPlayerIndex: 1,
       });
 
       localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
         turnScore: 1000,
-        playerName: 'Alice', // deliberately mismatched
+        playerName: 'Alice', // mismatches the local roster, belongs to ROOM1
       }));
 
       useGameStore.getState().init('test-device-id');
 
-      // Should NOT be cleared — mode is online, not local
+      // Should NOT be cleared — a pending online reconnect owns this cache
       expect(localStorage.getItem('tutto_dice_turn_state')).not.toBeNull();
     });
 
