@@ -71,19 +71,23 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
       const wasDisconnected = prev.showReconnectPopup;
 
       if (prev.mode === 'online' && prev.status === 'lobby' && serverState.status === 'lobby') {
-        if (prev.winningScore !== serverState.winningScore) {
+        // Each diff is guarded with `key in serverState`, matching the sync
+        // loop below: serverState is typed Partial<GameStore>, so an absent
+        // key must read as "unchanged", not "changed to undefined" (which
+        // would toast e.g. "Winning score: undefined").
+        if ('winningScore' in serverState && prev.winningScore !== serverState.winningScore) {
           prev.toasts.push(makeToast(i18n.t('game.toastWinningScore', {
             defaultValue: 'Winning score: {{value}}',
             value: serverState.winningScore,
           })));
         }
-        if (prev.turnDuration !== serverState.turnDuration) {
+        if ('turnDuration' in serverState && prev.turnDuration !== serverState.turnDuration) {
           const value = serverState.turnDuration === 0
             ? i18n.t('common.disabled', 'Disabled')
             : i18n.t('game.timeSeconds', { defaultValue: '{{time}}s', time: serverState.turnDuration });
           prev.toasts.push(makeToast(i18n.t('game.toastTurnTimer', { defaultValue: 'Turn timer: {{value}}', value })));
         }
-        if (prev.reconnectTimeout !== serverState.reconnectTimeout) {
+        if ('reconnectTimeout' in serverState && prev.reconnectTimeout !== serverState.reconnectTimeout) {
           prev.toasts.push(makeToast(i18n.t('game.toastKickTimer', {
             defaultValue: 'Kick timer: {{value}}',
             value: `${serverState.reconnectTimeout}s`,
@@ -92,7 +96,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
         if (serverState.initialCards && !areInitialCardsEqual(prev.initialCards, serverState.initialCards)) {
           prev.toasts.push(makeToast(i18n.t('game.toastDeckChanged', 'Deck composition changed')));
         }
-        if (prev.enforcedDiceMode !== serverState.enforcedDiceMode) {
+        if ('enforcedDiceMode' in serverState && prev.enforcedDiceMode !== serverState.enforcedDiceMode) {
           const value = serverState.enforcedDiceMode === null
             ? i18n.t('common.disabled', 'Disabled')
             : serverState.enforcedDiceMode === 'digital'

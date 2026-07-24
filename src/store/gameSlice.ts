@@ -6,7 +6,7 @@ import {
   buildGlobalStatsPayload,
 } from '../utils/coreGameEngine';
 import { buildTurnKey } from '../utils/diceTurnState';
-import { DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, areInitialCardsEqual } from '../utils/configValidation';
+import { DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, MAX_PLAYER_NAME_LENGTH, areInitialCardsEqual } from '../utils/configValidation';
 import playerColorsData from '../../playerColors.json';
 import { v4 as uuidv4 } from 'uuid';
 import type { Player, CoreGameState, Toast } from '../types';
@@ -62,10 +62,19 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
 
   addPlayer: (name) => {
     set((state) => {
+      // The store enforces its own roster invariants (mirroring LocalLobby's
+      // pre-checks and the server's joinRoom rules) instead of trusting every
+      // caller: a case-insensitive duplicate breaks each name-keyed lookup
+      // (Plus/Minus deduction, undo, pushState merging) and would make
+      // persistence.hasUniquePlayerNames silently drop the entire restored
+      // save on the next reload.
+      const trimmed = name.trim();
+      if (trimmed.length === 0 || trimmed.length > MAX_PLAYER_NAME_LENGTH) return;
+      if (state.players.some(p => p.name.toLowerCase() === trimmed.toLowerCase())) return;
       const usedColors = state.players.map(p => p.color);
       let color = PLAYER_COLORS.find(c => !usedColors.includes(c));
       if (!color) color = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
-      const newPlayer = createInitialPlayer(name);
+      const newPlayer = createInitialPlayer(trimmed);
       newPlayer.color = color;
       state.players.push(newPlayer);
     });

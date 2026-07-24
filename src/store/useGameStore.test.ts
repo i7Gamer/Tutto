@@ -2060,6 +2060,33 @@ describe('useGameStore', () => {
     });
   });
 
+  describe('addPlayer store-level invariants', () => {
+    it('ignores a name differing only by case from an existing player', () => {
+      // Duplicate names break every name-keyed lookup (Plus/Minus deduction,
+      // undo, pushState merging) and make persistence.hasUniquePlayerNames
+      // drop the entire restored save on the next reload — the store must
+      // enforce this itself, not rely on LocalLobby being the only caller.
+      useGameStore.getState().addPlayer('Alice');
+      useGameStore.getState().addPlayer('alice');
+
+      expect(useGameStore.getState().players.map(p => p.name)).toEqual(['Alice']);
+    });
+
+    it('ignores empty, whitespace-only, and over-length names', () => {
+      useGameStore.getState().addPlayer('');
+      useGameStore.getState().addPlayer('   ');
+      useGameStore.getState().addPlayer('x'.repeat(31));
+
+      expect(useGameStore.getState().players).toEqual([]);
+    });
+
+    it('trims surrounding whitespace, matching the lobby input', () => {
+      useGameStore.getState().addPlayer('  Alice  ');
+
+      expect(useGameStore.getState().players.map(p => p.name)).toEqual(['Alice']);
+    });
+  });
+
   describe('player identity (Player.id)', () => {
     it('mints a non-empty, unique id for each new player', () => {
       useGameStore.getState().addPlayer('Alice');
@@ -2190,6 +2217,23 @@ describe('useGameStore', () => {
 
       const messages = useGameStore.getState().toasts.map(t => t.message);
       expect(messages.some(m => m.includes('Disabled'))).toBe(true);
+    });
+
+    it('does not toast config changes for a partial gameState payload that omits those keys', () => {
+      // The sync loop guards every field with `key in serverState`; the toast
+      // diffs must do the same — a payload missing winningScore etc. means
+      // "unchanged", not "changed to undefined" (which would toast
+      // "Winning score: undefined").
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        status: 'lobby', winningScore: 6000, turnDuration: 45,
+        reconnectTimeout: 60, enforcedDiceMode: null, toasts: [],
+      });
+
+      mockOnHandlers['gameState']({ status: 'lobby', players: [] });
+
+      expect(useGameStore.getState().toasts).toEqual([]);
     });
 
     it('does not toast when enforcedDiceMode is unchanged', () => {
