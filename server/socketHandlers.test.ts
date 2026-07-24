@@ -21,7 +21,7 @@ vi.mock('./database', () => ({
 
 import { updateDeviceStats, updateGlobalStats, getDeviceStats } from './database';
 import { registerSocketHandlers } from './socketHandlers';
-import { rooms, createRoom, deleteRoom, MAX_PLAYERS_PER_ROOM } from './rooms';
+import { rooms, createRoom, deleteRoom, MAX_PLAYERS_PER_ROOM, MAX_ROOMS } from './rooms';
 import type { ServerPlayer } from './roomTypes';
 
 const mockedUpdateDeviceStats = vi.mocked(updateDeviceStats);
@@ -87,6 +87,8 @@ describe('stats dedup rollback on DB failure', () => {
     mockedUpdateDeviceStats.mockResolvedValue(true);
 
     client = await connectAndJoin('STATS_RETRY_DEV', 'Alice', 'dev-retry-1');
+    // Stats are only accepted once the game has actually finished.
+    rooms['STATS_RETRY_DEV'].state.finished = true;
 
     // First attempt: DB write fails — the dedup marker must be rolled back.
     client.emit('endGameStats', { deviceId: 'dev-retry-1', stats: { gamesPlayed: 1 } });
@@ -111,6 +113,8 @@ describe('stats dedup rollback on DB failure', () => {
     // First join creates the room with this socket as host — required for
     // submitGlobalStats to be accepted.
     client = await connectAndJoin('STATS_RETRY_GLOBAL', 'Alice', 'dev-retry-2');
+    // Stats are only accepted once the game has actually finished.
+    rooms['STATS_RETRY_GLOBAL'].state.finished = true;
 
     client.emit('submitGlobalStats', { roomId: 'STATS_RETRY_GLOBAL', payload: { gamesPlayed: 1 } });
     await waitFor(() => mockedUpdateGlobalStats.mock.calls.length === 1);
@@ -130,6 +134,8 @@ describe('stats dedup rollback on DB failure', () => {
     // Player joined with no prior streak...
     mockedGetDeviceStats.mockResolvedValueOnce(null);
     client = await connectAndJoin('STATS_STREAK_ROOM', 'Alice', 'dev-streak-1');
+    // Stats are only accepted once the game has actually finished.
+    rooms['STATS_STREAK_ROOM'].state.finished = true;
 
     // deviceId is stripped from broadcast state (it's a reconnect credential), so
     // match by name instead — same as the client would.
@@ -1127,5 +1133,182 @@ describe('game clock (gameTimeInSeconds / gameActualStartTime)', () => {
     expect(second.gameTimeInSeconds).toBeGreaterThanOrEqual(1);
     expect(second.gameTimeInSeconds).toBeLessThan(5);
     expect(second.gameTimeInSeconds).toBeGreaterThan(firstGameTime);
+  });
+});
+
+describe('stats submissions require a finished game', () => {
+  let httpServer: HttpServer;
+  let ioServer: Server;
+  let port: number;
+  const sockets: ClientSocket[] = [];
+
+  beforeAll(async () => {
+    httpServer = createServer();
+    ioServer = new Server(httpServer);
+    registerSocketHandlers(ioServer);
+    await new Promise<void>(resolve => httpServer.listen(0, () => resolve()));
+    port = (httpServer.address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    sockets.forEach(s => s.disconnect());
+    await ioServer.close();
+  });
+
+  beforeEach(() => {
+    mockedUpdateDeviceStats.mockReset();
+    mockedUpdateGlobalStats.mockReset();
+    mockedGetDeviceStats.mockReset();
+    mockedGetDeviceStats.mockResolvedValue(null);
+  });
+
+  const connectAndJoin = (roomId: string, name: string, deviceId: string): Promise<ClientSocket> =>
+    new Promise((resolve, reject) => {
+      const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+      sockets.push(sock);
+      sock.on('connect', () => {
+        sock.emit('joinRoom', { roomId, name, deviceId, color: '#ff0000' }, (res: { success: boolean; error?: string }) => {
+          if (!res.success) return reject(new Error(res.error));
+          resolve(sock);
+        });
+      });
+      sock.on('connect_error', reject);
+    });
+
+  // The finished gate is a synchronous check ahead of any DB call — a short
+  // margin is enough to prove the write never happened.
+  const settle = (): Promise<void> => new Promise(r => setTimeout(r, 100));
+
+  it('ignores endGameStats while the game has not finished (e.g. straight from the lobby)', async () => {
+    mockedUpdateDeviceStats.mockResolvedValue(true);
+    const sock = await connectAndJoin('STATS_UNFINISHED_DEV', 'Alice', 'dev-unfinished-1');
+
+    sock.emit('endGameStats', { deviceId: 'dev-unfinished-1', stats: { gamesPlayed: 1, wins: 1 } });
+    await settle();
+
+    expect(mockedUpdateDeviceStats).not.toHaveBeenCalled();
+    // The dedup marker must not have been consumed by the rejected attempt —
+    // a later legitimate submission (once finished) still lands.
+    rooms['STATS_UNFINISHED_DEV'].state.finished = true;
+    sock.emit('endGameStats', { deviceId: 'dev-unfinished-1', stats: { gamesPlayed: 1, wins: 1 } });
+    await settle();
+    expect(mockedUpdateDeviceStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores submitGlobalStats while the game has not finished', async () => {
+    mockedUpdateGlobalStats.mockResolvedValue(1);
+    const sock = await connectAndJoin('STATS_UNFINISHED_GLOBAL', 'Alice', 'dev-unfinished-2');
+
+    sock.emit('submitGlobalStats', { roomId: 'STATS_UNFINISHED_GLOBAL', payload: { gamesPlayed: 1 } });
+    await settle();
+
+    expect(mockedUpdateGlobalStats).not.toHaveBeenCalled();
+    rooms['STATS_UNFINISHED_GLOBAL'].state.finished = true;
+    sock.emit('submitGlobalStats', { roomId: 'STATS_UNFINISHED_GLOBAL', payload: { gamesPlayed: 1 } });
+    await settle();
+    expect(mockedUpdateGlobalStats).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('room-count cap (MAX_ROOMS)', () => {
+  let httpServer: HttpServer;
+  let ioServer: Server;
+  let port: number;
+  const sockets: ClientSocket[] = [];
+  const seededRoomIds: string[] = [];
+
+  interface JoinAck { success: boolean; error?: string }
+
+  beforeAll(async () => {
+    httpServer = createServer();
+    ioServer = new Server(httpServer);
+    registerSocketHandlers(ioServer);
+    await new Promise<void>(resolve => httpServer.listen(0, () => resolve()));
+    port = (httpServer.address() as AddressInfo).port;
+
+    // Seeded directly (same pattern as the MAX_PLAYERS_PER_ROOM tests) —
+    // this is about the cap check, not about 500 real join round-trips.
+    // `rooms` is module state shared with other describes in this file, so
+    // top up to exactly MAX_ROOMS and remove the seeds again in afterAll.
+    while (Object.keys(rooms).length < MAX_ROOMS) {
+      const id = `CAP_FILLER_${seededRoomIds.length}`;
+      rooms[id] = createRoom(`sock-cap-filler-${seededRoomIds.length}`);
+      seededRoomIds.push(id);
+    }
+  });
+
+  afterAll(async () => {
+    sockets.forEach(s => s.disconnect());
+    seededRoomIds.forEach(id => deleteRoom(id));
+    await ioServer.close();
+  });
+
+  const connectAndJoin = (roomId: string, name: string, deviceId: string): Promise<JoinAck> =>
+    new Promise((resolve, reject) => {
+      const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+      sockets.push(sock);
+      sock.on('connect', () => {
+        sock.emit('joinRoom', { roomId, name, deviceId, color: '#ff0000' }, (res: JoinAck) => resolve(res));
+      });
+      sock.on('connect_error', reject);
+    });
+
+  it('refuses to CREATE a new room once MAX_ROOMS exist', async () => {
+    const res = await connectAndJoin('CAP_ONE_TOO_MANY', 'Alice', 'dev-cap-overflow');
+
+    expect(res.success).toBe(false);
+    expect(res.error).toBe('Server is full. Try again later.');
+    expect(rooms['CAP_ONE_TOO_MANY']).toBeUndefined();
+  });
+
+  it('still allows joining an EXISTING room at the cap', async () => {
+    const res = await connectAndJoin('CAP_FILLER_1', 'Bob', 'dev-cap-join-existing');
+
+    expect(res.success).toBe(true);
+    expect(rooms['CAP_FILLER_1'].state.players.map(p => p.name)).toEqual(['Bob']);
+  });
+});
+
+describe('per-IP connection rate limiting', () => {
+  let httpServer: HttpServer;
+  let ioServer: Server;
+  let port: number;
+  const sockets: ClientSocket[] = [];
+  let envBefore: string | undefined;
+
+  beforeAll(async () => {
+    // Read once inside registerSocketHandlers — must be set BEFORE it runs.
+    // Every connection in this suite arrives from 127.0.0.1, i.e. one key.
+    envBefore = process.env.SOCKET_CONN_LIMIT_MAX;
+    process.env.SOCKET_CONN_LIMIT_MAX = '2';
+    httpServer = createServer();
+    ioServer = new Server(httpServer);
+    registerSocketHandlers(ioServer);
+    await new Promise<void>(resolve => httpServer.listen(0, () => resolve()));
+    port = (httpServer.address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    if (envBefore === undefined) delete process.env.SOCKET_CONN_LIMIT_MAX;
+    else process.env.SOCKET_CONN_LIMIT_MAX = envBefore;
+    sockets.forEach(s => s.disconnect());
+    await ioServer.close();
+  });
+
+  const connect = (): Promise<ClientSocket> =>
+    new Promise((resolve, reject) => {
+      const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'], reconnection: false });
+      sockets.push(sock);
+      sock.on('connect', () => resolve(sock));
+      sock.on('connect_error', reject);
+    });
+
+  it('rejects connections from one address past the cap — reconnecting cannot reset per-connection event limits for free', async () => {
+    await connect();
+    await connect();
+
+    // Third connection in the same window from the same address must be
+    // refused at the middleware, before any event handler is registered.
+    await expect(connect()).rejects.toThrow('Too many connections');
   });
 });

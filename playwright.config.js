@@ -33,7 +33,11 @@ export default defineConfig({
     // stats.db. Caveat: reuseExistingServer means a locally running dev
     // server (real DB) is reused instead — kill it first when isolation
     // matters; CI always spawns fresh.
-    env: { TEST_DB: 'true' },
+    // SOCKET_CONN_LIMIT_MAX: e2e traffic is proxied through the vite dev
+    // server, so every browser's socket reaches the API server from
+    // 127.0.0.1 — the per-IP connection limiter would count them as one
+    // client (see socketHandlers.ts).
+    env: { TEST_DB: 'true', SOCKET_CONN_LIMIT_MAX: '1000000' },
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
   },

@@ -1873,6 +1873,9 @@ describe('Server Socket E2E Simulation', () => {
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'EGS_SELF_ROOM', name: 'Alice', deviceId, color: '#ff0000' }, () => {
+          // Stats are only accepted once the game has finished — stage a
+          // started-and-finished game first (same-socket emits are ordered).
+          s1.emit('pushState', { roomId: 'EGS_SELF_ROOM', newState: { status: 'playing', finished: true } });
           s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, wins: 1, totalScore: 1234 } });
           pollStats().then((body) => {
             try {
@@ -1913,7 +1916,16 @@ describe('Server Socket E2E Simulation', () => {
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId, name: 'Alice', deviceId, color: '#ff0000' }, async () => {
           try {
-            // First submission for this game — recorded.
+            // Game 1: start and finish (stats are only accepted for a
+            // finished game), then record.
+            s1.emit('pushState', {
+              roomId,
+              newState: {
+                players: [{ name: 'Alice', deviceId, socketId: s1.id, disconnected: false, score: 0 }],
+                status: 'playing', currentPlayerIndex: 0,
+              },
+            });
+            s1.emit('pushState', { roomId, newState: { finished: true } });
             s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, totalScore: 100 } });
             await pollDeviceScore(100);
 
@@ -1926,14 +1938,13 @@ describe('Server Socket E2E Simulation', () => {
             expect(stillOne.totalScore).toBe(100);
             expect(stillOne.gamesPlayed).toBe(1);
 
-            // Start a new game in the same room — resets the per-game dedup.
+            // "Play Again" (finished→playing) — resets the per-game dedup —
+            // then finish the second game too.
             s1.emit('pushState', {
               roomId,
-              newState: {
-                players: [{ name: 'Alice', deviceId, socketId: s1.id, disconnected: false, score: 0 }],
-                status: 'playing', currentPlayerIndex: 0,
-              },
+              newState: { status: 'playing', finished: false, currentPlayerIndex: 0 },
             });
+            s1.emit('pushState', { roomId, newState: { finished: true } });
             await new Promise(r => setTimeout(r, testDelay(200)));
 
             // Now a submission for the NEW game must be accepted.
@@ -1980,6 +1991,8 @@ describe('Server Socket E2E Simulation', () => {
           try {
             const before = await getGlobalTotalScore();
 
+            // Stats are only accepted once the game has finished.
+            s1.emit('pushState', { roomId, newState: { status: 'playing', finished: true } });
             s1.emit('submitGlobalStats', { roomId, payload: { totalScore: 100 } });
             await pollGlobalTotalScore(before + 100);
 
@@ -2011,6 +2024,9 @@ describe('Server Socket E2E Simulation', () => {
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'EGS_FOREIGN_ROOM', name: 'Alice', deviceId: ownDevice, color: '#ff0000' }, () => {
+          // Stage a finished game so the ownership check below is the ONLY
+          // thing rejecting the write (not the finished-game gate).
+          s1.emit('pushState', { roomId: 'EGS_FOREIGN_ROOM', newState: { status: 'playing', finished: true } });
           // Attempt to write stats for a device this socket does not own — must be ignored.
           s1.emit('endGameStats', { deviceId: foreignDevice, stats: { gamesPlayed: 99, totalScore: 999999 } });
 
@@ -2159,7 +2175,9 @@ describe('Server Socket E2E Simulation', () => {
               // The new shuffle must be adopted, not discarded.
               expect(latestState.players.map((p) => p.name)).toEqual(['Bob', 'Alice']);
 
-              // And stats for the new game must be accepted (dedup was reset).
+              // Finish game 2 — stats are only accepted for a finished game —
+              // then they must be accepted (dedup was reset by the restart).
+              s1.emit('pushState', { roomId, newState: { finished: true } });
               s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, totalScore: 50 } });
               await pollDeviceScore(150); // 100 (game 1) + 50 (game 2)
 

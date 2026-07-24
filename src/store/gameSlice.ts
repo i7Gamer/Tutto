@@ -250,9 +250,12 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
 
     // Stats are intentionally only tracked for online games. Local games do not
     // submit statistics — by design, not an oversight.
-    if (get().finished && get().isOnline) get().sendOnlineStats();
     if (get().isOnline) {
       get().pushState();
+      // Only AFTER pushState: the server refuses end-game stats until it has
+      // seen finished=true, and socket.io preserves per-connection event
+      // order — pushing first is what makes the winner's own submission land.
+      if (get().finished) get().sendOnlineStats();
       get().syncOnlineTimers();
     }
   },

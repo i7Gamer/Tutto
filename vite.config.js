@@ -118,6 +118,12 @@ export default defineConfig(({ mode }) => {
         // orchestration sleeps (e.g. 300ms → 60ms) in the same way TEST_TIMER_SCALE
         // already accelerates the spawned server child processes.
         TEST_TIMER_SCALE: '0.2',
+        // The per-IP socket connection limiter (see socketHandlers.ts) would
+        // otherwise trip on the suites' bursts of local connections, which all
+        // arrive from 127.0.0.1. Inherited by the spawned server child
+        // processes too (they spread process.env). The limiter itself is
+        // covered by dedicated tests that set a low limit explicitly.
+        SOCKET_CONN_LIMIT_MAX: '1000000',
       }
     }
   }

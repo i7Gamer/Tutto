@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createRateLimiter, createSocketEventLimiter } from './rateLimit';
+import { createRateLimiter, createSocketEventLimiter, createKeyedEventLimiter } from './rateLimit';
 
 const makeReq = (ip: string): { ip: string } => ({ ip });
 
@@ -199,5 +199,74 @@ describe('createSocketEventLimiter', () => {
     expect(allowA()).toBe(true);
     expect(allowA()).toBe(false);
     expect(allowB()).toBe(true);
+  });
+});
+
+describe('createKeyedEventLimiter', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('allows calls within the limit for a key', () => {
+    const allow = createKeyedEventLimiter({ windowMs: 1000, max: 2 });
+    expect(allow('a')).toBe(true);
+    expect(allow('a')).toBe(true);
+  });
+
+  it('rejects a key once its limit is exceeded within the window', () => {
+    const allow = createKeyedEventLimiter({ windowMs: 1000, max: 2 });
+    expect(allow('a')).toBe(true);
+    expect(allow('a')).toBe(true);
+    expect(allow('a')).toBe(false);
+    expect(allow('a')).toBe(false);
+  });
+
+  it('tracks each key independently', () => {
+    const allow = createKeyedEventLimiter({ windowMs: 1000, max: 1 });
+    expect(allow('a')).toBe(true);
+    expect(allow('a')).toBe(false);
+    expect(allow('b')).toBe(true);
+  });
+
+  it('resets a key once its window elapses', () => {
+    const allow = createKeyedEventLimiter({ windowMs: 1000, max: 1 });
+    expect(allow('a')).toBe(true);
+    expect(allow('a')).toBe(false);
+
+    vi.advanceTimersByTime(1001);
+
+    expect(allow('a')).toBe(true);
+  });
+
+  it('sweeps expired entries once the tracked-key cap is exceeded', () => {
+    const allow = createKeyedEventLimiter({ windowMs: 1000, max: 1, maxTrackedKeys: 2 });
+
+    allow('a');
+    allow('b');
+
+    vi.advanceTimersByTime(1001); // both entries above are now expired
+
+    // Size 2 == cap (not over it) — no sweep yet; 'c' lands at size 3.
+    allow('c');
+
+    // This call crosses the threshold, sweeping the expired 'a'/'b' first —
+    // so 'a' is treated as fresh instead of blocked by its stale entry.
+    expect(allow('a')).toBe(true);
+  });
+
+  it('evicts the oldest entries once the cap is exceeded even if nothing has expired yet', () => {
+    const allow = createKeyedEventLimiter({ windowMs: 100_000, max: 1, maxTrackedKeys: 2 });
+
+    allow('a'); // size 1
+    allow('b'); // size 2 (== cap, no sweep yet)
+    allow('c'); // size 3 (> cap on next call)
+
+    // Nothing expired, so the oldest entry ('a') is evicted before this call —
+    // it is treated as a fresh key rather than blocked by its stale hit.
+    expect(allow('a')).toBe(true);
   });
 });

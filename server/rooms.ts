@@ -15,6 +15,14 @@ export const rooms: Record<string, Room> = {};
 // scenario (nobody plays Tutto with anywhere near this many players).
 export const MAX_PLAYERS_PER_ROOM = 100;
 
+// Upper bound on concurrently existing rooms. joinRoom refuses to CREATE a
+// room past this cap (joins and reconnects into existing rooms are
+// unaffected). Without it, a scripted client cycling join → hard-disconnect
+// leaves ghost rooms alive for up to reconnectTimeout seconds each, growing
+// `rooms` — and the O(rooms) one-device-one-room scan every join pays —
+// without bound. Far above any realistic concurrent-game count.
+export const MAX_ROOMS = 500;
+
 export const createRoom = (hostSocketId: string): Room => ({
   host: hostSocketId,
   gameActualStartTime: null,

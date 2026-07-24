@@ -754,6 +754,33 @@ describe('useGameStore', () => {
       }));
     });
 
+    it('emits pushState BEFORE the stats events on the winning turn, so the server sees finished=true first', () => {
+      // The server refuses endGameStats/submitGlobalStats until it has seen
+      // finished=true (socketHandlers.ts), and socket.io preserves
+      // per-connection event order — so the winning client's own submission
+      // only lands if its pushState goes out first.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: true, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
+        players: [{ name: 'Bob', score: 2000, times1000PointsDeducted: 0 }, { name: 'Alice', score: 5500, times1000PointsDeducted: 0 }],
+        currentPlayerIndex: 1, status: 'playing', finished: false,
+        winningScore: 6000, initialCards: {},
+      });
+
+      mockEmit.mockClear();
+
+      useGameStore.getState().nextTurn(500, true);
+
+      const eventOrder = mockEmit.mock.calls.map(c => c[0]);
+      const pushIdx = eventOrder.indexOf('pushState');
+      const endStatsIdx = eventOrder.indexOf('endGameStats');
+      const globalStatsIdx = eventOrder.indexOf('submitGlobalStats');
+      expect(pushIdx).toBeGreaterThanOrEqual(0);
+      expect(endStatsIdx).toBeGreaterThan(pushIdx);
+      expect(globalStatsIdx).toBeGreaterThan(pushIdx);
+    });
+
     it('does not double-submit stats when the server echoes the finished gameState back to the host', () => {
       // The host's own pushState() round-trips through the server and comes back
       // as a 'gameState' broadcast (the host isn't excluded from their own room's
