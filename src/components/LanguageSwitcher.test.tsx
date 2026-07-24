@@ -11,10 +11,15 @@ vi.mock('react-i18next', async () => {
   };
 });
 
+// The aria-labels go through t(key, defaultValue) — return the default so the
+// assertions below keep checking the human-readable label.
+const tMock = (_key: string, defaultValue?: string) => defaultValue ?? _key;
+
 describe('LanguageSwitcher', () => {
   it('renders correctly and switches language', () => {
     const changeLanguageMock = vi.fn();
     useTranslation.mockReturnValue({
+      t: tMock,
       i18n: {
         language: 'en',
         changeLanguage: changeLanguageMock,
@@ -37,6 +42,7 @@ describe('LanguageSwitcher', () => {
 
   it('exposes aria-label and aria-pressed reflecting the active language (COMP-ISSUE-37)', () => {
     useTranslation.mockReturnValue({
+      t: tMock,
       i18n: { language: 'en', changeLanguage: vi.fn() },
     });
 

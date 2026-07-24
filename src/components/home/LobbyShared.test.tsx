@@ -74,6 +74,31 @@ describe('PlayerList', () => {
     expect(downButtons[2].closest('button').className).toContain('opacity-0');
   });
 
+  it('takes the invisible boundary reorder buttons out of the tab order via disabled', () => {
+    const { container } = render(
+      <PlayerList
+        players={mockPlayers}
+        reorderPlayers={() => {}}
+        isOnline={true}
+        isHost={true}
+        changeColor={() => {}}
+        onRemovePlayer={() => {}}
+      />
+    );
+
+    const upButtons = [...container.querySelectorAll('.lucide-chevron-up')].map(i => i.closest('button'));
+    const downButtons = [...container.querySelectorAll('.lucide-chevron-down')].map(i => i.closest('button'));
+
+    // An aria-hidden element must not stay focusable — the invisible first-row
+    // Up and last-row Down buttons are disabled, the visible ones are not.
+    expect(upButtons[0]).toBeDisabled();
+    expect(downButtons[2]).toBeDisabled();
+    expect(upButtons[1]).not.toBeDisabled();
+    expect(upButtons[2]).not.toBeDisabled();
+    expect(downButtons[0]).not.toBeDisabled();
+    expect(downButtons[1]).not.toBeDisabled();
+  });
+
   it('renders flex div structure instead of table to avoid transform bugs', () => {
     const { container } = render(
       <PlayerList 

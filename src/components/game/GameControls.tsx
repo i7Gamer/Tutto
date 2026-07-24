@@ -117,7 +117,7 @@ export default function GameControls({
               {currentCardHasInput && diceMode === 'physical' && (
                 <>
                   <div className="flex flex-row items-center gap-3 mb-4 md:mb-6 w-full max-w-sm">
-                    <label htmlFor="score-input" className="sr-only">Score</label>
+                    <label htmlFor="score-input" className="sr-only">{t('game.controls.scorePlaceholder', 'Score')}</label>
                     <input
                       id="score-input"
                       type="number"

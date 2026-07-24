@@ -135,6 +135,7 @@ function RestoreSessionPopup() {
 }
 
 export default function App() {
+  const { t } = useTranslation();
   const [theme, setTheme] = useState(() => localStorage.getItem('tutto-theme') || 'light');
 
   const [deviceId] = useState(() => {
@@ -177,7 +178,7 @@ export default function App() {
     <>
       <div style={{ position: 'fixed', bottom: '1rem', right: '1rem', zIndex: 100, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
         <LanguageSwitcher />
-        <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme" style={{ background: 'var(--card-bg)', boxShadow: 'var(--shadow-md)' }}>
+        <button className="theme-toggle" onClick={toggleTheme} aria-label={t('app.toggleTheme', 'Toggle theme')} style={{ background: 'var(--card-bg)', boxShadow: 'var(--shadow-md)' }}>
           {theme === 'light' ? <Moon size={24} /> : <Sun size={24} />}
         </button>
       </div>

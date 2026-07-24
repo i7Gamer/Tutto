@@ -111,10 +111,14 @@ export function PlayerList({
                   <div className="flex items-center justify-end gap-1">
                     {isHost && (
                       <div className="w-[68px] flex items-center justify-center gap-1">
+                        {/* disabled accompanies aria-hidden: an aria-hidden element
+                            must not stay focusable (WCAG) — without it, a keyboard
+                            user can Tab onto an invisible (opacity-0) button. */}
                         <button
                           className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded transition-colors ${idx === 0 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
                           onClick={(e) => { e.currentTarget.blur(); if (idx > 0) handleMoveUp(idx); }}
                           aria-hidden={idx === 0}
+                          disabled={idx === 0}
                         >
                           <ChevronUp size={18} />
                         </button>
@@ -122,6 +126,7 @@ export function PlayerList({
                           className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded transition-colors ${idx === players.length - 1 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
                           onClick={(e) => { e.currentTarget.blur(); if (idx < players.length - 1) handleMoveDown(idx); }}
                           aria-hidden={idx === players.length - 1}
+                          disabled={idx === players.length - 1}
                         >
                           <ChevronDown size={18} />
                         </button>
