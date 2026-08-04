@@ -1,0 +1,46 @@
+# Manual release publish: tags the image `latest` plus the version in
+# package.json, so every release stays pullable at a pinned version after
+# `latest` has moved on.
+#
+# Run it from the Actions tab. master is published regardless of which branch
+# the run is dispatched from.
+
+name: Publish latest
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Read version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: master
+
+      - name: Read version from package.json
+        id: read
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          if [ -z "${version}" ] || [ "${version}" = "undefined" ]; then
+            echo "::error::could not read a version from package.json"
+            exit 1
+          fi
+          echo "Publishing version ${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish
+    needs: version
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      tags: latest,${{ needs.version.outputs.version }}
+    secrets: inherit

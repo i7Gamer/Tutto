@@ -1,0 +1,21 @@
+# Manual pre-release publish: refreshes the `nightly` tag from master without
+# touching `latest`, for trying current master before it is released.
+#
+# Run it from the Actions tab. master is published regardless of which branch
+# the run is dispatched from.
+
+name: Publish nightly
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      tags: nightly
+    secrets: inherit

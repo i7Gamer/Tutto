@@ -1,0 +1,278 @@
+# Shared implementation behind the three manual publish workflows
+# (publish-latest, publish-nightly, publish-tag). It is never dispatched
+# directly — each caller supplies the tag list and inherits the Docker Hub
+# secrets.
+#
+# Multi-arch is built on native runners rather than under QEMU emulation:
+# TuttoNeu is a public repository, so the arm64 runners are free. Each runner
+# pushes its own image by digest, and a final job assembles the tagged
+# multi-arch manifest from those digests.
+
+name: Publish Docker image
+
+on:
+  workflow_call:
+    inputs:
+      tags:
+        description: 'Comma-separated Docker tags to publish, e.g. "latest,1.1.3"'
+        required: true
+        type: string
+
+env:
+  IMAGE_NAME: i7gamer/tutto
+  # Every publish ships master, whichever branch the run was dispatched from.
+  PUBLISH_REF: master
+  NODE_VERSION: '24'
+  SMOKE_PORT: '3001'
+  # Only ever reaches a throwaway container on the runner. The server refuses to
+  # start in production without one, so the smoke test has to supply it.
+  SMOKE_API_TOKEN: ci-smoke-token-not-a-secret
+
+permissions:
+  contents: read
+
+jobs:
+  # Never publish an image built from code that does not pass its own suite.
+  verify:
+    name: Type Check, Lint & Test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.PUBLISH_REF }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Mirrors ci.yml: the root postinstall may resolve past the committed
+      # lockfile, so re-install the server workspace from its own.
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
+
+      - name: Type Check
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run Unit & Integration Tests
+        run: npm run test
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.PUBLISH_REF }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Built into the local daemon first so the image can actually be run
+      # before it is published. The push below reuses this build from cache.
+      # Both runners are native, so each architecture is smoke tested on its
+      # own hardware rather than only amd64.
+      - name: Build image for smoke test
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:smoke-${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+      # Catches the failure class that shipped repeatedly during development:
+      # a runtime file or dependency missing from the image builds green and
+      # only fails when the container starts. server/packaging.test.ts guards
+      # it statically; this proves it on the real artifact.
+      - name: Smoke test the image
+        run: |
+          set -euo pipefail
+          docker run -d --name smoke \
+            -p "${SMOKE_PORT}:3001" \
+            -e "API_TOKEN=${SMOKE_API_TOKEN}" \
+            "${IMAGE_NAME}:smoke-${{ matrix.arch }}"
+
+          # The container must come up on its own; no CORS_ORIGIN is supplied,
+          # which is exactly how an unconfigured deployment starts.
+          for attempt in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${SMOKE_PORT}/api/health" >/dev/null 2>&1; then
+              echo "healthy after ${attempt} attempt(s)"
+              break
+            fi
+            if [ "${attempt}" -eq 30 ]; then
+              echo "::error::container never became healthy"
+              docker logs smoke
+              exit 1
+            fi
+            sleep 2
+          done
+
+          echo "--- health ---"
+          curl -fsS "http://127.0.0.1:${SMOKE_PORT}/api/health" | grep -q '"status":"ok"'
+
+          echo "--- frontend, API 404, socket.io ---"
+          test "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${SMOKE_PORT}/")" = "200"
+          test "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${SMOKE_PORT}/api/nope")" = "404"
+          test "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${SMOKE_PORT}/socket.io/?EIO=4&transport=polling")" = "200"
+
+          echo "--- a foreign origin must get no CORS header ---"
+          if curl -s -D - -o /dev/null -H 'Origin: https://evil.example' \
+               "http://127.0.0.1:${SMOKE_PORT}/api/stats/global" \
+               | grep -i '^access-control-allow-origin'; then
+            echo "::error::image answered a foreign origin with an Access-Control-Allow-Origin header"
+            exit 1
+          fi
+
+          echo "--- container logs ---"
+          docker logs smoke
+          docker rm -f smoke
+
+      # Pushed without a tag: each architecture publishes only its digest, and
+      # the merge job below is what creates the tagged multi-arch manifest.
+      - name: Push image by digest
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: true
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true
+          cache-from: type=gha,scope=${{ matrix.arch }}
+
+      - name: Export digest
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${{ steps.push.outputs.digest }}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Publish manifest
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create the multi-arch manifest
+        working-directory: /tmp/digests
+        # Passed through the environment rather than interpolated into the
+        # script body, so the input can never be parsed as shell.
+        env:
+          REQUESTED_TAGS: ${{ inputs.tags }}
+        run: |
+          set -euo pipefail
+
+          tag_args=()
+          IFS=',' read -ra requested <<< "${REQUESTED_TAGS}"
+          for tag in "${requested[@]}"; do
+            trimmed="$(echo "${tag}" | xargs)"
+            [ -z "${trimmed}" ] && continue
+            tag_args+=(--tag "${IMAGE_NAME}:${trimmed}")
+          done
+          if [ ${#tag_args[@]} -eq 0 ]; then
+            echo "::error::no tags resolved from input '${REQUESTED_TAGS}'"
+            exit 1
+          fi
+
+          # One file per pushed digest, named after it by the build jobs.
+          digest_refs=()
+          for digest_file in *; do
+            digest_refs+=("${IMAGE_NAME}@sha256:${digest_file}")
+          done
+          if [ ${#digest_refs[@]} -eq 0 ]; then
+            echo "::error::no digests were downloaded from the build jobs"
+            exit 1
+          fi
+
+          docker buildx imagetools create "${tag_args[@]}" "${digest_refs[@]}"
+
+      # Confirms the manifest really carries both architectures, rather than
+      # one leg having silently failed and published a single-arch image.
+      - name: Verify the published manifest
+        env:
+          REQUESTED_TAGS: ${{ inputs.tags }}
+        run: |
+          set -euo pipefail
+          first_tag="$(echo "${REQUESTED_TAGS}" | cut -d',' -f1 | xargs)"
+          reference="${IMAGE_NAME}:${first_tag}"
+          echo "Inspecting ${reference}"
+          docker buildx imagetools inspect "${reference}"
+
+          manifest="$(docker buildx imagetools inspect "${reference}" --raw)"
+          for expected in linux/amd64 linux/arm64; do
+            os="${expected%/*}"
+            arch="${expected#*/}"
+            if ! echo "${manifest}" | grep -q "\"architecture\": *\"${arch}\""; then
+              echo "::error::${reference} is missing a ${expected} manifest entry"
+              exit 1
+            fi
+            echo "  ${os}/${arch} present"
+          done
+
+      - name: Summary
+        env:
+          REQUESTED_TAGS: ${{ inputs.tags }}
+        run: |
+          {
+            echo "### Published \`${IMAGE_NAME}\`"
+            echo
+            echo "| Tag |"
+            echo "| --- |"
+            IFS=',' read -ra requested <<< "${REQUESTED_TAGS}"
+            for tag in "${requested[@]}"; do
+              trimmed="$(echo "${tag}" | xargs)"
+              [ -n "${trimmed}" ] && echo "| \`${trimmed}\` |"
+            done
+            echo
+            echo "Platforms: \`linux/amd64\`, \`linux/arm64\` — built from \`${PUBLISH_REF}\`."
+          } >> "$GITHUB_STEP_SUMMARY"

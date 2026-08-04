@@ -1,0 +1,53 @@
+# Manual publish under an arbitrary tag, e.g. a release candidate or a one-off
+# build for someone to test. Neither `latest` nor `nightly` is touched.
+#
+# Run it from the Actions tab and enter the tag. master is published regardless
+# of which branch the run is dispatched from.
+
+name: Publish custom tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Docker tag to publish, e.g. 1.2.0-rc1'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate tag
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - name: Check the tag is a legal Docker tag
+        id: check
+        env:
+          RAW_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="$(echo "${RAW_TAG}" | xargs)"
+          # Docker's own rule: up to 128 chars of [A-Za-z0-9_.-], not starting
+          # with a separator. Checked here so a typo fails in seconds rather
+          # than after a full multi-arch build.
+          if ! echo "${tag}" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'; then
+            echo "::error::'${RAW_TAG}' is not a valid Docker tag"
+            exit 1
+          fi
+          # A comma would be read as a tag separator by the reusable workflow.
+          case "${tag}" in
+            *,*) echo "::error::tag must not contain a comma"; exit 1 ;;
+          esac
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish
+    needs: validate
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      tags: ${{ needs.validate.outputs.tag }}
+    secrets: inherit
