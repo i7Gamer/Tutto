@@ -35,3 +35,13 @@ jobs:
 
       - name: Run Unit & Integration Tests
         run: npm run test
+
+      # Runs last so a newly published advisory cannot mask a real test failure.
+      # Dependabot alerts alone missed several findings here (auto-triage
+      # dismissals, and the server workspace), so audit both lockfiles directly.
+      - name: Security Audit (root)
+        run: npm audit --audit-level=high
+
+      - name: Security Audit (server)
+        run: npm audit --audit-level=high
+        working-directory: server
