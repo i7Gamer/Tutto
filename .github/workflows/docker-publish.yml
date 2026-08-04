@@ -95,21 +95,17 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Single build: two outputs in one pass — type=docker loads the image into
-      # the local daemon for the smoke test; type=image pushes only the digest
-      # (no tag) to the registry. The merge job is what creates visible tags.
-      # This guarantees the smoke-tested artifact is byte-for-byte the published
-      # one, with no second build. If the smoke test fails the merge job never
-      # runs, so the dangling untagged digest is harmless and will be GC'd.
-      - name: Build, load for smoke test, and push by digest
-        id: push
+      # Built into the local daemon first so the image can actually be run
+      # before it is published. The push step below reuses this build from the
+      # GHA cache — no second build. Both runners are native, so each arch is
+      # smoke tested on its own hardware rather than only amd64.
+      - name: Build image for smoke test
         uses: docker/build-push-action@v7
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          outputs: |
-            type=docker,name=tutto-smoke:${{ matrix.arch }}
-            type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          load: true
+          tags: tutto-smoke:${{ matrix.arch }}
           cache-from: type=gha,scope=docker-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
 
@@ -159,6 +155,19 @@ jobs:
           echo "--- container logs ---"
           docker logs smoke
           docker rm -f smoke
+
+      # Pushed without a tag: each architecture publishes only its digest, and
+      # the merge job below is what creates the tagged multi-arch manifest.
+      # Reads from the GHA cache written above — no second build.
+      - name: Push image by digest
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: true
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true
+          cache-from: type=gha,scope=docker-${{ matrix.arch }}
 
       # The digest is carried to the merge job as an empty file named after it.
       # The action's output is prefixed ("sha256:abc123…"), which cannot be a
@@ -268,6 +277,72 @@ jobs:
             fi
             echo "  ${os}/${arch} present"
           done
+
+      # Removes manifests no longer referenced by any tag. Runs after the
+      # manifest is verified so only genuinely superseded digests are removed.
+      # Uses the Hub tags API to build the full keep-set (manifest-list digest
+      # + every arch sub-manifest in its images array), then deletes anything
+      # in the repo not in that set via the standard OCI registry DELETE.
+      # continue-on-error: a Hub API hiccup must never block a publish.
+      - name: Clean up orphaned manifests
+        continue-on-error: true
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          HUB_NAMESPACE="${IMAGE_NAME%%/*}"
+          HUB_REPO="${IMAGE_NAME##*/}"
+
+          # Hub management API JWT (for listing)
+          HUB_JWT="$(curl -fsSL -X POST 'https://hub.docker.com/v2/users/login' \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"${DOCKERHUB_USERNAME}\",\"password\":\"${DOCKERHUB_TOKEN}\"}" \
+            | jq -r '.token')"
+
+          # Every digest reachable from a tag: the manifest-list digest itself
+          # plus every arch sub-manifest recorded in its images array.
+          KEEP="$(curl -fsSL \
+            "https://hub.docker.com/v2/repositories/${HUB_NAMESPACE}/${HUB_REPO}/tags?page_size=100" \
+            -H "Authorization: JWT ${HUB_JWT}" \
+            | jq -r '.results[] | (.digest, (.images[]?.digest // empty))' \
+            | grep -v '^$' | sort -u)"
+
+          # Guard: never delete anything if we somehow read zero tags.
+          if [ -z "${KEEP}" ]; then
+            echo "::warning::keep-set is empty — skipping cleanup to avoid accidental mass deletion"
+            exit 0
+          fi
+          echo "--- referenced (keep) ---"
+          printf '%s\n' "${KEEP}" | sed 's/^/  /'
+
+          # All manifests in the repo (tagged and untagged alike)
+          ALL="$(curl -fsSL \
+            "https://hub.docker.com/v2/namespaces/${HUB_NAMESPACE}/repositories/${HUB_REPO}/images?page_size=100" \
+            -H "Authorization: JWT ${HUB_JWT}" \
+            | jq -r '.results[].digest')"
+
+          # Registry bearer token — deletion uses the standard OCI registry API
+          REGISTRY_TOKEN="$(curl -fsSL \
+            -u "${DOCKERHUB_USERNAME}:${DOCKERHUB_TOKEN}" \
+            "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${HUB_NAMESPACE}/${HUB_REPO}:push" \
+            | jq -r '.token')"
+
+          DELETED=0
+          while IFS= read -r digest; do
+            [ -z "${digest}" ] && continue
+            if ! printf '%s\n' "${KEEP}" | grep -qF "${digest}"; then
+              HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
+                "https://registry-1.docker.io/v2/${HUB_NAMESPACE}/${HUB_REPO}/manifests/${digest}" \
+                -H "Authorization: Bearer ${REGISTRY_TOKEN}")"
+              echo "Deleted ${digest}: HTTP ${HTTP_CODE}"
+              DELETED=$((DELETED + 1))
+            fi
+          done <<< "${ALL}"
+
+          [ "${DELETED}" -eq 0 ] \
+            && echo "Nothing to clean up" \
+            || echo "Removed ${DELETED} orphaned manifest(s)"
 
       - name: Summary
         env:
