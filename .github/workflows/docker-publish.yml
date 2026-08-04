@@ -322,19 +322,16 @@ jobs:
             -H "Authorization: JWT ${HUB_JWT}" \
             | jq -r '.results[].digest')"
 
-          # Registry bearer token — deletion uses the standard OCI registry API
-          REGISTRY_TOKEN="$(curl -fsSL \
-            -u "${DOCKERHUB_USERNAME}:${DOCKERHUB_TOKEN}" \
-            "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${HUB_NAMESPACE}/${HUB_REPO}:push" \
-            | jq -r '.token')"
-
+          # Delete via the Hub management API (hub.docker.com).
+          # The OCI registry DELETE on registry-1.docker.io returns 405 for
+          # Docker Hub accounts — the Hub management API is the correct path.
           DELETED=0
           while IFS= read -r digest; do
             [ -z "${digest}" ] && continue
             if ! printf '%s\n' "${KEEP}" | grep -qF "${digest}"; then
               HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
-                "https://registry-1.docker.io/v2/${HUB_NAMESPACE}/${HUB_REPO}/manifests/${digest}" \
-                -H "Authorization: Bearer ${REGISTRY_TOKEN}")"
+                "https://hub.docker.com/v2/repositories/${HUB_NAMESPACE}/${HUB_REPO}/manifests/${digest}" \
+                -H "Authorization: JWT ${HUB_JWT}")"
               echo "Deleted ${digest}: HTTP ${HTTP_CODE}"
               DELETED=$((DELETED + 1))
             fi
