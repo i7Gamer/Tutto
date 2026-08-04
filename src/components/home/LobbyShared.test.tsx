@@ -144,6 +144,41 @@ describe('AdvancedOptionsPanel', () => {
       Stop: 10
     });
   });
+  it('reverts the displayed count when the store refuses the edit', () => {
+    // Zeroing the LAST non-zero card type makes the deck unplayable, so
+    // validateOnlineConfig drops initialCards entirely and the store keeps its
+    // old value. The input had already committed "0" to its own local text and
+    // never resynced (its `value` prop never changed), so the panel showed a
+    // deck the game was not actually going to use.
+    stageStore({ initialCards: { Kleeblatt: 1 } });
+
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={false} />);
+
+    const input = screen.getByDisplayValue('1');
+    act(() => {
+      fireEvent.change(input, { target: { value: '0' } });
+      fireEvent.blur(input);
+    });
+
+    expect(useGameStore.getState().initialCards.Kleeblatt).toBe(1);
+    expect(input).toHaveValue(1);
+  });
+
+  it('shows the committed count once the store accepts the edit', () => {
+    stageStore({ initialCards: { Kleeblatt: 1, Stop: 10 } });
+
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={false} />);
+
+    const input = screen.getByDisplayValue('1');
+    act(() => {
+      fireEvent.change(input, { target: { value: '4' } });
+      fireEvent.blur(input);
+    });
+
+    expect(useGameStore.getState().initialCards.Kleeblatt).toBe(4);
+    expect(input).toHaveValue(4);
+  });
+
   it('clamps negative winning scores up to the 1000 minimum the server accepts', () => {
     const mockSetWinningScore = vi.fn();
     stageStore({ winningScore: 6000, setWinningScore: mockSetWinningScore, initialCards: {} });

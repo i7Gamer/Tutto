@@ -328,12 +328,19 @@ function BlurInput({ value, onValueChange, minVal = 0, maxVal = 99999, normalize
     if (isNaN(parsed)) parsed = value ?? 0;
     const clamped = Math.min(maxVal, Math.max(minVal, parsed));
     const committed = normalize ? normalize(clamped) : clamped;
-    setLocalValue(committed.toString());
     setIsDirty(false);
 
     if (committed !== value) {
       onValueChange(committed);
     }
+    // Fall back to the value the OWNER currently holds rather than optimistically
+    // displaying `committed`. An accepted edit changes `value`, and the
+    // render-time sync above then adopts it — but an owner may legitimately
+    // refuse the write (zeroing the last non-zero card type leaves the deck
+    // unplayable, so validateOnlineConfig drops initialCards outright), in which
+    // case `value` never changes, the sync never fires, and the field would keep
+    // showing a number the game isn't actually using.
+    setLocalValue((value ?? 0).toString());
   };
 
   const handleBlur = () => commit();
