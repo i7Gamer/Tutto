@@ -18,6 +18,7 @@ Tutto Multi-Device is a dynamic web application that allows you to play the popu
 - **Backend**: Node.js, Express, Socket.IO.
 - **Database**: SQLite, powered by Knex.js for migrations (for robust tracking of global and personal statistics).
 - **Testing**: Vitest for unit and integration testing.
+- **Deployment**: Multi-architecture Docker image (`linux/amd64`, `linux/arm64`) serving frontend, API and WebSockets from a single container.
 
 ## How to Play Tutto!
 
@@ -37,6 +38,82 @@ The drawn card dictates specific bonuses or rules for your turn:
 - **Feuerwerk**: You must keep rolling as long as you score points! You can't bank your score manually. You only stop when you bust, but you get to keep all points earned before busting.
 - **Kleeblatt**: Roll two Tuttos in a row to instantly win the game!
 - **Bonus Cards (200, 300, 400, 500, 600)**: If you roll a Tutto, you receive these bonus points added to your turn's score.
+
+## Run with Docker
+
+The published image bundles everything: Express serves the frontend, the API and the WebSocket endpoint on a single port, so there is nothing else to run and no API URL to configure. Images are built for `linux/amd64` and `linux/arm64`, so a Raspberry Pi or an ARM NAS works the same as a normal server.
+
+> Prefer to run from source, or want a development setup? See [Installation & Setup](#installation--setup) below.
+
+### Quick start
+
+Generate a token, then start the container:
+
+```bash
+docker run -d \
+  --name tutto \
+  -p 3001:3001 \
+  -v tutto-data:/data \
+  -e API_TOKEN="$(openssl rand -hex 32)" \
+  --restart unless-stopped \
+  i7gamer/tutto:latest
+```
+
+Open `http://localhost:3001`.
+
+### With Docker Compose
+
+Copy [docker-compose.yml](docker-compose.yml) from this repository, set `API_TOKEN`, then:
+
+```bash
+docker compose up -d
+```
+
+### Configuration
+
+All configuration is environment variables — the image contains no `.env` file.
+
+| Variable | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `API_TOKEN` | **yes** | — | Guards the admin HTTP endpoints (`POST /api/stats/*`). Players never use it; they submit stats over the WebSocket. The server refuses to start without it, or if it is left at the local-dev default. Generate with `openssl rand -hex 32`. |
+| `CORS_ORIGIN` | no | same-origin only | Set only if the frontend is served from a *different* origin than the API. Leaving it unset is correct for a normal deployment, including behind a reverse proxy on one domain. Setting it to `*` in production is refused at startup. |
+| `PORT` | no | `3001` | Port inside the container. |
+| `DB_PATH` | no | `/data/stats.db` | Location of the SQLite database. Change it only if you mount the volume elsewhere. |
+| `TZ` | no | `UTC` | Affects timestamps in the container logs. |
+
+### Data and backups
+
+Statistics live in a SQLite database at `/data/stats.db`, which the examples above keep in a named volume. Pulling a new image or recreating the container does not lose them; deleting the volume does.
+
+To copy the database out for backup:
+
+```bash
+docker run --rm -v tutto-data:/data -v "$(pwd):/backup" alpine cp /data/stats.db /backup/stats.db
+```
+
+Schema migrations run automatically at startup, so upgrading is just pulling a newer image.
+
+### Behind a reverse proxy
+
+Point the proxy at the container's port and forward WebSocket upgrades (`Upgrade` and `Connection` headers) — the game will not sync without them. Leave `CORS_ORIGIN` unset: the frontend is served by the same server, so it is already same-origin. `NODE_ENV=production` is baked into the image, which also makes the server trust `X-Forwarded-For` so per-IP rate limiting sees real client addresses rather than the proxy's.
+
+### Updating
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Available tags: `latest` (current release), a pinned version such as `1.1.3`, and `nightly` (current `master`, released ahead of a version bump).
+
+### Health
+
+The container exposes a health check at `/api/health`, used by Docker's `HEALTHCHECK` and suitable for any external monitor. It performs no database work and is not rate limited.
+
+### Building the image yourself
+
+```bash
+docker build -t tutto:local .
+```
 
 ## Installation & Setup
 
@@ -58,7 +135,7 @@ The drawn card dictates specific bonuses or rules for your turn:
    Edit `.env` if you need to change the API token or port. See `.env.example` for descriptions of each variable. The defaults work for local development without any changes.
 
 4. **Database Setup:**
-   Migrations will run automatically when you start the server. The SQLite database is stored locally in the `server` directory.
+   Migrations will run automatically when you start the server. The SQLite database is stored locally in the `server` directory, unless `DB_PATH` points somewhere else.
 
 5. **Start the Development Server:**
    ```bash
@@ -71,12 +148,16 @@ The drawn card dictates specific bonuses or rules for your turn:
 
 ## Production Deployment
 
+[Docker](#run-with-docker) is the easiest route. To deploy from source instead:
+
 1. Set `API_TOKEN` to a strong random secret in your environment (e.g. `openssl rand -hex 32`).
 2. Run the combined build + server command:
    ```bash
    npm run start:prod
    ```
    This builds the frontend into `dist/`, then starts the Express server with `NODE_ENV=production`. The server serves the static frontend and refuses to start if `API_TOKEN` is missing.
+
+In production, an unset `CORS_ORIGIN` means same-origin requests only, which is what you want when the frontend is served by this same server. Set it only if the frontend lives on a different origin; setting it to `*` is refused at startup.
 
 ## Testing
 
