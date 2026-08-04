@@ -18,6 +18,14 @@ export const initDb = async (): Promise<void> => {
   }
 };
 
+// Drains the connection pool so an in-flight write finishes before the process
+// exits (see server/shutdown.ts). Deliberately untested: the knex instance is
+// module-level, so destroying it in one suite would break every other suite
+// sharing the worker.
+export const closeDb = async (): Promise<void> => {
+  await knex.destroy();
+};
+
 // A nullable-safe MAX/MIN merge expression, shared by updateDeviceStats'
 // onConflict.merge() (where the incoming value is referenced as
 // `EXCLUDED.col`) and updateGlobalStats' plain update() (where it's a bound

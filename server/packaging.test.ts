@@ -142,25 +142,41 @@ const buildProductionImportGraph = (): ImportGraph => {
   return { files: [...visited], packages, unresolved };
 };
 
+interface CopyInstruction {
+  sources: string[];
+  destination: string;
+}
+
 /**
- * Source paths of every COPY instruction in the Dockerfile. A COPY line is
+ * Every COPY instruction in the Dockerfile. A COPY line is
  * `COPY [--flags] <src>... <dest>`, so the flags are dropped and the final
  * token is the destination.
  */
-const readDockerfileCopySources = (): string[] => {
+const readDockerfileCopyInstructions = (): CopyInstruction[] => {
   const dockerfile = fs.readFileSync(path.join(REPO_ROOT, 'Dockerfile'), 'utf8');
   return dockerfile
     .split('\n')
     .map(line => line.trim())
     .filter(line => line.toUpperCase().startsWith('COPY '))
-    .flatMap(line => {
+    .map(line => {
       const tokens = line
         .slice('COPY '.length)
         .split(/\s+/)
         .filter(token => token.length > 0 && !token.startsWith('--'));
-      return tokens.slice(0, -1);
+      return {
+        sources: tokens.slice(0, -1),
+        destination: tokens[tokens.length - 1] as string,
+      };
     });
 };
+
+const readDockerfileCopySources = (): string[] =>
+  readDockerfileCopyInstructions().flatMap(instruction => instruction.sources);
+
+// Node resolves a bare specifier by walking node_modules directories upward
+// from the *importing* file, so only a copy at the image's working directory
+// is reachable from both /app/server and /app/src.
+const RESOLVABLE_NODE_MODULES_DESTINATIONS = ['./node_modules', '/app/node_modules'];
 
 const graph = buildProductionImportGraph();
 
@@ -265,6 +281,23 @@ describe('files the Docker image must copy', () => {
       .filter(line => line.length > 0 && !line.startsWith('#'));
     const unignored = TEST_ONLY_HELPERS.filter(helper => !entries.includes(`server/${helper}`));
     expect(unignored).toEqual([]);
+  });
+
+  it('installs node_modules where the shared code outside server/ can resolve it', () => {
+    const externalFiles = graph.files.map(toRepoRelative).filter(file => !file.startsWith('server/'));
+    // Only meaningful while the server imports across the boundary at all.
+    expect(externalFiles.length).toBeGreaterThan(0);
+
+    const install = readDockerfileCopyInstructions().find(instruction =>
+      instruction.sources.some(source => source.endsWith('node_modules'))
+    );
+
+    // Installed under ./server, a bare import added to src/utils resolves
+    // locally (npm hoists to the repo root) and dies in the container with
+    // "Cannot find module" — the same class of bug the checks above exist for,
+    // and one no dependency declaration can catch.
+    expect(install).toBeDefined();
+    expect(RESOLVABLE_NODE_MODULES_DESTINATIONS).toContain(install?.destination);
   });
 
   it('still needs every path the image copies', () => {

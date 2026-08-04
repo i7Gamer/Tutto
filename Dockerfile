@@ -55,7 +55,11 @@ WORKDIR /app
 RUN npm install -g tsx@${TSX_VERSION}
 
 COPY --from=builder     --chown=node:node /app/dist                ./dist
-COPY --from=server-deps --chown=node:node /app/server/node_modules ./server/node_modules
+# Installed at the image root, not under ./server: Node resolves bare imports
+# by walking node_modules upward from the importing file, and the server also
+# runs shared code from ./src, which can never reach ./server/node_modules.
+# server/packaging.test.ts asserts this destination.
+COPY --from=server-deps --chown=node:node /app/server/node_modules ./node_modules
 COPY --chown=node:node server/*.ts server/package.json ./server/
 COPY --chown=node:node server/migrations ./server/migrations
 # The server imports shared game logic from src/ and playerColors.json from the

@@ -37,6 +37,11 @@ services:
       # Optional. Affects timestamps in logs.
       # - TZ=Europe/Berlin
 
+    # Reaps zombies and forwards SIGTERM to the server, which closes its
+    # sockets and drains the SQLite pool instead of waiting out the stop
+    # timeout and being killed mid-write.
+    init: true
+
     restart: unless-stopped
 
 volumes:

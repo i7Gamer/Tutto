@@ -10,8 +10,9 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import { registerSocketHandlers } from './socketHandlers';
 import { registerApiRoutes } from './api';
-import { initDb } from './database';
+import { initDb, closeDb } from './database';
 import { resolveCorsOrigin, validateCorsOriginForStartup } from './startupGuards';
+import { createShutdownHandler, SHUTDOWN_SIGNALS } from './shutdown';
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection, shutting down:', reason);
@@ -56,6 +57,28 @@ registerSocketHandlers(io);
 registerApiRoutes(app);
 
 const PORT = process.env.PORT || 3001;
+
+// io.close() disconnects every client and closes the HTTP server it is
+// attached to, so the server is not closed separately — doing both would fail
+// the second call with ERR_SERVER_NOT_RUNNING.
+const shutdown = createShutdownHandler({
+  closers: [
+    {
+      name: 'socket and HTTP server',
+      close: () => new Promise<void>((resolve, reject) => {
+        io.close(err => (err ? reject(err) : resolve()));
+      }),
+    },
+    { name: 'database', close: closeDb },
+  ],
+  exit: code => process.exit(code),
+});
+
+for (const signal of SHUTDOWN_SIGNALS) {
+  process.on(signal, () => {
+    void shutdown(signal);
+  });
+}
 
 const start = async (): Promise<void> => {
   await initDb();
