@@ -280,6 +280,26 @@ describe('turnTimers', () => {
       expect(rooms[roomId].state.round).toBe(2);
     });
 
+    it('skips the round-end datapoint when the chart series are out of step with the roster', () => {
+      // chartLabels is round-indexed and chartValues is player-indexed, so a
+      // label may only be appended when the series it labels were appended
+      // too. handleActivePlayerRemoved gates its identical round-end
+      // bookkeeping this way; this path did not, so a roster/series mismatch
+      // grew chartLabels past every series and skewed the end-screen chart.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 1, currentCard: '300', cards: ['200'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
+        chartValues: [], chartLabels: [],
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      expect(rooms[roomId].state.chartLabels).toEqual([]);
+      // The turn itself still advances — only the chart bookkeeping is skipped.
+      expect(rooms[roomId].state.round).toBe(2);
+      expect(rooms[roomId].state.currentPlayerIndex).toBe(0);
+    });
+
     it('backstop: swallows an exception from a corrupted room state instead of crashing the process', () => {
       // Real pushState validation (pushValidation.ts) should make an
       // out-of-bounds currentPlayerIndex unreachable, but this handler runs off

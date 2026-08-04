@@ -76,7 +76,13 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       room.state.historyLog.shift();
     }
 
-    if (result.isRoundEnd) {
+    // chartLabels is round-indexed and chartValues is player-indexed, so a label
+    // may only be appended when the series it labels were appended too —
+    // otherwise labels outgrow every series and the end-screen chart skews.
+    // Guarded on chartValues alone (not chartNames, as handleActivePlayerRemoved
+    // additionally does) because that is the array actually being appended to
+    // here; chartNames is only a fallback label source for the chart.
+    if (result.isRoundEnd && room.state.chartValues.length === result.players.length) {
       room.state.chartValues.forEach((vals, i) => vals.push(result.players[i]?.score ?? 0));
       room.state.chartLabels.push(room.state.round);
     }
