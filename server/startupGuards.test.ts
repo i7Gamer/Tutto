@@ -51,7 +51,7 @@ describe('validateCorsOriginForStartup', () => {
   });
 
   it('allows a real CORS_ORIGIN in production', () => {
-    expect(validateCorsOriginForStartup({ NODE_ENV: 'production', CORS_ORIGIN: 'https://tutto.rzipas.win' })).toBeNull();
+    expect(validateCorsOriginForStartup({ NODE_ENV: 'production', CORS_ORIGIN: 'https://tutto.example.com' })).toBeNull();
   });
 });
 
@@ -70,8 +70,8 @@ describe('resolveCorsOrigin', () => {
   });
 
   it('passes an explicit origin through unchanged in any environment', () => {
-    expect(resolveCorsOrigin({ NODE_ENV: 'production', CORS_ORIGIN: 'https://tutto.rzipas.win' }))
-      .toBe('https://tutto.rzipas.win');
+    expect(resolveCorsOrigin({ NODE_ENV: 'production', CORS_ORIGIN: 'https://tutto.example.com' }))
+      .toBe('https://tutto.example.com');
     expect(resolveCorsOrigin({ NODE_ENV: 'development', CORS_ORIGIN: 'http://localhost:5173' }))
       .toBe('http://localhost:5173');
   });
@@ -83,7 +83,7 @@ describe('resolveCorsOrigin', () => {
     const productionOrigins = [
       resolveCorsOrigin({ NODE_ENV: 'production' }),
       resolveCorsOrigin({ NODE_ENV: 'production', CORS_ORIGIN: '' }),
-      resolveCorsOrigin({ NODE_ENV: 'production', CORS_ORIGIN: 'https://tutto.rzipas.win' }),
+      resolveCorsOrigin({ NODE_ENV: 'production', CORS_ORIGIN: 'https://tutto.example.com' }),
     ];
     expect(productionOrigins).not.toContain(WILDCARD_CORS_ORIGIN);
   });

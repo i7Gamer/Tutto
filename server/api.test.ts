@@ -253,7 +253,7 @@ describe('POST /api/log/client-error rate limiting', () => {
 describe('CORS_ORIGIN configuration', () => {
   let serverProcess;
   const PORT = TEST_PORTS.apiCorsOrigin;
-  const CORS_ORIGIN = 'https://tutto.rzipas.win';
+  const CORS_ORIGIN = 'https://tutto.example.com';
 
   beforeAll(() => {
     if (globalThis.__nativeFetch) {

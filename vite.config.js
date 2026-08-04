@@ -10,7 +10,7 @@ const NAVIGATION_NETWORK_TIMEOUT_S = 3
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   // Falls back to localhost for local dev. Set ALLOWED_HOST to the deployed
-  // domain in production (e.g. ALLOWED_HOST=tutto.rzipas.win) — Vite's dev/
+  // domain in production (e.g. ALLOWED_HOST=tutto.example.com) — Vite's dev/
   // preview server otherwise rejects requests whose Host header doesn't
   // match one of allowedHosts.
   const allowedHost = env.ALLOWED_HOST || 'localhost'
