@@ -51,6 +51,15 @@ const makeFakeIo = () => {
 
 const roomId = 'timer-unit-room';
 
+// vite.config.js sets TEST_TIMER_SCALE for the whole suite to accelerate the
+// spawned-server integration tests, and startServerTurnTimer applies it here
+// too — so a turn nominally lasting N seconds is armed for N * scale. Tests that
+// advance the fake clock must scale with it, mirroring turnTimers.ts exactly:
+// advancing a raw, unscaled duration overshoots the real deadline and lets the
+// timer re-arm and fire repeatedly instead of not firing at all.
+const TIMER_SCALE = process.env.TEST_TIMER_SCALE ? parseFloat(process.env.TEST_TIMER_SCALE) : 1;
+const scaledTimeoutMs = (seconds: number) => Math.max(10, Math.floor(seconds * 1000 * TIMER_SCALE));
+
 describe('turnTimers', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -124,16 +133,27 @@ describe('turnTimers', () => {
     });
 
     it('schedules a timeout for the remaining duration and does not fire early', () => {
+      const TURN_DURATION_SECONDS = 30;
       rooms[roomId] = createRoom('host-1');
       Object.assign(rooms[roomId].state, {
-        status: 'playing', currentPlayerIndex: 0, turnDuration: 30, turnStartTime: Date.now(),
+        status: 'playing', currentPlayerIndex: 0, turnDuration: TURN_DURATION_SECONDS, turnStartTime: Date.now(),
         players: [makePlayer('Alice'), makePlayer('Bob')],
       });
       startServerTurnTimer(makeFakeIo().io, roomId);
       expect(rooms[roomId].turnExpireTimer).not.toBeNull();
 
-      vi.advanceTimersByTime(29_000);
+      // Straddle the deadline rather than picking a value inside the turn: one
+      // tick short must not fire, and the very next tick must. Asserting only
+      // the "before" half is what made this fragile — with the scaled deadline
+      // the old 29s advance fired the timer four times (6s, 12s, 18s, 24s), and
+      // the assertion still held purely because two players and an even number
+      // of advances cycled currentPlayerIndex back to 0.
+      const deadlineMs = scaledTimeoutMs(TURN_DURATION_SECONDS);
+      vi.advanceTimersByTime(deadlineMs - 1);
       expect(rooms[roomId].state.currentPlayerIndex).toBe(0); // not advanced yet
+
+      vi.advanceTimersByTime(1);
+      expect(rooms[roomId].state.currentPlayerIndex).toBe(1); // fires exactly on the deadline
     });
 
     it('re-arming clears the previous timer first (safe to call repeatedly)', () => {
