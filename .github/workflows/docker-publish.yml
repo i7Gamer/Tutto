@@ -17,11 +17,21 @@ on:
         description: 'Comma-separated Docker tags to publish, e.g. "latest,1.1.3"'
         required: true
         type: string
+      ref:
+        description: 'Commit, branch or tag to build. Defaults to master, whichever branch the run was dispatched from. Callers that read something out of the tree (publish-latest reads the version) pass the exact SHA they read it from.'
+        required: false
+        default: master
+        type: string
+
+# Publishes are serialised. Two overlapping runs would each see the other's
+# pushed-but-not-yet-tagged digests as unreferenced, and the cleanup step would
+# delete an image the other run is about to tag.
+concurrency:
+  group: publish-docker-image
+  cancel-in-progress: false
 
 env:
   IMAGE_NAME: i7gamer/tutto
-  # Every publish ships master, whichever branch the run was dispatched from.
-  PUBLISH_REF: master
   NODE_VERSION: '24'
   SMOKE_PORT: '3001'
   # Only ever reaches a throwaway container on the runner. The server refuses to
@@ -47,11 +57,24 @@ jobs:
   verify:
     name: Type Check, Lint & Test
     runs-on: ubuntu-24.04
+    # Everything downstream builds this exact commit. Each job checks out
+    # independently, so resolving the ref per job would let a push landing
+    # mid-run publish a tree that nothing here tested.
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          ref: ${{ env.PUBLISH_REF }}
+          ref: ${{ inputs.ref }}
+
+      - name: Resolve the commit under test
+        id: resolve
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          echo "Verifying and publishing ${sha}"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -95,7 +118,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          ref: ${{ env.PUBLISH_REF }}
+          ref: ${{ needs.verify.outputs.sha }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -156,9 +179,12 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${SMOKE_PORT}/socket.io/?EIO=4&transport=polling")" = "200"
 
           echo "--- a foreign origin must get no CORS header ---"
-          if curl -s -D - -o /dev/null -H 'Origin: https://evil.example' \
-               "http://127.0.0.1:${SMOKE_PORT}/api/stats/global" \
-               | grep -i '^access-control-allow-origin'; then
+          # Captured with -f first: piping curl straight into grep made a
+          # failed request indistinguishable from a clean response, so the
+          # assertion passed whenever the endpoint was broken.
+          foreign_headers="$(curl -fsS -D - -o /dev/null -H 'Origin: https://evil.example' \
+            "http://127.0.0.1:${SMOKE_PORT}/api/stats/global")"
+          if echo "${foreign_headers}" | grep -i '^access-control-allow-origin'; then
             echo "::error::image answered a foreign origin with an Access-Control-Allow-Origin header"
             exit 1
           fi
@@ -210,7 +236,9 @@ jobs:
 
   merge:
     name: Publish manifest
-    needs: build
+    # build already depends on verify; named here so the summary can report the
+    # commit that was actually built.
+    needs: [verify, build]
     runs-on: ubuntu-24.04
     steps:
       - name: Download digests
@@ -439,6 +467,7 @@ jobs:
       - name: Summary
         env:
           REQUESTED_TAGS: ${{ inputs.tags }}
+          PUBLISHED_SHA: ${{ needs.verify.outputs.sha }}
         run: |
           {
             echo "### Published \`${IMAGE_NAME}\`"
@@ -451,5 +480,5 @@ jobs:
               [ -n "${trimmed}" ] && echo "| \`${trimmed}\` |"
             done
             echo
-            echo "Platforms: \`linux/amd64\`, \`linux/arm64\` — built from \`${PUBLISH_REF}\`."
+            echo "Platforms: \`linux/amd64\`, \`linux/arm64\` — built from \`${PUBLISHED_SHA}\`."
           } >> "$GITHUB_STEP_SUMMARY"

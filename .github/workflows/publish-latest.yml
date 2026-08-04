@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.read.outputs.version }}
+      sha: ${{ steps.read.outputs.sha }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -34,8 +35,13 @@ jobs:
             echo "::error::could not read a version from package.json"
             exit 1
           fi
-          echo "Publishing version ${version}"
+          # Emitted alongside the version and passed to the publish workflow:
+          # resolving master a second time down there could pick up a push that
+          # landed in between, and tag it with the version read from here.
+          sha="$(git rev-parse HEAD)"
+          echo "Publishing version ${version} from ${sha}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
 
   publish:
     name: Publish
@@ -43,4 +49,5 @@ jobs:
     uses: ./.github/workflows/docker-publish.yml
     with:
       tags: latest,${{ needs.version.outputs.version }}
+      ref: ${{ needs.version.outputs.sha }}
     secrets: inherit
