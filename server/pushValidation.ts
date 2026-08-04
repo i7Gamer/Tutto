@@ -193,7 +193,14 @@ const PLAYER_MUTABLE: (keyof ServerPlayer)[] = [
   'timesKleeblattCompleted', 'timesPlusMinusFailed', 'timesFeuerwerkReceived',
   'timesSkipped', 'timesx2Received', 'totalTurns', 'busts',
   'feuerwerkBusts', 'x2Busts', 'feuerwerkPointsScored', 'x2PointsScored',
-  'highestTurnScore', 'position', 'color',
+  // All three per-turn maxima belong together: calculateNextTurn maintains
+  // them side by side on the client, and a gameState broadcast replaces the
+  // client's roster wholesale. Leaving the two per-card ones out meant they
+  // were reset to undefined after every turn, so the "Highest Feuerwerk/x2
+  // Turn" stats were always 0 for online games — in endGameStats, in the
+  // global payload, in EndScreen's new-record cards and in the stats tiles.
+  'highestTurnScore', 'highestFeuerwerkTurnScore', 'highestX2TurnScore',
+  'position', 'color',
 ];
 
 // Matched by name, not deviceId: name is already unique within a room (enforced

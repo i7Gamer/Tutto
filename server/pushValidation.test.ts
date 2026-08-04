@@ -133,6 +133,36 @@ describe('applyPushedState', () => {
       expect(state.players[1].score).toBe(300);
     });
 
+    it('merges the per-card highest turn scores alongside the overall one', () => {
+      // highestTurnScore was mergeable but its Feuerwerk/x2 siblings were not,
+      // so every gameState broadcast (which replaces the client's roster
+      // wholesale) reset them to undefined. That zeroed the two "Highest
+      // Feuerwerk/x2 Turn" stats for online games end to end: endGameStats,
+      // the global payload, EndScreen's new-record cards and the stats tiles.
+      const state = makeState();
+      applyPushedState(state, {
+        players: [
+          { name: 'Alice', score: 1500, highestTurnScore: 1500, highestFeuerwerkTurnScore: 1500, highestX2TurnScore: 900 },
+          { name: 'Bob', score: 300 },
+        ],
+      }, asActivePlayer);
+      expect(state.players[0].highestTurnScore).toBe(1500);
+      expect(state.players[0].highestFeuerwerkTurnScore).toBe(1500);
+      expect(state.players[0].highestX2TurnScore).toBe(900);
+    });
+
+    it('applies the sanity cap to the per-card highest turn scores too', () => {
+      const state = makeState();
+      applyPushedState(state, {
+        players: [
+          { name: 'Alice', highestFeuerwerkTurnScore: 1e308, highestX2TurnScore: Infinity },
+          { name: 'Bob', score: 300 },
+        ],
+      }, asActivePlayer);
+      expect(state.players[0].highestFeuerwerkTurnScore).toBeUndefined();
+      expect(state.players[0].highestX2TurnScore).toBeUndefined();
+    });
+
     it('rejects a mutable numeric field magnitude beyond the sanity cap', () => {
       // A finite-but-absurd value (e.g. 1e308) would otherwise pass the
       // Number.isFinite check and ride every future broadcast to every client.
