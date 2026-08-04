@@ -24,6 +24,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The root postinstall runs "npm install" in server/, which may resolve
+      # past the committed lockfile. Re-install from it so the build and the
+      # server audit below reflect server/package-lock.json exactly.
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
+
       - name: Type Check
         run: npm run type-check
 
