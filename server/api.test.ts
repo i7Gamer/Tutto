@@ -115,6 +115,23 @@ describe('API Endpoints Token Protection', () => {
     expect(res.status).toBe(200);
   });
 
+  it('GET /api/health reports ok without a token', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/health`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'ok' });
+  });
+
+  it('GET /api/health is not rate limited', async () => {
+    // The container HEALTHCHECK polls this endpoint for the lifetime of the
+    // process. Behind the stats limiter (60 requests/minute) a busy or
+    // long-lived container would eventually be marked unhealthy and restarted.
+    const requestCount = 70;
+    const responses = await Promise.all(
+      Array.from({ length: requestCount }, () => fetch(`http://127.0.0.1:${PORT}/api/health`)),
+    );
+    expect(responses.map(res => res.status)).toEqual(Array(requestCount).fill(200));
+  });
+
   it('rejects an unmatched /api/* route with 404 instead of the SPA fallback', async () => {
     const res = await fetch(`http://127.0.0.1:${PORT}/api/does-not-exist`);
     expect(res.status).toBe(404);

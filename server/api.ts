@@ -100,6 +100,14 @@ export const registerApiRoutes = (app: express.Express): void => {
     res.json({ success: true });
   });
 
+  // Liveness probe for the container HEALTHCHECK and any reverse proxy in
+  // front of it. Deliberately does no database work and carries no rate
+  // limiter: it is polled for the whole lifetime of the process, and a 429 or
+  // a slow query here would get a healthy container restarted.
+  app.get('/api/health', (_req: express.Request, res: express.Response) => {
+    res.json({ status: 'ok' });
+  });
+
   app.get('/api/stats/global', statsRateLimiter, async (_req: express.Request, res: express.Response) => {
     try {
       const stats = await getGlobalStats();
