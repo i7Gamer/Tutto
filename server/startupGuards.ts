@@ -17,12 +17,32 @@ export const validateApiTokenForStartup = (
   return null;
 };
 
+// Any origin. The dev/LAN-play default, and never a legal production value.
+export const WILDCARD_CORS_ORIGIN = '*';
+
+// Emit no cross-origin headers at all — the value both the cors middleware and
+// Socket.IO understand as "same-origin requests only".
+const SAME_ORIGIN_ONLY = false;
+
 export const validateCorsOriginForStartup = (
   env: { NODE_ENV?: string; CORS_ORIGIN?: string },
 ): string | null => {
-  const corsOrigin = env.CORS_ORIGIN || '*';
-  if (env.NODE_ENV === 'production' && corsOrigin === '*') {
-    return '[SECURITY] CORS_ORIGIN is not set (defaults to "*"). Refusing to start in production.';
+  if (env.NODE_ENV !== 'production') return null;
+  if (env.CORS_ORIGIN === WILDCARD_CORS_ORIGIN) {
+    return '[SECURITY] CORS_ORIGIN is explicitly "*", which would let any site make authenticated cross-origin requests. Refusing to start in production. Unset it for same-origin only, or set the deployed origin.';
   }
   return null;
+};
+
+// An unset CORS_ORIGIN used to mean "wildcard", which the guard above then
+// refused — so a container started without configuration crash-looped. In
+// production it now means same-origin only: strictly tighter than the wildcard
+// the guard was protecting against, and correct for this app, whose frontend is
+// served by this very server (see express.static in index.ts) and whose client
+// connects to window.location.origin.
+export const resolveCorsOrigin = (
+  env: { NODE_ENV?: string; CORS_ORIGIN?: string },
+): string | false => {
+  if (env.CORS_ORIGIN) return env.CORS_ORIGIN;
+  return env.NODE_ENV === 'production' ? SAME_ORIGIN_ONLY : WILDCARD_CORS_ORIGIN;
 };

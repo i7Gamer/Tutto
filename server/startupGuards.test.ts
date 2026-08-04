@@ -1,6 +1,12 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
-import { validateApiTokenForStartup, validateCorsOriginForStartup, DEV_DEFAULT_API_TOKEN } from './startupGuards';
+import {
+  validateApiTokenForStartup,
+  validateCorsOriginForStartup,
+  resolveCorsOrigin,
+  DEV_DEFAULT_API_TOKEN,
+  WILDCARD_CORS_ORIGIN,
+} from './startupGuards';
 
 describe('validateApiTokenForStartup', () => {
   it('allows any (or no) API_TOKEN outside production', () => {
@@ -28,15 +34,57 @@ describe('validateCorsOriginForStartup', () => {
     expect(validateCorsOriginForStartup({ NODE_ENV: 'test', CORS_ORIGIN: '*' })).toBeNull();
   });
 
-  it('refuses to start in production when CORS_ORIGIN is unset (defaults to wildcard)', () => {
-    expect(validateCorsOriginForStartup({ NODE_ENV: 'production' })).toMatch(/CORS_ORIGIN/);
+  it('allows an unset CORS_ORIGIN in production', () => {
+    // Previously refused, because unset meant the '*' dev default. It now
+    // resolves to same-origin-only (see resolveCorsOrigin), which is stricter
+    // than the wildcard the guard was protecting against — so a published
+    // Docker image can boot unconfigured instead of crash-looping.
+    expect(validateCorsOriginForStartup({ NODE_ENV: 'production' })).toBeNull();
+    expect(validateCorsOriginForStartup({ NODE_ENV: 'production', CORS_ORIGIN: '' })).toBeNull();
   });
 
   it('refuses to start in production when CORS_ORIGIN is explicitly "*"', () => {
-    expect(validateCorsOriginForStartup({ NODE_ENV: 'production', CORS_ORIGIN: '*' })).toMatch(/CORS_ORIGIN/);
+    // Deliberately opting into a wildcard in production stays an error: it
+    // would let any site make authenticated cross-origin requests.
+    expect(validateCorsOriginForStartup({ NODE_ENV: 'production', CORS_ORIGIN: WILDCARD_CORS_ORIGIN }))
+      .toMatch(/CORS_ORIGIN/);
   });
 
   it('allows a real CORS_ORIGIN in production', () => {
     expect(validateCorsOriginForStartup({ NODE_ENV: 'production', CORS_ORIGIN: 'https://tutto.rzipas.win' })).toBeNull();
+  });
+});
+
+describe('resolveCorsOrigin', () => {
+  it('restricts production to same-origin when CORS_ORIGIN is unset', () => {
+    // `false` tells both the cors middleware and Socket.IO to emit no
+    // cross-origin headers at all. The frontend is served from this same
+    // origin, so nothing in the app needs them.
+    expect(resolveCorsOrigin({ NODE_ENV: 'production' })).toBe(false);
+    expect(resolveCorsOrigin({ NODE_ENV: 'production', CORS_ORIGIN: '' })).toBe(false);
+  });
+
+  it('keeps the permissive wildcard outside production for local/LAN play', () => {
+    expect(resolveCorsOrigin({ NODE_ENV: 'development' })).toBe(WILDCARD_CORS_ORIGIN);
+    expect(resolveCorsOrigin({})).toBe(WILDCARD_CORS_ORIGIN);
+  });
+
+  it('passes an explicit origin through unchanged in any environment', () => {
+    expect(resolveCorsOrigin({ NODE_ENV: 'production', CORS_ORIGIN: 'https://tutto.rzipas.win' }))
+      .toBe('https://tutto.rzipas.win');
+    expect(resolveCorsOrigin({ NODE_ENV: 'development', CORS_ORIGIN: 'http://localhost:5173' }))
+      .toBe('http://localhost:5173');
+  });
+
+  it('never resolves to a wildcard in production', () => {
+    // The startup guard rejects an explicit '*' before this runs, so the two
+    // together mean production can never end up serving Access-Control-Allow-
+    // Origin: *.
+    const productionOrigins = [
+      resolveCorsOrigin({ NODE_ENV: 'production' }),
+      resolveCorsOrigin({ NODE_ENV: 'production', CORS_ORIGIN: '' }),
+      resolveCorsOrigin({ NODE_ENV: 'production', CORS_ORIGIN: 'https://tutto.rzipas.win' }),
+    ];
+    expect(productionOrigins).not.toContain(WILDCARD_CORS_ORIGIN);
   });
 });

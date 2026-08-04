@@ -28,6 +28,7 @@ const PORTS = {
   apiCorsOrigin: '3007',
   apiGlobalStatsRateLimit: '3012',
   apiClientErrorRateLimit: '3013',
+  apiProductionCors: '3018',
 
   // Focused socket behaviour suites.
   socketConfigBounds: '3008',

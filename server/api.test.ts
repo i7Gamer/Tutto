@@ -289,6 +289,80 @@ describe('CORS_ORIGIN configuration', () => {
   });
 });
 
+// The scenario a freshly pulled Docker image runs in: NODE_ENV=production with
+// no CORS_ORIGIN configured. This used to be a refusal to boot, which meant an
+// unconfigured container crash-looped.
+describe('production CORS defaults to same-origin', () => {
+  let serverProcess;
+  const PORT = TEST_PORTS.apiProductionCors;
+  const FOREIGN_ORIGIN = 'https://evil.example';
+
+  beforeAll(() => {
+    if (globalThis.__nativeFetch) {
+      globalThis.fetch = globalThis.__nativeFetch;
+    }
+
+    return new Promise((resolve, reject) => {
+      serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
+        env: {
+          ...process.env,
+          PORT,
+          NODE_ENV: 'production',
+          API_TOKEN: 'a-strong-production-token',
+          CORS_ORIGIN: '',
+          TEST_DB: 'true',
+          FORCE_INIT_DB: 'true',
+          TEST_TIMER_SCALE: '0.2',
+        },
+        stdio: 'pipe'
+      });
+
+      let stdout = '';
+      serverProcess.stdout.on('data', (data) => {
+        stdout += data.toString();
+        if (stdout.includes('Server running on port')) resolve();
+      });
+      serverProcess.stderr.on('data', (data) => console.error(data.toString()));
+
+      serverProcess.on('error', (err) => reject(err));
+    });
+  }, 20000);
+
+  afterAll(() => {
+    if (serverProcess) serverProcess.kill();
+  });
+
+  it('boots in production without CORS_ORIGIN set', async () => {
+    // Reaching this at all means the startup guard let the process live; the
+    // beforeAll above only resolves on "Server running on port".
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/health`);
+    expect(res.status).toBe(200);
+  });
+
+  it('sends no Access-Control-Allow-Origin to a foreign origin', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/global`, {
+      headers: { Origin: FOREIGN_ORIGIN },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
+  it('never answers a foreign origin with a wildcard', async () => {
+    // The regression that matters: falling back to '*' here would let any site
+    // make authenticated cross-origin requests against a deployed server.
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/global`, {
+      headers: { Origin: FOREIGN_ORIGIN },
+    });
+    expect(res.headers.get('access-control-allow-origin')).not.toBe('*');
+  });
+
+  it('still serves same-origin requests normally', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/global`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ totalGamesPlayed: expect.any(Number) });
+  });
+});
+
 describe('GET /api/stats/global rate limiting', () => {
   let serverProcess;
   const PORT = TEST_PORTS.apiGlobalStatsRateLimit;
