@@ -70,6 +70,34 @@ const getClientAddress = (socket: Socket): string => {
   return socket.handshake.address ?? 'unknown';
 };
 
+// Every listener below is registered through this instead of socket.on. A
+// handler that throws — or, for the async ones, returns a rejecting promise —
+// must never escape into the runtime: socket.io dispatches listeners from a
+// bare process.nextTick, so a synchronous throw is an uncaught exception with
+// no caller to catch it, and index.ts deliberately turns an unhandled
+// rejection into process.exit(1). Either route ends the process — every room,
+// every player — over one malformed event from one client (see the
+// reorderPlayers entry check for a case that really did). Containment is
+// per-event: log it, drop that event, keep serving. The two timer callbacks
+// (advanceTurnOnTimeout, the reconnect timeout below) carry their own
+// try/catch for the same reason — they run off setTimeout, not socket.io.
+const safeOn = <A extends unknown[]>(
+  socket: Socket,
+  event: string,
+  handler: (...args: A) => unknown,
+): void => {
+  socket.on(event, (...args: unknown[]) => {
+    try {
+      const result = handler(...(args as A));
+      if (result instanceof Promise) {
+        result.catch((err: unknown) => console.error(`[socket:${event}] handler rejected:`, err));
+      }
+    } catch (err) {
+      console.error(`[socket:${event}] handler threw:`, err);
+    }
+  });
+};
+
 export const registerSocketHandlers = (io: Server): void => {
   const envConnLimitMax = Number(process.env.SOCKET_CONN_LIMIT_MAX);
   const connectionLimiter = createKeyedEventLimiter({
@@ -100,7 +128,7 @@ export const registerSocketHandlers = (io: Server): void => {
     const updatePlayerColorLimiter = createSocketEventLimiter(UPDATE_PLAYER_COLOR_LIMIT);
     const sendReactionLimiter = createSocketEventLimiter(SEND_REACTION_LIMIT);
 
-    socket.on('joinRoom', async (
+    safeOn(socket, 'joinRoom', async (
       payload: { roomId?: string; name?: string; deviceId?: string; color?: string; initialConfig?: Record<string, unknown> } | null | undefined,
       callback: (result: { success: boolean; isHost?: boolean; socketId?: string; error?: string; name?: string }) => void
     ) => {
@@ -294,7 +322,7 @@ export const registerSocketHandlers = (io: Server): void => {
       emitRoomState(io, roomId);
     });
 
-    socket.on('updateConfig', (data: {
+    safeOn(socket, 'updateConfig', (data: {
       roomId?: string;
       winningScore?: number;
       initialCards?: unknown;
@@ -328,7 +356,7 @@ export const registerSocketHandlers = (io: Server): void => {
       emitRoomState(io, roomId);
     });
 
-    socket.on('reorderPlayers', (data: { roomId?: string; newPlayers?: { name: string }[] } | null | undefined) => {
+    safeOn(socket, 'reorderPlayers', (data: { roomId?: string; newPlayers?: { name: string }[] } | null | undefined) => {
       if (!reorderPlayersLimiter()) return;
       if (!data || typeof data !== 'object') return;
       const { roomId, newPlayers } = data;
@@ -360,7 +388,7 @@ export const registerSocketHandlers = (io: Server): void => {
       }
     });
 
-    socket.on('updatePlayerColor', (data: { roomId?: string; color?: string } | null | undefined) => {
+    safeOn(socket, 'updatePlayerColor', (data: { roomId?: string; color?: string } | null | undefined) => {
       if (!updatePlayerColorLimiter()) return;
       if (!data || typeof data !== 'object') return;
       const { roomId, color } = data;
@@ -374,7 +402,7 @@ export const registerSocketHandlers = (io: Server): void => {
       }
     });
 
-    socket.on('sendReaction', (data: { emoji?: string } | null | undefined) => {
+    safeOn(socket, 'sendReaction', (data: { emoji?: string } | null | undefined) => {
       if (!sendReactionLimiter()) return;
       if (!data || typeof data !== 'object') return;
       const { emoji } = data;
@@ -395,7 +423,7 @@ export const registerSocketHandlers = (io: Server): void => {
       });
     });
 
-    socket.on('kickPlayer', (targetSocketId: string) => {
+    safeOn(socket, 'kickPlayer', (targetSocketId: string) => {
       if (!kickPlayerLimiter()) return;
       if (typeof targetSocketId !== 'string') return;
       if (!currentRoom || !rooms[currentRoom] || rooms[currentRoom].host !== socket.id) return;
@@ -439,75 +467,68 @@ export const registerSocketHandlers = (io: Server): void => {
       if (targetSocket) targetSocket.leave(currentRoom);
     });
 
-    socket.on('pushState', (data: { roomId?: string; newState?: Record<string, unknown> } | null | undefined) => {
-      try {
-        if (!pushStateLimiter()) return;
-        if (!data || typeof data !== 'object') return;
-        const { roomId, newState } = data;
-        if (typeof roomId !== 'string' || !newState || typeof newState !== 'object') return;
-        const room = rooms[roomId];
-        if (!room) return;
+    safeOn(socket, 'pushState', (data: { roomId?: string; newState?: Record<string, unknown> } | null | undefined) => {
+      if (!pushStateLimiter()) return;
+      if (!data || typeof data !== 'object') return;
+      const { roomId, newState } = data;
+      if (typeof roomId !== 'string' || !newState || typeof newState !== 'object') return;
+      const room = rooms[roomId];
+      if (!room) return;
 
-        const isHost = room.host === socket.id;
-        const activePlayer = room.state.currentPlayerIndex !== null
-          ? room.state.players[room.state.currentPlayerIndex]
-          : null;
-        const isActivePlayer = activePlayer?.socketId === socket.id;
+      const isHost = room.host === socket.id;
+      const activePlayer = room.state.currentPlayerIndex !== null
+        ? room.state.players[room.state.currentPlayerIndex]
+        : null;
+      const isActivePlayer = activePlayer?.socketId === socket.id;
 
-        if (!isHost && !isActivePlayer) return;
+      if (!isHost && !isActivePlayer) return;
 
-        // The host may legitimately reorder players (e.g. the random shuffle) only at
-        // the moment the game starts. Outside that transition the server keeps its own
-        // authoritative order so a stray push can never scramble the roster mid-game.
-        // A game starts either from the lobby, or from the end screen's "Play Again",
-        // which never passes through the lobby: the room is still status 'playing'
-        // with finished=true when the host pushes the next game's opening state.
-        const startingGame = isHost && newState.status === 'playing' &&
-          (room.state.status === 'lobby' || (room.state.finished && newState.finished === false));
-        if (startingGame) {
-          room.statsRecordedForGame = { devices: new Set(), global: false };
-        }
-
-        applyPushedState(room.state, newState, { isHost, startingGame });
-
-        if (room.state.status === 'playing' && !room.gameActualStartTime) {
-          room.gameActualStartTime = Date.now();
-        }
-
-        if (!room.turnTimerState) {
-          room.turnTimerState = { lastCard: null, lastPlayerIndex: null };
-        }
-
-        const cardChanged = room.state.currentCard !== room.turnTimerState.lastCard;
-        const playerChanged = room.state.currentPlayerIndex !== room.turnTimerState.lastPlayerIndex;
-
-        if (room.state.status === 'playing' && room.state.currentPlayerIndex !== null && (cardChanged || playerChanged)) {
-          room.state.turnStartTime = Date.now();
-          room.turnTimerState.lastCard = room.state.currentCard;
-          room.turnTimerState.lastPlayerIndex = room.state.currentPlayerIndex;
-          startServerTurnTimer(io, roomId);
-        }
-
-        if (room.state.finished || room.state.status === 'lobby') {
-          clearServerTurnTimer(roomId);
-          room.state.turnStartTime = null;
-          if (room.gameActualStartTime) {
-            room.state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / 1000);
-          }
-          room.gameActualStartTime = null;
-          if (room.turnTimerState) {
-            room.turnTimerState.lastCard = null;
-            room.turnTimerState.lastPlayerIndex = null;
-          }
-        }
-
-        emitRoomState(io, roomId);
-      } catch (err) {
-        // Backstop: validation above should make this unreachable, but a crash here
-        // would otherwise take down the whole process (every room, every player) —
-        // see advanceTurnOnTimeout for the same reasoning.
-        console.error(`[pushState] Failed to apply state for room:`, err);
+      // The host may legitimately reorder players (e.g. the random shuffle) only at
+      // the moment the game starts. Outside that transition the server keeps its own
+      // authoritative order so a stray push can never scramble the roster mid-game.
+      // A game starts either from the lobby, or from the end screen's "Play Again",
+      // which never passes through the lobby: the room is still status 'playing'
+      // with finished=true when the host pushes the next game's opening state.
+      const startingGame = isHost && newState.status === 'playing' &&
+        (room.state.status === 'lobby' || (room.state.finished && newState.finished === false));
+      if (startingGame) {
+        room.statsRecordedForGame = { devices: new Set(), global: false };
       }
+
+      applyPushedState(room.state, newState, { isHost, startingGame });
+
+      if (room.state.status === 'playing' && !room.gameActualStartTime) {
+        room.gameActualStartTime = Date.now();
+      }
+
+      if (!room.turnTimerState) {
+        room.turnTimerState = { lastCard: null, lastPlayerIndex: null };
+      }
+
+      const cardChanged = room.state.currentCard !== room.turnTimerState.lastCard;
+      const playerChanged = room.state.currentPlayerIndex !== room.turnTimerState.lastPlayerIndex;
+
+      if (room.state.status === 'playing' && room.state.currentPlayerIndex !== null && (cardChanged || playerChanged)) {
+        room.state.turnStartTime = Date.now();
+        room.turnTimerState.lastCard = room.state.currentCard;
+        room.turnTimerState.lastPlayerIndex = room.state.currentPlayerIndex;
+        startServerTurnTimer(io, roomId);
+      }
+
+      if (room.state.finished || room.state.status === 'lobby') {
+        clearServerTurnTimer(roomId);
+        room.state.turnStartTime = null;
+        if (room.gameActualStartTime) {
+          room.state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / 1000);
+        }
+        room.gameActualStartTime = null;
+        if (room.turnTimerState) {
+          room.turnTimerState.lastCard = null;
+          room.turnTimerState.lastPlayerIndex = null;
+        }
+      }
+
+      emitRoomState(io, roomId);
     });
 
     // Dedicated low-overhead path for live dice-roll updates (fired ~every
@@ -519,38 +540,34 @@ export const registerSocketHandlers = (io: Server): void => {
     // field and broadcasts a small, standalone event instead — pushState,
     // applyPushedState, and emitRoomState are untouched and still carry
     // liveTurnState as part of the full sync for reconnect/fresh-join.
-    socket.on('liveTurnState', (data: { roomId?: string; liveTurnState?: unknown } | null | undefined) => {
-      try {
-        if (!liveTurnStateLimiter()) return;
-        if (!data || typeof data !== 'object') return;
-        const { roomId, liveTurnState } = data;
-        if (typeof roomId !== 'string') return;
-        const room = rooms[roomId];
-        if (!room) return;
+    safeOn(socket, 'liveTurnState', (data: { roomId?: string; liveTurnState?: unknown } | null | undefined) => {
+      if (!liveTurnStateLimiter()) return;
+      if (!data || typeof data !== 'object') return;
+      const { roomId, liveTurnState } = data;
+      if (typeof roomId !== 'string') return;
+      const room = rooms[roomId];
+      if (!room) return;
 
-        const isHost = room.host === socket.id;
-        const activePlayer = room.state.currentPlayerIndex !== null
-          ? room.state.players[room.state.currentPlayerIndex]
-          : null;
-        const isActivePlayer = activePlayer?.socketId === socket.id;
+      const isHost = room.host === socket.id;
+      const activePlayer = room.state.currentPlayerIndex !== null
+        ? room.state.players[room.state.currentPlayerIndex]
+        : null;
+      const isActivePlayer = activePlayer?.socketId === socket.id;
 
-        if (!isHost && !isActivePlayer) return;
+      if (!isHost && !isActivePlayer) return;
 
-        if (liveTurnState === null) {
-          room.state.liveTurnState = null;
-        } else if (isValidDiceSnapshot(liveTurnState)) {
-          room.state.liveTurnState = sanitizeDiceSnapshot(liveTurnState);
-        } else {
-          return;
-        }
-
-        io.to(roomId).emit('liveTurnState', { liveTurnState: room.state.liveTurnState });
-      } catch (err) {
-        console.error(`[liveTurnState] Failed to apply live turn state for room:`, err);
+      if (liveTurnState === null) {
+        room.state.liveTurnState = null;
+      } else if (isValidDiceSnapshot(liveTurnState)) {
+        room.state.liveTurnState = sanitizeDiceSnapshot(liveTurnState);
+      } else {
+        return;
       }
+
+      io.to(roomId).emit('liveTurnState', { liveTurnState: room.state.liveTurnState });
     });
 
-    socket.on('submitGlobalStats', async (data: { roomId?: string; payload?: unknown } | null | undefined) => {
+    safeOn(socket, 'submitGlobalStats', async (data: { roomId?: string; payload?: unknown } | null | undefined) => {
       if (!submitGlobalStatsLimiter()) return;
       if (!data || typeof data !== 'object') return;
       const { roomId, payload } = data;
@@ -586,7 +603,7 @@ export const registerSocketHandlers = (io: Server): void => {
       }
     });
 
-    socket.on('endGameStats', async (data: { deviceId?: string; stats?: unknown } | null | undefined) => {
+    safeOn(socket, 'endGameStats', async (data: { deviceId?: string; stats?: unknown } | null | undefined) => {
       if (!endGameStatsLimiter()) return;
       if (!data || typeof data !== 'object') return;
       const { deviceId, stats } = data;
@@ -693,45 +710,54 @@ export const registerSocketHandlers = (io: Server): void => {
         const timerScale = process.env.TEST_TIMER_SCALE ? parseFloat(process.env.TEST_TIMER_SCALE) : 1;
         const disconnectMs = Math.max(10, Math.floor(timeoutSecs * 1000 * timerScale));
         room.disconnectTimers[player.deviceId] = setTimeout(() => {
-          const r = rooms[roomIdSnapshot];
-          if (!r) return;
-          // This timer has fired — drop its bookkeeping entry, or the
-          // "no pending timers" room-cleanup check above would see a phantom
-          // pending timer forever and the room could never be deleted.
-          delete r.disconnectTimers[player.deviceId];
-          const removedIdx = r.state.players.findIndex(p => p.deviceId === player.deviceId);
-          if (removedIdx === -1) return;
-          r.state.players.splice(removedIdx, 1);
-          handleActivePlayerRemoved(r, removedIdx);
+          // Same backstop advanceTurnOnTimeout carries, for the same reason:
+          // this runs off a bare setTimeout with no caller to catch a throw, so
+          // an exception here would end the process (every room, every player)
+          // rather than just this one seat's cleanup. safeOn covers the socket
+          // listeners; a timer callback has to guard itself.
+          try {
+            const r = rooms[roomIdSnapshot];
+            if (!r) return;
+            // This timer has fired — drop its bookkeeping entry, or the
+            // "no pending timers" room-cleanup check above would see a phantom
+            // pending timer forever and the room could never be deleted.
+            delete r.disconnectTimers[player.deviceId];
+            const removedIdx = r.state.players.findIndex(p => p.deviceId === player.deviceId);
+            if (removedIdx === -1) return;
+            r.state.players.splice(removedIdx, 1);
+            handleActivePlayerRemoved(r, removedIdx);
 
-          if (r.state.players.length === 0) {
-            deleteRoom(roomIdSnapshot);
-          } else {
-            if (r.host === disconnectedSocketId) {
-              // Prefer a connected player — players[0] may itself be disconnected,
-              // which would leave the room with a dead socket as host (no config /
-              // kick / restart) until that player reconnects or times out. If
-              // everyone left is disconnected, fall back to players[0]; their own
-              // pending timers will resolve or clean up the room.
-              const nextHost = r.state.players.find(p => !p.disconnected) ?? r.state.players[0];
-              r.host = nextHost.socketId;
+            if (r.state.players.length === 0) {
+              deleteRoom(roomIdSnapshot);
+            } else {
+              if (r.host === disconnectedSocketId) {
+                // Prefer a connected player — players[0] may itself be disconnected,
+                // which would leave the room with a dead socket as host (no config /
+                // kick / restart) until that player reconnects or times out. If
+                // everyone left is disconnected, fall back to players[0]; their own
+                // pending timers will resolve or clean up the room.
+                const nextHost = r.state.players.find(p => !p.disconnected) ?? r.state.players[0];
+                r.host = nextHost.socketId;
+              }
+              const aborted = abortGameIfLowPlayers(io, r, roomIdSnapshot);
+              if (!aborted) startServerTurnTimer(io, roomIdSnapshot);
+              emitRoomState(io, roomIdSnapshot);
             }
-            const aborted = abortGameIfLowPlayers(io, r, roomIdSnapshot);
-            if (!aborted) startServerTurnTimer(io, roomIdSnapshot);
-            emitRoomState(io, roomIdSnapshot);
+          } catch (err) {
+            console.error(`[disconnectTimer] Failed to remove a timed-out player from room ${roomIdSnapshot}:`, err);
           }
         }, disconnectMs);
       }
     };
 
-    socket.on('leaveRoom', () => {
+    safeOn(socket, 'leaveRoom', () => {
       if (currentRoom) socket.leave(currentRoom);
       handlePlayerLeave(true);
       currentRoom = null;
       username = null;
     });
 
-    socket.on('disconnect', () => {
+    safeOn(socket, 'disconnect', () => {
       handlePlayerLeave(false);
     });
   });
