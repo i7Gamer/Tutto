@@ -63,11 +63,17 @@ Open `http://localhost:3001`.
 
 ### With Docker Compose
 
-Copy [docker-compose.yml](docker-compose.yml) from this repository, set `API_TOKEN`, then:
+Copy [docker-compose.yml](docker-compose.yml) from this repository, put a generated `API_TOKEN` in a `.env` file beside it, then start it:
+
+```bash
+echo "API_TOKEN=$(openssl rand -hex 32)" > .env
+```
 
 ```bash
 docker compose up -d
 ```
+
+Compose refuses to start if `API_TOKEN` is missing, so there is no accidental deployment with a guessable token.
 
 ### Configuration
 
@@ -75,7 +81,7 @@ All configuration is environment variables — the image contains no `.env` file
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `API_TOKEN` | **yes** | — | Guards the admin HTTP endpoints (`POST /api/stats/*`). Players never use it; they submit stats over the WebSocket. The server refuses to start without it, or if it is left at the local-dev default. Generate with `openssl rand -hex 32`. |
+| `API_TOKEN` | **yes** | — | Guards the admin HTTP endpoints (`POST /api/stats/*`). Players never use it; they submit stats over the WebSocket. The server refuses to start without it, or if it is set to any placeholder published in this repository. Generate with `openssl rand -hex 32`. |
 | `CORS_ORIGIN` | no | same-origin only | Set only if the frontend is served from a *different* origin than the API. Leaving it unset is correct for a normal deployment, including behind a reverse proxy on one domain. Setting it to `*` in production is refused at startup. |
 | `PORT` | no | `3001` | Port inside the container. |
 | `DB_PATH` | no | `/data/stats.db` | Location of the SQLite database. Change it only if you mount the volume elsewhere. |

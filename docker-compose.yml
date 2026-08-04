@@ -1,5 +1,6 @@
 # Tutto — self-hosted setup.
 #
+#   echo "API_TOKEN=$(openssl rand -hex 32)" > .env
 #   docker compose up -d
 #
 # Then open http://localhost:3001. Statistics are kept in a named volume, so
@@ -17,10 +18,15 @@ services:
       - tutto-data:/data
     environment:
       # REQUIRED. Guards the admin HTTP endpoints (POST /api/stats/*); players
-      # never use it, they submit stats over the socket. The server refuses to
-      # start in production if this is unset or left at the local-dev default.
+      # never use it, they submit stats over the socket.
+      #
+      # Supplied from the environment or from a .env file next to this one —
+      # deliberately not a literal. Any value committed here would be public,
+      # and an unedited copy of this file would then deploy a server whose
+      # admin token anyone can read. The ":?" makes compose refuse to start
+      # rather than fall back to something guessable.
       # Generate one with:  openssl rand -hex 32
-      - API_TOKEN=change-me-openssl-rand-hex-32
+      - API_TOKEN=${API_TOKEN:?set API_TOKEN in the environment or in a .env file beside docker-compose.yml — generate one with: openssl rand -hex 32}
 
       # Optional. Unset means same-origin only, which is correct when Tutto is
       # reached directly or through a reverse proxy on one domain. Set it only

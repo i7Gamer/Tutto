@@ -5,6 +5,8 @@ import {
   validateCorsOriginForStartup,
   resolveCorsOrigin,
   DEV_DEFAULT_API_TOKEN,
+  COMPOSE_PLACEHOLDER_API_TOKEN,
+  PUBLISHED_API_TOKENS,
   WILDCARD_CORS_ORIGIN,
 } from './startupGuards';
 
@@ -20,7 +22,25 @@ describe('validateApiTokenForStartup', () => {
   });
 
   it('refuses to start in production when API_TOKEN is the public local-dev default', () => {
-    expect(validateApiTokenForStartup({ NODE_ENV: 'production', API_TOKEN: DEV_DEFAULT_API_TOKEN })).toMatch(/local-dev default/);
+    expect(validateApiTokenForStartup({ NODE_ENV: 'production', API_TOKEN: DEV_DEFAULT_API_TOKEN }))
+      .toMatch(/published in this repository/);
+  });
+
+  it('refuses to start in production when API_TOKEN is the old docker-compose placeholder', () => {
+    // The compose file no longer ships a usable default, but copies of the one
+    // that did are already deployed. The image is the only thing that reaches
+    // them, so the refusal has to live here.
+    expect(validateApiTokenForStartup({ NODE_ENV: 'production', API_TOKEN: COMPOSE_PLACEHOLDER_API_TOKEN }))
+      .toMatch(/published in this repository/);
+  });
+
+  it('refuses every token this repository has published', () => {
+    // Guards the list itself: a value added to PUBLISHED_API_TOKENS but never
+    // wired into the check would leave a public token accepted in production.
+    const accepted = PUBLISHED_API_TOKENS.filter(
+      token => validateApiTokenForStartup({ NODE_ENV: 'production', API_TOKEN: token }) === null
+    );
+    expect(accepted).toEqual([]);
   });
 
   it('allows a real API_TOKEN in production', () => {

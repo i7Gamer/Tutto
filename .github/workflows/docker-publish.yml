@@ -27,6 +27,17 @@ env:
   # Only ever reaches a throwaway container on the runner. The server refuses to
   # start in production without one, so the smoke test has to supply it.
   SMOKE_API_TOKEN: ci-smoke-token-not-a-secret
+  # Docker Hub's management API. The OCI registry (registry-1.docker.io) is not
+  # usable here: it answers manifest DELETE with 405 for Hub accounts.
+  HUB_API: https://hub.docker.com/v2
+  # Hub caps page_size at 100. MAX_TAG_PAGES only bounds the pagination loop —
+  # reaching it means the keep-set would be incomplete, so cleanup skips itself
+  # rather than delete against a partial list.
+  HUB_API_PAGE_SIZE: '100'
+  MAX_TAG_PAGES: '20'
+  # Written before the tags move, read after they are verified. Carries the
+  # digests this publish displaced between the two steps.
+  SUPERSEDED_DIGESTS_FILE: /tmp/superseded-digests.txt
 
 permissions:
   contents: read
@@ -218,6 +229,65 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # Has to run before `imagetools create` re-points the tags: afterwards the
+      # digests they used to reference are unreachable through the API, and the
+      # manifests they leave behind can no longer be identified at all. The
+      # cleanup step below deletes exactly this set, minus whatever is still
+      # referenced.
+      #
+      # Only what this run displaces is ever considered. Orphans left by earlier
+      # publishes are invisible from here and need a one-off manual pass.
+      - name: Record the digests these tags point at today
+        continue-on-error: true
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          REQUESTED_TAGS: ${{ inputs.tags }}
+        run: |
+          set -euo pipefail
+          : > "${SUPERSEDED_DIGESTS_FILE}"
+
+          hub_namespace="${IMAGE_NAME%%/*}"
+          hub_repo="${IMAGE_NAME##*/}"
+
+          if ! jwt="$(curl -fsSL -X POST "${HUB_API}/users/login" \
+                 -H 'Content-Type: application/json' \
+                 -d "{\"username\":\"${DOCKERHUB_USERNAME}\",\"password\":\"${DOCKERHUB_TOKEN}\"}" \
+                 | jq -r '.token')"; then
+            echo "::warning::could not authenticate to the Docker Hub API — this publish will leave its predecessor untagged"
+            exit 0
+          fi
+
+          IFS=',' read -ra requested <<< "${REQUESTED_TAGS}"
+          for tag in "${requested[@]}"; do
+            trimmed="$(echo "${tag}" | xargs)"
+            [ -z "${trimmed}" ] && continue
+
+            # A tag published for the first time 404s here, which is not an
+            # error — it supersedes nothing.
+            response="$(curl -sSL -w $'\n%{http_code}' \
+              "${HUB_API}/repositories/${hub_namespace}/${hub_repo}/tags/${trimmed}" \
+              -H "Authorization: JWT ${jwt}")"
+            status="${response##*$'\n'}"
+            payload="${response%$'\n'*}"
+
+            if [ "${status}" != "200" ]; then
+              echo "  ${trimmed}: nothing to supersede (HTTP ${status})"
+              continue
+            fi
+
+            # The manifest-list digest plus every arch and attestation
+            # sub-manifest recorded against it.
+            printf '%s' "${payload}" \
+              | jq -r '(.digest // empty), (.images[]?.digest // empty)' \
+              >> "${SUPERSEDED_DIGESTS_FILE}"
+            echo "  ${trimmed}: recorded"
+          done
+
+          sort -u -o "${SUPERSEDED_DIGESTS_FILE}" "${SUPERSEDED_DIGESTS_FILE}"
+          echo "--- superseded by this publish ---"
+          sed 's/^/  /' "${SUPERSEDED_DIGESTS_FILE}"
+
       - name: Create the multi-arch manifest
         working-directory: /tmp/digests
         # Passed through the environment rather than interpolated into the
@@ -278,68 +348,93 @@ jobs:
             echo "  ${os}/${arch} present"
           done
 
-      # Removes manifests no longer referenced by any tag. Runs after the
-      # manifest is verified so only genuinely superseded digests are removed.
-      # Uses the Hub tags API to build the full keep-set (manifest-list digest
-      # + every arch sub-manifest in its images array), then deletes anything
-      # in the repo not in that set via the standard OCI registry DELETE.
-      # continue-on-error: a Hub API hiccup must never block a publish.
-      - name: Clean up orphaned manifests
+      # Deletes what this publish displaced: the digests the tags pointed at
+      # beforehand, minus everything any tag still references — an unchanged
+      # rebuild republishes identical digests, and sub-manifests are shared
+      # between tags. Runs after verification, so a publish that failed to
+      # produce a good manifest never deletes the image it failed to replace.
+      #
+      # continue-on-error: a Hub API hiccup must never fail a good publish.
+      # Every failure path below still reports itself as a warning rather than
+      # dying silently.
+      - name: Delete the manifests this publish superseded
         continue-on-error: true
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
-          HUB_NAMESPACE="${IMAGE_NAME%%/*}"
-          HUB_REPO="${IMAGE_NAME##*/}"
-
-          # Hub management API JWT (for listing)
-          HUB_JWT="$(curl -fsSL -X POST 'https://hub.docker.com/v2/users/login' \
-            -H 'Content-Type: application/json' \
-            -d "{\"username\":\"${DOCKERHUB_USERNAME}\",\"password\":\"${DOCKERHUB_TOKEN}\"}" \
-            | jq -r '.token')"
-
-          # Every digest reachable from a tag: the manifest-list digest itself
-          # plus every arch sub-manifest recorded in its images array.
-          KEEP="$(curl -fsSL \
-            "https://hub.docker.com/v2/repositories/${HUB_NAMESPACE}/${HUB_REPO}/tags?page_size=100" \
-            -H "Authorization: JWT ${HUB_JWT}" \
-            | jq -r '.results[] | (.digest, (.images[]?.digest // empty))' \
-            | grep -v '^$' | sort -u)"
-
-          # Guard: never delete anything if we somehow read zero tags.
-          if [ -z "${KEEP}" ]; then
-            echo "::warning::keep-set is empty — skipping cleanup to avoid accidental mass deletion"
+          if [ ! -s "${SUPERSEDED_DIGESTS_FILE}" ]; then
+            echo "This publish superseded nothing — no cleanup needed"
             exit 0
           fi
-          echo "--- referenced (keep) ---"
-          printf '%s\n' "${KEEP}" | sed 's/^/  /'
 
-          # All manifests in the repo (tagged and untagged alike)
-          ALL="$(curl -fsSL \
-            "https://hub.docker.com/v2/namespaces/${HUB_NAMESPACE}/repositories/${HUB_REPO}/images?page_size=100" \
-            -H "Authorization: JWT ${HUB_JWT}" \
-            | jq -r '.results[].digest')"
+          hub_namespace="${IMAGE_NAME%%/*}"
+          hub_repo="${IMAGE_NAME##*/}"
+          referenced_file=/tmp/referenced-digests.txt
+          delete_body_file=/tmp/hub-delete-body.txt
 
-          # Delete via the Hub management API (hub.docker.com).
-          # The OCI registry DELETE on registry-1.docker.io returns 405 for
-          # Docker Hub accounts — the Hub management API is the correct path.
-          DELETED=0
+          if ! jwt="$(curl -fsSL -X POST "${HUB_API}/users/login" \
+                 -H 'Content-Type: application/json' \
+                 -d "{\"username\":\"${DOCKERHUB_USERNAME}\",\"password\":\"${DOCKERHUB_TOKEN}\"}" \
+                 | jq -r '.token')"; then
+            echo "::warning::could not authenticate to the Docker Hub API — skipping cleanup"
+            exit 0
+          fi
+
+          # Every digest any tag still points at. Paginated: a truncated list
+          # would read as "unreferenced" and delete a live manifest.
+          : > "${referenced_file}"
+          next="${HUB_API}/repositories/${hub_namespace}/${hub_repo}/tags?page_size=${HUB_API_PAGE_SIZE}"
+          pages=0
+          while [ -n "${next}" ] && [ "${next}" != "null" ]; do
+            pages=$((pages + 1))
+            if [ "${pages}" -gt "${MAX_TAG_PAGES}" ]; then
+              echo "::warning::more than ${MAX_TAG_PAGES} pages of tags — skipping cleanup rather than delete against a partial keep-set"
+              exit 0
+            fi
+            if ! page="$(curl -fsSL "${next}" -H "Authorization: JWT ${jwt}")"; then
+              echo "::warning::could not list tags — skipping cleanup"
+              exit 0
+            fi
+            printf '%s' "${page}" \
+              | jq -r '.results[] | (.digest // empty), (.images[]?.digest // empty)' \
+              >> "${referenced_file}"
+            next="$(printf '%s' "${page}" | jq -r '.next // empty')"
+          done
+
+          # A 200 that yields no digests at all means the listing is not telling
+          # us what we think it is. Deleting against that would wipe live tags.
+          if [ ! -s "${referenced_file}" ]; then
+            echo "::warning::no referenced digests read back — skipping cleanup"
+            exit 0
+          fi
+
+          deleted=0
+          failed=0
           while IFS= read -r digest; do
             [ -z "${digest}" ] && continue
-            if ! printf '%s\n' "${KEEP}" | grep -qF "${digest}"; then
-              HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
-                "https://hub.docker.com/v2/repositories/${HUB_NAMESPACE}/${HUB_REPO}/manifests/${digest}" \
-                -H "Authorization: JWT ${HUB_JWT}")"
-              echo "Deleted ${digest}: HTTP ${HTTP_CODE}"
-              DELETED=$((DELETED + 1))
+            # Line-exact: a substring match can mistake one digest for another.
+            if grep -qxF "${digest}" "${referenced_file}"; then
+              echo "  keeping ${digest} — a tag still points at it"
+              continue
             fi
-          done <<< "${ALL}"
+            status="$(curl -sS -o "${delete_body_file}" -w '%{http_code}' -X DELETE \
+              "${HUB_API}/repositories/${hub_namespace}/${hub_repo}/manifests/${digest}" \
+              -H "Authorization: JWT ${jwt}")"
+            case "${status}" in
+              2*)
+                echo "  deleted ${digest} (HTTP ${status})"
+                deleted=$((deleted + 1))
+                ;;
+              *)
+                echo "::warning::could not delete ${digest} — HTTP ${status}: $(cat "${delete_body_file}")"
+                failed=$((failed + 1))
+                ;;
+            esac
+          done < "${SUPERSEDED_DIGESTS_FILE}"
 
-          [ "${DELETED}" -eq 0 ] \
-            && echo "Nothing to clean up" \
-            || echo "Removed ${DELETED} orphaned manifest(s)"
+          echo "Deleted ${deleted} superseded manifest(s), ${failed} failure(s)"
 
       - name: Summary
         env:

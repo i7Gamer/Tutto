@@ -6,13 +6,27 @@
 // Public-knowledge local-dev fallback for API_TOKEN — never valid in production.
 export const DEV_DEFAULT_API_TOKEN = 'tutto-local-dev-token';
 
+// The placeholder docker-compose.yml shipped with before it required API_TOKEN
+// to be supplied. It passed this guard, so `docker compose up -d` on an
+// unedited copy started a production server whose admin token is readable off
+// GitHub. Copies of that file are already deployed and a published image is the
+// only artefact that reaches them, so the refusal has to live here.
+export const COMPOSE_PLACEHOLDER_API_TOKEN = 'change-me-openssl-rand-hex-32';
+
+// Every API_TOKEN value this repository has published. All of them are public
+// knowledge, so none may guard the admin endpoints of a production deployment.
+export const PUBLISHED_API_TOKENS: readonly string[] = [
+  DEV_DEFAULT_API_TOKEN,
+  COMPOSE_PLACEHOLDER_API_TOKEN,
+];
+
 export const validateApiTokenForStartup = (
   env: { NODE_ENV?: string; API_TOKEN?: string },
 ): string | null => {
   if (env.NODE_ENV !== 'production') return null;
   if (!env.API_TOKEN) return '[SECURITY] API_TOKEN is not set. Refusing to start in production.';
-  if (env.API_TOKEN === DEV_DEFAULT_API_TOKEN) {
-    return '[SECURITY] API_TOKEN is set to the public local-dev default. Refusing to start in production.';
+  if (PUBLISHED_API_TOKENS.includes(env.API_TOKEN)) {
+    return '[SECURITY] API_TOKEN is set to a placeholder published in this repository, so it is public knowledge. Refusing to start in production.';
   }
   return null;
 };
