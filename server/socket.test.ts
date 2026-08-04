@@ -4,10 +4,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'child_process';
 import { io } from 'socket.io-client';
+import { TEST_PORTS } from './testPorts';
 
 describe('Socket updateConfig — upper-bound validation', () => {
   let serverProcess;
-  const PORT = '3008';
+  const PORT = TEST_PORTS.socketConfigBounds;
 
   beforeAll(() => {
     return new Promise((resolve, reject) => {
@@ -114,7 +115,7 @@ describe('Socket updateConfig — upper-bound validation', () => {
 
 describe('Socket security and timer fixes', () => {
   let serverProcess;
-  const PORT = '3009';
+  const PORT = TEST_PORTS.socketSecurityTimers;
 
   beforeAll(() => {
     return new Promise((resolve, reject) => {

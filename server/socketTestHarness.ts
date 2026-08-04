@@ -8,7 +8,7 @@
  * fully isolated (rooms live in one server's memory) and let them run at once.
  *
  * Ports are allocated per file and must stay unique across the whole server test
- * suite — api/socket/turnTimer/pushStateValidation already occupy 3005-3013.
+ * suite; testPorts.ts owns that allocation and rejects duplicates at import.
  */
 import { spawn, type ChildProcess } from 'child_process';
 import dotenv from 'dotenv';

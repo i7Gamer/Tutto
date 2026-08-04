@@ -5,6 +5,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { TEST_PORTS } from './testPorts';
 
 const ensureDistIndexHtml = () => {
   const distDir = path.join(__dirname, '../dist');
@@ -18,7 +19,7 @@ ensureDistIndexHtml();
 
 describe('API Endpoints Token Protection', () => {
   let serverProcess;
-  const PORT = '3006';
+  const PORT = TEST_PORTS.apiTokenProtection;
   const API_TOKEN = 'tutto-local-dev-token';
 
   beforeAll(() => {
@@ -183,7 +184,7 @@ describe('POST /api/log/client-error rate limiting', () => {
   // both files in parallel (its default), intermittently producing
   // "websocket error" client-side in whichever test loses the race. Every
   // PORT across server/*.test.ts must stay unique for the same reason.
-  const PORT = '3013';
+  const PORT = TEST_PORTS.apiClientErrorRateLimit;
 
   beforeAll(() => {
     if (globalThis.__nativeFetch) {
@@ -234,7 +235,7 @@ describe('POST /api/log/client-error rate limiting', () => {
 
 describe('CORS_ORIGIN configuration', () => {
   let serverProcess;
-  const PORT = '3007';
+  const PORT = TEST_PORTS.apiCorsOrigin;
   const CORS_ORIGIN = 'https://tutto.rzipas.win';
 
   beforeAll(() => {
@@ -273,7 +274,7 @@ describe('CORS_ORIGIN configuration', () => {
 
 describe('GET /api/stats/global rate limiting', () => {
   let serverProcess;
-  const PORT = '3012';
+  const PORT = TEST_PORTS.apiGlobalStatsRateLimit;
 
   beforeAll(() => {
     if (globalThis.__nativeFetch) {

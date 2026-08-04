@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io } from 'socket.io-client';
 import { spawn } from 'child_process';
+import { TEST_PORTS } from './testPorts';
 
 // Regression coverage for three related fixes to server/index.ts:
 //  1. pushState previously trusted several fields (currentPlayerIndex, chartValues,
@@ -16,7 +17,7 @@ import { spawn } from 'child_process';
 //     clock, so the next game in the same room inherited the old game's runtime.
 describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
   let serverProcess;
-  const PORT = '3011';
+  const PORT = TEST_PORTS.pushStateValidation;
 
   beforeAll(() => {
     return new Promise((resolve, reject) => {

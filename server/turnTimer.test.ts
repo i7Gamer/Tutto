@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'child_process';
 import { io } from 'socket.io-client';
+import { TEST_PORTS } from './testPorts';
 
 // Covers the server-authoritative turn timer (server/index.ts: startServerTurnTimer /
 // advanceTurnOnTimeout / clearServerTurnTimer). Before this feature, turn expiry was
@@ -11,7 +12,7 @@ import { io } from 'socket.io-client';
 // the host disconnected, closed their tab, or the tab was backgrounded/throttled.
 describe('Server-side turn timer', () => {
   let serverProcess;
-  const PORT = '3010';
+  const PORT = TEST_PORTS.turnTimer;
 
   beforeAll(() => {
     return new Promise((resolve, reject) => {

@@ -8,13 +8,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io } from 'socket.io-client';
 import { startTestServer, testDelay } from './socketTestHarness';
+import { TEST_PORTS } from './testPorts';
 
 describe('Server Socket E2E — authorization & payload validation', () => {
   let serverProcess;
 
-  // Unique to this file: every socket suite spawns its own server, so ports must
-  // not collide with any other server test (3005-3013 are already taken).
-  const PORT = '3015';
+  const PORT = TEST_PORTS.socketsAuthorization;
 
   beforeAll(async () => {
     serverProcess = await startTestServer(PORT);
