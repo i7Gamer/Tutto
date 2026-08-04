@@ -1,0 +1,60 @@
+# Keeps the build context small and, more importantly, keeps secrets and
+# test-only code out of the image. server/packaging.test.ts asserts that no
+# test helper is reachable from production code; this file is what stops them
+# being copied in the first place.
+
+# VCS and tooling
+.git
+.github
+.claude
+.vscode
+.idea
+
+# Dependencies — reinstalled inside the image from the lockfiles
+node_modules
+server/node_modules
+
+# Build output — the builder stage produces its own
+dist
+dist-ssr
+*.tsbuildinfo
+
+# Secrets. Configuration reaches the container as environment variables; a
+# baked-in .env would ship an API_TOKEN inside a published image.
+.env
+.env.*
+
+# Tests, fixtures and reports
+coverage
+test-results
+playwright-report
+e2e
+playwright.config.js
+src/**/*.test.ts
+src/**/*.test.tsx
+src/setupTests.tsx
+server/**/*.test.ts
+# Test-only helpers: socketTestHarness spawns child processes, testPorts is the
+# suites' port registry. Neither has any business in a production image.
+server/socketTestHarness.ts
+server/testPorts.ts
+
+# Databases and their backups — the image starts empty and uses a volume
+*.db
+*.sqlite
+*.backup
+*.bak*
+
+# Local scratch and generated caches
+scratch
+.token-savior-cache.json
+*scratchpad*
+
+# Docs and local scripts. COPYING and NOTICE are deliberately NOT ignored —
+# the Dockerfile copies them into the image for AGPL compliance.
+*.md
+*.bat
+*.cmd
+Dockerfile
+.dockerignore
+docker-compose.yml

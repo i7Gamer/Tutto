@@ -1,0 +1,37 @@
+# Tutto — self-hosted setup.
+#
+#   docker compose up -d
+#
+# Then open http://localhost:3001. Statistics are kept in a named volume, so
+# pulling a new image or recreating the container does not lose them.
+
+services:
+  tutto:
+    image: i7gamer/tutto:latest
+    container_name: tutto
+    ports:
+      - "3001:3001"
+    volumes:
+      # The SQLite database (see DB_PATH in the image). Back Tutto up by
+      # copying stats.db out of this volume.
+      - tutto-data:/data
+    environment:
+      # REQUIRED. Guards the admin HTTP endpoints (POST /api/stats/*); players
+      # never use it, they submit stats over the socket. The server refuses to
+      # start in production if this is unset or left at the local-dev default.
+      # Generate one with:  openssl rand -hex 32
+      - API_TOKEN=change-me-openssl-rand-hex-32
+
+      # Optional. Unset means same-origin only, which is correct when Tutto is
+      # reached directly or through a reverse proxy on one domain. Set it only
+      # if the frontend is served from a different origin. Setting it to "*" in
+      # production is refused at startup.
+      # - CORS_ORIGIN=https://tutto.example.com
+
+      # Optional. Affects timestamps in logs.
+      # - TZ=Europe/Berlin
+
+    restart: unless-stopped
+
+volumes:
+  tutto-data:

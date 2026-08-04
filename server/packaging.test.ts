@@ -142,6 +142,26 @@ const buildProductionImportGraph = (): ImportGraph => {
   return { files: [...visited], packages, unresolved };
 };
 
+/**
+ * Source paths of every COPY instruction in the Dockerfile. A COPY line is
+ * `COPY [--flags] <src>... <dest>`, so the flags are dropped and the final
+ * token is the destination.
+ */
+const readDockerfileCopySources = (): string[] => {
+  const dockerfile = fs.readFileSync(path.join(REPO_ROOT, 'Dockerfile'), 'utf8');
+  return dockerfile
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.toUpperCase().startsWith('COPY '))
+    .flatMap(line => {
+      const tokens = line
+        .slice('COPY '.length)
+        .split(/\s+/)
+        .filter(token => token.length > 0 && !token.startsWith('--'));
+      return tokens.slice(0, -1);
+    });
+};
+
 const graph = buildProductionImportGraph();
 
 interface ServerManifest {
@@ -225,6 +245,26 @@ describe('files the Docker image must copy', () => {
     // and an entry in IMAGE_EXTERNAL_PATHS above, or the container will crash
     // at startup with "Cannot find module".
     expect(uncopied).toEqual([]);
+  });
+
+  it('has a Dockerfile COPY line for every path in the list', () => {
+    // Closes the loop. Without this, updating IMAGE_EXTERNAL_PATHS above and
+    // forgetting the matching COPY line would leave every test green and the
+    // container still crashing at startup.
+    const copied = readDockerfileCopySources();
+    const missing = IMAGE_EXTERNAL_PATHS.filter(required => !copied.includes(required));
+    expect(missing).toEqual([]);
+  });
+
+  it('keeps test-only helpers out of the build context', () => {
+    // The .dockerignore is what stops them being copied by `COPY server/*.ts`.
+    const dockerignore = fs.readFileSync(path.join(REPO_ROOT, '.dockerignore'), 'utf8');
+    const entries = dockerignore
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.startsWith('#'));
+    const unignored = TEST_ONLY_HELPERS.filter(helper => !entries.includes(`server/${helper}`));
+    expect(unignored).toEqual([]);
   });
 
   it('still needs every path the image copies', () => {
