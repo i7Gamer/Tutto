@@ -1,0 +1,9 @@
+# Shell scripts must keep LF endings in the repository. core.autocrlf=true on a
+# Windows checkout would otherwise commit CRLF, and bash on the CI runner fails
+# on those with "$'\r': command not found" — an error that says nothing about
+# the real cause.
+*.sh text eol=lf
+
+# The stubbed curl and jq in the publish-cleanup tests are extensionless shell
+# scripts, so the rule above does not reach them.
+scripts/test-publish-cleanup/stubs/* text eol=lf

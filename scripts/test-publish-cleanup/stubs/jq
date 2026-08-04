@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# jq shim implementing exactly the filters the publish workflow uses. The point
+# of these tests is the workflow's control flow, not jq itself, and CI runners
+# ship a real jq that would mask a stubbing mistake.
+#
+# An unrecognised filter is a hard failure on purpose: changing a filter in the
+# workflow should break this suite loudly rather than quietly evaluate to
+# nothing and make every assertion pass.
+set -uo pipefail
+
+filter=""
+for arg in "$@"; do
+  case "${arg}" in
+    -r) ;;
+    *) filter="${arg}" ;;
+  esac
+done
+
+node -e '
+const filter = process.argv[1];
+let raw = "";
+process.stdin.on("data", chunk => { raw += chunk; });
+process.stdin.on("end", () => {
+  let doc;
+  try {
+    doc = JSON.parse(raw);
+  } catch {
+    process.stderr.write("jq shim: input was not JSON\n");
+    process.exit(5);
+  }
+  const out = [];
+  const push = value => { if (value !== undefined && value !== null) out.push(value); };
+  switch (filter) {
+    case ".token":
+      out.push(doc.token === undefined ? "null" : doc.token);
+      break;
+    case ".next // empty":
+      push(doc.next);
+      break;
+    case "(.digest // empty), (.images[]?.digest // empty)":
+      push(doc.digest);
+      (doc.images || []).forEach(image => push(image.digest));
+      break;
+    case ".results[] | (.digest // empty), (.images[]?.digest // empty)":
+      (doc.results || []).forEach(result => {
+        push(result.digest);
+        (result.images || []).forEach(image => push(image.digest));
+      });
+      break;
+    default:
+      process.stderr.write("jq shim: unsupported filter " + JSON.stringify(filter) +
+        "\nAdd it to scripts/test-publish-cleanup/stubs/jq.\n");
+      process.exit(3);
+  }
+  if (out.length > 0) process.stdout.write(out.join("\n") + "\n");
+});
+' "${filter}"

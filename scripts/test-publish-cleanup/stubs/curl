@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# curl stub. Serves the fixtures written by make-fixtures.mjs from $FIXTURE_DIR
+# and honours the flags the workflow actually passes: -X, -o, -w, -D, -H, -d
+# and any short-flag cluster containing f (fail on HTTP >= 400).
+#
+# A request with no fixture is a 404 rather than an error, so a scenario only
+# has to describe the responses it cares about.
+set -uo pipefail
+
+method=GET
+url=""
+out_file=""
+write_format=""
+dump_target=""
+fail_on_error=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -X) method="$2"; shift 2 ;;
+    -o) out_file="$2"; shift 2 ;;
+    -w) write_format="$2"; shift 2 ;;
+    -D) dump_target="$2"; shift 2 ;;
+    -H|-d) shift 2 ;;
+    -[a-zA-Z]*) case "$1" in *f*) fail_on_error=1 ;; esac; shift ;;
+    http*|https*) url="$1"; shift ;;
+    *) shift ;;
+  esac
+done
+
+if [ -z "${url}" ]; then
+  echo "curl stub: no URL in arguments" >&2
+  exit 2
+fi
+
+slug="$(printf '%s' "${url}" | tr -c 'A-Za-z0-9' '_')"
+fixture="${FIXTURE_DIR}/${method}_${slug}.txt"
+
+if [ -f "${fixture}" ]; then
+  status="$(head -n1 "${fixture}")"
+  body="$(tail -n +2 "${fixture}")"
+else
+  status=404
+  body='{"message":"no fixture"}'
+fi
+
+if [ "${fail_on_error}" -eq 1 ] && [ "${status}" -ge 400 ]; then
+  echo "curl: (22) The requested URL returned error: ${status}" >&2
+  exit 22
+fi
+
+# With -D -, the fixture body is the response header block and goes to stdout;
+# the response body is discarded, which is how the workflow pairs -D - with
+# -o /dev/null.
+if [ "${dump_target}" = "-" ]; then
+  printf '%s' "${body}"
+elif [ -n "${out_file}" ]; then
+  printf '%s' "${body}" > "${out_file}"
+else
+  printf '%s' "${body}"
+fi
+
+case "${write_format}" in
+  "") ;;
+  *'%{http_code}'*)
+    # The workflow uses two forms: a bare code, and one prefixed with a newline
+    # so the body can be split off with parameter expansion.
+    case "${write_format}" in
+      $'\n'*) printf '\n%s' "${status}" ;;
+      *) printf '%s' "${status}" ;;
+    esac
+    ;;
+esac
