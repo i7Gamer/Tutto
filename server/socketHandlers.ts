@@ -15,6 +15,12 @@ const { PLAYER_COLORS } = playerColorsData;
 
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/i;
 
+// Minimal shape check for a client-supplied roster entry: only `.name` is ever
+// read from one (reorderPlayers matches seats by name, exactly like
+// pushValidation's player merge).
+const isNamedEntry = (v: unknown): v is { name: string } =>
+  typeof v === 'object' && v !== null && typeof (v as { name?: unknown }).name === 'string';
+
 // Per-connection event caps — generous enough for the fastest legitimate
 // cadence of each event (e.g. liveTurnState fires ~every 300ms while a
 // player is rolling) while still bounding a scripted/malicious flood. Each
@@ -330,6 +336,13 @@ export const registerSocketHandlers = (io: Server): void => {
       if (rooms[roomId].state.status !== 'lobby') return;
       // Guard against non-array payloads, which would throw on the .map/.length below.
       if (!Array.isArray(newPlayers)) return;
+      // ...and against non-object ENTRIES, which the .map below dereferences for
+      // `.name`. socket.io dispatches listeners from a bare process.nextTick, so
+      // a throw here is an uncaught exception with no caller to catch it — and
+      // index.ts installs no uncaughtException handler, so it terminates the
+      // whole process: every room, every player, triggerable by anyone who
+      // holds a room's host slot (i.e. anyone who creates one).
+      if (!newPlayers.every(isNamedEntry)) return;
 
       const currentNames = new Set(rooms[roomId].state.players.map(p => p.name));
       const newNames = new Set(newPlayers.map(p => p.name));

@@ -434,4 +434,44 @@ describe('Server Socket E2E — configuration & player order', () => {
       });
     });
   }, 10000);
+
+  // Registered last: if the server does die, the failure is unambiguous rather
+  // than cascading into every test declared after it.
+  it('survives a reorderPlayers array whose entries are not objects', async () => {
+    // `Array.isArray` was checked but the ENTRIES were not, so `.map(p => p.name)`
+    // threw on a null entry. socket.io dispatches listeners inside
+    // process.nextTick, and index.ts installs no uncaughtException handler, so
+    // that throw terminated the whole process — every room, every player, from
+    // any client that happens to host a room (i.e. anyone who creates one).
+    const s1 = io(`http://127.0.0.1:${PORT}`);
+    const s2 = io(`http://127.0.0.1:${PORT}`);
+
+    await new Promise<void>(resolve => s1.on('connect', () => resolve()));
+    await new Promise<void>(resolve => s2.on('connect', () => resolve()));
+    await new Promise<void>(resolve => s1.emit('joinRoom', { roomId: 'REORDER_HOSTILE', name: 'Alice', deviceId: 'dev-rh-a' }, () => resolve()));
+    await new Promise<void>(resolve => s2.emit('joinRoom', { roomId: 'REORDER_HOSTILE', name: 'Bob', deviceId: 'dev-rh-b' }, () => resolve()));
+
+    // Right length, right shape at the array level — garbage inside.
+    s1.emit('reorderPlayers', { roomId: 'REORDER_HOSTILE', newPlayers: [null, null] });
+    s1.emit('reorderPlayers', { roomId: 'REORDER_HOSTILE', newPlayers: [undefined, { name: 'Bob' }] });
+    s1.emit('reorderPlayers', { roomId: 'REORDER_HOSTILE', newPlayers: [42, 'Bob'] });
+
+    await new Promise(resolve => setTimeout(resolve, testDelay(1000)));
+    expect(serverProcess.exitCode).toBeNull();
+
+    // Still serving: a legitimate reorder after the hostile ones still applies,
+    // and the roster the malformed pushes targeted is untouched.
+    const reordered = new Promise<string[]>((resolve) => {
+      s1.on('gameState', (state) => {
+        if (state.players?.length === 2 && state.players[0].name === 'Bob') {
+          resolve(state.players.map((p: { name: string }) => p.name));
+        }
+      });
+    });
+    s1.emit('reorderPlayers', { roomId: 'REORDER_HOSTILE', newPlayers: [{ name: 'Bob' }, { name: 'Alice' }] });
+    expect(await reordered).toEqual(['Bob', 'Alice']);
+
+    s1.disconnect();
+    s2.disconnect();
+  }, 15000);
 });
