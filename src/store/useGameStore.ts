@@ -42,7 +42,12 @@ const initialLocalState: Omit<CoreGameState, never> & {
   cards: [],
   round: 1,
   winningScore: DEFAULT_WINNING_SCORE,
-  initialCards: DEFAULT_INITIAL_CARDS,
+  // Copied, never aliased — configValidation.ts's DEFAULT_INITIAL_CARDS is
+  // shared with the server and every other consumer, and this one lands in
+  // mutable store state. reset() below copies again for the same reason (this
+  // literal is built once, at module load, so all resets would otherwise share
+  // it), and setMode already did.
+  initialCards: { ...DEFAULT_INITIAL_CARDS },
   diceMode: DEFAULT_DICE_MODE,
   enforcedDiceMode: null,
   audioEnabled: true,
@@ -92,6 +97,7 @@ export const useGameStore = create<GameStore>()(
     reset: () => {
       set({
         ...initialLocalState,
+        initialCards: { ...initialLocalState.initialCards },
         ...clearRoomState(),
         mode: 'local',
         isOnline: false,

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useGameStore, _resetTimersForTests } from './useGameStore';
 import { disconnectSocket } from './socketRef';
+import { DEFAULT_INITIAL_CARDS } from '../utils/configValidation';
 import type { Player } from '../types';
 
 let mockEmit = vi.fn();
@@ -50,6 +51,29 @@ describe('useGameStore', () => {
     localStorage.clear();
     sessionStorage.clear();
     mockEmit.mockClear();
+  });
+
+  describe('default deck isolation', () => {
+    // configValidation.ts states the rule outright: consumers that keep these
+    // defaults in mutable state must copy them. Handing the store the shared
+    // object means any in-place write — from any path Immer does not own —
+    // silently rewrites the defaults for the whole app for the rest of the
+    // session, and every later "reset to defaults" lands on the corrupted deck.
+    // setMode already copies; the initial state and reset() did not.
+    it('does not alias the shared DEFAULT_INITIAL_CARDS object', () => {
+      expect(useGameStore.getState().initialCards).toEqual(DEFAULT_INITIAL_CARDS);
+      expect(useGameStore.getState().initialCards).not.toBe(DEFAULT_INITIAL_CARDS);
+    });
+
+    it('gives each reset its own copy', () => {
+      const before = useGameStore.getState().initialCards;
+      useGameStore.getState().reset();
+      const after = useGameStore.getState().initialCards;
+
+      expect(after).toEqual(DEFAULT_INITIAL_CARDS);
+      expect(after).not.toBe(DEFAULT_INITIAL_CARDS);
+      expect(after).not.toBe(before);
+    });
   });
 
   describe('_resetTimersForTests', () => {
