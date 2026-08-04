@@ -5,10 +5,14 @@
 
 # VCS and tooling
 .git
+.gitignore
 .github
 .claude
 .vscode
 .idea
+
+# Dev-only scripts (e.g. icon generation) — never referenced by the Dockerfile
+scripts/
 
 # Dependencies — reinstalled inside the image from the lockfiles
 node_modules
