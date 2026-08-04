@@ -168,11 +168,25 @@ jobs:
           outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true
           cache-from: type=gha,scope=${{ matrix.arch }}
 
+      # The digest is carried to the merge job as an empty file named after it.
+      # The action's output is prefixed ("sha256:abc123…"), which cannot be a
+      # filename — artifact upload rejects a colon — so only the bare hex is
+      # stored and the merge job puts the "sha256:" back when rebuilding the
+      # reference. The two halves have to agree, hence the format check.
       - name: Export digest
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
         run: |
           set -euo pipefail
+          bare_digest="${DIGEST#sha256:}"
+          case "${bare_digest}" in
+            ''|*[!0-9a-f]*)
+              echo "::error::unexpected digest format '${DIGEST}' — expected sha256:<hex>"
+              exit 1
+              ;;
+          esac
           mkdir -p /tmp/digests
-          touch "/tmp/digests/${{ steps.push.outputs.digest }}"
+          touch "/tmp/digests/${bare_digest}"
 
       - name: Upload digest
         uses: actions/upload-artifact@v7
@@ -224,7 +238,11 @@ jobs:
             exit 1
           fi
 
-          # One file per pushed digest, named after it by the build jobs.
+          # One file per pushed digest, named after the bare hex by the build
+          # jobs. nullglob so an empty directory yields no entries rather than
+          # a literal '*', which would sail past the guard below and be sent to
+          # the registry as a bogus reference.
+          shopt -s nullglob
           digest_refs=()
           for digest_file in *; do
             digest_refs+=("${IMAGE_NAME}@sha256:${digest_file}")
