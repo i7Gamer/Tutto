@@ -95,19 +95,23 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Built into the local daemon first so the image can actually be run
-      # before it is published. The push below reuses this build from cache.
-      # Both runners are native, so each architecture is smoke tested on its
-      # own hardware rather than only amd64.
-      - name: Build image for smoke test
+      # Single build: two outputs in one pass — type=docker loads the image into
+      # the local daemon for the smoke test; type=image pushes only the digest
+      # (no tag) to the registry. The merge job is what creates visible tags.
+      # This guarantees the smoke-tested artifact is byte-for-byte the published
+      # one, with no second build. If the smoke test fails the merge job never
+      # runs, so the dangling untagged digest is harmless and will be GC'd.
+      - name: Build, load for smoke test, and push by digest
+        id: push
         uses: docker/build-push-action@v7
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          load: true
-          tags: ${{ env.IMAGE_NAME }}:smoke-${{ matrix.arch }}
-          cache-from: type=gha,scope=${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+          outputs: |
+            type=docker,name=tutto-smoke:${{ matrix.arch }}
+            type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=docker-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
 
       # Catches the failure class that shipped repeatedly during development:
       # a runtime file or dependency missing from the image builds green and
@@ -119,7 +123,7 @@ jobs:
           docker run -d --name smoke \
             -p "${SMOKE_PORT}:3001" \
             -e "API_TOKEN=${SMOKE_API_TOKEN}" \
-            "${IMAGE_NAME}:smoke-${{ matrix.arch }}"
+            "tutto-smoke:${{ matrix.arch }}"
 
           # The container must come up on its own; no CORS_ORIGIN is supplied,
           # which is exactly how an unconfigured deployment starts.
@@ -155,18 +159,6 @@ jobs:
           echo "--- container logs ---"
           docker logs smoke
           docker rm -f smoke
-
-      # Pushed without a tag: each architecture publishes only its digest, and
-      # the merge job below is what creates the tagged multi-arch manifest.
-      - name: Push image by digest
-        id: push
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: ${{ matrix.platform }}
-          push: true
-          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true
-          cache-from: type=gha,scope=${{ matrix.arch }}
 
       # The digest is carried to the merge job as an empty file named after it.
       # The action's output is prefixed ("sha256:abc123…"), which cannot be a
