@@ -95,5 +95,11 @@ In the lobby, you can tweak the following:
 - **Kick Timer**: Limit how long the room waits for a disconnected player to return before they are automatically kicked.
 - **Deck Customization**: Add more `x2` cards, remove `Stop` cards, or tweak the deck composition to your liking.
 
+## License
+
+Licensed under the **GNU Affero General Public License v3.0 or later** (AGPL-3.0-or-later). The full text is in [COPYING](COPYING), with the copyright notice in [NOTICE](NOTICE).
+
+Because Tutto is played over a network, the AGPL's network clause applies: if you run a modified version as a service others can reach, you must offer them the source of your modified version.
+
 ---
 *Created with love for board games!*
