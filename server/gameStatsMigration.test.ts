@@ -1,3 +1,4 @@
+/** @vitest-environment node */
 import { describe, it, expect, afterEach } from 'vitest';
 import knexLib from 'knex';
 import type { Knex } from 'knex';

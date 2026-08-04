@@ -1,3 +1,4 @@
+/** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
 import { validateApiTokenForStartup, validateCorsOriginForStartup, DEV_DEFAULT_API_TOKEN } from './startupGuards';
 

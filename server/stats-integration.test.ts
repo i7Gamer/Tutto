@@ -1,3 +1,4 @@
+/** @vitest-environment node */
 process.env.TEST_DB = 'true';
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';

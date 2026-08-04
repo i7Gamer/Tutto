@@ -181,7 +181,7 @@ describe('Server Socket E2E Simulation', () => {
             // Wait a brief moment to ensure state was pushed before disconnecting
             setTimeout(() => {
               socket2.disconnect();
-            }, 100);
+            }, testDelay(100));
           });
         });
       });
@@ -234,7 +234,7 @@ describe('Server Socket E2E Simulation', () => {
             setTimeout(() => {
               // Bob is not host and not the active player → this must be ignored.
               s2.emit('pushState', { roomId: 'E2E_AUTH', newState: { players: [], status: 'hacked', currentPlayerIndex: 0 } });
-            }, 200);
+            }, testDelay(200));
           });
         });
       });
@@ -281,7 +281,7 @@ describe('Server Socket E2E Simulation', () => {
               
               // Bob intentionally leaves the room
               s2.emit('leaveRoom');
-            }, 100);
+            }, testDelay(100));
           });
         });
       });
@@ -510,7 +510,7 @@ describe('Server Socket E2E Simulation', () => {
               // Bob is the active player but NOT the host.
               // Use sentinel values that could never arise from normal game flow.
               s2.emit('pushState', { roomId: 'E2E_HOSTFIELDS', newState: { status: 'hacked', winningScore: 1 } });
-            }, 200);
+            }, testDelay(200));
           });
         });
       });
@@ -660,7 +660,7 @@ describe('Server Socket E2E Simulation', () => {
           s1.emit('updateConfig', { roomId: 'TIMER_OFF_ROOM', turnDuration: 30, reconnectTimeout: 30 });
           setTimeout(() => {
             s1.emit('updateConfig', { roomId: 'TIMER_OFF_ROOM', turnDuration: 0, reconnectTimeout: 0 });
-          }, 200);
+          }, testDelay(200));
         });
       });
 
@@ -707,7 +707,7 @@ describe('Server Socket E2E Simulation', () => {
             // Kick Bob after a short delay
             setTimeout(() => {
               s1.emit('kickPlayer', s2.id);
-            }, 300);
+            }, testDelay(300));
           });
         });
       });
@@ -773,7 +773,7 @@ describe('Server Socket E2E Simulation', () => {
 
               setTimeout(() => {
                 s1.emit('kickPlayer', s2.id);
-              }, 300);
+              }, testDelay(300));
             });
           });
         });
@@ -828,7 +828,7 @@ describe('Server Socket E2E Simulation', () => {
                 roomId: 'REORDER_MIDGAME',
                 newPlayers: [{ name: 'Bob' }, { name: 'Alice' }]
               });
-            }, 300);
+            }, testDelay(300));
           });
         });
       });
@@ -874,7 +874,7 @@ describe('Server Socket E2E Simulation', () => {
           setTimeout(() => {
             gameStarted = true;
             s1.emit('updateConfig', { roomId: 'UPDATECONFIG_MIDGAME', winningScore: 1000 });
-          }, 300);
+          }, testDelay(300));
         });
       });
 
@@ -927,7 +927,7 @@ describe('Server Socket E2E Simulation', () => {
                   previousLeaders: [{ name: 'Alice', score: 1000 }],
                 }
               });
-            }, 300);
+            }, testDelay(300));
           });
         });
       });
@@ -991,7 +991,7 @@ describe('Server Socket E2E Simulation', () => {
                   previousCard: null,
                 }
               });
-            }, 300);
+            }, testDelay(300));
           });
         });
       });
@@ -1047,7 +1047,7 @@ describe('Server Socket E2E Simulation', () => {
                   },
                 },
               });
-            }, 200);
+            }, testDelay(200));
           });
         });
       });
@@ -1101,7 +1101,7 @@ describe('Server Socket E2E Simulation', () => {
                   kniffelProgress: [], tuttosThisTurn: 0,
                 },
               });
-            }, 200);
+            }, testDelay(200));
           });
         });
       });
@@ -1161,7 +1161,7 @@ describe('Server Socket E2E Simulation', () => {
                     turnScore: 999, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
                   },
                 });
-              }, 200);
+              }, testDelay(200));
             });
           });
         });
@@ -1407,7 +1407,7 @@ describe('Server Socket E2E Simulation', () => {
                 players: [{ name: 'Alice', deviceId: 'dev-gtr-a', score: 0 }],
               }
             });
-          }, 100);
+          }, testDelay(100));
         } else if (state.status === 'lobby' && seenPlaying) {
           // Server snapshots authoritative time before clearing anchor; game ran <1s so value is 0
           expect(state.gameTimeInSeconds).toBe(0);
@@ -1675,8 +1675,8 @@ describe('Server Socket E2E Simulation', () => {
                 s3.emit('joinRoom', { roomId: 'GHOST_NAME_ROOM', name: 'Bob', deviceId: 'dev-ghost-charlie', color: '#0000ff' }, (res) => {
                   expect(res.success).toBe(false);
                 });
-              }, 300);
-            }, 200);
+              }, testDelay(300));
+            }, testDelay(200));
           });
         });
       });
@@ -2094,7 +2094,7 @@ describe('Server Socket E2E Simulation', () => {
           s1.emit('updateConfig', { roomId, reconnectTimeout: 0 });
           setTimeout(() => {
             s1.disconnect(); // passive disconnect
-          }, 200);
+          }, testDelay(200));
         });
       });
 

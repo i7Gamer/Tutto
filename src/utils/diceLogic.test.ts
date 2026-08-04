@@ -1,3 +1,4 @@
+/** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
 import { rollDie, isBust, checkKniffel, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from './diceLogic';
 
