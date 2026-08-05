@@ -37,11 +37,11 @@ services:
       # Optional. Affects timestamps in logs.
       # - TZ=Europe/Berlin
 
-    # Reaps zombies and forwards SIGTERM to the server, which closes its
-    # sockets and drains the SQLite pool instead of waiting out the stop
-    # timeout and being killed mid-write.
-    init: true
-
+    # No `init:` on purpose. Graceful shutdown does not depend on tini: the
+    # server installs its own SIGTERM/SIGINT handlers (server/shutdown.ts,
+    # covered by shutdown.test.ts), which work fine as PID 1, and it spawns no
+    # children to reap. `docker stop` was measured at ~470 ms with exit 143
+    # identically with and without --init, so the setting bought nothing.
     restart: unless-stopped
 
 volumes:
