@@ -40,7 +40,7 @@ ARG APP_PORT
 
 LABEL org.opencontainers.image.title="Tutto" \
       org.opencontainers.image.description="Tutto scorecard and game manager — real-time multiplayer dice game" \
-      org.opencontainers.image.source="https://github.com/i7Gamer/TuttoNeu" \
+      org.opencontainers.image.source="https://github.com/i7Gamer/Tutto" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
 ENV NODE_ENV=production \

@@ -4,8 +4,8 @@
 # secrets.
 #
 # Multi-arch is built on native runners rather than under QEMU emulation:
-# TuttoNeu is a public repository, so the arm64 runners are free. Each runner
-# pushes its own image by digest, and a final job assembles the tagged
+# i7Gamer/Tutto is a public repository, so the arm64 runners are free. Each
+# runner pushes its own image by digest, and a final job assembles the tagged
 # multi-arch manifest from those digests.
 
 name: Publish Docker image
