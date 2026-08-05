@@ -1,5 +1,8 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
+import dotenv from 'dotenv';
 import {
   validateApiTokenForStartup,
   validateCorsOriginForStartup,
@@ -9,6 +12,12 @@ import {
   PUBLISHED_API_TOKENS,
   WILDCARD_CORS_ORIGIN,
 } from './startupGuards';
+
+const ENV_EXAMPLE_PATH = path.join(__dirname, '..', '.env.example');
+// Stands in for the secret the README tells a deployer to export before
+// `npm run start:prod`. Any non-published value works; the point is that it
+// comes from the environment rather than from the example file.
+const OPERATOR_SUPPLIED_API_TOKEN = 'a-strong-production-token';
 
 describe('validateApiTokenForStartup', () => {
   it('allows any (or no) API_TOKEN outside production', () => {
@@ -106,5 +115,52 @@ describe('resolveCorsOrigin', () => {
       resolveCorsOrigin({ NODE_ENV: 'production', CORS_ORIGIN: 'https://tutto.example.com' }),
     ];
     expect(productionOrigins).not.toContain(WILDCARD_CORS_ORIGIN);
+  });
+});
+
+// The guards above are only half the contract: they also have to agree with
+// the file the README tells people to copy. `.env.example` used to ship
+// CORS_ORIGIN=*, which every guard here correctly refuses — so following the
+// documented setup produced a server that exited 1 instead of booting.
+describe('.env.example is a startable production configuration', () => {
+  // Parsed with the same library index.ts loads it with, so this sees exactly
+  // the values a copied `.env` would put into process.env.
+  const example = dotenv.parse(fs.readFileSync(ENV_EXAMPLE_PATH));
+
+  // The README's production path: copy the example, export a real API_TOKEN
+  // (dotenv never overrides a variable already in the environment), then
+  // `npm run start:prod`. Every other value still comes from the file.
+  const productionEnv = {
+    ...example,
+    NODE_ENV: 'production',
+    API_TOKEN: OPERATOR_SUPPLIED_API_TOKEN,
+  };
+
+  it('ships an API_TOKEN that is overridable from the environment', () => {
+    // The example deliberately ships the public local-dev default so `npm
+    // start` works unedited. That is only safe because the production guard
+    // refuses it AND the documented fix — exporting the real token — wins over
+    // the file. Both halves are asserted here.
+    expect(example.API_TOKEN).toBe(DEV_DEFAULT_API_TOKEN);
+    expect(validateApiTokenForStartup({ NODE_ENV: 'production', API_TOKEN: example.API_TOKEN }))
+      .toMatch(/published in this repository/);
+    expect(validateApiTokenForStartup(productionEnv)).toBeNull();
+  });
+
+  it('ships no CORS_ORIGIN the production guard refuses', () => {
+    // Unlike API_TOKEN there is no documented override step for this one — the
+    // README says to leave it unset — so a refused value here is unreachable
+    // to fix without editing the copied file.
+    expect(validateCorsOriginForStartup(productionEnv)).toBeNull();
+  });
+
+  it('leaves production same-origin only, as the README documents', () => {
+    expect(resolveCorsOrigin(productionEnv)).toBe(false);
+  });
+
+  it('still gives local development the permissive wildcard', () => {
+    // The reason CORS_ORIGIN=* was in the file at all. Unset already resolves
+    // to '*' outside production, so dropping the line costs dev nothing.
+    expect(resolveCorsOrigin({ ...example, NODE_ENV: 'development' })).toBe(WILDCARD_CORS_ORIGIN);
   });
 });
