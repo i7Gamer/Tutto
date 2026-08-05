@@ -8,6 +8,7 @@ import {
   AudioSettingSelector, HapticsSettingSelector, EnforceDiceModeToggle, DiceModeEnforcedBadge,
 } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
+import { parseRecentRooms, MAX_RECENT_ROOMS, type RecentRoom } from '../../utils/recentRooms';
 import { useGameStore } from '../../store/useGameStore';
 import ConfirmModal from '../ConfirmModal';
 
@@ -24,25 +25,14 @@ interface JoinRoomResult {
   error?: string;
 }
 
-interface RecentRoom {
-  roomId: string;
-  name: string;
-  timestamp: number;
-}
-
 export default function OnlineLobby() {
   const { t } = useTranslation();
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
 
-  const [recentRooms, setRecentRooms] = useState<RecentRoom[]>(() => {
-    try {
-      const raw = localStorage.getItem('tutto_recent_rooms');
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [recentRooms, setRecentRooms] = useState<RecentRoom[]>(
+    () => parseRecentRooms(localStorage.getItem('tutto_recent_rooms')),
+  );
 
   const getStoredValue = (key: string): string => {
     try { return localStorage.getItem(key) || ''; } catch { return ''; }
@@ -149,12 +139,12 @@ export default function OnlineLobby() {
       localStorage.setItem('tutto_last_name', trimmedName);
       
       try {
-        const raw = localStorage.getItem('tutto_recent_rooms');
-        let list: RecentRoom[] = raw ? JSON.parse(raw) : [];
-        if (!Array.isArray(list)) list = [];
+        // Same validated read as the initial state above, so the write path
+        // can no longer carry a malformed entry forward either.
+        let list = parseRecentRooms(localStorage.getItem('tutto_recent_rooms'));
         list = list.filter(item => item.roomId !== trimmedRoomCode);
         list.unshift({ roomId: trimmedRoomCode, name: trimmedName, timestamp: Date.now() });
-        list = list.slice(0, 5);
+        list = list.slice(0, MAX_RECENT_ROOMS);
         localStorage.setItem('tutto_recent_rooms', JSON.stringify(list));
         setRecentRooms(list);
       } catch (e) {

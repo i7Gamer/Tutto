@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import OnlineLobby from './OnlineLobby';
+import { MAX_RECENT_ROOMS } from '../../utils/recentRooms';
 import { useGameStore } from '../../store/useGameStore';
 import type { GameStore } from '../../store/useGameStore';
 import type { Player } from '../../types';
@@ -465,6 +466,69 @@ describe('OnlineLobby recent rooms history', () => {
     localStorage.setItem('tutto_recent_rooms', 'not json');
     render(<OnlineLobby />);
     expect(screen.queryByText('lobby.online.recentRooms')).not.toBeInTheDocument();
+  });
+
+  // 'not json' above only covers the JSON.parse throw. Everything below parses
+  // fine and is still not a RecentRoom[] — the shapes a hand-edited or
+  // half-migrated entry actually produces. Two of them used to take the whole
+  // lobby down (`.map is not a function`, and "Objects are not valid as a React
+  // child"), and nothing in the app clears this key, so the ErrorBoundary's
+  // reload landed on the same bad value every time.
+  it('ignores a stored value that parses to a non-array', () => {
+    localStorage.setItem('tutto_recent_rooms', JSON.stringify({ length: 3 }));
+    render(<OnlineLobby />);
+    expect(screen.queryByText('lobby.online.recentRooms')).not.toBeInTheDocument();
+  });
+
+  it('drops entries that are not objects', () => {
+    localStorage.setItem('tutto_recent_rooms', JSON.stringify(['ROOM1', 'ROOM2']));
+    render(<OnlineLobby />);
+    expect(screen.queryByText('lobby.online.recentRooms')).not.toBeInTheDocument();
+  });
+
+  it('drops an entry whose fields are the wrong type', () => {
+    localStorage.setItem(
+      'tutto_recent_rooms',
+      JSON.stringify([
+        { roomId: { nested: 1 }, name: 'Bob', timestamp: 1000 },
+        { roomId: 'ROOM_NO_NAME', timestamp: 1000 },
+        { roomId: 'ROOM_BAD_TIME', name: 'Bob', timestamp: 'yesterday' },
+        { roomId: '', name: 'Bob', timestamp: 1000 },
+      ])
+    );
+    render(<OnlineLobby />);
+    expect(screen.queryByText('lobby.online.recentRooms')).not.toBeInTheDocument();
+  });
+
+  it('keeps the valid entries alongside invalid ones', () => {
+    // Per-entry filtering, not the whole-array rejection parseSavedDiceState
+    // uses: these entries are independent rows, not positionally coupled to
+    // anything, so one bad row is no reason to forget every remembered room.
+    localStorage.setItem(
+      'tutto_recent_rooms',
+      JSON.stringify([
+        { roomId: 'GOOD1', name: 'Bob', timestamp: 2000 },
+        { roomId: { nested: 1 }, name: 'Bob', timestamp: 1000 },
+        { roomId: 'GOOD2', name: 'Alice', timestamp: 1000 },
+      ])
+    );
+    render(<OnlineLobby />);
+    expect(screen.getByText('lobby.online.recentRooms')).toBeInTheDocument();
+    expect(screen.getByText(/GOOD1/)).toBeInTheDocument();
+    expect(screen.getByText(/GOOD2/)).toBeInTheDocument();
+  });
+
+  it('caps an oversized stored list on read, not just on write', () => {
+    // The write path trims to MAX_RECENT_ROOMS, so only an edited file gets
+    // here — but without a cap on read it renders one button per entry.
+    const seed = Array.from({ length: 40 }).map((_, i) => ({
+      roomId: `ROOM${i}`, name: 'Bob', timestamp: i * 1000,
+    }));
+    localStorage.setItem('tutto_recent_rooms', JSON.stringify(seed));
+    render(<OnlineLobby />);
+    expect(screen.getByText(/ROOM0\b/)).toBeInTheDocument();
+    expect(screen.queryByText(/ROOM39/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/^ROOM\d+$/).length).toBe(MAX_RECENT_ROOMS);
   });
 
   it('rejects whitespace-only room code or name with error message', async () => {
