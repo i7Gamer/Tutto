@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseRecentRooms, MAX_RECENT_ROOMS } from './recentRooms';
+import { parseRecentRooms, MAX_RECENT_ROOMS, MAX_TIMESTAMP_MS } from './recentRooms';
+import { MAX_PLAYER_NAME_LENGTH, MAX_ROOM_ID_LENGTH } from './configValidation';
 
 const room = (roomId: string, timestamp = 1000) => ({ roomId, name: 'Bob', timestamp });
 const asRaw = (value: unknown): string => JSON.stringify(value);
@@ -96,5 +97,53 @@ describe('parseRecentRooms', () => {
       ...Array.from({ length: MAX_RECENT_ROOMS }, (_, i) => room(`GOOD${i}`, i)),
     ];
     expect(parseRecentRooms(asRaw(stored))).toHaveLength(MAX_RECENT_ROOMS);
+  });
+
+  it('drops a timestamp outside the range Date can represent', () => {
+    // Finite, so Number.isFinite alone let these through — and `new Date(...)`
+    // renders every one of them as the literal "Invalid Date", which is the
+    // symptom this parser exists to remove.
+    const bad = [
+      { roomId: 'ROOM1', name: 'Bob', timestamp: 1e300 },
+      { roomId: 'ROOM2', name: 'Bob', timestamp: MAX_TIMESTAMP_MS + 1 },
+      { roomId: 'ROOM3', name: 'Bob', timestamp: -MAX_TIMESTAMP_MS - 1 },
+    ];
+    expect(parseRecentRooms(asRaw(bad))).toEqual([]);
+  });
+
+  it('accepts the extremes of the range Date can represent', () => {
+    const edges = [
+      { roomId: 'ROOM1', name: 'Bob', timestamp: MAX_TIMESTAMP_MS },
+      { roomId: 'ROOM2', name: 'Bob', timestamp: -MAX_TIMESTAMP_MS },
+    ];
+    expect(parseRecentRooms(asRaw(edges))).toEqual(edges);
+  });
+
+  it('drops a roomId longer than the server would accept', () => {
+    const overlong = { roomId: 'R'.repeat(MAX_ROOM_ID_LENGTH + 1), name: 'Bob', timestamp: 1000 };
+    const atLimit = { roomId: 'R'.repeat(MAX_ROOM_ID_LENGTH), name: 'Bob', timestamp: 1000 };
+    expect(parseRecentRooms(asRaw([overlong, atLimit]))).toEqual([atLimit]);
+  });
+
+  it('drops a name longer than the app allows', () => {
+    const overlong = { roomId: 'ROOM1', name: 'B'.repeat(MAX_PLAYER_NAME_LENGTH + 1), timestamp: 1000 };
+    const atLimit = { roomId: 'ROOM2', name: 'B'.repeat(MAX_PLAYER_NAME_LENGTH), timestamp: 1000 };
+    expect(parseRecentRooms(asRaw([overlong, atLimit]))).toEqual([atLimit]);
+  });
+
+  it('keeps only the first entry for a repeated roomId', () => {
+    // roomId is the React list key. The write path only de-duplicates against
+    // the room being joined, so a hand-edited file keeps its duplicates and
+    // React reconciles two rows under one key.
+    const stored = [room('ROOM1', 3000), room('ROOM2', 2000), room('ROOM1', 1000)];
+    expect(parseRecentRooms(asRaw(stored))).toEqual([room('ROOM1', 3000), room('ROOM2', 2000)]);
+  });
+
+  it('de-duplicates before applying the cap, so the cap counts distinct rooms', () => {
+    const stored = [
+      ...Array.from({ length: MAX_RECENT_ROOMS }, () => room('SAME', 1000)),
+      room('OTHER', 500),
+    ];
+    expect(parseRecentRooms(asRaw(stored))).toEqual([room('SAME', 1000), room('OTHER', 500)]);
   });
 });

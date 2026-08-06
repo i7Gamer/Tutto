@@ -12,6 +12,12 @@ export const MAX_CARD_COUNT = 99;
 // enforces the same cap client-side before a name ever reaches the store.
 export const MAX_PLAYER_NAME_LENGTH = 30;
 
+// Rooms are named by their joiner, so this is a sanity bound rather than a
+// format: anything longer is not a room the server would let anyone into.
+// Enforced on joinRoom (socketHandlers.ts) and on the client's remembered-room
+// cache (recentRooms.ts), which renders stored ids straight into the DOM.
+export const MAX_ROOM_ID_LENGTH = 100;
+
 // Single source of truth for the game-config defaults, shared by the client
 // store (initial state / reset actions) and the server (new-room state) so the
 // two can never drift apart. Consumers that store these in mutable state should

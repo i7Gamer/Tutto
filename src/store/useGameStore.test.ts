@@ -74,6 +74,31 @@ describe('useGameStore', () => {
       expect(after).not.toBe(DEFAULT_INITIAL_CARDS);
       expect(after).not.toBe(before);
     });
+
+    // Same hazard, the four collections initialCards was fixed alongside. They
+    // are array literals built once at module load and spread into every reset,
+    // so all resets share them. Immer's copy-on-write hides it today; a single
+    // push outside a producer would corrupt the defaults for the session.
+    it('gives each reset its own collections, not the module-level literals', () => {
+      useGameStore.getState().reset();
+      const first = useGameStore.getState();
+      const before = {
+        chartValues: first.chartValues,
+        chartNames: first.chartNames,
+        chartLabels: first.chartLabels,
+        historyLog: first.historyLog,
+      };
+
+      useGameStore.getState().reset();
+      const after = useGameStore.getState();
+
+      expect(after.chartValues).not.toBe(before.chartValues);
+      expect(after.chartNames).not.toBe(before.chartNames);
+      expect(after.chartLabels).not.toBe(before.chartLabels);
+      expect(after.historyLog).not.toBe(before.historyLog);
+      expect(after.chartValues).toEqual([]);
+      expect(after.historyLog).toEqual([]);
+    });
   });
 
   describe('_resetTimersForTests', () => {

@@ -30,13 +30,16 @@ export default function OnlineLobby() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
 
-  const [recentRooms, setRecentRooms] = useState<RecentRoom[]>(
-    () => parseRecentRooms(localStorage.getItem('tutto_recent_rooms')),
-  );
-
+  // Reading storage is itself throwable — blocked site data, a third-party
+  // context, dom.storage.enabled=false — so all three initial-state reads go
+  // through here rather than only guarding what happens to the value after.
   const getStoredValue = (key: string): string => {
     try { return localStorage.getItem(key) || ''; } catch { return ''; }
   };
+
+  const [recentRooms, setRecentRooms] = useState<RecentRoom[]>(
+    () => parseRecentRooms(getStoredValue('tutto_recent_rooms')),
+  );
 
   const [inputRoomCode, setInputRoomCode] = useState(() => getStoredValue('tutto_last_room'));
   const [inputName, setInputName] = useState(() => getStoredValue('tutto_last_name'));

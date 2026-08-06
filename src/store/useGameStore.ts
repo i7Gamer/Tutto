@@ -19,7 +19,12 @@ export type { GameStore } from './storeTypes';
 export { _resetTimersForTests } from './timers';
 export { PLAYER_COLORS } from './gameSlice';
 
-const initialLocalState: Omit<CoreGameState, never> & {
+// A factory, not a shared literal: the collections below land in mutable store
+// state, and a single literal built at module load would be handed out again by
+// every reset() for the rest of the session. Immer's copy-on-write hides that
+// today, but one in-place write from a path Immer does not own would rewrite
+// the defaults for good — the same hazard initialCards is copied for.
+const createInitialLocalState = (): Omit<CoreGameState, never> & {
   diceMode: DiceMode;
   enforcedDiceMode: DiceMode | null;
   audioEnabled: boolean;
@@ -35,7 +40,7 @@ const initialLocalState: Omit<CoreGameState, never> & {
   liveTurnState: DiceSnapshot | null;
   justReconnected: boolean;
   preGameStats: PreGameStats | null;
-} = {
+} => ({
   players: [],
   currentPlayerIndex: null,
   currentCard: null,
@@ -44,9 +49,7 @@ const initialLocalState: Omit<CoreGameState, never> & {
   winningScore: DEFAULT_WINNING_SCORE,
   // Copied, never aliased — configValidation.ts's DEFAULT_INITIAL_CARDS is
   // shared with the server and every other consumer, and this one lands in
-  // mutable store state. reset() below copies again for the same reason (this
-  // literal is built once, at module load, so all resets would otherwise share
-  // it), and setMode already did.
+  // mutable store state. setMode copies it for the same reason.
   initialCards: { ...DEFAULT_INITIAL_CARDS },
   diceMode: DEFAULT_DICE_MODE,
   enforcedDiceMode: null,
@@ -75,7 +78,7 @@ const initialLocalState: Omit<CoreGameState, never> & {
   justReconnected: false,
   preGameStats: null,
   historyLog: [],
-};
+});
 
 export const useGameStore = create<GameStore>()(
   immer((set, get, api) => ({
@@ -89,15 +92,14 @@ export const useGameStore = create<GameStore>()(
     myName: null,
     toasts: [],
     reactions: [],
-    ...initialLocalState,
+    ...createInitialLocalState(),
 
     // Cross-cutting lifecycle actions live here in the composition root; the
     // per-concern actions come from the slices spread below.
 
     reset: () => {
       set({
-        ...initialLocalState,
-        initialCards: { ...initialLocalState.initialCards },
+        ...createInitialLocalState(),
         ...clearRoomState(),
         mode: 'local',
         isOnline: false,
@@ -178,20 +180,22 @@ export const useGameStore = create<GameStore>()(
         }
       }
 
+      const defaults = createInitialLocalState();
+
       set((state) => {
         state.mode = mode;
         state.isOnline = !isLocal;
 
         // Reset advanced options to defaults to prevent bleeding between modes
-        state.winningScore = initialLocalState.winningScore;
-        state.randomOrder = initialLocalState.randomOrder;
-        state.turnDuration = initialLocalState.turnDuration;
-        state.reconnectTimeout = initialLocalState.reconnectTimeout;
-        state.initialCards = { ...initialLocalState.initialCards };
+        state.winningScore = defaults.winningScore;
+        state.randomOrder = defaults.randomOrder;
+        state.turnDuration = defaults.turnDuration;
+        state.reconnectTimeout = defaults.reconnectTimeout;
+        state.initialCards = defaults.initialCards;
         // Meaningless offline (no host to enforce it) and never part of a local
         // save — reset so a leftover online enforcement doesn't survive a
         // switch to local and then bleed into the next online room.
-        state.enforcedDiceMode = initialLocalState.enforcedDiceMode;
+        state.enforcedDiceMode = defaults.enforcedDiceMode;
 
         if (parsed) {
           Object.assign(state, parsed);

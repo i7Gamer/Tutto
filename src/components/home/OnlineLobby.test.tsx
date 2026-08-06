@@ -468,6 +468,37 @@ describe('OnlineLobby recent rooms history', () => {
     expect(screen.queryByText('lobby.online.recentRooms')).not.toBeInTheDocument();
   });
 
+  it('renders when localStorage itself refuses to be read', () => {
+    // Reading storage throws in real browsers — site data blocked, third-party
+    // cookies blocked in an iframe, dom.storage.enabled=false. The room-code
+    // and name reads three lines below have always guarded for it; the recent
+    // rooms read must too, or the whole lobby goes to the ErrorBoundary.
+    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+    try {
+      expect(() => render(<OnlineLobby />)).not.toThrow();
+      expect(screen.getByText('lobby.online.joinOrCreateRoom')).toBeInTheDocument();
+      expect(screen.queryByText('lobby.online.recentRooms')).not.toBeInTheDocument();
+    } finally {
+      getItemSpy.mockRestore();
+    }
+  });
+
+  it('renders one row per remembered room even when the cache repeats one', () => {
+    // Duplicate roomIds are duplicate React keys — the write path only removes
+    // the room being joined, so an older duplicate survives in storage.
+    localStorage.setItem(
+      'tutto_recent_rooms',
+      JSON.stringify([
+        { roomId: 'ROOM1', name: 'Bob', timestamp: 3000 },
+        { roomId: 'ROOM1', name: 'Alice', timestamp: 1000 },
+      ])
+    );
+    render(<OnlineLobby />);
+    expect(screen.getAllByText(/^ROOM1$/)).toHaveLength(1);
+  });
+
   // 'not json' above only covers the JSON.parse throw. Everything below parses
   // fine and is still not a RecentRoom[] — the shapes a hand-edited or
   // half-migrated entry actually produces. Two of them used to take the whole
