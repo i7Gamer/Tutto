@@ -16,6 +16,12 @@ const stageStore = (partial: Partial<GameStore>) => {
   });
 };
 
+// The real one lazily imports an encoder; these tests are about the toggle and
+// what link reaches it, not about QR encoding (RoomQrCode.test.tsx covers that).
+vi.mock('./RoomQrCode', () => ({
+  default: ({ link }: { link: string }) => <div data-testid="room-qr-code" data-link={link} />,
+}));
+
 const asPlayers = (players: Array<Partial<Player> & { name: string }>): Player[] =>
   players.map(p => ({ score: 0, ...p } as Player));
 
@@ -168,6 +174,33 @@ describe('OnlineLobby copy room code button', () => {
 
     await vi.waitFor(() => expect(addToast).toHaveBeenCalledWith('lobby.online.roomLinkCopyFailed'));
     vi.useRealTimers();
+  });
+
+  describe('the room QR code', () => {
+    it('is hidden until asked for, so it does not take over a phone screen', () => {
+      stageRoom({ addToast: vi.fn() });
+
+      render(<OnlineLobby />);
+
+      expect(screen.queryByTestId('room-qr-code')).not.toBeInTheDocument();
+      expect(screen.getByTitle('lobby.online.showQr')).toBeInTheDocument();
+    });
+
+    it('shows the code for this room, and hides it again', () => {
+      stageRoom({ addToast: vi.fn() });
+
+      render(<OnlineLobby />);
+      act(() => {
+        fireEvent.click(screen.getByTitle('lobby.online.showQr'));
+      });
+
+      expect(screen.getByTestId('room-qr-code')).toHaveAttribute('data-link', expectedLink());
+
+      act(() => {
+        fireEvent.click(screen.getByTitle('lobby.online.hideQr'));
+      });
+      expect(screen.queryByTestId('room-qr-code')).not.toBeInTheDocument();
+    });
   });
 
   describe('sharing the invite', () => {

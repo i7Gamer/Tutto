@@ -107,6 +107,12 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks: (id) => {
+            // Returning nothing leaves it to the default chunking, which
+            // honours dynamic imports. The catch-all vendor rule at the bottom
+            // would otherwise pull the lazily imported QR encoder
+            // (RoomQrCode.tsx) into the bundle every player downloads, for a
+            // panel only a host ever opens.
+            if (id.includes('node_modules/qrcode-generator/')) return
             if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) return 'react'
             if (id.includes('node_modules/zustand/')) return 'zustand'
             if (id.includes('node_modules/chart.js/') || id.includes('node_modules/react-chartjs-2/')) return 'charts'

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-import { Copy, Check, X, Share2 } from 'lucide-react';
+import { Copy, Check, X, Share2, QrCode } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList,
@@ -12,6 +12,7 @@ import { parseRecentRooms, MAX_RECENT_ROOMS, type RecentRoom } from '../../utils
 import { buildRoomLink } from '../../utils/roomLink';
 import { useGameStore } from '../../store/useGameStore';
 import ConfirmModal from '../ConfirmModal';
+import RoomQrCode from './RoomQrCode';
 
 // How long the copy button shows its "copied" checkmark before reverting.
 const COPY_FEEDBACK_MS = 1500;
@@ -60,6 +61,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
   }, [initialRoomCode]);
   const [errorMsg, setErrorMsg] = useState('');
   const [roomLinkCopied, setRoomLinkCopied] = useState(false);
+  const [showQr, setShowQr] = useState(false);
   // Read once: the sheet either exists on this device or it does not, and a
   // button that appears mid-session would be odd.
   const [canShare] = useState(() => typeof navigator.share === 'function');
@@ -316,6 +318,22 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
                 <Share2 size={20} />
               </button>
             )}
+            {/* Collapsed by default: it is only wanted when someone is
+                physically present to scan it, and expanded it would push the
+                player list off a phone screen. */}
+            <button
+              className="text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 p-2 rounded-lg transition-colors"
+              onClick={() => setShowQr(current => !current)}
+              aria-expanded={showQr}
+              title={showQr
+                ? t('lobby.online.hideQr', 'Hide QR code')
+                : t('lobby.online.showQr', 'Show QR code')}
+              aria-label={showQr
+                ? t('lobby.online.hideQr', 'Hide QR code')
+                : t('lobby.online.showQr', 'Show QR code')}
+            >
+              <QrCode size={20} />
+            </button>
           </div>
           <button
             className="text-red-500 hover:bg-red-50 border border-red-200 px-4 py-2 rounded-lg font-medium transition-colors"
@@ -324,6 +342,8 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
             {t('lobby.online.leaveRoom', 'Leave Room')}
           </button>
         </div>
+
+        {showQr && <RoomQrCode link={roomLink} />}
         <p className="mb-6 text-gray-700 dark:text-gray-200 text-lg">
           {t('lobby.online.youAre', 'You are:')} <strong className="text-indigo-600 dark:text-indigo-400">{myName}</strong>{' '}
           {isHost ? <span className="text-amber-500 font-medium">({t('lobby.online.hostBadge', 'Host')})</span> : ''}
