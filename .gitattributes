@@ -1,3 +1,11 @@
+# Normalise every text file to LF in the repository, whatever the checkout does
+# locally. The rules below predate this and stay because they are the cases that
+# actually broke; this catch-all covers the ones that have not yet — Dockerfile,
+# .dockerignore, docker-compose.yml and .env.example are all read by tools that
+# happen to tolerate CRLF today. Every tracked file is already LF in the index,
+# so this changes nothing now (`git ls-files --eol`).
+* text=auto eol=lf
+
 # Shell scripts must keep LF endings in the repository. core.autocrlf=true on a
 # Windows checkout would otherwise commit CRLF, and bash on the CI runner fails
 # on those with "$'\r': command not found" — an error that says nothing about

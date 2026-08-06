@@ -26,6 +26,10 @@ on:
 # Publishes are serialised. Two overlapping runs would each see the other's
 # pushed-but-not-yet-tagged digests as unreferenced, and the cleanup step would
 # delete an image the other run is about to tag.
+#
+# GitHub keeps at most one run pending per group, so dispatching three publishes
+# back to back cancels the middle one — there is no queue depth to raise. Wait
+# for a publish to finish before starting the next.
 concurrency:
   group: publish-docker-image
   cancel-in-progress: false
@@ -34,9 +38,13 @@ env:
   IMAGE_NAME: i7gamer/tutto
   NODE_VERSION: '24'
   SMOKE_PORT: '3001'
-  # Only ever reaches a throwaway container on the runner. The server refuses to
-  # start in production without one, so the smoke test has to supply it.
-  SMOKE_API_TOKEN: ci-smoke-token-not-a-secret
+  # No SMOKE_API_TOKEN literal here on purpose. The server refuses to start in
+  # production without a token, so the smoke test has to supply one — but a
+  # value committed to a public workflow is a published token, and anyone who
+  # copies the line out of this file deploys a server whose admin token is on
+  # GitHub. The smoke step generates a fresh one per run instead; the contract
+  # is asserted in server/startupGuards.test.ts.
+  #
   # Well above the sub-second the ordered shutdown takes, and above
   # DEFAULT_SHUTDOWN_TIMEOUT_MS in server/shutdown.ts, so a container that hangs
   # is reported by the exit-code assertion rather than masked by Docker's SIGKILL.
@@ -154,9 +162,12 @@ jobs:
       - name: Smoke test the image
         run: |
           set -euo pipefail
+          # Generated, never committed: see the note beside SMOKE_PORT above.
+          # Only ever reaches a throwaway container on this runner.
+          smoke_api_token="$(openssl rand -hex 32)"
           docker run -d --name smoke \
             -p "${SMOKE_PORT}:3001" \
-            -e "API_TOKEN=${SMOKE_API_TOKEN}" \
+            -e "API_TOKEN=${smoke_api_token}" \
             "tutto-smoke:${{ matrix.arch }}"
 
           # The container must come up on its own; no CORS_ORIGIN is supplied,
@@ -331,7 +342,7 @@ jobs:
 
           IFS=',' read -ra requested <<< "${REQUESTED_TAGS}"
           for tag in "${requested[@]}"; do
-            trimmed="$(echo "${tag}" | xargs)"
+            read -r trimmed <<< "${tag}"
             [ -z "${trimmed}" ] && continue
 
             # A tag published for the first time 404s here, which is not an
@@ -371,7 +382,7 @@ jobs:
           tag_args=()
           IFS=',' read -ra requested <<< "${REQUESTED_TAGS}"
           for tag in "${requested[@]}"; do
-            trimmed="$(echo "${tag}" | xargs)"
+            read -r trimmed <<< "${tag}"
             [ -z "${trimmed}" ] && continue
             tag_args+=(--tag "${IMAGE_NAME}:${trimmed}")
           done
@@ -403,7 +414,7 @@ jobs:
           REQUESTED_TAGS: ${{ inputs.tags }}
         run: |
           set -euo pipefail
-          first_tag="$(echo "${REQUESTED_TAGS}" | cut -d',' -f1 | xargs)"
+          read -r first_tag <<< "$(echo "${REQUESTED_TAGS}" | cut -d',' -f1)"
           reference="${IMAGE_NAME}:${first_tag}"
           echo "Inspecting ${reference}"
           docker buildx imagetools inspect "${reference}"
@@ -497,9 +508,14 @@ jobs:
               echo "  keeping ${digest} — a tag still points at it"
               continue
             fi
+            # `|| echo 000`: a request that never reaches the API — DNS, TLS, a
+            # dropped connection — makes curl exit non-zero with no status to
+            # print, and an unguarded substitution under `set -e` would take the
+            # step down mid-list. 000 is curl's own placeholder for "no
+            # response", and falls through to the failure branch below.
             status="$(curl -sS -o "${delete_body_file}" -w '%{http_code}' -X DELETE \
               "${HUB_API}/repositories/${hub_namespace}/${hub_repo}/manifests/${digest}" \
-              -H "Authorization: JWT ${jwt}")"
+              -H "Authorization: JWT ${jwt}" || echo 000)"
             case "${status}" in
               2*)
                 echo "  deleted ${digest} (HTTP ${status})"
@@ -526,7 +542,7 @@ jobs:
             echo "| --- |"
             IFS=',' read -ra requested <<< "${REQUESTED_TAGS}"
             for tag in "${requested[@]}"; do
-              trimmed="$(echo "${tag}" | xargs)"
+              read -r trimmed <<< "${tag}"
               [ -n "${trimmed}" ] && echo "| \`${trimmed}\` |"
             done
             echo

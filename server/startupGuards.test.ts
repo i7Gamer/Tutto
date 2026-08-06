@@ -164,3 +164,42 @@ describe('.env.example is a startable production configuration', () => {
     expect(resolveCorsOrigin({ ...example, NODE_ENV: 'development' })).toBe(WILDCARD_CORS_ORIGIN);
   });
 });
+
+// PUBLISHED_API_TOKENS is a list of literals this repository has made public,
+// and it can only be complete if nothing else in the repository publishes one.
+// A CI workflow that hard-codes a token is exactly that: readable by anyone,
+// and accepted by the production guard, so a deployer who copies the line out
+// of a workflow file gets a server whose admin token is on GitHub.
+describe('no workflow publishes a usable production API_TOKEN', () => {
+  const WORKFLOWS_DIR = path.join(__dirname, '..', '.github', 'workflows');
+  // `NAME: value` in a YAML env block, and `NAME=value` in a shell line.
+  const API_TOKEN_ASSIGNMENT = /API_TOKEN\s*[:=]\s*(\S+)/g;
+  // A shell expansion or an Actions expression is a value, not a literal.
+  const isExpansion = (value: string): boolean => value.startsWith('$');
+
+  const assignments = fs
+    .readdirSync(WORKFLOWS_DIR)
+    .filter(file => file.endsWith('.yml') || file.endsWith('.yaml'))
+    .flatMap(file => {
+      const source = fs.readFileSync(path.join(WORKFLOWS_DIR, file), 'utf8');
+      return [...source.matchAll(API_TOKEN_ASSIGNMENT)].map(match => ({
+        file,
+        value: (match[1] as string).replace(/^["']|["'\\]+$/g, ''),
+      }));
+    });
+
+  it('finds the API_TOKEN assignments it is meant to be checking', () => {
+    // Without this, a renamed variable or a moved directory would make the
+    // assertion below pass by scanning nothing at all.
+    expect(assignments.length).toBeGreaterThan(0);
+  });
+
+  it('assigns no literal the production guard would accept', () => {
+    const usable = assignments
+      .filter(({ value }) => !isExpansion(value))
+      .filter(({ value }) => validateApiTokenForStartup({ NODE_ENV: 'production', API_TOKEN: value }) === null)
+      .map(({ file, value }) => `${file}: ${value}`);
+
+    expect(usable).toEqual([]);
+  });
+});

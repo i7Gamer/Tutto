@@ -30,7 +30,7 @@ jobs:
           RAW_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          tag="$(echo "${RAW_TAG}" | xargs)"
+          read -r tag <<< "${RAW_TAG}"
           # Docker's own rule: up to 128 chars of [A-Za-z0-9_.-], not starting
           # with a separator. Checked here so a typo fails in seconds rather
           # than after a full multi-arch build.

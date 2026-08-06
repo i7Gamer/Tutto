@@ -199,6 +199,34 @@ assert_contains "::warning::more than ${EXHAUSTED_MAX_TAG_PAGES} pages of tags" 
 assert_not_contains 'deleted sha256:' "${out}"
 export MAX_TAG_PAGES="${DEFAULT_MAX_TAG_PAGES}"
 
+# A DELETE that never reaches the API returns no HTTP status, so the command
+# substitution holding it fails and `set -e` takes the whole step down halfway
+# through the list -- silently, because the step is continue-on-error.
+scenario 'a delete that never reaches the API is counted, not fatal' delete-transport-error
+export REQUESTED_TAGS=latest
+run_step record >/dev/null
+out="$(run_step delete)"; status=$?
+assert_exit_zero "${status}"
+assert_contains '::warning::could not delete sha256:old0 — HTTP 000' "${out}"
+assert_contains 'deleted sha256:old1' "${out}"
+assert_contains 'Deleted 1 superseded manifest(s), 1 failure(s)' "${out}"
+
+scenario 'surrounding whitespace is trimmed from each requested tag' first-publish
+export REQUESTED_TAGS='  nightly  '
+out="$(run_step record)"; status=$?
+assert_exit_zero "${status}"
+assert_contains 'nightly: nothing to supersede (HTTP 404)' "${out}"
+
+# xargs parses its input as shell words, so an unbalanced quote in a tag made it
+# exit non-zero and take the step with it -- an "unmatched double quote" from a
+# tool the step never meant to involve, instead of the tag simply not matching.
+scenario 'a tag containing a quote does not abort the step' first-publish
+export REQUESTED_TAGS='lat"est'
+out="$(run_step record)"; status=$?
+assert_exit_zero "${status}"
+assert_contains 'nothing to supersede' "${out}"
+assert_not_contains 'xargs' "${out}"
+
 echo
 echo "passed: ${passed}  failed: ${failed}"
 [ "${failed}" -eq 0 ]

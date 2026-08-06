@@ -332,6 +332,32 @@ describe('files the Docker image must copy', () => {
 });
 
 /**
+ * The image copies server/package.json ("type": "commonjs") but no root
+ * manifest, so /app/src/** is CommonJS in the container while the repo root's
+ * "type": "module" makes it ESM in dev. tsx handles both, but `import.meta` has
+ * no CommonJS equivalent — a shared file that used it would pass every test and
+ * every build here, then crash only on `docker run`.
+ */
+describe('shared code the image runs under a different module type', () => {
+  const sharedSources = graph.files
+    .map(toRepoRelative)
+    .filter(file => !file.startsWith('server/'))
+    .filter(file => CODE_EXTENSIONS.includes(path.extname(file)));
+
+  it('has shared sources to check', () => {
+    expect(sharedSources.length).toBeGreaterThan(0);
+  });
+
+  it('uses no ESM-only syntax outside server/', () => {
+    const esmOnly = sharedSources.filter(file =>
+      /\bimport\s*\.\s*meta\b/.test(fs.readFileSync(path.join(REPO_ROOT, file), 'utf8'))
+    );
+
+    expect(esmOnly).toEqual([]);
+  });
+});
+
+/**
  * server/shutdown.ts only runs if the process Docker signals is the server.
  *
  * `CMD ["tsx", …]` does not do that: the tsx CLI spawns the script as a child

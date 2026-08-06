@@ -43,6 +43,16 @@ else
   body='{"message":"no fixture"}'
 fi
 
+# A fixture with this in place of a status stands for a request that never got
+# an HTTP response at all — DNS, TLS or a dropped connection. Real curl writes
+# nothing to stdout in that case and exits 6/7 regardless of what -w asked for,
+# so `-w '%{http_code}'` yields no status to branch on. Written by
+# make-fixtures.mjs's TRANSPORT_ERROR; checked before the numeric comparisons.
+if [ "${status}" = "transport-error" ]; then
+  echo "curl: (7) Failed to connect to hub.docker.com port 443" >&2
+  exit 7
+fi
+
 if [ "${fail_on_error}" -eq 1 ] && [ "${status}" -ge 400 ]; then
   echo "curl: (22) The requested URL returned error: ${status}" >&2
   exit 22

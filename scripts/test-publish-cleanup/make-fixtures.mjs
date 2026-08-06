@@ -37,6 +37,11 @@ const deleteManifest = (scenario, digest, status, body) =>
 
 const TAG_NOT_FOUND = { message: 'tag not found' };
 
+// Written in place of a status to make the curl stub fail the way a connection
+// failure does: nothing on stdout, non-zero exit, no HTTP status at all. Kept
+// in sync with the check in stubs/curl.
+const TRANSPORT_ERROR = 'transport-error';
+
 // 1. Nothing has been published under this tag yet.
 loginOk('first-publish');
 tag('first-publish', 'nightly', 404, TAG_NOT_FOUND);
@@ -111,3 +116,16 @@ tag('too-many-pages', 'latest', 200, { digest: 'sha256:old0', images: [] });
 tagList('too-many-pages', PAGE_ONE, { next: PAGE_TWO, results: [{ digest: 'sha256:new0', images: [] }] });
 tagList('too-many-pages', PAGE_TWO, { next: PAGE_THREE, results: [{ digest: 'sha256:new1', images: [] }] });
 deleteManifest('too-many-pages', 'sha256:old0', 202);
+
+// 10. One delete never reaches the API. `-w '%{http_code}'` yields no status,
+//     so an unguarded command substitution under `set -e` kills the step: the
+//     remaining digests are never attempted and the summary never prints, all
+//     swallowed by continue-on-error.
+loginOk('delete-transport-error');
+tag('delete-transport-error', 'latest', 200, {
+  digest: 'sha256:old0',
+  images: [{ digest: 'sha256:old1' }],
+});
+tagList('delete-transport-error', PAGE_ONE, { next: null, results: [{ digest: 'sha256:new0', images: [] }] });
+deleteManifest('delete-transport-error', 'sha256:old0', TRANSPORT_ERROR);
+deleteManifest('delete-transport-error', 'sha256:old1', 202);
