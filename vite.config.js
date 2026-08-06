@@ -54,7 +54,19 @@ export default defineConfig(({ mode }) => {
               // self-contained (no closure variables).
               urlPattern: ({ request }) => request.mode === 'navigate',
               handler: 'NetworkFirst',
-              options: { cacheName: 'html-cache', networkTimeoutSeconds: NAVIGATION_NETWORK_TIMEOUT_S }
+              options: {
+                cacheName: 'html-cache',
+                networkTimeoutSeconds: NAVIGATION_NETWORK_TIMEOUT_S,
+                // The cache is keyed by full URL, so without this an invite
+                // link (`/?room=ABC`, see utils/roomLink.ts) never matches the
+                // shell cached for `/` — the one navigation most likely to
+                // arrive on a phone with a bad connection is the one that
+                // cannot fall back. Measured in Chromium: match('/?room=X')
+                // against an entry stored for '/' is a miss by default and a
+                // hit with this set. Safe because there is exactly one HTML
+                // shell here; every navigation wants the same document.
+                matchOptions: { ignoreSearch: true },
+              }
             },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
