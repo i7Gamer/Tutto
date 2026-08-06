@@ -326,6 +326,75 @@ describe('DiceGame interactive turn logic', () => {
     expect(scoreNodeWhenInvalid).toBe(scoreNodeWhenValid);
   });
 
+  // The turn loop is select → roll or stop, over and over. Game.tsx already
+  // binds Space/Enter to open this panel; inside it every repetition was a
+  // mouse trip to a button.
+  describe('keyboard shortcuts', () => {
+    const pressKey = (key: string) => fireEvent.keyDown(window, { key });
+
+    it('scores the selected dice on S, the same as Stop & Score', async () => {
+      const onComplete = vi.fn();
+      queueRoll([1, 5, 2, 2, 3, 4]);
+      render(<DiceGame currentCard="200" onComplete={onComplete} />);
+
+      clickDie(1);
+      clickDie(5);
+      pressKey('s');
+
+      expect(screen.getByText('dice.success')).toBeInTheDocument();
+      await waitFor(() => expect(onComplete).toHaveBeenCalledWith(150, true));
+    });
+
+    it('banks the selection and rerolls on R, the same as Roll Again', () => {
+      queueRoll([1, 5, 2, 2, 3, 4]);
+      queueRoll([5, 2, 3, 4, 6]); // includes a 5, so the reroll is not a bust
+      render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+
+      clickDie(1);
+      pressKey('r');
+
+      const keptDiceBox = screen.getByText('dice.kept_dice').nextElementSibling as HTMLElement;
+      expect(keptDiceBox.querySelector('.grid-cols-3')).not.toBeNull();
+    });
+
+    it('selects every valid die on A', () => {
+      queueRoll([1, 5, 2, 2, 3, 4]);
+      render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+
+      pressKey('a');
+
+      // The 1 and the 5 are the whole valid selection: 100 + 50.
+      expect(screen.getByTestId('dice-current-score')).toHaveTextContent('150');
+    });
+
+    it('ignores R and S while the selection is invalid, matching the disabled buttons', () => {
+      const onComplete = vi.fn();
+      queueRoll([1, 2, 3, 4, 6, 6]);
+      render(<DiceGame currentCard="200" onComplete={onComplete} />);
+
+      clickDie(2); // a lone 2 can never score
+      pressKey('r');
+      pressKey('s');
+
+      expect(screen.getByText('dice.invalid_selection')).toBeInTheDocument();
+      expect(screen.queryByText('dice.success')).not.toBeInTheDocument();
+      expect(onComplete).not.toHaveBeenCalled();
+    });
+
+    it('ignores shortcuts once the turn has busted', () => {
+      const onComplete = vi.fn();
+      queueRoll([2, 2, 3, 4, 6, 6]); // no 1, no 5, no triple: an immediate bust
+      render(<DiceGame currentCard="200" onComplete={onComplete} />);
+
+      expect(screen.getByText('dice.bust')).toBeInTheDocument();
+      pressKey('a');
+      pressKey('r');
+      pressKey('s');
+
+      expect(onComplete).not.toHaveBeenCalledWith(expect.anything(), true);
+    });
+  });
+
   it('busting a regular card ends the turn with 0 points', async () => {
     const onComplete = vi.fn();
     queueRoll([2, 2, 3, 3, 4, 6]); // no 1/5 and no triplet → bust

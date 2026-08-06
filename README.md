@@ -9,6 +9,7 @@ Tutto Multi-Device is a dynamic web application that allows you to play the popu
 - **Physical & Digital Dice Modes:** Use the built-in digital dice with physics-inspired staggered tumbling animations, or track scores using your own physical dice on the table.
 - **Modern UI & Dark Mode:** A fully responsive, polished user interface built with TailwindCSS, featuring seamless dark mode integration, glassmorphism, floating labels, and dynamic micro-animations via Framer Motion.
 - **Advanced Options:** Highly customizable game modes! Set custom winning scores, customize the card deck counts, randomize player turn orders, and configure precise turn/kick timers for online play.
+- **Keyboard Shortcuts:** Play a full turn without the mouse — Space/Enter for whatever the primary button is right now, and `R`, `S` and `A` to reroll, bank or select every scoring die inside the dice panel. Listed in the in-app wiki, which also names the running build.
 - **Multi-Language Support (i18n):** Full support for English and German out of the box, with an extensible i18n configuration allowing for easy addition of more languages.
 - **Robust Sync & Reconnects:** Online mode features robust state synchronization ensuring fair play. If you accidentally close your tab or lose connection, you'll be able to reconnect automatically within your configured reconnect timeout.
 

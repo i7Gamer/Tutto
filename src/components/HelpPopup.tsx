@@ -5,6 +5,7 @@ import { HelpCircle, X, ChevronRight, ChevronDown } from 'lucide-react';
 import { useGameStore } from '../store/useGameStore';
 import { HELP_SECTION_OPEN_ANIMATION_MS } from '../utils/uiTimings';
 import { renderBoldMarkdown } from '../utils/renderBoldMarkdown';
+import { APP_VERSION } from '../utils/appVersion';
 
 interface SectionProps {
   title: string;
@@ -132,8 +133,19 @@ export default function HelpPopup() {
     { id: 'general', label: t('help.toc.general', 'General Rules') },
     { id: 'cards', label: t('help.toc.cards', 'Cards') },
     { id: 'settings', label: t('help.toc.settings', 'Settings') },
+    { id: 'shortcuts', label: t('help.toc.shortcuts', 'Keyboard') },
     { id: 'statistics', label: t('help.toc.statistics', 'Statistics') },
     { id: 'faq', label: t('help.toc.faq', 'FAQ') },
+  ], [t]);
+
+  // Nothing on screen hints that these exist, so this list is the only place a
+  // player can find them. Keys are bound in Game.tsx (the primary action) and
+  // DiceGame.tsx (inside the dice panel), both through useKeyboardShortcuts.
+  const shortcuts = useMemo(() => [
+    { keys: ['Space', 'Enter'], description: t('help.shortcuts.primary') },
+    { keys: ['R'], description: t('help.shortcuts.rollAgain') },
+    { keys: ['S'], description: t('help.shortcuts.stop') },
+    { keys: ['A'], description: t('help.shortcuts.selectAll') },
   ], [t]);
 
   const faqs = useMemo(() => [
@@ -282,6 +294,28 @@ export default function HelpPopup() {
                   </ul>
                 </Section>
 
+                <Section id="shortcuts" title={t('help.shortcuts.title', 'Keyboard Shortcuts')} isOpen={activeSection === 'shortcuts'} onToggle={toggleSection}>
+                  <p>{t('help.shortcuts.intro')}</p>
+                  <dl className="space-y-2">
+                    {shortcuts.map(shortcut => (
+                      <div key={shortcut.keys.join('+')} className="flex items-baseline gap-3">
+                        <dt className="flex gap-1 shrink-0">
+                          {shortcut.keys.map(key => (
+                            <kbd
+                              key={key}
+                              className="px-2 py-0.5 rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs font-bold text-gray-700 dark:text-gray-200 shadow-sm"
+                            >
+                              {key}
+                            </kbd>
+                          ))}
+                        </dt>
+                        <dd className="text-sm">{shortcut.description}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <p className="text-sm italic">{t('help.shortcuts.note')}</p>
+                </Section>
+
                 <Section id="statistics" title={t('help.statistics.title', 'Statistics')} isOpen={activeSection === 'statistics'} onToggle={toggleSection}>
                   <ul className="list-disc pl-5 space-y-2">
                     <li>{t('help.statistics.s1')}</li>
@@ -305,6 +339,15 @@ export default function HelpPopup() {
                 </Section>
 
               </div>
+
+              {/* Outside the scroll container so it is visible without scrolling
+                  to the bottom of the wiki — the point of it is to be findable
+                  when someone asks "which build are you running?". */}
+              <footer className="shrink-0 px-4 sm:px-6 py-3 border-t border-gray-100 dark:border-slate-800 text-center">
+                <span data-testid="help-app-version" className="text-xs text-gray-400 dark:text-gray-500">
+                  {t('help.version', 'Version')} {APP_VERSION}
+                </span>
+              </footer>
             </motion.div>
           </div>
         )}

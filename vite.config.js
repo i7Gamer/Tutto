@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -6,6 +7,13 @@ import { VitePWA } from 'vite-plugin-pwa'
 // How long a navigation waits for the network before falling back to the
 // cached HTML shell (offline PWA start / dead connection).
 const NAVIGATION_NETWORK_TIMEOUT_S = 3
+
+// Read rather than imported: an `import pkg from './package.json'` would end up
+// in the bundle. Exposed to the app as __APP_VERSION__ (see src/utils/appVersion.ts,
+// declared in src/vite-env.d.ts) and asserted against the manifest in its test.
+const { version: appVersion } = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf8')
+)
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -17,6 +25,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: './',
+    define: {
+      __APP_VERSION__: JSON.stringify(appVersion),
+    },
     plugins: [
       react(),
       VitePWA({

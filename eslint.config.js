@@ -49,7 +49,8 @@ export default defineConfig([
       },
       // `process` is here because Vite statically replaces `process.env.NODE_ENV`
       // at build time (used for test-only code paths in a few components).
-      globals: { ...globals.browser, process: 'readonly' },
+      // `__APP_VERSION__` is replaced the same way — see `define` in vite.config.js.
+      globals: { ...globals.browser, process: 'readonly', __APP_VERSION__: 'readonly' },
     },
     rules: {
       ...sharedTsRules,

@@ -13,6 +13,7 @@ import { buildTurnKey, parseSavedDiceState } from '../utils/diceTurnState';
 import { parseJsonObject } from '../utils/parseJson';
 import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, DICE_PANEL_ENTRANCE_MS } from '../utils/uiTimings';
 import { useWakeLock } from '../hooks/useWakeLock';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import type { PreGameStats } from '../store/storeTypes';
 
 import Scoreboard from './game/Scoreboard';
@@ -322,43 +323,26 @@ export default function Game() {
   // Keyboard shortcuts: Space/Enter triggers whatever GameControls' primary
   // button is for the current turn state. There's no dice-roll modal dismiss
   // shortcut — once opened it auto-rolls immediately and can't be backed out
-  // of. Ignored while typing in an input (e.g. the physical-mode score field)
-  // so it doesn't hijack normal text entry.
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat) return;
-      const tag = (document.activeElement as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      // Any open modal (ConfirmModal, HelpPopup, ReconnectPopup, ...) owns
-      // keyboard input while it's up. Unlike the window.confirm() this
-      // shortcut used to coexist with (a truly blocking native dialog that
-      // swallows all page input for free), a React overlay doesn't stop this
-      // listener on its own — without this check, Space/Enter pressed while
-      // one is open bubbles straight through and can silently roll dice or
-      // answer a Yes/No card behind the dialog the player hasn't dismissed
-      // yet. Every modal in this app sets aria-modal="true" while shown.
-      if (document.querySelector('[aria-modal="true"]')) return;
+  // of. The roll/stop/select keys inside that modal live in DiceGame; the
+  // guards both rely on (typing, open modals, held keys) are in the hook.
+  const primaryAction = () => {
+    if (isStopCard) {
+      handleYesNo(false);
+    } else if (effectiveDiceMode === 'digital') {
+      // Digital mode always shows "Roll Dice" for any non-Stop card — it
+      // doesn't distinguish input/yes-no cards the way physical mode does.
+      if (!showDiceGame) setShowDiceGame(true);
+    } else if (currentCardHasYesNo) {
+      handleYesNo(true);
+    } else if (currentCardHasInput) {
+      handleNextTurn();
+    }
+  };
 
-      if (e.key !== ' ' && e.key !== 'Enter') return;
-      if (!isMyTurn) return;
-      e.preventDefault();
-
-      if (isStopCard) {
-        handleYesNo(false);
-      } else if (effectiveDiceMode === 'digital') {
-        // Digital mode always shows "Roll Dice" for any non-Stop card — it
-        // doesn't distinguish input/yes-no cards the way physical mode does.
-        if (!showDiceGame) setShowDiceGame(true);
-      } else if (currentCardHasYesNo) {
-        handleYesNo(true);
-      } else if (currentCardHasInput) {
-        handleNextTurn();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isMyTurn, isStopCard, currentCardHasYesNo, currentCardHasInput, effectiveDiceMode, showDiceGame, handleNextTurn, handleYesNo]);
+  useKeyboardShortcuts({
+    space: isMyTurn ? primaryAction : undefined,
+    enter: isMyTurn ? primaryAction : undefined,
+  });
 
   // A turn exists to undo at all...
   const hasUndoableTurn = !game.finished && !!game.previousCard && game.previousCard !== 'Stop'

@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest';
 import HelpPopup from './HelpPopup';
 import { useGameStore } from '../store/useGameStore';
+import { APP_VERSION } from '../utils/appVersion';
 
 // Mock the dependencies
 vi.mock('react-i18next', async (importOriginal) => {
@@ -54,6 +55,27 @@ describe('HelpPopup', () => {
 
     // FAQ section content should become visible
     expect(screen.getByText('help.faq.q1')).toBeInTheDocument();
+  });
+
+  it('names the running build in the footer', () => {
+    // The published image tags are `latest` and `nightly`, which do not say
+    // which build is actually running. This is the only place that does.
+    render(<HelpPopup />);
+    fireEvent.click(screen.getByTitle('help.buttonTitle'));
+
+    expect(screen.getByTestId('help-app-version')).toHaveTextContent(APP_VERSION);
+  });
+
+  it('documents the keyboard shortcuts, which have no on-screen hint of their own', () => {
+    render(<HelpPopup />);
+    fireEvent.click(screen.getByTitle('help.buttonTitle'));
+
+    fireEvent.click(screen.getByText('help.toc.shortcuts'));
+
+    expect(screen.getByText('help.shortcuts.primary')).toBeInTheDocument();
+    expect(screen.getByText('help.shortcuts.rollAgain')).toBeInTheDocument();
+    expect(screen.getByText('help.shortcuts.stop')).toBeInTheDocument();
+    expect(screen.getByText('help.shortcuts.selectAll')).toBeInTheDocument();
   });
 
   it('defaults to cards section if opened during gameplay and a card is active', async () => {

@@ -8,6 +8,7 @@ import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus, getMaxValidSel
 import { parseSavedDiceState, buildDiceSnapshot } from '../utils/diceTurnState';
 import { deriveTurnControls, sortKeptDiceForDisplay } from '../utils/diceTurnControls';
 import { useAutoContinueCountdown } from '../hooks/useAutoContinueCountdown';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import {
   DIE_TUMBLE_MS, DIE_STAGGER_MS, DIE_FACE_SHUFFLE_MS, ROLL_SETTLE_BUFFER_MS,
   BUST_SUMMARY_DELAY_MS, LIVE_SNAPSHOT_DEBOUNCE_MS,
@@ -339,6 +340,19 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const stopButtonText = t(stopButtonTextKey.key, stopButtonTextKey.fallback);
 
   const displayKeptDice = sortKeptDiceForDisplay(keptDice, currentCard, kniffelProgress);
+
+  // A turn is select → roll or stop, repeated. Each shortcut is bound only when
+  // its button is enabled, so a key can never do something a click could not —
+  // an unavailable action passes `undefined` and the key falls through to the
+  // page. Listed for players in HelpPopup's shortcuts section.
+  const canAct = hasRolled && !bustState && !isRolling && !showSummary;
+  const canSubmitSelection = canAct && validation.valid;
+
+  useKeyboardShortcuts({
+    r: canSubmitSelection && isRollAgainApplicable ? () => handleAction('roll') : undefined,
+    s: canSubmitSelection && canStop ? () => handleAction('stop') : undefined,
+    a: canAct ? selectAllValid : undefined,
+  });
 
   return (
     <div className={`bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden rounded-3xl flex flex-col items-center w-full ${showSummary ? 'max-h-[90vh]' : 'h-[calc(100dvh-2rem)] sm:h-auto sm:max-h-[90vh]'}`}>
