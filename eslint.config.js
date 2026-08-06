@@ -105,6 +105,18 @@ export default defineConfig([
     rules: sharedJsRules,
   },
 
+  // The hand-written service worker: browser globals plus the worker-only ones
+  // (self, caches, clients, skipWaiting), and no DOM.
+  {
+    files: ['src/sw.js'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      globals: { ...globals.serviceworker },
+      sourceType: 'module',
+    },
+    rules: sharedJsRules,
+  },
+
   // Node-side ES modules: Playwright e2e specs and build/config files.
   {
     files: ['e2e/**/*.js', '*.config.js'],

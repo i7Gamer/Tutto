@@ -4,10 +4,6 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
-// How long a navigation waits for the network before falling back to the
-// cached HTML shell (offline PWA start / dead connection).
-const NAVIGATION_NETWORK_TIMEOUT_S = 3
-
 // Read rather than imported: an `import pkg from './package.json'` would end up
 // in the bundle. Exposed to the app as __APP_VERSION__ (see src/utils/appVersion.ts,
 // declared in src/vite-env.d.ts) and asserted against the manifest in its test.
@@ -35,45 +31,21 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       VitePWA({
+        // injectManifest, not the default generateSW: the generated worker's
+        // workbox runtime does not survive this toolchain's bundling — it
+        // registers and claims clients while precaching silently never installs,
+        // so nothing ever worked offline. src/sw.js owns the behaviour instead
+        // and explains the evidence. This mode only injects the file list.
+        strategies: 'injectManifest',
+        srcDir: 'src',
+        filename: 'sw.js',
         registerType: 'autoUpdate',
-        workbox: {
-          // The HTML shell is deliberately NOT precached (no 'html' here) and
-          // navigateFallback is disabled: navigations go NetworkFirst below,
-          // so a new deploy reaches every client on its next launch instead
-          // of flashing the stale cached shell and force-reloading once the
-          // service worker updates. The cached copy still serves when the
-          // network doesn't answer in time (offline PWA start).
-          globPatterns: ['**/*.{js,css,png,svg,webmanifest}'],
+        injectManifest: {
+          // index.html is precached here, unlike before: it is what an offline
+          // start serves. Staleness is not a risk because src/sw.js tries the
+          // network first for navigations and only falls back to this copy.
+          globPatterns: ['**/*.{js,css,html,png,svg,webmanifest}'],
           globIgnores: ['**/assets/old/**'],
-          skipWaiting: true,
-          clientsClaim: true,
-          navigateFallback: null,
-          runtimeCaching: [
-            {
-              // Serialized into the generated service worker — must stay
-              // self-contained (no closure variables).
-              urlPattern: ({ request }) => request.mode === 'navigate',
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'html-cache',
-                networkTimeoutSeconds: NAVIGATION_NETWORK_TIMEOUT_S,
-                // The cache is keyed by full URL, so without this an invite
-                // link (`/?room=ABC`, see utils/roomLink.ts) never matches the
-                // shell cached for `/` — the one navigation most likely to
-                // arrive on a phone with a bad connection is the one that
-                // cannot fall back. Measured in Chromium: match('/?room=X')
-                // against an entry stored for '/' is a miss by default and a
-                // hit with this set. Safe because there is exactly one HTML
-                // shell here; every navigation wants the same document.
-                matchOptions: { ignoreSearch: true },
-              }
-            },
-            {
-              urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
-              handler: 'CacheFirst',
-              options: { cacheName: 'google-fonts-cache', expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 } }
-            }
-          ]
         },
         manifest: {
           name: 'Tutto Game',
