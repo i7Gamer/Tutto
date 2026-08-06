@@ -9,8 +9,8 @@ Tutto Multi-Device is a dynamic web application that allows you to play the popu
 - **Physical & Digital Dice Modes:** Use the built-in digital dice with physics-inspired staggered tumbling animations, or track scores using your own physical dice on the table.
 - **Modern UI & Dark Mode:** A fully responsive, polished user interface built with TailwindCSS, featuring seamless dark mode integration, glassmorphism, floating labels, and dynamic micro-animations via Framer Motion.
 - **Advanced Options:** Highly customizable game modes! Set custom winning scores, customize the card deck counts, randomize player turn orders, and configure precise turn/kick timers for online play.
-- **Invite Links & QR Codes:** Share a room as a link that opens the lobby with the code already filled in — copy it, hand it to your phone's share sheet, or show a QR code for the person next to you. They can scan it with their phone's own camera, or from inside Tutto with the built-in scanner (which needs an https origin, as browsers only grant camera access on secure connections).
-- **Keyboard Shortcuts:** Play a full turn without the mouse — Space/Enter for whatever the primary button is right now, and `R`, `S` and `A` to reroll, bank or select every scoring die inside the dice panel. Listed in the in-app wiki, which also names the running build.
+- **Invite Links & QR Codes:** Share a room as a link, a share-sheet entry or a QR code instead of a code to read out. Rooms you have played in are remembered for one-tap rejoining. See [Inviting players](#inviting-players).
+- **Keyboard Shortcuts:** Play a full turn without reaching for the mouse. See [Keyboard shortcuts](#keyboard-shortcuts).
 - **Multi-Language Support (i18n):** Full support for English and German out of the box, with an extensible i18n configuration allowing for easy addition of more languages.
 - **Robust Sync & Reconnects:** Online mode features robust state synchronization ensuring fair play. If you accidentally close your tab or lose connection, you'll be able to reconnect automatically within your configured reconnect timeout.
 
@@ -40,6 +40,48 @@ The drawn card dictates specific bonuses or rules for your turn:
 - **Feuerwerk**: You must keep rolling as long as you score points! You can't bank your score manually. You only stop when you bust, but you get to keep all points earned before busting.
 - **Kleeblatt**: Roll two Tuttos in a row to instantly win the game!
 - **Bonus Cards (200, 300, 400, 500, 600)**: If you roll a Tutto, you receive these bonus points added to your turn's score.
+
+## Inviting players
+
+A room is identified by a code you choose when you create it, and anyone who
+enters the same code joins the same room. Four ways to get that code to someone,
+in rough order of how little typing they involve:
+
+| | How | Good for |
+| --- | --- | --- |
+| **Invite link** | Copy button next to the room name. Opens Tutto with the code already filled in — the guest only supplies their name. | Chat, email, anywhere you can paste. |
+| **Share sheet** | Share button, on devices that have one. Same link, handed to the OS. | Phones. |
+| **QR code** | QR button. Shows the same link as a code. | Someone sitting next to you: their phone's own camera app opens it, with Tutto uninvolved. |
+| **Scanner** | Scan button beside the room-code field. | A guest who already has Tutto open and would rather not leave it. |
+
+Rooms you have joined are remembered under the join form for one-tap rejoining.
+The `×` beside an entry forgets it.
+
+> **The scanner needs an https origin.** Browsers only grant camera access on
+> secure connections, so on a plain-http LAN address it will say so and ask you
+> to type the code instead. The other three ways work regardless — and a guest's
+> own camera app can open the QR code on any origin, which is why it is the one
+> to reach for at a table. See [Behind a reverse proxy](#behind-a-reverse-proxy)
+> for putting the app on https.
+
+> **A QR code is only as reachable as the address it was made from.** It encodes
+> whatever URL the host is looking at, so if you opened Tutto on `localhost` the
+> code points at the guest's own machine. The app says so when it spots this;
+> open it on your network address instead.
+
+## Keyboard shortcuts
+
+| Key | Does |
+| --- | --- |
+| `Space` / `Enter` | Whatever the primary button is right now — roll the dice, end your turn, answer Yes. |
+| `R` | Roll again with the dice you have selected (inside the dice panel). |
+| `S` | Stop and bank the dice you have selected (inside the dice panel). |
+| `A` | Select every die in the current roll that scores. |
+
+Shortcuts stay out of the way while you are typing in a field and while a dialog
+is open, and a key does nothing when its button is greyed out. The same table is
+in the in-app wiki, whose footer also names the running build — useful when
+reporting a bug against `latest` or `nightly`.
 
 ## Run with Docker
 
@@ -105,6 +147,8 @@ Schema migrations run automatically at startup, so upgrading is just pulling a n
 
 Point the proxy at the container's port and forward WebSocket upgrades (`Upgrade` and `Connection` headers) — the game will not sync without them. Leave `CORS_ORIGIN` unset: the frontend is served by the same server, so it is already same-origin. `NODE_ENV=production` is baked into the image, which also makes the server trust `X-Forwarded-For` so per-IP rate limiting sees real client addresses rather than the proxy's.
 
+Terminating TLS here is also what makes the in-app QR [scanner](#inviting-players) usable — browsers only grant camera access on a secure origin. Everything else works the same over plain http.
+
 ### Updating
 
 ```bash
@@ -112,6 +156,8 @@ docker compose pull && docker compose up -d
 ```
 
 Available tags: `latest` (current release), a pinned version such as `1.1.3`, and `nightly` (current `master`, released ahead of a version bump).
+
+Since `latest` and `nightly` both move, the running build names itself in the footer of the in-app wiki (the `?` button) — worth quoting in a bug report.
 
 ### Health
 

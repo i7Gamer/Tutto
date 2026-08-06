@@ -66,6 +66,21 @@ describe('HelpPopup', () => {
     expect(screen.getByTestId('help-app-version')).toHaveTextContent(APP_VERSION);
   });
 
+  it('documents how to get someone else into your room', () => {
+    // Four ways to hand a room over and a remembered-rooms list, none of which
+    // is self-explanatory from an icon button.
+    render(<HelpPopup />);
+    fireEvent.click(screen.getByTitle('help.buttonTitle'));
+
+    fireEvent.click(screen.getByText('help.toc.online'));
+
+    expect(screen.getByText('help.online.inviteLink')).toBeInTheDocument();
+    expect(screen.getByText('help.online.share')).toBeInTheDocument();
+    expect(screen.getByText('help.online.qr')).toBeInTheDocument();
+    expect(screen.getByText('help.online.scan')).toBeInTheDocument();
+    expect(screen.getByText('help.online.recentRooms')).toBeInTheDocument();
+  });
+
   it('documents the keyboard shortcuts, which have no on-screen hint of their own', () => {
     render(<HelpPopup />);
     fireEvent.click(screen.getByTitle('help.buttonTitle'));

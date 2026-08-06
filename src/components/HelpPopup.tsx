@@ -133,9 +133,20 @@ export default function HelpPopup() {
     { id: 'general', label: t('help.toc.general', 'General Rules') },
     { id: 'cards', label: t('help.toc.cards', 'Cards') },
     { id: 'settings', label: t('help.toc.settings', 'Settings') },
+    { id: 'online', label: t('help.toc.online', 'Playing Online') },
     { id: 'shortcuts', label: t('help.toc.shortcuts', 'Keyboard') },
     { id: 'statistics', label: t('help.toc.statistics', 'Statistics') },
     { id: 'faq', label: t('help.toc.faq', 'FAQ') },
+  ], [t]);
+
+  // Four ways to hand a room to someone, all of them icon buttons that say
+  // nothing on their own. Ordered by how little the other person has to type.
+  const invites = useMemo(() => [
+    { id: 'inviteLink', description: t('help.online.inviteLink') },
+    { id: 'share', description: t('help.online.share') },
+    { id: 'qr', description: t('help.online.qr') },
+    { id: 'scan', description: t('help.online.scan') },
+    { id: 'recentRooms', description: t('help.online.recentRooms') },
   ], [t]);
 
   // Nothing on screen hints that these exist, so this list is the only place a
@@ -292,6 +303,16 @@ export default function HelpPopup() {
                     <li>{t('help.settings.diceMode')}</li>
                     <li>{t('help.settings.deckComp')}</li>
                   </ul>
+                </Section>
+
+                <Section id="online" title={t('help.online.title', 'Playing Online')} isOpen={activeSection === 'online'} onToggle={toggleSection}>
+                  <p>{t('help.online.intro')}</p>
+                  <ul className="list-disc pl-5 space-y-2">
+                    {invites.map(invite => (
+                      <li key={invite.id}>{invite.description}</li>
+                    ))}
+                  </ul>
+                  <p className="text-sm italic">{t('help.online.scanSecure')}</p>
                 </Section>
 
                 <Section id="shortcuts" title={t('help.shortcuts.title', 'Keyboard Shortcuts')} isOpen={activeSection === 'shortcuts'} onToggle={toggleSection}>
