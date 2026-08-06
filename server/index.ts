@@ -12,7 +12,7 @@ import { registerSocketHandlers } from './socketHandlers';
 import { registerApiRoutes } from './api';
 import { initDb, closeDb } from './database';
 import { resolveCorsOrigin, validateCorsOriginForStartup } from './startupGuards';
-import { createShutdownHandler, SHUTDOWN_SIGNALS } from './shutdown';
+import { createShutdownHandler, createServerClosers, SHUTDOWN_SIGNALS } from './shutdown';
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection, shutting down:', reason);
@@ -58,28 +58,6 @@ registerApiRoutes(app);
 
 const PORT = process.env.PORT || 3001;
 
-// io.close() disconnects every client and closes the HTTP server it is
-// attached to, so the server is not closed separately — doing both would fail
-// the second call with ERR_SERVER_NOT_RUNNING.
-const shutdown = createShutdownHandler({
-  closers: [
-    {
-      name: 'socket and HTTP server',
-      close: () => new Promise<void>((resolve, reject) => {
-        io.close(err => (err ? reject(err) : resolve()));
-      }),
-    },
-    { name: 'database', close: closeDb },
-  ],
-  exit: code => process.exit(code),
-});
-
-for (const signal of SHUTDOWN_SIGNALS) {
-  process.on(signal, () => {
-    void shutdown(signal);
-  });
-}
-
 const start = async (): Promise<void> => {
   await initDb();
   server.listen(PORT, () => {
@@ -87,4 +65,32 @@ const start = async (): Promise<void> => {
   });
 };
 
-void start();
+// Started before the signal handlers are registered so `startup` exists for the
+// closers below, and awaited by none of them for its value — only for the fact
+// that migrations are no longer in flight. The catch replaces what the
+// unhandledRejection handler above used to do for this promise.
+const startup = start().catch((error: unknown) => {
+  console.error('Startup failed:', error);
+  process.exit(1);
+});
+
+// io.close() disconnects every client and closes the HTTP server it is
+// attached to, so the server is not closed separately — doing both would fail
+// the second call with ERR_SERVER_NOT_RUNNING.
+const shutdown = createShutdownHandler({
+  closers: createServerClosers({
+    closeSockets: done => io.close(done),
+    closeDatabase: closeDb,
+    startup,
+  }),
+  exit: code => process.exit(code),
+});
+
+// Registered outside start() on purpose: a `docker stop` during the migration
+// window would otherwise find no handler at all and take the default
+// disposition, killing the process mid-migration.
+for (const signal of SHUTDOWN_SIGNALS) {
+  process.on(signal, () => {
+    void shutdown(signal);
+  });
+}

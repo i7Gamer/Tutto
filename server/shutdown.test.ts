@@ -2,9 +2,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   createShutdownHandler,
+  createServerClosers,
   SHUTDOWN_SIGNALS,
   EXIT_CODE_OK,
   EXIT_CODE_FAILED,
+  DEFAULT_SHUTDOWN_TIMEOUT_MS,
+  DOCKER_DEFAULT_STOP_GRACE_PERIOD_MS,
   type Closer,
 } from './shutdown';
 
@@ -150,5 +153,82 @@ describe('SHUTDOWN_SIGNALS', () => {
   it('covers the signals a container and a terminal actually send', () => {
     // SIGTERM is what `docker stop` sends; SIGINT is Ctrl-C in local dev.
     expect([...SHUTDOWN_SIGNALS]).toEqual(['SIGTERM', 'SIGINT']);
+  });
+});
+
+describe('DEFAULT_SHUTDOWN_TIMEOUT_MS', () => {
+  it('expires before Docker gives up and SIGKILLs the container', () => {
+    // Two equal deadlines race. Losing means the SIGKILL lands first, which is
+    // precisely the outcome the watchdog was added to prevent — and it costs
+    // the full grace period to find out.
+    expect(DEFAULT_SHUTDOWN_TIMEOUT_MS).toBeLessThan(DOCKER_DEFAULT_STOP_GRACE_PERIOD_MS);
+  });
+});
+
+describe('createServerClosers', () => {
+  const settled = Promise.resolve();
+  const closedSockets = (done: (error?: Error) => void) => done();
+  const serverNotRunning = (): Error =>
+    Object.assign(new Error('Server is not running.'), { code: 'ERR_SERVER_NOT_RUNNING' });
+
+  it('closes the sockets before the database', () => {
+    const closers = createServerClosers({
+      closeSockets: closedSockets,
+      closeDatabase: async () => {},
+      startup: settled,
+    });
+
+    expect(closers.map(closer => closer.name)).toEqual(['socket and HTTP server', 'database']);
+  });
+
+  it('treats a server that never started listening as already closed', async () => {
+    // The signal handlers are registered before server.listen(), so that a
+    // `docker stop` during migrations is handled at all. io.close() then calls
+    // back with ERR_SERVER_NOT_RUNNING, which as a closer failure would exit 1
+    // on a shutdown that did nothing wrong.
+    const [sockets] = createServerClosers({
+      closeSockets: done => done(serverNotRunning()),
+      closeDatabase: async () => {},
+      startup: settled,
+    });
+
+    await expect(sockets.close()).resolves.toBeUndefined();
+  });
+
+  it('reports any other socket close error', async () => {
+    const [sockets] = createServerClosers({
+      closeSockets: done => done(new Error('sockets refused to close')),
+      closeDatabase: async () => {},
+      startup: settled,
+    });
+
+    await expect(sockets.close()).rejects.toThrow('sockets refused to close');
+  });
+
+  it('waits for startup to settle before destroying the database', async () => {
+    // knex.destroy() underneath an in-flight knex.migrate.latest() aborts the
+    // migration part-applied.
+    let finishStartup!: () => void;
+    const startup = new Promise<void>(resolve => { finishStartup = resolve; });
+    const closeDatabase = vi.fn(async () => {});
+    const [, database] = createServerClosers({ closeSockets: closedSockets, closeDatabase, startup });
+
+    const closing = database.close();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(closeDatabase).not.toHaveBeenCalled();
+
+    finishStartup();
+    await closing;
+    expect(closeDatabase).toHaveBeenCalledTimes(1);
+  });
+
+  it('still closes the database when startup failed', async () => {
+    const startup = Promise.reject(new Error('migrations failed'));
+    startup.catch(() => {}); // the closer attaches its own handler only when it runs
+    const closeDatabase = vi.fn(async () => {});
+    const [, database] = createServerClosers({ closeSockets: closedSockets, closeDatabase, startup });
+
+    await expect(database.close()).resolves.toBeUndefined();
+    expect(closeDatabase).toHaveBeenCalledTimes(1);
   });
 });

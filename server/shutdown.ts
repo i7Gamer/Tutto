@@ -10,8 +10,19 @@
 /** Signals that mean "stop": `docker stop` sends the first, Ctrl-C the second. */
 export const SHUTDOWN_SIGNALS = ['SIGTERM', 'SIGINT'] as const;
 
-/** How long the whole sequence may take before the process exits regardless. */
-export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
+/**
+ * How long Docker waits after SIGTERM before it SIGKILLs the container.
+ * `docker stop`'s default, and compose's when no `stop_grace_period` is set.
+ */
+export const DOCKER_DEFAULT_STOP_GRACE_PERIOD_MS = 10_000;
+
+/**
+ * How long the whole sequence may take before the process exits regardless.
+ * Strictly below the grace period above: an equal deadline races Docker's
+ * SIGKILL, and losing that race gives exactly the outcome the watchdog exists
+ * to prevent — the pool torn down mid-flight, after the full grace period.
+ */
+export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 8_000;
 
 export const EXIT_CODE_OK = 0;
 export const EXIT_CODE_FAILED = 1;
@@ -74,3 +85,50 @@ export const createShutdownHandler = ({
     exit(failed ? EXIT_CODE_FAILED : EXIT_CODE_OK);
   };
 };
+
+/**
+ * Node's error code when `close()` is called on a server that never listened.
+ * Reached whenever a signal arrives during startup, since the handlers are
+ * registered before `server.listen()` so a `docker stop` mid-migration is
+ * handled at all.
+ */
+const SERVER_NOT_RUNNING = 'ERR_SERVER_NOT_RUNNING';
+
+interface ServerCloserDependencies {
+  /** Closes the socket server and, with it, the HTTP server it is attached to. */
+  closeSockets: (done: (error?: Error) => void) => void;
+  closeDatabase: () => Promise<void>;
+  /** Settles when startup — migrations, then listen — has finished or failed. */
+  startup: Promise<unknown>;
+}
+
+/**
+ * The production closer list, in order. Separate from index.ts so the two cases
+ * that only happen during startup can be tested without a real signal.
+ */
+export const createServerClosers = (
+  { closeSockets, closeDatabase, startup }: ServerCloserDependencies,
+): Closer[] => [
+  {
+    name: 'socket and HTTP server',
+    close: () => new Promise<void>((resolve, reject) => {
+      closeSockets(error => {
+        // Nothing was ever open, so there is nothing to close. Reporting it as
+        // a failed closer would exit 1 on an otherwise clean shutdown.
+        if (error && (error as { code?: string }).code === SERVER_NOT_RUNNING) return resolve();
+        if (error) return reject(error);
+        resolve();
+      });
+    }),
+  },
+  {
+    name: 'database',
+    close: async () => {
+      // Migrations may still be in flight: destroying the pool underneath
+      // knex.migrate.latest() aborts it part-applied. Startup's own failure is
+      // reported by startup itself, not by this closer.
+      await startup.catch(() => {});
+      await closeDatabase();
+    },
+  },
+];
