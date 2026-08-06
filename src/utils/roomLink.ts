@@ -10,6 +10,9 @@ import { isPlausibleRoomId } from './configValidation';
 /** The query parameter a join link carries the room in. */
 export const ROOM_LINK_PARAM = 'room';
 
+/** The only schemes an invite is ever served over — the app runs on both. */
+const WEB_PROTOCOLS = ['http:', 'https:'];
+
 /**
  * The link to hand someone so they land on the lobby with `roomId` prefilled.
  *
@@ -38,6 +41,41 @@ export const buildRoomLink = (roomId: string, href: string): string => {
 export const readRoomFromSearch = (search: string): string | null => {
   const value = new URLSearchParams(search).get(ROOM_LINK_PARAM)?.trim() ?? '';
   return isPlausibleRoomId(value) ? value : null;
+};
+
+/** What a scanned QR code turned out to be. */
+export type ScannedLink =
+  | { kind: 'room'; roomId: string }
+  | { kind: 'foreign-origin' }
+  | { kind: 'not-an-invite' };
+
+/**
+ * Reads an invite out of whatever a camera just decoded.
+ *
+ * A scanned code is arbitrary text from the physical world, so this is the
+ * boundary that keeps it harmless: nothing anywhere navigates to a scanned URL,
+ * and only a link to this very deployment yields a room. Taking the room code
+ * out of a foreign link instead would quietly join a same-named room on
+ * whichever server the player's app happens to be pointed at — the two failure
+ * modes are reported separately so the UI can say which one happened.
+ */
+export const readScannedLink = (text: string, currentHref: string): ScannedLink => {
+  let scanned: URL;
+  try {
+    scanned = new URL(text);
+  } catch {
+    return { kind: 'not-an-invite' };
+  }
+
+  // Checked before the origin comparison: plenty of everyday QR codes parse as
+  // URLs without being web links at all (`WIFI:`, `tel:`, `mailto:`), and every
+  // one of them has an opaque origin that would otherwise be reported as an
+  // invite for some other Tutto server.
+  if (!WEB_PROTOCOLS.includes(scanned.protocol)) return { kind: 'not-an-invite' };
+  if (scanned.origin !== new URL(currentHref).origin) return { kind: 'foreign-origin' };
+
+  const roomId = readRoomFromSearch(scanned.search);
+  return roomId ? { kind: 'room', roomId } : { kind: 'not-an-invite' };
 };
 
 /**

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ROOM_LINK_PARAM, buildRoomLink, readRoomFromSearch, stripRoomFromUrl } from './roomLink';
+import {
+  ROOM_LINK_PARAM, buildRoomLink, readRoomFromSearch, readScannedLink, stripRoomFromUrl,
+} from './roomLink';
 import { MAX_ROOM_ID_LENGTH } from './configValidation';
 
 describe('buildRoomLink', () => {
@@ -68,6 +70,60 @@ describe('readRoomFromSearch', () => {
     expect(readRoomFromSearch(`?room=${'R'.repeat(MAX_ROOM_ID_LENGTH)}`)).toHaveLength(
       MAX_ROOM_ID_LENGTH
     );
+  });
+});
+
+describe('readScannedLink', () => {
+  const HERE = 'https://tutto.example.com/lobby';
+
+  it('reads the room out of an invite for this same server', () => {
+    expect(readScannedLink('https://tutto.example.com/?room=ROOM1', HERE)).toEqual({
+      kind: 'room',
+      roomId: 'ROOM1',
+    });
+  });
+
+  it('refuses an invite for a different server', () => {
+    // A scanned code is arbitrary text from the physical world. Nothing here
+    // ever navigates to it, so a link elsewhere cannot be followed — and
+    // taking just the room code out of it would join a same-named room on
+    // whichever server the scanner happens to be pointed at.
+    expect(readScannedLink('https://evil.example/?room=ROOM1', HERE)).toEqual({
+      kind: 'foreign-origin',
+    });
+    // Same host, different scheme and port are still different origins.
+    expect(readScannedLink('http://tutto.example.com/?room=ROOM1', HERE)).toEqual({
+      kind: 'foreign-origin',
+    });
+  });
+
+  it('reports a code that is not an invite at all', () => {
+    expect(readScannedLink('https://tutto.example.com/', HERE)).toEqual({ kind: 'not-an-invite' });
+    expect(readScannedLink('ROOM1', HERE)).toEqual({ kind: 'not-an-invite' });
+    expect(readScannedLink('', HERE)).toEqual({ kind: 'not-an-invite' });
+  });
+
+  it.each(['WIFI:S=coffee;;', 'tel:+441234567890', 'mailto:someone@example.com'])(
+    'reports the everyday QR code %s as no invite rather than a foreign server',
+    code => {
+      // These all parse as URLs, and every one has an opaque origin that would
+      // otherwise compare unequal and read as "an invite for somewhere else".
+      expect(readScannedLink(code, HERE)).toEqual({ kind: 'not-an-invite' });
+    }
+  );
+
+  it('applies the same room validation as a typed or remembered code', () => {
+    const overlong = 'R'.repeat(MAX_ROOM_ID_LENGTH + 1);
+    expect(readScannedLink(`https://tutto.example.com/?room=${overlong}`, HERE)).toEqual({
+      kind: 'not-an-invite',
+    });
+  });
+
+  it('accepts a plain-http LAN invite when that is where we are', () => {
+    expect(readScannedLink('http://192.168.1.5:3001/?room=R1', 'http://192.168.1.5:3001/')).toEqual({
+      kind: 'room',
+      roomId: 'R1',
+    });
   });
 });
 

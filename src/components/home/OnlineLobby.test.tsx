@@ -22,6 +22,17 @@ vi.mock('./RoomQrCode', () => ({
   default: ({ link }: { link: string }) => <div data-testid="room-qr-code" data-link={link} />,
 }));
 
+// Stubbed for the same reason: the real one drives a camera. These tests are
+// about what the lobby does with a scan, not about decoding one.
+vi.mock('./RoomQrScanner', () => ({
+  default: ({ onRoomScanned, onClose }: { onRoomScanned: (id: string) => void; onClose: () => void }) => (
+    <div data-testid="room-qr-scanner">
+      <button data-testid="scan-result" onClick={() => onRoomScanned('SCANNED')} />
+      <button data-testid="scan-close" onClick={onClose} />
+    </div>
+  ),
+}));
+
 const asPlayers = (players: Array<Partial<Player> & { name: string }>): Player[] =>
   players.map(p => ({ score: 0, ...p } as Player));
 
@@ -493,6 +504,63 @@ describe('OnlineLobby arriving from a join link', () => {
     render(<OnlineLobby initialRoomCode="LINKED" />);
 
     expect(joinRoom).not.toHaveBeenCalled();
+  });
+});
+
+describe('OnlineLobby scanning a friend\'s QR code', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  const openScanner = () => act(() => {
+    fireEvent.click(screen.getByTitle('lobby.online.scanQr'));
+  });
+
+  it('is closed until asked for, so no camera is touched on arrival', () => {
+    render(<OnlineLobby />);
+
+    expect(screen.queryByTestId('room-qr-scanner')).not.toBeInTheDocument();
+  });
+
+  it('fills in the room a scanned invite points at, and closes itself', () => {
+    render(<OnlineLobby />);
+    openScanner();
+    expect(screen.getByTestId('room-qr-scanner')).toBeInTheDocument();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('scan-result'));
+    });
+
+    const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder') as HTMLInputElement;
+    expect(roomInput.value).toBe('SCANNED');
+    // Leaving the camera running once it has what it came for reads as the
+    // app still watching.
+    expect(screen.queryByTestId('room-qr-scanner')).not.toBeInTheDocument();
+  });
+
+  it('does not join on its own, for the same reason a link does not', () => {
+    const joinRoom = vi.fn();
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+    localStorage.setItem('tutto_last_name', 'Alice');
+
+    render(<OnlineLobby />);
+    openScanner();
+    act(() => {
+      fireEvent.click(screen.getByTestId('scan-result'));
+    });
+
+    expect(joinRoom).not.toHaveBeenCalled();
+  });
+
+  it('can be closed without scanning anything', () => {
+    render(<OnlineLobby />);
+    openScanner();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('scan-close'));
+    });
+
+    expect(screen.queryByTestId('room-qr-scanner')).not.toBeInTheDocument();
   });
 });
 

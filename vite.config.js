@@ -15,6 +15,10 @@ const { version: appVersion } = JSON.parse(
   readFileSync(new URL('./package.json', import.meta.url), 'utf8')
 )
 
+// Packages reached only through a dynamic import. Kept out of the manual chunk
+// assignment below so the split actually happens — see the note there.
+const LAZY_PACKAGES = ['qrcode-generator', 'jsqr']
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   // Falls back to localhost for local dev. Set ALLOWED_HOST to the deployed
@@ -107,12 +111,13 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks: (id) => {
-            // Returning nothing leaves it to the default chunking, which
+            // Returning nothing leaves these to the default chunking, which
             // honours dynamic imports. The catch-all vendor rule at the bottom
-            // would otherwise pull the lazily imported QR encoder
-            // (RoomQrCode.tsx) into the bundle every player downloads, for a
-            // panel only a host ever opens.
-            if (id.includes('node_modules/qrcode-generator/')) return
+            // would otherwise pull them into the bundle every player
+            // downloads, silently undoing the lazy import at their call sites
+            // — the QR encoder (RoomQrCode.tsx) and the QR decoder
+            // (useQrScanner.ts), neither of which most players ever need.
+            if (LAZY_PACKAGES.some(pkg => id.includes(`node_modules/${pkg}/`))) return
             if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) return 'react'
             if (id.includes('node_modules/zustand/')) return 'zustand'
             if (id.includes('node_modules/chart.js/') || id.includes('node_modules/react-chartjs-2/')) return 'charts'

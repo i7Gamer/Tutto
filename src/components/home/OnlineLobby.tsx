@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-import { Copy, Check, X, Share2, QrCode } from 'lucide-react';
+import { Copy, Check, X, Share2, QrCode, ScanLine } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList,
@@ -13,6 +13,7 @@ import { buildRoomLink } from '../../utils/roomLink';
 import { useGameStore } from '../../store/useGameStore';
 import ConfirmModal from '../ConfirmModal';
 import RoomQrCode from './RoomQrCode';
+import RoomQrScanner from './RoomQrScanner';
 
 // How long the copy button shows its "copied" checkmark before reverting.
 const COPY_FEEDBACK_MS = 1500;
@@ -62,6 +63,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
   const [errorMsg, setErrorMsg] = useState('');
   const [roomLinkCopied, setRoomLinkCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
   // Read once: the sheet either exists on this device or it does not, and a
   // button that appears mid-session would be odd.
   const [canShare] = useState(() => typeof navigator.share === 'function');
@@ -217,6 +219,14 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     persistRecentRooms(recentRooms.filter(room => room.roomId !== roomId));
   };
 
+  // Same handling as a followed link: fill the code in, close the camera, leave
+  // the join to the player — a scan cannot know their name either.
+  const handleRoomScanned = useCallback((scannedRoomId: string) => {
+    setInputRoomCode(scannedRoomId);
+    setShowScanner(false);
+    nameInputRef.current?.focus();
+  }, []);
+
   if (!roomId) {
     return (
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-8 max-w-sm mx-auto">
@@ -224,13 +234,31 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-200">{t('lobby.online.roomCode', 'Room Code')}</label>
-            <input
-              type="text"
-              value={inputRoomCode}
-              onChange={(e) => setInputRoomCode(e.target.value)}
-              placeholder={t('lobby.online.roomCodePlaceholder', 'e.g. 1234')}
-              className="bg-white dark:bg-slate-800/60 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+            <div className="flex items-stretch gap-2">
+              <input
+                type="text"
+                value={inputRoomCode}
+                onChange={(e) => setInputRoomCode(e.target.value)}
+                placeholder={t('lobby.online.roomCodePlaceholder', 'e.g. 1234')}
+                className="flex-1 min-w-0 bg-white dark:bg-slate-800/60 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              {/* Always offered, never pre-emptively hidden: whether the camera
+                  can be used depends on the origin and the permission, and the
+                  panel explains which one is in the way. A button that silently
+                  is not there teaches nobody anything. */}
+              <button
+                onClick={() => setShowScanner(current => !current)}
+                aria-expanded={showScanner}
+                title={t('lobby.online.scanQr', 'Scan a QR code')}
+                aria-label={t('lobby.online.scanQr', 'Scan a QR code')}
+                className="shrink-0 px-3 rounded-lg border border-gray-200 dark:border-slate-600 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"
+              >
+                <ScanLine size={18} />
+              </button>
+            </div>
+            {showScanner && (
+              <RoomQrScanner onRoomScanned={handleRoomScanned} onClose={() => setShowScanner(false)} />
+            )}
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-200">{t('lobby.online.yourName', 'Your Name')}</label>
