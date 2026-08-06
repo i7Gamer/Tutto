@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [ master, main ]
 
+# Checkout is all either job needs the token for. Without this the workflow
+# inherits the repository default, which for a public repository can be
+# read/write across issues, packages and deployments — far more than a test run
+# should be able to reach. Mirrors docker-publish.yml, which already sets it.
+permissions:
+  contents: read
+
 jobs:
   ci:
     name: Type Check, Lint & Test
