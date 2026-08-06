@@ -18,6 +18,12 @@ export const MAX_PLAYER_NAME_LENGTH = 30;
 // cache (recentRooms.ts), which renders stored ids straight into the DOM.
 export const MAX_ROOM_ID_LENGTH = 100;
 
+// Shared by every untrusted source of a room id — the remembered-rooms cache
+// (recentRooms.ts) and a shared join link (roomLink.ts) — so the two cannot
+// drift apart. Both feed the same input and the same joinRoom emit.
+export const isPlausibleRoomId = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 && value.length <= MAX_ROOM_ID_LENGTH;
+
 // Single source of truth for the game-config defaults, shared by the client
 // store (initial state / reset actions) and the server (new-room state) so the
 // two can never drift apart. Consumers that store these in mutable state should

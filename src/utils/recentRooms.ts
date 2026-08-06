@@ -3,7 +3,7 @@
 // OnlineLobby.tsx because a component module may only export components
 // (react-refresh/only-export-components).
 
-import { MAX_PLAYER_NAME_LENGTH, MAX_ROOM_ID_LENGTH } from './configValidation';
+import { MAX_PLAYER_NAME_LENGTH, isPlausibleRoomId } from './configValidation';
 
 export interface RecentRoom {
   roomId: string;
@@ -23,8 +23,7 @@ export const MAX_TIMESTAMP_MS = 8_640_000_000_000_000;
 const isPlausibleRecentRoom = (v: unknown): v is RecentRoom => {
   if (typeof v !== 'object' || v === null) return false;
   const room = v as Record<string, unknown>;
-  return typeof room.roomId === 'string'
-    && room.roomId.length > 0 && room.roomId.length <= MAX_ROOM_ID_LENGTH
+  return isPlausibleRoomId(room.roomId)
     && typeof room.name === 'string'
     && room.name.length > 0 && room.name.length <= MAX_PLAYER_NAME_LENGTH
     // Rendered through `new Date(...)`, which turns anything else into

@@ -28,6 +28,38 @@ describe('Home Component (i18n)', () => {
   });
 });
 
+describe('Home following a join link', () => {
+  const originalSetMode = useGameStore.getState().setMode;
+
+  afterEach(() => {
+    cleanup();
+    useGameStore.setState({ setMode: originalSetMode, roomId: null, mode: 'local' });
+    window.history.replaceState({}, '', '/');
+    vi.restoreAllMocks();
+  });
+
+  it('switches to online play, which a fresh visit is not in', () => {
+    // `mode` starts at 'local', so without this the invitation lands on a page
+    // that never even mounts the online lobby.
+    const setMode = vi.fn();
+    useGameStore.setState({ mode: 'local', roomId: null, setMode });
+    window.history.replaceState({}, '', '/?room=LINKED');
+
+    render(<Home onShowStats={() => {}} />);
+
+    expect(setMode).toHaveBeenCalledWith('online');
+  });
+
+  it('leaves an ordinary visit on whatever mode it was already in', () => {
+    const setMode = vi.fn();
+    useGameStore.setState({ mode: 'local', roomId: null, setMode });
+
+    render(<Home onShowStats={() => {}} />);
+
+    expect(setMode).not.toHaveBeenCalled();
+  });
+});
+
 describe('Home handleModeChange', () => {
   // Captured once, before any test below overwrites them on the shared store.
   const originalSetMode = useGameStore.getState().setMode;

@@ -131,7 +131,11 @@ describe('OnlineLobby copy room code button', () => {
     ...overrides,
   });
 
-  it('copies the room code to the clipboard and shows a toast', async () => {
+  // A bare room code has to be retyped by whoever receives it; a link opens the
+  // lobby with the code already in place, and is what a QR code can carry.
+  const expectedLink = () => `${window.location.origin}/?room=1234`;
+
+  it('copies an invite link, not the bare room code', async () => {
     vi.useFakeTimers();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
@@ -141,11 +145,11 @@ describe('OnlineLobby copy room code button', () => {
     render(<OnlineLobby />);
 
     await act(async () => {
-      fireEvent.click(screen.getByTitle('lobby.online.copyRoomCode'));
+      fireEvent.click(screen.getByTitle('lobby.online.copyRoomLink'));
     });
 
-    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith('1234'));
-    expect(addToast).toHaveBeenCalledWith('lobby.online.roomCodeCopied');
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith(expectedLink()));
+    expect(addToast).toHaveBeenCalledWith('lobby.online.roomLinkCopied');
     vi.useRealTimers();
   });
 
@@ -159,11 +163,62 @@ describe('OnlineLobby copy room code button', () => {
     render(<OnlineLobby />);
 
     await act(async () => {
-      fireEvent.click(screen.getByTitle('lobby.online.copyRoomCode'));
+      fireEvent.click(screen.getByTitle('lobby.online.copyRoomLink'));
     });
 
-    await vi.waitFor(() => expect(addToast).toHaveBeenCalledWith('lobby.online.roomCodeCopyFailed'));
+    await vi.waitFor(() => expect(addToast).toHaveBeenCalledWith('lobby.online.roomLinkCopyFailed'));
     vi.useRealTimers();
+  });
+
+  describe('sharing the invite', () => {
+    const withShare = (share: unknown) => {
+      Object.assign(navigator, { share });
+      return () => { delete (navigator as { share?: unknown }).share; };
+    };
+
+    it('hands the link to the native share sheet where there is one', async () => {
+      const share = vi.fn().mockResolvedValue(undefined);
+      const restore = withShare(share);
+      stageRoom({ addToast: vi.fn() });
+
+      render(<OnlineLobby />);
+      await act(async () => {
+        fireEvent.click(screen.getByTitle('lobby.online.shareRoomLink'));
+      });
+
+      expect(share).toHaveBeenCalledWith(expect.objectContaining({ url: expectedLink() }));
+      restore();
+    });
+
+    it('says nothing when the share sheet is dismissed', async () => {
+      // Cancelling is not a failure, and a "could not share" toast for it is
+      // just noise over an action the player deliberately backed out of.
+      const share = vi.fn().mockRejectedValue(
+        Object.assign(new Error('cancelled'), { name: 'AbortError' })
+      );
+      const restore = withShare(share);
+      const addToast = vi.fn();
+      stageRoom({ addToast });
+
+      render(<OnlineLobby />);
+      await act(async () => {
+        fireEvent.click(screen.getByTitle('lobby.online.shareRoomLink'));
+      });
+
+      expect(addToast).not.toHaveBeenCalled();
+      restore();
+    });
+
+    it('offers no share button on a device without a share sheet', () => {
+      // Desktop browsers largely have none; the copy button covers them.
+      delete (navigator as { share?: unknown }).share;
+      stageRoom({ addToast: vi.fn() });
+
+      render(<OnlineLobby />);
+
+      expect(screen.queryByTitle('lobby.online.shareRoomLink')).not.toBeInTheDocument();
+      expect(screen.getByTitle('lobby.online.copyRoomLink')).toBeInTheDocument();
+    });
   });
 
   it('clears the pending copy-feedback timeout on unmount instead of leaving it armed', async () => {
@@ -175,7 +230,7 @@ describe('OnlineLobby copy room code button', () => {
     const { unmount } = render(<OnlineLobby />);
 
     await act(async () => {
-      fireEvent.click(screen.getByTitle('lobby.online.copyRoomCode'));
+      fireEvent.click(screen.getByTitle('lobby.online.copyRoomLink'));
     });
     await vi.waitFor(() => expect(writeText).toHaveBeenCalled());
 
@@ -356,6 +411,55 @@ describe('OnlineLobby dice mode enforcement', () => {
     expect(screen.getByText('lobby.digitalDice')).toBeInTheDocument();
     expect(screen.getByText('lobby.physicalDice')).toBeInTheDocument();
     expect(screen.queryByText(/lobby.diceModeEnforcedBadge/)).not.toBeInTheDocument();
+  });
+});
+
+describe('OnlineLobby arriving from a join link', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('fills in the room the link is asking for', () => {
+    render(<OnlineLobby initialRoomCode="LINKED" />);
+
+    const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder') as HTMLInputElement;
+    expect(roomInput.value).toBe('LINKED');
+  });
+
+  it('prefers the link over the last room this device joined', () => {
+    localStorage.setItem('tutto_last_room', 'REMEMBERED');
+
+    render(<OnlineLobby initialRoomCode="LINKED" />);
+
+    const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder') as HTMLInputElement;
+    expect(roomInput.value).toBe('LINKED');
+  });
+
+  it('still uses the remembered room when there is no link', () => {
+    localStorage.setItem('tutto_last_room', 'REMEMBERED');
+
+    render(<OnlineLobby />);
+
+    const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder') as HTMLInputElement;
+    expect(roomInput.value).toBe('REMEMBERED');
+  });
+
+  it('puts the cursor in the name field, the only thing still missing', () => {
+    render(<OnlineLobby initialRoomCode="LINKED" />);
+
+    expect(document.activeElement).toBe(screen.getByPlaceholderText('lobby.online.yourNamePlaceholder'));
+  });
+
+  it('does not join on its own', () => {
+    // A link cannot know the player's name, and silently joining a room
+    // because someone sent a URL is a surprise. It fills in, they tap Join.
+    const joinRoom = vi.fn();
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+    localStorage.setItem('tutto_last_name', 'Alice');
+
+    render(<OnlineLobby initialRoomCode="LINKED" />);
+
+    expect(joinRoom).not.toHaveBeenCalled();
   });
 });
 

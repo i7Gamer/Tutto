@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../store/useGameStore';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
+import { useRoomLink } from '../hooks/useRoomLink';
 
 import ModeSelector from './home/ModeSelector';
 import LocalLobby from './home/LocalLobby';
@@ -25,6 +26,14 @@ export default function Home({ onShowStats }: HomeProps) {
   // switching away from an active online room — there's no other pending
   // target mode to remember once confirmed, it's always 'local'.
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+
+  // A join link has to switch the mode as well as fill the code in: `mode`
+  // lives in the store and starts at 'local', so OnlineLobby is not even
+  // mounted when someone follows an invitation on a fresh visit.
+  const linkedRoomId = useRoomLink();
+  useEffect(() => {
+    if (linkedRoomId) setMode('online');
+  }, [linkedRoomId, setMode]);
 
   const handleModeChange = useCallback((newMode: 'local' | 'online') => {
     if (newMode === 'local' && roomId) {
@@ -97,7 +106,7 @@ export default function Home({ onShowStats }: HomeProps) {
         />
 
         <div className="bg-black/5 dark:bg-white/5 rounded-2xl p-4 sm:p-6 border border-gray-100 dark:border-slate-700">
-          {mode === 'local' ? <LocalLobby /> : <OnlineLobby />}
+          {mode === 'local' ? <LocalLobby /> : <OnlineLobby initialRoomCode={linkedRoomId ?? undefined} />}
         </div>
 
         <div className="text-center mt-10 text-sm text-gray-500 dark:text-gray-400 font-medium">

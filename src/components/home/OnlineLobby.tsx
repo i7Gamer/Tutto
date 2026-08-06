@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-import { Copy, Check, X } from 'lucide-react';
+import { Copy, Check, X, Share2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList,
@@ -9,6 +9,7 @@ import {
 } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
 import { parseRecentRooms, MAX_RECENT_ROOMS, type RecentRoom } from '../../utils/recentRooms';
+import { buildRoomLink } from '../../utils/roomLink';
 import { useGameStore } from '../../store/useGameStore';
 import ConfirmModal from '../ConfirmModal';
 
@@ -25,7 +26,15 @@ interface JoinRoomResult {
   error?: string;
 }
 
-export default function OnlineLobby() {
+interface OnlineLobbyProps {
+  /**
+   * The room a shared join link asked for (see useRoomLink). Wins over the
+   * remembered last room: an explicit invitation beats a stale default.
+   */
+  initialRoomCode?: string;
+}
+
+export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
   const { t } = useTranslation();
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
@@ -41,10 +50,19 @@ export default function OnlineLobby() {
     () => parseRecentRooms(getStoredValue('tutto_recent_rooms')),
   );
 
-  const [inputRoomCode, setInputRoomCode] = useState(() => getStoredValue('tutto_last_room'));
+  const [inputRoomCode, setInputRoomCode] = useState(() => initialRoomCode ?? getStoredValue('tutto_last_room'));
   const [inputName, setInputName] = useState(() => getStoredValue('tutto_last_name'));
+  // Arriving from a link, the code is already filled in and the name is the
+  // only thing still missing — so that is where the cursor belongs.
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (initialRoomCode) nameInputRef.current?.focus();
+  }, [initialRoomCode]);
   const [errorMsg, setErrorMsg] = useState('');
-  const [roomCodeCopied, setRoomCodeCopied] = useState(false);
+  const [roomLinkCopied, setRoomLinkCopied] = useState(false);
+  // Read once: the sheet either exists on this device or it does not, and a
+  // button that appears mid-session would be odd.
+  const [canShare] = useState(() => typeof navigator.share === 'function');
   const [isJoining, setIsJoining] = useState(false);
   // Re-entrancy guard for handleJoin. A ref, not the state above: two clicks
   // in the same frame both read the pre-render `isJoining === false` from
@@ -89,16 +107,32 @@ export default function OnlineLobby() {
   const copyFeedbackTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(copyFeedbackTimer.current), []);
 
-  const handleCopyRoomCode = async () => {
-    if (!roomId) return;
+  // A link rather than the bare code: the code has to be retyped by whoever
+  // receives it, while the link opens the lobby with it already filled in.
+  const roomLink = roomId ? buildRoomLink(roomId, window.location.href) : '';
+
+  const handleCopyRoomLink = async () => {
+    if (!roomLink) return;
     try {
-      await navigator.clipboard.writeText(roomId);
-      setRoomCodeCopied(true);
-      addToast(t('lobby.online.roomCodeCopied', 'Room code copied!'));
+      await navigator.clipboard.writeText(roomLink);
+      setRoomLinkCopied(true);
+      addToast(t('lobby.online.roomLinkCopied', 'Invite link copied!'));
       clearTimeout(copyFeedbackTimer.current);
-      copyFeedbackTimer.current = setTimeout(() => setRoomCodeCopied(false), COPY_FEEDBACK_MS);
+      copyFeedbackTimer.current = setTimeout(() => setRoomLinkCopied(false), COPY_FEEDBACK_MS);
     } catch {
-      addToast(t('lobby.online.roomCodeCopyFailed', 'Could not copy room code'));
+      addToast(t('lobby.online.roomLinkCopyFailed', 'Could not copy the invite link'));
+    }
+  };
+
+  const handleShareRoomLink = async () => {
+    if (!roomLink) return;
+    try {
+      await navigator.share({ title: t('app.title', 'Tutto'), url: roomLink });
+    } catch (e) {
+      // Dismissing the sheet rejects with AbortError. That is the player
+      // backing out, not a failure worth a toast.
+      if ((e as Error)?.name === 'AbortError') return;
+      addToast(t('lobby.online.roomLinkShareFailed', 'Could not share the invite link'));
     }
   };
 
@@ -199,6 +233,7 @@ export default function OnlineLobby() {
           <div className="flex flex-col gap-1">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-200">{t('lobby.online.yourName', 'Your Name')}</label>
             <input
+              ref={nameInputRef}
               type="text"
               value={inputName}
               onChange={(e) => setInputName(e.target.value)}
@@ -265,12 +300,22 @@ export default function OnlineLobby() {
             <h3 className="text-2xl font-bold text-indigo-900 dark:text-indigo-200 mb-0">{t('lobby.online.room', 'Room: {{roomId}}', { roomId })}</h3>
             <button
               className="text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 p-2 rounded-lg transition-colors"
-              onClick={() => void handleCopyRoomCode()}
-              title={t('lobby.online.copyRoomCode', 'Copy room code')}
-              aria-label={t('lobby.online.copyRoomCode', 'Copy room code')}
+              onClick={() => void handleCopyRoomLink()}
+              title={t('lobby.online.copyRoomLink', 'Copy invite link')}
+              aria-label={t('lobby.online.copyRoomLink', 'Copy invite link')}
             >
-              {roomCodeCopied ? <Check size={20} className="text-emerald-500" /> : <Copy size={20} />}
+              {roomLinkCopied ? <Check size={20} className="text-emerald-500" /> : <Copy size={20} />}
             </button>
+            {canShare && (
+              <button
+                className="text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 p-2 rounded-lg transition-colors"
+                onClick={() => void handleShareRoomLink()}
+                title={t('lobby.online.shareRoomLink', 'Share invite link')}
+                aria-label={t('lobby.online.shareRoomLink', 'Share invite link')}
+              >
+                <Share2 size={20} />
+              </button>
+            )}
           </div>
           <button
             className="text-red-500 hover:bg-red-50 border border-red-200 px-4 py-2 rounded-lg font-medium transition-colors"
