@@ -117,12 +117,24 @@ export default defineConfig([
     rules: sharedJsRules,
   },
 
-  // Node-side ES modules: Playwright e2e specs and build/config files.
+  // Node-side ES modules: build and tool config files.
   {
-    files: ['e2e/**/*.js', '*.config.js'],
+    files: ['*.config.js'],
     extends: [js.configs.recommended],
     languageOptions: {
       globals: globals.node,
+      sourceType: 'module',
+    },
+    rules: sharedJsRules,
+  },
+
+  // Playwright e2e specs: Node, plus browser globals for the callbacks handed
+  // to page.evaluate — those run in the page, not in the test process.
+  {
+    files: ['e2e/**/*.js'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser },
       sourceType: 'module',
     },
     rules: sharedJsRules,

@@ -1,5 +1,14 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// The e2e suite runs against the production build served by the real Express
+// server, not the dev server. Two reasons: it is the topology that actually
+// ships (one origin serving the frontend, the API and the socket, exactly as
+// the Docker image does), and the service worker only exists in a built app —
+// running against `vite dev` meant offline behaviour was never exercised at
+// all, which is how a worker that cached nothing went unnoticed.
+const E2E_PORT = '4180';
+const E2E_ORIGIN = `http://localhost:${E2E_PORT}`;
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -8,7 +17,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: E2E_ORIGIN,
     trace: 'on-first-retry',
   },
   projects: [
@@ -26,19 +35,25 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm start',
-    url: 'http://localhost:5173',
-    // TEST_DB makes the spawned API server use an in-memory sqlite database
-    // (see server/knexfile.ts) so e2e runs never read or write the real
-    // stats.db. Caveat: reuseExistingServer means a locally running dev
-    // server (real DB) is reused instead — kill it first when isolation
-    // matters; CI always spawns fresh.
-    // SOCKET_CONN_LIMIT_MAX: e2e traffic is proxied through the vite dev
-    // server, so every browser's socket reaches the API server from
-    // 127.0.0.1 — the per-IP connection limiter would count them as one
-    // client (see socketHandlers.ts).
-    env: { TEST_DB: 'true', SOCKET_CONN_LIMIT_MAX: '1000000' },
-    reuseExistingServer: !process.env.CI,
-    timeout: 120000,
+    // Rebuilt every run: the whole point is to test the artifact, and a stale
+    // dist would quietly test the previous commit.
+    command: 'npm run build && npm run server',
+    url: E2E_ORIGIN,
+    env: {
+      // A port of its own, so a dev server on 3001 is never mistaken for this
+      // one — that is what made reuseExistingServer safe to turn off.
+      PORT: E2E_PORT,
+      // TEST_DB makes the API server use an in-memory sqlite database (see
+      // server/knexfile.ts) so e2e runs never read or write the real stats.db.
+      TEST_DB: 'true',
+      // Every browser reaches the server from 127.0.0.1, so the per-IP socket
+      // connection limiter would count them all as one client (socketHandlers.ts).
+      SOCKET_CONN_LIMIT_MAX: '1000000',
+    },
+    // Never reuse: a server already on this port is not known to be serving a
+    // fresh build, and testing yesterday's dist is worse than not testing.
+    reuseExistingServer: false,
+    // Covers the build as well as server start-up.
+    timeout: 180000,
   },
 });
