@@ -552,6 +552,29 @@ describe('OnlineLobby scanning a friend\'s QR code', () => {
     expect(joinRoom).not.toHaveBeenCalled();
   });
 
+  it('does not bring the camera back after a room is joined and then left', () => {
+    // The flag outlives the join form: open the scanner, join by typing
+    // instead, play a game, leave — and the camera would come back on with
+    // nobody having asked for it.
+    render(<OnlineLobby />);
+    openScanner();
+    expect(screen.getByTestId('room-qr-scanner')).toBeInTheDocument();
+
+    act(() => {
+      useGameStore.setState({
+        roomId: '1234', myName: 'Alice', isHost: true, players: asPlayers([{ name: 'Alice' }]),
+      });
+    });
+    expect(screen.queryByTestId('room-qr-scanner')).not.toBeInTheDocument();
+
+    act(() => {
+      useGameStore.setState({ roomId: null });
+    });
+
+    expect(screen.queryByTestId('room-qr-scanner')).not.toBeInTheDocument();
+    expect(screen.getByTitle('lobby.online.scanQr')).toBeInTheDocument();
+  });
+
   it('can be closed without scanning anything', () => {
     render(<OnlineLobby />);
     openScanner();

@@ -108,6 +108,16 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     resetInitialCards: s.resetInitialCards,
   })));
 
+  // The scanner lives in the join form, but its flag would outlive a whole
+  // game: open the scanner, join by typing instead, play, leave — and the
+  // camera comes back on with nobody having asked. Reset on the room changing,
+  // the render-time pattern GameControls already uses for its card flip.
+  const [scannerRoomId, setScannerRoomId] = useState(roomId);
+  if (roomId !== scannerRoomId) {
+    setScannerRoomId(roomId);
+    setShowScanner(false);
+  }
+
   const copyFeedbackTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(copyFeedbackTimer.current), []);
 
