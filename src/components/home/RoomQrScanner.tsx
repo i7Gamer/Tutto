@@ -1,44 +1,11 @@
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
-import { useQrScanner, type ScannerStatus } from '../../hooks/useQrScanner';
+import { useQrScanner } from '../../hooks/useQrScanner';
 import { readScannedLink } from '../../utils/roomLink';
-
-/**
- * What to tell the player for each state the camera can be in. Every one of
- * these is actionable — grant the permission, use a different device, reach the
- * app over https — so none of them collapses into "something went wrong".
- */
-interface ScannerMessage {
-  key: string;
-  fallback: string;
-}
-
-const STATUS_MESSAGES: Record<ScannerStatus, ScannerMessage | null> = {
-  idle: null,
-  starting: { key: 'lobby.online.scanStarting', fallback: 'Starting the camera…' },
-  scanning: { key: 'lobby.online.scanHint', fallback: 'Point at the QR code on the other device' },
-  insecure: {
-    key: 'lobby.online.scanInsecure',
-    fallback: 'Scanning needs a secure connection. Open Tutto over https, or type the room code in instead.',
-  },
-  unsupported: {
-    key: 'lobby.online.scanUnsupported',
-    fallback: 'This browser cannot use the camera. Type the room code in instead.',
-  },
-  denied: {
-    key: 'lobby.online.scanDenied',
-    fallback: 'Camera access was refused. Allow it in your browser settings, or type the room code in instead.',
-  },
-  'no-camera': {
-    key: 'lobby.online.scanNoCamera',
-    fallback: 'No camera found on this device. Type the room code in instead.',
-  },
-  error: {
-    key: 'lobby.online.scanError',
-    fallback: 'The camera could not be started. Type the room code in instead.',
-  },
-};
+import {
+  STATUS_MESSAGES, REJECTION_MESSAGES, type ScannerMessage,
+} from '../../utils/scannerMessages';
 
 interface RoomQrScannerProps {
   /** Called with a room code from an invite for this same deployment. */
@@ -64,15 +31,7 @@ export default function RoomQrScanner({ onRoomScanned, onClose }: RoomQrScannerP
       onRoomScanned(scanned.roomId);
       return;
     }
-    setRejection(scanned.kind === 'foreign-origin'
-      ? {
-        key: 'lobby.online.scanForeignOrigin',
-        fallback: 'That invite is for a different Tutto server.',
-      }
-      : {
-        key: 'lobby.online.scanNotAnInvite',
-        fallback: 'That is not a Tutto invite.',
-      });
+    setRejection(REJECTION_MESSAGES[scanned.kind]);
   }, [onRoomScanned]);
 
   const { videoRef, status } = useQrScanner({ enabled: true, onDecode: handleDecode });

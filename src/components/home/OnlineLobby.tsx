@@ -321,15 +321,19 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
       <div className="mb-8">
-        <div className="flex justify-between items-center mb-4">
-          <div className="flex items-center gap-2">
+        {/* flex-wrap and the min-w-0/truncate/shrink-0 below: this row holds a
+            heading of unbounded length plus up to four buttons, and on a narrow
+            phone the fixed-width ones would otherwise push the whole row past
+            the container rather than the heading giving way. */}
+        <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
+          <div className="flex items-center gap-1 min-w-0">
             {/* mb-0 overrides the global `h3 { margin-bottom: 1rem }` base rule
                 (index.css) — left in place, that stray bottom margin is what
                 pushed this heading's centered content above the copy/leave
                 buttons it shares this items-center row with. */}
-            <h3 className="text-2xl font-bold text-indigo-900 dark:text-indigo-200 mb-0">{t('lobby.online.room', 'Room: {{roomId}}', { roomId })}</h3>
+            <h3 className="text-2xl font-bold text-indigo-900 dark:text-indigo-200 mb-0 truncate min-w-0">{t('lobby.online.room', 'Room: {{roomId}}', { roomId })}</h3>
             <button
-              className="text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 p-2 rounded-lg transition-colors"
+              className="shrink-0 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 p-2 rounded-lg transition-colors"
               onClick={() => void handleCopyRoomLink()}
               title={t('lobby.online.copyRoomLink', 'Copy invite link')}
               aria-label={t('lobby.online.copyRoomLink', 'Copy invite link')}
@@ -338,7 +342,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
             </button>
             {canShare && (
               <button
-                className="text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 p-2 rounded-lg transition-colors"
+                className="shrink-0 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 p-2 rounded-lg transition-colors"
                 onClick={() => void handleShareRoomLink()}
                 title={t('lobby.online.shareRoomLink', 'Share invite link')}
                 aria-label={t('lobby.online.shareRoomLink', 'Share invite link')}
@@ -350,7 +354,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
                 physically present to scan it, and expanded it would push the
                 player list off a phone screen. */}
             <button
-              className="text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 p-2 rounded-lg transition-colors"
+              className="shrink-0 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 p-2 rounded-lg transition-colors"
               onClick={() => setShowQr(current => !current)}
               aria-expanded={showQr}
               title={showQr
@@ -364,7 +368,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
             </button>
           </div>
           <button
-            className="text-red-500 hover:bg-red-50 border border-red-200 px-4 py-2 rounded-lg font-medium transition-colors"
+            className="shrink-0 text-red-500 hover:bg-red-50 border border-red-200 px-4 py-2 rounded-lg font-medium transition-colors"
             onClick={() => setShowLeaveConfirm(true)}
           >
             {t('lobby.online.leaveRoom', 'Leave Room')}
