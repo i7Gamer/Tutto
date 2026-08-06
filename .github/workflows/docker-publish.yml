@@ -37,6 +37,10 @@ env:
   # Only ever reaches a throwaway container on the runner. The server refuses to
   # start in production without one, so the smoke test has to supply it.
   SMOKE_API_TOKEN: ci-smoke-token-not-a-secret
+  # Well above the sub-second the ordered shutdown takes, and above
+  # DEFAULT_SHUTDOWN_TIMEOUT_MS in server/shutdown.ts, so a container that hangs
+  # is reported by the exit-code assertion rather than masked by Docker's SIGKILL.
+  SMOKE_STOP_TIMEOUT: '20'
   # Docker Hub's management API. The OCI registry (registry-1.docker.io) is not
   # usable here: it answers manifest DELETE with 405 for Hub accounts.
   HUB_API: https://hub.docker.com/v2
@@ -191,6 +195,35 @@ jobs:
 
           echo "--- container logs ---"
           docker logs smoke
+
+          echo "--- graceful shutdown ---"
+          # `docker stop` SIGTERMs PID 1, which must be the server itself. The
+          # handler in server/shutdown.ts closes the sockets, then the database,
+          # then exits 0. An exit of 143 means SIGTERM's default disposition ran
+          # instead — the entrypoint never handled it, or a launcher swallowed
+          # it — and the database was torn down mid-flight. Asserted here because
+          # nothing else exercises the signal path on a real image.
+          started_at="$(date +%s%N)"
+          docker stop -t "${SMOKE_STOP_TIMEOUT}" smoke >/dev/null
+          echo "stopped in $(( ($(date +%s%N) - started_at) / 1000000 ))ms"
+
+          docker logs smoke > /tmp/smoke-shutdown.log 2>&1
+          for expected in 'Received SIGTERM, shutting down.' 'Closed socket and HTTP server.' 'Closed database.'; do
+            if ! grep -qF "${expected}" /tmp/smoke-shutdown.log; then
+              echo "::error::shutdown log is missing: ${expected}"
+              cat /tmp/smoke-shutdown.log
+              exit 1
+            fi
+          done
+
+          stop_exit_code="$(docker inspect -f '{{.State.ExitCode}}' smoke)"
+          if [ "${stop_exit_code}" != "0" ]; then
+            echo "::error::container exited ${stop_exit_code} on docker stop — the ordered shutdown did not complete"
+            cat /tmp/smoke-shutdown.log
+            exit 1
+          fi
+          echo "exited cleanly (0)"
+
           docker rm -f smoke
 
       # Pushed without a tag: each architecture publishes only its digest, and
@@ -283,6 +316,16 @@ jobs:
                  -d "{\"username\":\"${DOCKERHUB_USERNAME}\",\"password\":\"${DOCKERHUB_TOKEN}\"}" \
                  | jq -r '.token')"; then
             echo "::warning::could not authenticate to the Docker Hub API — this publish will leave its predecessor untagged"
+            exit 0
+          fi
+
+          # The check above only catches a transport or non-2xx failure. Hub
+          # answers a 2FA-enabled account with HTTP 200 and a login_2fa_token
+          # instead of a token, so curl succeeds and jq prints the string
+          # "null" — every later call would then send `Authorization: JWT null`,
+          # 401, and be reported as "nothing to supersede" for good.
+          if [ -z "${jwt}" ] || [ "${jwt}" = "null" ]; then
+            echo "::warning::the Docker Hub API returned no token — this publish will leave its predecessor untagged"
             exit 0
           fi
 
@@ -407,6 +450,13 @@ jobs:
                  -d "{\"username\":\"${DOCKERHUB_USERNAME}\",\"password\":\"${DOCKERHUB_TOKEN}\"}" \
                  | jq -r '.token')"; then
             echo "::warning::could not authenticate to the Docker Hub API — skipping cleanup"
+            exit 0
+          fi
+
+          # See the record step: a 200 login that carries no token would leave
+          # jwt as the literal "null" and turn every delete into a silent 401.
+          if [ -z "${jwt}" ] || [ "${jwt}" = "null" ]; then
+            echo "::warning::the Docker Hub API returned no token — skipping cleanup"
             exit 0
           fi
 

@@ -10,9 +10,10 @@
 # broken — the last one 404ed on its first API call and reported success anyway,
 # because the step is continue-on-error. Nothing in the repository could have
 # caught that. These scenarios cover the cases that were wrong (a status other
-# than 2xx counted as a deletion, a keep-set truncated at one page) plus the
-# ones that must never regress (a shared sub-manifest surviving, an empty
-# keep-set aborting, a failed login not breaking the publish).
+# than 2xx counted as a deletion, a keep-set truncated at one page, a 200 login
+# carrying no token) plus the ones that must never regress (a shared
+# sub-manifest surviving, an empty keep-set aborting, a failed login, a failed
+# listing and an exhausted page cap all leaving the publish alone).
 #
 # The step scripts are re-extracted from the workflow on every run, so there is
 # no checked-in copy to drift out of date.
@@ -51,10 +52,15 @@ for tool in curl jq; do
 done
 
 # Mirrors the workflow-level env the steps read.
+DEFAULT_MAX_TAG_PAGES=20
+# Lowered for the pagination-exhaustion scenario so it needs three page fixtures
+# rather than twenty-one.
+EXHAUSTED_MAX_TAG_PAGES=2
+
 export IMAGE_NAME=i7gamer/tutto
 export HUB_API=https://hub.docker.com/v2
 export HUB_API_PAGE_SIZE=100
-export MAX_TAG_PAGES=20
+export MAX_TAG_PAGES="${DEFAULT_MAX_TAG_PAGES}"
 export SUPERSEDED_DIGESTS_FILE="${WORK}/superseded-digests.txt"
 export DOCKERHUB_USERNAME=test-user
 export DOCKERHUB_TOKEN=test-token
@@ -154,6 +160,44 @@ assert_contains '::warning::could not authenticate' "${out}"
 out="$(run_step delete)"; status=$?
 assert_exit_zero "${status}"
 assert_contains 'superseded nothing' "${out}"
+
+# Hub answers a 2FA-enabled account with HTTP 200 and no `token` field, so curl
+# succeeds and jq prints the string "null". Checking only curl's exit status
+# lets that through as a four-character JWT, and every later call 401s while the
+# steps report "nothing to supersede" — silently, forever.
+scenario 'a login that returns no token warns instead of sending "JWT null"' login-no-token
+export REQUESTED_TAGS=latest
+out="$(run_step record)"; status=$?
+assert_exit_zero "${status}"
+assert_contains '::warning::the Docker Hub API returned no token' "${out}"
+assert_not_contains 'latest: recorded' "${out}"
+assert_recorded_digests 0
+# The delete step logs in again on its own, and its "superseded nothing" early
+# exit would hide the second guard. Seed the file a successful record would have
+# written so the step gets past that and reaches the login.
+printf 'sha256:old0\n' > "${SUPERSEDED_DIGESTS_FILE}"
+out="$(run_step delete)"; status=$?
+assert_exit_zero "${status}"
+assert_contains '::warning::the Docker Hub API returned no token' "${out}"
+assert_not_contains 'deleted sha256:' "${out}"
+
+scenario 'a failed tag listing aborts rather than delete against a partial keep-set' tag-list-fails
+export REQUESTED_TAGS=latest
+run_step record >/dev/null
+out="$(run_step delete)"; status=$?
+assert_exit_zero "${status}"
+assert_contains '::warning::could not list tags' "${out}"
+assert_not_contains 'deleted sha256:' "${out}"
+
+scenario 'a listing that never stops paginating aborts at the page cap' too-many-pages
+export REQUESTED_TAGS=latest
+export MAX_TAG_PAGES="${EXHAUSTED_MAX_TAG_PAGES}"
+run_step record >/dev/null
+out="$(run_step delete)"; status=$?
+assert_exit_zero "${status}"
+assert_contains "::warning::more than ${EXHAUSTED_MAX_TAG_PAGES} pages of tags" "${out}"
+assert_not_contains 'deleted sha256:' "${out}"
+export MAX_TAG_PAGES="${DEFAULT_MAX_TAG_PAGES}"
 
 echo
 echo "passed: ${passed}  failed: ${failed}"

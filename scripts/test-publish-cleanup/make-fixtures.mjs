@@ -18,6 +18,7 @@ const API = 'https://hub.docker.com/v2';
 const REPO = `${API}/repositories/i7gamer/tutto`;
 const PAGE_ONE = `${REPO}/tags?page_size=100`;
 const PAGE_TWO = `${REPO}/tags?page=2&page_size=100`;
+const PAGE_THREE = `${REPO}/tags?page=3&page_size=100`;
 
 const slug = url => url.replace(/[^A-Za-z0-9]/g, '_');
 
@@ -84,3 +85,29 @@ deleteManifest('empty-keepset', 'sha256:old0', 202);
 // 6. Credentials rejected. A publish must not fail because cleanup cannot log in.
 write('login-fails', 'POST', `${API}/users/login`, 401, { detail: 'incorrect authentication credentials' });
 tag('login-fails', 'latest', 200, { digest: 'sha256:old0', images: [] });
+
+// 7. A login that succeeds without handing out a token — what Hub answers when
+//    the account has 2FA enabled. `jq -r '.token'` prints the string "null" and
+//    curl exits 0, so a guard that only checks curl's status sends
+//    `Authorization: JWT null` at every later call and reports "nothing to
+//    supersede" forever. The tag, listing and delete fixtures below all exist so
+//    that a missing guard visibly proceeds instead of failing to find them.
+write('login-no-token', 'POST', `${API}/users/login`, 200, { login_2fa_token: 'second-factor-required' });
+tag('login-no-token', 'latest', 200, { digest: 'sha256:old0', images: [] });
+tagList('login-no-token', PAGE_ONE, { next: null, results: [{ digest: 'sha256:new0', images: [] }] });
+deleteManifest('login-no-token', 'sha256:old0', 202);
+
+// 8. The tag listing fails mid-way. The keep-set is incomplete, so deleting
+//    against it would remove a live manifest.
+loginOk('tag-list-fails');
+tag('tag-list-fails', 'latest', 200, { digest: 'sha256:old0', images: [] });
+write('tag-list-fails', 'GET', PAGE_ONE, 500, { message: 'internal server error' });
+deleteManifest('tag-list-fails', 'sha256:old0', 202);
+
+// 9. A listing that never stops paginating. Bounded by MAX_TAG_PAGES, which
+//    run.sh lowers for this scenario; page three is never requested.
+loginOk('too-many-pages');
+tag('too-many-pages', 'latest', 200, { digest: 'sha256:old0', images: [] });
+tagList('too-many-pages', PAGE_ONE, { next: PAGE_TWO, results: [{ digest: 'sha256:new0', images: [] }] });
+tagList('too-many-pages', PAGE_TWO, { next: PAGE_THREE, results: [{ digest: 'sha256:new1', images: [] }] });
+deleteManifest('too-many-pages', 'sha256:old0', 202);
