@@ -397,6 +397,64 @@ describe('OnlineLobby recent rooms history', () => {
     expect(nameInput.value).toBe('Bob');
   });
 
+  // Nothing removed this key: neither Home's "Clear Cache & Reload" nor the
+  // ErrorBoundary's recovery path touches tutto_recent_rooms, so a room you
+  // joined once stayed on the list for good.
+  describe('forgetting a room', () => {
+    const seedRooms = (...roomIds: string[]) => {
+      localStorage.setItem(
+        'tutto_recent_rooms',
+        JSON.stringify(roomIds.map((roomId, i) => ({ roomId, name: 'Bob', timestamp: 1000 - i })))
+      );
+    };
+    const forgetButtonFor = (roomId: string) =>
+      screen.getByRole('button', { name: `lobby.online.forgetRoom ${roomId}` });
+
+    it('removes the room from the list and from storage', () => {
+      seedRooms('ROOM1');
+      render(<OnlineLobby />);
+
+      act(() => {
+        fireEvent.click(forgetButtonFor('ROOM1'));
+      });
+
+      expect(screen.queryByText(/ROOM1/)).not.toBeInTheDocument();
+      expect(JSON.parse(localStorage.getItem('tutto_recent_rooms') ?? '[]')).toEqual([]);
+      // The whole section goes with the last room rather than leaving a header
+      // over an empty box.
+      expect(screen.queryByText('lobby.online.recentRooms')).not.toBeInTheDocument();
+    });
+
+    it('leaves the other remembered rooms alone', () => {
+      seedRooms('ROOM1', 'ROOM2', 'ROOM3');
+      render(<OnlineLobby />);
+
+      act(() => {
+        fireEvent.click(forgetButtonFor('ROOM2'));
+      });
+
+      expect(screen.getByText(/ROOM1/)).toBeInTheDocument();
+      expect(screen.getByText(/ROOM3/)).toBeInTheDocument();
+      expect(screen.queryByText(/ROOM2/)).not.toBeInTheDocument();
+      const stored = JSON.parse(localStorage.getItem('tutto_recent_rooms') ?? '[]') as { roomId: string }[];
+      expect(stored.map(room => room.roomId)).toEqual(['ROOM1', 'ROOM3']);
+    });
+
+    it('does not also select the room it is removing', () => {
+      // The row was a single button; the remove control has to sit beside it,
+      // not inside it, or one click would do both (and nest a button in a button).
+      seedRooms('ROOM1');
+      render(<OnlineLobby />);
+
+      act(() => {
+        fireEvent.click(forgetButtonFor('ROOM1'));
+      });
+
+      const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder') as HTMLInputElement;
+      expect(roomInput.value).toBe('');
+    });
+  });
+
   it('deduplicates recent rooms on join and moves the most recent to the top', async () => {
     localStorage.setItem(
       'tutto_recent_rooms',

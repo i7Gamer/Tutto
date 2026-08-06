@@ -157,6 +157,7 @@
   "lobby.online.joining": "Trete bei…",
   "lobby.online.joinTimeout": "Keine Antwort vom Server. Bitte versuche es erneut.",
   "lobby.online.recentRooms": "Letzte Räume",
+  "lobby.online.forgetRoom": "Aus der Liste entfernen",
   "lobby.online.room": "Raum: {{roomId}}",
   "lobby.online.copyRoomCode": "Raumcode kopieren",
   "lobby.online.roomCodeCopied": "Raumcode kopiert!",

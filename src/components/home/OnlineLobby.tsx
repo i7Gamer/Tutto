@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList,
@@ -102,6 +102,17 @@ export default function OnlineLobby() {
     }
   };
 
+  const persistRecentRooms = (list: RecentRoom[]) => {
+    try {
+      localStorage.setItem('tutto_recent_rooms', JSON.stringify(list));
+      setRecentRooms(list);
+    } catch (e) {
+      // State is left alone deliberately: the list on screen keeps describing
+      // what is actually stored rather than a change that did not survive.
+      console.error('Failed to update recent rooms', e);
+    }
+  };
+
   const handleJoin = async () => {
     // A double-click before the ack returns would fire a second joinRoom emit
     // for the same device (a duplicate seat, or a spurious "name taken").
@@ -126,7 +137,7 @@ export default function OnlineLobby() {
           );
         }),
       ]);
-      handleJoinResult(res, trimmedRoomCode, trimmedName);
+      handleJoinResult(res, trimmedRoomCode, trimmedName, Date.now());
     } finally {
       clearTimeout(watchdog);
       joiningRef.current = false;
@@ -134,31 +145,40 @@ export default function OnlineLobby() {
     }
   };
 
-  const handleJoinResult = (res: JoinRoomResult | undefined, trimmedRoomCode: string, trimmedName: string) => {
+  // joinedAt is passed in rather than read here: this runs on the join ack, and
+  // the clock read belongs with the action that caused it.
+  const handleJoinResult = (
+    res: JoinRoomResult | undefined,
+    trimmedRoomCode: string,
+    trimmedName: string,
+    joinedAt: number,
+  ) => {
     if (res && res.error) {
       setErrorMsg(res.error);
     } else {
       localStorage.setItem('tutto_last_room', trimmedRoomCode);
       localStorage.setItem('tutto_last_name', trimmedName);
       
-      try {
-        // Same validated read as the initial state above, so the write path
-        // can no longer carry a malformed entry forward either.
-        let list = parseRecentRooms(localStorage.getItem('tutto_recent_rooms'));
-        list = list.filter(item => item.roomId !== trimmedRoomCode);
-        list.unshift({ roomId: trimmedRoomCode, name: trimmedName, timestamp: Date.now() });
-        list = list.slice(0, MAX_RECENT_ROOMS);
-        localStorage.setItem('tutto_recent_rooms', JSON.stringify(list));
-        setRecentRooms(list);
-      } catch (e) {
-        console.error('Failed to update recent rooms', e);
-      }
+      // Same validated read as the initial state above, so the write path
+      // can no longer carry a malformed entry forward either.
+      const remembered = parseRecentRooms(getStoredValue('tutto_recent_rooms'))
+        .filter(item => item.roomId !== trimmedRoomCode);
+      const joined: RecentRoom = { roomId: trimmedRoomCode, name: trimmedName, timestamp: joinedAt };
+      persistRecentRooms([joined, ...remembered].slice(0, MAX_RECENT_ROOMS));
     }
   };
 
   const handleSelectRecentRoom = (room: RecentRoom) => {
     setInputRoomCode(room.roomId);
     setInputName(room.name);
+  };
+
+  // The only way to drop a remembered room. Neither Home's "Clear Cache &
+  // Reload" nor the ErrorBoundary's recovery path clears this key, so without
+  // this a room joined once stayed on the list for the life of the browser
+  // profile. No confirmation: rejoining the room puts it straight back.
+  const handleForgetRecentRoom = (roomId: string) => {
+    persistRecentRooms(recentRooms.filter(room => room.roomId !== roomId));
   };
 
   if (!roomId) {
@@ -203,15 +223,27 @@ export default function OnlineLobby() {
             <div className="flex flex-col gap-2 mt-4 border-t border-gray-200 dark:border-slate-700 pt-4">
               <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('lobby.online.recentRooms', 'Recent Rooms')}</label>
               <div className="flex flex-col gap-1">
+                {/* The row is two sibling buttons, not one with the remove
+                    control nested inside it: a button inside a button is
+                    invalid, and the click would select the room it removes. */}
                 {recentRooms.map((room) => (
-                  <button
-                    key={room.roomId}
-                    onClick={() => handleSelectRecentRoom(room)}
-                    className="flex justify-between items-center bg-gray-50 hover:bg-indigo-50/50 dark:bg-slate-800/30 dark:hover:bg-slate-700/40 border border-gray-200/80 dark:border-slate-700 rounded-lg px-3 py-2 text-sm transition-colors text-left font-medium text-gray-700 dark:text-gray-200 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
-                  >
-                    <span>{room.roomId} <span className="text-gray-400 dark:text-gray-500 text-xs font-normal">({room.name})</span></span>
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500 font-normal">{new Date(room.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-                  </button>
+                  <div key={room.roomId} className="flex items-stretch gap-1">
+                    <button
+                      onClick={() => handleSelectRecentRoom(room)}
+                      className="flex-1 min-w-0 flex justify-between items-center gap-2 bg-gray-50 hover:bg-indigo-50/50 dark:bg-slate-800/30 dark:hover:bg-slate-700/40 border border-gray-200/80 dark:border-slate-700 rounded-lg px-3 py-2 text-sm transition-colors text-left font-medium text-gray-700 dark:text-gray-200 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
+                    >
+                      <span className="truncate">{room.roomId} <span className="text-gray-400 dark:text-gray-500 text-xs font-normal">({room.name})</span></span>
+                      <span className="shrink-0 text-[10px] text-gray-400 dark:text-gray-500 font-normal">{new Date(room.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                    </button>
+                    <button
+                      onClick={() => handleForgetRecentRoom(room.roomId)}
+                      aria-label={t('lobby.online.forgetRoom', 'Remove from list') + ` ${room.roomId}`}
+                      title={t('lobby.online.forgetRoom', 'Remove from list')}
+                      className="shrink-0 px-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 border border-transparent hover:border-red-200 dark:hover:border-red-900 transition-colors cursor-pointer"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>

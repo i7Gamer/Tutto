@@ -160,6 +160,7 @@
   "lobby.online.joining": "Joining…",
   "lobby.online.joinTimeout": "No response from the server. Please try again.",
   "lobby.online.recentRooms": "Recent Rooms",
+  "lobby.online.forgetRoom": "Remove from list",
   "lobby.online.room": "Room: {{roomId}}",
   "lobby.online.copyRoomCode": "Copy room code",
   "lobby.online.roomCodeCopied": "Room code copied!",
