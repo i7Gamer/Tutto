@@ -10,7 +10,8 @@
 # prebuild, which is published for both x64 and arm64.
 
 ARG NODE_VERSION=24
-# Pinned: tsx runs the TypeScript server directly (see the runtime stage).
+# Pinned: tsx runs the TypeScript server directly. Installed with the server
+# dependencies so the runtime CMD can load it as a node import hook.
 ARG TSX_VERSION=4.22.4
 ARG APP_PORT=3001
 
@@ -26,16 +27,22 @@ RUN npm run build
 
 # ── Stage 2: production server dependencies ──────────────────────────────────
 FROM node:${NODE_VERSION}-alpine AS server-deps
+ARG TSX_VERSION
 WORKDIR /app/server
 COPY server/package.json server/package-lock.json ./
 # Scripts must run here: sqlite3's install script is what fetches the prebuilt
 # native binary. Without it npm would fall back to node-gyp, which Alpine has
 # no toolchain for.
 RUN npm ci --omit=dev
+# tsx runs the TypeScript server directly (see the runtime CMD). It goes in this
+# tree rather than npm's global prefix because `node --import tsx` is a bare
+# specifier: node walks node_modules upward from the working directory and never
+# looks at the global prefix. --no-save keeps it out of the manifest and the
+# lockfile, which are the server's own dependency contract.
+RUN npm install --no-save --omit=dev tsx@${TSX_VERSION}
 
 # ── Stage 3: runtime ─────────────────────────────────────────────────────────
 FROM node:${NODE_VERSION}-alpine AS runtime
-ARG TSX_VERSION
 ARG APP_PORT
 
 LABEL org.opencontainers.image.title="Tutto" \
@@ -49,15 +56,11 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-# The server is run as TypeScript rather than compiled: tsconfig.server.json is
-# noEmit, and knex resolves migrations/ as .js next to __dirname, so emitting
-# would need a second tsconfig plus a migration-copy step.
-RUN npm install -g tsx@${TSX_VERSION}
-
 COPY --from=builder     --chown=node:node /app/dist                ./dist
 # Installed at the image root, not under ./server: Node resolves bare imports
 # by walking node_modules upward from the importing file, and the server also
 # runs shared code from ./src, which can never reach ./server/node_modules.
+# Also what puts tsx on the resolution path for the CMD below.
 # server/packaging.test.ts asserts this destination.
 COPY --from=server-deps --chown=node:node /app/server/node_modules ./node_modules
 COPY --chown=node:node server/*.ts server/package.json ./server/
@@ -84,4 +87,15 @@ EXPOSE ${APP_PORT}
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3001)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["tsx", "server/index.ts"]
+# node, not the tsx CLI: that CLI runs the script in a forked child and relays
+# signals to it over an IPC socket, allowing 30ms for an acknowledgement before
+# it SIGKILLs the child. A container stopped while the event loop is busy would
+# lose the ordered shutdown in server/shutdown.ts — the one thing it exists for.
+# Loading tsx as an import hook keeps the server itself as PID 1, so `docker
+# stop` signals it directly. server/packaging.test.ts pins the form; the smoke
+# test in .github/workflows/docker-publish.yml proves the exit code.
+#
+# The server is run as TypeScript rather than compiled: tsconfig.server.json is
+# noEmit, and knex resolves migrations/ as .js next to __dirname, so emitting
+# would need a second tsconfig plus a migration-copy step.
+CMD ["node", "--import", "tsx", "server/index.ts"]

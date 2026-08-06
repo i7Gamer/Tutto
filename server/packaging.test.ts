@@ -173,6 +173,25 @@ const readDockerfileCopyInstructions = (): CopyInstruction[] => {
 const readDockerfileCopySources = (): string[] =>
   readDockerfileCopyInstructions().flatMap(instruction => instruction.sources);
 
+const readDockerfile = (): string => fs.readFileSync(path.join(REPO_ROOT, 'Dockerfile'), 'utf8');
+
+/**
+ * The container's entrypoint, as the argv array of the exec-form `CMD`.
+ *
+ * Only the exec form is considered: HEALTHCHECK carries its own shell-form
+ * `CMD`, and matching that instead would silently test the wrong line.
+ */
+const readDockerfileCmd = (): string[] => {
+  const execForm = readDockerfile()
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.toUpperCase().startsWith('CMD ['))
+    .map(line => line.slice('CMD '.length));
+
+  expect(execForm).toHaveLength(1);
+  return JSON.parse(execForm[0] as string) as string[];
+};
+
 // Node resolves a bare specifier by walking node_modules directories upward
 // from the *importing* file, so only a copy at the image's working directory
 // is reachable from both /app/server and /app/src.
@@ -309,5 +328,33 @@ describe('files the Docker image must copy', () => {
     // Keeps the Dockerfile from accumulating COPY lines for shared code the
     // server has stopped using.
     expect(unused).toEqual([]);
+  });
+});
+
+/**
+ * server/shutdown.ts only runs if the process Docker signals is the server.
+ *
+ * `CMD ["tsx", …]` does not do that: the tsx CLI spawns the script as a child
+ * and relays signals to it over an IPC socket, giving the child 30ms to
+ * acknowledge before it is SIGKILLed. A container stopped while the event loop
+ * is busy therefore loses exactly the ordered shutdown that handler exists for.
+ */
+describe('the image runs the server as PID 1', () => {
+  it('makes node itself the entrypoint rather than a launcher that forks', () => {
+    expect(readDockerfileCmd()[0]).toBe('node');
+  });
+
+  it('loads TypeScript through tsx as an import hook', () => {
+    const cmd = readDockerfileCmd();
+    const flag = cmd.indexOf('--import');
+    expect(flag).toBeGreaterThan(-1);
+    expect(cmd[flag + 1]).toBe('tsx');
+  });
+
+  it('installs tsx where node resolves it from the working directory', () => {
+    // `--import tsx` is a bare specifier: node walks node_modules upward from
+    // WORKDIR and never looks in npm's global prefix. A global install would
+    // resolve for the `tsx` binary and fail for the import hook.
+    expect(readDockerfile()).not.toMatch(/npm\s+install\s+-g\s+tsx/);
   });
 });

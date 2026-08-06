@@ -26,7 +26,12 @@ services:
       # admin token anyone can read. The ":?" makes compose refuse to start
       # rather than fall back to something guessable.
       # Generate one with:  openssl rand -hex 32
-      - API_TOKEN=${API_TOKEN:?set API_TOKEN in the environment or in a .env file beside docker-compose.yml — generate one with: openssl rand -hex 32}
+      #
+      # The ":?" message must contain no colon-space. That sequence ends a YAML
+      # plain scalar and makes the rest an implicit key, so the list item parses
+      # as a map and compose refuses the whole file — server/compose.test.ts
+      # pins it.
+      - API_TOKEN=${API_TOKEN:?set API_TOKEN in the environment or in a .env file beside docker-compose.yml, generated with openssl rand -hex 32}
 
       # Optional. Unset means same-origin only, which is correct when Tutto is
       # reached directly or through a reverse proxy on one domain. Set it only
@@ -38,10 +43,11 @@ services:
       # - TZ=Europe/Berlin
 
     # No `init:` on purpose. Graceful shutdown does not depend on tini: the
-    # server installs its own SIGTERM/SIGINT handlers (server/shutdown.ts,
-    # covered by shutdown.test.ts), which work fine as PID 1, and it spawns no
-    # children to reap. `docker stop` was measured at ~470 ms with exit 143
-    # identically with and without --init, so the setting bought nothing.
+    # image's entrypoint is node itself (see the Dockerfile CMD), so `docker
+    # stop` signals the server directly and its own SIGTERM/SIGINT handlers run
+    # (server/shutdown.ts, covered by shutdown.test.ts). Node reaps the one
+    # child esbuild starts. Measured: `docker stop` returns in ~470 ms with exit
+    # 0, which the publish workflow's smoke test asserts on the real image.
     restart: unless-stopped
 
 volumes:
