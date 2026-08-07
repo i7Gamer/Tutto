@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import OnlineLobby from './OnlineLobby';
 import { MAX_RECENT_ROOMS } from '../../utils/recentRooms';
+import { TOUCH_FIRST_POINTER_QUERY } from '../../utils/shareSupport';
 import { useGameStore } from '../../store/useGameStore';
 import type { GameStore } from '../../store/useGameStore';
 import type { Player } from '../../types';
@@ -215,14 +216,28 @@ describe('OnlineLobby copy room code button', () => {
   });
 
   describe('sharing the invite', () => {
-    const withShare = (share: unknown) => {
+    const stubMatchMedia = window.matchMedia;
+
+    afterEach(() => {
+      delete (navigator as { share?: unknown }).share;
+      window.matchMedia = stubMatchMedia;
+    });
+
+    // Both halves are needed for the button to appear: the API, and a
+    // touch-first device to hand off to (see utils/shareSupport.ts).
+    const withShareSheet = (share: unknown) => {
       Object.assign(navigator, { share });
-      return () => { delete (navigator as { share?: unknown }).share; };
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: query === TOUCH_FIRST_POINTER_QUERY,
+        media: query, onchange: null,
+        addListener: vi.fn(), removeListener: vi.fn(),
+        addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn(),
+      })) as unknown as typeof window.matchMedia;
     };
 
     it('hands the link to the native share sheet where there is one', async () => {
       const share = vi.fn().mockResolvedValue(undefined);
-      const restore = withShare(share);
+      withShareSheet(share);
       stageRoom({ addToast: vi.fn() });
 
       render(<OnlineLobby />);
@@ -231,7 +246,6 @@ describe('OnlineLobby copy room code button', () => {
       });
 
       expect(share).toHaveBeenCalledWith(expect.objectContaining({ url: expectedLink() }));
-      restore();
     });
 
     it('says nothing when the share sheet is dismissed', async () => {
@@ -240,7 +254,7 @@ describe('OnlineLobby copy room code button', () => {
       const share = vi.fn().mockRejectedValue(
         Object.assign(new Error('cancelled'), { name: 'AbortError' })
       );
-      const restore = withShare(share);
+      withShareSheet(share);
       const addToast = vi.fn();
       stageRoom({ addToast });
 
@@ -250,12 +264,24 @@ describe('OnlineLobby copy room code button', () => {
       });
 
       expect(addToast).not.toHaveBeenCalled();
-      restore();
     });
 
     it('offers no share button on a device without a share sheet', () => {
       // Desktop browsers largely have none; the copy button covers them.
       delete (navigator as { share?: unknown }).share;
+      stageRoom({ addToast: vi.fn() });
+
+      render(<OnlineLobby />);
+
+      expect(screen.queryByTitle('lobby.online.shareRoomLink')).not.toBeInTheDocument();
+      expect(screen.getByTitle('lobby.online.copyRoomLink')).toBeInTheDocument();
+    });
+
+    it('offers no share button on a mouse-driven desktop that does have the API', () => {
+      // Chrome on Windows: navigator.share exists, but it opens an OS dialog
+      // that routinely fails with "Try that again. We couldn't show you all
+      // the ways you could share." The copy button is the working path there.
+      Object.assign(navigator, { share: vi.fn() });
       stageRoom({ addToast: vi.fn() });
 
       render(<OnlineLobby />);
@@ -538,10 +564,44 @@ describe('OnlineLobby scanning a friend\'s QR code', () => {
     expect(screen.queryByTestId('room-qr-scanner')).not.toBeInTheDocument();
   });
 
-  it('does not join on its own, for the same reason a link does not', () => {
-    const joinRoom = vi.fn();
+  it('joins the scanned room straight away when a name is already filled in', async () => {
+    // Unlike a link, a scan is a deliberate act aimed at one specific room, and
+    // with a name already on the form there is nothing left to ask for — the
+    // Join tap would only be a formality.
+    const joinRoom = vi.fn().mockResolvedValue({});
     stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
     localStorage.setItem('tutto_last_name', 'Alice');
+
+    render(<OnlineLobby />);
+    openScanner();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('scan-result'));
+    });
+
+    // The scanned code, not the stale one the form was showing.
+    expect(joinRoom).toHaveBeenCalledWith('SCANNED', 'Alice');
+  });
+
+  it('remembers the auto-joined room, exactly as a tapped join does', async () => {
+    const joinRoom = vi.fn().mockResolvedValue({});
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+    localStorage.setItem('tutto_last_name', 'Alice');
+
+    render(<OnlineLobby />);
+    openScanner();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('scan-result'));
+    });
+
+    expect(localStorage.getItem('tutto_last_room')).toBe('SCANNED');
+    expect(JSON.parse(localStorage.getItem('tutto_recent_rooms') || '[]')).toEqual([
+      expect.objectContaining({ roomId: 'SCANNED', name: 'Alice' }),
+    ]);
+  });
+
+  it('waits for a name instead of joining when the form has none', () => {
+    const joinRoom = vi.fn();
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
 
     render(<OnlineLobby />);
     openScanner();
@@ -550,6 +610,60 @@ describe('OnlineLobby scanning a friend\'s QR code', () => {
     });
 
     expect(joinRoom).not.toHaveBeenCalled();
+    // And says so by putting the cursor in the one field still missing.
+    expect(document.activeElement).toBe(screen.getByPlaceholderText('lobby.online.yourNamePlaceholder'));
+  });
+
+  it('treats a name of nothing but whitespace as no name at all', () => {
+    const joinRoom = vi.fn();
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+
+    render(<OnlineLobby />);
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.yourNamePlaceholder'), { target: { value: '   ' } });
+    openScanner();
+    act(() => {
+      fireEvent.click(screen.getByTestId('scan-result'));
+    });
+
+    expect(joinRoom).not.toHaveBeenCalled();
+  });
+
+  it('reports a rejected auto-join on the form the player is left looking at', async () => {
+    const joinRoom = vi.fn().mockResolvedValue({ error: 'Username already exists in this room' });
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+    localStorage.setItem('tutto_last_name', 'Alice');
+
+    render(<OnlineLobby />);
+    openScanner();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('scan-result'));
+    });
+
+    expect(screen.getByText('Username already exists in this room')).toBeInTheDocument();
+    // And the form is usable again: change the name, tap Join.
+    expect(screen.getByText('lobby.online.joinCreateButton')).toBeEnabled();
+  });
+
+  it('does not fire a second join when a scan lands mid-join', async () => {
+    // The camera keeps decoding while the first ack is outstanding.
+    let resolveJoin!: (v: { error?: string }) => void;
+    const joinRoom = vi.fn(() => new Promise<{ error?: string }>(res => { resolveJoin = res; }));
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+    localStorage.setItem('tutto_last_name', 'Alice');
+
+    render(<OnlineLobby />);
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.roomCodePlaceholder'), { target: { value: 'TYPED' } });
+    openScanner();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('lobby.online.joinCreateButton'));
+      fireEvent.click(screen.getByTestId('scan-result'));
+    });
+
+    expect(joinRoom).toHaveBeenCalledTimes(1);
+    expect(joinRoom).toHaveBeenCalledWith('TYPED', 'Alice');
+
+    await act(async () => { resolveJoin({ error: 'nope' }); });
   });
 
   it('does not bring the camera back after a room is joined and then left', () => {

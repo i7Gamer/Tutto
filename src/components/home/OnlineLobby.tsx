@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { Copy, Check, X, Share2, QrCode, ScanLine } from 'lucide-react';
@@ -10,6 +10,7 @@ import {
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
 import { parseRecentRooms, MAX_RECENT_ROOMS, type RecentRoom } from '../../utils/recentRooms';
 import { buildRoomLink } from '../../utils/roomLink';
+import { supportsNativeShare } from '../../utils/shareSupport';
 import { useGameStore } from '../../store/useGameStore';
 import ConfirmModal from '../ConfirmModal';
 import RoomQrCode from './RoomQrCode';
@@ -66,7 +67,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
   const [showScanner, setShowScanner] = useState(false);
   // Read once: the sheet either exists on this device or it does not, and a
   // button that appears mid-session would be odd.
-  const [canShare] = useState(() => typeof navigator.share === 'function');
+  const [canShare] = useState(supportsNativeShare);
   const [isJoining, setIsJoining] = useState(false);
   // Re-entrancy guard for handleJoin. A ref, not the state above: two clicks
   // in the same frame both read the pre-render `isJoining === false` from
@@ -161,16 +162,23 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     }
   };
 
-  const handleJoin = async () => {
-    // A double-click before the ack returns would fire a second joinRoom emit
-    // for the same device (a duplicate seat, or a spurious "name taken").
-    if (joiningRef.current) return;
+  const handleJoin = () => {
     const trimmedRoomCode = inputRoomCode.trim();
     const trimmedName = inputName.trim();
     if (!trimmedRoomCode || !trimmedName) {
       setErrorMsg(t('lobby.online.enterBoth', 'Please enter both a Room Code and a Name.'));
       return;
     }
+    return attemptJoin(trimmedRoomCode, trimmedName);
+  };
+
+  // Takes both values as arguments rather than reading the inputs: a scan joins
+  // with a room code the state it just set has not committed yet.
+  const attemptJoin = async (trimmedRoomCode: string, trimmedName: string) => {
+    // A double-click before the ack returns would fire a second joinRoom emit
+    // for the same device (a duplicate seat, or a spurious "name taken"). Same
+    // for a frame the camera decodes while a typed join is still pending.
+    if (joiningRef.current) return;
     setErrorMsg('');
     joiningRef.current = true;
     setIsJoining(true);
@@ -229,13 +237,21 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     persistRecentRooms(recentRooms.filter(room => room.roomId !== roomId));
   };
 
-  // Same handling as a followed link: fill the code in, close the camera, leave
-  // the join to the player — a scan cannot know their name either.
-  const handleRoomScanned = useCallback((scannedRoomId: string) => {
+  // Unlike a followed link — which arrives because someone sent a URL, and may
+  // not have been asked for at all — pointing a camera at a code is a
+  // deliberate act aimed at one specific room. So with a name already on the
+  // form there is nothing left to ask, and the Join tap is a formality: go
+  // straight in. Without one, fall back to filling the code in and waiting.
+  const handleRoomScanned = (scannedRoomId: string) => {
     setInputRoomCode(scannedRoomId);
     setShowScanner(false);
+    const trimmedName = inputName.trim();
+    if (trimmedName) {
+      void attemptJoin(scannedRoomId, trimmedName);
+      return;
+    }
     nameInputRef.current?.focus();
-  }, []);
+  };
 
   if (!roomId) {
     return (
