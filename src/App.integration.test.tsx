@@ -348,25 +348,22 @@ describe('App Integration (End-to-End)', () => {
     const cancelButton = screen.getByText('home.restore.cancel');
     fireEvent.click(cancelButton);
 
-    // Allow socket to be created
-    await new Promise(resolve => setTimeout(resolve, 10));
+    // Wait for the handler the temp socket registers, not for a duration —
+    // and then call it unconditionally, since an `if` around it would turn a
+    // registration that never happened into a silently passing test.
+    await waitFor(() => expect(connectErrorHandler).toBeDefined());
+    connectErrorHandler();
 
-    // Trigger the connect_error handler
-    if (connectErrorHandler) {
-      connectErrorHandler();
-    }
-
-    // Allow async operations
-    await new Promise(resolve => setTimeout(resolve, 50));
+    // Should still clean up the socket. Asserted first because it is the
+    // positive end of the error path: without waiting for something that does
+    // happen, the negative below would pass merely by being early.
+    await waitFor(() => expect(mockSocketInstance.disconnect).toHaveBeenCalled());
 
     // Should NOT attempt to join on error
     expect(mockSocketInstance.emit).not.toHaveBeenCalledWith(
       'joinRoom',
       expect.any(Object)
     );
-
-    // Should still clean up the socket
-    expect(mockSocketInstance.disconnect).toHaveBeenCalled();
 
     mockSocketInstance = null;
   });
@@ -458,16 +455,13 @@ describe('App Integration (End-to-End)', () => {
     const cancelButton = screen.getByText('home.restore.cancel');
     fireEvent.click(cancelButton);
 
-    // Simulate connect error after a delay (simulating timeout)
-    await new Promise(resolve => setTimeout(resolve, 20));
-    if (connectErrorHandler) {
-      connectErrorHandler();
-    }
-
-    await new Promise(resolve => setTimeout(resolve, 50));
+    // Simulate the connection failing, as a timeout would — once the handler
+    // is actually registered rather than after a guess at how long that takes.
+    await waitFor(() => expect(connectErrorHandler).toBeDefined());
+    connectErrorHandler();
 
     // Should have called disconnect to clean up
-    expect(mockSocketInstance.disconnect).toHaveBeenCalled();
+    await waitFor(() => expect(mockSocketInstance.disconnect).toHaveBeenCalled());
     // Should not have attempted joinRoom
     const joinRoomCalls = mockSocketInstance.emit.mock.calls.filter(c => c[0] === 'joinRoom');
     expect(joinRoomCalls.length).toBe(0);
@@ -496,14 +490,14 @@ describe('App Integration (End-to-End)', () => {
     const cancelButton = screen.getByText('home.restore.cancel');
     fireEvent.click(cancelButton);
 
-    // Allow async operations
-    await new Promise(resolve => setTimeout(resolve, 50));
-
-    // Game state should be cleared
-    expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
-    expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
-    expect(useGameStore.getState().liveTurnState).toBeNull();
-    expect(useGameStore.getState().pendingReconnectSession).toBeNull();
+    // Game state should be cleared. Retried until it is, rather than checked
+    // once after a sleep long enough to hope it was.
+    await waitFor(() => {
+      expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
+      expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+      expect(useGameStore.getState().liveTurnState).toBeNull();
+      expect(useGameStore.getState().pendingReconnectSession).toBeNull();
+    });
 
     // But user preferences should remain
     expect(localStorage.getItem('tutto_color')).toBe('#FF5733');
@@ -547,8 +541,9 @@ describe('App Integration (End-to-End)', () => {
 
     fireEvent.click(cancelButton);
 
-    // Allow all async operations
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // The same chain as the join+leave test above, so wait on the same last
+    // link: disconnect. Everything asserted below precedes it.
+    await waitFor(() => expect(mockSocketInstance.disconnect).toHaveBeenCalled());
 
     // All game state should be cleared consistently
     const state = useGameStore.getState();
@@ -559,7 +554,6 @@ describe('App Integration (End-to-End)', () => {
 
     // Temp socket should have properly left
     expect(mockSocketInstance.emit).toHaveBeenCalledWith('leaveRoom');
-    expect(mockSocketInstance.disconnect).toHaveBeenCalled();
 
     mockSocketInstance = null;
   });
@@ -665,6 +659,13 @@ describe('App Integration (End-to-End)', () => {
   });
 
   it('DiceGame does not auto-open on reconnect without liveTurnState', async () => {
+    render(<App />);
+
+    // Staged after mount, not before: App's startup restores the store from
+    // storage, and with localStorage cleared in beforeEach that means defaults
+    // overwriting whatever was staged first. Set up ahead of the render, none
+    // of this survived — the app stayed on Home, and the negative assertion
+    // below passed for want of anything at all being on screen.
     act(() => {
       useGameStore.setState({
         mode: 'online',
@@ -680,19 +681,13 @@ describe('App Integration (End-to-End)', () => {
       });
     });
 
-    render(<App />);
-
-    // Wait for useEffect to run
-    await new Promise(resolve => setTimeout(resolve, 50));
+    // Wait for the game view to be up — Game.tsx renders the leaderboard
+    // unconditionally, so its arrival is the signal that the effects under
+    // test have actually run.
+    await waitFor(() => expect(screen.getByText('game.leaderboard')).toBeInTheDocument());
 
     // DiceGame should NOT appear because liveTurnState is null
     expect(screen.queryByText(/resume|rolling/i)).not.toBeInTheDocument();
-
-    // Verify we're in the game view and not showing an error
-    const scoreboard = screen.queryByText('game.leaderboard');
-    if (scoreboard) {
-      expect(scoreboard).toBeInTheDocument();
-    }
   });
 
   it('Game time syncs from server on start and is maintained during play', async () => {
