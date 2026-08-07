@@ -39,6 +39,21 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
     if (serverProcess) serverProcess.kill();
   });
 
+  /**
+   * Wraps a socket listener that asserts, so an expect() throwing inside one
+   * rejects the test instead of escaping as an unhandled listener error — which
+   * leaves the promise unsettled and reports the generic "Test timed out",
+   * losing the assertion that actually broke. Same helper as
+   * sockets.presence.test.ts.
+   */
+  const asserting = (reject, listener) => (...args) => {
+    try {
+      listener(...args);
+    } catch (e) {
+      reject(e);
+    }
+  };
+
   const joinRoom = (roomId, name, deviceId) =>
     new Promise((resolve, reject) => {
       const s = io(`http://127.0.0.1:${PORT}`);
@@ -65,7 +80,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
         let sawValidState = false;
         let sawTimerAdvance = false;
 
-        s1.on('gameState', (state) => {
+        s1.on('gameState', asserting(reject, (state) => {
           if (state.currentPlayerIndex === 5000) {
             clearTimeout(timeoutId);
             s1.disconnect(); s2.disconnect();
@@ -86,7 +101,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
             s1.disconnect(); s2.disconnect();
             resolve();
           }
-        });
+        }));
 
         const players = [
           { name: 'Alice', deviceId: 'dev-dos-a', socketId: s1.id, disconnected: false, score: 0 },
@@ -109,7 +124,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
 
         let pushedBad = false;
 
-        s1.on('gameState', (state) => {
+        s1.on('gameState', asserting(reject, (state) => {
           if (state.status === 'playing' && !pushedBad) {
             pushedBad = true;
             s1.emit('pushState', {
@@ -126,7 +141,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
             s1.disconnect(); s2.disconnect();
             resolve();
           }
-        });
+        }));
 
         const players = [
           { name: 'Alice', deviceId: 'dev-chart-a', socketId: s1.id, disconnected: false, score: 0 },
@@ -150,7 +165,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
         s1 = await joinRoom(roomId, 'Alice', 'dev-hijack-a');
         s2 = await joinRoom(roomId, 'Bob', 'dev-hijack-b');
 
-        s2.on('gameState', (state) => {
+        s2.on('gameState', asserting(reject, (state) => {
           if (state.players?.length !== 2) return;
           for (const p of state.players) {
             expect('deviceId' in p).toBe(false);
@@ -163,7 +178,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
           clearTimeout(timeoutId);
           s1.disconnect(); s2.disconnect();
           resolve();
-        });
+        }));
 
         const players = [
           { name: 'Alice', deviceId: 'dev-hijack-a', socketId: s1.id, disconnected: false, score: 0 },
@@ -195,7 +210,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
         await new Promise((r) => setTimeout(r, 350));
 
         let restarted = false;
-        s1.on('gameState', (state) => {
+        s1.on('gameState', asserting(reject, (state) => {
           if (state.status === 'lobby' && state.players?.length === 1 && !restarted) {
             restarted = true;
             (async () => {
@@ -215,7 +230,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
               });
             })().catch((err) => { clearTimeout(timeoutId); reject(err); });
           }
-        });
+        }));
 
         s2.emit('leaveRoom');
       })().catch((err) => { clearTimeout(timeoutId); reject(err); });

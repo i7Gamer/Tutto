@@ -27,6 +27,23 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
     if (serverProcess) serverProcess.kill();
   });
 
+  /**
+   * Wraps a socket listener that asserts.
+   *
+   * An expect() throwing inside one is an unhandled listener error, not a
+   * rejected test: the promise never settles, and the failure surfaces as this
+   * suite's generic "Test timed out" with the actual assertion message lost.
+   * Routing the throw to reject keeps it. (sockets.room.test.ts already does
+   * this inline; this is the same thing, once.)
+   */
+  const asserting = (reject, listener) => (...args) => {
+    try {
+      listener(...args);
+    } catch (e) {
+      reject(e);
+    }
+  };
+
   it('preserves socket metadata, detects disconnects, and kicks player correctly', () => {
     return new Promise((resolve, reject) => {
       socket1 = io(`http://127.0.0.1:${PORT}`);
@@ -198,7 +215,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
         });
       });
 
-      s1.on('gameState', (state) => {
+      s1.on('gameState', asserting(reject, (state) => {
         // Guard on both players.length===2 AND currentCard==='200' — joinRoom
         // itself broadcasts gameState after each join, so players.length briefly
         // equals 2 while Carol is still joining (with currentCard still null,
@@ -212,7 +229,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
           s3.disconnect();
           resolve();
         }
-      });
+      }));
     });
   }, 10000);
 
@@ -285,14 +302,14 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
               { name: 'Bob', deviceId: 'dev-al-b', socketId: s2.id, disconnected: false, score: 0 },
             ];
             s1.emit('pushState', { roomId: 'ABORT_LEAVE_ROOM', newState: { players, status: 'playing', currentPlayerIndex: 0 } });
-            setTimeout(() => s2.emit('leaveRoom'), 200);
+            setTimeout(() => s2.emit('leaveRoom'), testDelay(200));
           });
         });
       });
 
       s1.on('gameAborted', () => { abortReceived = true; });
 
-      s1.on('gameState', (state) => {
+      s1.on('gameState', asserting(reject, (state) => {
         if (abortReceived && state.status === 'lobby' && state.players?.length === 1) {
           expect(state.players[0].name).toBe('Alice');
           expect(state.currentPlayerIndex).toBeNull();
@@ -301,7 +318,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
           s2.disconnect();
           resolve();
         }
-      });
+      }));
     });
   }, 10000);
 
@@ -328,21 +345,21 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
               roomId: 'ABORT_TIMEOUT_ROOM',
               newState: { players, status: 'playing', currentPlayerIndex: 0, reconnectTimeout: 1 },
             });
-            setTimeout(() => s2.disconnect(), 200);
+            setTimeout(() => s2.disconnect(), testDelay(200));
           });
         });
       });
 
       s1.on('gameAborted', () => { abortReceived = true; });
 
-      s1.on('gameState', (state) => {
+      s1.on('gameState', asserting(reject, (state) => {
         if (abortReceived && state.status === 'lobby' && state.players?.length === 1) {
           expect(state.players[0].name).toBe('Alice');
           clearTimeout(timeoutId);
           s1.disconnect();
           resolve();
         }
-      });
+      }));
     });
   }, 10000);
 
@@ -367,14 +384,14 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
               { name: 'Bob', deviceId: 'dev-ak-b', socketId: s2.id, disconnected: false, score: 0 },
             ];
             s1.emit('pushState', { roomId: 'ABORT_KICK_ROOM', newState: { players, status: 'playing', currentPlayerIndex: 0 } });
-            setTimeout(() => s1.emit('kickPlayer', s2.id), 200);
+            setTimeout(() => s1.emit('kickPlayer', s2.id), testDelay(200));
           });
         });
       });
 
       s1.on('gameAborted', () => { abortReceived = true; });
 
-      s1.on('gameState', (state) => {
+      s1.on('gameState', asserting(reject, (state) => {
         if (abortReceived && state.status === 'lobby' && state.players?.length === 1) {
           expect(state.players[0].name).toBe('Alice');
           clearTimeout(timeoutId);
@@ -382,7 +399,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
           s2.disconnect();
           resolve();
         }
-      });
+      }));
     });
   }, 10000);
 
@@ -735,7 +752,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
           s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-kr-b', color: '#00ff00' }, () => {
             // 1s reconnect timer (pushState bounds allow 1; updateConfig would not).
             s1.emit('pushState', { roomId, newState: { reconnectTimeout: 1 } });
-            setTimeout(() => s2.disconnect(), 200);
+            setTimeout(() => s2.disconnect(), testDelay(200));
           });
         });
       });

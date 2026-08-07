@@ -256,6 +256,12 @@ describe('Server-side turn timer', () => {
       },
     });
 
+    // Confirm the setup actually landed before asserting that nothing happens.
+    // A rejected push would leave a room with no turn and no timer, where "the
+    // turn never advanced" holds for reasons that have nothing to do with
+    // turnDuration=0.
+    await waitForState(hostSock, (s) => s.status === 'playing' && s.turnDuration === 0 && s.currentPlayerIndex === 0);
+
     await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 400);
 
     hostSock.disconnect();
@@ -338,11 +344,15 @@ describe('Server-side turn timer', () => {
         cards: ['300'], round: 1, turnDuration: 1,
       },
     });
-    await delay(50);
+    // Waited for rather than slept past: this is the state that arms the timer
+    // the test goes on to cancel, so nothing below means anything until the
+    // server confirms it.
+    await waitForState(hostSock, (s) => s.status === 'playing' && s.turnDuration === 1 && s.currentPlayerIndex === 0);
 
     // Disable the timer before the deadline. If updateConfig didn't resync
     // (clear) the pending expiry, the original timeout would still fire ~150ms later.
     hostSock.emit('updateConfig', { roomId, turnDuration: 0 });
+    await waitForState(hostSock, (s) => s.turnDuration === 0);
 
     await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 400);
 
@@ -517,7 +527,8 @@ describe('Server-side turn timer', () => {
         cards: ['300'], round: 1, turnDuration: 1,
       },
     });
-    await delay(200);
+    // The turn whose pending expiry this test is about — confirmed, not assumed.
+    await waitForState(hostSock, (s) => s.status === 'playing' && s.currentCard === 'Kleeblatt');
 
     // Alice completes Kleeblatt for an instant win — client pushes finished:true
     // well before the 1s turn timer (armed for the ORIGINAL Kleeblatt turn) expires.
@@ -531,6 +542,8 @@ describe('Server-side turn timer', () => {
         finished: true, currentPlayerIndex: null, currentCard: null,
       },
     });
+
+    await waitForState(hostSock, (s) => s.finished === true);
 
     // The pending 1s timer from the FIRST push must not fire and force a bogus
     // "timeout advance" on top of the already-finished game.

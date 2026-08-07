@@ -107,12 +107,10 @@ describe('socket handler failure containment', () => {
 
     failures.emitRoomState = true;
     client.emit('updatePlayerColor', { roomId: 'SYNC_THROW', color: '#abcdef' });
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
+    await vi.waitFor(() => expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining('[socket:updatePlayerColor]'),
       expect.any(Error),
-    );
+    ));
 
     failures.emitRoomState = false;
     await expectStillServing(client, 'SYNC_THROW');
@@ -125,12 +123,10 @@ describe('socket handler failure containment', () => {
 
     failures.emitRoomState = true;
     await join(client, 'ASYNC_THROW', 'Alice', 'dev-async-throw');
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
+    await vi.waitFor(() => expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining('[socket:joinRoom]'),
       expect.any(Error),
-    );
+    ));
 
     failures.emitRoomState = false;
     await expectStillServing(client, 'ASYNC_THROW');
@@ -150,12 +146,10 @@ describe('socket handler failure containment', () => {
 
     failures.handleActivePlayerRemoved = true;
     peer.disconnect();
-    await new Promise(resolve => setTimeout(resolve, 200));
-
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
+    await vi.waitFor(() => expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining('[disconnectTimer]'),
       expect.any(Error),
-    );
+    ));
 
     failures.handleActivePlayerRemoved = false;
     expect(rooms['TIMER_THROW']).toBeDefined();

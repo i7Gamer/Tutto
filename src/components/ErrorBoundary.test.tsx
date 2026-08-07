@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ErrorBoundary } from './ErrorBoundary';
 
 const ProblemChild = () => {
@@ -10,6 +10,14 @@ describe('ErrorBoundary', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     localStorage.clear();
+  });
+
+  // Here rather than as the last statement of each test body, which is where
+  // it used to live: a failing assertion returns before it, leaking the
+  // stubbed fetch into whichever test runs next and turning one red test into
+  // a confusing cascade.
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('renders children when there is no error', () => {
@@ -57,8 +65,6 @@ describe('ErrorBoundary', () => {
     const [url, options] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
     expect(url).toBe('/api/log/client-error');
     expect(JSON.parse(options.body).message).toBe('I crashed!');
-
-    vi.unstubAllGlobals();
   });
 
   it('records the crash even when it triggers the clear-cache-and-reload path', () => {
@@ -83,8 +89,6 @@ describe('ErrorBoundary', () => {
     expect(log[0].message).toBe('I crashed!');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(reloadMock).toHaveBeenCalledTimes(1);
-
-    vi.unstubAllGlobals();
   });
 
   it('does not loop forever on a persistent crash: a second crash within the throttle window shows the fallback UI instead of reloading again', () => {
@@ -116,7 +120,5 @@ describe('ErrorBoundary', () => {
     );
     expect(reloadMock).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Oops! Something went wrong.')).toBeInTheDocument();
-
-    vi.unstubAllGlobals();
   });
 });

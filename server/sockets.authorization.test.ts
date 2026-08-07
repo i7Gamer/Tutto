@@ -28,14 +28,15 @@ describe('Server Socket E2E — authorization & payload validation', () => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host + active player
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — neither
 
-      let bobPushObserved = false;
+      // Ends on Alice's legitimate follow-up, not on a timer. The old version
+      // waited 1500ms and then asserted a flag its only writer sets on the
+      // path that rejects and clears this timer first — so it could never be
+      // true here, and the test could not fail however dead the server was.
       const timeoutId = setTimeout(() => {
-        // No 'hacked' state ever propagated → the malicious push was rejected.
-        expect(bobPushObserved).toBe(false);
         s1.disconnect();
         s2.disconnect();
-        resolve();
-      }, 1500);
+        reject(new Error('Server never broadcast the host\'s legitimate follow-up push'));
+      }, 4000);
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'E2E_AUTH', name: 'Alice', deviceId: 'dev-a3', color: '#ff0000' }, () => {
@@ -48,18 +49,35 @@ describe('Server Socket E2E — authorization & payload validation', () => {
             s1.emit('pushState', { roomId: 'E2E_AUTH', newState: { players, status: 'playing', currentPlayerIndex: 0 } });
 
             setTimeout(() => {
-              // Bob is not host and not the active player → this must be ignored.
-              s2.emit('pushState', { roomId: 'E2E_AUTH', newState: { players: [], status: 'hacked', currentPlayerIndex: 0 } });
+              // Bob is not host and not the active player → this must be
+              // ignored. currentPlayerIndex is in the payload deliberately:
+              // the roster and status are independently sanitised downstream,
+              // so a push of those alone stays harmless even with the
+              // authorization check removed. Seizing the turn is the part only
+              // this check stands between Bob and.
+              s2.emit('pushState', { roomId: 'E2E_AUTH', newState: { players: [], status: 'hacked', currentPlayerIndex: 1 } });
+              // Alice may push; her round bump is what ends the test, and it
+              // can only arrive from a room that was live enough to have taken
+              // Bob's push too, had the server been willing to.
+              setTimeout(() => {
+                s1.emit('pushState', { roomId: 'E2E_AUTH', newState: { round: 2 } });
+              }, testDelay(200));
             }, testDelay(200));
           });
         });
       });
 
       s1.on('gameState', (state) => {
-        if (state.status === 'hacked' || (state.players && state.players.length === 0)) {
-          bobPushObserved = true;
+        if (state.status === 'hacked' || state.players?.length === 0 || state.currentPlayerIndex === 1) {
           clearTimeout(timeoutId);
+          s1.disconnect();
+          s2.disconnect();
           reject(new Error('Server accepted pushState from an unauthorized player'));
+        } else if (state.round === 2) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          s2.disconnect();
+          resolve();
         }
       });
     });
@@ -357,12 +375,16 @@ describe('Server Socket E2E — authorization & payload validation', () => {
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — active player
       const s3 = io(`http://127.0.0.1:${PORT}`); // Carol — bystander, neither host nor active
 
+      const cleanup = () => { s1.disconnect(); s2.disconnect(); s3.disconnect(); };
+      // "No liveTurnState ever arrives" was the whole pass condition here,
+      // which is also what a failed join, a dead room or a broken forwarder
+      // look like. Bob — who IS the active player — pushes one afterwards, and
+      // that is what ends the test: the forwarder demonstrably works, so
+      // Carol's absence from it is a refusal.
       const timeoutId = setTimeout(() => {
-        s1.disconnect();
-        s2.disconnect();
-        s3.disconnect();
-        resolve(); // no liveTurnState event ever arriving is the expected (passing) outcome
-      }, 400);
+        cleanup();
+        reject(new Error('Server never forwarded the active player\'s liveTurnState'));
+      }, 4000);
 
       let gameStarted = false;
 
@@ -384,6 +406,14 @@ describe('Server Socket E2E — authorization & payload validation', () => {
                     turnScore: 999, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
                   },
                 });
+                setTimeout(() => {
+                  s2.emit('liveTurnState', {
+                    roomId: 'LIVE_TURN_UNAUTH_ROOM',
+                    liveTurnState: {
+                      turnScore: 42, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+                    },
+                  });
+                }, testDelay(200));
               }, testDelay(200));
             });
           });
@@ -395,12 +425,15 @@ describe('Server Socket E2E — authorization & payload validation', () => {
       });
 
       s1.on('liveTurnState', (payload) => {
-        if (payload?.liveTurnState?.turnScore === 999) {
+        const score = payload?.liveTurnState?.turnScore;
+        if (score === 999) {
           clearTimeout(timeoutId);
-          s1.disconnect();
-          s2.disconnect();
-          s3.disconnect();
+          cleanup();
           reject(new Error('Bystander was able to push liveTurnState'));
+        } else if (score === 42) {
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve();
         }
       });
     });

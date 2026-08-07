@@ -23,41 +23,62 @@ describe('Server Socket E2E — configuration & player order', () => {
     if (serverProcess) serverProcess.kill();
   });
 
+  // Every "the server must ignore this" test below ends on a legitimate
+  // follow-up the server MUST honour, never on a timer.
+  //
+  // Resolving on a timer is not a test: it holds equally well when the join
+  // failed, the room never existed, or the server answered nothing at all — the
+  // suite would stay green with the rejected event never sent. Ending instead
+  // on a valid follow-up through the SAME handler proves the path was live, so
+  // the silence being asserted is a rejection rather than an absence.
   it('rejects invalid color strings in updatePlayerColor', () => {
     return new Promise((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
-      let timeoutId = setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         s1.disconnect();
-        resolve(); // If no invalid color was broadcasted, we pass
-      }, 300);
+        reject(new Error('Server never broadcast the valid follow-up color'));
+      }, 3000);
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'COLOR_ROOM', name: 'Alice', deviceId: 'dev-color-alice', color: '#ff0000' }, () => {
           s1.emit('updatePlayerColor', { roomId: 'COLOR_ROOM', color: 'invalid-color' });
+          // Spaced so each event gets its own broadcast: sent back to back, a
+          // wrongly-accepted first color could be masked by the second.
+          setTimeout(() => {
+            s1.emit('updatePlayerColor', { roomId: 'COLOR_ROOM', color: '#00ff00' });
+          }, testDelay(200));
         });
       });
 
       s1.on('gameState', (state) => {
-        if (state.players && state.players[0] && state.players[0].color === 'invalid-color') {
+        const color = state.players?.[0]?.color;
+        if (color === 'invalid-color') {
           clearTimeout(timeoutId);
           s1.disconnect();
           reject(new Error('Server accepted invalid color string'));
+        } else if (color === '#00ff00') {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          resolve();
         }
       });
     });
-  });
+  }, 10000);
 
   it('ignores updateConfig with out-of-bounds values', () => {
     return new Promise((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
-      let timeoutId = setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         s1.disconnect();
-        resolve(); // If no invalid config was broadcasted, we pass
-      }, 300);
+        reject(new Error('Server never broadcast the valid follow-up config'));
+      }, 3000);
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'CONFIG_ROOM', name: 'Alice', deviceId: 'dev-configbounds-alice', color: '#ff0000' }, () => {
-          s1.emit('updateConfig', { winningScore: -100, turnDuration: 9999, reconnectTimeout: -5 });
+          s1.emit('updateConfig', { roomId: 'CONFIG_ROOM', winningScore: -100, turnDuration: 9999, reconnectTimeout: -5 });
+          setTimeout(() => {
+            s1.emit('updateConfig', { roomId: 'CONFIG_ROOM', winningScore: 5000 });
+          }, testDelay(200));
         });
       });
 
@@ -66,10 +87,14 @@ describe('Server Socket E2E — configuration & player order', () => {
           clearTimeout(timeoutId);
           s1.disconnect();
           reject(new Error('Server accepted out-of-bounds config'));
+        } else if (state.winningScore === 5000) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          resolve();
         }
       });
     });
-  });
+  }, 10000);
 
   it('adopts the host-chosen player order when the game starts (online random shuffle)', () => {
     return new Promise((resolve, reject) => {
@@ -163,27 +188,43 @@ describe('Server Socket E2E — configuration & player order', () => {
 
   it('rejects reorderPlayers if new order has different length', () => {
     return new Promise((resolve, reject) => {
-      const s1 = io(`http://127.0.0.1:${PORT}`);
-      let timeoutId = setTimeout(() => {
-        s1.disconnect();
-        resolve(); // passed
-      }, 300);
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob
+      const cleanup = () => { s1.disconnect(); s2.disconnect(); };
+      const timeoutId = setTimeout(() => {
+        cleanup();
+        reject(new Error('Server never applied the valid follow-up reorder'));
+      }, 3000);
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'REORDER_ROOM', name: 'Alice', deviceId: 'dev-reorder-alice', color: '#ff0000' }, () => {
-          s1.emit('reorderPlayers', []); // Send empty array when there's 1 player
+          s2.emit('joinRoom', { roomId: 'REORDER_ROOM', name: 'Bob', deviceId: 'dev-reorder-bob', color: '#00ff00' }, () => {
+            // Well-formed but one seat short of the room's two players. The
+            // payload used to be a bare `[]`, which the handler discards at its
+            // shape guard for want of a roomId — the length check this test is
+            // named after was never reached.
+            s1.emit('reorderPlayers', { roomId: 'REORDER_ROOM', newPlayers: [{ name: 'Alice' }] });
+            setTimeout(() => {
+              s1.emit('reorderPlayers', { roomId: 'REORDER_ROOM', newPlayers: [{ name: 'Bob' }, { name: 'Alice' }] });
+            }, testDelay(200));
+          });
         });
       });
 
       s1.on('gameState', (state) => {
-        if (state.players && state.players.length === 0) {
+        if (!state.players || state.players.length < 2) return;
+        if (state.players.length !== 2) {
           clearTimeout(timeoutId);
-          s1.disconnect();
-          reject(new Error('Server accepted invalid reorderPlayers'));
+          cleanup();
+          reject(new Error('Server accepted a reorder of the wrong length'));
+        } else if (state.players[0].name === 'Bob') {
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve();
         }
       });
     });
-  });
+  }, 10000);
 
   it('accepts turnDuration=0 and reconnectTimeout=0 to disable timers', () => {
     return new Promise((resolve, reject) => {
@@ -221,14 +262,13 @@ describe('Server Socket E2E — configuration & player order', () => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob
 
+      const cleanup = () => { s1.disconnect(); s2.disconnect(); };
       const timeoutId = setTimeout(() => {
-        // If no state change was received with reordered players after game start, the test passes
-        s1.disconnect();
-        s2.disconnect();
-        resolve();
-      }, 400);
+        cleanup();
+        reject(new Error('Server never broadcast the valid follow-up push'));
+      }, 4000);
 
-      let originalOrder = null;
+      let reorderAttempted = false;
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'REORDER_MIDGAME', name: 'Alice', deviceId: 'dev-rmg-a', color: '#ff0000' }, () => {
@@ -241,26 +281,35 @@ describe('Server Socket E2E — configuration & player order', () => {
             s1.emit('pushState', { roomId: 'REORDER_MIDGAME', newState: { players, status: 'playing', currentPlayerIndex: 0 } });
 
             setTimeout(() => {
-              originalOrder = ['Alice', 'Bob'];
+              reorderAttempted = true;
               // Attempt to reorder mid-game (Bob first)
               s1.emit('reorderPlayers', {
                 roomId: 'REORDER_MIDGAME',
                 newPlayers: [{ name: 'Bob' }, { name: 'Alice' }]
               });
+              // A push the host IS allowed to make, behind the one it is not.
+              // Its arrival is what ends the test, and it can only arrive from
+              // a live room — so the roster below is unchanged rather than
+              // merely unobserved.
+              setTimeout(() => {
+                s1.emit('pushState', { roomId: 'REORDER_MIDGAME', newState: { round: 2 } });
+              }, testDelay(200));
             }, testDelay(300));
           });
         });
       });
 
       s1.on('gameState', (state) => {
-        if (state.status === 'playing' && originalOrder && state.players?.length === 2) {
-          // If the server accepted the reorder, Bob would now be first — that must not happen
-          if (state.players[0].name === 'Bob') {
-            clearTimeout(timeoutId);
-            s1.disconnect();
-            s2.disconnect();
-            reject(new Error('Server allowed reorderPlayers during a live game'));
-          }
+        if (!reorderAttempted || state.status !== 'playing' || state.players?.length !== 2) return;
+        // If the server accepted the reorder, Bob would now be first — that must not happen
+        if (state.players[0].name === 'Bob') {
+          clearTimeout(timeoutId);
+          cleanup();
+          reject(new Error('Server allowed reorderPlayers during a live game'));
+        } else if (state.round === 2) {
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve();
         }
       });
     });
@@ -275,11 +324,9 @@ describe('Server Socket E2E — configuration & player order', () => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
 
       const timeoutId = setTimeout(() => {
-        // If no state change was received with the tampered winningScore
-        // after game start, the test passes.
         s1.disconnect();
-        resolve();
-      }, 400);
+        reject(new Error('Server never broadcast the valid follow-up push'));
+      }, 4000);
 
       let gameStarted = false;
 
@@ -293,15 +340,26 @@ describe('Server Socket E2E — configuration & player order', () => {
           setTimeout(() => {
             gameStarted = true;
             s1.emit('updateConfig', { roomId: 'UPDATECONFIG_MIDGAME', winningScore: 1000 });
+            // The legitimate push behind the rejected config: its arrival ends
+            // the test, and proves the room was live enough to have applied
+            // the config had the server been willing to.
+            setTimeout(() => {
+              s1.emit('pushState', { roomId: 'UPDATECONFIG_MIDGAME', newState: { round: 2 } });
+            }, testDelay(200));
           }, testDelay(300));
         });
       });
 
       s1.on('gameState', (state) => {
-        if (gameStarted && state.status === 'playing' && state.winningScore === 1000) {
+        if (!gameStarted || state.status !== 'playing') return;
+        if (state.winningScore === 1000) {
           clearTimeout(timeoutId);
           s1.disconnect();
           reject(new Error('Server allowed updateConfig during a live game'));
+        } else if (state.round === 2) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          resolve();
         }
       });
     });
@@ -380,27 +438,40 @@ describe('Server Socket E2E — configuration & player order', () => {
   }, 10000);
 
   it('reorderPlayers with a non-array newPlayers payload is ignored without crashing', () => {
-    return new Promise((resolve) => {
-      const s1 = io(`http://127.0.0.1:${PORT}`);
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob
+      const cleanup = () => { s1.disconnect(); s2.disconnect(); };
       const timeoutId = setTimeout(() => {
-        // No bad broadcast and server still responsive → pass.
-        s1.disconnect();
-        resolve();
-      }, 350);
+        cleanup();
+        reject(new Error('Server never applied the valid follow-up reorder'));
+      }, 3000);
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'REORDER_NONARRAY', name: 'Alice', deviceId: 'dev-rna-a', color: '#ff0000' }, () => {
-          // newPlayers is an object, not an array — must be ignored, not throw.
-          s1.emit('reorderPlayers', { roomId: 'REORDER_NONARRAY', newPlayers: { foo: 'bar' } });
+          s2.emit('joinRoom', { roomId: 'REORDER_NONARRAY', name: 'Bob', deviceId: 'dev-rna-b', color: '#00ff00' }, () => {
+            // newPlayers is an object, not an array — must be ignored, not throw.
+            s1.emit('reorderPlayers', { roomId: 'REORDER_NONARRAY', newPlayers: { foo: 'bar' } });
+            // "Without crashing" is only meaningful if something afterwards
+            // still works, so a legitimate reorder follows and ends the test.
+            setTimeout(() => {
+              s1.emit('reorderPlayers', { roomId: 'REORDER_NONARRAY', newPlayers: [{ name: 'Bob' }, { name: 'Alice' }] });
+            }, testDelay(200));
+          });
         });
       });
 
       s1.on('gameState', (state) => {
-        // The single real player must remain intact.
-        if (state.players && state.players.length !== 1) {
+        if (!state.players || state.players.length < 2) return;
+        // The two real players must remain intact.
+        if (state.players.length !== 2) {
           clearTimeout(timeoutId);
-          s1.disconnect();
-          throw new Error('reorderPlayers with non-array payload altered the player list');
+          cleanup();
+          reject(new Error('reorderPlayers with non-array payload altered the player list'));
+        } else if (state.players[0].name === 'Bob') {
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve();
         }
       });
     });
