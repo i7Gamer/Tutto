@@ -300,8 +300,11 @@ describe('App Integration (End-to-End)', () => {
     expect(useGameStore.getState().pendingReconnectSession).toBeNull();
     expect(useGameStore.getState().liveTurnState).toBeNull();
 
-    // Allow async socket operations to complete
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // The flow is a chain of real-timer hops: connect → joinRoom → its ack →
+    // leaveRoom → disconnect. Waiting on the last link rather than on a fixed
+    // sleep, which a loaded run can outlast mid-chain — everything below it
+    // has necessarily already happened by the time it has.
+    await waitFor(() => expect(mockSocketInstance.disconnect).toHaveBeenCalled());
 
     // Verify temp socket was created
     expect(io).toHaveBeenCalledWith(expect.any(String));
@@ -317,9 +320,6 @@ describe('App Integration (End-to-End)', () => {
 
     // Verify leaveRoom was emitted after successful join
     expect(mockSocketInstance.emit).toHaveBeenCalledWith('leaveRoom');
-
-    // Verify socket was disconnected after leaving
-    expect(mockSocketInstance.disconnect).toHaveBeenCalled();
 
     mockSocketInstance = null;
   });
