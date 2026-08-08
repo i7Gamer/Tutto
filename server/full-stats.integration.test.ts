@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import database from './database';
 import { useGameStore } from '../src/store/useGameStore';
+import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
 // Force the test DB
 process.env.TEST_DB = 'true';
@@ -8,7 +9,7 @@ process.env.TEST_DB = 'true';
 describe('End-to-End Statistics Integration', () => {
   beforeAll(async () => {
     await database.initDb();
-  });
+  }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(async () => {
     await database.knex.destroy();

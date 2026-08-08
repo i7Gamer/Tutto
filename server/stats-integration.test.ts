@@ -3,11 +3,12 @@ process.env.TEST_DB = 'true';
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import database from './database';
+import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
 describe('Statistics Saving - Personal and Global', () => {
   beforeAll(async () => {
     await database.initDb();
-  });
+  }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(async () => {
     await database.knex.destroy();

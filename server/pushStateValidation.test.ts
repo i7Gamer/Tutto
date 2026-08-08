@@ -5,6 +5,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io } from 'socket.io-client';
 import { spawn } from 'child_process';
 import { TEST_PORTS } from './testPorts';
+import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
 // Regression coverage for three related fixes to server/index.ts:
 //  1. pushState previously trusted several fields (currentPlayerIndex, chartValues,
@@ -33,7 +34,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
       serverProcess.stderr.on('data', (data) => console.error('[server]', data.toString()));
       serverProcess.on('error', reject);
     });
-  }, 20000);
+  }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();

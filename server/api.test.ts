@@ -6,6 +6,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { TEST_PORTS } from './testPorts';
+import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
 const ensureDistIndexHtml = () => {
   const distDir = path.join(__dirname, '../dist');
@@ -45,7 +46,7 @@ describe('API Endpoints Token Protection', () => {
 
       serverProcess.on('error', (err) => reject(err));
     });
-  }, 20000);
+  }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -226,7 +227,7 @@ describe('POST /api/log/client-error rate limiting', () => {
 
       serverProcess.on('error', (err) => reject(err));
     });
-  }, 20000);
+  }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -275,7 +276,7 @@ describe('CORS_ORIGIN configuration', () => {
 
       serverProcess.on('error', (err) => reject(err));
     });
-  }, 20000);
+  }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -326,7 +327,7 @@ describe('production CORS defaults to same-origin', () => {
 
       serverProcess.on('error', (err) => reject(err));
     });
-  }, 20000);
+  }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -387,7 +388,7 @@ describe('GET /api/stats/global rate limiting', () => {
 
       serverProcess.on('error', (err) => reject(err));
     });
-  }, 20000);
+  }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
