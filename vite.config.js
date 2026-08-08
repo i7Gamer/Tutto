@@ -23,6 +23,16 @@ export default defineConfig(({ mode }) => {
   // match one of allowedHosts.
   const allowedHost = env.ALLOWED_HOST || 'localhost'
 
+  // Where the dev server forwards /api and /socket.io. This was hardcoded, so
+  // a dev session always talked to whatever answered on 3001 — which on a
+  // machine that also runs the real thing is the real thing. It is not only
+  // reads: crashLog.ts POSTs client errors to /api/log/client-error, so an
+  // error from a half-saved file ends up in that instance's log. Point
+  // API_TARGET at a scratch server to keep a dev session to itself.
+  const apiTarget = env.API_TARGET || 'http://localhost:3001'
+  // Same host, socket scheme: http→ws, https→wss.
+  const socketTarget = apiTarget.replace(/^http/, 'ws')
+
   return {
     base: './',
     define: {
@@ -81,9 +91,9 @@ export default defineConfig(({ mode }) => {
     server: {
       allowedHosts: [allowedHost],
       proxy: {
-        '/api': 'http://localhost:3001',
+        '/api': apiTarget,
         '/socket.io': {
-          target: 'ws://localhost:3001',
+          target: socketTarget,
           ws: true
         }
       }
