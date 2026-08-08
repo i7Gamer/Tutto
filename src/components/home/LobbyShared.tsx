@@ -13,6 +13,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../../store/useGameStore';
 import { supportsIOSSwitchHaptic } from '../../utils/iosSwitchHaptic';
 import { REORDER_PRESS_RELEASE_MS } from '../../utils/uiTimings';
+import './LobbyShared.css';
 
 interface PlayerListProps {
   players: Player[];
@@ -160,11 +161,11 @@ export function DiceModeSelector({ diceMode, setDiceMode, nameSuffix = 'Lobby' }
   const { t } = useTranslation();
   return (
     <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 bg-white dark:bg-slate-800/50 px-4 py-3 sm:px-6 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px]">
-      <label className="radio-wrapper text-gray-700 dark:text-gray-200">
+      <label className="radio-wrapper lobby-radio">
         <input type="radio" name={`diceMode${nameSuffix}`} checked={diceMode === 'digital'} onChange={() => setDiceMode('digital')} />
         <span className="font-medium">{t('lobby.digitalDice', 'Digital Dice')}</span>
       </label>
-      <label className="radio-wrapper text-gray-700 dark:text-gray-200">
+      <label className="radio-wrapper lobby-radio">
         <input type="radio" name={`diceMode${nameSuffix}`} checked={diceMode === 'physical'} onChange={() => setDiceMode('physical')} />
         <span className="font-medium">{t('lobby.physicalDice', 'Physical Dice')}</span>
       </label>
@@ -230,11 +231,11 @@ export function AudioSettingSelector({ audioEnabled, setAudioEnabled, nameSuffix
   const { t } = useTranslation();
   return (
     <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 bg-white dark:bg-slate-800/50 px-4 py-3 sm:px-6 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px]">
-      <label className="radio-wrapper text-gray-700 dark:text-gray-200">
+      <label className="radio-wrapper lobby-radio">
         <input type="radio" name={`audioSetting${nameSuffix}`} checked={audioEnabled === true} onChange={() => setAudioEnabled(true)} />
         <span className="font-medium">{t('lobby.soundOn', 'Sound On')}</span>
       </label>
-      <label className="radio-wrapper text-gray-700 dark:text-gray-200">
+      <label className="radio-wrapper lobby-radio">
         <input type="radio" name={`audioSetting${nameSuffix}`} checked={audioEnabled === false} onChange={() => setAudioEnabled(false)} />
         <span className="font-medium">{t('lobby.muted', 'Muted')}</span>
       </label>
@@ -261,11 +262,11 @@ export function HapticsSettingSelector({ hapticsEnabled, setHapticsEnabled, name
 
   return (
     <div className="flex sm:hidden flex-wrap items-center justify-center gap-2 sm:gap-6 bg-white dark:bg-slate-800/50 px-3 py-2 sm:px-6 sm:py-3 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px]">
-      <label className="radio-wrapper text-gray-700 dark:text-gray-200">
+      <label className="radio-wrapper lobby-radio">
         <input type="radio" name={`hapticsSetting${nameSuffix}`} checked={hapticsEnabled === true} onChange={() => setHapticsEnabled(true)} />
         <span className="font-medium">{t('lobby.hapticsOn', 'Vibration On')}</span>
       </label>
-      <label className="radio-wrapper text-gray-700 dark:text-gray-200">
+      <label className="radio-wrapper lobby-radio">
         <input type="radio" name={`hapticsSetting${nameSuffix}`} checked={hapticsEnabled === false} onChange={() => setHapticsEnabled(false)} />
         <span className="font-medium">{t('lobby.hapticsOff', 'Vibration Off')}</span>
       </label>
@@ -409,24 +410,24 @@ export function AdvancedOptionsPanel({
           {readOnly ? (
             <div className="bg-white dark:bg-slate-800/40 p-3 sm:p-5 rounded-xl border border-gray-200 dark:border-slate-600">
               <div className="flex flex-wrap gap-2 mb-4">
-                <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
+                <span className="lobby-chip">
                   {t('lobby.winningScore', 'Winning Score')}: <strong>{winningScore}</strong>
                 </span>
                 {isOnline && (
                   <>
-                    <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
+                    <span className="lobby-chip">
                       {t('lobby.turnTimer', 'Turn Timer')}: <strong>{turnDuration > 0 ? `${turnDuration}s` : t('common.disabled', 'Disabled')}</strong>
                     </span>
-                    <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
+                    <span className="lobby-chip">
                       {t('lobby.kickTimer', 'Kick Timer')}: <strong>{reconnectTimeout > 0 ? `${reconnectTimeout}s` : t('common.disabled', 'Disabled')}</strong>
                     </span>
                   </>
                 )}
-                <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
+                <span className="lobby-chip">
                   {t('lobby.randomOrder', 'Random Order')}: <strong>{randomOrder !== false ? t('game.controls.yes', 'Yes') : t('game.controls.no', 'No')}</strong>
                 </span>
                 {isOnline && enforcedDiceMode && (
-                  <span className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800">
+                  <span className="lobby-chip">
                     {t('lobby.diceMode', 'Dice Mode')}: <strong>{enforcedDiceMode === 'digital' ? t('lobby.digitalDice', 'Digital Dice') : t('lobby.physicalDice', 'Physical Dice')}</strong>
                   </span>
                 )}
@@ -458,7 +459,7 @@ export function AdvancedOptionsPanel({
                 )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 mb-6 items-stretch">
-                <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
+                <label className="lobby-row focus-within:ring-2 focus-within:ring-indigo-500 cursor-text">
                   <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.winningScore', 'Winning Score')}</span>
                   <BlurInput
                     type="number" minVal={MIN_WINNING_SCORE} maxVal={MAX_WINNING_SCORE} inputMode="numeric" pattern="[0-9]*"
@@ -469,7 +470,7 @@ export function AdvancedOptionsPanel({
                 </label>
                 {isOnline && (
                   <>
-                    <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
+                    <label className="lobby-row focus-within:ring-2 focus-within:ring-indigo-500 cursor-text">
                       <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.turnTimer', 'Turn Timer (s)')}</span>
                       <BlurInput
                         type="number" minVal={0} maxVal={MAX_TURN_DURATION} inputMode="numeric" pattern="[0-9]*"
@@ -480,7 +481,7 @@ export function AdvancedOptionsPanel({
                         placeholder="0"
                       />
                     </label>
-                    <label className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
+                    <label className="lobby-row focus-within:ring-2 focus-within:ring-indigo-500 cursor-text">
                       <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.kickTimer', 'Kick Timer (s)')}</span>
                       <BlurInput
                         type="number" minVal={0} maxVal={MAX_RECONNECT_TIMEOUT} inputMode="numeric" pattern="[0-9]*"
@@ -495,7 +496,7 @@ export function AdvancedOptionsPanel({
                 )}
                 <div
                   onClick={() => setRandomOrder(!randomOrder)}
-                  className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+                  className="lobby-row cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800"
                 >
                   <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2 py-1">{t('lobby.randomOrder', 'Random Order')}</span>
                   <div className={`w-10 h-5 rounded-full flex items-center p-0.5 transition-colors ${randomOrder !== false ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-slate-600'}`}>
@@ -524,7 +525,7 @@ export function AdvancedOptionsPanel({
               </div>
               <div data-testid="deck-composition-grid" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
                 {initialCards && Object.entries(initialCards).map(([card, count]) => (
-                  <label key={card} className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
+                  <label key={card} className="lobby-row focus-within:ring-2 focus-within:ring-indigo-500 cursor-text">
                     <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{card.replace('_', '/')}</span>
                     <BlurInput
                       type="number" minVal={0} maxVal={MAX_CARD_COUNT} inputMode="numeric" pattern="[0-9]*"

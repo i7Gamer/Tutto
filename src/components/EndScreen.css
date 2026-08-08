@@ -1,0 +1,12 @@
+/* The caption under a number on the end screen. Two of them, because the
+   lifetime tiles shrink their label on a narrow screen and the record cards
+   do not — kept apart rather than unified, since making the records
+   responsive too would change what they look like on a phone. */
+
+.end-stat-label {
+  @apply text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400;
+}
+
+.end-record-label {
+  @apply text-sm font-semibold text-gray-500 dark:text-gray-400;
+}

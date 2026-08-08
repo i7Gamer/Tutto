@@ -1,0 +1,19 @@
+/* Repeating parts of the lobby. What varies between call sites — how a row
+   reacts to focus or hover, and its cursor — stays on the element: none of it
+   overlaps what the base rule sets, so the two cannot fight. */
+
+/* A setting shown as a value rather than edited: the room's rules at a glance. */
+.lobby-chip {
+  @apply px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-sm font-medium border border-indigo-100 dark:border-indigo-800;
+}
+
+/* One editable line: a label on the left, its control on the right. */
+.lobby-row {
+  @apply flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 transition-colors;
+}
+
+/* The label beside a radio button (the control itself is .radio-wrapper, in
+   index.css, which every app-wide form control shares). */
+.lobby-radio {
+  @apply text-gray-700 dark:text-gray-200;
+}

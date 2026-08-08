@@ -20,6 +20,7 @@ import { computeRankedPlayers, getLeaders } from '../utils/coreGameEngine';
 import { motion } from 'framer-motion';
 import { useGameStore } from '../store/useGameStore';
 import type { Player } from '../types';
+import './EndScreen.css';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
@@ -257,7 +258,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                 <Award size={36} className="text-amber-500 flex-shrink-0" />
                 <div>
                   <div className="text-2xl font-black text-amber-600 dark:text-amber-400">{me?.highestTurnScore}</div>
-                  <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.newPersonalBestTurnScore', 'New Personal Best Turn Score!')}</div>
+                  <div className="end-record-label">{t('end.newPersonalBestTurnScore', 'New Personal Best Turn Score!')}</div>
                 </div>
               </div>
             )}
@@ -266,7 +267,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                 <Zap size={36} className="text-emerald-500 flex-shrink-0" />
                 <div>
                   <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{me?.totalTurns}</div>
-                  <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.newFastestWin', 'New Fastest Win (turns)!')}</div>
+                  <div className="end-record-label">{t('end.newFastestWin', 'New Fastest Win (turns)!')}</div>
                 </div>
               </div>
             )}
@@ -275,7 +276,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                 <TrendingDown size={36} className="text-red-500 flex-shrink-0" />
                 <div>
                   <div className="text-2xl font-black text-red-600 dark:text-red-400">{me?.totalTurns}</div>
-                  <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.newFastestLoss', 'New Fastest Loss (turns) — ouch!')}</div>
+                  <div className="end-record-label">{t('end.newFastestLoss', 'New Fastest Loss (turns) — ouch!')}</div>
                 </div>
               </div>
             )}
@@ -284,7 +285,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                 <Award size={36} className="text-orange-500 flex-shrink-0" />
                 <div>
                   <div className="text-2xl font-black text-orange-600 dark:text-orange-400">{me?.highestFeuerwerkTurnScore}</div>
-                  <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.newHighestFeuerwerk', 'New Personal Best Feuerwerk Turn!')}</div>
+                  <div className="end-record-label">{t('end.newHighestFeuerwerk', 'New Personal Best Feuerwerk Turn!')}</div>
                 </div>
               </div>
             )}
@@ -293,7 +294,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                 <Award size={36} className="text-pink-500 flex-shrink-0" />
                 <div>
                   <div className="text-2xl font-black text-pink-600 dark:text-pink-400">{me?.highestX2TurnScore}</div>
-                  <div className="text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.newHighestX2', 'New Personal Best x2 Turn!')}</div>
+                  <div className="end-record-label">{t('end.newHighestX2', 'New Personal Best x2 Turn!')}</div>
                 </div>
               </div>
             )}
@@ -307,35 +308,35 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 text-center max-w-3xl mx-auto">
             <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl p-4 border border-indigo-100 dark:border-indigo-800 flex flex-col justify-center">
               <div className="text-3xl sm:text-4xl font-black text-indigo-600 mb-1">{deviceStats.gamesPlayed}</div>
-              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.gamesPlayed', 'Games Played')}</div>
+              <div className="end-stat-label">{t('end.gamesPlayed', 'Games Played')}</div>
             </div>
             <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-4 border border-emerald-100 dark:border-emerald-800 flex flex-col justify-center">
               <div className="text-3xl sm:text-4xl font-black text-emerald-500 mb-1">{deviceStats.wins}</div>
-              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.totalWins', 'Total Wins')}</div>
+              <div className="end-stat-label">{t('end.totalWins', 'Total Wins')}</div>
             </div>
             <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border border-red-100 dark:border-red-800 flex flex-col justify-center">
               <div className="text-3xl sm:text-4xl font-black text-red-500 mb-1">{deviceStats.pointsDeducted}</div>
-              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.pointsEaten', '-1000 Pts Eaten')}</div>
+              <div className="end-stat-label">{t('end.pointsEaten', '-1000 Pts Eaten')}</div>
             </div>
             <div className="bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-4 border border-amber-100 dark:border-amber-800 flex flex-col justify-center">
               <div className="text-3xl sm:text-4xl font-black text-amber-500 mb-1">{deviceStats.kniffelCompleted}</div>
-              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.kniffelsDone', 'Kniffels Done')}</div>
+              <div className="end-stat-label">{t('end.kniffelsDone', 'Kniffels Done')}</div>
             </div>
             <div className="bg-orange-50 dark:bg-orange-900/20 rounded-2xl p-4 border border-orange-100 dark:border-orange-800 flex flex-col justify-center">
               <div className="text-3xl sm:text-4xl font-black text-orange-500 mb-1">{deviceStats.busts || 0}</div>
-              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.totalBusts', 'Total Busts')}</div>
+              <div className="end-stat-label">{t('end.totalBusts', 'Total Busts')}</div>
             </div>
             <div className="bg-orange-50 dark:bg-orange-900/20 rounded-2xl p-4 border border-orange-100 dark:border-orange-800 flex flex-col justify-center">
               <div className="text-3xl sm:text-4xl font-black text-orange-500 mb-1">{((deviceStats.busts || 0) / Math.max(1, deviceStats.gamesPlayed)).toFixed(1)}</div>
-              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.avgBustsPerGame', 'Avg Busts/Game')}</div>
+              <div className="end-stat-label">{t('end.avgBustsPerGame', 'Avg Busts/Game')}</div>
             </div>
             <div className="bg-violet-50 dark:bg-violet-900/20 rounded-2xl p-4 border border-violet-100 dark:border-violet-800 flex flex-col justify-center">
               <div className="text-3xl sm:text-4xl font-black text-violet-500 mb-1">{deviceStats.currentWinStreak || 0}</div>
-              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.currentWinStreak', 'Current Win Streak')}</div>
+              <div className="end-stat-label">{t('end.currentWinStreak', 'Current Win Streak')}</div>
             </div>
             <div className="bg-violet-50 dark:bg-violet-900/20 rounded-2xl p-4 border border-violet-100 dark:border-violet-800 flex flex-col justify-center">
               <div className="text-3xl sm:text-4xl font-black text-violet-500 mb-1">{deviceStats.bestWinStreak || 0}</div>
-              <div className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400">{t('end.bestWinStreak', 'Best Win Streak')}</div>
+              <div className="end-stat-label">{t('end.bestWinStreak', 'Best Win Streak')}</div>
             </div>
           </div>
         </motion.div>
