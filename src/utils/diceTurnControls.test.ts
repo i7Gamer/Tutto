@@ -1,6 +1,7 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
-import { isSpecialCard, deriveTurnControls, sortKeptDiceForDisplay } from './diceTurnControls';
+import { isSpecialCard, hasScoreInput, deriveTurnControls, sortKeptDiceForDisplay } from './diceTurnControls';
+import { VALID_CARD_TYPES } from './configValidation';
 
 describe('diceTurnControls', () => {
   // Sensible defaults for a mid-turn state; override per assertion.
@@ -18,6 +19,31 @@ describe('diceTurnControls', () => {
     });
     it('treats normal/bonus cards as non-special', () => {
       ['300', 'x2', 'Feuerwerk', 'Stop'].forEach(c => expect(isSpecialCard(c)).toBe(false));
+    });
+  });
+
+  describe('hasScoreInput', () => {
+    // Game.tsx (which key does Space press?) and GameControls.tsx (which
+    // control is on screen?) both ask this, and an answer that differed
+    // between them would fire an action the player cannot see.
+    it('offers a score entry on the cards that are played for points', () => {
+      ['300', 'x2', 'Feuerwerk'].forEach(c => expect(hasScoreInput(c)).toBe(true));
+    });
+
+    it('offers none on Stop, which ends the turn, or on the answered cards', () => {
+      ['Stop', 'Kniffel', 'Plus_Minus', 'Kleeblatt'].forEach(c => expect(hasScoreInput(c)).toBe(false));
+    });
+
+    it('offers one when no card is drawn yet, as the controls did before', () => {
+      expect(hasScoreInput(null)).toBe(true);
+    });
+
+    it('gives every card exactly one way to be resolved', () => {
+      // Score entry, a yes/no answer, or Stop — never two, never none.
+      for (const card of VALID_CARD_TYPES) {
+        const ways = [hasScoreInput(card), isSpecialCard(card), card === 'Stop'];
+        expect(ways.filter(Boolean)).toHaveLength(1);
+      }
     });
   });
 

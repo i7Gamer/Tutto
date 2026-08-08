@@ -10,6 +10,7 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { formatTime } from '../utils/formatTime';
 import { buildTurnKey, parseSavedDiceState } from '../utils/diceTurnState';
+import { hasScoreInput, isSpecialCard } from '../utils/diceTurnControls';
 import { parseJsonObject } from '../utils/parseJson';
 import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, DICE_PANEL_ENTRANCE_MS } from '../utils/uiTimings';
 import { useWakeLock } from '../hooks/useWakeLock';
@@ -316,8 +317,8 @@ export default function Game() {
     nextTurn(score, isSuccess);
   }, [nextTurn]);
 
-  const currentCardHasInput = !['Stop', 'Plus_Minus', 'Kniffel', 'Kleeblatt'].includes(currentCard ?? '');
-  const currentCardHasYesNo = ['Plus_Minus', 'Kniffel', 'Kleeblatt'].includes(currentCard ?? '');
+  const currentCardHasInput = hasScoreInput(currentCard);
+  const currentCardHasYesNo = isSpecialCard(currentCard);
   const isStopCard = currentCard === 'Stop';
 
   // Keyboard shortcuts: Space/Enter triggers whatever GameControls' primary

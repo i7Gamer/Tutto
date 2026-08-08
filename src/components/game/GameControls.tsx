@@ -3,7 +3,7 @@ import { Undo2, ChevronRight, Check, X, Dices } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { isTestEnv } from '../../utils/env';
-import { sortKeptDiceForDisplay } from '../../utils/diceTurnControls';
+import { sortKeptDiceForDisplay, hasScoreInput, isSpecialCard } from '../../utils/diceTurnControls';
 import { CARD_FLIP_MS } from '../../utils/uiTimings';
 import { BONUS_CARDS } from '../../utils/configValidation';
 import type { CardType, DiceMode, DiceSnapshot, Player } from '../../types';
@@ -54,8 +54,8 @@ export default function GameControls({
   currentPlayer,
 }: GameControlsProps) {
   const { t } = useTranslation();
-  const currentCardHasInput = !['Stop', 'Plus_Minus', 'Kniffel', 'Kleeblatt'].includes(currentCard ?? '');
-  const currentCardHasYesNo = ['Plus_Minus', 'Kniffel', 'Kleeblatt'].includes(currentCard ?? '');
+  const currentCardHasInput = hasScoreInput(currentCard);
+  const currentCardHasYesNo = isSpecialCard(currentCard);
   const isStopCard = currentCard === 'Stop';
 
   const [prevCardsLength, setPrevCardsLength] = useState(cardsLength);

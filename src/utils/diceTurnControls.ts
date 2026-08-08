@@ -5,6 +5,14 @@ export const SPECIAL_CARDS: readonly CardType[] = ['Kniffel', 'Plus_Minus', 'Kle
 export const isSpecialCard = (card: CardType | null): boolean =>
   card !== null && (SPECIAL_CARDS as readonly string[]).includes(card);
 
+// Whether the turn ends with a score being entered, as opposed to the yes/no
+// answer the special cards take or Stop's no turn at all. Asked by the
+// controls to decide what to render and by Game.tsx to decide what the
+// primary-action key does — one answer, so the key can't fire something the
+// player isn't being shown.
+export const hasScoreInput = (card: CardType | null): boolean =>
+  !isSpecialCard(card) && card !== 'Stop';
+
 export interface StopButtonText {
   key: string;
   fallback: string;

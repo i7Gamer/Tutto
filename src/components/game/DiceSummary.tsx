@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { isTestEnv } from '../../utils/env';
+import { isSpecialCard } from '../../utils/diceTurnControls';
 import type { CardType } from '../../types';
 
 interface SummaryData {
@@ -35,7 +36,7 @@ export default function DiceSummary({ summaryData, continueCountdown, finishGame
         </h3>
       )}
       {(summaryData.won || currentCard === 'Feuerwerk') &&
-        !(['Kniffel', 'Plus_Minus', 'Kleeblatt'] as string[]).includes(currentCard ?? '') &&
+        !isSpecialCard(currentCard) &&
         summaryData.score > 0 && (
           <p className="text-2xl text-gray-700 dark:text-gray-200">
             {t('dice.points_gained', 'Points gained: ')}

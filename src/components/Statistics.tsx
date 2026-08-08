@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Trophy, Clock, Hash, FastForward, BarChart2, Globe, User, TrendingDown, TrendingUp, Zap, Repeat, Skull, XCircle, ArrowLeft } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
 import { parseJsonObject } from '../utils/parseJson';
+import { CARD_EMOJIS } from '../utils/cardVisuals';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import React from 'react';
@@ -366,12 +367,12 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                     <span className="text-2xl">🃏</span> {t('statistics.cardBreakdown', 'Card Breakdown')}
                   </h4>
                   <div className="max-w-2xl mx-auto flex flex-col gap-1">
-                    <CardRow label={t('cards.plusMinus', 'Plus/Minus')} icon="±" count={(p.plusMinusCompleted || 0) + (p.plusMinusFailed || 0)} wins={p.plusMinusCompleted || 0} fails={p.plusMinusFailed || 0} />
-                    <CardRow label={t('cards.kniffel', 'Kniffel')} icon="🎲" count={(p.kniffelCompleted || 0) + (p.kniffelFailed || 0)} wins={p.kniffelCompleted || 0} fails={p.kniffelFailed || 0} />
-                    <CardRow label={t('cards.kleeblatt', 'Kleeblatt')} icon="🍀" count={(p.kleeblattCompleted || 0) + (p.kleeblattFailed || 0)} wins={p.kleeblattCompleted || 0} fails={p.kleeblattFailed || 0} />
-                    <CardRow label={t('cards.stop', 'Stop')} icon="🛑" count={p.skipped || 0} />
-                    <CardRow label={t('cards.feuerwerk', 'Feuerwerk')} icon="🎆" count={p.feuerwerkReceived || 0} wins={(p.feuerwerkReceived || 0) - (p.feuerwerkBusts || 0)} fails={p.feuerwerkBusts || 0} failsLabel={t('statistics.busts', 'Busts')} hideRate avgPoints={p.feuerwerkPointsScored || 0} />
-                    <CardRow label={t('cards.x2', 'x2')} icon="✖️" count={p.x2Received || 0} wins={(p.x2Received || 0) - (p.x2Busts || 0)} fails={p.x2Busts || 0} failsLabel={t('statistics.busts', 'Busts')} hideRate avgPoints={p.x2PointsScored || 0} />
+                    <CardRow label={t('cards.plusMinus', 'Plus/Minus')} icon={CARD_EMOJIS.Plus_Minus} count={(p.plusMinusCompleted || 0) + (p.plusMinusFailed || 0)} wins={p.plusMinusCompleted || 0} fails={p.plusMinusFailed || 0} />
+                    <CardRow label={t('cards.kniffel', 'Kniffel')} icon={CARD_EMOJIS.Kniffel} count={(p.kniffelCompleted || 0) + (p.kniffelFailed || 0)} wins={p.kniffelCompleted || 0} fails={p.kniffelFailed || 0} />
+                    <CardRow label={t('cards.kleeblatt', 'Kleeblatt')} icon={CARD_EMOJIS.Kleeblatt} count={(p.kleeblattCompleted || 0) + (p.kleeblattFailed || 0)} wins={p.kleeblattCompleted || 0} fails={p.kleeblattFailed || 0} />
+                    <CardRow label={t('cards.stop', 'Stop')} icon={CARD_EMOJIS.Stop} count={p.skipped || 0} />
+                    <CardRow label={t('cards.feuerwerk', 'Feuerwerk')} icon={CARD_EMOJIS.Feuerwerk} count={p.feuerwerkReceived || 0} wins={(p.feuerwerkReceived || 0) - (p.feuerwerkBusts || 0)} fails={p.feuerwerkBusts || 0} failsLabel={t('statistics.busts', 'Busts')} hideRate avgPoints={p.feuerwerkPointsScored || 0} />
+                    <CardRow label={t('cards.x2', 'x2')} icon={CARD_EMOJIS.x2} count={p.x2Received || 0} wins={(p.x2Received || 0) - (p.x2Busts || 0)} fails={p.x2Busts || 0} failsLabel={t('statistics.busts', 'Busts')} hideRate avgPoints={p.x2PointsScored || 0} />
                   </div>
                 </div>
               )}
@@ -424,12 +425,12 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                     <span className="text-2xl">🃏</span> {t('statistics.cardBreakdown', 'Card Breakdown')}
                   </h4>
                   <div className="max-w-2xl mx-auto flex flex-col gap-1">
-                    <CardRow label={t('cards.plusMinus', 'Plus/Minus')} icon="±" count={g.totalPlusMinus || 0} wins={g.totalPlusMinusCompleted || 0} fails={Math.max(0, (g.totalPlusMinus || 0) - (g.totalPlusMinusCompleted || 0))} />
-                    <CardRow label={t('cards.kniffel', 'Kniffel')} icon="🎲" count={g.totalKniffel || 0} wins={g.totalKniffelCompleted || 0} fails={Math.max(0, (g.totalKniffel || 0) - (g.totalKniffelCompleted || 0))} />
-                    <CardRow label={t('cards.kleeblatt', 'Kleeblatt')} icon="🍀" count={g.totalKleeblatt || 0} wins={g.totalKleeblattCompleted || 0} fails={Math.max(0, (g.totalKleeblatt || 0) - (g.totalKleeblattCompleted || 0))} />
-                    <CardRow label={t('cards.stop', 'Stop')} icon="🛑" count={g.totalStop || 0} />
-                    <CardRow label={t('cards.feuerwerk', 'Feuerwerk')} icon="🎆" count={g.totalFeuerwerk || 0} wins={(g.totalFeuerwerk || 0) - (g.totalFeuerwerkBusts || 0)} fails={g.totalFeuerwerkBusts || 0} failsLabel={t('statistics.busts', 'Busts')} hideRate avgPoints={g.totalFeuerwerkPoints || 0} />
-                    <CardRow label={t('cards.x2', 'x2')} icon="✖️" count={g.totalx2 || 0} wins={(g.totalx2 || 0) - (g.totalx2Busts || 0)} fails={g.totalx2Busts || 0} failsLabel={t('statistics.busts', 'Busts')} hideRate avgPoints={g.totalx2Points || 0} />
+                    <CardRow label={t('cards.plusMinus', 'Plus/Minus')} icon={CARD_EMOJIS.Plus_Minus} count={g.totalPlusMinus || 0} wins={g.totalPlusMinusCompleted || 0} fails={Math.max(0, (g.totalPlusMinus || 0) - (g.totalPlusMinusCompleted || 0))} />
+                    <CardRow label={t('cards.kniffel', 'Kniffel')} icon={CARD_EMOJIS.Kniffel} count={g.totalKniffel || 0} wins={g.totalKniffelCompleted || 0} fails={Math.max(0, (g.totalKniffel || 0) - (g.totalKniffelCompleted || 0))} />
+                    <CardRow label={t('cards.kleeblatt', 'Kleeblatt')} icon={CARD_EMOJIS.Kleeblatt} count={g.totalKleeblatt || 0} wins={g.totalKleeblattCompleted || 0} fails={Math.max(0, (g.totalKleeblatt || 0) - (g.totalKleeblattCompleted || 0))} />
+                    <CardRow label={t('cards.stop', 'Stop')} icon={CARD_EMOJIS.Stop} count={g.totalStop || 0} />
+                    <CardRow label={t('cards.feuerwerk', 'Feuerwerk')} icon={CARD_EMOJIS.Feuerwerk} count={g.totalFeuerwerk || 0} wins={(g.totalFeuerwerk || 0) - (g.totalFeuerwerkBusts || 0)} fails={g.totalFeuerwerkBusts || 0} failsLabel={t('statistics.busts', 'Busts')} hideRate avgPoints={g.totalFeuerwerkPoints || 0} />
+                    <CardRow label={t('cards.x2', 'x2')} icon={CARD_EMOJIS.x2} count={g.totalx2 || 0} wins={(g.totalx2 || 0) - (g.totalx2Busts || 0)} fails={g.totalx2Busts || 0} failsLabel={t('statistics.busts', 'Busts')} hideRate avgPoints={g.totalx2Points || 0} />
                   </div>
                 </div>
               )}

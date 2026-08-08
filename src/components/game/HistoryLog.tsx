@@ -2,20 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '../../store/useGameStore';
 import type { HistoryEntry } from '../../types';
-
-const CARD_EMOJIS: Record<string, string> = {
-  Kleeblatt: '🍀',
-  Feuerwerk: '🎆',
-  Stop: '🛑',
-  Kniffel: '🎲',
-  Plus_Minus: '±',
-  x2: '✖️',
-  '200': '🃏',
-  '300': '🃏',
-  '400': '🃏',
-  '500': '🃏',
-  '600': '🃏',
-};
+import { CARD_EMOJIS, UNKNOWN_CARD_EMOJI } from '../../utils/cardVisuals';
 
 export default function HistoryLog() {
   const { t } = useTranslation();
@@ -87,7 +74,7 @@ export default function HistoryLog() {
               </motion.div>
             ) : (
               [...historyLog].reverse().map((entry) => {
-                const emoji = CARD_EMOJIS[entry.card] || '🎲';
+                const emoji = CARD_EMOJIS[entry.card] || UNKNOWN_CARD_EMOJI;
                 return (
                   <motion.div
                     key={entry.id}
