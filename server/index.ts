@@ -12,6 +12,7 @@ import { registerSocketHandlers } from './socketHandlers';
 import { registerApiRoutes } from './api';
 import { initDb, closeDb } from './database';
 import { resolveCorsOrigin, validateCorsOriginForStartup } from './startupGuards';
+import { resolveDbFilename } from './knexfile';
 import { createShutdownHandler, createServerClosers, SHUTDOWN_SIGNALS } from './shutdown';
 
 process.on('unhandledRejection', (reason) => {
@@ -62,6 +63,10 @@ const start = async (): Promise<void> => {
   await initDb();
   server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    // Which database this is: development and production resolve to different
+    // files unless DB_PATH says otherwise (see knexfile.ts), and finding that
+    // out from a statistics screen that looks empty is far too late.
+    console.log(`Statistics database: ${resolveDbFilename(process.env)}`);
   });
 };
 

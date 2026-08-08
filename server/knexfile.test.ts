@@ -3,8 +3,9 @@ import { describe, it, expect } from 'vitest';
 import path from 'path';
 import knexConfig, { resolveDbFilename } from './knexfile';
 
-// The historical location, kept as the default so existing local and
-// bare-metal installs keep finding their database after DB_PATH was added.
+// The historical location, still where a production server looks, so existing
+// bare-metal installs keep finding the database they already have. Only a
+// development server was moved off it.
 const DEFAULT_DB_FILE = path.join(__dirname, 'stats.db');
 
 describe('resolveDbFilename', () => {
@@ -23,12 +24,33 @@ describe('resolveDbFilename', () => {
     expect(resolveDbFilename({ DB_PATH: '/data/stats.db' })).toBe('/data/stats.db');
   });
 
-  it('falls back to the default when DB_PATH is empty', () => {
-    expect(resolveDbFilename({ DB_PATH: '' })).toBe(DEFAULT_DB_FILE);
+  it('falls back to the environment default when DB_PATH is empty', () => {
+    // An empty value is not a path — a deployment that exports DB_PATH= and
+    // means nothing by it should land where it would have without it.
+    expect(resolveDbFilename({ DB_PATH: '', NODE_ENV: 'production' })).toBe(DEFAULT_DB_FILE);
+    expect(resolveDbFilename({ DB_PATH: '' })).toBe(path.join(__dirname, 'stats.dev.db'));
   });
 
-  it('defaults to stats.db next to the server sources', () => {
-    expect(resolveDbFilename({})).toBe(DEFAULT_DB_FILE);
+  it('serves production from stats.db next to the server sources', () => {
+    expect(resolveDbFilename({ NODE_ENV: 'production' })).toBe(DEFAULT_DB_FILE);
+  });
+
+  it('keeps a development server off the production database', () => {
+    // A dev server on a machine that also runs the real thing was writing its
+    // throwaway games into the real statistics — the same hazard the API proxy
+    // had, one layer down. Nothing has to be configured to be safe here; the
+    // deployments that want the production file already say NODE_ENV.
+    const devFile = resolveDbFilename({});
+
+    expect(devFile).not.toBe(DEFAULT_DB_FILE);
+    expect(devFile).toBe(path.join(__dirname, 'stats.dev.db'));
+  });
+
+  it('still lets DB_PATH place the database wherever a deployment needs it', () => {
+    // Whatever NODE_ENV says: the Docker image sets both, and the mounted
+    // volume is the answer.
+    expect(resolveDbFilename({ DB_PATH: '/data/stats.db' })).toBe('/data/stats.db');
+    expect(resolveDbFilename({ DB_PATH: '/data/stats.db', NODE_ENV: 'production' })).toBe('/data/stats.db');
   });
 });
 

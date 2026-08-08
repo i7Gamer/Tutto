@@ -189,7 +189,7 @@ docker build -t tutto:local .
    Edit `.env` if you need to change the API token or port. See `.env.example` for descriptions of each variable. The defaults work for local development without any changes.
 
 4. **Database Setup:**
-   Migrations will run automatically when you start the server. The SQLite database is stored locally in the `server` directory, unless `DB_PATH` points somewhere else.
+   Migrations will run automatically when you start the server. The SQLite database is stored locally in the `server` directory, unless `DB_PATH` points somewhere else. A development server uses `server/stats.dev.db` and a production one (`npm run start:prod`, or the Docker image) uses `server/stats.db`, so running both on one machine keeps test games out of the real statistics. Whichever file is in use is printed at startup.
 
 5. **Start the Development Server:**
    ```bash
