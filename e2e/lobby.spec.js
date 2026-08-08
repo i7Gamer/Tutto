@@ -1,17 +1,18 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * index.css defined a `.grid-cols-2` of its own, which collided with the
- * Tailwind utility of that name: it came later in the bundle, so it won, and
- * its `max-width: 768px` rule forced a single column — beating the
- * `sm:grid-cols-3` the markup asks for from 640px up. The deck editor was one
- * column between 640 and 768px, and its `gap-2` came out at 1rem.
+ * The deck editor puts a card's name and its count on one line, and the name
+ * is set to ellipsis rather than wrap. That makes the column width a hard
+ * constraint: two columns on a phone is narrow enough to cut the longer names
+ * ("Plus/Minus", "Kleeblatt") off mid-word, so it stays at one until there is
+ * room for more.
+ *
+ * Column counts alone would not have caught that — the cut-off is what the
+ * player actually sees, so that is what these measure.
  */
 test.describe('Lobby deck composition', () => {
-  // Below Tailwind's `sm` breakpoint, where the markup's plain `grid-cols-2`
-  // has no responsive variant of its own to outrank the stray rule.
-  const PHONE_VIEWPORT = { width: 500, height: 900 };
-  // Past `sm` (640px) but still inside the stray media query's 768px.
+  const PHONE_VIEWPORT = { width: 375, height: 900 };
+  // Past Tailwind's `sm` breakpoint, where the markup asks for three columns.
   const TABLET_VIEWPORT = { width: 700, height: 900 };
 
   const openDeckEditor = async page => {
@@ -25,20 +26,35 @@ test.describe('Lobby deck composition', () => {
   const gridColumns = grid =>
     grid.evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
 
-  test('lays the deck editor out in two columns on a phone', async ({ page }) => {
+  // A name set to ellipsis overflows its box before it is clipped, so the
+  // element is wider than the space it is given. The pixel of slack keeps
+  // sub-pixel layout rounding from reading as a cut-off name.
+  const truncatedNames = grid =>
+    grid.locator('label > span').evaluateAll(nodes => nodes
+      .filter(node => node.scrollWidth > node.clientWidth + 1)
+      .map(node => node.textContent.trim()));
+
+  test('shows every card name in full on a phone', async ({ page }) => {
     await page.setViewportSize(PHONE_VIEWPORT);
     const grid = await openDeckEditor(page);
 
-    expect(await gridColumns(grid)).toBe(2);
+    expect(await truncatedNames(grid)).toEqual([]);
   });
 
-  test('keeps the gap the markup asks for on a phone', async ({ page }) => {
-    // The stray rule also carried `gap: 1rem`, overriding the `gap-2` (0.5rem)
-    // on the element.
+  test('gives a phone one column, since two cannot hold the names', async ({ page }) => {
     await page.setViewportSize(PHONE_VIEWPORT);
     const grid = await openDeckEditor(page);
 
-    expect(await grid.evaluate(el => getComputedStyle(el).columnGap)).toBe('8px');
+    expect(await gridColumns(grid)).toBe(1);
+  });
+
+  test('keeps the gap the markup asks for', async ({ page }) => {
+    // A stray `.grid-cols-2` in index.css used to override the `gap-2` on the
+    // element with a gap of its own, at 1rem.
+    await page.setViewportSize(PHONE_VIEWPORT);
+    const grid = await openDeckEditor(page);
+
+    expect(await grid.evaluate(el => getComputedStyle(el).rowGap)).toBe('8px');
   });
 
   test('widens to three columns past the sm breakpoint', async ({ page }) => {
@@ -46,5 +62,6 @@ test.describe('Lobby deck composition', () => {
     const grid = await openDeckEditor(page);
 
     expect(await gridColumns(grid)).toBe(3);
+    expect(await truncatedNames(grid)).toEqual([]);
   });
 });

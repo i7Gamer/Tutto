@@ -523,7 +523,13 @@ export function AdvancedOptionsPanel({
                   </button>
                 )}
               </div>
-              <div data-testid="deck-composition-grid" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
+              {/* One column on a phone: a card's name shares its line with the
+                  count and is set to ellipsis, so two columns cut the longer
+                  names off mid-word. This used to be enforced from index.css,
+                  by a rule that also overrode Tailwind's own grid-cols-2
+                  everywhere else — it belongs here, on the element it is
+                  about. */}
+              <div data-testid="deck-composition-grid" className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
                 {initialCards && Object.entries(initialCards).map(([card, count]) => (
                   <label key={card} className="lobby-row focus-within:ring-2 focus-within:ring-indigo-500 cursor-text">
                     <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{card.replace('_', '/')}</span>
