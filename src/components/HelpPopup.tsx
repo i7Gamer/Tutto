@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode, type KeyboardEvent } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode, type RefObject, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HelpCircle, X, ChevronRight, ChevronDown } from 'lucide-react';
@@ -6,6 +6,8 @@ import { useGameStore } from '../store/useGameStore';
 import { HELP_SECTION_OPEN_ANIMATION_MS } from '../utils/uiTimings';
 import { renderBoldMarkdown } from '../utils/renderBoldMarkdown';
 import { APP_VERSION } from '../utils/appVersion';
+import { BONUS_CARDS } from '../utils/configValidation';
+import './HelpPopup.css';
 
 interface SectionProps {
   title: string;
@@ -47,6 +49,23 @@ function Section({ title, id, isOpen, onToggle, children }: SectionProps) {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+interface CardEntryProps {
+  isActive: boolean;
+  activeRef: RefObject<HTMLDivElement | null>;
+  children: ReactNode;
+}
+
+// One entry in the Cards section. The card currently on the table gets both
+// the highlight and the scroll target — asked once here rather than once per
+// card at each of the two places that have to agree.
+function CardEntry({ isActive, activeRef, children }: CardEntryProps) {
+  return (
+    <div ref={isActive ? activeRef : undefined} className={isActive ? 'wiki-card-highlight' : undefined}>
+      {children}
     </div>
   );
 }
@@ -126,6 +145,7 @@ export default function HelpPopup() {
   const toggleSection = useCallback((id: string) => {
     setActiveSection(prev => prev === id ? '' : id);
   }, []);
+
 
   // Memoized against `t` (not moved to module scope — the labels/text are
   // translated, so they must still be recomputed when the language changes).
@@ -215,19 +235,20 @@ export default function HelpPopup() {
               {/* Content */}
               <div className="flex-1 overflow-y-auto p-4 sm:p-6 scroll-smooth">
                 {/* Table of Contents - Horizontal Pills for quick nav */}
-                <div className="flex flex-wrap gap-2 mb-6 sm:mb-8">
+                {/* items-center, not the flex default: items stretch to their
+                    own line's height, and the label below is taller than a
+                    pill — so pills sharing the label's line rendered bigger
+                    than the ones that wrapped onto the next. */}
+                <div className="flex flex-wrap items-center gap-2 mb-6 sm:mb-8">
                   <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 py-2 mr-2">
                     {t('help.toc.title', 'Table of Contents')}:
                   </span>
                   {tocSections.map((section) => (
                     <button
                       key={section.id}
+                      data-testid="help-toc-pill"
                       onClick={() => setActiveSection(section.id)}
-                      className={`px-4 pt-[0.6rem] pb-[0.4rem] rounded-full text-sm font-medium transition-colors leading-none ${
-                        activeSection === section.id
-                          ? 'bg-indigo-500 text-white'
-                          : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700'
-                      }`}
+                      className={`wiki-pill ${activeSection === section.id ? 'wiki-pill-active' : 'wiki-pill-idle'}`}
                     >
                       {section.label}
                     </button>
@@ -237,60 +258,60 @@ export default function HelpPopup() {
                 {/* Sections */}
                 <Section id="general" title={t('help.general.title', 'General Rules')} isOpen={activeSection === 'general'} onToggle={toggleSection}>
                   <p>{t('help.general.intro')}</p>
-                  <h4 className="font-bold text-gray-800 dark:text-gray-200 mt-4">{t('help.general.turnFlowTitle')}</h4>
+                  <h4 className="wiki-heading mt-4">{t('help.general.turnFlowTitle')}</h4>
                   <div className="space-y-3">
                     <div>
-                      <span className="font-semibold text-gray-800 dark:text-gray-200">{t('help.general.step1Title')}</span> {t('help.general.step1Desc')}
+                      <span className="wiki-term">{t('help.general.step1Title')}</span> {t('help.general.step1Desc')}
                     </div>
                     <div>
-                      <span className="font-semibold text-gray-800 dark:text-gray-200">{t('help.general.step2Title')}</span> {t('help.general.step2Desc')}
+                      <span className="wiki-term">{t('help.general.step2Title')}</span> {t('help.general.step2Desc')}
                     </div>
                     <div>
-                      <span className="font-semibold text-gray-800 dark:text-gray-200">{t('help.general.step3Title')}</span> {t('help.general.step3Desc')}
+                      <span className="wiki-term">{t('help.general.step3Title')}</span> {t('help.general.step3Desc')}
                     </div>
                     <div>
-                      <span className="font-semibold text-gray-800 dark:text-gray-200">{t('help.general.step4Title')}</span> {t('help.general.step4Desc')}
+                      <span className="wiki-term">{t('help.general.step4Title')}</span> {t('help.general.step4Desc')}
                       <ul className="list-disc pl-5 mt-1 space-y-1">
                         <li><span className="font-semibold">{t('help.general.step4aTitle')}</span> {t('help.general.step4aDesc')}</li>
                         <li><span className="font-semibold">{t('help.general.step4bTitle')}</span> {t('help.general.step4bDesc')}</li>
                       </ul>
                     </div>
                     <div>
-                      <span className="font-semibold text-gray-800 dark:text-gray-200">{t('help.general.step5Title')}</span> {t('help.general.step5Desc')}
+                      <span className="wiki-term">{t('help.general.step5Title')}</span> {t('help.general.step5Desc')}
                     </div>
                   </div>
                 </Section>
 
                 <Section id="cards" title={t('help.cards.title', 'Cards')} isOpen={activeSection === 'cards'} onToggle={toggleSection}>
                   <div className="space-y-4">
-                    <div ref={currentCard && ['200', '300', '400', '500', '600'].includes(currentCard) ? activeCardRef : undefined} className={currentCard && ['200', '300', '400', '500', '600'].includes(currentCard) ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
-                      <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.bonus', 'Bonus (200 - 600)')}</h4>
+                    <CardEntry isActive={!!currentCard && BONUS_CARDS.includes(currentCard)} activeRef={activeCardRef}>
+                      <h4 className="wiki-heading">{t('help.cards.bonus', 'Bonus (200 - 600)')}</h4>
                       <p className="text-sm">{t('help.cards.bonusDesc')}</p>
-                    </div>
-                    <div ref={currentCard === 'x2' ? activeCardRef : undefined} className={currentCard === 'x2' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
-                      <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.x2', 'x2 (Double)')}</h4>
+                    </CardEntry>
+                    <CardEntry isActive={currentCard === 'x2'} activeRef={activeCardRef}>
+                      <h4 className="wiki-heading">{t('help.cards.x2', 'x2 (Double)')}</h4>
                       <p className="text-sm">{t('help.cards.x2Desc')}</p>
-                    </div>
-                    <div ref={currentCard === 'Stop' ? activeCardRef : undefined} className={currentCard === 'Stop' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
-                      <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.stop', 'Stop')}</h4>
+                    </CardEntry>
+                    <CardEntry isActive={currentCard === 'Stop'} activeRef={activeCardRef}>
+                      <h4 className="wiki-heading">{t('help.cards.stop', 'Stop')}</h4>
                       <p className="text-sm">{t('help.cards.stopDesc')}</p>
-                    </div>
-                    <div ref={currentCard === 'Feuerwerk' ? activeCardRef : undefined} className={currentCard === 'Feuerwerk' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
-                      <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.fireworks', 'Fireworks')}</h4>
-                      <p className="text-sm border-l-2 border-orange-400 pl-3 mt-1 italic text-orange-800 dark:text-orange-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(t('help.cards.fireworksDesc')) }}></p>
-                    </div>
-                    <div ref={currentCard === 'Kniffel' ? activeCardRef : undefined} className={currentCard === 'Kniffel' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
-                      <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.kniffel', 'Kniffel')}</h4>
-                      <p className="text-sm border-l-2 border-indigo-400 pl-3 mt-1 italic text-indigo-800 dark:text-indigo-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(t('help.cards.kniffelDesc')) }}></p>
-                    </div>
-                    <div ref={currentCard === 'Plus_Minus' ? activeCardRef : undefined} className={currentCard === 'Plus_Minus' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
-                      <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.plusMinus', 'Plus/Minus')}</h4>
-                      <p className="text-sm border-l-2 border-red-400 pl-3 mt-1 italic text-red-800 dark:text-red-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(t('help.cards.plusMinusDesc')) }}></p>
-                    </div>
-                    <div ref={currentCard === 'Kleeblatt' ? activeCardRef : undefined} className={currentCard === 'Kleeblatt' ? 'ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20' : ''}>
-                      <h4 className="font-bold text-gray-800 dark:text-gray-200">{t('help.cards.kleeblatt', 'Kleeblatt')}</h4>
-                      <p className="text-sm border-l-2 border-green-400 pl-3 mt-1 italic text-green-800 dark:text-green-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(t('help.cards.kleeblattDesc')) }}></p>
-                    </div>
+                    </CardEntry>
+                    <CardEntry isActive={currentCard === 'Feuerwerk'} activeRef={activeCardRef}>
+                      <h4 className="wiki-heading">{t('help.cards.fireworks', 'Fireworks')}</h4>
+                      <p className="wiki-card-note border-orange-400 text-orange-800 dark:text-orange-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(t('help.cards.fireworksDesc')) }}></p>
+                    </CardEntry>
+                    <CardEntry isActive={currentCard === 'Kniffel'} activeRef={activeCardRef}>
+                      <h4 className="wiki-heading">{t('help.cards.kniffel', 'Kniffel')}</h4>
+                      <p className="wiki-card-note border-indigo-400 text-indigo-800 dark:text-indigo-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(t('help.cards.kniffelDesc')) }}></p>
+                    </CardEntry>
+                    <CardEntry isActive={currentCard === 'Plus_Minus'} activeRef={activeCardRef}>
+                      <h4 className="wiki-heading">{t('help.cards.plusMinus', 'Plus/Minus')}</h4>
+                      <p className="wiki-card-note border-red-400 text-red-800 dark:text-red-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(t('help.cards.plusMinusDesc')) }}></p>
+                    </CardEntry>
+                    <CardEntry isActive={currentCard === 'Kleeblatt'} activeRef={activeCardRef}>
+                      <h4 className="wiki-heading">{t('help.cards.kleeblatt', 'Kleeblatt')}</h4>
+                      <p className="wiki-card-note border-green-400 text-green-800 dark:text-green-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(t('help.cards.kleeblattDesc')) }}></p>
+                    </CardEntry>
                   </div>
                 </Section>
 
@@ -352,7 +373,7 @@ export default function HelpPopup() {
                   <div className="space-y-4">
                     {faqs.map((faq, idx) => (
                       <div key={`faq-${idx}`}>
-                        <h4 className="font-bold text-gray-800 dark:text-gray-200">{faq.q}</h4>
+                        <h4 className="wiki-heading">{faq.q}</h4>
                         <p className="text-sm mt-1">{faq.a}</p>
                       </div>
                     ))}

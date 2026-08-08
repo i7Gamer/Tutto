@@ -1,0 +1,41 @@
+/* Shared look for the wiki's repeating elements. Each of these was a utility
+   string copied onto every element that used it — seven copies of the card
+   highlight, eight of the section heading — which is how they drift apart. */
+
+/* ── Table of contents pills ── */
+.wiki-pill {
+  /* The lopsided vertical padding is optical centring: `leading-none` sits the
+     label's box tight around the glyphs, which lands the text low without it. */
+  @apply px-4 pt-[0.6rem] pb-[0.4rem] rounded-full text-sm font-medium leading-none transition-colors;
+}
+
+.wiki-pill-active {
+  @apply bg-indigo-500 text-white;
+}
+
+.wiki-pill-idle {
+  @apply bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700;
+}
+
+/* ── Section content ── */
+.wiki-heading {
+  @apply font-bold text-gray-800 dark:text-gray-200;
+}
+
+/* A term introducing the sentence that follows it, e.g. the numbered turn steps. */
+.wiki-term {
+  @apply font-semibold text-gray-800 dark:text-gray-200;
+}
+
+/* ── Cards section ── */
+/* Marks the card currently on the table, so the wiki opens on the rule the
+   player is looking at rather than a wall of equal-looking entries. */
+.wiki-card-highlight {
+  @apply ring-2 ring-indigo-500 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20;
+}
+
+/* The quoted rule text under a card. The accent colour stays at the call site:
+   it is the card's own colour, not a property of the note. */
+.wiki-card-note {
+  @apply text-sm border-l-2 pl-3 mt-1 italic;
+}

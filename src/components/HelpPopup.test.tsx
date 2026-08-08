@@ -141,6 +141,45 @@ describe('HelpPopup', () => {
     }
   });
 
+  describe('table of contents pills', () => {
+    const openWiki = () => {
+      render(<HelpPopup />);
+      fireEvent.click(screen.getByTitle('help.buttonTitle'));
+      return screen.getAllByTestId('help-toc-pill');
+    };
+
+    it('styles every pill through the same class, so none can drift from the rest', () => {
+      // The pills used to carry a copy of the same utility string each; the
+      // only thing that may differ between them is the selected/unselected
+      // modifier.
+      const pills = openWiki();
+      expect(pills.length).toBeGreaterThan(1);
+
+      const boxes = pills.map(pill =>
+        [...pill.classList].filter(name => !name.startsWith('wiki-pill-')).sort().join(' ')
+      );
+      expect(new Set(boxes).size).toBe(1);
+      expect(boxes[0]).toContain('wiki-pill');
+    });
+
+    it('marks only the selected pill as selected', () => {
+      const pills = openWiki();
+
+      expect(pills.filter(pill => pill.classList.contains('wiki-pill-active'))).toHaveLength(1);
+    });
+
+    it('does not let the row stretch its pills', () => {
+      // The real assertion is the e2e one (e2e/wiki.spec.js) — jsdom has no
+      // layout. This guards the cause: a wrapping flex row stretches items to
+      // their own line's height, and the "Table of Contents:" label is taller
+      // than a pill, so pills sharing its line came out bigger than wrapped
+      // ones.
+      const [firstPill] = openWiki();
+
+      expect(firstPill.parentElement).toHaveClass('items-center');
+    });
+  });
+
   describe('modal accessibility (COMP-ISSUE-25/26)', () => {
     it('exposes dialog role, aria-modal, and a labelled title', () => {
       render(<HelpPopup />);
