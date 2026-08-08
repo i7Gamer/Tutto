@@ -219,6 +219,47 @@ describe('App Integration (End-to-End)', () => {
     expect(screen.queryByText('home.restore.title')).not.toBeInTheDocument();
   });
 
+  it('moves keyboard focus into the reconnect popup when it appears', async () => {
+    // Neither of these popups is opened by a click, so nothing puts focus
+    // inside them: it stays wherever the player left it, behind the backdrop.
+    // Tab from there walks the page underneath instead of the dialog.
+    render(<App />);
+
+    act(() => {
+      useGameStore.setState({ showReconnectPopup: true });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('home.reconnect.returnMenu')).toHaveFocus();
+    });
+  });
+
+  it('moves keyboard focus into the restore-session popup when it appears', async () => {
+    act(() => {
+      useGameStore.setState({ pendingReconnectSession: { roomId: 'GHOST_ROOM', myName: 'Charlie' } });
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('home.restore.yes')).toHaveFocus();
+    });
+  });
+
+  it('keeps Tab inside the restore-session popup', async () => {
+    act(() => {
+      useGameStore.setState({ pendingReconnectSession: { roomId: 'GHOST_ROOM', myName: 'Charlie' } });
+    });
+
+    render(<App />);
+
+    const cancel = screen.getByText('home.restore.cancel');
+    cancel.focus();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Tab' });
+
+    expect(screen.getByText('home.restore.yes')).toHaveFocus();
+  });
+
   it('dismisses the "Connection Lost" popup and shows an error toast when reconnect join fails', async () => {
     // Before this fix, a failed joinRoom() left showReconnectPopup stuck at
     // true forever — there's no gameState event to clear it (the join never

@@ -1,0 +1,27 @@
+/* The look every modal in the app shares. Each one carried its own copy of
+   these two utility strings before — the backdrop word for word in four
+   places. Variants come after the base rule on purpose: they are plain
+   classes of equal specificity, so order is what decides them. */
+
+.modal-backdrop {
+  @apply fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4;
+}
+
+/* For a panel large enough that the backdrop's own padding shows. */
+.modal-backdrop-roomy {
+  @apply sm:p-6;
+}
+
+.modal-panel {
+  @apply bg-white rounded-3xl w-full shadow-2xl border border-gray-100 dark:border-slate-700;
+}
+
+/* A small centred card: a message and its buttons. */
+.modal-panel-card {
+  @apply dark:bg-slate-800 p-8 max-w-sm text-center;
+}
+
+/* A full reading surface that scrolls its own content (the wiki). */
+.modal-panel-wide {
+  @apply dark:bg-slate-900 max-w-3xl max-h-[90vh] flex flex-col;
+}

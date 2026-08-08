@@ -11,6 +11,7 @@ import EndScreen from './components/EndScreen';
 import Statistics from './components/Statistics';
 import LanguageSwitcher from './components/LanguageSwitcher';
 import HelpPopup from './components/HelpPopup';
+import ModalShell from './components/ModalShell';
 import ReactionOverlay from './components/ReactionOverlay';
 import IOSHapticProxy from './components/IOSHapticProxy';
 import './index.css';
@@ -61,11 +62,10 @@ function ReconnectPopup() {
   const setMode = useGameStore(state => state.setMode);
   const { t } = useTranslation();
 
-  if (!showReconnectPopup) return null;
-
+  // No onDismiss: this reports a state the player cannot walk away from, so
+  // neither Escape nor a click outside may quietly close it.
   return (
-    <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div role="dialog" aria-modal="true" className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-gray-100 dark:border-slate-700 text-center animate-bounce-in">
+    <ModalShell open={showReconnectPopup}>
         <div className="text-amber-500 mb-4 flex justify-center">
           <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.578"/><path d="M22.016 11.664v-1.664h-1.664"/><path d="M2.383 14.156a10.742 10.742 0 0 1-1.074-6.49M2.08 7.666v1.665h1.665"/><path d="M7 16l-3.32-3.32"/><path d="M20.32 8.68L17 12"/><path d="m2 2 20 20"/></svg>
         </div>
@@ -79,8 +79,7 @@ function ReconnectPopup() {
             {t('home.reconnect.returnMenu', 'Return to Main Menu')}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -92,11 +91,14 @@ function RestoreSessionPopup() {
   const addToast = useGameStore(state => state.addToast);
   const { t } = useTranslation();
 
+  // Unmounted rather than closed, because the body reads the session it is
+  // asking about. No onDismiss either: this asks a question with consequences
+  // both ways (the "No" answer gives the seat up), so it is answered rather
+  // than dismissed.
   if (!pendingReconnectSession) return null;
 
   return (
-    <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div role="dialog" aria-modal="true" className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-gray-100 dark:border-slate-700 text-center animate-bounce-in">
+    <ModalShell open>
         <div className="text-indigo-500 mb-4 flex justify-center">
           <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m19 19-4-4m0-7A7 7 0 1 1 5.1 8a7 7 0 0 1 9.9 0z"/></svg>
         </div>
@@ -129,8 +131,7 @@ function RestoreSessionPopup() {
             {t('home.restore.cancel', 'No, Cancel')}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }
 

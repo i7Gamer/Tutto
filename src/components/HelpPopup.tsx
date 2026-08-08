@@ -1,7 +1,8 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode, type RefObject, type KeyboardEvent } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HelpCircle, X, ChevronRight, ChevronDown } from 'lucide-react';
+import ModalShell from './ModalShell';
 import { useGameStore } from '../store/useGameStore';
 import { HELP_SECTION_OPEN_ANIMATION_MS } from '../utils/uiTimings';
 import { renderBoldMarkdown } from '../utils/renderBoldMarkdown';
@@ -79,45 +80,8 @@ export default function HelpPopup() {
   const [activeSection, setActiveSection] = useState<string>('general');
   const activeCardRef = useRef<HTMLDivElement>(null);
   const openedDuringPlayRef = useRef(false);
-  const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const openButtonRef = useRef<HTMLButtonElement>(null);
-
-  // Focus management for the modal: move focus into the dialog on open, and
-  // back to the button that opened it on close — otherwise keyboard/screen
-  // reader focus is left on (or silently lost from) a control that's no
-  // longer visible.
-  useEffect(() => {
-    if (isOpen) {
-      closeButtonRef.current?.focus();
-    } else {
-      openButtonRef.current?.focus();
-    }
-  }, [isOpen]);
-
-  const handleDialogKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
-    if (e.key === 'Escape') {
-      e.stopPropagation();
-      setIsOpen(false);
-      return;
-    }
-    if (e.key !== 'Tab' || !dialogRef.current) return;
-    // Trap Tab/Shift+Tab within the dialog's own focusable elements so
-    // keyboard focus can't silently escape to the page underneath.
-    const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  };
 
   // When opening during gameplay, check if we have a current card
   useLayoutEffect(() => {
@@ -200,21 +164,20 @@ export default function HelpPopup() {
         <HelpCircle size={24} />
       </button>
 
-      <AnimatePresence>
-        {isOpen && (
-          <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6" onClick={() => setIsOpen(false)}>
-            <motion.div
-              ref={dialogRef}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="help-dialog-title"
-              onKeyDown={handleDialogKeyDown}
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl border border-gray-100 dark:border-slate-700"
-              onClick={(e) => e.stopPropagation()}
-            >
+      <ModalShell
+        open={isOpen}
+        onDismiss={() => setIsOpen(false)}
+        labelledBy="help-dialog-title"
+        initialFocusRef={closeButtonRef}
+        returnFocusRef={openButtonRef}
+        backdropClassName="modal-backdrop modal-backdrop-roomy"
+        panelClassName="modal-panel modal-panel-wide"
+        motionProps={{
+          initial: { opacity: 0, scale: 0.95, y: 20 },
+          animate: { opacity: 1, scale: 1, y: 0 },
+          exit: { opacity: 0, scale: 0.95, y: 20 },
+        }}
+      >
               {/* Header */}
               <div className="relative flex items-center justify-center p-4 sm:p-6 border-b border-gray-100 dark:border-slate-800">
                 <h2 id="help-dialog-title" className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
@@ -390,10 +353,7 @@ export default function HelpPopup() {
                   {t('help.version', 'Version')} {APP_VERSION}
                 </span>
               </footer>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      </ModalShell>
     </>
   );
 }
