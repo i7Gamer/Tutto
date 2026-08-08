@@ -277,12 +277,6 @@ tr.active-player {
   flex-wrap: wrap;
 }
 
-.grid-cols-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-}
-
 .game-stats {
   display: flex;
   align-items: center;
@@ -292,7 +286,6 @@ tr.active-player {
 }
 
 @media (max-width: 768px) {
-  .grid-cols-2 { grid-template-columns: 1fr; }
   h1 { font-size: 2rem; }
 
   /* Make stats wrap properly on mobile */

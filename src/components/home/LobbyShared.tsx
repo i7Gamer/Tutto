@@ -522,7 +522,7 @@ export function AdvancedOptionsPanel({
                   </button>
                 )}
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
+              <div data-testid="deck-composition-grid" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
                 {initialCards && Object.entries(initialCards).map(([card, count]) => (
                   <label key={card} className="flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 transition-colors cursor-text">
                     <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{card.replace('_', '/')}</span>
