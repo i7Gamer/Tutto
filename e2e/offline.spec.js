@@ -58,6 +58,18 @@ test.describe('Offline', () => {
   });
 
   test('starts with no network and can play a local game', async ({ page, context }) => {
+    // The turn below rolls dice, and whether a turn rolls at all depends on the
+    // card drawn: a Stop card ends it immediately, with no Roll Dice button to
+    // press. The default deck is 10 Stop cards in 56, so this test failed about
+    // one run in six for a reason that has nothing to do with being offline.
+    // Seeding the deck with cards that all play a normal turn removes the draw
+    // from the equation — init() reads this key and keeps the fields it
+    // recognises (see pickLocalGameState), so the rest of the state is untouched.
+    const ROLLING_DECK = { '200': 5, '300': 5, '400': 5, '500': 5, '600': 5 };
+    await page.addInitScript(deck => {
+      localStorage.setItem('tutto_local_game', JSON.stringify({ initialCards: deck }));
+    }, ROLLING_DECK);
+
     await waitForPrecache(page);
     await context.setOffline(true);
 
