@@ -5,6 +5,7 @@ import {
   MAX_CARD_COUNT, VALID_CARD_TYPES,
   MAX_TURN_DURATION, MAX_RECONNECT_TIMEOUT,
 } from '../src/utils/configValidation';
+import { PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
 import type { RoomState, ServerPlayer } from './roomTypes';
 
 // A fully-loaded deck has at most MAX_CARD_COUNT of each of the 11 card types.
@@ -188,17 +189,20 @@ const PUSHED_NUMERIC_FIELD_BOUNDS: Record<string, { min: number; max: number }> 
 // corrupting host-failover ("prefer a connected player") until that seat's
 // own reconnect-timeout timer or a manual kick removed it.
 const PLAYER_MUTABLE: (keyof ServerPlayer)[] = [
-  'score', 'times1000PointsDeducted', 'timesKniffelCompleted',
-  'timesPlusMinusCompleted', 'timesKniffelFailed', 'timesKleeblattFailed',
-  'timesKleeblattCompleted', 'timesPlusMinusFailed', 'timesFeuerwerkReceived',
-  'timesSkipped', 'timesx2Received', 'totalTurns', 'busts',
-  'feuerwerkBusts', 'x2Busts', 'feuerwerkPointsScored', 'x2PointsScored',
+  // Every counter a player accumulates, from the one list that also creates
+  // them here and on the client (playerStats.ts). Spelling them out again was
+  // how a stat came to be missing from this set — and a stat missing here is
+  // not merely ignored, since a broadcast replaces the roster wholesale: it
+  // is reset after every turn, for everyone.
+  ...PLAYER_STAT_FIELDS,
   // All three per-turn maxima belong together: calculateNextTurn maintains
   // them side by side on the client, and a gameState broadcast replaces the
   // client's roster wholesale. Leaving the two per-card ones out meant they
   // were reset to undefined after every turn, so the "Highest Feuerwerk/x2
   // Turn" stats were always 0 for online games — in endGameStats, in the
   // global payload, in EndScreen's new-record cards and in the stats tiles.
+  // They are not in that list because a player does not start a game on one:
+  // "no turn yet" is undefined, not zero.
   'highestTurnScore', 'highestFeuerwerkTurnScore', 'highestX2TurnScore',
   'position', 'color',
 ];

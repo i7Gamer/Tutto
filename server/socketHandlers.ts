@@ -4,6 +4,7 @@ import { getDeviceStats, updateDeviceStats, updateGlobalStats } from './database
 import { sanitizeStats } from './sanitize';
 import { DEFAULT_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
 import { REACTION_EMOJIS } from '../src/utils/reactions';
+import { zeroedPlayerStats } from '../src/utils/playerStats';
 import type { DiceMode } from '../src/types';
 import { applyValidatedConfig, applyPushedState, isValidDiceSnapshot, sanitizeDiceSnapshot } from './pushValidation';
 import { clearServerTurnTimer, startServerTurnTimer, abortGameIfLowPlayers } from './turnTimers';
@@ -289,23 +290,7 @@ export const registerSocketHandlers = (io: Server): void => {
         name,
         deviceId,
         socketId: socket.id,
-        score: 0,
-        times1000PointsDeducted: 0,
-        timesKniffelCompleted: 0,
-        timesPlusMinusCompleted: 0,
-        timesKniffelFailed: 0,
-        timesKleeblattFailed: 0,
-        timesKleeblattCompleted: 0,
-        timesPlusMinusFailed: 0,
-        timesFeuerwerkReceived: 0,
-        timesSkipped: 0,
-        timesx2Received: 0,
-        totalTurns: 0,
-        busts: 0,
-        feuerwerkBusts: 0,
-        x2Busts: 0,
-        feuerwerkPointsScored: 0,
-        x2PointsScored: 0,
+        ...zeroedPlayerStats(),
         position: 0,
         color: assignedColor,
         disconnected: false,

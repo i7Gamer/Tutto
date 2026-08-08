@@ -7,6 +7,7 @@ import {
 } from '../utils/coreGameEngine';
 import { buildTurnKey } from '../utils/diceTurnState';
 import { DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, MAX_PLAYER_NAME_LENGTH, areInitialCardsEqual } from '../utils/configValidation';
+import { zeroedPlayerStats } from '../utils/playerStats';
 import playerColorsData from '../../playerColors.json';
 import { v4 as uuidv4 } from 'uuid';
 import type { Player, CoreGameState, Toast } from '../types';
@@ -18,11 +19,8 @@ export const PLAYER_COLORS: string[] = playerColorsData.PLAYER_COLORS;
 
 export const createInitialPlayer = (name: string): Player => ({
   id: uuidv4(),
-  name, score: 0, times1000PointsDeducted: 0, timesKniffelCompleted: 0,
-  timesPlusMinusCompleted: 0, timesKniffelFailed: 0, timesKleeblattFailed: 0,
-  timesKleeblattCompleted: 0, timesPlusMinusFailed: 0, timesFeuerwerkReceived: 0,
-  timesSkipped: 0, timesx2Received: 0, totalTurns: 0, busts: 0,
-  feuerwerkBusts: 0, x2Busts: 0, feuerwerkPointsScored: 0, x2PointsScored: 0,
+  name,
+  ...zeroedPlayerStats(),
   position: 0,
 });
 

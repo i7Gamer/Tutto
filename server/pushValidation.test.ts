@@ -16,29 +16,14 @@ import {
   isValidDiceSnapshot,
 } from './pushValidation';
 import { createRoom } from './rooms';
+import { zeroedPlayerStats, PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
 import type { RoomState, ServerPlayer } from './roomTypes';
 
 const makePlayer = (name: string, overrides: Partial<ServerPlayer> = {}): ServerPlayer => ({
   name,
   deviceId: `dev-${name}`,
   socketId: `sock-${name}`,
-  score: 0,
-  times1000PointsDeducted: 0,
-  timesKniffelCompleted: 0,
-  timesPlusMinusCompleted: 0,
-  timesKniffelFailed: 0,
-  timesKleeblattFailed: 0,
-  timesKleeblattCompleted: 0,
-  timesPlusMinusFailed: 0,
-  timesFeuerwerkReceived: 0,
-  timesSkipped: 0,
-  timesx2Received: 0,
-  totalTurns: 0,
-  busts: 0,
-  feuerwerkBusts: 0,
-  x2Busts: 0,
-  feuerwerkPointsScored: 0,
-  x2PointsScored: 0,
+  ...zeroedPlayerStats(),
   position: 0,
   color: '#ff0000',
   disconnected: false,
@@ -56,6 +41,22 @@ const asActivePlayer = { isHost: false, startingGame: false };
 const asHostStarting = { isHost: true, startingGame: true };
 
 describe('applyPushedState', () => {
+  it('accepts every stat a player accumulates', () => {
+    // Derived from the one list that creates these fields, so a counter added
+    // there and not admitted here fails this test rather than the players. A
+    // broadcast replaces the roster wholesale: a stat this set does not accept
+    // back is reset after every turn, for the whole room, silently — which is
+    // what happened to the per-turn maxima before they were let in.
+    const state = makeState();
+    const accumulated = Object.fromEntries(PLAYER_STAT_FIELDS.map((field, i) => [field, i + 1]));
+
+    applyPushedState(state, { players: [{ name: 'Alice', ...accumulated }, { name: 'Bob' }] }, asActivePlayer);
+
+    for (const [field, value] of Object.entries(accumulated)) {
+      expect(state.players[0][field as keyof ServerPlayer], field).toBe(value);
+    }
+  });
+
   describe('permission sets', () => {
     it('lets the host write host-only fields', () => {
       const state = makeState();
