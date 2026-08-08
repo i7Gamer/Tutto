@@ -4,6 +4,7 @@ import { formatTime } from '../utils/formatTime';
 import { parseJsonObject } from '../utils/parseJson';
 import { CARD_EMOJIS } from '../utils/cardVisuals';
 import { STAT_TONES, DEFAULT_STAT_TONE, type StatTone } from '../utils/statTones';
+import { percentageOf } from '../utils/percentage';
 import type { CardType } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -80,10 +81,13 @@ const HOT_WIN_STREAK = 3;
 // Heads the card breakdown: a playing card in general, not any one card.
 const CARD_BREAKDOWN_ICON = '🃏';
 
+// A dash, not 0%: a card that has never been drawn has no rate, and showing
+// zero would read as "never once managed it".
+const NO_RATE = '—';
+
 const getWinLoseRate = (wins: number, fails: number): string => {
-  const total = wins + fails;
-  if (total === 0) return '—';
-  return `${((wins / total) * 100).toFixed(0)}%`;
+  const rate = percentageOf(wins, wins + fails);
+  return rate === null ? NO_RATE : `${rate}%`;
 };
 
 // This device (tied-for-)holds the record when its value matches the global
@@ -334,11 +338,13 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   const p = personalStats;
   const g = globalStats;
 
-  const pWinRate = p?.gamesPlayed ? ((p.wins / p.gamesPlayed) * 100).toFixed(0) : '0';
+  // These tiles read 0% with nothing played yet, rather than the dash the card
+  // breakdown uses: they sit beside a "Games Played: 0" that already says so.
+  const pWinRate = percentageOf(p?.wins ?? 0, p?.gamesPlayed ?? 0) ?? 0;
   const pAvgDuration = p?.gamesPlayed ? p.totalPlaytime / p.gamesPlayed : 0;
-  const pBustRate = p?.totalTurns ? (((p.busts ?? 0) / p.totalTurns) * 100).toFixed(0) : '0';
+  const pBustRate = percentageOf(p?.busts ?? 0, p?.totalTurns ?? 0) ?? 0;
   const gAvgDuration = g?.totalGamesPlayed ? g.totalPlaytime / g.totalGamesPlayed : 0;
-  const gBustRate = g?.totalTurns ? (((g.totalBusts ?? 0) / g.totalTurns) * 100).toFixed(0) : '0';
+  const gBustRate = percentageOf(g?.totalBusts ?? 0, g?.totalTurns ?? 0) ?? 0;
 
   const pBustRateNum = p?.totalTurns ? ((p.busts ?? 0) / p.totalTurns) * 100 : null;
   const gBustRateNum = g?.totalTurns ? ((g.totalBusts ?? 0) / g.totalTurns) * 100 : null;
