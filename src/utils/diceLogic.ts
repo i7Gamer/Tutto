@@ -1,4 +1,5 @@
 import type { CardType } from '../types';
+import { BONUS_CARDS } from './configValidation';
 
 export const rollDie = (): number => Math.floor(Math.random() * 6) + 1;
 
@@ -155,7 +156,7 @@ export const getMaxValidSelection = (
 
 export const applyTuttoBonus = (scoreSoFar: number, currentCard: CardType | null): number => {
   let newScore = scoreSoFar;
-  if (currentCard !== null && (['200', '300', '400', '500', '600'] as string[]).includes(currentCard)) {
+  if (currentCard !== null && BONUS_CARDS.includes(currentCard)) {
     newScore += parseInt(currentCard, 10);
   } else if (currentCard === 'x2') {
     newScore = newScore === 0 ? 0 : newScore * 2;

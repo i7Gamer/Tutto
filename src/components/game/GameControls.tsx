@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { isTestEnv } from '../../utils/env';
 import { sortKeptDiceForDisplay } from '../../utils/diceTurnControls';
 import { CARD_FLIP_MS } from '../../utils/uiTimings';
+import { BONUS_CARDS } from '../../utils/configValidation';
 import type { CardType, DiceMode, DiceSnapshot, Player } from '../../types';
 import { DiePips } from './Die';
 import ConfirmModal from '../ConfirmModal';
@@ -127,7 +128,9 @@ export default function GameControls({
                       placeholder={t('game.controls.scorePlaceholder', 'Score')}
                       className="flex-1 min-w-0 w-full text-center text-2xl md:text-3xl font-bold py-3 md:py-4 rounded-2xl border-2 border-gray-200 dark:border-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/20 bg-[var(--card-bg)] transition-all outline-none"
                     />
-                    {(['200', '300', '400', '500', '600', 'x2'] as string[]).includes(currentCard ?? '') && (
+                    {/* The cards that change what a manually entered score is
+                        worth: the flat bonuses, plus the doubler. */}
+                    {([...BONUS_CARDS, 'x2'] as string[]).includes(currentCard ?? '') && (
                       <div className="flex items-center bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 px-3 py-2 md:py-3 rounded-2xl border border-amber-200 dark:border-amber-800 h-full">
                         <label className="checkbox-wrapper">
                           <input type="checkbox" checked={applyBonus} onChange={(e) => setApplyBonus(e.target.checked)} />

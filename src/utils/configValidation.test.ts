@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   VALID_CARD_TYPES,
+  BONUS_CARDS,
   MAX_CARD_COUNT,
   DEFAULT_INITIAL_CARDS,
   DEFAULT_WINNING_SCORE,
@@ -61,6 +62,22 @@ describe('configValidation', () => {
       ];
       for (const type of expected) {
         expect(VALID_CARD_TYPES).toContain(type);
+      }
+    });
+  });
+
+  describe('BONUS_CARDS', () => {
+    it('lists only real card types', () => {
+      for (const card of BONUS_CARDS) {
+        expect(VALID_CARD_TYPES).toContain(card);
+      }
+    });
+
+    it('names each card after the bonus it awards', () => {
+      // applyTuttoBonus (diceLogic.ts) adds parseInt(card) to the turn score,
+      // so a non-numeric entry here would silently score NaN.
+      for (const card of BONUS_CARDS) {
+        expect(Number(card)).toBeGreaterThan(0);
       }
     });
   });

@@ -4,6 +4,12 @@ export const VALID_CARD_TYPES: readonly CardType[] = [
   'Kleeblatt', 'Feuerwerk', 'Stop', 'Kniffel', 'Plus_Minus', 'x2',
   '200', '300', '400', '500', '600',
 ];
+
+// The cards whose name *is* the bonus they add to a completed turn — the
+// scoring itself reads the number straight off the card (applyTuttoBonus in
+// diceLogic.ts), so an entry that isn't a number would score NaN.
+export const BONUS_CARDS: readonly CardType[] = ['200', '300', '400', '500', '600'];
+
 export const MAX_CARD_COUNT = 99;
 
 // The online path enforces this server-side (socketHandlers.ts joinRoom,
