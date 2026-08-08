@@ -2,6 +2,7 @@
  * Shared setup for the e2e specs. Not a spec itself — playwright only collects
  * *.spec.js from this directory, so this file is only ever imported.
  */
+import { expect } from '@playwright/test';
 
 /**
  * Cards that always play an ordinary turn: draw one and the player rolls.
@@ -25,3 +26,27 @@ export const seedLocalDeck = (page, deck = ROLLING_DECK) =>
   page.addInitScript(initialCards => {
     localStorage.setItem('tutto_local_game', JSON.stringify({ initialCards }));
   }, deck);
+
+/** Two players is the smallest game that takes turns. */
+export const DEFAULT_PLAYERS = ['Alice', 'Bob'];
+
+/**
+ * Takes an already-loaded lobby to a game in progress: adds the players and
+ * starts, waiting for each name to appear rather than typing the next one
+ * over it.
+ *
+ * For specs that need a game to be underway. The lobby flow itself is a
+ * subject in its own right, and game.spec.js still walks it step by step —
+ * that test is about what the player sees on the way, not about arriving.
+ */
+export const startLocalGame = async (page, names = DEFAULT_PLAYERS) => {
+  const playerInput = page.getByPlaceholder(/Player name/i);
+  for (const name of names) {
+    await playerInput.fill(name);
+    await page.getByRole('button', { name: /^Add$/i }).click();
+    await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
+  }
+
+  await page.getByRole('button', { name: /Start Game!/i }).click();
+  await expect(page.getByText(/Current Player/i)).toBeVisible();
+};

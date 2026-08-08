@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { seedLocalDeck } from './helpers.js';
+import { seedLocalDeck, startLocalGame } from './helpers.js';
 
 /**
  * The service worker only exists in a built app, so nothing exercised it until
@@ -71,14 +71,8 @@ test.describe('Offline', () => {
     await page.goto('/');
     await expect(page.getByRole('button', { name: /Local Play/i })).toBeVisible();
 
-    const playerInput = page.getByPlaceholder(/Player name/i);
-    await playerInput.fill('Alice');
-    await page.getByRole('button', { name: /^Add$/i }).click();
-    await playerInput.fill('Bob');
-    await page.getByRole('button', { name: /^Add$/i }).click();
-    await page.getByRole('button', { name: /Start Game!/i }).click();
+    await startLocalGame(page);
 
-    await expect(page.getByText(/Current Player/i)).toBeVisible();
     await page.getByRole('button', { name: /Roll Dice/i }).click();
     await expect(page.getByText(/Current Score/i)).toBeVisible();
   });
