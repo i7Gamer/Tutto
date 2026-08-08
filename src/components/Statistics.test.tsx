@@ -112,6 +112,32 @@ describe('Statistics Component', () => {
     expect(onBackMock).toHaveBeenCalled();
   });
 
+  it('never reports a negative number of lost cards globally', async () => {
+    // The server counts completions and totals separately, so a crash between
+    // the two writes can leave more completions than the total it derives the
+    // losses from. The breakdown must floor at zero rather than print "-2 lost".
+    const mockGlobalStats = {
+      totalGamesPlayed: 5,
+      totalPlaytime: 500,
+      totalKniffel: 3,
+      totalKniffelCompleted: 5,
+    };
+
+    global.fetch = vi.fn((url) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : { gamesPlayed: 1, wins: 1, totalPlaytime: 100 }),
+    }));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+    fireEvent.click(screen.getByRole('tab', { name: /statistics\.globalCommunity/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('statistics.cardBreakdown')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('-2')).not.toBeInTheDocument();
+  });
+
   it('rounds win rate and bust rate to whole percentages with non-integer inputs', async () => {
     const mockPersonalStats = {
       gamesPlayed: 3,
