@@ -62,6 +62,16 @@ describe('RoomQrCode', () => {
     }
   );
 
+  it('keeps a gap under the code', async () => {
+    // The paragraph the lobby puts below this panel has no top margin, so
+    // without one here the code sits flush against it — cramped on a phone,
+    // where the whole lobby is already stacked tight.
+    const { container } = render(<RoomQrCode link="https://tutto.example.com/?room=ROOM1" />);
+    await screen.findByAltText('lobby.online.qrAlt');
+
+    expect(container.firstElementChild.className).toContain('mb-4');
+  });
+
   it('shows no warning for an address other devices can reach', async () => {
     render(<RoomQrCode link="http://192.168.1.5:3001/?room=R" />);
     await screen.findByAltText('lobby.online.qrAlt');

@@ -60,7 +60,7 @@ export default function RoomQrCode({ link }: RoomQrCodeProps) {
   }, [link]);
 
   return (
-    <div className="flex flex-col items-center gap-2 mt-3">
+    <div className="flex flex-col items-center gap-2 mt-3 mb-4">
       {/* White regardless of theme: a QR code needs a light quiet zone, and
           inverting one is not reliably readable. */}
       <div className="bg-white p-3 rounded-xl border border-gray-200 dark:border-slate-600">
