@@ -171,6 +171,7 @@
   "lobby.online.hideQr": "Hide QR code",
   "lobby.online.qrAlt": "QR code for this room",
   "lobby.online.qrLocalhostWarning": "This link points at this device only. Open Tutto on your network address for a code others can scan.",
+  "lobby.online.qrFailed": "The QR code could not be loaded. The invite link above still works.",
   "lobby.online.scanQr": "Scan a QR code",
   "lobby.online.scanClose": "Close scanner",
   "lobby.online.scanStarting": "Starting the camera…",

@@ -4,23 +4,30 @@ import RoomQrCode from './RoomQrCode';
 
 // The real encoder is loaded lazily, which a test should not have to await for
 // the sake of asserting what got encoded.
-const { encoded, addData, make, createDataURL } = vi.hoisted(() => ({
+const { encoded, addData, make, createDataURL, encoderFails } = vi.hoisted(() => ({
   encoded: [] as string[],
   addData: vi.fn(),
   make: vi.fn(),
   createDataURL: vi.fn(() => 'data:image/gif;base64,STUB'),
+  encoderFails: { value: false },
 }));
 
 vi.mock('qrcode-generator', () => ({
-  default: () => ({
-    addData: (text: string) => { encoded.push(text); addData(text); },
-    make,
-    createDataURL,
-  }),
+  default: () => {
+    // Stands in for the chunk itself failing to load: either way the encoding
+    // rejects, which is the branch worth covering.
+    if (encoderFails.value) throw new Error('encoder unavailable');
+    return {
+      addData: (text: string) => { encoded.push(text); addData(text); },
+      make,
+      createDataURL,
+    };
+  },
 }));
 
 beforeEach(() => {
   encoded.length = 0;
+  encoderFails.value = false;
   vi.clearAllMocks();
 });
 
@@ -61,6 +68,20 @@ describe('RoomQrCode', () => {
       expect(await screen.findByText('lobby.online.qrLocalhostWarning')).toBeInTheDocument();
     }
   );
+
+  it('says so when the code cannot be generated', async () => {
+    // Offline, or a stale service worker precache. Taking the lobby down over
+    // it would be wrong — the link and the room code are both right above —
+    // but a placeholder left pulsing claims the code is still on its way.
+    encoderFails.value = true;
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { container } = render(<RoomQrCode link="https://tutto.example.com/?room=ROOM1" />);
+
+    expect(await screen.findByText('lobby.online.qrFailed')).toBeInTheDocument();
+    expect(container.querySelector('.animate-pulse')).toBeNull();
+    expect(logged).toHaveBeenCalled();
+  });
 
   it('keeps a gap under the code', async () => {
     // The paragraph the lobby puts below this panel has no top margin, so

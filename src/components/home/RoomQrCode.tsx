@@ -39,6 +39,18 @@ const isLoopback = (link: string): boolean => {
 export default function RoomQrCode({ link }: RoomQrCodeProps) {
   const { t } = useTranslation();
   const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  // A new link starts over in the same render rather than an effect later,
+  // which would leave the room that was just left on screen for a frame — as a
+  // scannable code, which is the one thing it must not be. Same render-time
+  // reset the lobby uses on its panels.
+  const [encodedLink, setEncodedLink] = useState(link);
+  if (link !== encodedLink) {
+    setEncodedLink(link);
+    setImageSrc(null);
+    setFailed(false);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -52,8 +64,11 @@ export default function RoomQrCode({ link }: RoomQrCodeProps) {
     }).catch((e: unknown) => {
       // A failed chunk load (offline, or a stale service worker precache) must
       // not take the lobby down — the link and the room code are both still on
-      // screen right above this.
+      // screen right above this. It does have to be said, though: leaving the
+      // placeholder pulsing tells the player a code is still coming.
       console.error('Failed to load the QR encoder', e);
+      if (cancelled) return;
+      setFailed(true);
     });
 
     return () => { cancelled = true; };
@@ -61,19 +76,32 @@ export default function RoomQrCode({ link }: RoomQrCodeProps) {
 
   return (
     <div className="flex flex-col items-center gap-2 mt-3 mb-4">
-      {/* White regardless of theme: a QR code needs a light quiet zone, and
-          inverting one is not reliably readable. */}
-      <div className="bg-white p-3 rounded-xl border border-gray-200 dark:border-slate-600">
-        {imageSrc
-          ? (
-            <img
-              src={imageSrc}
-              alt={t('lobby.online.qrAlt', 'QR code for this room')}
-              className="w-40 h-40 sm:w-48 sm:h-48 [image-rendering:pixelated]"
-            />
-          )
-          : <div className="w-40 h-40 sm:w-48 sm:h-48 animate-pulse bg-gray-100 rounded-lg" />}
-      </div>
+      {failed
+        ? (
+          // No empty white box left behind it: there is nothing to frame, and
+          // the sentence is the whole of what there is to say.
+          <p className="text-xs text-center text-gray-600 dark:text-gray-300 max-w-xs">
+            {t(
+              'lobby.online.qrFailed',
+              'The QR code could not be loaded. The invite link above still works.'
+            )}
+          </p>
+        )
+        : (
+          /* White regardless of theme: a QR code needs a light quiet zone, and
+             inverting one is not reliably readable. */
+          <div className="bg-white p-3 rounded-xl border border-gray-200 dark:border-slate-600">
+            {imageSrc
+              ? (
+                <img
+                  src={imageSrc}
+                  alt={t('lobby.online.qrAlt', 'QR code for this room')}
+                  className="w-40 h-40 sm:w-48 sm:h-48 [image-rendering:pixelated]"
+                />
+              )
+              : <div className="w-40 h-40 sm:w-48 sm:h-48 animate-pulse bg-gray-100 rounded-lg" />}
+          </div>
+        )}
       {isLoopback(link) && (
         <p className="text-xs text-amber-600 dark:text-amber-400 text-center max-w-xs">
           {t(
