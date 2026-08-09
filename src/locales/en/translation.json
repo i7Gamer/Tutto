@@ -314,6 +314,7 @@
   "help.cards.title": "Cards",
   "help.cards.bonus": "Bonus Cards (200 - 600)",
   "help.cards.bonusDesc": "Achieve a Tutto (keep all 6 dice) to receive the extra points (200, 300, 400, 500, or 600 points) shown on the card. You may choose to Stop & Score at any time before finishing to keep your current turn points. Your turn ends immediately after achieving the Tutto. If you bust before achieving a Tutto, the bonus points are not awarded, and you score 0 points for the turn.",
+  "help.cards.bonusDescClassic": "Achieve a Tutto (keep all 6 dice) to receive the extra points (200, 300, 400, 500, or 600 points) shown on the card. You may choose to Stop & Score at any time before finishing to keep your current turn points. After the Tutto you choose: bank everything, or reveal the next card and keep going. If you bust before achieving a Tutto, the whole turn is forfeited.",
   "help.cards.x2": "x2 (Double) Card",
   "help.cards.x2Desc": "Completing a Tutto doubles all points accumulated during this entire turn. You may choose to Stop & Score at any time before finishing to keep your current turn points (undoubled). Your turn ends immediately after achieving the Tutto. If you bust before achieving a Tutto, you score 0 points.",
   "help.cards.x2DescClassic": "Completing a Tutto doubles your ENTIRE accumulated turn total — including everything earned on earlier cards in the chain. You may Stop & Score before finishing to keep the current total undoubled. After the doubling Tutto you may bank or keep chaining.",

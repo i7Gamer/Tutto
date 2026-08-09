@@ -264,7 +264,7 @@ export default function HelpPopup() {
                   <div className="space-y-4">
                     <CardEntry isActive={!!currentCard && BONUS_CARDS.includes(currentCard)} activeRef={activeCardRef}>
                       <h4 className="wiki-heading">{t('help.cards.bonus', 'Bonus (200 - 600)')}</h4>
-                      <p className="text-sm">{t('help.cards.bonusDesc')}</p>
+                      <p className="text-sm">{isClassic ? t('help.cards.bonusDescClassic') : t('help.cards.bonusDesc')}</p>
                     </CardEntry>
                     <CardEntry isActive={currentCard === 'x2'} activeRef={activeCardRef}>
                       <h4 className="wiki-heading">{t('help.cards.x2', 'x2 (Double)')}</h4>
