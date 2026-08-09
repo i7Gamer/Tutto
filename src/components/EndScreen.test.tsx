@@ -334,7 +334,27 @@ describe('EndScreen Component', () => {
         await Promise.resolve();
       });
 
-      expect(global.fetch).toHaveBeenCalledWith('/api/stats/device-online-1');
+      expect(global.fetch).toHaveBeenCalledWith('/api/stats/device-online-1?mode=normalized');
+      vi.useRealTimers();
+    });
+
+    it('reads the custom bucket after a custom game, not the player\'s normal record', async () => {
+      vi.useFakeTimers();
+      global.fetch = vi.fn(() => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ gamesPlayed: 3, wins: 1, pointsDeducted: 0, kniffelCompleted: 2 }),
+      }));
+      useGameStore.setState({ isOnline: true, winningScore: 1000 });
+
+      render(<EndScreen deviceId="device-online-2" />);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(global.fetch).toHaveBeenCalledWith('/api/stats/device-online-2?mode=custom');
       vi.useRealTimers();
     });
   });

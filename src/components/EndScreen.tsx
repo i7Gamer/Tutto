@@ -16,6 +16,7 @@ import {
 import { Trophy, RotateCcw, Settings, Award, Zap, TrendingDown } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
 import { parseJsonObject } from '../utils/parseJson';
+import { deviceStatsUrl, gameModeOf } from '../utils/statsApi';
 import { computeRankedPlayers, getLeaders } from '../utils/coreGameEngine';
 import { motion } from 'framer-motion';
 import { useGameStore } from '../store/useGameStore';
@@ -71,6 +72,8 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
     preGameStats: state.preGameStats,
     isOnline: state.isOnline,
     isHost: state.isHost,
+    winningScore: state.winningScore,
+    initialCards: state.initialCards,
   })));
   const { players, round, gameTimeInSeconds, startGame, endGame, chartLabels, chartNames, chartValues, leaveRoom, myName, preGameStats } = game;
 
@@ -114,6 +117,11 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
 
   const [deviceStats, setDeviceStats] = useState<DeviceStats | null>(null);
 
+  // Which bucket the game that just ended was recorded in. The lifetime block
+  // below shows that bucket's numbers, so a custom game's totals are never
+  // presented as the player's record.
+  const gameMode = gameModeOf({ winningScore: game.winningScore, initialCards: game.initialCards });
+
   useEffect(() => {
     // Local games never submit stats (by design — see useGameStore.nextTurn),
     // so the retry loop below would always exhaust its 5 attempts waiting for
@@ -126,7 +134,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
     const fetchStats = async (retries = 0) => {
       if (!isMounted) return;
       try {
-        const res = await fetch(`/api/stats/${deviceId}`);
+        const res = await fetch(deviceStatsUrl(deviceId, gameMode));
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await parseJsonObject<DeviceStats>(res);
 
@@ -147,7 +155,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
       isMounted = false;
       if (timerId) clearTimeout(timerId);
     };
-  }, [deviceId, game.isOnline]);
+  }, [deviceId, game.isOnline, gameMode]);
 
   // Fires once per mount (EndScreen only mounts when a game just finished —
   // see App.tsx's finished/status-gated rendering), so this can't double-fire

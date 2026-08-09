@@ -1458,6 +1458,56 @@ describe('the game mode a finished game is recorded under', () => {
     client.disconnect();
   });
 
+  it('books a custom game into the custom bucket, leaving the shown win streak alone', async () => {
+    // The streak next to a player is the normalized one — a custom game must
+    // neither extend it nor trigger a broadcast that replaces it with the
+    // custom bucket's unrelated count.
+    mockedUpdateDeviceStats.mockReset();
+    mockedUpdateDeviceStats.mockResolvedValue(true);
+    mockedGetDeviceStats.mockReset();
+    mockedGetDeviceStats.mockResolvedValue(null);
+
+    const roomId = 'MODE_DEVICE_CUSTOM';
+    client = await hostAGame(roomId);
+    push(client, roomId, { initialCards: { ...CUSTOM_DECK } });
+    await waitFor(() => rooms[roomId].state.status === 'playing');
+    rooms[roomId].state.finished = true;
+
+    // joinRoom reads the streak too — only what happens AFTER the game is of
+    // interest here.
+    mockedGetDeviceStats.mockClear();
+    client.emit('endGameStats', { deviceId: deviceFor(roomId), stats: { gamesPlayed: 1, wins: 1 } });
+    await waitFor(() => mockedUpdateDeviceStats.mock.calls.length === 1);
+
+    expect(mockedUpdateDeviceStats.mock.calls[0][2]).toBe('custom');
+    // No streak re-read, so nothing to broadcast.
+    expect(mockedGetDeviceStats).not.toHaveBeenCalled();
+
+    client.disconnect();
+  });
+
+  it('books a normalized game into the normalized bucket and still refreshes the streak', async () => {
+    mockedUpdateDeviceStats.mockReset();
+    mockedUpdateDeviceStats.mockResolvedValue(true);
+    mockedGetDeviceStats.mockReset();
+    mockedGetDeviceStats.mockResolvedValue(null);
+
+    const roomId = 'MODE_DEVICE_NORMAL';
+    client = await hostAGame(roomId);
+    push(client, roomId, { winningScore: DEFAULT_WINNING_SCORE });
+    await waitFor(() => rooms[roomId].state.status === 'playing');
+    rooms[roomId].state.finished = true;
+
+    mockedGetDeviceStats.mockClear();
+    client.emit('endGameStats', { deviceId: deviceFor(roomId), stats: { gamesPlayed: 1, wins: 1 } });
+    await waitFor(() => mockedUpdateDeviceStats.mock.calls.length === 1);
+
+    expect(mockedUpdateDeviceStats.mock.calls[0][2]).toBe('normalized');
+    await waitFor(() => mockedGetDeviceStats.mock.calls.length === 1);
+
+    client.disconnect();
+  });
+
   it('re-evaluates the mode for the next game when "Play Again" skips the lobby', async () => {
     const roomId = 'MODE_PLAY_AGAIN';
     client = await hostAGame(roomId);

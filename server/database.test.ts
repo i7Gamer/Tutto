@@ -236,6 +236,72 @@ describe('Database Statistics Integration', () => {
     expect(after.defaultGamesPlayed).toBe(before.defaultGamesPlayed);
   });
 
+  describe('a device keeps one set of statistics per game mode', () => {
+    it('records a custom game without touching the normalized row', async () => {
+      const deviceId = 'split-device-' + Date.now();
+      await database.updateDeviceStats(deviceId, { gamesPlayed: 1, wins: 1, totalScore: 4000 });
+
+      await database.updateDeviceStats(deviceId, { gamesPlayed: 1, wins: 1, totalScore: 999 }, 'custom');
+
+      const normalized = await database.getDeviceStats(deviceId);
+      expect(normalized.gamesPlayed).toBe(1);
+      expect(normalized.totalScore).toBe(4000);
+
+      const custom = await database.getDeviceStats(deviceId, 'custom');
+      expect(custom.gamesPlayed).toBe(1);
+      expect(custom.totalScore).toBe(999);
+    });
+
+    it('reads the normalized row when no mode is named', async () => {
+      // Every pre-existing caller — the admin route included — means this one.
+      const deviceId = 'default-mode-device-' + Date.now();
+      await database.updateDeviceStats(deviceId, { gamesPlayed: 3 }, 'normalized');
+
+      expect((await database.getDeviceStats(deviceId)).gamesPlayed).toBe(3);
+    });
+
+    it('reports nothing for a mode this device has never played', async () => {
+      const deviceId = 'custom-only-device-' + Date.now();
+      await database.updateDeviceStats(deviceId, { gamesPlayed: 1 }, 'custom');
+
+      expect(await database.getDeviceStats(deviceId)).toBeNull();
+      expect(await database.getDeviceStats(deviceId, 'custom')).not.toBeNull();
+    });
+
+    it('runs a separate win streak per mode', async () => {
+      // A custom game must not extend the streak a player reads as theirs, and
+      // a loss in one mode must not break the other's run.
+      const deviceId = 'streak-split-' + Date.now();
+      await database.updateDeviceStats(deviceId, { gamesPlayed: 1, wins: 1 });
+      await database.updateDeviceStats(deviceId, { gamesPlayed: 1, wins: 1 });
+
+      await database.updateDeviceStats(deviceId, { gamesPlayed: 1, wins: 0 }, 'custom');
+
+      expect((await database.getDeviceStats(deviceId)).currentWinStreak).toBe(2);
+      expect((await database.getDeviceStats(deviceId, 'custom')).currentWinStreak).toBe(0);
+    });
+
+    it('keeps records apart, so a custom high score is not a personal best', async () => {
+      const deviceId = 'record-split-' + Date.now();
+      await database.updateDeviceStats(deviceId, { gamesPlayed: 1, highestTurnScore: 1500 });
+
+      await database.updateDeviceStats(deviceId, { gamesPlayed: 1, highestTurnScore: 99999 }, 'custom');
+
+      expect((await database.getDeviceStats(deviceId)).highestTurnScore).toBe(1500);
+      expect((await database.getDeviceStats(deviceId, 'custom')).highestTurnScore).toBe(99999);
+    });
+
+    it('accumulates across several games in the same mode', async () => {
+      const deviceId = 'accumulate-custom-' + Date.now();
+      await database.updateDeviceStats(deviceId, { gamesPlayed: 1, busts: 2 }, 'custom');
+      await database.updateDeviceStats(deviceId, { gamesPlayed: 1, busts: 3 }, 'custom');
+
+      const custom = await database.getDeviceStats(deviceId, 'custom');
+      expect(custom.gamesPlayed).toBe(2);
+      expect(custom.busts).toBe(5);
+    });
+  });
+
   describe('a custom game contributes nothing but its own count', () => {
     it('leaves every running total untouched', async () => {
       const before = await database.getGlobalStats();

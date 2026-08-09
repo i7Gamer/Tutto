@@ -165,6 +165,50 @@ describe('API Endpoints Token Protection', () => {
     expect(res.status).toBe(400);
   });
 
+  describe('the mode a stats request reads and writes', () => {
+    const statsUrl = (deviceId: string, query = ''): string =>
+      `http://127.0.0.1:${PORT}/api/stats/${deviceId}${query}`;
+
+    const write = (deviceId: string, query: string, body: Record<string, number>): Promise<Response> =>
+      fetch(statsUrl(deviceId, query), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-tutto-token': API_TOKEN },
+        body: JSON.stringify(body),
+      });
+
+    const read = async (deviceId: string, query = ''): Promise<Record<string, number>> =>
+      (await fetch(statsUrl(deviceId, query))).json();
+
+    it('keeps the two modes apart end to end', async () => {
+      const deviceId = 'api-mode-split';
+      expect((await write(deviceId, '', { gamesPlayed: 2 })).status).toBe(200);
+      expect((await write(deviceId, '?mode=custom', { gamesPlayed: 7 })).status).toBe(200);
+
+      expect((await read(deviceId)).gamesPlayed).toBe(2);
+      expect((await read(deviceId, '?mode=custom')).gamesPlayed).toBe(7);
+    });
+
+    it('falls back to the normalized row for a missing, empty or unrecognised mode', async () => {
+      // Old clients send no mode at all, and an unknown value must not become
+      // a third bucket nobody can ever read back.
+      const deviceId = 'api-mode-fallback';
+      await write(deviceId, '', { gamesPlayed: 1 });
+
+      expect((await read(deviceId)).gamesPlayed).toBe(1);
+      expect((await read(deviceId, '?mode=')).gamesPlayed).toBe(1);
+      expect((await read(deviceId, '?mode=bogus')).gamesPlayed).toBe(1);
+      expect((await read(deviceId, '?mode[]=custom')).gamesPlayed).toBe(1);
+    });
+
+    it('writes an unrecognised mode into the normalized row rather than inventing one', async () => {
+      const deviceId = 'api-mode-write-fallback';
+      expect((await write(deviceId, '?mode=bogus', { gamesPlayed: 5 })).status).toBe(200);
+
+      expect((await read(deviceId)).gamesPlayed).toBe(5);
+      expect(await read(deviceId, '?mode=custom')).toEqual({});
+    });
+  });
+
   it('POST /api/log/client-error accepts crash reports without a token', async () => {
     const res = await fetch(`http://127.0.0.1:${PORT}/api/log/client-error`, {
       method: 'POST',

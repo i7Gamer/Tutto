@@ -886,11 +886,34 @@ describe('Game Component Integration', () => {
 
       await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
-      expect(global.fetch).toHaveBeenCalledWith('/api/stats/device-1');
+      expect(global.fetch).toHaveBeenCalledWith('/api/stats/device-1?mode=normalized');
       expect(setPreGameStats).toHaveBeenCalledWith({
         highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null,
         highestFeuerwerkTurnScore: null, highestX2TurnScore: null,
       });
+    });
+
+    it('skips the snapshot for a custom game, and clears any left over from an earlier one', async () => {
+      // The snapshot exists only to detect a new personal record, and a custom
+      // game never claims one — so there is nothing to fetch. Clearing still
+      // has to happen: a snapshot kept from an earlier game in the same
+      // session would be diffed against this game's numbers.
+      const setPreGameStats = vi.fn();
+      global.fetch = vi.fn(() => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ highestTurnScore: 1500 }),
+      })) as unknown as typeof fetch;
+
+      useGameStore.setState({
+        isOnline: true, deviceId: 'device-1', setPreGameStats,
+        winningScore: 1000,
+      });
+      render(<Game />);
+
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(setPreGameStats).toHaveBeenCalledWith(null);
     });
 
     it('includes highestFeuerwerkTurnScore/highestX2TurnScore in the pre-game stats snapshot when present', async () => {

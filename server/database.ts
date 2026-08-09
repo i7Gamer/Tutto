@@ -1,6 +1,7 @@
 import knexLib from 'knex';
 import type { Knex } from 'knex';
 import knexConfig from './knexfile';
+import { DEFAULT_GAME_MODE, type GameMode } from '../src/types';
 
 const knex = knexLib(knexConfig);
 
@@ -42,6 +43,7 @@ const nullSafeExtreme = (agg: 'MAX' | 'MIN', table: string, col: string, newValu
 
 export interface DeviceStatsRow {
   deviceId: string;
+  mode: GameMode;
   gamesPlayed: number;
   wins: number;
   pointsDeducted: number;
@@ -77,9 +79,15 @@ export interface DeviceStatsRow {
 
 export type StatsPayload = Record<string, number | boolean | null>;
 
-export const getDeviceStats = async (deviceId: string): Promise<DeviceStatsRow | null> => {
+// A device holds one row per mode, so the mode is part of the key, not a
+// filter that can be left off: `.where({ deviceId })` alone would return
+// whichever of the two rows SQLite happened to reach first.
+export const getDeviceStats = async (
+  deviceId: string,
+  mode: GameMode = DEFAULT_GAME_MODE,
+): Promise<DeviceStatsRow | null> => {
   try {
-    const row = await knex('device_statistics').where({ deviceId }).first<DeviceStatsRow>();
+    const row = await knex('device_statistics').where({ deviceId, mode }).first<DeviceStatsRow>();
     return row ?? null;
   } catch (err) {
     console.error('getDeviceStats error:', err);
@@ -87,7 +95,11 @@ export const getDeviceStats = async (deviceId: string): Promise<DeviceStatsRow |
   }
 };
 
-export const updateDeviceStats = async (deviceId: string, stats: StatsPayload): Promise<boolean> => {
+export const updateDeviceStats = async (
+  deviceId: string,
+  stats: StatsPayload,
+  mode: GameMode = DEFAULT_GAME_MODE,
+): Promise<boolean> => {
   if (!stats || Object.keys(stats).length === 0) return true;
 
   const deviceCols = [
@@ -99,7 +111,7 @@ export const updateDeviceStats = async (deviceId: string, stats: StatsPayload): 
     'totalPlayersSum', 'totalRoundsSum',
   ];
 
-  const data: Record<string, unknown> = { deviceId };
+  const data: Record<string, unknown> = { deviceId, mode };
   const mergeCols: Record<string, Knex.Raw> = {};
 
   deviceCols.forEach(col => {
@@ -148,7 +160,7 @@ export const updateDeviceStats = async (deviceId: string, stats: StatsPayload): 
   try {
     await knex('device_statistics')
       .insert(data)
-      .onConflict('deviceId')
+      .onConflict(['deviceId', 'mode'])
       .merge(mergeCols);
     return true;
   } catch (err) {

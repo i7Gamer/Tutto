@@ -12,6 +12,7 @@ import { formatTime } from '../utils/formatTime';
 import { buildTurnKey, parseSavedDiceState, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
 import { hasScoreInput, isSpecialCard } from '../utils/diceTurnControls';
 import { parseJsonObject } from '../utils/parseJson';
+import { deviceStatsUrl, gameModeOf } from '../utils/statsApi';
 import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, DICE_PANEL_ENTRANCE_MS } from '../utils/uiTimings';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
@@ -39,6 +40,7 @@ const useGameSlice = () => useGameStore(useShallow(state => ({
   isOnline: state.isOnline,
   myName: state.myName,
   winningScore: state.winningScore,
+  initialCards: state.initialCards,
   players: state.players,
   currentPlayerIndex: state.currentPlayerIndex,
   gameTimeInSeconds: state.gameTimeInSeconds,
@@ -75,6 +77,7 @@ export default function Game() {
     isOnline,
     myName,
     winningScore,
+    initialCards,
     players,
     currentPlayerIndex,
     gameTimeInSeconds,
@@ -180,16 +183,22 @@ export default function Game() {
   // records, rather than merely tying an older one.
   // Snapshotted rather than depended on: the values are read for the game this
   // component mounted for, and a later change to either is not a new game.
-  const atGameStartRef = useRef({ isOnline, deviceId });
+  const atGameStartRef = useRef({ isOnline, deviceId, mode: gameModeOf({ winningScore, initialCards }) });
   useEffect(() => {
-    const { isOnline: onlineAtStart, deviceId: deviceAtStart } = atGameStartRef.current;
-    if (!onlineAtStart || !deviceAtStart) return;
+    const { isOnline: onlineAtStart, deviceId: deviceAtStart, mode: modeAtStart } = atGameStartRef.current;
+    // Cleared before anything else: a snapshot left over from an earlier game
+    // in this session would be diffed against THIS game's numbers.
     setPreGameStats(null);
+    if (!onlineAtStart || !deviceAtStart) return;
+    // A custom game never celebrates a personal record (see EndScreen), which
+    // is the only thing this snapshot feeds — so there is nothing to compare
+    // against and no reason to spend the request.
+    if (modeAtStart !== 'normalized') return;
     let cancelled = false;
 
     void (async () => {
       try {
-        const res = await fetch(`/api/stats/${deviceAtStart}`);
+        const res = await fetch(deviceStatsUrl(deviceAtStart));
         if (!res.ok) return;
         const data = await parseJsonObject<Partial<PreGameStats>>(res);
         if (cancelled || !data) return;

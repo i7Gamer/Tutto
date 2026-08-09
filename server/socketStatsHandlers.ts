@@ -74,14 +74,26 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // on failure keeps a retry possible instead of losing the game's stats.
     room.statsRecordedForGame.devices.add(deviceId);
     try {
-      await updateDeviceStats(deviceId, sanitizeStats(stats));
+      // Recorded in full either way — a custom game just lands in its own
+      // bucket, where it cannot move the totals or the records a player reads
+      // as theirs. Which bucket is the server's call, taken from the config the
+      // game started with (see socketGameStateHandlers' pushState).
+      const mode = room.normalizedGame ? 'normalized' : 'custom';
+      await updateDeviceStats(deviceId, sanitizeStats(stats), mode);
       // The win/loss just recorded above may have changed this device's streak.
       // `player` still holds the value from when they joined, so without this
       // refresh + broadcast, the streak shown next to the player (leaderboard,
       // spectators) stays stale until they rejoin a room.
-      const updatedStats = await getDeviceStats(deviceId);
-      player.winStreak = updatedStats?.currentWinStreak ?? 0;
-      emitRoomState(io, roomId as string);
+      //
+      // Only for a normalized game: the streak shown in a room is the
+      // normalized one (joinRoom reads that row), and a custom game neither
+      // extends nor breaks it. Refreshing here would overwrite the displayed
+      // streak with the custom bucket's unrelated count.
+      if (mode === 'normalized') {
+        const updatedStats = await getDeviceStats(deviceId);
+        player.winStreak = updatedStats?.currentWinStreak ?? 0;
+        emitRoomState(io, roomId as string);
+      }
     } catch (err) {
       room.statsRecordedForGame.devices.delete(deviceId);
       console.error('[endGameStats] error:', err);

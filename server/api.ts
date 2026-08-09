@@ -5,6 +5,7 @@ import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } 
 import { sanitizeStats, sanitizeLogHeaderField, indentLogContinuationLines } from './sanitize';
 import { createRateLimiter } from './rateLimit';
 import { DEV_DEFAULT_API_TOKEN, validateApiTokenForStartup } from './startupGuards';
+import { DEFAULT_GAME_MODE, GAME_MODES, type GameMode } from '../src/types';
 
 // Client crash reports from the ErrorBoundary (see src/utils/crashLog.ts).
 // Unauthenticated by design — crash reporting must work for any player — so
@@ -75,6 +76,13 @@ export const registerApiRoutes = (app: express.Express): void => {
     next();
   };
 
+  // Which statistics bucket a request means. Anything unrecognised — absent
+  // (every client older than the split), empty, an array from a repeated
+  // parameter — reads as the normalized one rather than becoming a third
+  // bucket that could be written but never read back.
+  const requestedMode = (req: express.Request): GameMode =>
+    GAME_MODES.find(mode => mode === req.query.mode) ?? DEFAULT_GAME_MODE;
+
   const crashLogRateLimiter = createRateLimiter({
     windowMs: CRASH_LOG_RATE_LIMIT_WINDOW_MS,
     max: CRASH_LOG_RATE_LIMIT_MAX,
@@ -130,7 +138,7 @@ export const registerApiRoutes = (app: express.Express): void => {
 
   app.get('/api/stats/:deviceId', statsRateLimiter, requireValidDeviceId, async (req: express.Request, res: express.Response) => {
     try {
-      const stats = await getDeviceStats(req.params.deviceId as string);
+      const stats = await getDeviceStats(req.params.deviceId as string, requestedMode(req));
       res.json(stats ?? {});
     } catch (err) {
       console.error('DB error in device GET:', err);
@@ -140,7 +148,7 @@ export const registerApiRoutes = (app: express.Express): void => {
 
   app.post('/api/stats/:deviceId', requireToken, requireValidDeviceId, async (req: express.Request, res: express.Response) => {
     try {
-      await updateDeviceStats(req.params.deviceId as string, sanitizeStats(req.body));
+      await updateDeviceStats(req.params.deviceId as string, sanitizeStats(req.body), requestedMode(req));
       res.json({ success: true });
     } catch (err) {
       console.error(err);
