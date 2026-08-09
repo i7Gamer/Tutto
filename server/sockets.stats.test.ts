@@ -133,6 +133,75 @@ describe('Server Socket E2E — statistics persistence', () => {
     });
   }, 10000);
 
+  it('records a custom game in its own bucket, leaving the normalized one and the global totals untouched', () => {
+    // The one full-stack pass for the mode split: a real socket submission
+    // against the real database, read back over the real HTTP API. The
+    // handler-level tests mock the DB and the DB tests call it directly —
+    // this is where the two provably meet.
+    return new Promise<void>((resolve, reject) => {
+      const deviceId = 'dev-egs-custom';
+      const roomId = 'EGS_CUSTOM_ROOM';
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Timed out')); }, 9000);
+
+      const realFetch = (globalThis as { __nativeFetch?: typeof fetch }).__nativeFetch ?? fetch;
+      const getJson = async (path: string) => (await realFetch(`http://127.0.0.1:${PORT}${path}`)).json();
+      const poll = async <T,>(read: () => Promise<T | null>): Promise<T | null> => {
+        for (let i = 0; i < 75; i++) {
+          const value = await read();
+          if (value) return value;
+          await new Promise(r => setTimeout(r, 40));
+        }
+        return null;
+      };
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId, color: '#ff0000' }, async () => {
+          try {
+            const globalBefore = await getJson('/api/stats/global');
+
+            // The custom config rides in on the opening push itself — the
+            // lobby state never held it, which is exactly the case the
+            // after-the-push mode evaluation exists for.
+            s1.emit('pushState', { roomId, newState: { status: 'playing', finished: true, winningScore: 1000 } });
+            s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, wins: 1, totalScore: 777 } });
+            // The client claims it was a default game; the server knows better.
+            s1.emit('submitGlobalStats', { roomId, payload: { gamesPlayed: 1, totalScore: 777, isDefaultGame: true } });
+
+            const custom = await poll(async () => {
+              const body = await getJson(`/api/stats/${deviceId}?mode=custom`);
+              return body?.gamesPlayed >= 1 ? body : null;
+            });
+            expect(custom).not.toBeNull();
+            expect(custom.totalScore).toBe(777);
+            expect(custom.mode).toBe('custom');
+
+            // The default read — what the lobby's win-streak lookup and every
+            // old client sees — must not know this game happened.
+            expect(await getJson(`/api/stats/${deviceId}`)).toEqual({});
+
+            const globalAfter = await poll(async () => {
+              const g = await getJson('/api/stats/global');
+              return g.customGamesPlayed === (globalBefore.customGamesPlayed ?? 0) + 1 ? g : null;
+            });
+            expect(globalAfter).not.toBeNull();
+            expect(globalAfter.totalGamesPlayed).toBe(globalBefore.totalGamesPlayed);
+            expect(globalAfter.totalScore).toBe(globalBefore.totalScore);
+            expect(globalAfter.defaultGamesPlayed).toBe(globalBefore.defaultGamesPlayed);
+
+            clearTimeout(timeoutId);
+            s1.disconnect();
+            resolve();
+          } catch (e) {
+            clearTimeout(timeoutId);
+            s1.disconnect();
+            reject(e);
+          }
+        });
+      });
+    });
+  }, 10000);
+
   it('ignores a duplicate endGameStats/submitGlobalStats for the same game (e.g. a reconnect after finish), but accepts them again once a new game starts', () => {
     return new Promise((resolve, reject) => {
       const deviceId = 'dev-egs-dedup';
