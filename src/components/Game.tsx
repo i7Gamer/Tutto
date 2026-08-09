@@ -17,7 +17,8 @@ import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, DICE_PANEL_ENTRANCE_MS } from
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import type { PreGameStats } from '../store/storeTypes';
-import type { TurnSummary } from '../types';
+import type { TurnSummary, TurnCardPlayed, TurnEnd } from '../types';
+import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../utils/coreGameEngine';
 
 import Scoreboard from './game/Scoreboard';
 import CardDisplay from './game/CardDisplay';
@@ -76,6 +77,7 @@ export default function Game() {
     currentCard,
     cards,
     nextTurn,
+    drawCardMidTurn,
     undo,
     endGame,
     isOnline,
@@ -115,9 +117,30 @@ export default function Game() {
   const sortedPlayers = useMemo(() => computeRankedPlayers(players), [players]);
 
   const isMyTurn = !isOnline || (currentPlayer && currentPlayer.name === myName);
+  const isClassic = game.ruleset === 'classic';
   const [scoreInput, setScoreInput] = useState('');
   const [applyBonus, setApplyBonus] = useState(false);
   const [showDiceGame, setShowDiceGame] = useState(false);
+  // Classic PHYSICAL chains. Digital chains live inside DiceGame; with real
+  // dice the app owns only the card draws, so the chain is tracked here: the
+  // card list (a ref — nothing renders its contents), whether a special
+  // card's Yes is waiting for the bank-or-draw decision (state — it swaps
+  // the controls), and the Plus/Minus success count.
+  const physicalChainRef = useRef<{ cards: TurnCardPlayed[]; plusMinusSuccesses: number } | null>(null);
+  const [physicalAwaitingChoice, setPhysicalAwaitingChoice] = useState(false);
+  // Reset when the turn slot changes — a leftover chain from the previous
+  // turn must never leak into the next one. The choice flag resets at render
+  // time (same pattern as the stale-modal corrections below); the ref clears
+  // in an effect, before anything can read it again.
+  const turnSlot = `${round}:${currentPlayerIndex}`;
+  const [prevTurnSlot, setPrevTurnSlot] = useState(turnSlot);
+  if (turnSlot !== prevTurnSlot) {
+    setPrevTurnSlot(turnSlot);
+    if (physicalAwaitingChoice) setPhysicalAwaitingChoice(false);
+  }
+  useEffect(() => {
+    physicalChainRef.current = null;
+  }, [turnSlot]);
   // Tracks whether the dice panel's own entrance animation has finished, so
   // DiceGame knows when it's safe to start rolling automatically. Reset once
   // the panel closes so the next opening waits for its own animation again.
@@ -280,20 +303,49 @@ export default function Game() {
     game.ruleset,
   ]);
 
+  // What a classic physical turn did, card by card — the digital counterpart
+  // is built inside DiceGame. With real dice the tutto count is unknowable;
+  // completed cards are its floor (each continuation implies one, a
+  // completed Kleeblatt implies two).
+  const buildPhysicalSummary = useCallback((ended: TurnEnd, lastCompleted: boolean): TurnSummary => {
+    const source = physicalChainRef.current ?? {
+      cards: currentCard ? [{ card: currentCard, completed: false }] : [],
+      plusMinusSuccesses: 0,
+    };
+    const cards = source.cards.map((c, i) =>
+      i === source.cards.length - 1 ? { ...c, completed: lastCompleted } : { ...c });
+    return {
+      cards,
+      tuttoCount: cards.reduce((n, c) => n + (c.completed ? (c.card === 'Kleeblatt' ? 2 : 1) : 0), 0),
+      plusMinusSuccesses: source.plusMinusSuccesses,
+      ended,
+    };
+  }, [currentCard]);
+
   useEffect(() => {
     let soundTimeout: ReturnType<typeof setTimeout> | undefined;
     let turnTimeout: ReturnType<typeof setTimeout> | undefined;
 
-    if (currentCard === 'Stop') {
+    // A Stop drawn while the dice modal is open is a classic chain forfeit
+    // that DiceGame itself commits (with its own summary) — the auto-continue
+    // here would race it and commit the turn a second time.
+    if (currentCard === 'Stop' && !showDiceGame) {
+      const commitStop = () => {
+        if (isClassic && physicalChainRef.current) {
+          nextTurn(0, false, buildPhysicalSummary('stopCard', false));
+        } else {
+          nextTurn(0, false);
+        }
+      };
       if (isTestEnv()) {
         playBuzzer();
         if (isOnline && isMyTurn) {
-          turnTimeout = setTimeout(() => nextTurn(0, false), STOP_CARD_AUTO_CONTINUE_MS);
+          turnTimeout = setTimeout(commitStop, STOP_CARD_AUTO_CONTINUE_MS);
         }
       } else {
         soundTimeout = setTimeout(() => playBuzzer(), CARD_FLIP_MS);
         if (isOnline && isMyTurn) {
-          turnTimeout = setTimeout(() => nextTurn(0, false), CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS);
+          turnTimeout = setTimeout(commitStop, CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS);
         }
       }
     }
@@ -305,7 +357,7 @@ export default function Game() {
   // cards?.length is deliberate and not incidental: drawing another Stop card
   // leaves currentCard unchanged, and the deck shrinking is what tells the two
   // draws apart so the buzzer sounds again for the second one.
-  }, [isOnline, isMyTurn, currentCard, cards?.length, nextTurn]);
+  }, [isOnline, isMyTurn, currentCard, cards?.length, nextTurn, showDiceGame, isClassic, buildPhysicalSummary]);
 
   useEffect(() => {
     confettiFiredRef.current = false;
@@ -336,14 +388,86 @@ export default function Game() {
     if (applyBonus) {
       parsedScore = applyTuttoBonus(parsedScore, currentCard);
     }
-    nextTurn(parsedScore, parsedScore > 0);
+    if (isClassic) {
+      // The player enters the fully-computed final total (the Apply-bonus
+      // helper is hidden for classic — mid-chain it would apply the wrong
+      // card's arithmetic). A completed special card was already marked in
+      // the chain when its Yes was answered.
+      nextTurn(parsedScore, parsedScore > 0, buildPhysicalSummary(parsedScore > 0 ? 'banked' : 'null', physicalAwaitingChoice));
+      physicalChainRef.current = null;
+      setPhysicalAwaitingChoice(false);
+    } else {
+      nextTurn(parsedScore, parsedScore > 0);
+    }
     setScoreInput('');
     setApplyBonus(false);
-  }, [scoreInput, applyBonus, currentCard, nextTurn]);
+  }, [scoreInput, applyBonus, currentCard, nextTurn, isClassic, buildPhysicalSummary, physicalAwaitingChoice]);
 
   const handleYesNo = useCallback((isSuccess: boolean) => {
+    if (isClassic && currentCard && isSpecialCard(currentCard) && currentCard !== 'Kleeblatt') {
+      // Kniffel/Plus_Minus under classic: a Yes does NOT commit the turn —
+      // the card is completed, its fixed value is pre-filled into the score
+      // input, and the player chooses to bank the total or draw the next
+      // card. Only a No (the whole chain forfeited) commits here.
+      if (isSuccess) {
+        const source = physicalChainRef.current ?? {
+          cards: [{ card: currentCard, completed: false }],
+          plusMinusSuccesses: 0,
+        };
+        const cards = source.cards.map((c, i) =>
+          i === source.cards.length - 1 ? { ...c, completed: true } : c);
+        const isPlusMinus = currentCard === 'Plus_Minus';
+        physicalChainRef.current = {
+          cards,
+          plusMinusSuccesses: source.plusMinusSuccesses + (isPlusMinus ? 1 : 0),
+        };
+        setScoreInput(prev => String((parseInt(prev, 10) || 0) + (isPlusMinus ? PLUS_MINUS_SCORE : KNIFFEL_SCORE)));
+        setPhysicalAwaitingChoice(true);
+        return;
+      }
+      nextTurn(0, false, buildPhysicalSummary('null', false));
+      physicalChainRef.current = null;
+      setScoreInput('');
+      return;
+    }
+    if (isClassic && currentCard === 'Kleeblatt') {
+      nextTurn(0, isSuccess, buildPhysicalSummary(isSuccess ? 'banked' : 'null', isSuccess));
+      physicalChainRef.current = null;
+      setScoreInput('');
+      return;
+    }
+    if (isClassic && currentCard === 'Stop' && physicalChainRef.current) {
+      // The local Continue button on a mid-chain Stop — same forfeit the
+      // online auto-continue commits.
+      nextTurn(0, false, buildPhysicalSummary('stopCard', false));
+      physicalChainRef.current = null;
+      setScoreInput('');
+      return;
+    }
     nextTurn(0, isSuccess);
-  }, [nextTurn]);
+  }, [nextTurn, isClassic, currentCard, buildPhysicalSummary]);
+
+  // Classic physical: the player made a tutto with their real dice and
+  // reveals the next card, keeping the running total in the score input.
+  const handlePhysicalDrawNextCard = useCallback(() => {
+    if (!currentCard) return;
+    const drawn = drawCardMidTurn();
+    if (!drawn) return;
+    const source = physicalChainRef.current ?? {
+      cards: [{ card: currentCard, completed: false }],
+      plusMinusSuccesses: 0,
+    };
+    // Continuing means the current card's goal was reached.
+    const cards = source.cards.map((c, i) =>
+      i === source.cards.length - 1 ? { ...c, completed: true } : c);
+    physicalChainRef.current = {
+      cards: [...cards, { card: drawn, completed: false }],
+      plusMinusSuccesses: source.plusMinusSuccesses,
+    };
+    setPhysicalAwaitingChoice(false);
+    // A drawn Stop resolves through the Stop-card flow (auto online, the
+    // Continue button locally), which commits the chain forfeit.
+  }, [currentCard, drawCardMidTurn]);
 
   const handleDiceComplete = useCallback((score: number, isSuccess: boolean, turnSummary?: TurnSummary) => {
     setShowDiceGame(false);
@@ -366,6 +490,10 @@ export default function Game() {
       // Digital mode always shows "Roll Dice" for any non-Stop card — it
       // doesn't distinguish input/yes-no cards the way physical mode does.
       if (!showDiceGame) setShowDiceGame(true);
+    } else if (physicalAwaitingChoice) {
+      // The bank-or-draw choice after a special card's Yes: banking the
+      // entered total is the primary action, same as the button order.
+      handleNextTurn();
     } else if (currentCardHasYesNo) {
       handleYesNo(true);
     } else if (currentCardHasInput) {
@@ -412,6 +540,8 @@ export default function Game() {
             setApplyBonus={setApplyBonus}
             handleNextTurn={handleNextTurn}
             handleYesNo={handleYesNo}
+            onDrawNextCard={isClassic && effectiveDiceMode === 'physical' ? handlePhysicalDrawNextCard : undefined}
+            awaitingChainChoice={physicalAwaitingChoice}
             undo={undo}
             canUndo={canUndo}
             endGame={endGame}

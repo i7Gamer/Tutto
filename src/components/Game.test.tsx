@@ -503,6 +503,122 @@ describe('Game Component Integration', () => {
     });
   });
 
+  describe('classic physical chains', () => {
+    beforeEach(() => {
+      useGameStore.setState({ ruleset: 'classic', diceMode: 'physical' });
+    });
+
+    afterEach(() => {
+      useGameStore.setState({ ruleset: 'modernized' });
+    });
+
+    it('a Kniffel Yes does not commit: it pre-fills 2000 and offers bank or draw', () => {
+      useGameStore.setState({ currentCard: 'Kniffel' });
+      render(<Game />);
+
+      fireEvent.click(screen.getByRole('button', { name: /game.controls.yes/i }));
+
+      expect(mockNextTurn).not.toHaveBeenCalled();
+      const scoreInput = screen.getByPlaceholderText('game.controls.scorePlaceholder') as HTMLInputElement;
+      expect(scoreInput.value).toBe('2000');
+      expect(screen.getByTestId('physical-draw-next-card')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText('game.controls.nextTurn'));
+      expect(mockNextTurn).toHaveBeenCalledWith(2000, true, expect.objectContaining({
+        cards: [{ card: 'Kniffel', completed: true }],
+        ended: 'banked',
+      }));
+    });
+
+    it('a Plus/Minus Yes pre-fills 1000 and the banked summary carries the success', () => {
+      useGameStore.setState({ currentCard: 'Plus_Minus' });
+      render(<Game />);
+
+      fireEvent.click(screen.getByRole('button', { name: /game.controls.yes/i }));
+      expect(mockNextTurn).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByText('game.controls.nextTurn'));
+      expect(mockNextTurn).toHaveBeenCalledWith(1000, true, expect.objectContaining({
+        plusMinusSuccesses: 1,
+        cards: [{ card: 'Plus_Minus', completed: true }],
+        ended: 'banked',
+      }));
+    });
+
+    it('a special-card No forfeits the whole chain with a null summary', () => {
+      useGameStore.setState({ currentCard: 'Kniffel' });
+      render(<Game />);
+
+      fireEvent.click(screen.getByRole('button', { name: /game.controls.no/i }));
+      expect(mockNextTurn).toHaveBeenCalledWith(0, false, expect.objectContaining({
+        cards: [{ card: 'Kniffel', completed: false }],
+        ended: 'null',
+      }));
+    });
+
+    it('drawing the next card records the chain, and the final bank carries every card', () => {
+      const mockDraw = vi.fn(() => {
+        useGameStore.setState({ currentCard: '400' });
+        return '400' as const;
+      });
+      useGameStore.setState({ currentCard: '300', drawCardMidTurn: mockDraw });
+      render(<Game />);
+
+      const scoreInput = screen.getByPlaceholderText('game.controls.scorePlaceholder');
+      fireEvent.change(scoreInput, { target: { value: '350' } });
+      fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+      expect(mockDraw).toHaveBeenCalled();
+      expect(mockNextTurn).not.toHaveBeenCalled();
+      // The running total stays in the input across the draw.
+      expect((screen.getByPlaceholderText('game.controls.scorePlaceholder') as HTMLInputElement).value).toBe('350');
+
+      fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '1150' } });
+      fireEvent.click(screen.getByText('game.controls.nextTurn'));
+      expect(mockNextTurn).toHaveBeenCalledWith(1150, true, expect.objectContaining({
+        cards: [{ card: '300', completed: true }, { card: '400', completed: false }],
+        tuttoCount: 1,
+        ended: 'banked',
+      }));
+    });
+
+    it('a Stop card drawn mid-chain auto-forfeits the whole chain (online)', () => {
+      const mockDraw = vi.fn(() => {
+        useGameStore.setState({ currentCard: 'Stop' });
+        return 'Stop' as const;
+      });
+      useGameStore.setState({ currentCard: '300', drawCardMidTurn: mockDraw });
+      render(<Game />);
+
+      fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+      // The online Stop auto-continue commits the chain forfeit.
+      act(() => { vi.advanceTimersByTime(6000); });
+
+      expect(mockNextTurn).toHaveBeenCalledWith(0, false, expect.objectContaining({
+        cards: [{ card: '300', completed: true }, { card: 'Stop', completed: false }],
+        ended: 'stopCard',
+      }));
+      expect(mockNextTurn).toHaveBeenCalledTimes(1);
+    });
+
+    it('hides the Apply-bonus helper for classic (the total is entered fully computed)', () => {
+      useGameStore.setState({ currentCard: 'x2' });
+      render(<Game />);
+      expect(screen.queryByText('game.controls.applyBonus')).not.toBeInTheDocument();
+    });
+
+    it('a classic Kleeblatt keeps the committing Yes/No (instant win or forfeit)', () => {
+      useGameStore.setState({ currentCard: 'Kleeblatt' });
+      render(<Game />);
+
+      fireEvent.click(screen.getByRole('button', { name: /game.controls.yes/i }));
+      expect(mockNextTurn).toHaveBeenCalledWith(0, true, expect.objectContaining({
+        cards: [{ card: 'Kleeblatt', completed: true }],
+        tuttoCount: 2,
+        ended: 'banked',
+      }));
+    });
+  });
+
   describe('Local Game Dice Caching', () => {
     beforeEach(() => {
       localStorage.clear();

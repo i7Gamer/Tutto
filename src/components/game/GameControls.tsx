@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Undo2, ChevronRight, Check, X, Dices } from 'lucide-react';
+import { Undo2, ChevronRight, Check, X, Dices, Layers } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { isTestEnv } from '../../utils/env';
@@ -23,6 +23,12 @@ interface GameControlsProps {
   setApplyBonus: (val: boolean) => void;
   handleNextTurn: () => void;
   handleYesNo: (isSuccess: boolean) => void;
+  // Classic physical chains: reveals the next card mid-turn. Rendered only
+  // when provided (Game passes it for classic + physical dice).
+  onDrawNextCard?: () => void;
+  // A special card's Yes was answered under classic — the yes/no buttons
+  // give way to the bank-total input plus the draw button.
+  awaitingChainChoice?: boolean;
   undo: () => void;
   canUndo: boolean;
   endGame: () => void;
@@ -46,6 +52,8 @@ export default function GameControls({
   setApplyBonus,
   handleNextTurn,
   handleYesNo,
+  onDrawNextCard,
+  awaitingChainChoice = false,
   undo,
   canUndo,
   endGame,
@@ -117,7 +125,7 @@ export default function GameControls({
                 </motion.button>
               )}
 
-              {currentCardHasInput && diceMode === 'physical' && (
+              {(currentCardHasInput || awaitingChainChoice) && diceMode === 'physical' && (
                 <>
                   <div className="flex flex-row items-center gap-3 mb-4 md:mb-6 w-full max-w-sm">
                     <label htmlFor="score-input" className="sr-only">{t('game.controls.scorePlaceholder', 'Score')}</label>
@@ -131,8 +139,12 @@ export default function GameControls({
                       className="flex-1 min-w-0 w-full text-center text-2xl md:text-3xl font-bold py-3 md:py-4 rounded-2xl border-2 border-gray-200 dark:border-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/20 bg-[var(--card-bg)] transition-all outline-none"
                     />
                     {/* The cards that change what a manually entered score is
-                        worth: the flat bonuses, plus the doubler. */}
-                    {([...BONUS_CARDS, 'x2'] as string[]).includes(currentCard ?? '') && (
+                        worth: the flat bonuses, plus the doubler. Hidden for
+                        classic: it is keyed to the card showing at entry
+                        time, which is wrong mid-chain (a classic x2 doubles
+                        the WHOLE accumulated total) — the player enters the
+                        fully-computed final total instead. */}
+                    {ruleset !== 'classic' && ([...BONUS_CARDS, 'x2'] as string[]).includes(currentCard ?? '') && (
                       <div className="flex items-center bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 px-3 py-2 md:py-3 rounded-2xl border border-amber-200 dark:border-amber-800 h-full">
                         <label className="checkbox-wrapper">
                           <input type="checkbox" checked={applyBonus} onChange={(e) => setApplyBonus(e.target.checked)} />
@@ -164,10 +176,22 @@ export default function GameControls({
                   >
                     {t('game.controls.nextTurn', 'Next Turn')} <ChevronRight className="w-5 h-5 md:w-6 md:h-6" />
                   </motion.button>
+
+                  {onDrawNextCard && (
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      data-testid="physical-draw-next-card"
+                      className="mt-3 bg-amber-500 hover:bg-amber-600 text-white w-full max-w-sm py-3 md:py-4 rounded-xl md:rounded-2xl text-lg md:text-xl font-bold flex justify-center items-center gap-2 md:gap-3 shadow-lg shadow-amber-500/30 transition-colors"
+                      onClick={onDrawNextCard}
+                    >
+                      {t('dice.draw_next_card', 'Draw next card — risk everything!')} <Layers className="w-5 h-5 md:w-6 md:h-6" />
+                    </motion.button>
+                  )}
                 </>
               )}
 
-              {currentCardHasYesNo && diceMode === 'physical' && (
+              {currentCardHasYesNo && diceMode === 'physical' && !awaitingChainChoice && (
                 <div className="w-full mt-2">
                   <h4 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6 text-center">{t('game.controls.didYouSucceed', 'Did you succeed?')}</h4>
                   <div className="flex gap-4 w-full max-w-sm mx-auto">
