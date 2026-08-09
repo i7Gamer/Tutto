@@ -113,14 +113,15 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const [tuttosThisTurn, setTuttosThisTurn] = useState(restored?.tuttosThisTurn ?? 0);
 
   const selectedRolls = currentRoll.filter(d => d.selected);
-  const selectedVals = selectedRolls.map(d => d.val);
 
-  // Deliberately depends on currentRoll (not selectedVals, which is derived
-  // from it via .filter/.map and so is a brand-new array reference every
-  // render) — otherwise this memo is invalidated on every render regardless
-  // of whether the actual selection changed.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const validation = useMemo(() => checkValidityAndScore(selectedVals, currentCard, kniffelProgress), [currentRoll, currentCard, kniffelProgress]);
+  // The selected values are picked out inside the memo rather than passed in.
+  // Built with .filter/.map they are a brand-new array on every render, so a
+  // dependency on them would invalidate this every render whether or not the
+  // selection actually changed — which is the whole thing the memo is for.
+  const validation = useMemo(
+    () => checkValidityAndScore(currentRoll.filter(d => d.selected).map(d => d.val), currentCard, kniffelProgress),
+    [currentRoll, currentCard, kniffelProgress],
+  );
 
   const pendingTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => () => pendingTimers.current.forEach(clearTimeout), []);
@@ -314,13 +315,20 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     return () => clearTimeout(timer);
   }, [keptDice, currentRoll, turnScore, hasRolled, rollingDiceIndices, isRolling, bustState, kniffelProgress, tuttosThisTurn]);
 
+  // What a bust snapshot is made of, as of the most recent commit. Held in a
+  // ref, and updated by an effect declared ahead of the one that reads it so
+  // it is already current when that runs: the send below has to happen on the
+  // bust edge and nowhere else, and depending on these values directly would
+  // re-send the same final snapshot every time one of them settled afterwards.
+  const bustSnapshotRef = useRef({ turnScore, keptDice, currentRoll, kniffelProgress, tuttosThisTurn });
+  useEffect(() => {
+    bustSnapshotRef.current = { turnScore, keptDice, currentRoll, kniffelProgress, tuttosThisTurn };
+  });
+
   useEffect(() => {
     if (!bustState || !onStateChangeRef.current || !hasRolled) return;
-    onStateChangeRef.current?.(buildDiceSnapshot({
-      turnScore, keptDice, currentRoll, kniffelProgress, tuttosThisTurn, busted: true,
-    }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bustState]);
+    onStateChangeRef.current(buildDiceSnapshot({ ...bustSnapshotRef.current, busted: true }));
+  }, [bustState, hasRolled]);
 
   const summaryDataRef = useRef(summaryData);
   useEffect(() => { summaryDataRef.current = summaryData; }, [summaryData]);
