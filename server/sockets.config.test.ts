@@ -366,6 +366,59 @@ describe('Server Socket E2E — configuration & player order', () => {
     });
   }, 10000);
 
+  it('ruleset: applied from the lobby, refused mid-game on both write paths', () => {
+    // The lobby updateConfig sets classic; once the game runs, neither
+    // updateConfig nor a host pushState may flip it back — a mid-game rules
+    // change would desync every client's turn logic.
+    return new Promise((resolve, reject) => {
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
+
+      const timeoutId = setTimeout(() => {
+        s1.disconnect();
+        reject(new Error('Server never broadcast the valid follow-up push'));
+      }, 4000);
+
+      let gameStarted = false;
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'RULESET_MIDGAME', name: 'Alice', deviceId: 'dev-rs-a', color: '#ff0000' }, () => {
+          s1.emit('updateConfig', { roomId: 'RULESET_MIDGAME', ruleset: 'classic' });
+          setTimeout(() => {
+            const players = [
+              { name: 'Alice', deviceId: 'dev-rs-a', socketId: s1.id, disconnected: false, score: 0 },
+            ];
+            s1.emit('pushState', { roomId: 'RULESET_MIDGAME', newState: { players, status: 'playing', currentPlayerIndex: 0, ruleset: 'classic' } });
+
+            setTimeout(() => {
+              gameStarted = true;
+              s1.emit('updateConfig', { roomId: 'RULESET_MIDGAME', ruleset: 'modernized' });
+              s1.emit('pushState', { roomId: 'RULESET_MIDGAME', newState: { ruleset: 'modernized' } });
+              // The legitimate follow-up that ends the test (see the comment
+              // at the top of this suite for why not a timer).
+              setTimeout(() => {
+                s1.emit('pushState', { roomId: 'RULESET_MIDGAME', newState: { round: 2 } });
+              }, testDelay(200));
+            }, testDelay(300));
+          }, testDelay(200));
+        });
+      });
+
+      s1.on('gameState', (state) => {
+        if (!gameStarted || state.status !== 'playing') return;
+        if (state.ruleset === 'modernized') {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          reject(new Error('Server allowed a mid-game ruleset change'));
+        } else if (state.round === 2) {
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          expect(state.ruleset).toBe('classic');
+          resolve(undefined);
+        }
+      });
+    });
+  }, 10000);
+
   it('rejects updateConfig with invalid initialCards (unknown type, negative count, non-integer, over limit)', () => {
     return new Promise((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);

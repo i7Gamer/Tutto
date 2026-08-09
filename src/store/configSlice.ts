@@ -9,7 +9,7 @@ import type { GameStore, ImmerStateCreator } from './storeTypes';
 type ConfigSlice = Pick<GameStore,
   | 'setDiceMode' | 'setAudioEnabled' | 'setHapticsEnabled'
   | 'updateConfig' | 'setWinningScore' | 'setInitialCards' | 'setRandomOrder'
-  | 'setTurnDuration' | 'setReconnectTimeout' | 'setEnforcedDiceMode'
+  | 'setTurnDuration' | 'setReconnectTimeout' | 'setEnforcedDiceMode' | 'setRuleset'
   | 'resetGeneralSettings' | 'resetInitialCards'
 >;
 
@@ -55,6 +55,7 @@ export const createConfigSlice: ImmerStateCreator<ConfigSlice> = (set, get) => (
         turnDuration: s.turnDuration,
         reconnectTimeout: s.reconnectTimeout,
         enforcedDiceMode: s.enforcedDiceMode,
+        ruleset: s.ruleset,
       });
     }
   },
@@ -65,6 +66,10 @@ export const createConfigSlice: ImmerStateCreator<ConfigSlice> = (set, get) => (
   setTurnDuration: (val) => get().updateConfig({ turnDuration: val }),
   setReconnectTimeout: (val) => get().updateConfig({ reconnectTimeout: val }),
   setEnforcedDiceMode: (val) => get().updateConfig({ enforcedDiceMode: val }),
+  setRuleset: (val) => get().updateConfig({ ruleset: val }),
+  // Deliberately leaves ruleset (and enforcedDiceMode) alone: the reset button
+  // lives inside the advanced panel and covers the numeric settings there —
+  // the ruleset is a top-level gameplay choice with its own visible control.
   resetGeneralSettings: () => get().updateConfig({
     winningScore: DEFAULT_WINNING_SCORE,
     randomOrder: true,

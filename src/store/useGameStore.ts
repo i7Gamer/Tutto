@@ -4,9 +4,9 @@ import { parseJsonString } from '../utils/parseJson';
 import { parseSavedDiceState, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
 import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
-  DEFAULT_DICE_MODE, isValidDiceMode,
+  DEFAULT_DICE_MODE, DEFAULT_RULESET, isValidDiceMode,
 } from '../utils/configValidation';
-import type { CoreGameState, DiceSnapshot, DiceMode } from '../types';
+import type { CoreGameState, DiceSnapshot, DiceMode, Ruleset } from '../types';
 import type { GameStore, GameStatus, ReconnectSession, PreGameStats } from './storeTypes';
 import { validateOnlineConfig, reanchorLocalClock, attachPersistence, pickLocalGameState } from './persistence';
 import { createTimerSlice } from './timers';
@@ -27,6 +27,7 @@ export { PLAYER_COLORS } from './gameSlice';
 const createInitialLocalState = (): Omit<CoreGameState, never> & {
   diceMode: DiceMode;
   enforcedDiceMode: DiceMode | null;
+  ruleset: Ruleset;
   audioEnabled: boolean;
   hapticsEnabled: boolean;
   randomOrder: boolean;
@@ -53,6 +54,7 @@ const createInitialLocalState = (): Omit<CoreGameState, never> & {
   initialCards: { ...DEFAULT_INITIAL_CARDS },
   diceMode: DEFAULT_DICE_MODE,
   enforcedDiceMode: null,
+  ruleset: DEFAULT_RULESET,
   audioEnabled: true,
   hapticsEnabled: true,
   randomOrder: true,
@@ -196,6 +198,10 @@ export const useGameStore = create<GameStore>()(
         // save — reset so a leftover online enforcement doesn't survive a
         // switch to local and then bleed into the next online room.
         state.enforcedDiceMode = defaults.enforcedDiceMode;
+        // Reset like the other config fields; `parsed` below re-applies the
+        // value the target mode saved (local game save / online host config),
+        // so a classic game resumes classic without bleeding across modes.
+        state.ruleset = defaults.ruleset;
 
         if (parsed) {
           Object.assign(state, parsed);

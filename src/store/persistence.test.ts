@@ -41,6 +41,14 @@ describe('pickLocalGameState', () => {
     expect(Object.keys(picked)).toEqual(['round']);
   });
 
+  it('keeps a valid ruleset and drops an invalid one', () => {
+    // A saved classic game must resume classic — but junk (or an old save
+    // without the field) leaves the store default in place.
+    expect(pickLocalGameState({ ruleset: 'classic' })).toEqual({ ruleset: 'classic' });
+    expect(pickLocalGameState({ ruleset: 'official' })).toEqual({});
+    expect(pickLocalGameState({})).toEqual({});
+  });
+
   it('drops whitelisted keys whose values fail their shape check (STORE-TEST-3 / STORE-SEC-2)', () => {
     // A hand-edited or corrupted save must not be able to put a string where
     // the store expects a number/array — the store keeps its initial default

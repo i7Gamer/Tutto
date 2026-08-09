@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { StartGameButton, PlayerList, AdvancedOptionsPanel, HapticsSettingSelector, CustomGameBadge } from './LobbyShared';
+import { StartGameButton, PlayerList, AdvancedOptionsPanel, HapticsSettingSelector, CustomGameBadge, RulesetSelector, RulesetBadge } from './LobbyShared';
 import { useGameStore } from '../../store/useGameStore';
 import type { GameStore } from '../../store/useGameStore';
 import type { Player } from '../../types';
@@ -466,5 +466,46 @@ describe('CustomGameBadge', () => {
     stageStore(partial);
     render(<CustomGameBadge />);
     expect(badge()).not.toBeInTheDocument();
+  });
+
+  it('stays quiet about the classic ruleset (it has its own bucket, not "custom")', () => {
+    stageStore({ ruleset: 'classic' });
+    render(<CustomGameBadge />);
+    expect(badge()).not.toBeInTheDocument();
+  });
+});
+
+describe('RulesetSelector', () => {
+  it('renders both options with the current one checked, plus its description', () => {
+    render(<RulesetSelector ruleset="modernized" setRuleset={vi.fn()} nameSuffix="Test" />);
+    expect(screen.getByText('lobby.rulesetModernized')).toBeInTheDocument();
+    expect(screen.getByText('lobby.rulesetClassic')).toBeInTheDocument();
+    expect(screen.getByText('lobby.rulesetModernizedDesc')).toBeInTheDocument();
+    const radios = screen.getAllByRole('radio') as HTMLInputElement[];
+    expect(radios[0].checked).toBe(true);
+    expect(radios[1].checked).toBe(false);
+  });
+
+  it('calls setRuleset with the clicked rule set', () => {
+    const setRuleset = vi.fn();
+    render(<RulesetSelector ruleset="modernized" setRuleset={setRuleset} nameSuffix="Test" />);
+    const radios = screen.getAllByRole('radio') as HTMLInputElement[];
+    fireEvent.click(radios[1]);
+    expect(setRuleset).toHaveBeenCalledWith('classic');
+  });
+
+  it('shows the classic description when classic is selected', () => {
+    render(<RulesetSelector ruleset="classic" setRuleset={vi.fn()} nameSuffix="Test" />);
+    expect(screen.getByText('lobby.rulesetClassicDesc')).toBeInTheDocument();
+    expect(screen.queryByText('lobby.rulesetModernizedDesc')).not.toBeInTheDocument();
+  });
+});
+
+describe('RulesetBadge', () => {
+  // Unlike DiceModeEnforcedBadge, this renders unconditionally — a room
+  // always plays by some rule set, so guests must always see which.
+  it('renders the room rule set read-only', () => {
+    render(<RulesetBadge ruleset="classic" />);
+    expect(screen.getByText('lobby.rulesetBadge')).toBeInTheDocument();
   });
 });

@@ -3,6 +3,7 @@ import { buildDeck, getLeaders } from '../src/utils/coreGameEngine';
 import { getEffectiveTurnDuration } from '../src/utils/turnDuration';
 import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
+  DEFAULT_RULESET,
 } from '../src/utils/configValidation';
 import type { Room, RoomState, ServerPlayer } from './roomTypes';
 
@@ -33,6 +34,7 @@ export const createRoom = (hostSocketId: string): Room => ({
   // Matches the default config below. Recomputed the moment a game actually
   // starts, so this only covers a room that somehow submits without one.
   normalizedGame: true,
+  ruleset: DEFAULT_RULESET,
   state: {
     players: [],
     status: 'lobby',
@@ -61,6 +63,7 @@ export const createRoom = (hostSocketId: string): Room => ({
     previousPlayerName: null,
     liveTurnState: null,
     enforcedDiceMode: null,
+    ruleset: DEFAULT_RULESET,
     historyLog: [],
   },
 });

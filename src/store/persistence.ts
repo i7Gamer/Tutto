@@ -1,7 +1,7 @@
 import type { StoreApi } from 'zustand';
 import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
-  isValidEnforcedDiceMode, isValidDiceMode, VALID_CARD_TYPES, MAX_CARD_COUNT,
+  isValidEnforcedDiceMode, isValidDiceMode, isValidRuleset, VALID_CARD_TYPES, MAX_CARD_COUNT,
 } from '../utils/configValidation';
 import { MAX_HISTORY_LOG_SIZE } from '../types';
 import type { CardType, InitialCards } from '../types';
@@ -21,7 +21,7 @@ import type { GameStore, GameMode, GameStatus, ConfigKeys } from './storeTypes';
 const STABLE_LOCAL_GAME_KEYS = [
   'players', 'currentPlayerIndex', 'currentCard', 'cards', 'round',
   'winningScore', 'diceMode', 'initialCards', 'randomOrder',
-  'turnDuration', 'reconnectTimeout', 'finished',
+  'turnDuration', 'reconnectTimeout', 'ruleset', 'finished',
   'previousScore', 'previousCard', 'previousLeaders',
   'previousWasBust', 'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
   'previousHighestX2TurnScore', 'previousPlayerName',
@@ -92,6 +92,10 @@ const LOCAL_GAME_VALIDATORS: Record<(typeof LOCAL_GAME_STATE_KEYS)[number], (v: 
   randomOrder: isBoolean,
   turnDuration: isValidTurnDuration,
   reconnectTimeout: isValidReconnectTimeout,
+  // Unlike enforcedDiceMode (meaningless offline, never saved), the ruleset
+  // decides how a local game actually plays — dropping it from the save
+  // would silently resume a classic game under modernized rules.
+  ruleset: isValidRuleset,
   finished: isBoolean,
   previousScore: v => v === null || isFiniteNumber(v),
   previousCard: isCardOrNull,
@@ -160,6 +164,9 @@ export const validateOnlineConfig = (config: unknown): Partial<Pick<GameStore, C
   // a DiceMode value pass) — so an old save is left with the field absent
   // rather than forced to a value.
   if (isValidEnforcedDiceMode(c.enforcedDiceMode)) valid.enforcedDiceMode = c.enforcedDiceMode;
+  // Same old-save rule as enforcedDiceMode: undefined is rejected, leaving
+  // the store's default ('modernized') in place rather than forcing a value.
+  if (isValidRuleset(c.ruleset)) valid.ruleset = c.ruleset;
   if (typeof c.initialCards === 'object' && c.initialCards !== null) {
     const validCards: InitialCards = {};
     for (const [key, val] of Object.entries(c.initialCards)) {
@@ -231,6 +238,7 @@ export const attachPersistence = (store: Pick<StoreApi<GameStore>, 'subscribe'>)
       turnDuration: state.turnDuration,
       reconnectTimeout: state.reconnectTimeout,
       enforcedDiceMode: state.enforcedDiceMode,
+      ruleset: state.ruleset,
     };
     const key = JSON.stringify(stable);
     if (key === lastOnlinePersistKey) return;

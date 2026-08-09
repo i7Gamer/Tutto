@@ -42,7 +42,13 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
       room.statsRecordedForGame = { devices: new Set(), global: false };
     }
 
-    applyPushedState(room.state, newState, { isHost, startingGame });
+    // Decided from the PRE-push status: once a game is running, a pushed
+    // ruleset is refused (see applyPushedState) — a rules flip mid-game would
+    // desync every client's turn logic. The game-starting push itself may
+    // still carry it (it mirrors the lobby config it was started from).
+    const allowRulesetWrite = startingGame || room.state.status === 'lobby';
+
+    applyPushedState(room.state, newState, { isHost, startingGame, allowRulesetWrite });
 
     // Decided AFTER the push is applied: the opening push carries winningScore
     // and initialCards itself, so reading the pre-push state would see only the
@@ -55,6 +61,11 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
     // way: pushing the defaults back before the end must not relabel the game.
     if (startingGame) {
       room.normalizedGame = isNormalizedConfig(room.state);
+      // Frozen for the same reason as normalizedGame: the stats handlers
+      // must bucket by the rule set the game actually STARTED with, not by
+      // whatever the state holds at submission time. No downgrade branch —
+      // state.ruleset is immutable mid-game (see applyPushedState).
+      room.ruleset = room.state.ruleset;
     } else if (room.state.status === 'playing') {
       room.normalizedGame &&= isNormalizedConfig(room.state);
     }

@@ -19,14 +19,15 @@ export const registerConfigHandlers = ({ io, socket }: SocketContext): void => {
     turnDuration?: number;
     reconnectTimeout?: number;
     enforcedDiceMode?: DiceMode | null;
+    ruleset?: unknown;
   } | null | undefined) => {
     if (!updateConfigLimiter()) return;
     if (!data || typeof data !== 'object') return;
-    const { roomId, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode } = data;
+    const { roomId, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode, ruleset } = data;
     if (typeof roomId !== 'string' || !rooms[roomId] || rooms[roomId].host !== socket.id) return;
     const state = rooms[roomId].state;
     if (state.status === 'lobby') {
-      applyValidatedConfig(state, { winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode });
+      applyValidatedConfig(state, { winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode, ruleset });
     } else {
       // Every field except turnDuration is a lobby-only concept — a stray
       // or malicious mid-game event must not be able to flip the win

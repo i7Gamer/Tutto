@@ -11,6 +11,7 @@ interface StartGameButtonProps {
 // Mock dependencies
 vi.mock('./LobbyShared', () => ({
   DiceModeSelector: () => <div data-testid="dice-mode-selector" />,
+  RulesetSelector: () => <div data-testid="ruleset-selector" />,
   AdvancedOptionsToggle: () => <div data-testid="advanced-options-toggle" />,
   AdvancedOptionsPanel: () => <div data-testid="advanced-options-panel" />,
   StartGameButton: (props: StartGameButtonProps) => (

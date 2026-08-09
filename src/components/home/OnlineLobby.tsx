@@ -6,6 +6,7 @@ import { useShallow } from 'zustand/react/shallow';
 import {
   DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, CustomGameBadge,
   AudioSettingSelector, HapticsSettingSelector, EnforceDiceModeToggle, DiceModeEnforcedBadge,
+  RulesetSelector, RulesetBadge,
 } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
 import { parseRecentRooms, MAX_RECENT_ROOMS, type RecentRoom } from '../../utils/recentRooms';
@@ -83,6 +84,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     diceMode, setDiceMode, enforcedDiceMode, setEnforcedDiceMode,
     audioEnabled, setAudioEnabled, hapticsEnabled, setHapticsEnabled,
     initialCards, resetGeneralSettings, resetInitialCards,
+    ruleset, setRuleset,
   } = useGameStore(useShallow((s) => ({
     players: s.players,
     startGame: s.startGame,
@@ -107,6 +109,8 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     initialCards: s.initialCards,
     resetGeneralSettings: s.resetGeneralSettings,
     resetInitialCards: s.resetInitialCards,
+    ruleset: s.ruleset,
+    setRuleset: s.setRuleset,
   })));
 
   // Neither panel is meant to outlive the room it was opened for. The scanner
@@ -421,6 +425,10 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
           changeColor={(_p, color) => changeMyColor(color)}
           onRemovePlayer={(p) => { if (p.socketId) kickPlayer(p.socketId); }}
         />
+
+        {isHost
+          ? <RulesetSelector ruleset={ruleset} setRuleset={setRuleset} nameSuffix="Online" />
+          : <RulesetBadge ruleset={ruleset} />}
 
         <div className="flex flex-row flex-wrap justify-center items-stretch gap-2 sm:gap-4 mb-8">
           {/* diceMode is deliberately per-device, not room config by default: it

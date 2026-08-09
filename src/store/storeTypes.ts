@@ -8,6 +8,7 @@ import type {
   DiceSnapshot,
   GlobalStatsPayload,
   DiceMode,
+  Ruleset,
 } from '../types';
 
 export type GameMode = 'local' | 'online';
@@ -29,7 +30,7 @@ export interface JoinRoomResponse {
   name?: string;
 }
 
-export type ConfigKeys = 'winningScore' | 'initialCards' | 'randomOrder' | 'turnDuration' | 'reconnectTimeout' | 'enforcedDiceMode';
+export type ConfigKeys = 'winningScore' | 'initialCards' | 'randomOrder' | 'turnDuration' | 'reconnectTimeout' | 'enforcedDiceMode' | 'ruleset';
 
 export interface PreGameStats {
   highestTurnScore: number | null;
@@ -55,6 +56,9 @@ export interface GameStore extends CoreGameState {
   // (the default); a DiceMode value pins that mode for everyone's own turn,
   // overriding their personal preference (see Game.tsx's effectiveDiceMode).
   enforcedDiceMode: DiceMode | null;
+  // Host-only room config: which rule set the game is played by. See Ruleset
+  // in types.ts — synced to every client like the other config fields.
+  ruleset: Ruleset;
   audioEnabled: boolean;
   hapticsEnabled: boolean;
   randomOrder: boolean;
@@ -93,6 +97,7 @@ export interface GameStore extends CoreGameState {
   setTurnDuration: (val: number) => void;
   setReconnectTimeout: (val: number) => void;
   setEnforcedDiceMode: (val: DiceMode | null) => void;
+  setRuleset: (val: Ruleset) => void;
   resetGeneralSettings: () => void;
   resetInitialCards: () => void;
   addPlayer: (name: string) => void;

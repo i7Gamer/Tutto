@@ -20,7 +20,9 @@ import {
   isValidCardEntry,
   isValidEnforcedDiceMode,
   isValidDiceMode,
+  isValidRuleset,
   DEFAULT_DICE_MODE,
+  DEFAULT_RULESET,
   snapDisableableDuration,
   areInitialCardsEqual,
   isNormalizedConfig,
@@ -452,7 +454,7 @@ describe('configValidation', () => {
       expect(isNormalizedConfig({ ...NORMALIZED, initialCards: reordered })).toBe(true);
     });
 
-    // The four settings a game may change and still count. They are not even
+    // The settings a game may change and still count. They are not even
     // fields of NormalizableConfig — these cases pin down that widening the
     // input never makes the predicate start reading them.
     it('ignores the turn timer, the kick timer, the play order and an enforced dice mode', () => {
@@ -463,6 +465,31 @@ describe('configValidation', () => {
         randomOrder: false,
         enforcedDiceMode: 'physical',
       })).toBe(true);
+    });
+
+    // The ruleset selects which stats bucket PAIR a game lands in (modernized
+    // vs classic) — it must never flip a game to "custom" by itself.
+    it('ignores the ruleset', () => {
+      expect(isNormalizedConfig({ ...NORMALIZED, ruleset: 'classic' })).toBe(true);
+    });
+  });
+
+  describe('isValidRuleset', () => {
+    it('accepts exactly the two rule sets', () => {
+      expect(isValidRuleset('modernized')).toBe(true);
+      expect(isValidRuleset('classic')).toBe(true);
+    });
+
+    it('rejects junk, null and undefined (old saves without the field)', () => {
+      expect(isValidRuleset('official')).toBe(false);
+      expect(isValidRuleset('')).toBe(false);
+      expect(isValidRuleset(null)).toBe(false);
+      expect(isValidRuleset(undefined)).toBe(false);
+      expect(isValidRuleset(1)).toBe(false);
+    });
+
+    it('accepts the default', () => {
+      expect(isValidRuleset(DEFAULT_RULESET)).toBe(true);
     });
   });
 });

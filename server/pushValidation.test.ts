@@ -317,6 +317,35 @@ describe('applyPushedState', () => {
       expect(state.enforcedDiceMode).toBeNull();
     });
 
+    it('ruleset: accepts both rule sets from the host while the write is allowed', () => {
+      const state = makeState();
+      applyPushedState(state, { ruleset: 'classic' }, { ...asHost, allowRulesetWrite: true });
+      expect(state.ruleset).toBe('classic');
+      applyPushedState(state, { ruleset: 'modernized' }, { ...asHost, allowRulesetWrite: true });
+      expect(state.ruleset).toBe('modernized');
+    });
+
+    it('ruleset: rejects junk even while the write is allowed', () => {
+      const state = makeState();
+      applyPushedState(state, { ruleset: 'official' }, { ...asHost, allowRulesetWrite: true });
+      expect(state.ruleset).toBe('modernized');
+    });
+
+    it('ruleset: refuses a write when allowRulesetWrite is absent (the mid-game case)', () => {
+      // The caller passes allowRulesetWrite only for lobby / game-starting
+      // pushes — a mid-game host push must not be able to flip the rules
+      // under an active game.
+      const state = makeState();
+      applyPushedState(state, { ruleset: 'classic' }, asHost);
+      expect(state.ruleset).toBe('modernized');
+    });
+
+    it('ruleset: never accepted from the active player, allowed or not', () => {
+      const state = makeState();
+      applyPushedState(state, { ruleset: 'classic' }, { ...asActivePlayer, allowRulesetWrite: true });
+      expect(state.ruleset).toBe('modernized');
+    });
+
     it('currentCard/previousCard: accepts null and valid cards, rejects junk', () => {
       const state = makeState();
       applyPushedState(state, { currentCard: 'Stop', previousCard: 'x2' }, asActivePlayer);
@@ -631,6 +660,7 @@ describe('applyValidatedConfig', () => {
       randomOrder: 'yes',      // not boolean — ignored
       initialCards: { Stop: 2 }, // valid
       enforcedDiceMode: 'digital', // valid
+      ruleset: 'classic',      // valid
     });
     expect(state.winningScore).toBe(7777);
     expect(state.turnDuration).toBe(120);
@@ -638,6 +668,13 @@ describe('applyValidatedConfig', () => {
     expect(state.randomOrder).toBe(true);
     expect(state.initialCards).toEqual({ Stop: 2 });
     expect(state.enforcedDiceMode).toBe('digital');
+    expect(state.ruleset).toBe('classic');
+  });
+
+  it('ignores an invalid ruleset value', () => {
+    const state = makeState();
+    applyValidatedConfig(state, { ruleset: 'bogus' });
+    expect(state.ruleset).toBe('modernized');
   });
 
   it('applies enforcedDiceMode: null (turning enforcement back off)', () => {

@@ -3,7 +3,7 @@ import { UserPlus } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
-import { DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, AudioSettingSelector, HapticsSettingSelector } from './LobbyShared';
+import { DiceModeSelector, RulesetSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, AudioSettingSelector, HapticsSettingSelector } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
 import { MAX_PLAYER_NAME_LENGTH } from '../../utils/configValidation';
 import { useGameStore } from '../../store/useGameStore';
@@ -18,6 +18,7 @@ export default function LocalLobby() {
     players, addPlayer, removePlayer, startGame, reorderPlayers, changePlayerColor,
     diceMode, setDiceMode, audioEnabled, setAudioEnabled, hapticsEnabled, setHapticsEnabled,
     initialCards, resetGeneralSettings, resetInitialCards, addToast,
+    ruleset, setRuleset,
   } = useGameStore(useShallow((s) => ({
     players: s.players,
     addPlayer: s.addPlayer,
@@ -35,6 +36,8 @@ export default function LocalLobby() {
     resetGeneralSettings: s.resetGeneralSettings,
     resetInitialCards: s.resetInitialCards,
     addToast: s.addToast,
+    ruleset: s.ruleset,
+    setRuleset: s.setRuleset,
   })));
 
   const handleAddPlayer = () => {
@@ -90,6 +93,8 @@ export default function LocalLobby() {
           onRemovePlayer={(p) => removePlayer(p.name)}
         />
       </div>
+
+      <RulesetSelector ruleset={ruleset} setRuleset={setRuleset} nameSuffix="Local" />
 
       <div className="flex flex-row flex-wrap justify-center items-stretch gap-2 sm:gap-4 mb-8">
         <DiceModeSelector diceMode={diceMode} setDiceMode={setDiceMode} nameSuffix="Local" />

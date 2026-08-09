@@ -15,6 +15,13 @@ export type InitialCards = Partial<Record<CardType, number>>;
 
 export type DiceMode = 'physical' | 'digital';
 
+// Which rule set a game is played by. 'modernized' is the app's original
+// house-ruled behavior (a completed card ends the turn); 'classic' follows the
+// official Abacusspiele rules (after a tutto the player may reveal another
+// card and keep going, risking everything). Host-owned room config, synced
+// and frozen at game start like the stats mode.
+export type Ruleset = 'modernized' | 'classic';
+
 // Which bucket a finished game's statistics land in — see isNormalizedConfig
 // in utils/configValidation.ts for what puts a game in each. Doubles as a
 // stored column value (device_statistics.mode) and as an API query parameter,

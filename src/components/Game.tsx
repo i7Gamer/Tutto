@@ -48,6 +48,7 @@ const useGameSlice = () => useGameStore(useShallow(state => ({
   setLiveTurnState: state.setLiveTurnState,
   diceMode: state.diceMode,
   enforcedDiceMode: state.enforcedDiceMode,
+  ruleset: state.ruleset,
   isHost: state.isHost,
   kickPlayer: state.kickPlayer,
   justReconnected: state.justReconnected,
@@ -477,6 +478,13 @@ export default function Game() {
           {winningScore > 0 && (
             <div className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400 bg-black/5 dark:bg-white/5 p-3 rounded-xl border border-gray-100 dark:border-slate-700">
               {t('game.goalPrefix', 'Goal: First to reach')} <strong className="text-indigo-600">{winningScore}</strong> {t('game.goalSuffix', 'points wins!')}
+              <span className="mx-1">·</span>
+              {t('game.rulesetBadge', {
+                defaultValue: '{{value}} rules',
+                value: game.ruleset === 'classic'
+                  ? t('lobby.rulesetClassic', 'Classic')
+                  : t('lobby.rulesetModernized', 'Modernized'),
+              })}
             </div>
           )}
         </motion.div>

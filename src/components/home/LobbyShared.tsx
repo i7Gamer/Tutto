@@ -8,7 +8,7 @@ import {
   MIN_ENABLED_TURN_DURATION, MIN_ENABLED_RECONNECT_TIMEOUT, MAX_CARD_COUNT,
   snapDisableableDuration, isNormalizedConfig,
 } from '../../utils/configValidation';
-import type { Player, CardType, DiceMode } from '../../types';
+import type { Player, CardType, DiceMode, Ruleset } from '../../types';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../../store/useGameStore';
 import { supportsIOSSwitchHaptic } from '../../utils/iosSwitchHaptic';
@@ -217,6 +217,54 @@ export function DiceModeEnforcedBadge({ enforcedDiceMode }: DiceModeEnforcedBadg
   return (
     <div className="flex items-center justify-center gap-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-4 py-3 sm:px-6 rounded-xl border border-indigo-100 dark:border-indigo-800 h-full min-h-[50px] font-medium">
       {t('lobby.diceModeEnforcedBadge', 'Dice Mode: {{mode}} (set by host)', { mode: modeLabel })}
+    </div>
+  );
+}
+
+interface RulesetSelectorProps {
+  ruleset: Ruleset;
+  setRuleset: (val: Ruleset) => void;
+  nameSuffix?: string;
+}
+
+// The rules choice changes gameplay fundamentally, so it gets its own always-
+// visible row above the settings buttons rather than a slot inside the
+// collapsed advanced panel. Host-only online — guests see RulesetBadge below.
+export function RulesetSelector({ ruleset, setRuleset, nameSuffix = 'Lobby' }: RulesetSelectorProps) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-col items-center gap-2 bg-white dark:bg-slate-800/50 px-4 py-3 sm:px-6 rounded-xl border border-gray-200 dark:border-slate-600 mb-4">
+      <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6">
+        <span className="font-semibold text-gray-800 dark:text-gray-100">{t('lobby.rulesetLabel', 'Rules')}:</span>
+        <label className="radio-wrapper lobby-radio">
+          <input type="radio" name={`ruleset${nameSuffix}`} checked={ruleset === 'modernized'} onChange={() => setRuleset('modernized')} />
+          <span className="font-medium">{t('lobby.rulesetModernized', 'Modernized')}</span>
+        </label>
+        <label className="radio-wrapper lobby-radio">
+          <input type="radio" name={`ruleset${nameSuffix}`} checked={ruleset === 'classic'} onChange={() => setRuleset('classic')} />
+          <span className="font-medium">{t('lobby.rulesetClassic', 'Classic')}</span>
+        </label>
+      </div>
+      <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
+        {ruleset === 'classic'
+          ? t('lobby.rulesetClassicDesc', 'Official rules: after a Tutto you may reveal another card and keep going — but a bust then loses everything.')
+          : t('lobby.rulesetModernizedDesc', 'House rules: a completed card ends your turn and banks the points.')}
+      </p>
+    </div>
+  );
+}
+
+// Read-only counterpart for non-host players. Always rendered (a room always
+// plays by some rule set), unlike DiceModeEnforcedBadge above, which only
+// exists while enforcement is active.
+export function RulesetBadge({ ruleset }: { ruleset: Ruleset }) {
+  const { t } = useTranslation();
+  const label = ruleset === 'classic'
+    ? t('lobby.rulesetClassic', 'Classic')
+    : t('lobby.rulesetModernized', 'Modernized');
+  return (
+    <div className="flex items-center justify-center gap-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-4 py-3 rounded-xl border border-indigo-100 dark:border-indigo-800 mb-4 font-medium">
+      {t('lobby.rulesetBadge', 'Rules: {{mode}} (set by host)', { mode: label })}
     </div>
   );
 }

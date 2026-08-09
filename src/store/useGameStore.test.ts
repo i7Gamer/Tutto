@@ -475,6 +475,7 @@ describe('useGameStore', () => {
         turnDuration: 45,
         reconnectTimeout: 20,
         enforcedDiceMode: null,
+        ruleset: 'modernized',
       });
 
       disconnectSocket();
@@ -1044,6 +1045,43 @@ describe('useGameStore', () => {
       useGameStore.getState().setMode('online');
       expect(useGameStore.getState().enforcedDiceMode).toBe('physical');
       localStorage.removeItem('tutto_online_config');
+    });
+  });
+
+  describe('ruleset mode-switch resets', () => {
+    it('setMode(local) with no local save resets a leftover online ruleset', () => {
+      // Staged from ONLINE mode: in local mode the persistence subscriber
+      // would immediately save the staged ruleset as a local game, and the
+      // switch would (correctly) restore it instead of resetting.
+      localStorage.removeItem('tutto_online_config');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({ ruleset: 'classic' });
+      localStorage.removeItem('tutto_local_game');
+      useGameStore.getState().setMode('local');
+      expect(useGameStore.getState().ruleset).toBe('modernized');
+    });
+
+    it('setMode(local) restores the ruleset a saved local game was played by', () => {
+      // Unlike enforcedDiceMode, the ruleset IS part of a local save — it
+      // decides how the resumed game actually plays.
+      localStorage.setItem('tutto_local_game', JSON.stringify({ ruleset: 'classic', round: 2 }));
+      useGameStore.getState().setMode('local');
+      expect(useGameStore.getState().ruleset).toBe('classic');
+      localStorage.removeItem('tutto_local_game');
+    });
+
+    it('setMode(online) restores a saved ruleset from a previous hosted room', () => {
+      localStorage.setItem('tutto_online_config', JSON.stringify({ ruleset: 'classic' }));
+      useGameStore.getState().setMode('online');
+      expect(useGameStore.getState().ruleset).toBe('classic');
+      localStorage.removeItem('tutto_online_config');
+    });
+
+    it('setMode(online) with no saved config falls back to modernized', () => {
+      localStorage.removeItem('tutto_online_config');
+      useGameStore.setState({ ruleset: 'classic' });
+      useGameStore.getState().setMode('online');
+      expect(useGameStore.getState().ruleset).toBe('modernized');
     });
   });
 
@@ -1830,6 +1868,24 @@ describe('useGameStore', () => {
       localStorage.removeItem('tutto_online_config');
     });
 
+    it('joinRoom includes a saved ruleset in the transmitted initialConfig', async () => {
+      const { io } = await import('socket.io-client');
+      io.mockClear();
+      mockEmit.mockClear();
+
+      localStorage.setItem('tutto_online_config', JSON.stringify({ ruleset: 'classic' }));
+
+      const joinPromise = useGameStore.getState().joinRoom('CONFIG_ROOM3', 'Alice', false);
+      mockOnHandlers['connect']();
+
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(joinRoomCall[1].initialConfig).toMatchObject({ ruleset: 'classic' });
+
+      joinRoomCall[2]({ success: true, isHost: true });
+      await joinPromise;
+      localStorage.removeItem('tutto_online_config');
+    });
+
     it('joinRoom adopts the server-confirmed name from the ack (mid-game seat takeover)', async () => {
       // Rejoining a running game with a different name keeps the seat's
       // original name server-side; the client must adopt it or isMyTurn and
@@ -2297,6 +2353,34 @@ describe('useGameStore', () => {
         status: 'lobby', enforcedDiceMode: 'physical', players: [],
         winningScore: s.winningScore, turnDuration: s.turnDuration,
         reconnectTimeout: s.reconnectTimeout, initialCards: s.initialCards,
+      });
+
+      expect(useGameStore.getState().toasts).toEqual([]);
+    });
+
+    it('toasts when the host switches the ruleset in the lobby', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({ status: 'lobby', ruleset: 'modernized', toasts: [] });
+
+      mockOnHandlers['gameState']({ status: 'lobby', ruleset: 'classic', players: [] });
+
+      const messages = useGameStore.getState().toasts.map(t => t.message);
+      expect(messages.some(m => m.includes('Classic'))).toBe(true);
+      expect(useGameStore.getState().ruleset).toBe('classic');
+    });
+
+    it('does not toast when the ruleset is unchanged', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      const s = useGameStore.getState();
+      useGameStore.setState({ status: 'lobby', ruleset: 'classic', toasts: [] });
+
+      mockOnHandlers['gameState']({
+        status: 'lobby', ruleset: 'classic', players: [],
+        winningScore: s.winningScore, turnDuration: s.turnDuration,
+        reconnectTimeout: s.reconnectTimeout, initialCards: s.initialCards,
+        enforcedDiceMode: s.enforcedDiceMode,
       });
 
       expect(useGameStore.getState().toasts).toEqual([]);

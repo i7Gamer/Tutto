@@ -32,7 +32,7 @@ export const GAME_STATE_SYNC_KEYS = [
   'gameTimeInSeconds', 'previousCard', 'previousScore', 'previousLeaders',
   'previousWasBust', 'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
   'previousHighestX2TurnScore', 'previousPlayerName', 'liveTurnState',
-  'enforcedDiceMode', 'historyLog',
+  'enforcedDiceMode', 'ruleset', 'historyLog',
 ] as const satisfies readonly (keyof GameStore)[];
 
 export const clearRoomState = (): Pick<GameStore,
@@ -104,6 +104,12 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
               ? i18n.t('lobby.digitalDice', 'Digital Dice')
               : i18n.t('lobby.physicalDice', 'Physical Dice');
           prev.toasts.push(makeToast(i18n.t('game.toastDiceModeEnforced', { defaultValue: 'Dice mode: {{value}}', value })));
+        }
+        if ('ruleset' in serverState && prev.ruleset !== serverState.ruleset) {
+          const value = serverState.ruleset === 'classic'
+            ? i18n.t('lobby.rulesetClassic', 'Classic')
+            : i18n.t('lobby.rulesetModernized', 'Modernized');
+          prev.toasts.push(makeToast(i18n.t('game.toastRuleset', { defaultValue: 'Rules: {{value}}', value })));
         }
       }
       if (prev.mode === 'online' && prev.status === 'playing' && serverState.status === 'lobby' && !prev.finished && (serverState.players?.length ?? 0) >= 2) {
@@ -361,7 +367,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
         previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore,
         previousPlayerName, chartValues, chartNames, chartLabels, status, liveTurnState, enforcedDiceMode,
-        historyLog,
+        ruleset, historyLog,
       } = s;
       socket.emit('pushState', {
         roomId: s.roomId,
@@ -371,7 +377,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
           previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore,
           previousPlayerName, chartValues, chartNames, chartLabels, status, liveTurnState, enforcedDiceMode,
-          historyLog,
+          ruleset, historyLog,
         },
       });
     }

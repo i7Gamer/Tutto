@@ -1,4 +1,4 @@
-import type { CardType, InitialCards, Player, DiceSnapshot, DiceMode, HistoryEntry } from '../src/types';
+import type { CardType, InitialCards, Player, DiceSnapshot, DiceMode, HistoryEntry, Ruleset } from '../src/types';
 
 // CardType / InitialCards / Player are shared with the client (src/types.ts) to
 // keep the card set and player shape from drifting. The server requires the
@@ -42,6 +42,10 @@ export interface RoomState {
   // null = every player uses their own diceMode; a DiceMode value = the host
   // has pinned that mode for everyone's own turn. Host-only config.
   enforcedDiceMode: DiceMode | null;
+  // Which rule set the game is played by. Host-only config, lobby-only:
+  // applyPushedState refuses mid-game writes (a rules flip under an active
+  // game would desync every client's turn logic).
+  ruleset: Ruleset;
   historyLog: HistoryEntry[];
 }
 
@@ -74,4 +78,9 @@ export interface Room {
   // flag the submitting client sends. Set when a game starts and only ever
   // downgraded from there (see socketGameStateHandlers' pushState).
   normalizedGame: boolean;
+  // The rule set the CURRENT game actually started with — frozen at kickoff
+  // like normalizedGame, and the value the stats handlers trust (never the
+  // submitting client's claim). state.ruleset can't change mid-game either,
+  // but the freeze makes the stats decision independent of that guard.
+  ruleset: Ruleset;
 }

@@ -1,7 +1,7 @@
 import { MAX_HISTORY_LOG_SIZE, type CardType, type InitialCards, type DiceSnapshot, type HistoryEntry } from '../src/types';
 import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
-  isValidEnforcedDiceMode,
+  isValidEnforcedDiceMode, isValidRuleset,
   MAX_CARD_COUNT, VALID_CARD_TYPES,
   MAX_TURN_DURATION, MAX_RECONNECT_TIMEOUT,
 } from '../src/utils/configValidation';
@@ -32,13 +32,14 @@ export const validateInitialCards = (cards: unknown): cards is InitialCards => {
 // (updateConfig and joinRoom's initialConfig) so the accepted ranges can never
 // drift apart between them.
 export const applyValidatedConfig = (state: RoomState, config: Record<string, unknown>): void => {
-  const { winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode } = config;
+  const { winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode, ruleset } = config;
   if (isValidWinningScore(winningScore)) state.winningScore = winningScore;
   if (validateInitialCards(initialCards)) state.initialCards = initialCards;
   if (typeof randomOrder === 'boolean') state.randomOrder = randomOrder;
   if (isValidTurnDuration(turnDuration)) state.turnDuration = turnDuration;
   if (isValidReconnectTimeout(reconnectTimeout)) state.reconnectTimeout = reconnectTimeout;
   if (isValidEnforcedDiceMode(enforcedDiceMode)) state.enforcedDiceMode = enforcedDiceMode;
+  if (isValidRuleset(ruleset)) state.ruleset = ruleset;
 };
 
 // Minimal shape check for a previousLeaders snapshot entry — just enough for
@@ -146,7 +147,7 @@ const sanitizeHistoryEntry = (v: HistoryEntry): HistoryEntry => {
 // silently expanding/shrinking what a push is allowed to touch.
 const HOST_ONLY_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>([
   'status', 'winningScore', 'initialCards', 'randomOrder',
-  'turnDuration', 'reconnectTimeout', 'enforcedDiceMode',
+  'turnDuration', 'reconnectTimeout', 'enforcedDiceMode', 'ruleset',
 ]));
 
 const ACTIVE_PLAYER_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>([
@@ -249,7 +250,11 @@ const mergeMutable = (existing: ServerPlayer, p: Record<string, unknown> | undef
 export const applyPushedState = (
   state: RoomState,
   newState: Record<string, unknown>,
-  { isHost, startingGame }: { isHost: boolean; startingGame: boolean },
+  // allowRulesetWrite is computed by the caller from the PRE-push status
+  // (lobby, or the push that starts the game) — it must not be derived from
+  // state.status inside the field loop below, because 'status' is the first
+  // Set entry and has already been overwritten by the time later keys apply.
+  { isHost, startingGame, allowRulesetWrite = false }: { isHost: boolean; startingGame: boolean; allowRulesetWrite?: boolean },
 ): void => {
   const allowedFields = isHost ? ALL_FIELDS : ACTIVE_PLAYER_FIELDS;
 
@@ -388,6 +393,13 @@ export const applyPushedState = (
     } else if (key === 'enforcedDiceMode') {
       const v = newState.enforcedDiceMode;
       if (isValidEnforcedDiceMode(v)) state.enforcedDiceMode = v;
+    } else if (key === 'ruleset') {
+      // Unlike the other host-only config fields, a mid-game write is refused
+      // outright: flipping the rule set under an active game would change the
+      // turn logic on every client mid-turn. The normalizedGame-style sticky
+      // downgrade can't help here — it only protects the stats label, not
+      // gameplay. Lobby pushes and the game-starting push itself still pass.
+      if (allowRulesetWrite && isValidRuleset(newState.ruleset)) state.ruleset = newState.ruleset;
     } else if (key === 'historyLog') {
       const v = newState.historyLog;
       if (Array.isArray(v) && v.length <= MAX_HISTORY_LOG_SIZE && v.every(isValidHistoryEntry)) {

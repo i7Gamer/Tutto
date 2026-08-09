@@ -1,4 +1,4 @@
-import type { CardType, InitialCards, DiceMode } from '../types';
+import type { CardType, InitialCards, DiceMode, Ruleset } from '../types';
 
 export const VALID_CARD_TYPES: readonly CardType[] = [
   'Kleeblatt', 'Feuerwerk', 'Stop', 'Kniffel', 'Plus_Minus', 'x2',
@@ -46,6 +46,9 @@ export const DEFAULT_RECONNECT_TIMEOUT = 60;
 // (see isValidDiceMode) — so "no valid preference" always falls back to the
 // same mode everywhere, rather than each call site picking its own default.
 export const DEFAULT_DICE_MODE: DiceMode = 'digital';
+// The app's pre-classic behavior stays the default, so existing players see
+// no change unless a host opts into the official rules.
+export const DEFAULT_RULESET: Ruleset = 'modernized';
 
 // Accepted ranges, shared by the lobby inputs, the client-side config
 // validator and the server (updateConfig / pushState) so a value one layer
@@ -114,3 +117,11 @@ export const isValidEnforcedDiceMode = (v: unknown): v is DiceMode | null =>
 // validate a raw localStorage read before trusting it as a DiceMode.
 export const isValidDiceMode = (v: unknown): v is DiceMode =>
   v === 'physical' || v === 'digital';
+
+// Host-owned room config, never null. Validates every untrusted source of a
+// ruleset (saved configs, socket payloads) before it is trusted. Deliberately
+// NOT part of isNormalizedConfig above: the ruleset selects which stats
+// bucket PAIR a game lands in (modernized vs classic), while normalized vs
+// custom stays a question of winningScore + deck alone.
+export const isValidRuleset = (v: unknown): v is Ruleset =>
+  v === 'modernized' || v === 'classic';

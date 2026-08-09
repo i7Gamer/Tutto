@@ -33,6 +33,7 @@ describe('Server Socket E2E — room lifecycle & joining', () => {
           randomOrder: false,
           turnDuration: 90,
           reconnectTimeout: 30,
+          ruleset: 'classic',
           initialCards: {
             Kleeblatt: 2, Feuerwerk: 2, Stop: 2, Kniffel: 2,
             Plus_Minus: 2, x2: 2, '200': 2, '300': 2, '400': 2, '500': 2, '600': 2,
@@ -50,12 +51,14 @@ describe('Server Socket E2E — room lifecycle & joining', () => {
           randomOrder: boolean;
           turnDuration: number;
           reconnectTimeout: number;
+          ruleset: string;
           initialCards: Record<string, number>;
         }) => {
           expect(state.winningScore).toBe(7777);
           expect(state.randomOrder).toBe(false);
           expect(state.turnDuration).toBe(90);
           expect(state.reconnectTimeout).toBe(30);
+          expect(state.ruleset).toBe('classic');
           expect(state.initialCards['200']).toBe(2);
           s1.disconnect();
           resolve();
@@ -79,6 +82,7 @@ describe('Server Socket E2E — room lifecycle & joining', () => {
           randomOrder: 'yes',
           turnDuration: -5,
           reconnectTimeout: 999999,
+          ruleset: 'official',
           initialCards: { '200': 1e9, Bogus: 3 },
         };
 
@@ -93,12 +97,14 @@ describe('Server Socket E2E — room lifecycle & joining', () => {
           randomOrder: boolean;
           turnDuration: number;
           reconnectTimeout: number;
+          ruleset: string;
           initialCards: Record<string, number>;
         }) => {
           expect(state.winningScore).toBe(6000);
           expect(state.randomOrder).toBe(true);
           expect(state.turnDuration).toBe(120);
           expect(state.reconnectTimeout).toBe(60);
+          expect(state.ruleset).toBe('modernized');
           expect(state.initialCards).toEqual({
             Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5,
             Plus_Minus: 5, x2: 5, '200': 5, '300': 5, '400': 5, '500': 5, '600': 5,
