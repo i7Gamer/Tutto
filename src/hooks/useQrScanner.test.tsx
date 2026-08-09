@@ -1,6 +1,6 @@
 import { render, screen, waitFor, act, cleanup } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { useQrScanner } from './useQrScanner';
+import { useQrScanner, QR_DECODE_INTERVAL_MS } from './useQrScanner';
 
 const { decoded } = vi.hoisted(() => ({ decoded: { value: null as string | null } }));
 
@@ -10,7 +10,7 @@ vi.mock('jsqr', () => ({
 
 // jsdom's video element reports 0x0 and never has frame data; the loop reads
 // both before it bothers decoding.
-const video = { width: 640, height: 480, ready: 2 };
+const video = { width: 640, height: 480, ready: 2, canPlay: true };
 
 Object.defineProperty(HTMLVideoElement.prototype, 'videoWidth', {
   configurable: true, get: () => video.width,
@@ -21,7 +21,11 @@ Object.defineProperty(HTMLVideoElement.prototype, 'videoHeight', {
 Object.defineProperty(HTMLMediaElement.prototype, 'readyState', {
   configurable: true, get: () => video.ready,
 });
-HTMLMediaElement.prototype.play = vi.fn(() => Promise.resolve());
+HTMLMediaElement.prototype.play = vi.fn(() => video.canPlay
+  ? Promise.resolve()
+  // How a browser refuses to play the stream inline. Carries the same error
+  // name as a refused camera permission.
+  : Promise.reject(Object.assign(new Error('autoplay'), { name: 'NotAllowedError' })));
 
 const setSecureContext = (value: boolean) => {
   Object.defineProperty(window, 'isSecureContext', { configurable: true, value });
@@ -39,12 +43,16 @@ const refuseCamera = (name: string) => grantCamera(
   vi.fn(() => Promise.reject(Object.assign(new Error(name), { name })))
 );
 
-// Frames are driven by hand, so a test decodes exactly when it means to.
+// Frames are driven by hand, so a test decodes exactly when it means to. The
+// clock moves with them because the loop throttles on the timestamp it is
+// handed — by default far enough that a frame is never the throttled one.
 let frames: ((time: number) => void)[] = [];
-const nextFrame = async () => {
+let clock = 0;
+const nextFrame = async (advanceMs = QR_DECODE_INTERVAL_MS) => {
+  clock += advanceMs;
   const pending = frames;
   frames = [];
-  await act(async () => { pending.forEach(fn => fn(0)); });
+  await act(async () => { pending.forEach(fn => fn(clock)); });
 };
 
 function Harness({ enabled = true, onDecode = () => {} }: { enabled?: boolean; onDecode?: (text: string) => void }) {
@@ -59,7 +67,9 @@ beforeEach(() => {
   video.width = 640;
   video.height = 480;
   video.ready = 2;
+  video.canPlay = true;
   frames = [];
+  clock = 0;
   stopTrack.mockClear();
   vi.spyOn(window, 'requestAnimationFrame').mockImplementation(fn => {
     frames.push(fn);
@@ -157,6 +167,56 @@ describe('useQrScanner', () => {
     expect(onDecode).toHaveBeenNthCalledWith(2, 'SECOND');
   });
 
+  it('decodes no more often than the interval, however fast frames arrive', async () => {
+    // Reading the frame back and running jsQR over it is the expensive half of
+    // this hook. At sixty frames a second it is the whole main thread of a
+    // phone, for a code that is being held still in front of a camera.
+    const onDecode = vi.fn();
+    render(<Harness onDecode={onDecode} />);
+    await waitFor(() => expect(status()).toBe('scanning'));
+
+    decoded.value = 'FIRST';
+    await nextFrame();
+    decoded.value = 'SECOND';
+    await nextFrame(1);
+
+    expect(onDecode).toHaveBeenCalledTimes(1);
+
+    await nextFrame(QR_DECODE_INTERVAL_MS);
+
+    expect(onDecode).toHaveBeenNthCalledWith(2, 'SECOND');
+  });
+
+  it('does not wait out the interval before the first decode', async () => {
+    // A player holding a code up to a just-opened scanner should not be made
+    // to wait for a throttle that has nothing to throttle yet.
+    const onDecode = vi.fn();
+    render(<Harness onDecode={onDecode} />);
+    await waitFor(() => expect(status()).toBe('scanning'));
+
+    decoded.value = 'FIRST';
+    await nextFrame(1);
+
+    expect(onDecode).toHaveBeenCalledWith('FIRST');
+  });
+
+  it('resizes its canvas only when the frame size actually changes', async () => {
+    // Assigning width resets the drawing buffer, so doing it per frame throws
+    // away and reallocates the bitmap sixty times a second.
+    const setWidth = vi.spyOn(HTMLCanvasElement.prototype, 'width', 'set');
+    render(<Harness />);
+    await waitFor(() => expect(status()).toBe('scanning'));
+
+    await nextFrame();
+    await nextFrame();
+    expect(setWidth).toHaveBeenCalledTimes(1);
+
+    video.width = 1280;
+    await nextFrame();
+
+    expect(setWidth).toHaveBeenCalledTimes(2);
+  });
+
   it('waits for the camera to produce a frame before decoding', async () => {
     const onDecode = vi.fn();
     video.ready = 0;
@@ -193,6 +253,19 @@ describe('useQrScanner', () => {
     render(<Harness />);
 
     await waitFor(() => expect(status()).toBe('error'));
+  });
+
+  it('reports blocked playback as a failure rather than a refused camera', async () => {
+    // The permission was granted and the camera is live by the time play() is
+    // called, so a NotAllowedError from it is the autoplay policy. Reporting
+    // that as 'denied' would tell a player they refused a camera whose
+    // indicator light is on, and send them to a setting that is already right.
+    video.canPlay = false;
+
+    render(<Harness />);
+
+    await waitFor(() => expect(status()).toBe('error'));
+    expect(stopTrack).toHaveBeenCalled();
   });
 
   it('releases the camera when it is switched off', async () => {
