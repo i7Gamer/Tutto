@@ -41,6 +41,15 @@ The drawn card dictates specific bonuses or rules for your turn:
 - **Kleeblatt**: Roll two Tuttos in a row to instantly win the game!
 - **Bonus Cards (200, 300, 400, 500, 600)**: If you roll a Tutto, you receive these bonus points added to your turn's score.
 
+### Game modes: Modernized vs. Classic
+
+The host picks one of two rule sets in the lobby. They differ in what happens after a Tutto:
+
+- **Modernized** (the default — the app's original house rules): a completed card ends your turn immediately and banks the points. On Feuerwerk you choose which scoring dice to keep, and the Straight (Kniffel) must be built as a consecutive run from 1 upward or 6 downward.
+- **Classic** (the official Abacusspiele rules): after any Tutto you may reveal the next card and keep rolling — points accumulate without limit, but a bust or a drawn Stop card forfeits the **whole** turn. A classic x2 doubles the entire accumulated total, a successful Plus/Minus adds exactly +1,000 (its leader deduction only applies if the turn actually banks, and never drops anyone below 0), Feuerwerk keeps every scoring die automatically and its ending null banks the entire accumulated turn, and any still-missing number counts toward the Straight — no consecutive order required.
+
+Each rule set keeps its own statistics, records and win streaks (see below).
+
 ## Inviting players
 
 A room is identified by a code you choose when you create it, and anyone who
@@ -234,7 +243,9 @@ In the lobby, you can tweak the following:
 
 ### Normal and custom games
 
-Only games played on the default winning score (6000) and the default deck count toward the global statistics and your normal personal record. Changing either one marks the game **custom**: it is still recorded in full, but in a separate personal bucket you can switch to on the statistics screen, and it contributes nothing to the global figures beyond a count of how many custom games have been played.
+Statistics are kept in four buckets: each rule set (Modernized / Classic) has its own pair of **normal** and **custom** buckets, with its own records, win streaks and global row — classic games can never move the modernized figures, and vice versa.
+
+Within a rule set, only games played on the default winning score (6000) and the default deck count as **normal**. Changing either one marks the game **custom**: it is still recorded in full, but in that rule set's separate custom bucket, and it contributes nothing to the global figures beyond a count of how many custom games have been played. The rule set itself does **not** make a game custom — it just picks which pair of buckets the game lands in.
 
 The turn timer, the kick timer, random order and an enforced dice mode change how a game is paced and played, not what it takes to win it — a game using them still counts as normal. The lobby says so before you start, and the end screen says where the game went.
 

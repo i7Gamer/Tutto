@@ -76,6 +76,11 @@ export default function HelpPopup() {
   const [isOpen, setIsOpen] = useState(false);
   const status = useGameStore(state => state.status);
   const currentCard = useGameStore(state => state.currentCard);
+  // The rule text follows the selected/active rule set. Keys are picked with
+  // literal ternaries, never built dynamically — translations.test.ts scans
+  // for literal keys and would flag a template string as a missing one.
+  const ruleset = useGameStore(state => state.ruleset);
+  const isClassic = ruleset === 'classic';
 
   const [activeSection, setActiveSection] = useState<string>('general');
   const activeCardRef = useRef<HTMLDivElement>(null);
@@ -115,6 +120,7 @@ export default function HelpPopup() {
   // translated, so they must still be recomputed when the language changes).
   const tocSections = useMemo(() => [
     { id: 'general', label: t('help.toc.general', 'General Rules') },
+    { id: 'gameModes', label: t('help.toc.gameModes', 'Game Modes') },
     { id: 'cards', label: t('help.toc.cards', 'Cards') },
     { id: 'settings', label: t('help.toc.settings', 'Settings') },
     { id: 'online', label: t('help.toc.online', 'Playing Online') },
@@ -144,14 +150,14 @@ export default function HelpPopup() {
   ], [t]);
 
   const faqs = useMemo(() => [
-    { q: t('help.faq.q1'), a: t('help.faq.a1') },
+    { q: t('help.faq.q1'), a: isClassic ? t('help.faq.a1Classic') : t('help.faq.a1') },
     { q: t('help.faq.q2'), a: t('help.faq.a2') },
     { q: t('help.faq.q3'), a: t('help.faq.a3') },
     { q: t('help.faq.q4'), a: t('help.faq.a4') },
-    { q: t('help.faq.q5'), a: t('help.faq.a5') },
+    { q: t('help.faq.q5'), a: isClassic ? t('help.faq.a5Classic') : t('help.faq.a5') },
     { q: t('help.faq.q6'), a: t('help.faq.a6') },
     { q: t('help.faq.q7'), a: t('help.faq.a7') },
-  ], [t]);
+  ], [t, isClassic]);
 
   return (
     <>
@@ -240,9 +246,18 @@ export default function HelpPopup() {
                       </ul>
                     </div>
                     <div>
-                      <span className="wiki-term">{t('help.general.step5Title')}</span> {t('help.general.step5Desc')}
+                      <span className="wiki-term">{t('help.general.step5Title')}</span> {isClassic ? t('help.general.step5DescClassic') : t('help.general.step5Desc')}
                     </div>
                   </div>
+                </Section>
+
+                <Section id="gameModes" title={t('help.gameModes.title', 'Game Modes')} isOpen={activeSection === 'gameModes'} onToggle={toggleSection}>
+                  <p>{t('help.gameModes.intro')}</p>
+                  <ul className="list-disc pl-5 space-y-2">
+                    <li><span className="font-semibold">{t('lobby.rulesetModernized', 'Modernized')}:</span> {t('help.gameModes.modernized')}</li>
+                    <li><span className="font-semibold">{t('lobby.rulesetClassic', 'Classic')}:</span> {t('help.gameModes.classic')}</li>
+                  </ul>
+                  <p className="text-sm italic">{t('help.gameModes.stats')}</p>
                 </Section>
 
                 <Section id="cards" title={t('help.cards.title', 'Cards')} isOpen={activeSection === 'cards'} onToggle={toggleSection}>
@@ -253,7 +268,7 @@ export default function HelpPopup() {
                     </CardEntry>
                     <CardEntry isActive={currentCard === 'x2'} activeRef={activeCardRef}>
                       <h4 className="wiki-heading">{t('help.cards.x2', 'x2 (Double)')}</h4>
-                      <p className="text-sm">{t('help.cards.x2Desc')}</p>
+                      <p className="text-sm">{isClassic ? t('help.cards.x2DescClassic') : t('help.cards.x2Desc')}</p>
                     </CardEntry>
                     <CardEntry isActive={currentCard === 'Stop'} activeRef={activeCardRef}>
                       <h4 className="wiki-heading">{t('help.cards.stop', 'Stop')}</h4>
@@ -261,15 +276,15 @@ export default function HelpPopup() {
                     </CardEntry>
                     <CardEntry isActive={currentCard === 'Feuerwerk'} activeRef={activeCardRef}>
                       <h4 className="wiki-heading">{t('help.cards.fireworks', 'Fireworks')}</h4>
-                      <p className="wiki-card-note border-orange-400 text-orange-800 dark:text-orange-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(t('help.cards.fireworksDesc')) }}></p>
+                      <p className="wiki-card-note border-orange-400 text-orange-800 dark:text-orange-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(isClassic ? t('help.cards.fireworksDescClassic') : t('help.cards.fireworksDesc')) }}></p>
                     </CardEntry>
                     <CardEntry isActive={currentCard === 'Kniffel'} activeRef={activeCardRef}>
                       <h4 className="wiki-heading">{t('help.cards.kniffel', 'Kniffel')}</h4>
-                      <p className="wiki-card-note border-indigo-400 text-indigo-800 dark:text-indigo-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(t('help.cards.kniffelDesc')) }}></p>
+                      <p className="wiki-card-note border-indigo-400 text-indigo-800 dark:text-indigo-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(isClassic ? t('help.cards.kniffelDescClassic') : t('help.cards.kniffelDesc')) }}></p>
                     </CardEntry>
                     <CardEntry isActive={currentCard === 'Plus_Minus'} activeRef={activeCardRef}>
                       <h4 className="wiki-heading">{t('help.cards.plusMinus', 'Plus/Minus')}</h4>
-                      <p className="wiki-card-note border-red-400 text-red-800 dark:text-red-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(t('help.cards.plusMinusDesc')) }}></p>
+                      <p className="wiki-card-note border-red-400 text-red-800 dark:text-red-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(isClassic ? t('help.cards.plusMinusDescClassic') : t('help.cards.plusMinusDesc')) }}></p>
                     </CardEntry>
                     <CardEntry isActive={currentCard === 'Kleeblatt'} activeRef={activeCardRef}>
                       <h4 className="wiki-heading">{t('help.cards.kleeblatt', 'Kleeblatt')}</h4>
