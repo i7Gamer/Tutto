@@ -332,8 +332,12 @@ export default function GameControls({
           <button
             className="flex items-center gap-2 text-red-500 hover:bg-red-50 px-4 py-2 rounded-lg font-medium transition-colors"
             onClick={() => setPendingAction('leave')}
+            aria-label={t('game.controls.leaveGame', 'Leave Game')}
+            title={t('game.controls.leaveGame', 'Leave Game')}
           >
-            <X size={18} /> {t('game.controls.leaveGame', 'Leave Game')}
+            {/* Icon-only on phones — the label costs bottom-bar width the
+                score input needs more. */}
+            <X size={18} /> <span className="hidden sm:inline">{t('game.controls.leaveGame', 'Leave Game')}</span>
           </button>
         )}
         <button
