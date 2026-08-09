@@ -213,6 +213,25 @@ describe('OnlineLobby copy room code button', () => {
       });
       expect(screen.queryByTestId('room-qr-code')).not.toBeInTheDocument();
     });
+
+    it('does not put itself back up in the next room', () => {
+      // The same flag lifetime the scanner is reset for: show the code, leave,
+      // join somewhere else, and a new room's invite is on screen — taking over
+      // a phone again — with nobody having asked for it.
+      stageRoom({ addToast: vi.fn() });
+
+      render(<OnlineLobby />);
+      act(() => {
+        fireEvent.click(screen.getByTitle('lobby.online.showQr'));
+      });
+      expect(screen.getByTestId('room-qr-code')).toBeInTheDocument();
+
+      stageStore({ roomId: null });
+      stageRoom({ roomId: '5678' });
+
+      expect(screen.queryByTestId('room-qr-code')).not.toBeInTheDocument();
+      expect(screen.getByTitle('lobby.online.showQr')).toBeInTheDocument();
+    });
   });
 
   describe('sharing the invite', () => {

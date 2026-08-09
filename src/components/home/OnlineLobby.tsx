@@ -109,14 +109,17 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     resetInitialCards: s.resetInitialCards,
   })));
 
-  // The scanner lives in the join form, but its flag would outlive a whole
-  // game: open the scanner, join by typing instead, play, leave — and the
-  // camera comes back on with nobody having asked. Reset on the room changing,
-  // the render-time pattern GameControls already uses for its card flip.
-  const [scannerRoomId, setScannerRoomId] = useState(roomId);
-  if (roomId !== scannerRoomId) {
-    setScannerRoomId(roomId);
+  // Neither panel is meant to outlive the room it was opened for. The scanner
+  // is the pointed one: open it, join by typing instead, play, leave — and the
+  // camera comes back on with nobody having asked. The QR code is the same flag
+  // lifetime one room later, handing out an invite unprompted. Both reset on
+  // the room changing, the render-time pattern GameControls uses for its card
+  // flip.
+  const [panelsRoomId, setPanelsRoomId] = useState(roomId);
+  if (roomId !== panelsRoomId) {
+    setPanelsRoomId(roomId);
     setShowScanner(false);
+    setShowQr(false);
   }
 
   const copyFeedbackTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
