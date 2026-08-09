@@ -54,60 +54,63 @@ const getDisplayCardName = (cardName: CardType | null): string => {
   return CARD_NAME_MAP[cardName] ?? cardName;
 };
 
+/**
+ * The cached turn to resume into, or null to start fresh.
+ *
+ * A snapshot stamped for a different turn — e.g. the server's turn timer
+ * advanced past this player while they were disconnected or backgrounded, so
+ * their own client never got the chance to clear its cache entry — is dropped
+ * rather than resumed into the new turn. turnKey is undefined for callers that
+ * don't pass it (predating that prop), in which case restoration stays
+ * unconditional as before.
+ *
+ * Evicting the stale entry here means this runs during the first render rather
+ * than after it. That is safe to repeat, which is what StrictMode's second
+ * invocation of a lazy initializer does: the second pass reads no entry and
+ * removes nothing.
+ */
+const readRestorableTurn = (turnKey: string | undefined) => {
+  const restored = parseSavedDiceState(localStorage.getItem('tutto_dice_turn_state'));
+  if (!restored) return null;
+  if (turnKey !== undefined && restored.turnKey !== turnKey) {
+    localStorage.removeItem('tutto_dice_turn_state');
+    return null;
+  }
+  return restored;
+};
+
 export default function DiceGame({ currentCard, turnKey, onComplete, onStateChange, panelReady = true }: DiceGameProps) {
   const { t } = useTranslation();
 
-  const initRestoredRef = useRef(false);
-
-  const [keptDice, setKeptDice] = useState<DieType[]>([]);
-  const [currentRoll, setCurrentRoll] = useState<DieType[]>([]);
-  const [displayRoll, setDisplayRoll] = useState<DieType[]>([]);
-  const [rollingDiceIndices, setRollingDiceIndices] = useState<Set<string>>(new Set());
-  const [turnScore, setTurnScore] = useState(0);
-  const [kniffelProgress, setKniffelProgress] = useState<number[]>([]);
-  const [isRolling, setIsRolling] = useState(false);
-  const [hasRolled, setHasRolled] = useState(false);
-  const [bustState, setBustState] = useState(false);
-  const [showSummary, setShowSummary] = useState(false);
-  const [summaryData, setSummaryData] = useState<SummaryData>({ won: false, score: 0, isTutto: false });
-  const [tuttosThisTurn, setTuttosThisTurn] = useState(0);
-
-  useEffect(() => {
-    if (initRestoredRef.current) return;
-    const restored = parseSavedDiceState(localStorage.getItem('tutto_dice_turn_state'));
-    if (restored) {
-      // A snapshot stamped for a different turn — e.g. the server's turn timer
-      // advanced past this player while they were disconnected/backgrounded, so
-      // their own client never got the chance to clear its cache entry — must be
-      // discarded rather than resumed into their new turn. turnKey is undefined
-      // for callers that don't pass it (predating this prop), in which case
-      // restoration stays unconditional as before.
-      if (turnKey !== undefined && restored.turnKey !== turnKey) {
-        localStorage.removeItem('tutto_dice_turn_state');
-        return;
-      }
-
-      initRestoredRef.current = true;
-
-      // Restoring saved dice game state from localStorage - intentional one-time initialization
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setTurnScore(restored.turnScore);
-      setKeptDice(restored.keptDice);
-      setCurrentRoll(restored.currentRoll);
-      setDisplayRoll(restored.currentRoll);
-      setKniffelProgress(restored.kniffelProgress);
-      setTuttosThisTurn(restored.tuttosThisTurn);
-      setHasRolled(true);
-      if (restored.busted) {
-        setBustState(true);
-        const score = currentCard === 'Feuerwerk' ? restored.turnScore : 0;
-        const won = currentCard === 'Feuerwerk' ? score > 0 : false;
-        setSummaryData({ won, score, isTutto: false });
-        setShowSummary(true);
-      }
+  // Read once, during the first render. This used to be an effect that called
+  // eight setters, which meant mounting an empty dice table, painting it, and
+  // only then correcting it into the turn the player was actually in the middle
+  // of — a visible flash of a game they had not been playing.
+  const [restored] = useState(() => readRestorableTurn(turnKey));
+  // A bust is restored straight into its summary: the turn is already over and
+  // what is left to show is its outcome.
+  const restoredBust = restored?.busted
+    ? {
+      won: currentCard === 'Feuerwerk' && restored.turnScore > 0,
+      score: currentCard === 'Feuerwerk' ? restored.turnScore : 0,
+      isTutto: false,
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    : null;
+
+  const [keptDice, setKeptDice] = useState<DieType[]>(restored?.keptDice ?? []);
+  const [currentRoll, setCurrentRoll] = useState<DieType[]>(restored?.currentRoll ?? []);
+  const [displayRoll, setDisplayRoll] = useState<DieType[]>(restored?.currentRoll ?? []);
+  const [rollingDiceIndices, setRollingDiceIndices] = useState<Set<string>>(new Set());
+  const [turnScore, setTurnScore] = useState(restored?.turnScore ?? 0);
+  const [kniffelProgress, setKniffelProgress] = useState<number[]>(restored?.kniffelProgress ?? []);
+  const [isRolling, setIsRolling] = useState(false);
+  const [hasRolled, setHasRolled] = useState(!!restored);
+  const [bustState, setBustState] = useState(!!restoredBust);
+  const [showSummary, setShowSummary] = useState(!!restoredBust);
+  const [summaryData, setSummaryData] = useState<SummaryData>(
+    restoredBust ?? { won: false, score: 0, isTutto: false },
+  );
+  const [tuttosThisTurn, setTuttosThisTurn] = useState(restored?.tuttosThisTurn ?? 0);
 
   const selectedRolls = currentRoll.filter(d => d.selected);
   const selectedVals = selectedRolls.map(d => d.val);
@@ -204,15 +207,20 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     }
   }, [currentCard, kniffelProgress]);
 
+  // roll is rebuilt whenever kniffelProgress changes, which happens on every
+  // kept die. Reached through a ref so the effect below can depend on the
+  // panel appearing and nothing else — depending on roll itself would restart
+  // the turn's opening roll in the middle of that turn.
+  const rollRef = useRef(roll);
+  useEffect(() => { rollRef.current = roll; });
+
   // Auto-starts the first roll once the panel has finished appearing — there's
-  // no manual "Roll" button anymore. Skipped when initRestoredRef.current is
-  // true (checked here, not `hasRolled`, since that state update from the
-  // restoration effect above hasn't flushed into this render's closure yet).
+  // no manual "Roll" button anymore. Skipped for a resumed turn, which already
+  // has dice on the table.
   useEffect(() => {
-    if (!panelReady || initRestoredRef.current) return;
-    roll(6);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panelReady]);
+    if (!panelReady || restored) return;
+    rollRef.current(6);
+  }, [panelReady, restored]);
 
   useEffect(() => {
     if (rollingDiceIndices.size === 0) return;

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { Profiler } from 'react';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { parseSavedDiceState } from '../utils/diceTurnState';
 import DiceGame from './DiceGame';
@@ -148,7 +149,7 @@ describe('DiceGame restored-state bust rendering', () => {
     // Simulates a page reload/reconnect mid-Kleeblatt-turn right after busting.
     // Kleeblatt is all-or-nothing (needs 2 successful tuttos), so a bust always
     // forfeits the turn regardless of tuttosThisTurn banked so far — the restored
-    // path (DiceGame.tsx init effect) and the live bust path both produce
+    // path (DiceGame.tsx initial state) and the live bust path both produce
     // { won: false, score: 0 }, so the rendered summary must match exactly.
     localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
       turnScore: 0,
@@ -165,6 +166,31 @@ describe('DiceGame restored-state bust rendering', () => {
     expect(screen.queryByText('dice.success')).not.toBeInTheDocument();
     expect(screen.queryByText('dice.tutto')).not.toBeInTheDocument();
     expect(screen.queryByText('dice.points_gained')).not.toBeInTheDocument();
+  });
+
+  it('paints a resumed turn on its first commit rather than correcting itself', () => {
+    // Restoration used to be an effect calling eight setters, so resuming a
+    // turn meant mounting an empty table, painting it, and only then filling
+    // in the game the player was actually in the middle of. panelReady stays
+    // false here so the auto-roll cannot account for any commit.
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 250,
+      keptDice: [],
+      currentRoll: [],
+      kniffelProgress: [],
+      tuttosThisTurn: 0,
+      busted: false,
+    }));
+
+    let commits = 0;
+    render(
+      <Profiler id="dice" onRender={() => { commits += 1; }}>
+        <DiceGame currentCard="x2" onComplete={vi.fn()} panelReady={false} />
+      </Profiler>
+    );
+
+    expect(screen.getByTestId('dice-current-score')).toHaveTextContent('250');
+    expect(commits).toBe(1);
   });
 });
 
