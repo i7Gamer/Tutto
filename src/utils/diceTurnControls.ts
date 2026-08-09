@@ -1,4 +1,5 @@
-import type { CardType, Die } from '../types';
+import type { CardType, Die, Ruleset } from '../types';
+import { DEFAULT_RULESET } from './configValidation';
 
 export const SPECIAL_CARDS: readonly CardType[] = ['Kniffel', 'Plus_Minus', 'Kleeblatt'];
 
@@ -70,10 +71,17 @@ export const sortKeptDiceForDisplay = (
   keptDice: Die[],
   currentCard: CardType | null,
   kniffelProgress: number[],
+  ruleset: Ruleset = DEFAULT_RULESET,
 ): Die[] => {
   const dice = [...keptDice];
-  if (currentCard === 'Kniffel' && kniffelProgress.length > 0) {
-    dice.sort((a, b) => (kniffelProgress[0] === 1 ? a.val - b.val : b.val - a.val));
+  if (currentCard === 'Kniffel') {
+    if (ruleset === 'classic') {
+      // Classic collects numbers in any order — the run-direction heuristic
+      // below would sort descending whenever the first kept die isn't a 1.
+      dice.sort((a, b) => a.val - b.val);
+    } else if (kniffelProgress.length > 0) {
+      dice.sort((a, b) => (kniffelProgress[0] === 1 ? a.val - b.val : b.val - a.val));
+    }
   }
   return dice;
 };

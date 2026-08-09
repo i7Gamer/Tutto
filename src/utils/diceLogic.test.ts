@@ -1,6 +1,6 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
-import { rollDie, isBust, checkKniffel, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from './diceLogic';
+import { rollDie, isBust, checkKniffel, checkKniffelClassic, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from './diceLogic';
 
 describe('diceLogic', () => {
 
@@ -291,6 +291,104 @@ describe('diceLogic', () => {
       // Progress is [6, 5], trying to add [3] instead of [4]
       const result = checkKniffel([3], [6, 5]);
       expect(result.valid).toBe(false);
+    });
+  });
+
+  // ─── Classic (official) straight: any missing number is a valid die ───────
+
+  describe('checkKniffelClassic', () => {
+    it('accepts any single missing number, in any order', () => {
+      expect(checkKniffelClassic([3], [])).toEqual({ valid: true, newProgress: [3] });
+      expect(checkKniffelClassic([6], [3])).toEqual({ valid: true, newProgress: [3, 6] });
+      expect(checkKniffelClassic([1], [3, 6])).toEqual({ valid: true, newProgress: [1, 3, 6] });
+    });
+
+    it('accepts several missing numbers in one selection, keeping progress sorted', () => {
+      expect(checkKniffelClassic([5, 2], [3])).toEqual({ valid: true, newProgress: [2, 3, 5] });
+    });
+
+    it('rejects a die whose number is already collected', () => {
+      expect(checkKniffelClassic([3], [3])).toEqual({ valid: false, newProgress: [3] });
+    });
+
+    it('rejects duplicates within one selection (only one die may count per number)', () => {
+      expect(checkKniffelClassic([2, 2], [])).toEqual({ valid: false, newProgress: [] });
+    });
+
+    it('rejects a mixed selection containing one invalid die, leaving progress untouched', () => {
+      expect(checkKniffelClassic([4, 3], [3])).toEqual({ valid: false, newProgress: [3] });
+    });
+
+    it('rejects an empty selection', () => {
+      expect(checkKniffelClassic([], [1, 2])).toEqual({ valid: false, newProgress: [1, 2] });
+    });
+
+    it('completes the straight from a non-consecutive collection (the 2004 rulebook example)', () => {
+      // The official example collects 1,2,3 then 6 then 5 and finally needs
+      // the 4 — impossible under the modernized consecutive-run rule.
+      expect(checkKniffelClassic([4], [1, 2, 3, 5, 6]))
+        .toEqual({ valid: true, newProgress: [1, 2, 3, 4, 5, 6] });
+    });
+  });
+
+  describe('isBust — classic Kniffel', () => {
+    it('never busts on the first roll (every number is still missing)', () => {
+      expect(isBust([2, 2, 4, 4, 3, 3], 'Kniffel', [], 'classic')).toBe(false);
+    });
+
+    it('busts only when every rolled value is already collected', () => {
+      expect(isBust([1, 2, 3, 1, 2], 'Kniffel', [1, 2, 3], 'classic')).toBe(true);
+      expect(isBust([1, 2, 4], 'Kniffel', [1, 2, 3], 'classic')).toBe(false);
+    });
+
+    it('a roll the modernized rule busts can be fine under classic', () => {
+      // Progress [1,2]: modernized needs exactly a 3; classic takes the 5.
+      expect(isBust([5, 5], 'Kniffel', [1, 2], 'modernized')).toBe(true);
+      expect(isBust([5, 5], 'Kniffel', [1, 2], 'classic')).toBe(false);
+    });
+
+    it('defaults to the modernized rule when no ruleset is passed', () => {
+      expect(isBust([5, 5], 'Kniffel', [1, 2])).toBe(true);
+    });
+  });
+
+  describe('checkValidityAndScore — classic Kniffel routing', () => {
+    it('routes Kniffel to the classic checker and always scores 0', () => {
+      const r = checkValidityAndScore([6, 2], 'Kniffel', [3], 'classic');
+      expect(r).toEqual({ valid: true, score: 0, newKniffelProgress: [2, 3, 6] });
+    });
+
+    it('keeps the modernized consecutive rule when no ruleset is passed', () => {
+      expect(checkValidityAndScore([3], 'Kniffel', [1]).valid).toBe(false);
+      expect(checkValidityAndScore([2], 'Kniffel', [1]).valid).toBe(true);
+    });
+
+    it('scores non-Kniffel cards identically under both rulesets', () => {
+      const vals = [1, 5, 2, 2, 2];
+      expect(checkValidityAndScore(vals, '300', [], 'classic'))
+        .toEqual(checkValidityAndScore(vals, '300', [], 'modernized'));
+    });
+  });
+
+  describe('getMaxValidSelection — classic Kniffel', () => {
+    it('picks one die per missing number, leaving duplicates in the pool', () => {
+      // roll [1,3,3,5,6]: one of each missing number, the second 3 stays.
+      expect(getMaxValidSelection([1, 3, 3, 5, 6], 'Kniffel', [], 'classic')).toEqual([0, 1, 3, 4]);
+    });
+
+    it('respects the already-collected numbers', () => {
+      expect(getMaxValidSelection([2, 2, 4], 'Kniffel', [1, 3, 4, 5, 6], 'classic')).toEqual([0]);
+    });
+
+    it('returns an empty selection when every rolled value is collected (the bust case)', () => {
+      expect(getMaxValidSelection([1, 1], 'Kniffel', [1, 2, 3], 'classic')).toEqual([]);
+    });
+
+    it('keeps the modernized run behavior when no ruleset is passed', () => {
+      // Modernized picks the longer consecutive run: descending 6,5 (indices
+      // 4,3) beats the lone ascending 1 — while classic above takes all four
+      // distinct numbers.
+      expect(getMaxValidSelection([1, 3, 3, 5, 6], 'Kniffel', [])).toEqual([4, 3]);
     });
   });
 });

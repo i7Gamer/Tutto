@@ -128,5 +128,17 @@ describe('diceTurnControls', () => {
       expect(out).not.toBe(input);
       expect(input.map(d => d.val)).toEqual([3, 1]);
     });
+
+    it('classic: always sorts ascending, whatever number was collected first', () => {
+      // Classic progress is a set — the run-direction heuristic (progress[0]
+      // === 1 ? asc : desc) would sort descending here just because the
+      // first collected number happened to be a 6.
+      const d = [{ val: 6 }, { val: 3 }, { val: 5 }];
+      expect(sortKeptDiceForDisplay(d, 'Kniffel', [6, 3], 'classic').map(x => x.val)).toEqual([3, 5, 6]);
+    });
+
+    it('classic: sorts even before any progress exists', () => {
+      expect(sortKeptDiceForDisplay(dice, 'Kniffel', [], 'classic').map(d => d.val)).toEqual([1, 2, 3]);
+    });
   });
 });

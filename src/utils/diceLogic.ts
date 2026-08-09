@@ -1,10 +1,18 @@
-import type { CardType } from '../types';
-import { BONUS_CARDS } from './configValidation';
+import type { CardType, Ruleset } from '../types';
+import { BONUS_CARDS, DEFAULT_RULESET } from './configValidation';
 
 export const rollDie = (): number => Math.floor(Math.random() * 6) + 1;
 
-export const isBust = (rolledVals: number[], card: CardType | null, kniffelProgress: number[]): boolean => {
+export const isBust = (rolledVals: number[], card: CardType | null, kniffelProgress: number[], ruleset: Ruleset = DEFAULT_RULESET): boolean => {
   if (card === 'Kniffel') {
+    // Classic (official rules): a valid die is ANY number not yet put aside —
+    // the roll busts only when every rolled value is already collected.
+    if (ruleset === 'classic') {
+      const collected = new Set(kniffelProgress);
+      return !rolledVals.some(v => !collected.has(v));
+    }
+    // Modernized: the straight is built as a consecutive run from 1 upward or
+    // 6 downward, so exactly one (or initially two) values can save the roll.
     let nextNeeded: number[];
     if (kniffelProgress.length === 0) {
       nextNeeded = [1, 6];
@@ -82,15 +90,35 @@ export const checkKniffel = (
   return { valid: false, newProgress: progress };
 };
 
+// Classic straight selection: every chosen die must show a number that is
+// still missing, at most one die per number (progress stays kept ascending for
+// display). All-or-nothing like checkKniffel — one invalid die rejects the
+// whole selection with the progress untouched.
+export const checkKniffelClassic = (
+  vals: number[],
+  progress: number[],
+): { valid: boolean; newProgress: number[] } => {
+  if (vals.length === 0) return { valid: false, newProgress: progress };
+  const collected = new Set(progress);
+  for (const v of vals) {
+    if (collected.has(v)) return { valid: false, newProgress: progress };
+    collected.add(v);
+  }
+  return { valid: true, newProgress: [...collected].sort((a, b) => a - b) };
+};
+
 export const checkValidityAndScore = (
   vals: number[],
   card: CardType | null,
   kniffelProgress: number[],
+  ruleset: Ruleset = DEFAULT_RULESET,
 ): { valid: boolean; score: number; newKniffelProgress: number[] } => {
   if (vals.length === 0) return { valid: false, score: 0, newKniffelProgress: kniffelProgress };
 
   if (card === 'Kniffel') {
-    const kRes = checkKniffel(vals, kniffelProgress);
+    const kRes = ruleset === 'classic'
+      ? checkKniffelClassic(vals, kniffelProgress)
+      : checkKniffel(vals, kniffelProgress);
     return { valid: kRes.valid, score: 0, newKniffelProgress: kRes.newProgress };
   }
 
@@ -129,8 +157,19 @@ export const getMaxValidSelection = (
   rollVals: number[],
   card: CardType | null,
   kniffelProgress: number[] = [],
+  ruleset: Ruleset = DEFAULT_RULESET,
 ): number[] => {
   if (card === 'Kniffel') {
+    if (ruleset === 'classic') {
+      // One die per still-missing number — duplicates beyond the first stay
+      // in the reroll pool.
+      const collected = new Set(kniffelProgress);
+      const picked: number[] = [];
+      rollVals.forEach((v, i) => {
+        if (!collected.has(v)) { collected.add(v); picked.push(i); }
+      });
+      return picked;
+    }
     if (kniffelProgress.length === 0) {
       const ascending = collectKniffelRun(rollVals, 1, 1);
       const descending = collectKniffelRun(rollVals, 6, -1);
