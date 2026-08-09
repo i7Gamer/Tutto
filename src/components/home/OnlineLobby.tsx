@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Copy, Check, X, Share2, QrCode, ScanLine } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import {
-  DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList,
+  DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, CustomGameBadge,
   AudioSettingSelector, HapticsSettingSelector, EnforceDiceModeToggle, DiceModeEnforcedBadge,
 } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
@@ -447,6 +447,8 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
           )}
           <AdvancedOptionsToggle showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} />
         </div>
+
+        <CustomGameBadge />
 
         <AdvancedOptionsPanel
           showAdvanced={showAdvanced}

@@ -91,6 +91,12 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   const winner = sortedPlayers[0];
   const formattedTime = formatTime(gameTimeInSeconds);
 
+  // Which bucket the game that just ended was recorded in. The lifetime block
+  // below shows that bucket's numbers, so a custom game's totals are never
+  // presented as the player's record.
+  const gameMode = gameModeOf({ winningScore: game.winningScore, initialCards: game.initialCards });
+  const isCustomGame = gameMode === 'custom';
+
   // "Did I set a new personal record this game?" — compared against the
   // snapshot fetched when the game STARTED (game.preGameStats, see Game.tsx),
   // not the post-game deviceStats fetched below (which already includes this
@@ -107,7 +113,11 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
     && me.highestFeuerwerkTurnScore > (preGameStats.highestFeuerwerkTurnScore ?? 0));
   const newHighestX2 = !!(preGameStats && me?.highestX2TurnScore
     && me.highestX2TurnScore > (preGameStats.highestX2TurnScore ?? 0));
-  const hasNewRecord = newHighScore || newFastestWin || newFastestLoss || newHighestFeuerwerk || newHighestX2;
+  // A custom game cannot set a personal best: it is recorded in its own bucket,
+  // and the snapshot these compare against is never even fetched for one (see
+  // Game.tsx) — so celebrating here would announce a record against nothing.
+  const hasNewRecord = !isCustomGame &&
+    (newHighScore || newFastestWin || newFastestLoss || newHighestFeuerwerk || newHighestX2);
 
   // Same rule as the lobby's StartGameButton: don't let the host restart while
   // someone is disconnected — their turns would just burn down via the server
@@ -116,11 +126,6 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   const waitingForReconnect = game.isOnline && players.some(p => p.disconnected);
 
   const [deviceStats, setDeviceStats] = useState<DeviceStats | null>(null);
-
-  // Which bucket the game that just ended was recorded in. The lifetime block
-  // below shows that bucket's numbers, so a custom game's totals are never
-  // presented as the player's record.
-  const gameMode = gameModeOf({ winningScore: game.winningScore, initialCards: game.initialCards });
 
   useEffect(() => {
     // Local games never submit stats (by design — see useGameStore.nextTurn),
@@ -312,7 +317,14 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
 
       {deviceStats && deviceStats.gamesPlayed > 0 && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-6 sm:p-8">
-          <h3 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100 text-center mb-6 sm:mb-8">{t('end.lifetimeStats', 'Your Lifetime Statistics')}</h3>
+          <h3 className={`text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100 text-center ${isCustomGame ? 'mb-2' : 'mb-6 sm:mb-8'}`}>{t('end.lifetimeStats', 'Your Lifetime Statistics')}</h3>
+          {/* The numbers below are the custom bucket's, not the player's
+              record — saying so is what keeps them from being read as one. */}
+          {isCustomGame && (
+            <p className="text-sm text-center text-gray-500 dark:text-gray-400 mb-6 sm:mb-8">
+              {t('end.customGameNotice', 'Custom game — counted under Custom in your statistics, not toward your normal record.')}
+            </p>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 text-center max-w-3xl mx-auto">
             <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl p-4 border border-indigo-100 dark:border-indigo-800 flex flex-col justify-center">
               <div className="text-3xl sm:text-4xl font-black text-indigo-600 mb-1">{deviceStats.gamesPlayed}</div>

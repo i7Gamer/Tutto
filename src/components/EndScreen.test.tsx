@@ -357,6 +357,44 @@ describe('EndScreen Component', () => {
       expect(global.fetch).toHaveBeenCalledWith('/api/stats/device-online-2?mode=custom');
       vi.useRealTimers();
     });
+
+    it('says which bucket the lifetime numbers came from after a custom game', async () => {
+      vi.useFakeTimers();
+      global.fetch = vi.fn(() => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ gamesPlayed: 3, wins: 1, pointsDeducted: 0, kniffelCompleted: 2 }),
+      }));
+      useGameStore.setState({ isOnline: true, winningScore: 1000 });
+
+      const { getByText } = render(<EndScreen deviceId="device-online-3" />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(getByText('end.customGameNotice')).toBeInTheDocument();
+      vi.useRealTimers();
+    });
+
+    it('says nothing extra after a normal game', async () => {
+      vi.useFakeTimers();
+      global.fetch = vi.fn(() => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ gamesPlayed: 3, wins: 1, pointsDeducted: 0, kniffelCompleted: 2 }),
+      }));
+      useGameStore.setState({ isOnline: true });
+
+      const { queryByText } = render(<EndScreen deviceId="device-online-4" />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(queryByText('end.customGameNotice')).not.toBeInTheDocument();
+      vi.useRealTimers();
+    });
   });
 
   describe('chart data/options memoization', () => {
@@ -437,6 +475,33 @@ describe('EndScreen Component', () => {
       expect(getByText('end.newRecordsTitle')).toBeInTheDocument();
       expect(getByText('end.newPersonalBestTurnScore')).toBeInTheDocument();
       expect(queryByText('end.newFastestWin')).not.toBeInTheDocument();
+    });
+
+    it('celebrates nothing after a custom game, however good the numbers are', () => {
+      // A stacked deck or a shortened winning score cannot buy a personal
+      // best: the game is recorded in its own bucket, and the snapshot these
+      // compare against is not even fetched for one. Staged here with a
+      // snapshot present and beaten, so only the mode can be suppressing it.
+      setupOnlineGame({
+        winningScore: 1000,
+        preGameStats: { highestTurnScore: 100, fastestWinTurns: 99, fastestLossTurns: 99 },
+      });
+      const { queryByText } = render(<EndScreen deviceId="d1" />);
+
+      expect(queryByText('end.newRecordsTitle')).not.toBeInTheDocument();
+      expect(queryByText('end.newPersonalBestTurnScore')).not.toBeInTheDocument();
+      expect(queryByText('end.newFastestWin')).not.toBeInTheDocument();
+    });
+
+    it('still celebrates the same numbers in a normal game', () => {
+      // The mirror of the case above — proving the suppression is the mode,
+      // not the staged numbers.
+      setupOnlineGame({
+        preGameStats: { highestTurnScore: 100, fastestWinTurns: 99, fastestLossTurns: 99 },
+      });
+      const { getByText } = render(<EndScreen deviceId="d1" />);
+
+      expect(getByText('end.newRecordsTitle')).toBeInTheDocument();
     });
 
     it('shows a new fastest win only for the actual winner', () => {

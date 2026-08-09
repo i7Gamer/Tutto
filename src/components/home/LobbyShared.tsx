@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import type { InputHTMLAttributes, KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Play, ChevronUp, ChevronDown, Trash2, UserMinus, Crown, RotateCcw } from 'lucide-react';
+import { Settings, Play, ChevronUp, ChevronDown, Trash2, UserMinus, Crown, RotateCcw, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   MIN_WINNING_SCORE, MAX_WINNING_SCORE, MAX_TURN_DURATION, MAX_RECONNECT_TIMEOUT,
   MIN_ENABLED_TURN_DURATION, MIN_ENABLED_RECONNECT_TIMEOUT, MAX_CARD_COUNT,
-  snapDisableableDuration,
+  snapDisableableDuration, isNormalizedConfig,
 } from '../../utils/configValidation';
 import type { Player, CardType, DiceMode } from '../../types';
 import { useShallow } from 'zustand/react/shallow';
@@ -288,6 +288,31 @@ export function AdvancedOptionsToggle({ showAdvanced, setShowAdvanced }: Advance
     >
       <Settings size={18} /> {showAdvanced ? t('lobby.hideAdvancedOptions', 'Hide Advanced Options') : t('lobby.showAdvancedOptions', 'Show Advanced Options')}
     </button>
+  );
+}
+
+// Warns that the configured game will be recorded apart from everything else.
+// Rendered next to the advanced-options toggle rather than inside the panel,
+// so it is visible whether or not the settings are expanded — a player who
+// never opens them still needs to know before the game starts.
+//
+// Deliberately used only by the online lobby: a local game records no
+// statistics whatever its configuration, so here it would warn about a
+// distinction that does not exist.
+export function CustomGameBadge() {
+  const { t } = useTranslation();
+  const config = useGameStore(useShallow((s) => ({
+    winningScore: s.winningScore,
+    initialCards: s.initialCards,
+  })));
+
+  if (isNormalizedConfig(config)) return null;
+
+  return (
+    <div className="flex items-center justify-center gap-2 text-sm text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 mb-4">
+      <AlertTriangle size={16} className="shrink-0" />
+      <span>{t('lobby.customGameNoStats', 'Custom game — this game will not count toward the statistics')}</span>
+    </div>
   );
 }
 

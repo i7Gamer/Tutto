@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { StartGameButton, PlayerList, AdvancedOptionsPanel, HapticsSettingSelector } from './LobbyShared';
+import { StartGameButton, PlayerList, AdvancedOptionsPanel, HapticsSettingSelector, CustomGameBadge } from './LobbyShared';
 import { useGameStore } from '../../store/useGameStore';
 import type { GameStore } from '../../store/useGameStore';
 import type { Player } from '../../types';
@@ -427,5 +427,44 @@ describe('PlayerList win streak', () => {
     );
     expect(screen.getByText('🔥 3')).toBeInTheDocument();
     expect(screen.queryByText('🔥 2')).not.toBeInTheDocument();
+  });
+});
+
+describe('CustomGameBadge', () => {
+  afterEach(() => {
+    useGameStore.setState(pristineStore, true);
+  });
+
+  const badge = () => screen.queryByText('lobby.customGameNoStats');
+
+  it('says nothing about the default configuration', () => {
+    render(<CustomGameBadge />);
+    expect(badge()).not.toBeInTheDocument();
+  });
+
+  it('warns about a changed winning score', () => {
+    stageStore({ winningScore: 1000 });
+    render(<CustomGameBadge />);
+    expect(badge()).toBeInTheDocument();
+  });
+
+  it('warns about a changed deck', () => {
+    stageStore({ initialCards: { ...pristineStore.initialCards, Kleeblatt: 42 } });
+    render(<CustomGameBadge />);
+    expect(badge()).toBeInTheDocument();
+  });
+
+  // The four settings a game may change and still count. Each is staged alone,
+  // so a badge appearing here would mean the lobby is warning about a game
+  // that will be recorded perfectly normally.
+  it.each([
+    ['the turn timer', { turnDuration: 0 }],
+    ['the kick timer', { reconnectTimeout: 3600 }],
+    ['the play order', { randomOrder: false }],
+    ['an enforced dice mode', { enforcedDiceMode: 'physical' as const }],
+  ])('stays quiet about %s', (_label, partial) => {
+    stageStore(partial);
+    render(<CustomGameBadge />);
+    expect(badge()).not.toBeInTheDocument();
   });
 });
