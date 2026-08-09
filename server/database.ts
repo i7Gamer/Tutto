@@ -1,7 +1,8 @@
 import knexLib from 'knex';
 import type { Knex } from 'knex';
 import knexConfig from './knexfile';
-import { DEFAULT_GAME_MODE, type GameMode } from '../src/types';
+import { DEFAULT_GAME_MODE, type GameMode, type Ruleset } from '../src/types';
+import { DEFAULT_RULESET } from '../src/utils/configValidation';
 
 const knex = knexLib(knexConfig);
 
@@ -75,6 +76,9 @@ export interface DeviceStatsRow {
   totalRoundsSum: number;
   highestFeuerwerkTurnScore: number | null;
   highestX2TurnScore: number | null;
+  totalTuttos: number;
+  mostCardsInTurn: number | null;
+  highestForfeitedTurnScore: number | null;
 }
 
 export type StatsPayload = Record<string, number | boolean | null>;
@@ -108,7 +112,7 @@ export const updateDeviceStats = async (
     'feuerwerkReceived', 'kleeblattFailed', 'kleeblattCompleted', 'x2Received',
     'totalPlaytime', 'totalTurns', 'busts', 'feuerwerkBusts', 'x2Busts',
     'feuerwerkPointsScored', 'x2PointsScored', 'totalScore',
-    'totalPlayersSum', 'totalRoundsSum',
+    'totalPlayersSum', 'totalRoundsSum', 'totalTuttos',
   ];
 
   const data: Record<string, unknown> = { deviceId, mode };
@@ -150,6 +154,8 @@ export const updateDeviceStats = async (
     ['longestGameRounds', 'MAX'],
     ['highestFeuerwerkTurnScore', 'MAX'],
     ['highestX2TurnScore', 'MAX'],
+    ['mostCardsInTurn', 'MAX'],
+    ['highestForfeitedTurnScore', 'MAX'],
   ];
   for (const [col, agg] of deviceExtremeCols) {
     if (stats[col] === undefined) continue;
@@ -170,7 +176,9 @@ export const updateDeviceStats = async (
 };
 
 export interface GlobalStatsRow {
-  id: number;
+  // One row per ruleset ('modernized' | 'classic'), both seeded by migration —
+  // updateGlobalStats never inserts and hard-fails on a missing row.
+  ruleset: Ruleset;
   totalGamesPlayed: number;
   totalPlaytime: number;
   totalPlusMinus: number;
@@ -200,11 +208,14 @@ export interface GlobalStatsRow {
   totalRoundsSum: number;
   highestFeuerwerkTurnScore: number | null;
   highestX2TurnScore: number | null;
+  totalTuttos: number;
+  mostCardsInTurn: number | null;
+  highestForfeitedTurnScore: number | null;
 }
 
-export const getGlobalStats = async (): Promise<GlobalStatsRow | null> => {
+export const getGlobalStats = async (ruleset: Ruleset = DEFAULT_RULESET): Promise<GlobalStatsRow | null> => {
   try {
-    const row = await knex('global_statistics').where({ id: 1 }).first<GlobalStatsRow>();
+    const row = await knex('global_statistics').where({ ruleset }).first<GlobalStatsRow>();
     return row ?? null;
   } catch (err) {
     console.error('getGlobalStats error:', err);
@@ -212,7 +223,7 @@ export const getGlobalStats = async (): Promise<GlobalStatsRow | null> => {
   }
 };
 
-export const updateGlobalStats = async (stats: StatsPayload): Promise<number> => {
+export const updateGlobalStats = async (stats: StatsPayload, ruleset: Ruleset = DEFAULT_RULESET): Promise<number> => {
   if (!stats || Object.keys(stats).length === 0) return 0;
 
   // A game is only actually being recorded when the payload carries the
@@ -233,7 +244,7 @@ export const updateGlobalStats = async (stats: StatsPayload): Promise<number> =>
   // path cannot come to different conclusions about the same payload.
   if (recordsGame && !stats.isDefaultGame) {
     try {
-      const changes = await knex('global_statistics').where({ id: 1 })
+      const changes = await knex('global_statistics').where({ ruleset })
         .update({ customGamesPlayed: knex.raw('global_statistics.customGamesPlayed + 1') });
       if (changes === 0) throw new Error('global_statistics row missing — run migrations');
       return changes;
@@ -267,6 +278,7 @@ export const updateGlobalStats = async (stats: StatsPayload): Promise<number> =>
     totalBusts: (stats.totalBusts as number | undefined) ?? 0,
     totalPlayersSum: (stats.totalPlayersSum as number | undefined) ?? 0,
     totalRoundsSum: (stats.totalRoundsSum as number | undefined) ?? 0,
+    totalTuttos: (stats.totalTuttos as number | undefined) ?? 0,
   };
 
   const updateData: Record<string, Knex.Raw> = {};
@@ -282,6 +294,8 @@ export const updateGlobalStats = async (stats: StatsPayload): Promise<number> =>
     ['longestGameRounds', 'MAX'],
     ['highestFeuerwerkTurnScore', 'MAX'],
     ['highestX2TurnScore', 'MAX'],
+    ['mostCardsInTurn', 'MAX'],
+    ['highestForfeitedTurnScore', 'MAX'],
   ];
   for (const [col, agg] of globalExtremeCols) {
     if (stats[col] === undefined) continue;
@@ -290,7 +304,7 @@ export const updateGlobalStats = async (stats: StatsPayload): Promise<number> =>
   }
 
   try {
-    const changes = await knex('global_statistics').where({ id: 1 }).update(updateData);
+    const changes = await knex('global_statistics').where({ ruleset }).update(updateData);
     if (changes === 0) throw new Error('global_statistics row missing — run migrations');
     return changes;
   } catch (err) {

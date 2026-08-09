@@ -515,6 +515,75 @@ describe('Statistics Component', () => {
     });
   });
 
+  describe('switching between the modernized and classic rulesets', () => {
+    // One row per bucket, told apart by gamesPlayed; the global handler also
+    // records which ruleset it was asked for.
+    const serveBuckets = () => {
+      const requestedUrls: string[] = [];
+      const fetchMock = vi.fn((url: string) => {
+        requestedUrls.push(url);
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(
+            url.includes('global')
+              ? { totalGamesPlayed: 50, totalPlaytime: 1000, totalTuttos: 40, mostCardsInTurn: 4, highestForfeitedTurnScore: 2500 }
+              : ({
+                normalized: { gamesPlayed: 11, wins: 5, highestFeuerwerkTurnScore: 800 },
+                classic: { gamesPlayed: 33, wins: 30, totalTuttos: 12, mostCardsInTurn: 3, highestForfeitedTurnScore: 1800 },
+                classic_custom: { gamesPlayed: 44, wins: 40 },
+              } as Record<string, Record<string, number>>)[new URL(url, 'http://localhost').searchParams.get('mode') ?? 'normalized'] ?? {},
+          ),
+        });
+      });
+      return { fetchMock, requestedUrls };
+    };
+
+    it('fetches the classic bucket and the classic global row once switched', async () => {
+      const { fetchMock, requestedUrls } = serveBuckets();
+      global.fetch = fetchMock;
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+      fireEvent.click(screen.getByRole('tab', { name: /lobby\.rulesetClassic/i }));
+
+      await waitFor(() => expect(screen.getByText('33')).toBeInTheDocument());
+      expect(screen.queryByText('11')).not.toBeInTheDocument();
+      expect(requestedUrls.some(u => u.includes('mode=classic') && !u.includes('classic_custom'))).toBe(true);
+      expect(requestedUrls.some(u => u.includes('ruleset=classic'))).toBe(true);
+    });
+
+    it('maps the custom tab to the classic_custom bucket under classic', async () => {
+      const { fetchMock } = serveBuckets();
+      global.fetch = fetchMock;
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+      fireEvent.click(screen.getByRole('tab', { name: /lobby\.rulesetClassic/i }));
+      fireEvent.click(screen.getByRole('tab', { name: /statistics\.customGames/i }));
+
+      await waitFor(() => expect(screen.getByText('44')).toBeInTheDocument());
+    });
+
+    it('swaps the per-card turn records for the chain records in the classic view', async () => {
+      const { fetchMock } = serveBuckets();
+      global.fetch = fetchMock;
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+      // Modernized view shows the per-card records…
+      expect(screen.getByText('statistics.highestFeuerwerkTurn')).toBeInTheDocument();
+      expect(screen.queryByText('statistics.mostCardsInTurn')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('tab', { name: /lobby\.rulesetClassic/i }));
+
+      // …the classic view shows the chain records instead.
+      await waitFor(() => expect(screen.getByText('statistics.mostCardsInTurn')).toBeInTheDocument());
+      expect(screen.queryByText('statistics.highestFeuerwerkTurn')).not.toBeInTheDocument();
+      expect(screen.getByText('statistics.totalTuttos')).toBeInTheDocument();
+      expect(screen.getByText('statistics.highestForfeitedTurn')).toBeInTheDocument();
+    });
+  });
+
   describe('custom games on the global tab', () => {
     const showGlobalTab = async (globalStats: Record<string, number>) => {
       global.fetch = vi.fn((url) => Promise.resolve({

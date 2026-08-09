@@ -328,7 +328,10 @@ describe('coreGameEngine', () => {
         totalRoundsSum: 7,
         longestGameRounds: 7,
         highestFeuerwerkTurnScore: 0,
-        highestX2TurnScore: 0
+        highestX2TurnScore: 0,
+        totalTuttos: 0,
+        mostCardsInTurn: null,
+        highestForfeitedTurnScore: null
       });
     });
 
@@ -1421,6 +1424,24 @@ describe('coreGameEngine', () => {
       expect(result.players[0].busts).toBe(1);
     });
 
+    it('tracks the chain records: totalTuttos, mostCardsInTurn, highestForfeitedTurnScore', () => {
+      const win = calculateNextTurn(
+        makeState({ currentCard: 'x2' }), 1000, true,
+        summary({ cards: [{ card: '300', completed: true }, { card: 'x2', completed: true }], tuttoCount: 2 }),
+      );
+      expect(win.players[0].totalTuttos).toBe(2);
+      expect(win.players[0].mostCardsInTurn).toBe(2);
+      expect(win.players[0].highestForfeitedTurnScore).toBeUndefined();
+
+      const lost = calculateNextTurn(
+        makeState({ currentCard: '200' }), 0, false,
+        summary({ cards: [{ card: '200', completed: false }], tuttoCount: 1, ended: 'null', forfeitedScore: 850 }),
+      );
+      expect(lost.players[0].highestForfeitedTurnScore).toBe(850);
+      expect(lost.previousTurnSummary?.prevHighestForfeitedTurnScore).toBeNull();
+      expect(lost.previousTurnSummary?.prevMostCardsInTurn).toBeNull();
+    });
+
     it('does not track per-card turn records (highest Feuerwerk/x2 turn) for classic turns', () => {
       const result = calculateNextTurn(
         makeState({ currentCard: 'Feuerwerk' }),
@@ -1505,6 +1526,8 @@ describe('coreGameEngine', () => {
         expect(alice.totalTurns).toBe(0);
         expect(alice.timesKniffelCompleted).toBe(0);
         expect(alice.timesPlusMinusCompleted).toBe(0);
+        expect(alice.totalTuttos).toBe(0);
+        expect(alice.mostCardsInTurn).toBeUndefined();
         expect(bob.score).toBe(1500);
         expect(bob.times1000PointsDeducted).toBe(0);
       });

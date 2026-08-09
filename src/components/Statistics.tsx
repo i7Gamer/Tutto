@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Trophy, Clock, Hash, FastForward, BarChart2, Globe, User, TrendingDown, TrendingUp, Zap, Repeat, Skull, XCircle, ArrowLeft } from 'lucide-react';
+import { Trophy, Clock, Hash, FastForward, BarChart2, Globe, User, TrendingDown, TrendingUp, Zap, Repeat, Skull, XCircle, ArrowLeft, Layers } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
 import { parseJsonObject } from '../utils/parseJson';
 import { CARD_EMOJIS } from '../utils/cardVisuals';
 import { STAT_TONES, DEFAULT_STAT_TONE, type StatTone } from '../utils/statTones';
 import { percentageOf } from '../utils/percentage';
 import { deviceStatsUrl } from '../utils/statsApi';
-import { DEFAULT_GAME_MODE, type CardType, type GameMode } from '../types';
+import { DEFAULT_GAME_MODE, type CardType, type GameMode, type Ruleset } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import React from 'react';
@@ -44,6 +44,9 @@ interface PersonalStats {
   totalRoundsSum?: number;
   highestFeuerwerkTurnScore?: number;
   highestX2TurnScore?: number;
+  totalTuttos?: number;
+  mostCardsInTurn?: number | null;
+  highestForfeitedTurnScore?: number | null;
 }
 
 interface GlobalStats {
@@ -75,6 +78,9 @@ interface GlobalStats {
   highestX2TurnScore?: number;
   defaultGamesPlayed?: number;
   customGamesPlayed?: number;
+  totalTuttos?: number;
+  mostCardsInTurn?: number | null;
+  highestForfeitedTurnScore?: number | null;
 }
 
 // The run of wins at which the streak tile starts celebrating — flame, pulse
@@ -98,11 +104,24 @@ const getWinLoseRate = (wins: number, fails: number): string => {
 const isRecordHolder = (personal?: number | null, global?: number | null): boolean =>
   !!(personal && global && personal > 0 && global > 0 && personal === global);
 
-// The two personal buckets, in the order they are offered.
+// The two personal buckets, in the order they are offered. Within a ruleset:
+// the classic pair maps onto 'classic'/'classic_custom' (see bucketMode).
 const MODE_TABS: readonly { value: GameMode; labelKey: string; labelFallback: string }[] = [
   { value: 'normalized', labelKey: 'statistics.normalGames', labelFallback: 'Normal' },
   { value: 'custom', labelKey: 'statistics.customGames', labelFallback: 'Custom' },
 ];
+
+// The two rulesets, each with its own bucket pair and its own global row.
+const RULESET_TABS: readonly { value: Ruleset; labelKey: string; labelFallback: string }[] = [
+  { value: 'modernized', labelKey: 'lobby.rulesetModernized', labelFallback: 'Modernized' },
+  { value: 'classic', labelKey: 'lobby.rulesetClassic', labelFallback: 'Classic' },
+];
+
+// (rulesetTab, normal/custom tab) → the stored device bucket.
+const bucketMode = (ruleset: Ruleset, mode: GameMode): GameMode => {
+  if (ruleset !== 'classic') return mode;
+  return mode === 'custom' ? 'classic_custom' : 'classic';
+};
 
 interface GlobalComparison {
   pct: number;
@@ -306,6 +325,9 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   // deck are recorded separately and never counted anywhere else, so they need
   // somewhere of their own to be seen.
   const [mode, setMode] = useState<GameMode>(DEFAULT_GAME_MODE);
+  // Which ruleset's buckets are on screen — classic games play by different
+  // rules (card chains), so their numbers and records live apart.
+  const [statsRuleset, setStatsRuleset] = useState<Ruleset>('modernized');
   const [personalStats, setPersonalStats] = useState<PersonalStats | null>(null);
   const [globalStats, setGlobalStats] = useState<GlobalStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -321,8 +343,8 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
         // clicked included — with the spinner. The previous bucket's numbers
         // stay put for the moment the new ones take to arrive.
         const [personalRes, globalRes] = await Promise.all([
-          fetch(deviceStatsUrl(deviceId, mode)),
-          fetch('/api/stats/global'),
+          fetch(deviceStatsUrl(deviceId, bucketMode(statsRuleset, mode))),
+          fetch(`/api/stats/global?ruleset=${statsRuleset}`),
         ]);
         if (!isMounted) return;
         if (personalRes.ok) setPersonalStats(await parseJsonObject<PersonalStats>(personalRes));
@@ -339,7 +361,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
     return () => {
       isMounted = false;
     };
-  }, [deviceId, mode]);
+  }, [deviceId, mode, statsRuleset]);
 
   if (loading) {
     return (
@@ -368,10 +390,14 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   const pAvgPtsPerTurnNum = p?.totalTurns ? (p.totalScore ?? 0) / p.totalTurns : null;
   const gAvgPtsPerTurnNum = g?.totalTurns ? (g.totalScore ?? 0) / g.totalTurns : null;
 
-  // Every comparison on this screen measures against the global row, and that
-  // row holds normalized games only. In the custom view there is no comparable
-  // population: no average to beat, and no record that could be held.
+  // Every comparison on this screen measures against the matching global row,
+  // and that row holds that ruleset's normalized games only. In the custom
+  // view there is no comparable population: no average to beat, and no record
+  // that could be held.
   const isCustomView = mode === 'custom';
+  // The classic view swaps the per-card turn records (ill-defined across a
+  // chain) for the chain records.
+  const isClassicView = statsRuleset === 'classic';
   const bustRateComparison = isCustomView ? null : compareToGlobal(pBustRateNum, gBustRateNum, true);
   const avgPtsPerTurnComparison = isCustomView ? null : compareToGlobal(pAvgPtsPerTurnNum, gAvgPtsPerTurnNum, false);
   const holdsRecord = (personal?: number | null, global?: number | null): boolean =>
@@ -410,6 +436,20 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
           >
             <Globe size={18} /> {t('statistics.globalCommunity', 'Global Community')}
           </motion.button>
+        </div>
+
+        <div className="flex gap-2 mb-8 justify-center" role="tablist" data-testid="ruleset-tabs">
+          {RULESET_TABS.map(({ value, labelKey, labelFallback }) => (
+            <button
+              key={value}
+              role="tab"
+              aria-selected={statsRuleset === value}
+              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${statsRuleset === value ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-slate-600 hover:bg-black/5'}`}
+              onClick={() => setStatsRuleset(value)}
+            >
+              {t(labelKey, labelFallback)}
+            </button>
+          ))}
         </div>
 
         <AnimatePresence mode="wait">
@@ -489,10 +529,18 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                     <StatTile icon={<Repeat size={32} className="text-purple-400" />} value={p.longestGameRounds || 0} label={t('statistics.longestGameRounds', 'Longest Game (Rounds)')} tone="purple" badge={holdsRecord(p.longestGameRounds, g?.longestGameRounds) && <RecordBadge />} />
                     <StatTile icon={<Repeat size={32} className="text-purple-400" />} value={pAvgRoundsPerGame} label={t('statistics.avgRoundsPerGame', 'Avg Rounds/Game')} tone="purple" />
                   </div>
-                  <div className="stat-grid-2 mb-8">
-                    <StatTile icon={<Zap size={32} className="text-orange-400" />} value={p.highestFeuerwerkTurnScore || 0} label={t('statistics.highestFeuerwerkTurn', 'Highest Feuerwerk Turn')} tone="orange" badge={holdsRecord(p.highestFeuerwerkTurnScore, g?.highestFeuerwerkTurnScore) && <RecordBadge />} />
-                    <StatTile icon={<Zap size={32} className="text-pink-400" />} value={p.highestX2TurnScore || 0} label={t('statistics.highestX2Turn', 'Highest x2 Turn')} tone="pink" badge={holdsRecord(p.highestX2TurnScore, g?.highestX2TurnScore) && <RecordBadge />} />
-                  </div>
+                  {isClassicView ? (
+                    <div className="stat-grid-3 mb-8">
+                      <StatTile icon={<Layers size={32} className="text-orange-400" />} value={p.mostCardsInTurn || 0} label={t('statistics.mostCardsInTurn', 'Most Cards in a Turn')} tone="orange" badge={holdsRecord(p.mostCardsInTurn, g?.mostCardsInTurn) && <RecordBadge />} />
+                      <StatTile icon={<Zap size={32} className="text-yellow-400" />} value={p.totalTuttos || 0} label={t('statistics.totalTuttos', 'Total Tuttos')} tone="yellow" />
+                      <StatTile icon={<Skull size={32} className="text-red-400" />} value={p.highestForfeitedTurnScore || 0} label={t('statistics.highestForfeitedTurn', 'Biggest Turn Thrown Away')} tone="red" />
+                    </div>
+                  ) : (
+                    <div className="stat-grid-2 mb-8">
+                      <StatTile icon={<Zap size={32} className="text-orange-400" />} value={p.highestFeuerwerkTurnScore || 0} label={t('statistics.highestFeuerwerkTurn', 'Highest Feuerwerk Turn')} tone="orange" badge={holdsRecord(p.highestFeuerwerkTurnScore, g?.highestFeuerwerkTurnScore) && <RecordBadge />} />
+                      <StatTile icon={<Zap size={32} className="text-pink-400" />} value={p.highestX2TurnScore || 0} label={t('statistics.highestX2Turn', 'Highest x2 Turn')} tone="pink" badge={holdsRecord(p.highestX2TurnScore, g?.highestX2TurnScore) && <RecordBadge />} />
+                    </div>
+                  )}
                   <CardBreakdown rows={personalCardBreakdown(p)} />
                 </div>
               )}
@@ -540,10 +588,18 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                     <StatTile icon={<Repeat size={32} className="text-purple-400" />} value={g.longestGameRounds || 0} label={t('statistics.longestGameRounds', 'Longest Game (Rounds)')} tone="purple" />
                     <StatTile icon={<Repeat size={32} className="text-purple-400" />} value={gAvgRoundsPerGame} label={t('statistics.avgRoundsPerGame', 'Avg Rounds/Game')} tone="purple" />
                   </div>
-                  <div className="stat-grid-2 mb-4">
-                    <StatTile icon={<Zap size={32} className="text-orange-400" />} value={g.highestFeuerwerkTurnScore || 0} label={t('statistics.highestFeuerwerkTurn', 'Highest Feuerwerk Turn')} tone="orange" />
-                    <StatTile icon={<Zap size={32} className="text-pink-400" />} value={g.highestX2TurnScore || 0} label={t('statistics.highestX2Turn', 'Highest x2 Turn')} tone="pink" />
-                  </div>
+                  {isClassicView ? (
+                    <div className="stat-grid-3 mb-4">
+                      <StatTile icon={<Layers size={32} className="text-orange-400" />} value={g.mostCardsInTurn || 0} label={t('statistics.mostCardsInTurn', 'Most Cards in a Turn')} tone="orange" />
+                      <StatTile icon={<Zap size={32} className="text-yellow-400" />} value={g.totalTuttos || 0} label={t('statistics.totalTuttos', 'Total Tuttos')} tone="yellow" />
+                      <StatTile icon={<Skull size={32} className="text-red-400" />} value={g.highestForfeitedTurnScore || 0} label={t('statistics.highestForfeitedTurn', 'Biggest Turn Thrown Away')} tone="red" />
+                    </div>
+                  ) : (
+                    <div className="stat-grid-2 mb-4">
+                      <StatTile icon={<Zap size={32} className="text-orange-400" />} value={g.highestFeuerwerkTurnScore || 0} label={t('statistics.highestFeuerwerkTurn', 'Highest Feuerwerk Turn')} tone="orange" />
+                      <StatTile icon={<Zap size={32} className="text-pink-400" />} value={g.highestX2TurnScore || 0} label={t('statistics.highestX2Turn', 'Highest x2 Turn')} tone="pink" />
+                    </div>
+                  )}
                   <div className="stat-grid-3 mb-8">
                     <StatTile icon={<Hash size={32} className="text-red-400" />} value={g.totalBusts || 0} label={t('statistics.totalBusts', 'Total Busts')} tone="red" />
                     <StatTile icon={<Hash size={32} className="text-red-400" />} value={g.totalGamesPlayed ? Math.round((g.totalBusts || 0) / g.totalGamesPlayed) : 0} label={t('statistics.avgBustsPerGame', 'Avg Busts / Game')} tone="red" />

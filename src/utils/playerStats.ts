@@ -32,6 +32,7 @@ const ZEROED_PLAYER_STATS = {
   x2Busts: 0,
   feuerwerkPointsScored: 0,
   x2PointsScored: 0,
+  totalTuttos: 0,
 } satisfies Partial<Player>;
 
 export type PlayerStats = typeof ZEROED_PLAYER_STATS;

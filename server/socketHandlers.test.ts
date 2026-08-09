@@ -304,7 +304,8 @@ describe('joinRoom await-window races (BUG-3)', () => {
   it('seats a device in at most one room when two fresh joins interleave at the stats fetch', async () => {
     // Hold BOTH joins' getDeviceStats calls open simultaneously, so each
     // one's membership checks would run against a registry the other hasn't
-    // written to yet if any check-then-mutate spanned the await.
+    // written to yet if any check-then-mutate spanned the await. Each join
+    // fetches both rulesets' streaks (two calls), hence 4 pending resolvers.
     const releases: Array<() => void> = [];
     mockedGetDeviceStats.mockImplementation(
       () => new Promise(resolve => { releases.push(() => resolve(null)); }),
@@ -314,7 +315,7 @@ describe('joinRoom await-window races (BUG-3)', () => {
     const ackA = emitJoin(sockA, 'RACE_DEVICE_A', 'Alice', 'dev-race-shared');
     const ackB = emitJoin(sockB, 'RACE_DEVICE_B', 'Alice', 'dev-race-shared');
 
-    await waitFor(() => releases.length === 2);
+    await waitFor(() => releases.length === 4);
     releases.forEach(release => release());
 
     const results = await Promise.all([ackA, ackB]);
@@ -333,18 +334,18 @@ describe('joinRoom await-window races (BUG-3)', () => {
     expect(first.success).toBe(true);
 
     // Simulated reload: a second socket rejoins the same seat, with its stats
-    // fetch held open. While it is pending, the room is torn down — the same
-    // effect a reconnect-timeout timer firing at that moment has.
-    let release: (() => void) | undefined;
+    // fetches (one per ruleset) held open. While they are pending, the room is
+    // torn down — the same effect a reconnect-timeout timer firing has.
+    const releases: Array<() => void> = [];
     mockedGetDeviceStats.mockImplementation(
-      () => new Promise(resolve => { release = () => resolve(null); }),
+      () => new Promise(resolve => { releases.push(() => resolve(null)); }),
     );
     const sockB = await connectSock();
     const ackPromise = emitJoin(sockB, 'RACE_TEARDOWN', 'Alice', 'dev-race-teardown');
-    await waitFor(() => release !== undefined);
+    await waitFor(() => releases.length === 2);
 
     deleteRoom('RACE_TEARDOWN');
-    release!();
+    releases.forEach(release => release());
 
     const ack = await ackPromise;
 
@@ -382,15 +383,21 @@ describe('joinRoom race window (SERVER-SH-3)', () => {
   it('never lets a joining socket receive a room broadcast before it is in room.state.players', async () => {
     // getDeviceStats is the awaited call that used to sit between socket.join()
     // and room.state.players.push() — hold it open here to widen that window
-    // as much as possible, so a lingering race would be very likely to show up.
-    let resolveStats: (() => void) | undefined;
+    // as much as possible, so a lingering race would be very likely to show
+    // up. A join now fetches both rulesets' streaks, so each one parks TWO
+    // resolvers here.
+    let resolvers: Array<() => void> = [];
     mockedGetDeviceStats.mockImplementation(
-      () => new Promise(resolve => { resolveStats = () => resolve(null); }),
+      () => new Promise(resolve => { resolvers.push(() => resolve(null)); }),
     );
     const waitForPendingStatsCall = (): Promise<void> => new Promise(resolve => {
-      const check = (): void => { if (resolveStats) resolve(); else setTimeout(check, 10); };
+      const check = (): void => { if (resolvers.length >= 2) resolve(); else setTimeout(check, 10); };
       check();
     });
+    const releasePendingStatsCalls = (): void => {
+      resolvers.forEach(release => release());
+      resolvers = [];
+    };
 
     const hostConnected = new Promise<ClientSocket>((resolve, reject) => {
       const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
@@ -406,13 +413,10 @@ describe('joinRoom race window (SERVER-SH-3)', () => {
       });
     });
     // The host's own join also awaits getDeviceStats — let it resolve so only
-    // the joining client's call is left hanging below.
+    // the joining client's calls are left hanging below.
     await waitForPendingStatsCall();
-    resolveStats!();
+    releasePendingStatsCalls();
     await hostJoinPromise;
-
-    // Reset the mock so the joining client's own call gets a fresh, still-pending promise.
-    resolveStats = undefined;
 
     const receivedBeforeJoin: unknown[] = [];
     joiningClient = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
@@ -436,8 +440,8 @@ describe('joinRoom race window (SERVER-SH-3)', () => {
     await new Promise(r => setTimeout(r, 60));
     expect(receivedBeforeJoin).toEqual([]);
 
-    // Now let the joiner's own getDeviceStats resolve and complete the join.
-    resolveStats!();
+    // Now let the joiner's own getDeviceStats calls resolve and complete the join.
+    releasePendingStatsCalls();
     const joinResult = await joinPromise;
     expect(joinResult.success).toBe(true);
 

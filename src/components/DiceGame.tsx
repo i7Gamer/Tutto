@@ -132,13 +132,14 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // The classic chain, held in a ref so summary/bust callbacks always read the
   // current value; chainVersion ticks whenever it changes so the snapshot
   // effect below re-sends. Cards before the last are completed by definition.
-  const [initialChain] = useState<{ cards: TurnCardPlayed[]; tuttoCount: number; plusMinusSuccesses: number; ended: TurnEnd }>(() => {
+  const [initialChain] = useState<{ cards: TurnCardPlayed[]; tuttoCount: number; plusMinusSuccesses: number; ended: TurnEnd; forfeitedScore?: number }>(() => {
     const cardList = restored?.cardsThisTurn ?? (currentCard ? [currentCard] : []);
     return {
       cards: cardList.map((card, i) => ({ card, completed: i < cardList.length - 1 || (i === cardList.length - 1 && !!restoredTutto) })),
       tuttoCount: restored?.chainTuttoCount ?? 0,
       plusMinusSuccesses: restored?.plusMinusSuccesses ?? 0,
       ended: restoredBust ? (restoredBust.won ? 'banked' : 'null') : 'banked',
+      forfeitedScore: restoredBust && !restoredBust.won ? restored?.turnScore : undefined,
     };
   });
   const chainRef = useRef(initialChain);
@@ -230,6 +231,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
             if (chain.length > 0) chain[chain.length - 1].completed = true;
           } else {
             chainRef.current.ended = 'null';
+            chainRef.current.forfeitedScore = scoreSoFar;
           }
         }
         const getSummary = () => {
@@ -415,6 +417,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     if (newCard === 'Kleeblatt') setTuttosThisTurn(0);
     if (newCard === 'Stop') {
       chainRef.current.ended = 'stopCard';
+      chainRef.current.forfeitedScore = base;
       playBuzzer();
       vibrateBust();
       setSummaryData({ won: false, score: 0, isTutto: false, stoppedByCard: true });
@@ -488,6 +491,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         tuttoCount: chain.tuttoCount,
         plusMinusSuccesses: chain.plusMinusSuccesses,
         ended: chain.ended,
+        ...(chain.ended !== 'banked' && chain.forfeitedScore ? { forfeitedScore: chain.forfeitedScore } : {}),
       });
     } else {
       onComplete(data.score || 0, data.won || false);

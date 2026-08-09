@@ -168,18 +168,26 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
     // The ONLY await in this handler, done before any room state is read or
     // mutated: everything below runs synchronously, so no other event (a
     // concurrent join, a disconnect-timeout timer, a kick) can interleave
-    // between a check and the mutation it guards. Fetching the streak needs
+    // between a check and the mutation it guards. Fetching the streaks needs
     // only the deviceId, so hoisting it here costs nothing — when it sat
     // mid-handler it opened two real races: a pending disconnect-timeout
     // could fire mid-await and splice the very seat being rejoined (the
     // handler then mutated a dead object and acked success against a
     // deleted room), and two interleaved fresh joins from one device could
     // both pass the one-room-per-device check before either had seated
-    // itself.
+    // itself. BOTH rulesets' streaks come from this single await (the room —
+    // and with it the ruleset — may not even exist yet, and a lobby toggle
+    // would stale a single fetch anyway); the client badge picks the one
+    // matching the synced ruleset.
     let winStreak = 0;
+    let winStreakClassic = 0;
     try {
-      const stats = await getDeviceStats(deviceId);
-      winStreak = stats?.currentWinStreak ?? 0;
+      const [normalizedStats, classicStats] = await Promise.all([
+        getDeviceStats(deviceId, 'normalized'),
+        getDeviceStats(deviceId, 'classic'),
+      ]);
+      winStreak = normalizedStats?.currentWinStreak ?? 0;
+      winStreakClassic = classicStats?.currentWinStreak ?? 0;
     } catch (err) {
       console.error('[joinRoom] getDeviceStats error:', err);
     }
@@ -230,6 +238,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
     const existingPlayer = room.state.players.find(p => p.deviceId === deviceId);
     if (existingPlayer) {
       existingPlayer.winStreak = winStreak;
+      existingPlayer.winStreakClassic = winStreakClassic;
       if (room.state.status === 'lobby') {
         // Disconnected players keep their name reserved too (same rule as the
         // fresh-join path below) — otherwise a rejoining device could rename
@@ -299,6 +308,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       color: assignPlayerColor(color, room.state.players.map(p => p.color)),
       disconnected: false,
       winStreak,
+      winStreakClassic,
     };
     room.state.players.push(newPlayer);
     // Joined only now that the player is already in room.state.players — a

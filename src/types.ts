@@ -22,13 +22,15 @@ export type DiceMode = 'physical' | 'digital';
 // and frozen at game start like the stats mode.
 export type Ruleset = 'modernized' | 'classic';
 
-// Which bucket a finished game's statistics land in — see isNormalizedConfig
-// in utils/configValidation.ts for what puts a game in each. Doubles as a
-// stored column value (device_statistics.mode) and as an API query parameter,
-// so GAME_MODES below is what validates an untrusted string against it.
-export type GameMode = 'normalized' | 'custom';
+// Which bucket a finished game's statistics land in — the ruleset picks the
+// pair ('normalized'/'custom' = modernized, kept unrenamed for backward
+// compatibility with stored rows and old clients; 'classic'/'classic_custom' =
+// classic), and isNormalizedConfig (utils/configValidation.ts) picks within
+// it. Doubles as a stored column value (device_statistics.mode) and as an API
+// query parameter, so GAME_MODES below is what validates an untrusted string.
+export type GameMode = 'normalized' | 'custom' | 'classic' | 'classic_custom';
 
-export const GAME_MODES: readonly GameMode[] = ['normalized', 'custom'];
+export const GAME_MODES: readonly GameMode[] = ['normalized', 'custom', 'classic', 'classic_custom'];
 
 // What every caller that doesn't say otherwise means: the statistics as they
 // were understood before custom games got their own bucket.
@@ -95,10 +97,18 @@ export interface TurnSummary {
   tuttoCount: number;
   plusMinusSuccesses: number;
   ended: TurnEnd;
+  // The accumulated total that was on the table when a null/Stop ended the
+  // turn — feeds the highestForfeitedTurnScore record. Absent when banked.
+  forfeitedScore?: number;
   // Filled by the ENGINE at commit (one entry per deduction — names repeat
   // when several Plus/Minus successes hit the same leader) so undo can
   // reverse times1000PointsDeducted per occurrence.
   deductedPlayers?: string[];
+  // Also engine-filled: the player's classic records BEFORE this turn, so
+  // undo can restore them without another round of previous* plumbing.
+  // null = the player had no value yet.
+  prevMostCardsInTurn?: number | null;
+  prevHighestForfeitedTurnScore?: number | null;
 }
 
 export interface Player {
@@ -131,6 +141,9 @@ export interface Player {
   x2Busts: number;
   feuerwerkPointsScored: number;
   x2PointsScored: number;
+  // Tuttos rolled, counted from classic turn summaries (a modernized turn
+  // carries no summary, so the modernized buckets never display it).
+  totalTuttos: number;
   position: number;
   color?: string;
   socketId?: string;
@@ -139,7 +152,14 @@ export interface Player {
   highestTurnScore?: number;
   highestFeuerwerkTurnScore?: number;
   highestX2TurnScore?: number;
+  // Classic-chain records — like the maxima above, "no turn yet" is
+  // undefined, not zero, so they are not part of the zeroed stat set.
+  mostCardsInTurn?: number;
+  highestForfeitedTurnScore?: number;
   winStreak?: number;
+  // The classic bucket's streak, fetched alongside winStreak on join — the
+  // badge shows whichever matches the room's ruleset.
+  winStreakClassic?: number;
 }
 
 export type HistoryEventType = 'success' | 'bust' | 'skip' | 'fail';
@@ -233,6 +253,9 @@ export interface GlobalStatsPayload {
   longestGameRounds: number;
   highestFeuerwerkTurnScore: number;
   highestX2TurnScore: number;
+  totalTuttos: number;
+  mostCardsInTurn: number | null;
+  highestForfeitedTurnScore: number | null;
 }
 
 export interface NextTurnResult {

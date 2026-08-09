@@ -12,7 +12,7 @@ import { formatTime } from '../utils/formatTime';
 import { buildTurnKey, parseSavedDiceState, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
 import { hasScoreInput, isSpecialCard } from '../utils/diceTurnControls';
 import { parseJsonObject } from '../utils/parseJson';
-import { deviceStatsUrl, gameModeOf } from '../utils/statsApi';
+import { deviceStatsUrl, gameModeOf, isCustomGameMode } from '../utils/statsApi';
 import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, DICE_PANEL_ENTRANCE_MS } from '../utils/uiTimings';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
@@ -210,7 +210,7 @@ export default function Game() {
   // records, rather than merely tying an older one.
   // Snapshotted rather than depended on: the values are read for the game this
   // component mounted for, and a later change to either is not a new game.
-  const atGameStartRef = useRef({ isOnline, deviceId, mode: gameModeOf({ winningScore, initialCards }) });
+  const atGameStartRef = useRef({ isOnline, deviceId, mode: gameModeOf({ winningScore, initialCards }, game.ruleset) });
   useEffect(() => {
     const { isOnline: onlineAtStart, deviceId: deviceAtStart, mode: modeAtStart } = atGameStartRef.current;
     // Cleared before anything else: a snapshot left over from an earlier game
@@ -219,13 +219,14 @@ export default function Game() {
     if (!onlineAtStart || !deviceAtStart) return;
     // A custom game never celebrates a personal record (see EndScreen), which
     // is the only thing this snapshot feeds — so there is nothing to compare
-    // against and no reason to spend the request.
-    if (modeAtStart !== 'normalized') return;
+    // against and no reason to spend the request. A classic game compares
+    // against its OWN bucket, so the mode rides the URL.
+    if (isCustomGameMode(modeAtStart)) return;
     let cancelled = false;
 
     void (async () => {
       try {
-        const res = await fetch(deviceStatsUrl(deviceAtStart));
+        const res = await fetch(deviceStatsUrl(deviceAtStart, modeAtStart));
         if (!res.ok) return;
         const data = await parseJsonObject<Partial<PreGameStats>>(res);
         if (cancelled || !data) return;
@@ -307,7 +308,7 @@ export default function Game() {
   // is built inside DiceGame. With real dice the tutto count is unknowable;
   // completed cards are its floor (each continuation implies one, a
   // completed Kleeblatt implies two).
-  const buildPhysicalSummary = useCallback((ended: TurnEnd, lastCompleted: boolean): TurnSummary => {
+  const buildPhysicalSummary = useCallback((ended: TurnEnd, lastCompleted: boolean, forfeitedScore = 0): TurnSummary => {
     const source = physicalChainRef.current ?? {
       cards: currentCard ? [{ card: currentCard, completed: false }] : [],
       plusMinusSuccesses: 0,
@@ -319,6 +320,7 @@ export default function Game() {
       tuttoCount: cards.reduce((n, c) => n + (c.completed ? (c.card === 'Kleeblatt' ? 2 : 1) : 0), 0),
       plusMinusSuccesses: source.plusMinusSuccesses,
       ended,
+      ...(ended !== 'banked' && forfeitedScore > 0 ? { forfeitedScore } : {}),
     };
   }, [currentCard]);
 
@@ -332,7 +334,7 @@ export default function Game() {
     if (currentCard === 'Stop' && !showDiceGame) {
       const commitStop = () => {
         if (isClassic && physicalChainRef.current) {
-          nextTurn(0, false, buildPhysicalSummary('stopCard', false));
+          nextTurn(0, false, buildPhysicalSummary('stopCard', false, Math.max(0, parseInt(scoreInput, 10) || 0)));
         } else {
           nextTurn(0, false);
         }
@@ -357,7 +359,7 @@ export default function Game() {
   // cards?.length is deliberate and not incidental: drawing another Stop card
   // leaves currentCard unchanged, and the deck shrinking is what tells the two
   // draws apart so the buzzer sounds again for the second one.
-  }, [isOnline, isMyTurn, currentCard, cards?.length, nextTurn, showDiceGame, isClassic, buildPhysicalSummary]);
+  }, [isOnline, isMyTurn, currentCard, cards?.length, nextTurn, showDiceGame, isClassic, buildPhysicalSummary, scoreInput]);
 
   useEffect(() => {
     confettiFiredRef.current = false;
@@ -425,13 +427,13 @@ export default function Game() {
         setPhysicalAwaitingChoice(true);
         return;
       }
-      nextTurn(0, false, buildPhysicalSummary('null', false));
+      nextTurn(0, false, buildPhysicalSummary('null', false, Math.max(0, parseInt(scoreInput, 10) || 0)));
       physicalChainRef.current = null;
       setScoreInput('');
       return;
     }
     if (isClassic && currentCard === 'Kleeblatt') {
-      nextTurn(0, isSuccess, buildPhysicalSummary(isSuccess ? 'banked' : 'null', isSuccess));
+      nextTurn(0, isSuccess, buildPhysicalSummary(isSuccess ? 'banked' : 'null', isSuccess, Math.max(0, parseInt(scoreInput, 10) || 0)));
       physicalChainRef.current = null;
       setScoreInput('');
       return;
@@ -439,13 +441,13 @@ export default function Game() {
     if (isClassic && currentCard === 'Stop' && physicalChainRef.current) {
       // The local Continue button on a mid-chain Stop — same forfeit the
       // online auto-continue commits.
-      nextTurn(0, false, buildPhysicalSummary('stopCard', false));
+      nextTurn(0, false, buildPhysicalSummary('stopCard', false, Math.max(0, parseInt(scoreInput, 10) || 0)));
       physicalChainRef.current = null;
       setScoreInput('');
       return;
     }
     nextTurn(0, isSuccess);
-  }, [nextTurn, isClassic, currentCard, buildPhysicalSummary]);
+  }, [nextTurn, isClassic, currentCard, buildPhysicalSummary, scoreInput]);
 
   // Classic physical: the player made a tutto with their real dice and
   // reveals the next card, keeping the running total in the score input.
@@ -586,12 +588,16 @@ export default function Game() {
                           <span className="sr-only">{t('game.host', 'Host')}</span>
                         </span>
                       )}
-                      {p.winStreak !== undefined && p.winStreak >= 3 && (
-                        <span title={t('game.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak: p.winStreak })} className="text-amber-500 text-[10px] sm:text-xs font-bold bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 flex items-center gap-0.5 whitespace-nowrap">
-                          <span aria-hidden="true">🔥 {p.winStreak}</span>
-                          <span className="sr-only">{t('game.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak: p.winStreak })}</span>
-                        </span>
-                      )}
+                      {(() => {
+                        // The streak matching the rules this room plays by.
+                        const streak = isClassic ? p.winStreakClassic : p.winStreak;
+                        return streak !== undefined && streak >= 3 && (
+                          <span title={t('game.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak })} className="text-amber-500 text-[10px] sm:text-xs font-bold bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 flex items-center gap-0.5 whitespace-nowrap">
+                            <span aria-hidden="true">🔥 {streak}</span>
+                            <span className="sr-only">{t('game.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak })}</span>
+                          </span>
+                        );
+                      })()}
                       {p.disconnected && (
                         <>
                           <span className="text-red-500 text-[10px] sm:text-xs font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50 whitespace-nowrap">{t('game.disconnected', 'Disconnected')}</span>

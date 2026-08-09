@@ -16,7 +16,7 @@ import {
 import { Trophy, RotateCcw, Settings, Award, Zap, TrendingDown } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
 import { parseJsonObject } from '../utils/parseJson';
-import { deviceStatsUrl, gameModeOf } from '../utils/statsApi';
+import { deviceStatsUrl, gameModeOf, isCustomGameMode } from '../utils/statsApi';
 import { computeRankedPlayers, getLeaders } from '../utils/coreGameEngine';
 import { motion } from 'framer-motion';
 import { useGameStore } from '../store/useGameStore';
@@ -74,6 +74,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
     isHost: state.isHost,
     winningScore: state.winningScore,
     initialCards: state.initialCards,
+    ruleset: state.ruleset,
   })));
   const { players, round, gameTimeInSeconds, startGame, endGame, chartLabels, chartNames, chartValues, leaveRoom, myName, preGameStats } = game;
 
@@ -94,8 +95,8 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   // Which bucket the game that just ended was recorded in. The lifetime block
   // below shows that bucket's numbers, so a custom game's totals are never
   // presented as the player's record.
-  const gameMode = gameModeOf({ winningScore: game.winningScore, initialCards: game.initialCards });
-  const isCustomGame = gameMode === 'custom';
+  const gameMode = gameModeOf({ winningScore: game.winningScore, initialCards: game.initialCards }, game.ruleset);
+  const isCustomGame = isCustomGameMode(gameMode);
 
   // "Did I set a new personal record this game?" — compared against the
   // snapshot fetched when the game STARTED (game.preGameStats, see Game.tsx),

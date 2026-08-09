@@ -403,6 +403,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           totalTurns: me.totalTurns || 0, busts: me.busts || 0,
           feuerwerkBusts: me.feuerwerkBusts || 0, x2Busts: me.x2Busts || 0,
           feuerwerkPointsScored: me.feuerwerkPointsScored || 0, x2PointsScored: me.x2PointsScored || 0,
+          totalTuttos: me.totalTuttos || 0,
           highestTurnScore: me.highestTurnScore || 0, totalScore: me.score || 0,
           fastestWinTurns: didIWin ? (me.totalTurns || 0) : null,
           fastestLossTurns: !didIWin ? (me.totalTurns || 0) : null,
@@ -410,6 +411,12 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           totalRoundsSum: s.round || 0, longestGameRounds: s.round || 0,
           highestFeuerwerkTurnScore: me.highestFeuerwerkTurnScore || 0,
           highestX2TurnScore: me.highestX2TurnScore || 0,
+          // Classic-only records: OMITTED (not sent as 0) when unset —
+          // updateDeviceStats writes the incoming value on row insert, and a
+          // 0 would permanently stamp itself where NULL ("no record yet")
+          // belongs.
+          ...(me.mostCardsInTurn !== undefined ? { mostCardsInTurn: me.mostCardsInTurn } : {}),
+          ...(me.highestForfeitedTurnScore !== undefined ? { highestForfeitedTurnScore: me.highestForfeitedTurnScore } : {}),
         },
       });
     }

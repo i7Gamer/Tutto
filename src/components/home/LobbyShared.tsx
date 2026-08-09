@@ -37,6 +37,9 @@ export function PlayerList({
   onRemovePlayer,
 }: PlayerListProps) {
   const { t } = useTranslation();
+  // The streak badge shows the bucket matching the rules this lobby is set
+  // to — flipping the selector flips the badges with it.
+  const ruleset = useGameStore((s) => s.ruleset);
 
   // The reorder is deferred (together with the blur() in the onClick
   // handlers) — see REORDER_PRESS_RELEASE_MS for why. Only one deferred
@@ -79,6 +82,7 @@ export function PlayerList({
         <AnimatePresence>
           {players.map((p, idx) => {
             const isMe = isOnline ? p.name === myName : true;
+            const streak = ruleset === 'classic' ? p.winStreakClassic : p.winStreak;
             return (
               <motion.div
                 key={p.id ?? p.name}
@@ -101,9 +105,9 @@ export function PlayerList({
                   )}
                   {p.name}
                   {isOnline && p.socketId === hostId && <Crown size={16} className="text-amber-500" />}
-                  {p.winStreak !== undefined && p.winStreak >= 3 && (
-                    <span title={t('lobby.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak: p.winStreak })} className="text-amber-500 text-xs font-bold bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 flex items-center gap-0.5 whitespace-nowrap">
-                      🔥 {p.winStreak}
+                  {streak !== undefined && streak >= 3 && (
+                    <span title={t('lobby.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak })} className="text-amber-500 text-xs font-bold bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 flex items-center gap-0.5 whitespace-nowrap">
+                      🔥 {streak}
                     </span>
                   )}
                   {p.disconnected && <span className="text-red-500 text-xs ml-1 font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50">{t('lobby.disconnected', 'Disconnected')}</span>}

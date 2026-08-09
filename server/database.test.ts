@@ -355,11 +355,11 @@ describe('Database Statistics Integration', () => {
     it('reports the same missing-row failure the normal path does', async () => {
       // The custom branch returns early — without its own guard it would
       // silently "succeed" against a database that was never migrated.
-      await database.knex('global_statistics').where({ id: 1 }).del();
+      await database.knex('global_statistics').where({ ruleset: 'modernized' }).del();
       await expect(database.updateGlobalStats({ gamesPlayed: 1, isDefaultGame: false }))
         .rejects.toThrow('global_statistics row missing');
 
-      await database.knex('global_statistics').insert({ id: 1 });
+      await database.knex('global_statistics').insert({ ruleset: 'modernized' });
     });
   });
 
@@ -510,5 +510,53 @@ describe('Database Statistics Integration', () => {
     expect(retrievedStats.totalGamesPlayed).toBe(initialStats.totalGamesPlayed + 2);
     expect(retrievedStats.totalScore).toBe(initialStats.totalScore + 10000);
     expect(retrievedStats.totalBusts).toBe(initialStats.totalBusts + 4);
+  });
+
+  describe('classic buckets and the per-ruleset global rows', () => {
+    it('keeps the four device buckets independent', async () => {
+      const dev = 'classic-bucket-dev-' + Date.now();
+      await database.updateDeviceStats(dev, { gamesPlayed: 1, totalScore: 100 }, 'classic');
+      await database.updateDeviceStats(dev, { gamesPlayed: 2, totalScore: 200 }, 'classic_custom');
+      expect((await database.getDeviceStats(dev, 'classic'))?.totalScore).toBe(100);
+      expect((await database.getDeviceStats(dev, 'classic_custom'))?.totalScore).toBe(200);
+      expect(await database.getDeviceStats(dev)).toBeNull();
+      expect(await database.getDeviceStats(dev, 'custom')).toBeNull();
+    });
+
+    it('sums totalTuttos and treats the chain records as null-safe MAX columns', async () => {
+      const dev = 'classic-records-dev-' + Date.now();
+      await database.updateDeviceStats(dev, { gamesPlayed: 1, totalTuttos: 2, mostCardsInTurn: 3 }, 'classic');
+      await database.updateDeviceStats(dev, { gamesPlayed: 1, totalTuttos: 1, mostCardsInTurn: null, highestForfeitedTurnScore: 900 }, 'classic');
+      const row = await database.getDeviceStats(dev, 'classic');
+      expect(row?.totalTuttos).toBe(3);
+      // A null in a later payload must not wipe the stored best.
+      expect(row?.mostCardsInTurn).toBe(3);
+      expect(row?.highestForfeitedTurnScore).toBe(900);
+    });
+
+    it('seeds both global rows and keeps their sums apart', async () => {
+      const modernized = await database.getGlobalStats();
+      const classic = await database.getGlobalStats('classic');
+      expect(modernized?.ruleset).toBe('modernized');
+      expect(classic?.ruleset).toBe('classic');
+
+      const classicGamesBefore = classic!.totalGamesPlayed;
+      const modernizedGamesBefore = modernized!.totalGamesPlayed;
+      await database.updateGlobalStats({ gamesPlayed: 1, totalTuttos: 5, isDefaultGame: true }, 'classic');
+      const classicAfter = await database.getGlobalStats('classic');
+      expect(classicAfter?.totalGamesPlayed).toBe(classicGamesBefore + 1);
+      expect(classicAfter?.totalTuttos).toBe((classic?.totalTuttos ?? 0) + 5);
+      expect((await database.getGlobalStats())?.totalGamesPlayed).toBe(modernizedGamesBefore);
+    });
+
+    it('a custom classic game bumps only the classic row, and only its custom counter', async () => {
+      const classicBefore = await database.getGlobalStats('classic');
+      const modernizedBefore = await database.getGlobalStats();
+      await database.updateGlobalStats({ gamesPlayed: 1, totalScore: 999, isDefaultGame: false }, 'classic');
+      const classicAfter = await database.getGlobalStats('classic');
+      expect(classicAfter?.customGamesPlayed).toBe((classicBefore?.customGamesPlayed ?? 0) + 1);
+      expect(classicAfter?.totalScore).toBe(classicBefore?.totalScore);
+      expect((await database.getGlobalStats())?.customGamesPlayed).toBe(modernizedBefore?.customGamesPlayed);
+    });
   });
 });

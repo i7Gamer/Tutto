@@ -5,7 +5,8 @@ import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } 
 import { sanitizeStats, sanitizeLogHeaderField, indentLogContinuationLines } from './sanitize';
 import { createRateLimiter } from './rateLimit';
 import { DEV_DEFAULT_API_TOKEN, validateApiTokenForStartup } from './startupGuards';
-import { DEFAULT_GAME_MODE, GAME_MODES, type GameMode } from '../src/types';
+import { DEFAULT_GAME_MODE, GAME_MODES, type GameMode, type Ruleset } from '../src/types';
+import { DEFAULT_RULESET, isValidRuleset } from '../src/utils/configValidation';
 
 // Client crash reports from the ErrorBoundary (see src/utils/crashLog.ts).
 // Unauthenticated by design — crash reporting must work for any player — so
@@ -83,6 +84,11 @@ export const registerApiRoutes = (app: express.Express): void => {
   const requestedMode = (req: express.Request): GameMode =>
     GAME_MODES.find(mode => mode === req.query.mode) ?? DEFAULT_GAME_MODE;
 
+  // Which global-statistics row a request means — same fallback rule as the
+  // device mode above: anything unrecognised reads as the modernized row.
+  const requestedRuleset = (req: express.Request): Ruleset =>
+    isValidRuleset(req.query.ruleset) ? req.query.ruleset : DEFAULT_RULESET;
+
   const crashLogRateLimiter = createRateLimiter({
     windowMs: CRASH_LOG_RATE_LIMIT_WINDOW_MS,
     max: CRASH_LOG_RATE_LIMIT_MAX,
@@ -116,9 +122,9 @@ export const registerApiRoutes = (app: express.Express): void => {
     res.json({ status: 'ok' });
   });
 
-  app.get('/api/stats/global', statsRateLimiter, async (_req: express.Request, res: express.Response) => {
+  app.get('/api/stats/global', statsRateLimiter, async (req: express.Request, res: express.Response) => {
     try {
-      const stats = await getGlobalStats();
+      const stats = await getGlobalStats(requestedRuleset(req));
       res.json(stats ?? {});
     } catch (err) {
       console.error('DB error in global GET:', err);
@@ -128,7 +134,7 @@ export const registerApiRoutes = (app: express.Express): void => {
 
   app.post('/api/stats/global', requireToken, async (req: express.Request, res: express.Response) => {
     try {
-      await updateGlobalStats(sanitizeStats(req.body));
+      await updateGlobalStats(sanitizeStats(req.body), requestedRuleset(req));
       res.json({ success: true });
     } catch (err) {
       console.error(err);

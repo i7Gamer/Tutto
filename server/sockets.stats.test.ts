@@ -202,6 +202,98 @@ describe('Server Socket E2E — statistics persistence', () => {
     });
   }, 10000);
 
+  it('records a classic game in the classic buckets, and a classic custom game in classic_custom', () => {
+    // The classic counterpart of the custom-game full-stack pass above: the
+    // frozen ruleset picks the bucket PAIR, normalized-vs-custom picks within
+    // it, and the global CLASSIC row is the only global row that moves.
+    return new Promise<void>((resolve, reject) => {
+      const deviceId = 'dev-egs-classic';
+      const roomId = 'EGS_CLASSIC_ROOM';
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Timed out')); }, 9000);
+
+      const realFetch = (globalThis as { __nativeFetch?: typeof fetch }).__nativeFetch ?? fetch;
+      const getJson = async (path: string) => (await realFetch(`http://127.0.0.1:${PORT}${path}`)).json();
+      const poll = async <T,>(read: () => Promise<T | null>): Promise<T | null> => {
+        for (let i = 0; i < 75; i++) {
+          const value = await read();
+          if (value) return value;
+          await new Promise(r => setTimeout(r, 40));
+        }
+        return null;
+      };
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId, color: '#ff0000' }, async () => {
+          try {
+            const globalModernizedBefore = await getJson('/api/stats/global');
+            const globalClassicBefore = await getJson('/api/stats/global?ruleset=classic');
+
+            // A classic game on an otherwise DEFAULT config → the plain
+            // 'classic' bucket and the classic global row's full sums.
+            s1.emit('pushState', { roomId, newState: { status: 'playing', finished: true, ruleset: 'classic' } });
+            s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, wins: 1, totalScore: 555, totalTuttos: 3, mostCardsInTurn: 2 } });
+            s1.emit('submitGlobalStats', { roomId, payload: { gamesPlayed: 1, totalScore: 555, totalTuttos: 3, isDefaultGame: true } });
+
+            const classic = await poll(async () => {
+              const body = await getJson(`/api/stats/${deviceId}?mode=classic`);
+              return body?.gamesPlayed >= 1 ? body : null;
+            });
+            expect(classic).not.toBeNull();
+            expect(classic.totalScore).toBe(555);
+            expect(classic.totalTuttos).toBe(3);
+            expect(classic.mostCardsInTurn).toBe(2);
+            expect(classic.mode).toBe('classic');
+
+            // Neither modernized bucket knows this game happened.
+            expect(await getJson(`/api/stats/${deviceId}`)).toEqual({});
+            expect(await getJson(`/api/stats/${deviceId}?mode=custom`)).toEqual({});
+
+            const classicGlobalAfter = await poll(async () => {
+              const g = await getJson('/api/stats/global?ruleset=classic');
+              return g.totalGamesPlayed === (globalClassicBefore.totalGamesPlayed ?? 0) + 1 ? g : null;
+            });
+            expect(classicGlobalAfter).not.toBeNull();
+            expect(classicGlobalAfter.totalTuttos).toBe((globalClassicBefore.totalTuttos ?? 0) + 3);
+            // The modernized global row did not move at all.
+            const globalModernizedAfter = await getJson('/api/stats/global');
+            expect(globalModernizedAfter.totalGamesPlayed).toBe(globalModernizedBefore.totalGamesPlayed);
+
+            // Play Again with a CUSTOM classic config → classic_custom, and
+            // only the classic row's customGamesPlayed moves.
+            s1.emit('pushState', { roomId, newState: { status: 'playing', finished: false, winningScore: 1000 } });
+            s1.emit('pushState', { roomId, newState: { status: 'playing', finished: true } });
+            s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, wins: 0, totalScore: 111 } });
+            s1.emit('submitGlobalStats', { roomId, payload: { gamesPlayed: 1, totalScore: 111, isDefaultGame: true } });
+
+            const classicCustom = await poll(async () => {
+              const body = await getJson(`/api/stats/${deviceId}?mode=classic_custom`);
+              return body?.gamesPlayed >= 1 ? body : null;
+            });
+            expect(classicCustom).not.toBeNull();
+            expect(classicCustom.totalScore).toBe(111);
+
+            const classicGlobalFinal = await poll(async () => {
+              const g = await getJson('/api/stats/global?ruleset=classic');
+              return g.customGamesPlayed === (globalClassicBefore.customGamesPlayed ?? 0) + 1 ? g : null;
+            });
+            expect(classicGlobalFinal).not.toBeNull();
+            // The custom classic game added no sums to either row.
+            expect(classicGlobalFinal.totalScore).toBe(classicGlobalAfter.totalScore);
+
+            clearTimeout(timeoutId);
+            s1.disconnect();
+            resolve();
+          } catch (e) {
+            clearTimeout(timeoutId);
+            s1.disconnect();
+            reject(e);
+          }
+        });
+      });
+    });
+  }, 15000);
+
   it('ignores a duplicate endGameStats/submitGlobalStats for the same game (e.g. a reconnect after finish), but accepts them again once a new game starts', () => {
     return new Promise((resolve, reject) => {
       const deviceId = 'dev-egs-dedup';

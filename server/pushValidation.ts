@@ -143,6 +143,12 @@ export const isValidTurnSummary = (v: unknown): v is TurnSummary => {
   if (!isValidChainCounter(s.tuttoCount)) return false;
   if (!isValidChainCounter(s.plusMinusSuccesses)) return false;
   if (s.ended !== 'banked' && s.ended !== 'null' && s.ended !== 'stopCard') return false;
+  if (s.forfeitedScore !== undefined &&
+      !(typeof s.forfeitedScore === 'number' && Number.isFinite(s.forfeitedScore) && s.forfeitedScore >= 0 && s.forfeitedScore <= MAX_SCORE_MAGNITUDE)) return false;
+  const isRecordOrNull = (v2: unknown): boolean =>
+    v2 === null || (typeof v2 === 'number' && Number.isFinite(v2) && v2 >= 0 && v2 <= MAX_SCORE_MAGNITUDE);
+  if (s.prevMostCardsInTurn !== undefined && !isRecordOrNull(s.prevMostCardsInTurn)) return false;
+  if (s.prevHighestForfeitedTurnScore !== undefined && !isRecordOrNull(s.prevHighestForfeitedTurnScore)) return false;
   if (s.deductedPlayers !== undefined) {
     if (!Array.isArray(s.deductedPlayers) || s.deductedPlayers.length > MAX_CHAIN_CARDS) return false;
     if (!s.deductedPlayers.every(n => typeof n === 'string' && n.length > 0 && n.length <= MAX_PLAYER_NAME_LENGTH)) return false;
@@ -157,6 +163,9 @@ export const sanitizeTurnSummary = (v: TurnSummary): TurnSummary => {
     plusMinusSuccesses: v.plusMinusSuccesses,
     ended: v.ended,
   };
+  if (v.forfeitedScore !== undefined) clean.forfeitedScore = v.forfeitedScore;
+  if (v.prevMostCardsInTurn !== undefined) clean.prevMostCardsInTurn = v.prevMostCardsInTurn;
+  if (v.prevHighestForfeitedTurnScore !== undefined) clean.prevHighestForfeitedTurnScore = v.prevHighestForfeitedTurnScore;
   if (v.deductedPlayers) clean.deductedPlayers = [...v.deductedPlayers];
   return clean;
 };
@@ -262,6 +271,9 @@ const PLAYER_MUTABLE: (keyof ServerPlayer)[] = [
   // They are not in that list because a player does not start a game on one:
   // "no turn yet" is undefined, not zero.
   'highestTurnScore', 'highestFeuerwerkTurnScore', 'highestX2TurnScore',
+  // The classic-chain records follow the same "no value yet is undefined"
+  // rule as the maxima above.
+  'mostCardsInTurn', 'highestForfeitedTurnScore',
   'position', 'color',
 ];
 

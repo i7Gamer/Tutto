@@ -44,8 +44,9 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
       // isDefaultGame decides whether this game's numbers join the global
       // totals at all, so it is the server's call, not the sender's: taken
       // from the config the game started with (frozen in pushState) and
-      // written over whatever the payload claimed.
-      await updateGlobalStats({ ...sanitizeStats(payload), isDefaultGame: room.normalizedGame });
+      // written over whatever the payload claimed. The ruleset picks which
+      // global row the numbers land in — frozen at kickoff the same way.
+      await updateGlobalStats({ ...sanitizeStats(payload), isDefaultGame: room.normalizedGame }, room.ruleset);
     } catch (err) {
       room.statsRecordedForGame.global = false;
       console.error('submitGlobalStats error:', err);
@@ -76,22 +77,29 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     try {
       // Recorded in full either way — a custom game just lands in its own
       // bucket, where it cannot move the totals or the records a player reads
-      // as theirs. Which bucket is the server's call, taken from the config the
-      // game started with (see socketGameStateHandlers' pushState).
-      const mode = room.normalizedGame ? 'normalized' : 'custom';
+      // as theirs. Which bucket is the server's call, taken from the config
+      // the game started with: the frozen ruleset picks the pair, the frozen
+      // normalizedGame flag picks within it.
+      const mode = room.ruleset === 'classic'
+        ? (room.normalizedGame ? 'classic' : 'classic_custom')
+        : (room.normalizedGame ? 'normalized' : 'custom');
       await updateDeviceStats(deviceId, sanitizeStats(stats), mode);
       // The win/loss just recorded above may have changed this device's streak.
       // `player` still holds the value from when they joined, so without this
       // refresh + broadcast, the streak shown next to the player (leaderboard,
       // spectators) stays stale until they rejoin a room.
       //
-      // Only for a normalized game: the streak shown in a room is the
-      // normalized one (joinRoom reads that row), and a custom game neither
-      // extends nor breaks it. Refreshing here would overwrite the displayed
-      // streak with the custom bucket's unrelated count.
-      if (mode === 'normalized') {
-        const updatedStats = await getDeviceStats(deviceId);
-        player.winStreak = updatedStats?.currentWinStreak ?? 0;
+      // Only for the two non-custom buckets: each has its own streak field
+      // (the badge shows whichever matches the room's ruleset), and a custom
+      // game neither extends nor breaks either. Refreshing here would
+      // overwrite the displayed streak with the custom bucket's count.
+      if (mode === 'normalized' || mode === 'classic') {
+        const updatedStats = await getDeviceStats(deviceId, mode);
+        if (mode === 'classic') {
+          player.winStreakClassic = updatedStats?.currentWinStreak ?? 0;
+        } else {
+          player.winStreak = updatedStats?.currentWinStreak ?? 0;
+        }
         emitRoomState(io, roomId as string);
       }
     } catch (err) {

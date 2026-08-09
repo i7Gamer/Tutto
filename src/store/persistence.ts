@@ -75,6 +75,9 @@ const isPlausibleTurnSummary = (v: unknown): boolean => {
   if (!Number.isInteger(s.tuttoCount) || (s.tuttoCount as number) < 0) return false;
   if (!Number.isInteger(s.plusMinusSuccesses) || (s.plusMinusSuccesses as number) < 0) return false;
   if (!TURN_ENDS.includes(s.ended as string)) return false;
+  if (s.forfeitedScore !== undefined && !isNonNegativeNumber(s.forfeitedScore)) return false;
+  if (s.prevMostCardsInTurn !== undefined && s.prevMostCardsInTurn !== null && !isNonNegativeNumber(s.prevMostCardsInTurn)) return false;
+  if (s.prevHighestForfeitedTurnScore !== undefined && s.prevHighestForfeitedTurnScore !== null && !isNonNegativeNumber(s.prevHighestForfeitedTurnScore)) return false;
   if (s.deductedPlayers !== undefined) {
     if (!Array.isArray(s.deductedPlayers) || s.deductedPlayers.length > MAX_CHAIN_CARDS) return false;
     if (!s.deductedPlayers.every(n => typeof n === 'string' && n.length > 0)) return false;

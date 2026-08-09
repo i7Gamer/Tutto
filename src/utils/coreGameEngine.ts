@@ -138,9 +138,12 @@ export const buildGlobalStatsPayload = (
   let totalFeuerwerkBusts = 0;
   let totalx2Busts = 0;
   let totalBusts = 0;
+  let totalTuttos = 0;
   let highestTurnScore = 0;
   let highestFeuerwerkTurnScore = 0;
   let highestX2TurnScore = 0;
+  let mostCardsInTurn: number | null = null;
+  let highestForfeitedTurnScore: number | null = null;
   let fastestWinTurns: number | null = null;
   let fastestLossTurns: number | null = null;
 
@@ -164,6 +167,13 @@ export const buildGlobalStatsPayload = (
     totalFeuerwerkBusts += (p.feuerwerkBusts ?? 0);
     totalx2Busts += (p.x2Busts ?? 0);
     totalBusts += (p.busts ?? 0);
+    totalTuttos += (p.totalTuttos ?? 0);
+    if (p.mostCardsInTurn !== undefined && (mostCardsInTurn === null || p.mostCardsInTurn > mostCardsInTurn)) {
+      mostCardsInTurn = p.mostCardsInTurn;
+    }
+    if (p.highestForfeitedTurnScore !== undefined && (highestForfeitedTurnScore === null || p.highestForfeitedTurnScore > highestForfeitedTurnScore)) {
+      highestForfeitedTurnScore = p.highestForfeitedTurnScore;
+    }
     if ((p.highestTurnScore ?? 0) > highestTurnScore) {
       highestTurnScore = p.highestTurnScore ?? 0;
     }
@@ -194,6 +204,7 @@ export const buildGlobalStatsPayload = (
     totalPlayersSum: finalPlayers.length, mostPlayersInGame: finalPlayers.length,
     totalRoundsSum: finalRound, longestGameRounds: finalRound,
     highestFeuerwerkTurnScore, highestX2TurnScore,
+    totalTuttos, mostCardsInTurn, highestForfeitedTurnScore,
   };
 };
 
@@ -228,6 +239,18 @@ export const calculateNextTurn = (
     // Deliberately NO feuerwerkBusts/x2Busts and no per-card point/turn-score
     // attribution here: "which card the chain died on" has no counterpart in
     // the modernized stats, and the classic buckets do not display them.
+
+    // The classic records. Their pre-turn values ride the stored summary so
+    // undo can restore them (see calculateUndo).
+    summaryForState.prevMostCardsInTurn = currentPlayer.mostCardsInTurn ?? null;
+    summaryForState.prevHighestForfeitedTurnScore = currentPlayer.highestForfeitedTurnScore ?? null;
+    currentPlayer.totalTuttos = (currentPlayer.totalTuttos ?? 0) + turnSummary.tuttoCount;
+    if (turnSummary.cards.length > (currentPlayer.mostCardsInTurn ?? 0)) {
+      currentPlayer.mostCardsInTurn = turnSummary.cards.length;
+    }
+    if (!isSuccess && (turnSummary.forfeitedScore ?? 0) > (currentPlayer.highestForfeitedTurnScore ?? 0)) {
+      currentPlayer.highestForfeitedTurnScore = turnSummary.forfeitedScore;
+    }
 
     for (const played of turnSummary.cards) {
       switch (played.card) {
@@ -515,6 +538,14 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
     for (const name of previousTurnSummary.deductedPlayers ?? []) {
       const actual = newPlayers.find(np => np.name === name);
       if (actual) actual.times1000PointsDeducted = Math.max(0, (actual.times1000PointsDeducted ?? 0) - 1);
+    }
+
+    p.totalTuttos = Math.max(0, (p.totalTuttos ?? 0) - previousTurnSummary.tuttoCount);
+    if (previousTurnSummary.prevMostCardsInTurn !== undefined) {
+      p.mostCardsInTurn = previousTurnSummary.prevMostCardsInTurn ?? undefined;
+    }
+    if (previousTurnSummary.prevHighestForfeitedTurnScore !== undefined) {
+      p.highestForfeitedTurnScore = previousTurnSummary.prevHighestForfeitedTurnScore ?? undefined;
     }
   } else {
     // ── Modernized reversal — unchanged.
