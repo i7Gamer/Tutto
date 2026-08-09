@@ -127,7 +127,13 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       globals: true,
       setupFiles: ['./src/setupTests.tsx'],
-      exclude: ['node_modules', 'dist', '.idea', '.git', '.cache', 'e2e/**', 'server/node_modules/**'],
+      // scratch/ is the gitignored home for throwaway local scripts (see
+      // .gitignore). Anything test-shaped left there — a Playwright spec
+      // pulled aside to debug something, say — is collected by this runner
+      // and fails the whole suite with "Playwright Test did not expect
+      // test.describe() to be called here", for a file that is not part of
+      // the project at all.
+      exclude: ['node_modules', 'dist', '.idea', '.git', '.cache', 'e2e/**', 'server/node_modules/**', 'scratch/**'],
       env: {
         TEST_DB: 'true',
         // Makes testDelay(ms) in socket/server integration tests scale down
