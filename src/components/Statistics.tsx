@@ -5,7 +5,8 @@ import { parseJsonObject } from '../utils/parseJson';
 import { CARD_EMOJIS } from '../utils/cardVisuals';
 import { STAT_TONES, DEFAULT_STAT_TONE, type StatTone } from '../utils/statTones';
 import { percentageOf } from '../utils/percentage';
-import type { CardType } from '../types';
+import { deviceStatsUrl } from '../utils/statsApi';
+import { DEFAULT_GAME_MODE, type CardType, type GameMode } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import React from 'react';
@@ -96,6 +97,12 @@ const getWinLoseRate = (wins: number, fails: number): string => {
 // max/min exactly — only meaningful once both sides have real data.
 const isRecordHolder = (personal?: number | null, global?: number | null): boolean =>
   !!(personal && global && personal > 0 && global > 0 && personal === global);
+
+// The two personal buckets, in the order they are offered.
+const MODE_TABS: readonly { value: GameMode; labelKey: string; labelFallback: string }[] = [
+  { value: 'normalized', labelKey: 'statistics.normalGames', labelFallback: 'Normal' },
+  { value: 'custom', labelKey: 'statistics.customGames', labelFallback: 'Custom' },
+];
 
 interface GlobalComparison {
   pct: number;
@@ -295,6 +302,10 @@ interface StatisticsProps {
 export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<'personal' | 'global'>('personal');
+  // Which personal bucket is on screen. Games with a changed winning score or
+  // deck are recorded separately and never counted anywhere else, so they need
+  // somewhere of their own to be seen.
+  const [mode, setMode] = useState<GameMode>(DEFAULT_GAME_MODE);
   const [personalStats, setPersonalStats] = useState<PersonalStats | null>(null);
   const [globalStats, setGlobalStats] = useState<GlobalStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -304,9 +315,13 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
 
     const fetchStats = async () => {
       try {
-        setLoading(true);
+        // Deliberately no setLoading(true) here. The first render already
+        // starts in the loading state, and re-entering it when the mode
+        // switches would replace the whole page — the tabs that were just
+        // clicked included — with the spinner. The previous bucket's numbers
+        // stay put for the moment the new ones take to arrive.
         const [personalRes, globalRes] = await Promise.all([
-          fetch(`/api/stats/${deviceId}`),
+          fetch(deviceStatsUrl(deviceId, mode)),
           fetch('/api/stats/global'),
         ]);
         if (!isMounted) return;
@@ -324,7 +339,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
     return () => {
       isMounted = false;
     };
-  }, [deviceId]);
+  }, [deviceId, mode]);
 
   if (loading) {
     return (
@@ -352,8 +367,15 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   const gBustRateNum = g?.totalTurns ? ((g.totalBusts ?? 0) / g.totalTurns) * 100 : null;
   const pAvgPtsPerTurnNum = p?.totalTurns ? (p.totalScore ?? 0) / p.totalTurns : null;
   const gAvgPtsPerTurnNum = g?.totalTurns ? (g.totalScore ?? 0) / g.totalTurns : null;
-  const bustRateComparison = compareToGlobal(pBustRateNum, gBustRateNum, true);
-  const avgPtsPerTurnComparison = compareToGlobal(pAvgPtsPerTurnNum, gAvgPtsPerTurnNum, false);
+
+  // Every comparison on this screen measures against the global row, and that
+  // row holds normalized games only. In the custom view there is no comparable
+  // population: no average to beat, and no record that could be held.
+  const isCustomView = mode === 'custom';
+  const bustRateComparison = isCustomView ? null : compareToGlobal(pBustRateNum, gBustRateNum, true);
+  const avgPtsPerTurnComparison = isCustomView ? null : compareToGlobal(pAvgPtsPerTurnNum, gAvgPtsPerTurnNum, false);
+  const holdsRecord = (personal?: number | null, global?: number | null): boolean =>
+    !isCustomView && isRecordHolder(personal, global);
 
   const isOnAHotStreak = (p?.currentWinStreak || 0) >= HOT_WIN_STREAK;
 
@@ -394,10 +416,32 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
           {tab === 'personal' && (
             <motion.div key="personal" role="tabpanel" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="flex flex-col w-full">
               <h3 className="text-xl font-bold mb-6 text-center text-gray-700 dark:text-gray-200">{t('statistics.onlineLifetimeRecord', 'Online Lifetime Record (This Device)')}</h3>
+
+              <div className="flex gap-2 mb-6 justify-center" role="tablist">
+                {MODE_TABS.map(({ value, labelKey, labelFallback }) => (
+                  <button
+                    key={value}
+                    role="tab"
+                    aria-selected={mode === value}
+                    className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${mode === value ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-slate-600 hover:bg-black/5'}`}
+                    onClick={() => setMode(value)}
+                  >
+                    {t(labelKey, labelFallback)}
+                  </button>
+                ))}
+              </div>
+              {isCustomView && (
+                <p className="text-sm text-center text-gray-500 dark:text-gray-400 mb-6 max-w-xl mx-auto">
+                  {t('statistics.customGamesExplainer', 'Games with a changed winning score or deck. They are kept separately and never count toward your normal record or the global statistics.')}
+                </p>
+              )}
+
               {!p || !p.gamesPlayed ? (
                 <div className="text-center text-gray-500 dark:text-gray-400 py-10 bg-black/5 dark:bg-white/5 rounded-2xl border border-gray-100 dark:border-slate-700">
                   <div className="text-4xl mb-4">🎮</div>
-                  {t('statistics.noPersonalGames', "You haven't played any online games on this device yet!")}
+                  {isCustomView
+                    ? t('statistics.noCustomGames', "You haven't played any custom online games on this device yet!")
+                    : t('statistics.noPersonalGames', "You haven't played any online games on this device yet!")}
                 </div>
               ) : (
                 <div className="w-full">
@@ -434,20 +478,20 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                     <StatTile icon={<TrendingDown size={32} className="text-red-400" />} value={`${pBustRate}%`} label={t('statistics.bustRate', 'Bust Rate')} tone="red" badge={<ComparisonBadge comparison={bustRateComparison} />} />
                   </div>
                   <div className="stat-grid-4 mb-4">
-                    <StatTile icon={<Zap size={32} className="text-yellow-400" />} value={p.highestTurnScore || 0} label={t('statistics.highestTurn', 'Highest Turn')} tone="yellow" badge={isRecordHolder(p.highestTurnScore, g?.highestTurnScore) && <RecordBadge />} />
+                    <StatTile icon={<Zap size={32} className="text-yellow-400" />} value={p.highestTurnScore || 0} label={t('statistics.highestTurn', 'Highest Turn')} tone="yellow" badge={holdsRecord(p.highestTurnScore, g?.highestTurnScore) && <RecordBadge />} />
                     <StatTile icon={<TrendingUp size={32} className="text-indigo-400" />} value={p.totalTurns ? Math.round((p.totalScore || 0) / p.totalTurns) : 0} label={t('statistics.avgPointsPerTurn', 'Avg Points/Turn')} badge={<ComparisonBadge comparison={avgPtsPerTurnComparison} />} />
-                    <StatTile icon={<FastForward size={32} className="text-green-400" />} value={p.fastestWinTurns || '-'} label={t('statistics.fastestWinTurns', 'Fastest Win (Turns)')} tone="green" badge={isRecordHolder(p.fastestWinTurns, g?.fastestWinTurns) && <RecordBadge />} />
+                    <StatTile icon={<FastForward size={32} className="text-green-400" />} value={p.fastestWinTurns || '-'} label={t('statistics.fastestWinTurns', 'Fastest Win (Turns)')} tone="green" badge={holdsRecord(p.fastestWinTurns, g?.fastestWinTurns) && <RecordBadge />} />
                     <StatTile icon={<Skull size={32} className="text-red-400" />} value={p.fastestLossTurns || '-'} label={t('statistics.fastestLossTurns', 'Fastest Loss (Turns)')} tone="red" />
                   </div>
                   <div className="stat-grid-4 mb-4">
                     <StatTile icon={<Hash size={32} className="text-sky-400" />} value={p.mostPlayersInGame || 0} label={t('statistics.mostPlayersInGame', 'Most Players in a Game')} tone="sky" />
                     <StatTile icon={<Hash size={32} className="text-sky-400" />} value={pAvgPlayersPerGame} label={t('statistics.avgPlayersPerGame', 'Avg Players/Game')} tone="sky" />
-                    <StatTile icon={<Repeat size={32} className="text-purple-400" />} value={p.longestGameRounds || 0} label={t('statistics.longestGameRounds', 'Longest Game (Rounds)')} tone="purple" badge={isRecordHolder(p.longestGameRounds, g?.longestGameRounds) && <RecordBadge />} />
+                    <StatTile icon={<Repeat size={32} className="text-purple-400" />} value={p.longestGameRounds || 0} label={t('statistics.longestGameRounds', 'Longest Game (Rounds)')} tone="purple" badge={holdsRecord(p.longestGameRounds, g?.longestGameRounds) && <RecordBadge />} />
                     <StatTile icon={<Repeat size={32} className="text-purple-400" />} value={pAvgRoundsPerGame} label={t('statistics.avgRoundsPerGame', 'Avg Rounds/Game')} tone="purple" />
                   </div>
                   <div className="stat-grid-2 mb-8">
-                    <StatTile icon={<Zap size={32} className="text-orange-400" />} value={p.highestFeuerwerkTurnScore || 0} label={t('statistics.highestFeuerwerkTurn', 'Highest Feuerwerk Turn')} tone="orange" badge={isRecordHolder(p.highestFeuerwerkTurnScore, g?.highestFeuerwerkTurnScore) && <RecordBadge />} />
-                    <StatTile icon={<Zap size={32} className="text-pink-400" />} value={p.highestX2TurnScore || 0} label={t('statistics.highestX2Turn', 'Highest x2 Turn')} tone="pink" badge={isRecordHolder(p.highestX2TurnScore, g?.highestX2TurnScore) && <RecordBadge />} />
+                    <StatTile icon={<Zap size={32} className="text-orange-400" />} value={p.highestFeuerwerkTurnScore || 0} label={t('statistics.highestFeuerwerkTurn', 'Highest Feuerwerk Turn')} tone="orange" badge={holdsRecord(p.highestFeuerwerkTurnScore, g?.highestFeuerwerkTurnScore) && <RecordBadge />} />
+                    <StatTile icon={<Zap size={32} className="text-pink-400" />} value={p.highestX2TurnScore || 0} label={t('statistics.highestX2Turn', 'Highest x2 Turn')} tone="pink" badge={holdsRecord(p.highestX2TurnScore, g?.highestX2TurnScore) && <RecordBadge />} />
                   </div>
                   <CardBreakdown rows={personalCardBreakdown(p)} />
                 </div>

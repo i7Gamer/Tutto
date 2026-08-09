@@ -433,6 +433,88 @@ describe('Statistics Component', () => {
     expect(screen.queryByText('🔥 2')).not.toBeInTheDocument();
   });
 
+  describe('switching the personal tab between normal and custom games', () => {
+    // One row per mode, told apart by gamesPlayed so the rendered numbers say
+    // which bucket is on screen.
+    const serveByMode = (byMode: Record<string, Record<string, number> | undefined>) =>
+      vi.fn((url: string) => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(
+          url.includes('global')
+            ? { totalGamesPlayed: 50, totalPlaytime: 1000, highestTurnScore: 3000, totalTurns: 100, totalScore: 40000 }
+            : byMode[new URL(url, 'http://localhost').searchParams.get('mode') ?? 'normalized'] ?? {},
+        ),
+      }));
+
+    const showCustom = async () => {
+      fireEvent.click(screen.getByRole('tab', { name: /statistics\.customGames/i }));
+    };
+
+    it('starts on the normal bucket', async () => {
+      global.fetch = serveByMode({ normalized: { gamesPlayed: 11, wins: 5 }, custom: { gamesPlayed: 77, wins: 70 } });
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+      expect(screen.getByText('11')).toBeInTheDocument();
+      expect(screen.queryByText('77')).not.toBeInTheDocument();
+    });
+
+    it('shows the custom bucket once switched', async () => {
+      global.fetch = serveByMode({ normalized: { gamesPlayed: 11, wins: 5 }, custom: { gamesPlayed: 77, wins: 70 } });
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+      await showCustom();
+
+      await waitFor(() => expect(screen.getByText('77')).toBeInTheDocument());
+      expect(screen.queryByText('11')).not.toBeInTheDocument();
+    });
+
+    it('has its own empty state for a device that has played no custom game', async () => {
+      global.fetch = serveByMode({ normalized: { gamesPlayed: 11, wins: 5 }, custom: {} });
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+      await showCustom();
+
+      await waitFor(() => expect(screen.getByText('statistics.noCustomGames')).toBeInTheDocument());
+      expect(screen.queryByText('statistics.noPersonalGames')).not.toBeInTheDocument();
+    });
+
+    it('drops the global comparisons in the custom view, having nothing to compare against', async () => {
+      // The global row holds no custom games at all, so "better than global
+      // average" and "global record" would be measuring against a different
+      // population entirely.
+      global.fetch = serveByMode({
+        normalized: { gamesPlayed: 5, wins: 1, totalTurns: 10, busts: 9, totalScore: 100, highestTurnScore: 3000 },
+        custom: { gamesPlayed: 5, wins: 1, totalTurns: 10, busts: 9, totalScore: 100, highestTurnScore: 3000 },
+      });
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+      // The normal view earns both badges against that global row…
+      expect(screen.getByText(/statistics\.globalRecord/)).toBeInTheDocument();
+      expect(screen.getByText(/statistics\.(better|worse)ThanGlobalAvg/)).toBeInTheDocument();
+
+      await showCustom();
+
+      await waitFor(() => expect(screen.queryByText(/statistics\.globalRecord/)).not.toBeInTheDocument());
+      expect(screen.queryByText(/statistics\.(better|worse)ThanGlobalAvg/)).not.toBeInTheDocument();
+    });
+
+    it('leaves the global tab alone', async () => {
+      global.fetch = serveByMode({ normalized: { gamesPlayed: 11 }, custom: { gamesPlayed: 77 } });
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+      await showCustom();
+      fireEvent.click(screen.getByRole('tab', { name: /statistics\.globalCommunity/i }));
+
+      await waitFor(() => expect(screen.getByText('50')).toBeInTheDocument());
+      expect(screen.queryByRole('tab', { name: /statistics\.customGames/i })).not.toBeInTheDocument();
+    });
+  });
+
   describe('custom games on the global tab', () => {
     const showGlobalTab = async (globalStats: Record<string, number>) => {
       global.fetch = vi.fn((url) => Promise.resolve({
