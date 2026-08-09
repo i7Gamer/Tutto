@@ -22,6 +22,7 @@ vi.mock('./database', () => ({
 import { updateDeviceStats, updateGlobalStats, getDeviceStats } from './database';
 import { registerSocketHandlers } from './socketHandlers';
 import { rooms, createRoom, deleteRoom, MAX_PLAYERS_PER_ROOM, MAX_ROOMS } from './rooms';
+import { DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE } from '../src/utils/configValidation';
 import type { ServerPlayer } from './roomTypes';
 
 const mockedUpdateDeviceStats = vi.mocked(updateDeviceStats);
@@ -1310,5 +1311,167 @@ describe('per-IP connection rate limiting', () => {
     // Third connection in the same window from the same address must be
     // refused at the middleware, before any event handler is registered.
     await expect(connect()).rejects.toThrow('Too many connections');
+  });
+});
+
+describe('the game mode a finished game is recorded under', () => {
+  let httpServer: HttpServer;
+  let ioServer: Server;
+  let port: number;
+  let client: ClientSocket;
+
+  beforeAll(async () => {
+    httpServer = createServer();
+    ioServer = new Server(httpServer);
+    registerSocketHandlers(ioServer);
+    await new Promise<void>(resolve => httpServer.listen(0, () => resolve()));
+    port = (httpServer.address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    if (client) client.disconnect();
+    await ioServer.close();
+  });
+
+  beforeEach(() => {
+    mockedUpdateGlobalStats.mockReset();
+    mockedUpdateGlobalStats.mockResolvedValue(1);
+  });
+
+  const connectAndJoin = (roomId: string, name: string, deviceId: string): Promise<ClientSocket> =>
+    new Promise((resolve, reject) => {
+      const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+      sock.on('connect', () => {
+        sock.emit('joinRoom', { roomId, name, deviceId, color: '#ff0000' }, (res: { success: boolean; error?: string }) => {
+          if (!res.success) return reject(new Error(res.error));
+          resolve(sock);
+        });
+      });
+      sock.on('connect_error', reject);
+    });
+
+  const waitFor = async (cond: () => boolean, timeoutMs = 3000): Promise<void> => {
+    const start = Date.now();
+    while (!cond()) {
+      if (Date.now() - start > timeoutMs) throw new Error('waitFor timed out');
+      await new Promise(r => setTimeout(r, 25));
+    }
+  };
+
+  const CUSTOM_DECK = { ...DEFAULT_INITIAL_CARDS, Kleeblatt: 42 };
+
+  // One device may only be in one room at a time, so each case gets its own —
+  // derived from the room id rather than written out twice.
+  const deviceFor = (roomId: string): string => `dev-${roomId}`;
+
+  // Joins as the room's host, which is who both pushState and submitGlobalStats
+  // require. Returns once the room exists and this socket owns it.
+  const hostAGame = (roomId: string): Promise<ClientSocket> =>
+    connectAndJoin(roomId, 'Alice', deviceFor(roomId));
+
+  const push = (sock: ClientSocket, roomId: string, newState: Record<string, unknown>): void => {
+    sock.emit('pushState', {
+      roomId,
+      newState: {
+        status: 'playing',
+        finished: false,
+        currentPlayerIndex: 0,
+        round: 1,
+        players: [{ name: 'Alice', deviceId: deviceFor(roomId), score: 0 }],
+        ...newState,
+      },
+    });
+  };
+
+  // The client's own isDefaultGame is advisory; every case below asserts what
+  // the SERVER decided, by reading the flag the DB layer actually received.
+  const submitAndReadMode = async (sock: ClientSocket, roomId: string, claimed?: boolean): Promise<boolean> => {
+    rooms[roomId].state.finished = true;
+    sock.emit('submitGlobalStats', {
+      roomId,
+      payload: { gamesPlayed: 1, ...(claimed === undefined ? {} : { isDefaultGame: claimed }) },
+    });
+    await waitFor(() => mockedUpdateGlobalStats.mock.calls.length === 1);
+    return mockedUpdateGlobalStats.mock.calls[0][0].isDefaultGame as boolean;
+  };
+
+  it('records a game started on the default config as normalized', async () => {
+    const roomId = 'MODE_DEFAULT';
+    client = await hostAGame(roomId);
+    push(client, roomId, { winningScore: DEFAULT_WINNING_SCORE, initialCards: { ...DEFAULT_INITIAL_CARDS } });
+    await waitFor(() => rooms[roomId].state.status === 'playing');
+
+    expect(await submitAndReadMode(client, roomId)).toBe(true);
+    client.disconnect();
+  });
+
+  it('records a game as custom when only the OPENING PUSH carries the custom config', async () => {
+    // The lobby never saw the custom deck: it rides in on the same push that
+    // starts the game. Deciding the mode before that push is applied would
+    // read the untouched lobby config and call this game normalized.
+    const roomId = 'MODE_OPENING_PUSH';
+    client = await hostAGame(roomId);
+    expect(rooms[roomId].state.initialCards).toEqual(DEFAULT_INITIAL_CARDS);
+
+    push(client, roomId, { initialCards: { ...CUSTOM_DECK } });
+    await waitFor(() => rooms[roomId].state.status === 'playing');
+
+    expect(await submitAndReadMode(client, roomId)).toBe(false);
+    client.disconnect();
+  });
+
+  it('keeps a custom game custom when the default config is pushed back before the end', async () => {
+    const roomId = 'MODE_RESTORED';
+    client = await hostAGame(roomId);
+    push(client, roomId, { winningScore: 1000 });
+    await waitFor(() => rooms[roomId].state.winningScore === 1000);
+
+    push(client, roomId, { winningScore: DEFAULT_WINNING_SCORE });
+    await waitFor(() => rooms[roomId].state.winningScore === DEFAULT_WINNING_SCORE);
+
+    expect(await submitAndReadMode(client, roomId)).toBe(false);
+    client.disconnect();
+  });
+
+  it('downgrades a normalized game to custom when the config is changed mid-game', async () => {
+    // Start honest, shorten the winning score once the game is running, win in
+    // two turns. Freezing only at kickoff would still call this normalized.
+    const roomId = 'MODE_MIDGAME';
+    client = await hostAGame(roomId);
+    push(client, roomId, { winningScore: DEFAULT_WINNING_SCORE });
+    await waitFor(() => rooms[roomId].state.status === 'playing');
+
+    push(client, roomId, { winningScore: 1000 });
+    await waitFor(() => rooms[roomId].state.winningScore === 1000);
+
+    expect(await submitAndReadMode(client, roomId)).toBe(false);
+    client.disconnect();
+  });
+
+  it('overrides a client claiming a custom game was the default one', async () => {
+    const roomId = 'MODE_LIAR';
+    client = await hostAGame(roomId);
+    push(client, roomId, { initialCards: { ...CUSTOM_DECK } });
+    await waitFor(() => rooms[roomId].state.status === 'playing');
+
+    expect(await submitAndReadMode(client, roomId, true)).toBe(false);
+    client.disconnect();
+  });
+
+  it('re-evaluates the mode for the next game when "Play Again" skips the lobby', async () => {
+    const roomId = 'MODE_PLAY_AGAIN';
+    client = await hostAGame(roomId);
+    push(client, roomId, { initialCards: { ...CUSTOM_DECK } });
+    await waitFor(() => rooms[roomId].state.status === 'playing');
+
+    // Finish that custom game, then start a fresh one on the default deck
+    // without ever returning to the lobby — the room stays status 'playing'.
+    push(client, roomId, { finished: true, initialCards: { ...CUSTOM_DECK } });
+    await waitFor(() => rooms[roomId].state.finished === true);
+    push(client, roomId, { finished: false, initialCards: { ...DEFAULT_INITIAL_CARDS } });
+    await waitFor(() => rooms[roomId].state.finished === false);
+
+    expect(await submitAndReadMode(client, roomId)).toBe(true);
+    client.disconnect();
   });
 });

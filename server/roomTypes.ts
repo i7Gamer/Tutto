@@ -69,4 +69,9 @@ export interface Room {
   disconnectTimers: Record<string, ReturnType<typeof setTimeout>>;
   turnExpireTimer: ReturnType<typeof setTimeout> | null;
   statsRecordedForGame: StatsRecordedForGame;
+  // Whether the CURRENT game counts toward the statistics — decided by the
+  // server from the config the game actually started with, never from the
+  // flag the submitting client sends. Set when a game starts and only ever
+  // downgraded from there (see socketGameStateHandlers' pushState).
+  normalizedGame: boolean;
 }

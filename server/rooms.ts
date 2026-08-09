@@ -30,6 +30,9 @@ export const createRoom = (hostSocketId: string): Room => ({
   disconnectTimers: {},
   turnExpireTimer: null,
   statsRecordedForGame: { devices: new Set(), global: false },
+  // Matches the default config below. Recomputed the moment a game actually
+  // starts, so this only covers a room that somehow submits without one.
+  normalizedGame: true,
   state: {
     players: [],
     status: 'lobby',

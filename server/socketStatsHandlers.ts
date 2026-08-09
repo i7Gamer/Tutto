@@ -41,7 +41,11 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // permanently swallow this game's stats (the dedup would reject a retry).
     room.statsRecordedForGame.global = true;
     try {
-      await updateGlobalStats(sanitizeStats(payload));
+      // isDefaultGame decides whether this game's numbers join the global
+      // totals at all, so it is the server's call, not the sender's: taken
+      // from the config the game started with (frozen in pushState) and
+      // written over whatever the payload claimed.
+      await updateGlobalStats({ ...sanitizeStats(payload), isDefaultGame: room.normalizedGame });
     } catch (err) {
       room.statsRecordedForGame.global = false;
       console.error('submitGlobalStats error:', err);

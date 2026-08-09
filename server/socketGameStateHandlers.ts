@@ -1,5 +1,6 @@
 import { rooms, emitRoomState } from './rooms';
 import { applyPushedState, isValidDiceSnapshot, sanitizeDiceSnapshot } from './pushValidation';
+import { isNormalizedConfig } from '../src/utils/configValidation';
 import { clearServerTurnTimer, startServerTurnTimer } from './turnTimers';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
@@ -42,6 +43,21 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
     }
 
     applyPushedState(room.state, newState, { isHost, startingGame });
+
+    // Decided AFTER the push is applied: the opening push carries winningScore
+    // and initialCards itself, so reading the pre-push state would see only the
+    // lobby's config and miss a custom one smuggled in with the kickoff.
+    //
+    // Kickoff alone is not enough either. A host may push these two fields at
+    // any time, mid-game included, so "start on the default config, shorten the
+    // winning score once running, win in two turns" would otherwise be recorded
+    // as a normal game. Hence the downgrade below — and it only ever goes one
+    // way: pushing the defaults back before the end must not relabel the game.
+    if (startingGame) {
+      room.normalizedGame = isNormalizedConfig(room.state);
+    } else if (room.state.status === 'playing') {
+      room.normalizedGame &&= isNormalizedConfig(room.state);
+    }
 
     if (room.state.status === 'playing' && !room.gameActualStartTime) {
       room.gameActualStartTime = Date.now();
