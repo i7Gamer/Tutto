@@ -15,6 +15,18 @@ export type InitialCards = Partial<Record<CardType, number>>;
 
 export type DiceMode = 'physical' | 'digital';
 
+// Which bucket a finished game's statistics land in — see isNormalizedConfig
+// in utils/configValidation.ts for what puts a game in each. Doubles as a
+// stored column value (device_statistics.mode) and as an API query parameter,
+// so GAME_MODES below is what validates an untrusted string against it.
+export type GameMode = 'normalized' | 'custom';
+
+export const GAME_MODES: readonly GameMode[] = ['normalized', 'custom'];
+
+// What every caller that doesn't say otherwise means: the statistics as they
+// were understood before custom games got their own bucket.
+export const DEFAULT_GAME_MODE: GameMode = 'normalized';
+
 export interface Die {
   id: string;
   val: number;

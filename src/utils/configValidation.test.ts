@@ -23,6 +23,7 @@ import {
   DEFAULT_DICE_MODE,
   snapDisableableDuration,
   areInitialCardsEqual,
+  isNormalizedConfig,
 } from './configValidation';
 
 describe('configValidation', () => {
@@ -415,6 +416,53 @@ describe('configValidation', () => {
 
     it('is true for two empty decks', () => {
       expect(areInitialCardsEqual({}, {})).toBe(true);
+    });
+  });
+
+  describe('isNormalizedConfig', () => {
+    const NORMALIZED = { winningScore: DEFAULT_WINNING_SCORE, initialCards: DEFAULT_INITIAL_CARDS };
+
+    it('is true for the default winning score on the default deck', () => {
+      expect(isNormalizedConfig(NORMALIZED)).toBe(true);
+    });
+
+    it('is false for any other winning score', () => {
+      expect(isNormalizedConfig({ ...NORMALIZED, winningScore: MIN_WINNING_SCORE })).toBe(false);
+      expect(isNormalizedConfig({ ...NORMALIZED, winningScore: MAX_WINNING_SCORE })).toBe(false);
+      expect(isNormalizedConfig({ ...NORMALIZED, winningScore: DEFAULT_WINNING_SCORE + 1 })).toBe(false);
+    });
+
+    it('is false when any single card count deviates from the default deck', () => {
+      for (const card of VALID_CARD_TYPES) {
+        const tweaked = { ...DEFAULT_INITIAL_CARDS, [card]: (DEFAULT_INITIAL_CARDS[card] ?? 0) + 1 };
+        expect(isNormalizedConfig({ ...NORMALIZED, initialCards: tweaked })).toBe(false);
+      }
+    });
+
+    it('is false for a deck missing a card type the default deck has', () => {
+      const withoutStop = { ...DEFAULT_INITIAL_CARDS };
+      delete withoutStop.Stop;
+      expect(isNormalizedConfig({ ...NORMALIZED, initialCards: withoutStop })).toBe(false);
+    });
+
+    it('is true for the default counts written in a different key order', () => {
+      // Guards the same key-order trap areInitialCardsEqual exists for: a deck
+      // serialized by another key order must not read as a custom game.
+      const reordered = Object.fromEntries(Object.entries(DEFAULT_INITIAL_CARDS).reverse());
+      expect(isNormalizedConfig({ ...NORMALIZED, initialCards: reordered })).toBe(true);
+    });
+
+    // The four settings a game may change and still count. They are not even
+    // fields of NormalizableConfig — these cases pin down that widening the
+    // input never makes the predicate start reading them.
+    it('ignores the turn timer, the kick timer, the play order and an enforced dice mode', () => {
+      expect(isNormalizedConfig({
+        ...NORMALIZED,
+        turnDuration: 0,
+        reconnectTimeout: MAX_RECONNECT_TIMEOUT,
+        randomOrder: false,
+        enforcedDiceMode: 'physical',
+      })).toBe(true);
     });
   });
 });

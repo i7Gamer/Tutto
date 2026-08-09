@@ -86,6 +86,25 @@ export const isValidCardEntry = (key: string, val: unknown): val is number =>
 export const areInitialCardsEqual = (a: InitialCards, b: InitialCards): boolean =>
   VALID_CARD_TYPES.every(card => (a[card] ?? 0) === (b[card] ?? 0));
 
+// The two fields that decide whether a finished game counts toward the
+// statistics. Deliberately a structural type rather than the whole game state:
+// both the client store and the server's RoomState satisfy it, so the client
+// and the server can never disagree about what "normalized" means.
+export interface NormalizableConfig {
+  winningScore: number;
+  initialCards: InitialCards;
+}
+
+// Whether a game is played by the standard rules, and so counts toward the
+// personal and global statistics. Blind by design to turnDuration,
+// reconnectTimeout, randomOrder and enforcedDiceMode: those change how a game
+// is paced and how the dice are entered, not what it takes to win it. Only a
+// shortened winning score or a restacked deck makes a score easier to reach,
+// which is what would otherwise buy a global record in two turns.
+export const isNormalizedConfig = (config: NormalizableConfig): boolean =>
+  config.winningScore === DEFAULT_WINNING_SCORE &&
+  areInitialCardsEqual(config.initialCards, DEFAULT_INITIAL_CARDS);
+
 // null = every player uses their own device's diceMode preference (default);
 // a DiceMode value = the host has pinned that mode for every player's own turn.
 export const isValidEnforcedDiceMode = (v: unknown): v is DiceMode | null =>

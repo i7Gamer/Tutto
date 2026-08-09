@@ -6,7 +6,7 @@ import {
   buildGlobalStatsPayload,
 } from '../utils/coreGameEngine';
 import { buildTurnKey, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
-import { DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, MAX_PLAYER_NAME_LENGTH, areInitialCardsEqual } from '../utils/configValidation';
+import { MAX_PLAYER_NAME_LENGTH, isNormalizedConfig } from '../utils/configValidation';
 import { zeroedPlayerStats } from '../utils/playerStats';
 import playerColorsData from '../../playerColors.json';
 import { v4 as uuidv4 } from 'uuid';
@@ -310,8 +310,9 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
 
   buildGlobalStatsPayload: () => {
     const s = get();
-    const isDefaultGame = s.winningScore === DEFAULT_WINNING_SCORE && areInitialCardsEqual(s.initialCards, DEFAULT_INITIAL_CARDS);
-    return buildGlobalStatsPayload(s.players, s.gameTimeInSeconds, isDefaultGame, s.round);
+    // Advisory only: the server recomputes this from the room state it froze at
+    // kickoff and overrides whatever arrives here (see socketStatsHandlers.ts).
+    return buildGlobalStatsPayload(s.players, s.gameTimeInSeconds, isNormalizedConfig(s), s.round);
   },
 
   setPreGameStats: (stats) => set({ preGameStats: stats }),
