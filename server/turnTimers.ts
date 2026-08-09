@@ -1,5 +1,5 @@
 import type { Server } from 'socket.io';
-import { MAX_HISTORY_LOG_SIZE, type CoreGameState } from '../src/types';
+import { MAX_HISTORY_LOG_SIZE, type CoreGameState, type TurnSummary } from '../src/types';
 import { calculateNextTurn } from '../src/utils/coreGameEngine';
 import type { Room, ServerPlayer } from './roomTypes';
 import { rooms, calculateRemainingTurnTime, emitRoomState } from './rooms';
@@ -52,12 +52,40 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       historyLog: room.state.historyLog,
     };
 
+    // A classic chain that times out would otherwise commit through the
+    // legacy path, which only knows the CURRENT card — every earlier chain
+    // card's counters (and the chain records) would be lost. The live dice
+    // snapshot the active player was streaming carries the whole chain, and
+    // its chain fields only ever exist for classic turns, so their presence
+    // also answers "was this a classic game?". Physical dice and modernized
+    // games have no chain fields and keep the legacy behavior; the snapshot
+    // may lag the last action by its ~300ms debounce — a floor, not a
+    // problem. The reconstructed summary also lands in previousTurnSummary,
+    // so undoing a timed-out chain restores the consumed cards to the deck.
+    const snapshot = room.state.liveTurnState;
+    let timeoutSummary: TurnSummary | undefined;
+    if (snapshot?.cardsThisTurn && snapshot.cardsThisTurn.length > 0) {
+      const chainCards = snapshot.cardsThisTurn;
+      timeoutSummary = {
+        // Every card before the last was completed (the chain only continues
+        // on a completion); the last one was still in progress.
+        cards: chainCards.map((card, i) => ({ card, completed: i < chainCards.length - 1 })),
+        tuttoCount: snapshot.chainTuttoCount ?? 0,
+        plusMinusSuccesses: snapshot.plusMinusSuccesses ?? 0,
+        // A timeout during the drawn-Stop summary window is still that Stop's
+        // forfeit, not a dice null (a null would count a bust).
+        ended: chainCards[chainCards.length - 1] === 'Stop' ? 'stopCard' : 'null',
+        ...(snapshot.turnScore > 0 ? { forfeitedScore: snapshot.turnScore } : {}),
+      };
+    }
+
     // Timeout = the player neither scored nor answered in time, same as a manual
     // "Stop & Score 0" — matches what the client used to send on host-side expiry.
     const result = calculateNextTurn(
       stateForCalc as CoreGameState & { currentPlayerIndex: number },
       0,
       false,
+      timeoutSummary,
     );
 
     room.state.players = result.players as ServerPlayer[];

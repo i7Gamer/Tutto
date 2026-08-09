@@ -300,6 +300,78 @@ describe('turnTimers', () => {
       expect(rooms[roomId].state.currentPlayerIndex).toBe(0);
     });
 
+    it('reconstructs a classic chain forfeit from the live snapshot, counting every chain card', () => {
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: 'Feuerwerk', cards: ['300'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 1800, keptDice: [], currentRoll: [], kniffelProgress: [],
+          tuttosThisTurn: 2,
+          cardsThisTurn: ['500', 'Kniffel', 'Feuerwerk'],
+          plusMinusSuccesses: 0,
+          chainTuttoCount: 2,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const state = rooms[roomId].state;
+      const alice = state.players[0];
+      expect(state.currentPlayerIndex).toBe(1);
+      expect(alice.busts).toBe(1);
+      expect(alice.timesKniffelCompleted).toBe(1);   // completed mid-chain
+      expect(alice.timesFeuerwerkReceived).toBe(1);  // the card the chain died on
+      expect(alice.totalTuttos).toBe(2);
+      expect(alice.mostCardsInTurn).toBe(3);
+      expect(alice.highestForfeitedTurnScore).toBe(1800);
+      expect(state.previousScore).toBe(0);
+      expect(state.previousTurnSummary?.cards.map(c => c.card)).toEqual(['500', 'Kniffel', 'Feuerwerk']);
+      const lastEntry = state.historyLog[state.historyLog.length - 1];
+      expect(lastEntry.type).toBe('bust');
+      expect(lastEntry.cards).toEqual(['500', 'Kniffel', 'Feuerwerk']);
+    });
+
+    it('classifies a timeout during a drawn-Stop summary as the Stop forfeit, not a dice bust', () => {
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: 'Stop', cards: ['300'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 800, keptDice: [], currentRoll: [], kniffelProgress: [],
+          tuttosThisTurn: 1,
+          cardsThisTurn: ['300', 'Stop'],
+          plusMinusSuccesses: 0,
+          chainTuttoCount: 1,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const alice = rooms[roomId].state.players[0];
+      expect(alice.busts).toBe(0);
+      expect(alice.timesSkipped).toBe(1);
+      expect(alice.highestForfeitedTurnScore).toBe(800);
+      expect(rooms[roomId].state.previousTurnSummary?.ended).toBe('stopCard');
+    });
+
+    it('keeps the legacy timeout behavior when the snapshot carries no chain (modernized / physical)', () => {
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: '200', cards: ['300'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 100, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const state = rooms[roomId].state;
+      expect(state.players[0].busts).toBe(1);
+      expect(state.previousTurnSummary).toBeNull();
+      const lastEntry = state.historyLog[state.historyLog.length - 1];
+      expect(lastEntry.type).toBe('bust');
+      expect(lastEntry.cards).toBeUndefined();
+    });
+
     it('backstop: swallows an exception from a corrupted room state instead of crashing the process', () => {
       // Real pushState validation (pushValidation.ts) should make an
       // out-of-bounds currentPlayerIndex unreachable, but this handler runs off
