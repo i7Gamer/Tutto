@@ -1,5 +1,6 @@
 import React from 'react';
 import { recordCrash } from '../utils/crashLog';
+import { DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
 // Class components can't use the useTranslation hook — the i18next instance
 // itself is directly importable and usable outside of React's render cycle.
 import i18n from '../i18n';
@@ -45,7 +46,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     // found no last_crash_time on every reload and auto-reloaded forever, never
     // reaching the fallback UI below. Only the manual "Clear Cache & Reload" button
     // resets it, since that's an explicit user request to retry.
-    localStorage.removeItem('tutto_dice_turn_state');
+    localStorage.removeItem(DICE_TURN_STATE_KEY);
     localStorage.removeItem('tutto_local_game');
     sessionStorage.removeItem('tutto_online_session');
 

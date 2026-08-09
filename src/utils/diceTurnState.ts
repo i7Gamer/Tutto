@@ -1,5 +1,16 @@
 import type { CardType, Die, DiceSnapshot, SnapshotDie } from '../types';
 
+/**
+ * Where a turn in progress is cached, so a reload or reconnect can resume into
+ * it instead of losing the dice already on the table.
+ *
+ * Named because nineteen call sites across the components and the store read,
+ * write and clear this one entry, and a typo in any of them fails silently:
+ * the write goes to a key nobody reads, or the clear leaves the real entry
+ * behind to be restored into somebody's next turn.
+ */
+export const DICE_TURN_STATE_KEY = 'tutto_dice_turn_state';
+
 // Identifies a specific turn slot: roomId (or 'local') + round + player index +
 // card. Changes whenever the turn actually advances, whether via the active
 // client, the server-authoritative turn timer, or a reconnect — so a snapshot

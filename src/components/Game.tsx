@@ -9,7 +9,7 @@ import { applyTuttoBonus } from '../utils/diceLogic';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { formatTime } from '../utils/formatTime';
-import { buildTurnKey, parseSavedDiceState } from '../utils/diceTurnState';
+import { buildTurnKey, parseSavedDiceState, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
 import { hasScoreInput, isSpecialCard } from '../utils/diceTurnControls';
 import { parseJsonObject } from '../utils/parseJson';
 import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, DICE_PANEL_ENTRANCE_MS } from '../utils/uiTimings';
@@ -118,7 +118,7 @@ export default function Game() {
   const confettiFiredRef = useRef(false);
   const reconnectHandledRef = useRef(false);
   const onlineReconnectHandledRef = useRef(false);
-  const localCacheOnMountRef = useRef(!!localStorage.getItem('tutto_dice_turn_state'));
+  const localCacheOnMountRef = useRef(!!localStorage.getItem(DICE_TURN_STATE_KEY));
   // Seeded with the initial value (not false) so mounting straight into an
   // already-your-turn state (fresh load, reconnect) doesn't itself count as
   // a "turn started" transition — only a later false-to-true flip does.
@@ -231,7 +231,7 @@ export default function Game() {
           playerName: currentPlayer?.name,
           turnKey: buildTurnKey(roomId, round, currentPlayerIndex, currentCard),
         };
-        localStorage.setItem('tutto_dice_turn_state', JSON.stringify(snapshotWithPlayer));
+        localStorage.setItem(DICE_TURN_STATE_KEY, JSON.stringify(snapshotWithPlayer));
         // The one suppression left in this file, and it is not a stale-render
         // case like the ones above: reopening the panel here is one of three
         // things that happen together when a reconnect lands — the cache entry
@@ -250,7 +250,7 @@ export default function Game() {
       reconnectHandledRef.current = true;
       localCacheOnMountRef.current = false;
 
-      const raw = localStorage.getItem('tutto_dice_turn_state');
+      const raw = localStorage.getItem(DICE_TURN_STATE_KEY);
       const parsed = parseSavedDiceState(raw);
       const expectedTurnKey = buildTurnKey(roomId, round, currentPlayerIndex, currentCard);
 
@@ -258,7 +258,7 @@ export default function Game() {
         setShowDiceGame(true);
         addToast(t('game.resumingDiceGame', 'Resuming your dice game...'));
       } else {
-        localStorage.removeItem('tutto_dice_turn_state');
+        localStorage.removeItem(DICE_TURN_STATE_KEY);
       }
     }
   }, [

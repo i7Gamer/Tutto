@@ -1,6 +1,44 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
-import { parseSavedDiceState, buildDiceSnapshot, buildTurnKey } from './diceTurnState';
+import * as fs from 'fs';
+import * as path from 'path';
+import { parseSavedDiceState, buildDiceSnapshot, buildTurnKey, DICE_TURN_STATE_KEY } from './diceTurnState';
+
+describe('the cached-turn storage key', () => {
+  // Deliberately the raw string and not the constant: this is the one place
+  // that pins what the key actually IS, so renaming the constant's value —
+  // which would orphan every turn cached by an already-installed client —
+  // cannot pass silently.
+  it('is the key already-installed clients have on disk', () => {
+    expect(DICE_TURN_STATE_KEY).toBe('tutto_dice_turn_state');
+  });
+
+  it('is never written out as a bare string anywhere else', () => {
+    // Nineteen call sites read, write and clear this entry. A typo in one of
+    // them fails quietly — the write lands on a key nobody reads, or the clear
+    // leaves the real entry behind to be restored into somebody's next turn —
+    // so no production file may spell it out for itself.
+    const srcDir = path.resolve(__dirname, '..');
+    const offenders: string[] = [];
+
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (/\.tsx?$/.test(entry.name) && !entry.name.includes('.test.')) {
+          if (full === __filename.replace('.test', '')) continue;
+          if (fs.readFileSync(full, 'utf8').includes(`'${DICE_TURN_STATE_KEY}'`)) {
+            offenders.push(path.relative(srcDir, full).split(path.sep).join('/'));
+          }
+        }
+      }
+    };
+    walk(srcDir);
+
+    expect(offenders).toEqual([]);
+  });
+});
 
 describe('diceTurnState', () => {
   describe('buildTurnKey', () => {

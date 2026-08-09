@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { playBuzzer, playSuccess, playTone, vibrateBust, vibrateSuccess } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
 import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from '../utils/diceLogic';
-import { parseSavedDiceState, buildDiceSnapshot } from '../utils/diceTurnState';
+import { parseSavedDiceState, buildDiceSnapshot, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
 import { deriveTurnControls, sortKeptDiceForDisplay } from '../utils/diceTurnControls';
 import { useAutoContinueCountdown } from '../hooks/useAutoContinueCountdown';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
@@ -70,10 +70,10 @@ const getDisplayCardName = (cardName: CardType | null): string => {
  * removes nothing.
  */
 const readRestorableTurn = (turnKey: string | undefined) => {
-  const restored = parseSavedDiceState(localStorage.getItem('tutto_dice_turn_state'));
+  const restored = parseSavedDiceState(localStorage.getItem(DICE_TURN_STATE_KEY));
   if (!restored) return null;
   if (turnKey !== undefined && restored.turnKey !== turnKey) {
-    localStorage.removeItem('tutto_dice_turn_state');
+    localStorage.removeItem(DICE_TURN_STATE_KEY);
     return null;
   }
   return restored;

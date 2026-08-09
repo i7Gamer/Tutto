@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { parseJsonString } from '../utils/parseJson';
-import { parseSavedDiceState } from '../utils/diceTurnState';
+import { parseSavedDiceState, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
 import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
   DEFAULT_DICE_MODE, isValidDiceMode,
@@ -138,11 +138,11 @@ export const useGameStore = create<GameStore>()(
       // in-progress turn. DiceGame's turnKey check (run later, against real
       // post-reconnect state) discards genuinely stale snapshots in every
       // mode, including this one.
-      const restoredDice = parseSavedDiceState(localStorage.getItem('tutto_dice_turn_state'));
+      const restoredDice = parseSavedDiceState(localStorage.getItem(DICE_TURN_STATE_KEY));
       if (restoredDice && restoredDice.playerName && !get().pendingReconnectSession) {
         const activePlayer = get().currentPlayerIndex !== null ? get().players[get().currentPlayerIndex!] : null;
         if (!activePlayer || activePlayer.name !== restoredDice.playerName) {
-          localStorage.removeItem('tutto_dice_turn_state');
+          localStorage.removeItem(DICE_TURN_STATE_KEY);
         }
       }
 

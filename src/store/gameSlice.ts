@@ -5,7 +5,7 @@ import {
   buildDeck,
   buildGlobalStatsPayload,
 } from '../utils/coreGameEngine';
-import { buildTurnKey } from '../utils/diceTurnState';
+import { buildTurnKey, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
 import { DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, MAX_PLAYER_NAME_LENGTH, areInitialCardsEqual } from '../utils/configValidation';
 import { zeroedPlayerStats } from '../utils/playerStats';
 import playerColorsData from '../../playerColors.json';
@@ -119,7 +119,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
         // disconnected, which never got the chance to clear its own cache entry.
         turnKey: buildTurnKey(s.roomId, s.round, s.currentPlayerIndex, s.currentCard),
       };
-      localStorage.setItem('tutto_dice_turn_state', JSON.stringify(snapshotWithPlayer));
+      localStorage.setItem(DICE_TURN_STATE_KEY, JSON.stringify(snapshotWithPlayer));
     }
     if (get().isOnline) get().pushLiveTurnState(snapshot);
   },
@@ -167,7 +167,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.liveTurnState = null;
       state.historyLog = [];
     });
-    localStorage.removeItem('tutto_dice_turn_state');
+    localStorage.removeItem(DICE_TURN_STATE_KEY);
 
     if (get().isOnline) {
       get().pushState();
@@ -203,7 +203,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       chartLabels: [],
       historyLog: [],
     });
-    localStorage.removeItem('tutto_dice_turn_state');
+    localStorage.removeItem(DICE_TURN_STATE_KEY);
     if (get().isOnline) get().pushState();
   },
 
@@ -253,7 +253,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
         state.historyLog.shift();
       }
     });
-    localStorage.removeItem('tutto_dice_turn_state');
+    localStorage.removeItem(DICE_TURN_STATE_KEY);
 
     // Stats are intentionally only tracked for online games. Local games do not
     // submit statistics — by design, not an oversight.
@@ -300,7 +300,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
         state.historyLog.pop();
       }
     });
-    localStorage.removeItem('tutto_dice_turn_state');
+    localStorage.removeItem(DICE_TURN_STATE_KEY);
 
     if (get().isOnline) {
       get().pushState();
