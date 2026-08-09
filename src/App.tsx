@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from './store/useGameStore';
 import { warnAboutRecentCrash } from './utils/crashLog';
+import { TOAST_LIFETIME_MS } from './utils/uiTimings';
 import Home from './components/Home';
 import Game from './components/Game';
 import EndScreen from './components/EndScreen';
@@ -24,7 +25,7 @@ interface ToastItemProps {
 
 function ToastItem({ toast, removeToast }: ToastItemProps) {
   useEffect(() => {
-    const timer = setTimeout(() => removeToast(toast.id), 3000);
+    const timer = setTimeout(() => removeToast(toast.id), TOAST_LIFETIME_MS);
     return () => clearTimeout(timer);
   }, [toast.id, removeToast]);
 
@@ -46,7 +47,15 @@ function ToastMessage() {
   const removeToast = useGameStore(state => state.removeToast);
 
   return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[150] flex flex-col gap-2 pointer-events-none">
+    // Toasts are the app's only channel for a whole class of news — a link
+    // copied, a dice game resumed, a join refused, a player kicked — and
+    // nothing ever moves focus to them. Announced politely so they do not cut
+    // across whatever is being read mid-turn.
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed top-4 left-1/2 -translate-x-1/2 z-[150] flex flex-col gap-2 pointer-events-none"
+    >
       <AnimatePresence>
         {toasts.map(toast => (
           <ToastItem key={toast.id} toast={toast} removeToast={removeToast} />

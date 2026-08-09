@@ -39,6 +39,11 @@ export const BUST_SUMMARY_DELAY_MS = 1500;
 // in the action instead of one per keystroke-level state change.
 export const LIVE_SNAPSHOT_DEBOUNCE_MS = 300;
 
+// How long a toast stays up before it removes itself. Long enough to read a
+// short sentence, short enough that a burst of them (a run of players joining)
+// does not queue up into a wall.
+export const TOAST_LIFETIME_MS = 3000;
+
 // Lobby reorder buttons defer the actual swap: on mobile, swapping the rows
 // synchronously re-renders while the tap's hover/active state is still held,
 // leaving that highlight stuck on a DIFFERENT row's button after the press.

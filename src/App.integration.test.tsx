@@ -4,7 +4,7 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import App from './App';
 import * as diceLogic from './utils/diceLogic';
 import { useGameStore, _resetTimersForTests } from './store/useGameStore';
-import { DICE_PANEL_ENTRANCE_MS } from './utils/uiTimings';
+import { DICE_PANEL_ENTRANCE_MS, TOAST_LIFETIME_MS } from './utils/uiTimings';
 
 // Mock confetti
 vi.mock('canvas-confetti', () => ({
@@ -199,6 +199,39 @@ describe('App Integration (End-to-End)', () => {
     fireEvent.click(screen.getByText('home.reconnect.returnMenu'));
     expect(screen.queryByText('home.reconnect.title')).not.toBeInTheDocument();
     expect(useGameStore.getState().mode).toBe('local');
+  });
+
+  it('announces toasts, which are otherwise only ever seen', () => {
+    // Every toast the app raises is transient and lives in a corner nothing
+    // moves focus to: an invite link copied, a dice game resumed, a join
+    // refused, a player kicked. Without a live region none of it is announced,
+    // and a screen reader user is simply not told any of those things happened.
+    render(<App />);
+
+    act(() => {
+      useGameStore.setState({ toasts: [{ id: 1, message: 'Host ended game early' }] });
+    });
+
+    const live = screen.getByRole('status');
+    expect(live).toHaveAttribute('aria-live', 'polite');
+    expect(live).toHaveTextContent('Host ended game early');
+  });
+
+  it('clears a toast once its time is up', () => {
+    vi.useFakeTimers();
+    render(<App />);
+
+    act(() => {
+      useGameStore.setState({ toasts: [{ id: 1, message: 'Host ended game early' }] });
+    });
+
+    act(() => { vi.advanceTimersByTime(TOAST_LIFETIME_MS - 1); });
+    expect(screen.getByText('Host ended game early')).toBeInTheDocument();
+
+    act(() => { vi.advanceTimersByTime(1); });
+
+    expect(useGameStore.getState().toasts).toHaveLength(0);
+    vi.useRealTimers();
   });
 
   it('renders RestoreSessionPopup and clears session when clicking Cancel', async () => {
