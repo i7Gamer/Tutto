@@ -204,11 +204,32 @@ export const updateGlobalStats = async (stats: StatsPayload): Promise<number> =>
   if (!stats || Object.keys(stats).length === 0) return 0;
 
   // A game is only actually being recorded when the payload carries the
-  // isDefaultGame flag (buildGlobalStatsPayload always includes it). Partial
-  // updates — e.g. an admin POST /api/stats/global adjusting one counter —
-  // must not count a phantom game: these two columns previously always summed
-  // to +1 per call, drifting apart from totalGamesPlayed.
+  // isDefaultGame flag (the socket handler always sets it, from the mode the
+  // server froze at kickoff). Partial updates — e.g. an admin
+  // POST /api/stats/global adjusting one counter — must not count a phantom
+  // game: the games-played-by-type columns previously always summed to +1 per
+  // call, drifting apart from totalGamesPlayed.
   const recordsGame = 'isDefaultGame' in stats;
+
+  // A custom game leaves exactly one mark on the global statistics: that it
+  // happened. None of its sums, and — the reason this branch exists — none of
+  // its records. A shortened winning score or a restacked deck buys a "fastest
+  // win" and a "highest turn" no normal game can beat, and those are MAX/MIN
+  // columns: once written, nothing dislodges them.
+  //
+  // Lives here rather than in the caller so the socket path and the admin HTTP
+  // path cannot come to different conclusions about the same payload.
+  if (recordsGame && !stats.isDefaultGame) {
+    try {
+      const changes = await knex('global_statistics').where({ id: 1 })
+        .update({ customGamesPlayed: knex.raw('global_statistics.customGamesPlayed + 1') });
+      if (changes === 0) throw new Error('global_statistics row missing — run migrations');
+      return changes;
+    } catch (err) {
+      console.error('updateGlobalStats error:', err);
+      throw err;
+    }
+  }
 
   const globalMapping: Record<string, number> = {
     totalGamesPlayed: (stats.gamesPlayed as number | undefined) ?? 0,
@@ -226,8 +247,9 @@ export const updateGlobalStats = async (stats: StatsPayload): Promise<number> =>
     totalKniffelCompleted: (stats.totalKniffelCompleted as number | undefined) ?? 0,
     totalFeuerwerkPoints: (stats.totalFeuerwerkPoints as number | undefined) ?? 0,
     totalx2Points: (stats.totalx2Points as number | undefined) ?? 0,
+    // Only the default-game counter here: a custom game never reaches this
+    // far, and a partial update records no game at all.
     defaultGamesPlayed: recordsGame && stats.isDefaultGame ? 1 : 0,
-    customGamesPlayed: recordsGame && !stats.isDefaultGame ? 1 : 0,
     totalFeuerwerkBusts: (stats.totalFeuerwerkBusts as number | undefined) ?? 0,
     totalx2Busts: (stats.totalx2Busts as number | undefined) ?? 0,
     totalBusts: (stats.totalBusts as number | undefined) ?? 0,

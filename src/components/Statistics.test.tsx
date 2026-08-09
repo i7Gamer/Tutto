@@ -432,4 +432,32 @@ describe('Statistics Component', () => {
 
     expect(screen.queryByText('🔥 2')).not.toBeInTheDocument();
   });
+
+  describe('custom games on the global tab', () => {
+    const showGlobalTab = async (globalStats: Record<string, number>) => {
+      global.fetch = vi.fn((url) => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(url.includes('global') ? globalStats : { gamesPlayed: 1, wins: 1, totalPlaytime: 100 }),
+      }));
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+      fireEvent.click(screen.getByRole('tab', { name: /statistics\.globalCommunity/i }));
+      await waitFor(() => expect(screen.getByText('statistics.totalGames')).toBeInTheDocument());
+    };
+
+    it('says how many custom games were played but not counted', async () => {
+      await showGlobalTab({ totalGamesPlayed: 20, totalPlaytime: 1000, customGamesPlayed: 7 });
+      expect(screen.getByText('statistics.customGamesNotCounted')).toBeInTheDocument();
+    });
+
+    it('stays quiet when no custom game has ever been played', async () => {
+      await showGlobalTab({ totalGamesPlayed: 20, totalPlaytime: 1000, customGamesPlayed: 0 });
+      expect(screen.queryByText('statistics.customGamesNotCounted')).not.toBeInTheDocument();
+    });
+
+    it('stays quiet for a server that predates the counter', async () => {
+      await showGlobalTab({ totalGamesPlayed: 20, totalPlaytime: 1000 });
+      expect(screen.queryByText('statistics.customGamesNotCounted')).not.toBeInTheDocument();
+    });
+  });
 });

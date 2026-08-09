@@ -236,6 +236,67 @@ describe('Database Statistics Integration', () => {
     expect(after.defaultGamesPlayed).toBe(before.defaultGamesPlayed);
   });
 
+  describe('a custom game contributes nothing but its own count', () => {
+    it('leaves every running total untouched', async () => {
+      const before = await database.getGlobalStats();
+
+      await database.updateGlobalStats({
+        gamesPlayed: 1, totalPlaytime: 999, totalScore: 50000, totalTurns: 40,
+        totalBusts: 12, totalKniffel: 3, totalPlayersSum: 6, totalRoundsSum: 20,
+        isDefaultGame: false,
+      });
+
+      const after = await database.getGlobalStats();
+      expect(after.totalGamesPlayed).toBe(before.totalGamesPlayed);
+      expect(after.totalPlaytime).toBe(before.totalPlaytime);
+      expect(after.totalScore).toBe(before.totalScore);
+      expect(after.totalTurns).toBe(before.totalTurns);
+      expect(after.totalBusts).toBe(before.totalBusts);
+      expect(after.totalKniffel).toBe(before.totalKniffel);
+      expect(after.totalPlayersSum).toBe(before.totalPlayersSum);
+      expect(after.totalRoundsSum).toBe(before.totalRoundsSum);
+      // …and still records that it happened.
+      expect(after.customGamesPlayed).toBe(before.customGamesPlayed + 1);
+    });
+
+    it('cannot take a record, however good the numbers look', async () => {
+      // The whole point of the split: a shortened winning score or a stacked
+      // deck buys a "fastest win" and a "highest turn" that no normal game can
+      // beat, and those are MAX/MIN columns — once written, they stick.
+      await database.updateGlobalStats({
+        gamesPlayed: 1, highestTurnScore: 5000, fastestWinTurns: 20,
+        longestGameRounds: 30, isDefaultGame: true,
+      });
+      const before = await database.getGlobalStats();
+
+      await database.updateGlobalStats({
+        gamesPlayed: 1, highestTurnScore: 999999, fastestWinTurns: 1,
+        fastestLossTurns: 1, mostPlayersInGame: 99, longestGameRounds: 99999,
+        highestFeuerwerkTurnScore: 999999, highestX2TurnScore: 999999,
+        isDefaultGame: false,
+      });
+
+      const after = await database.getGlobalStats();
+      expect(after.highestTurnScore).toBe(before.highestTurnScore);
+      expect(after.fastestWinTurns).toBe(before.fastestWinTurns);
+      expect(after.fastestLossTurns).toBe(before.fastestLossTurns);
+      expect(after.mostPlayersInGame).toBe(before.mostPlayersInGame);
+      expect(after.longestGameRounds).toBe(before.longestGameRounds);
+      expect(after.highestFeuerwerkTurnScore).toBe(before.highestFeuerwerkTurnScore);
+      expect(after.highestX2TurnScore).toBe(before.highestX2TurnScore);
+    });
+
+    it('reports the same missing-row failure the normal path does', async () => {
+      // The custom branch returns early — without its own guard it would
+      // silently "succeed" against a database that was never migrated.
+      await database.knex('global_statistics').where({ id: 1 }).del();
+      await expect(database.updateGlobalStats({ gamesPlayed: 1, isDefaultGame: false }))
+        .rejects.toThrow('global_statistics row missing');
+
+      await database.knex('global_statistics').insert({ id: 1 });
+    });
+  });
+
   it('should track currentWinStreak/bestWinStreak across consecutive wins, a loss reset, and a longer streak', async () => {
     const mockDeviceId = 'win-streak-device-' + Date.now();
 

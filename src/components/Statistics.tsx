@@ -72,6 +72,8 @@ interface GlobalStats {
   totalRoundsSum?: number;
   highestFeuerwerkTurnScore?: number;
   highestX2TurnScore?: number;
+  defaultGamesPlayed?: number;
+  customGamesPlayed?: number;
 }
 
 // The run of wins at which the streak tile starts celebrating — flame, pulse
@@ -457,7 +459,15 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
             <motion.div key="global" role="tabpanel" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="flex flex-col w-full">
               <div className="text-center mb-8">
                 <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">{t('statistics.globalCommunityTitle', 'Global Community Statistics')}</h3>
-                <p className="text-gray-500 dark:text-gray-400 font-medium">{t('statistics.globalDescription', 'Aggregated across all online games played.')}</p>
+                <p className="text-gray-500 dark:text-gray-400 font-medium">{t('statistics.globalDescription', 'Aggregated across all normal online games played.')}</p>
+                {/* Custom games are recorded as nothing but this count — see
+                    updateGlobalStats. Saying so is what keeps the totals above
+                    from reading as "every game ever played". */}
+                {!!g?.customGamesPlayed && (
+                  <p className="text-sm text-gray-400 dark:text-gray-500 mt-2">
+                    {t('statistics.customGamesNotCounted', 'Custom games played: {{count}} (not counted here)', { count: g.customGamesPlayed })}
+                  </p>
+                )}
               </div>
               {!g || !g.totalGamesPlayed ? (
                 <div className="text-center text-gray-500 dark:text-gray-400 py-10 bg-black/5 dark:bg-white/5 rounded-2xl border border-gray-100 dark:border-slate-700">
