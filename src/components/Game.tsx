@@ -90,6 +90,7 @@ export default function Game() {
     deviceId,
     setPreGameStats,
     turnTimeRemaining,
+    addToast,
   } = game;
 
   // Keeps the screen awake for the whole gameplay session, on every device —
@@ -177,14 +178,18 @@ export default function Game() {
   // (which only fires from nextTurn at game-over). EndScreen later diffs the
   // post-game stats against this snapshot to detect genuinely new personal
   // records, rather than merely tying an older one.
+  // Snapshotted rather than depended on: the values are read for the game this
+  // component mounted for, and a later change to either is not a new game.
+  const atGameStartRef = useRef({ isOnline, deviceId });
   useEffect(() => {
-    if (!isOnline || !deviceId) return;
+    const { isOnline: onlineAtStart, deviceId: deviceAtStart } = atGameStartRef.current;
+    if (!onlineAtStart || !deviceAtStart) return;
     setPreGameStats(null);
     let cancelled = false;
 
     void (async () => {
       try {
-        const res = await fetch(`/api/stats/${deviceId}`);
+        const res = await fetch(`/api/stats/${deviceAtStart}`);
         if (!res.ok) return;
         const data = await parseJsonObject<Partial<PreGameStats>>(res);
         if (cancelled || !data) return;
@@ -201,8 +206,7 @@ export default function Game() {
     })();
 
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [setPreGameStats]);
 
   // justReconnected is set — and self-cleared on the next gameState event it
   // isn't itself part of — by the store; this effect only reads it to decide
@@ -212,6 +216,11 @@ export default function Game() {
   // effect), which updates liveTurnState — a dependency here — and would
   // otherwise re-run this effect while justReconnected is still waiting on the
   // store's next gameState round-trip to clear it.
+  //
+  // The turn-key inputs below are honest dependencies, so this now also re-runs
+  // on any ordinary turn or card change. Both one-shot refs make those runs
+  // return immediately, and running with the current turn is the whole point:
+  // the key it builds has to describe the turn actually on screen.
   useEffect(() => {
     if (isOnline && justReconnected) {
       if (onlineReconnectHandledRef.current) return;
@@ -223,8 +232,15 @@ export default function Game() {
           turnKey: buildTurnKey(roomId, round, currentPlayerIndex, currentCard),
         };
         localStorage.setItem('tutto_dice_turn_state', JSON.stringify(snapshotWithPlayer));
-        setShowDiceGame(true); // eslint-disable-line react-hooks/set-state-in-effect
-        game.addToast(t('game.resumingDiceGame', 'Resuming your dice game...'));
+        // The one suppression left in this file, and it is not a stale-render
+        // case like the ones above: reopening the panel here is one of three
+        // things that happen together when a reconnect lands — the cache entry
+        // is written, the panel comes back, the player is told why. There is no
+        // render-time expression of that, because the other two are side
+        // effects and an effect is exactly where they belong.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setShowDiceGame(true);
+        addToast(t('game.resumingDiceGame', 'Resuming your dice game...'));
       }
       return;
     }
@@ -240,13 +256,15 @@ export default function Game() {
 
       if (parsed && parsed.turnKey === expectedTurnKey) {
         setShowDiceGame(true);
-        game.addToast(t('game.resumingDiceGame', 'Resuming your dice game...'));
+        addToast(t('game.resumingDiceGame', 'Resuming your dice game...'));
       } else {
         localStorage.removeItem('tutto_dice_turn_state');
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [justReconnected, liveTurnState, isMyTurn, effectiveDiceMode, isOnline]);
+  }, [
+    justReconnected, liveTurnState, isMyTurn, effectiveDiceMode, isOnline,
+    currentCard, currentPlayer?.name, currentPlayerIndex, roomId, round, addToast, t,
+  ]);
 
   useEffect(() => {
     let soundTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -270,8 +288,10 @@ export default function Game() {
       clearTimeout(soundTimeout);
       clearTimeout(turnTimeout);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOnline, isMyTurn, currentCard, cards?.length]);
+  // cards?.length is deliberate and not incidental: drawing another Stop card
+  // leaves currentCard unchanged, and the deck shrinking is what tells the two
+  // draws apart so the buzzer sounds again for the second one.
+  }, [isOnline, isMyTurn, currentCard, cards?.length, nextTurn]);
 
   useEffect(() => {
     confettiFiredRef.current = false;
