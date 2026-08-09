@@ -263,11 +263,42 @@ describe('server/package.json declares what the server imports', () => {
   });
 });
 
+/**
+ * Whether a COPY source covers a repo-relative path.
+ *
+ * `*` matches within one path segment and nothing across it, exactly as
+ * Docker's own glob does — which is the entire point of the check below.
+ * A source with no wildcard is a file or a whole directory.
+ */
+const matchesCopySource = (source: string, file: string): boolean => {
+  if (!source.includes('*')) return file === source || file.startsWith(`${source}/`);
+  const pattern = source
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '[^/]*');
+  return new RegExp(`^${pattern}$`).test(file);
+};
+
 describe('files the Docker image must copy', () => {
   const isCoveredByImage = (repoRelativePath: string): boolean =>
     IMAGE_EXTERNAL_PATHS.some(
       allowed => repoRelativePath === allowed || repoRelativePath.startsWith(`${allowed}/`)
     );
+
+  it('copies every production file inside server/, subdirectories included', () => {
+    // The server is copied by `COPY server/*.ts`, and that glob is SHALLOW:
+    // a module moved into server/anything/ is silently left out of the image
+    // and the container dies at startup with "Cannot find module". The
+    // cross-boundary check below would not notice — the file is still inside
+    // server/ — so nothing else in this suite covers it.
+    const sources = readDockerfileCopySources();
+    const uncopied = graph.files
+      .map(toRepoRelative)
+      .filter(file => file.startsWith('server/'))
+      .filter(file => !sources.some(source => matchesCopySource(source, file)))
+      .sort();
+
+    expect(uncopied).toEqual([]);
+  });
 
   it('imports nothing outside server/ that the image does not copy', () => {
     const uncopied = graph.files
