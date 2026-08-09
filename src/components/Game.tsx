@@ -123,9 +123,14 @@ export default function Game() {
   // a "turn started" transition — only a later false-to-true flip does.
   const wasMyTurnRef = useRef(!!isMyTurn);
 
-  useEffect(() => {
-    if (!isMyTurn) setShowDiceGame(false); // eslint-disable-line react-hooks/set-state-in-effect
-  }, [isMyTurn]);
+  // Both of these correct state during render rather than from an effect. An
+  // effect renders the stale value first and fixes it on the next pass, and
+  // for the dice panel that stale frame is a modal covering the whole screen
+  // on a turn that has already moved on to somebody else.
+  if (showDiceGame && !isMyTurn) setShowDiceGame(false);
+  // Readiness must not outlive the panel it belongs to, or the next opening
+  // starts already "ready" and auto-rolls before its entrance has played.
+  if (!showDiceGame && diceGamePanelReady) setDiceGamePanelReady(false);
 
   // Local hot-seat has no meaning for "your turn" haptics — every turn is
   // "mine" there, since one device is passed around the table.
@@ -160,13 +165,7 @@ export default function Game() {
   }, [showDiceGame]);
 
   useEffect(() => {
-    if (!showDiceGame) {
-      // Resets synchronously (not via a timer) so the very next opening can't
-      // race a stale `true` from the previous session into an instant re-roll.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setDiceGamePanelReady(false);
-      return;
-    }
+    if (!showDiceGame) return;
     const timer = setTimeout(() => setDiceGamePanelReady(true), DICE_PANEL_ENTRANCE_MS);
     return () => clearTimeout(timer);
   }, [showDiceGame]);

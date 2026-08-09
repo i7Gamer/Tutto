@@ -1093,6 +1093,36 @@ describe('Game Component Integration', () => {
       expect(renderCount).toBe(countAfterMount);
     });
 
+    it('takes the dice panel down in the same commit the turn moves away', () => {
+      // The panel is a modal over the whole screen. Closing it from an effect
+      // means committing it once more first — on a turn that already belongs
+      // to somebody else — and only taking it down on the pass after that.
+      useGameStore.setState({
+        diceMode: 'digital',
+        players: [
+          { name: 'Alice', socketId: 'socket1', score: 0, position: 1 },
+          { name: 'Bob', socketId: 'socket2', score: 0, position: 2 },
+        ],
+      });
+
+      let renderCount = 0;
+      render(
+        <Profiler id="game" onRender={() => { renderCount += 1; }}>
+          <Game />
+        </Profiler>
+      );
+      fireEvent.click(screen.getByText(/game.controls.rollDice/i));
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+
+      const countAfterOpen = renderCount;
+      act(() => {
+        useGameStore.setState({ currentPlayerIndex: 1 });
+      });
+
+      expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
+      expect(renderCount).toBe(countAfterOpen + 1);
+    });
+
     it('does re-render when a field it actually reads (currentCard) changes', () => {
       let renderCount = 0;
       render(
