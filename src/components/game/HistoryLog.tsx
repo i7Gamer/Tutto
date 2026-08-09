@@ -28,6 +28,15 @@ export default function HistoryLog() {
     const cardName = getCardName(entry.card);
     const name = entry.playerName;
 
+    // A classic chain shows every card of the turn, in draw order.
+    if (entry.cards && entry.cards.length > 1) {
+      const chain = entry.cards.map(getCardName).join(' → ');
+      if (entry.type === 'success') {
+        return t('history.chainSuccess', { name, score: entry.score, chain, defaultValue: `${name} scored ${entry.score} pts (${chain})` });
+      }
+      return t('history.chainBust', { name, chain, defaultValue: `${name} lost everything (${chain})` });
+    }
+
     if (entry.type === 'skip') {
       return t('history.skip', { name, defaultValue: `${name} skipped (Stop)` });
     }

@@ -10,7 +10,7 @@ import { MAX_PLAYER_NAME_LENGTH, isNormalizedConfig } from '../utils/configValid
 import { zeroedPlayerStats } from '../utils/playerStats';
 import playerColorsData from '../../playerColors.json';
 import { v4 as uuidv4 } from 'uuid';
-import type { Player, CoreGameState, Toast } from '../types';
+import type { Player, CoreGameState, Toast, CardType } from '../types';
 import { MAX_HISTORY_LOG_SIZE } from '../types';
 import { getSocket } from './socketRef';
 import type { GameStore, ImmerStateCreator } from './storeTypes';
@@ -28,6 +28,7 @@ type GameSlice = Pick<GameStore,
   | 'addToast' | 'removeToast' | 'sendReaction' | 'removeReaction'
   | 'addPlayer' | 'removePlayer' | 'reorderPlayers' | 'changePlayerColor' | 'changeMyColor'
   | 'setLiveTurnState' | 'startGame' | 'endGame' | 'nextTurn' | 'undo'
+  | 'drawCardMidTurn'
   | 'buildGlobalStatsPayload' | 'setPreGameStats'
 >;
 
@@ -117,7 +118,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
         // turn apart from a stale snapshot left behind by an earlier turn — e.g.
         // one the server's turn timer advanced past while this player was
         // disconnected, which never got the chance to clear its own cache entry.
-        turnKey: buildTurnKey(s.roomId, s.round, s.currentPlayerIndex, s.currentCard),
+        turnKey: buildTurnKey(s.roomId, s.round, s.currentPlayerIndex, s.currentCard, s.ruleset),
       };
       localStorage.setItem(DICE_TURN_STATE_KEY, JSON.stringify(snapshotWithPlayer));
     }
@@ -156,6 +157,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.previousHighestFeuerwerkTurnScore = 0;
       state.previousHighestX2TurnScore = 0;
       state.previousPlayerName = null;
+      state.previousTurnSummary = null;
       state.status = 'playing';
 
       // Same constrained shuffle the mid-game rebuilds use (see buildDeck) —
@@ -198,6 +200,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       previousHighestFeuerwerkTurnScore: 0,
       previousHighestX2TurnScore: 0,
       previousPlayerName: null,
+      previousTurnSummary: null,
       chartValues: [],
       chartNames: [],
       chartLabels: [],
@@ -207,7 +210,29 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     if (get().isOnline) get().pushState();
   },
 
-  nextTurn: (scoreInput, isSuccess = false) => {
+  // Classic chains only: the active player reveals the next card mid-turn
+  // after a tutto. Same reshuffle rule as calculateNextTurn's next-player
+  // draw. The server side already works — the active player may push
+  // currentCard/cards, and the timer restarts on the card change.
+  drawCardMidTurn: (): CardType | null => {
+    const s = get();
+    if (s.finished || s.currentPlayerIndex === null) return null;
+    let deck = [...s.cards];
+    if (deck.length === 0) deck = buildDeck(s.initialCards);
+    const drawn = deck.shift() ?? null;
+    if (!drawn) return null;
+    set((state) => {
+      state.cards = deck;
+      state.currentCard = drawn;
+    });
+    if (get().isOnline) {
+      get().pushState();
+      get().syncOnlineTimers();
+    }
+    return drawn;
+  },
+
+  nextTurn: (scoreInput, isSuccess = false, turnSummary) => {
     const s = get();
     if (s.finished) return;
     if (s.currentPlayerIndex === null) return;
@@ -216,6 +241,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       s as CoreGameState & { currentPlayerIndex: number },
       scoreInput,
       isSuccess,
+      turnSummary,
     );
 
     set((state) => {
@@ -227,6 +253,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.previousHighestFeuerwerkTurnScore = result.previousHighestFeuerwerkTurnScore;
       state.previousHighestX2TurnScore = result.previousHighestX2TurnScore;
       state.previousPlayerName = result.previousPlayerName;
+      state.previousTurnSummary = result.previousTurnSummary;
 
       if (result.isRoundEnd) {
         state.chartValues.forEach((vals, i) => vals.push(result.players[i].score));
@@ -269,7 +296,9 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
 
   undo: () => {
     const s = get();
-    if (!s.previousCard || s.previousCard === 'Stop') return;
+    // A chain that ended on a drawn Stop card is a real committed turn and
+    // stays undoable — only the bare modernized Stop (nothing happened) is not.
+    if (!s.previousCard || (s.previousCard === 'Stop' && !s.previousTurnSummary)) return;
 
     const result = calculateUndo(s);
     if (!result) return;
@@ -292,6 +321,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.previousHighestFeuerwerkTurnScore = 0;
       state.previousHighestX2TurnScore = 0;
       state.previousPlayerName = null;
+      state.previousTurnSummary = null;
       // The turn being undone may have been mid-roll (digital dice) — its
       // snapshot no longer corresponds to anything once the score is reverted
       // and the turn reassigned, so it must not keep showing to spectators.

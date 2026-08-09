@@ -1308,4 +1308,232 @@ describe('coreGameEngine', () => {
       expect(resultFail.historyEntry.score).toBe(0);
     });
   });
+
+  describe('classic turn summaries (calculateNextTurn with turnSummary)', () => {
+    const summary = (overrides = {}) => ({
+      cards: [{ card: '300', completed: true }],
+      tuttoCount: 1,
+      plusMinusSuccesses: 0,
+      ended: 'banked',
+      ...overrides,
+    });
+
+    it('takes the client-computed score verbatim and owns per-card counters', () => {
+      // Chain: 300 bonus (tutto) → Kniffel (straight) → banked. The client
+      // computed 300+dice+2000 = 2800; the engine must not add anything.
+      const result = calculateNextTurn(
+        makeState({ currentCard: 'Kniffel' }),
+        2800, true,
+        summary({
+          cards: [{ card: '300', completed: true }, { card: 'Kniffel', completed: true }],
+          tuttoCount: 2,
+        }),
+      );
+      const alice = result.players[0];
+      expect(alice.score).toBe(2800);
+      expect(alice.timesKniffelCompleted).toBe(1);
+      expect(alice.totalTurns).toBe(1);
+      expect(alice.busts).toBe(0);
+      expect(result.historyEntry.type).toBe('success');
+      expect(result.historyEntry.card).toBe('300');           // first chain card
+      expect(result.historyEntry.cards).toEqual(['300', 'Kniffel']);
+      expect(result.historyEntry.score).toBe(2800);
+      expect(result.previousTurnSummary).toMatchObject({ tuttoCount: 2, ended: 'banked' });
+    });
+
+    it('a null forfeits everything: score 0, one bust, per-card counters still recorded', () => {
+      const result = calculateNextTurn(
+        makeState({ currentCard: 'x2' }),
+        0, false,
+        summary({
+          cards: [{ card: '600', completed: true }, { card: 'x2', completed: false }],
+          ended: 'null',
+        }),
+      );
+      const alice = result.players[0];
+      expect(alice.score).toBe(0);
+      expect(alice.busts).toBe(1);
+      expect(alice.timesx2Received).toBe(1);
+      // No per-card bust attribution in classic:
+      expect(alice.x2Busts).toBe(0);
+      expect(result.historyEntry.type).toBe('bust');
+      expect(result.historyEntry.cards).toEqual(['600', 'x2']);
+    });
+
+    it('a chain-ending Stop card is a forfeit (type bust), counted as skipped but not as a dice bust', () => {
+      const result = calculateNextTurn(
+        makeState({ currentCard: 'Stop' }),
+        0, false,
+        summary({
+          cards: [{ card: '400', completed: true }, { card: 'Stop', completed: false }],
+          ended: 'stopCard',
+        }),
+      );
+      const alice = result.players[0];
+      expect(alice.timesSkipped).toBe(1);
+      expect(alice.busts).toBe(0);
+      expect(result.historyEntry.type).toBe('bust');
+      expect(result.previousTurnSummary?.ended).toBe('stopCard');
+    });
+
+    it('atomic Plus/Minus: deductions apply only when the turn banks, once per success, clamped at 0', () => {
+      // Bob leads with 1500; Alice banks a chain containing two successful
+      // Plus/Minus cards. Bob is deducted twice, but never below 0.
+      const state = makeState({
+        players: [makePlayer('Alice'), makePlayer('Bob', { score: 1500 })],
+        currentCard: 'Plus_Minus',
+      });
+      const result = calculateNextTurn(
+        state, 2000, true,
+        summary({
+          cards: [{ card: 'Plus_Minus', completed: true }, { card: 'Plus_Minus', completed: true }],
+          tuttoCount: 2,
+          plusMinusSuccesses: 2,
+        }),
+      );
+      const [alice, bob] = result.players;
+      expect(alice.score).toBe(2000);
+      expect(alice.timesPlusMinusCompleted).toBe(2);
+      expect(bob.score).toBe(0);                       // 1500 → 500 → clamped 0
+      expect(bob.times1000PointsDeducted).toBe(2);
+      expect(result.historyEntry.deductedPlayers).toEqual(['Bob', 'Bob']);
+      expect(result.previousLeaders).toEqual([expect.objectContaining({ name: 'Bob', score: 1500 })]);
+      expect(result.previousTurnSummary?.deductedPlayers).toEqual(['Bob', 'Bob']);
+    });
+
+    it('atomic Plus/Minus: a forfeited chain never deducts, even with successes recorded', () => {
+      const state = makeState({
+        players: [makePlayer('Alice'), makePlayer('Bob', { score: 1500 })],
+        currentCard: '200',
+      });
+      const result = calculateNextTurn(
+        state, 0, false,
+        summary({
+          cards: [{ card: 'Plus_Minus', completed: true }, { card: '200', completed: false }],
+          tuttoCount: 1,
+          plusMinusSuccesses: 1,
+          ended: 'null',
+        }),
+      );
+      expect(result.players[1].score).toBe(1500);
+      expect(result.players[1].times1000PointsDeducted).toBe(0);
+      expect(result.players[0].timesPlusMinusCompleted).toBe(1); // the card WAS completed
+      expect(result.players[0].busts).toBe(1);
+    });
+
+    it('does not track per-card turn records (highest Feuerwerk/x2 turn) for classic turns', () => {
+      const result = calculateNextTurn(
+        makeState({ currentCard: 'Feuerwerk' }),
+        900, true,
+        summary({ cards: [{ card: 'Feuerwerk', completed: true }] }),
+      );
+      const alice = result.players[0];
+      expect(alice.highestTurnScore).toBe(900);
+      expect(alice.highestFeuerwerkTurnScore ?? 0).toBe(0);
+      expect(alice.feuerwerkPointsScored).toBe(0);
+      expect(alice.timesFeuerwerkReceived).toBe(1);
+    });
+
+    it('a Kleeblatt completed in a chain still wins the game instantly', () => {
+      const result = calculateNextTurn(
+        makeState({ currentCard: 'Kleeblatt' }),
+        1200, true,
+        summary({
+          cards: [{ card: '300', completed: true }, { card: 'Kleeblatt', completed: true }],
+          tuttoCount: 3,
+        }),
+      );
+      expect(result.isGameOver).toBe(true);
+      expect(result.players[0].timesKleeblattCompleted).toBe(1); // once, not twice
+      expect(result.historyEntry.cards).toEqual(['300', 'Kleeblatt']);
+    });
+
+    describe('undo of a classic chain', () => {
+      const playChain = () => {
+        const state = makeState({
+          players: [makePlayer('Alice'), makePlayer('Bob', { score: 1500 })],
+          currentCard: 'Kniffel',
+          cards: ['400', '500'],
+        });
+        const result = calculateNextTurn(
+          state, 3600, true,
+          summary({
+            cards: [
+              { card: 'Plus_Minus', completed: true },
+              { card: '600', completed: true },
+              { card: 'Kniffel', completed: true },
+            ],
+            tuttoCount: 3,
+            plusMinusSuccesses: 1,
+          }),
+        );
+        return { state, result };
+      };
+
+      const stateAfter = (result) => ({
+        players: result.players,
+        currentPlayerIndex: result.nextIndex,
+        round: result.nextRound,
+        currentCard: result.drawnCard,
+        cards: result.newDeck,
+        winningScore: 6000,
+        initialCards: { '200': 5 },
+        previousCard: result.previousCard,
+        previousScore: result.previousScore,
+        previousLeaders: result.previousLeaders,
+        previousWasBust: result.previousWasBust,
+        previousHighestTurnScore: result.previousHighestTurnScore,
+        previousHighestFeuerwerkTurnScore: result.previousHighestFeuerwerkTurnScore,
+        previousHighestX2TurnScore: result.previousHighestX2TurnScore,
+        previousPlayerName: result.previousPlayerName,
+        previousTurnSummary: result.previousTurnSummary,
+        finished: false,
+      });
+
+      it('restores every chain card to the deck in replay order and reverses all counters', () => {
+        const { result } = playChain();
+        const undo = calculateUndo(stateAfter(result));
+        expect(undo).not.toBeNull();
+        // Replay order: first chain card re-dealt, remaining chain cards on
+        // top of the deck, then the next player's card, then the rest.
+        expect(undo.drawnCard).toBe('Plus_Minus');
+        expect(undo.newDeck).toEqual(['600', 'Kniffel', result.drawnCard, ...result.newDeck]);
+
+        const alice = undo.players[0];
+        const bob = undo.players[1];
+        expect(alice.score).toBe(0);
+        expect(alice.totalTurns).toBe(0);
+        expect(alice.timesKniffelCompleted).toBe(0);
+        expect(alice.timesPlusMinusCompleted).toBe(0);
+        expect(bob.score).toBe(1500);
+        expect(bob.times1000PointsDeducted).toBe(0);
+      });
+
+      it('a chain that ended on a drawn Stop card IS undoable, a bare Stop is not', () => {
+        const chainedStop = calculateNextTurn(
+          makeState({ currentCard: 'Stop' }),
+          0, false,
+          summary({ cards: [{ card: '400', completed: true }, { card: 'Stop', completed: false }], ended: 'stopCard' }),
+        );
+        const undoable = calculateUndo(stateAfter(chainedStop));
+        expect(undoable).not.toBeNull();
+        expect(undoable.players[0].timesSkipped).toBe(0);
+        expect(undoable.drawnCard).toBe('400');
+
+        const bareStop = calculateNextTurn(makeState({ currentCard: 'Stop' }), 0, false);
+        expect(calculateUndo(stateAfter(bareStop))).toBeNull();
+      });
+
+      it('a forfeited chain undo reverses the bust counter', () => {
+        const busted = calculateNextTurn(
+          makeState({ currentCard: '200' }),
+          0, false,
+          summary({ cards: [{ card: '200', completed: false }], tuttoCount: 0, ended: 'null' }),
+        );
+        expect(busted.players[0].busts).toBe(1);
+        const undo = calculateUndo(stateAfter(busted));
+        expect(undo.players[0].busts).toBe(0);
+      });
+    });
+  });
 });

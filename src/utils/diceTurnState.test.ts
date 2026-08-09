@@ -67,7 +67,7 @@ describe('diceTurnState', () => {
     });
 
     it('treats a null roomId as the local-game slot', () => {
-      expect(buildTurnKey(null, 1, 0, '200')).toBe('local:1:0:200');
+      expect(buildTurnKey(null, 1, 0, '200')).toBe('local:1:0:200:modernized');
     });
 
     it('is identical for identical inputs (stable/deterministic)', () => {

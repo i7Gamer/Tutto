@@ -31,7 +31,7 @@ export const GAME_STATE_SYNC_KEYS = [
   'currentPlayerIndex', 'finished', 'chartValues', 'chartNames', 'chartLabels',
   'gameTimeInSeconds', 'previousCard', 'previousScore', 'previousLeaders',
   'previousWasBust', 'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
-  'previousHighestX2TurnScore', 'previousPlayerName', 'liveTurnState',
+  'previousHighestX2TurnScore', 'previousPlayerName', 'previousTurnSummary', 'liveTurnState',
   'enforcedDiceMode', 'ruleset', 'historyLog',
 ] as const satisfies readonly (keyof GameStore)[];
 
@@ -366,8 +366,8 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
         previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
         previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore,
-        previousPlayerName, chartValues, chartNames, chartLabels, status, liveTurnState, enforcedDiceMode,
-        ruleset, historyLog,
+        previousPlayerName, previousTurnSummary, chartValues, chartNames, chartLabels, status,
+        liveTurnState, enforcedDiceMode, ruleset, historyLog,
       } = s;
       socket.emit('pushState', {
         roomId: s.roomId,
@@ -376,8 +376,8 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
           previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
           previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore,
-          previousPlayerName, chartValues, chartNames, chartLabels, status, liveTurnState, enforcedDiceMode,
-          ruleset, historyLog,
+          previousPlayerName, previousTurnSummary, chartValues, chartNames, chartLabels, status,
+          liveTurnState, enforcedDiceMode, ruleset, historyLog,
         },
       });
     }

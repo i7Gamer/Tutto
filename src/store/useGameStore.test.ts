@@ -2700,6 +2700,44 @@ describe('useGameStore', () => {
     });
   });
 
+  describe('drawCardMidTurn (classic chains)', () => {
+    it('pops the deck, sets the drawn card as current, and returns it', () => {
+      useGameStore.setState({
+        currentPlayerIndex: 0,
+        players: [{ name: 'Alice', score: 0 } as never],
+        currentCard: '300',
+        cards: ['x2', 'Stop'],
+        finished: false,
+      });
+      const drawn = useGameStore.getState().drawCardMidTurn();
+      expect(drawn).toBe('x2');
+      const s = useGameStore.getState();
+      expect(s.currentCard).toBe('x2');
+      expect(s.cards).toEqual(['Stop']);
+    });
+
+    it('rebuilds the deck from initialCards when it runs empty', () => {
+      useGameStore.setState({
+        currentPlayerIndex: 0,
+        players: [{ name: 'Alice', score: 0 } as never],
+        currentCard: '300',
+        cards: [],
+        initialCards: { '200': 2 },
+        finished: false,
+      });
+      const drawn = useGameStore.getState().drawCardMidTurn();
+      expect(drawn).toBe('200');
+      expect(useGameStore.getState().cards).toEqual(['200']);
+    });
+
+    it('refuses when no turn is active or the game is finished', () => {
+      useGameStore.setState({ currentPlayerIndex: null, cards: ['200'] });
+      expect(useGameStore.getState().drawCardMidTurn()).toBeNull();
+      useGameStore.setState({ currentPlayerIndex: 0, players: [{ name: 'A', score: 0 } as never], finished: true });
+      expect(useGameStore.getState().drawCardMidTurn()).toBeNull();
+    });
+  });
+
   describe('Dice Game State Persistence', () => {
     it('setLiveTurnState saves state to localStorage', () => {
       const turnState = {
@@ -2719,7 +2757,7 @@ describe('useGameStore', () => {
       const saved = localStorage.getItem('tutto_dice_turn_state');
       expect(saved).toBeDefined();
       // roomId: null, round: 1, currentCard: null after reset() in beforeEach.
-      expect(JSON.parse(saved!)).toEqual({ ...turnState, playerName: 'TestPlayer', turnKey: 'local:1:0:none' });
+      expect(JSON.parse(saved!)).toEqual({ ...turnState, playerName: 'TestPlayer', turnKey: 'local:1:0:none:modernized' });
     });
 
     it('setLiveTurnState does not save null state to localStorage', () => {

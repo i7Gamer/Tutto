@@ -3,7 +3,7 @@ import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
   isValidEnforcedDiceMode, isValidDiceMode, isValidRuleset, VALID_CARD_TYPES, MAX_CARD_COUNT,
 } from '../utils/configValidation';
-import { MAX_HISTORY_LOG_SIZE } from '../types';
+import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS } from '../types';
 import type { CardType, InitialCards } from '../types';
 import type { GameStore, GameMode, GameStatus, ConfigKeys } from './storeTypes';
 
@@ -24,7 +24,7 @@ const STABLE_LOCAL_GAME_KEYS = [
   'turnDuration', 'reconnectTimeout', 'ruleset', 'finished',
   'previousScore', 'previousCard', 'previousLeaders',
   'previousWasBust', 'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
-  'previousHighestX2TurnScore', 'previousPlayerName',
+  'previousHighestX2TurnScore', 'previousPlayerName', 'previousTurnSummary',
   'chartValues', 'chartNames', 'chartLabels', 'status', 'historyLog',
 ] as const satisfies readonly (keyof GameStore)[];
 
@@ -55,6 +55,31 @@ const isPlausiblePlayer = (v: unknown): boolean => {
   return Object.entries(p).every(([key, val]) =>
     key === 'name' || val === undefined || val === null ||
     typeof val === 'string' || typeof val === 'boolean' || isFiniteNumber(val));
+};
+
+// Undo consumes this after a restore: card list, counters and the ended kind
+// must all be sane or reversing the turn would corrupt player stats.
+const TURN_ENDS: readonly string[] = ['banked', 'null', 'stopCard'];
+const isPlausibleTurnSummary = (v: unknown): boolean => {
+  if (v === null) return true;
+  if (typeof v !== 'object') return false;
+  const s = v as Record<string, unknown>;
+  if (!Array.isArray(s.cards) || s.cards.length > MAX_CHAIN_CARDS) return false;
+  const cardsOk = s.cards.every(c => {
+    if (typeof c !== 'object' || c === null) return false;
+    const entry = c as Record<string, unknown>;
+    return (VALID_CARD_TYPES as readonly string[]).includes(entry.card as string)
+      && typeof entry.completed === 'boolean';
+  });
+  if (!cardsOk) return false;
+  if (!Number.isInteger(s.tuttoCount) || (s.tuttoCount as number) < 0) return false;
+  if (!Number.isInteger(s.plusMinusSuccesses) || (s.plusMinusSuccesses as number) < 0) return false;
+  if (!TURN_ENDS.includes(s.ended as string)) return false;
+  if (s.deductedPlayers !== undefined) {
+    if (!Array.isArray(s.deductedPlayers) || s.deductedPlayers.length > MAX_CHAIN_CARDS) return false;
+    if (!s.deductedPlayers.every(n => typeof n === 'string' && n.length > 0)) return false;
+  }
+  return true;
 };
 
 // Display-only, but rendered directly into JSX (HistoryLog.tsx) — a malformed
@@ -105,6 +130,7 @@ const LOCAL_GAME_VALIDATORS: Record<(typeof LOCAL_GAME_STATE_KEYS)[number], (v: 
   previousHighestFeuerwerkTurnScore: isNonNegativeNumber,
   previousHighestX2TurnScore: isNonNegativeNumber,
   previousPlayerName: v => v === null || (typeof v === 'string' && v.length > 0),
+  previousTurnSummary: isPlausibleTurnSummary,
   chartValues: v => Array.isArray(v) && v.every(row => Array.isArray(row) && row.every(isFiniteNumber)),
   chartNames: v => Array.isArray(v) && v.every(name => typeof name === 'string'),
   chartLabels: v => Array.isArray(v) && v.every(isFiniteNumber),

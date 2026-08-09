@@ -72,6 +72,7 @@ const createInitialLocalState = (): Omit<CoreGameState, never> & {
   previousHighestFeuerwerkTurnScore: 0,
   previousHighestX2TurnScore: 0,
   previousPlayerName: null,
+  previousTurnSummary: null,
   chartValues: [],
   chartNames: [],
   chartLabels: [],

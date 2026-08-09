@@ -685,3 +685,179 @@ describe('DiceGame Kleeblatt bust delay', () => {
   });
 });
 
+describe('DiceGame classic chains', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    rollQueue.length = 0;
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  const selectAllValid = () => fireEvent.click(screen.getByText('dice.select_all_valid'));
+  const clickDie = (val: number) => {
+    const dice = screen.getAllByLabelText(`Die showing ${val}, not selected`);
+    fireEvent.click(dice[0]);
+  };
+
+  it('offers bank-or-draw after a tutto and banks with a turn summary', () => {
+    const onComplete = vi.fn();
+    queueRoll([1, 1, 1, 5, 5, 5]); // 1000 + 500, all six scoring
+    render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
+
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.stop_and_score')); // completes the tutto
+
+    // The choice is on screen: bank (default, countdown) or draw the next card.
+    expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
+    const drawButton = screen.getByTestId('draw-next-card');
+    expect(drawButton).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('dice.bank_points'));
+    expect(onComplete).toHaveBeenCalledWith(1800, true, expect.objectContaining({
+      cards: [{ card: '300', completed: true }],
+      tuttoCount: 1,
+      plusMinusSuccesses: 0,
+      ended: 'banked',
+    }));
+  });
+
+  it('drawing an x2 mid-chain doubles the whole accumulated total on its tutto', () => {
+    const onComplete = vi.fn();
+    const onDrawCard = vi.fn(() => 'x2' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    const { rerender } = render(
+      <DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />,
+    );
+
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.stop_and_score')); // tutto → 1800 banked-or-draw
+
+    queueRoll([1, 1, 1, 5, 5, 5]); // the fresh 6-dice roll on the x2 card
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+    expect(onDrawCard).toHaveBeenCalled();
+
+    // The new card arrives through the prop; only then does the roll fire.
+    rerender(<DiceGame currentCard="x2" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
+
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.stop_and_score'));
+
+    // (1800 + 1500) doubled by the x2 tutto = 6600.
+    fireEvent.click(screen.getByText('dice.bank_points'));
+    expect(onComplete).toHaveBeenCalledWith(6600, true, expect.objectContaining({
+      cards: [{ card: '300', completed: true }, { card: 'x2', completed: true }],
+      tuttoCount: 2,
+      ended: 'banked',
+    }));
+  });
+
+  it('a Stop card drawn mid-chain forfeits the entire turn', async () => {
+    const onComplete = vi.fn();
+    const onDrawCard = vi.fn(() => 'Stop' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    render(<DiceGame currentCard="500" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
+
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.stop_and_score'));
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+
+    expect(screen.getByText('dice.stop_card_drawn')).toBeInTheDocument();
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, false, expect.objectContaining({
+      cards: [{ card: '500', completed: true }, { card: 'Stop', completed: false }],
+      ended: 'stopCard',
+    })));
+  });
+
+  it('classic Feuerwerk force-keeps every scoring die and locks the selection', () => {
+    queueRoll([1, 5, 2, 3, 4, 6]); // exactly two scoring dice: the 1 and the 5
+    render(<DiceGame currentCard="Feuerwerk" ruleset="classic" onComplete={vi.fn()} />);
+
+    expect(screen.getByLabelText('Die showing 1, selected')).toBeInTheDocument();
+    expect(screen.getByLabelText('Die showing 5, selected')).toBeInTheDocument();
+    expect(screen.getByLabelText('Die showing 2, not selected')).toBeInTheDocument();
+
+    // toggleDie is a no-op: clicking the forced selection changes nothing.
+    fireEvent.click(screen.getByLabelText('Die showing 1, selected'));
+    expect(screen.getByLabelText('Die showing 1, selected')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Die showing 2, not selected'));
+    expect(screen.getByLabelText('Die showing 2, not selected')).toBeInTheDocument();
+  });
+
+  it('classic straight collects any missing numbers, in any order', () => {
+    const onComplete = vi.fn();
+    queueRoll([3, 3, 2, 2, 4, 4]); // a modernized straight would bust here (no 1, no 6)
+    render(<DiceGame currentCard="Kniffel" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
+
+    clickDie(3);
+    clickDie(2);
+    clickDie(4);
+    queueRoll([1, 5, 6]); // the three still-missing numbers at once
+    fireEvent.click(screen.getByText('dice.roll_again'));
+
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.finish_card'));
+
+    // Straight = 2000, then the bank-or-draw choice.
+    fireEvent.click(screen.getByText('dice.bank_points'));
+    expect(onComplete).toHaveBeenCalledWith(2000, true, expect.objectContaining({
+      cards: [{ card: 'Kniffel', completed: true }],
+      ended: 'banked',
+    }));
+  });
+
+  it('classic Plus/Minus scores exactly +1000 on its tutto, ignoring the dice points', () => {
+    const onComplete = vi.fn();
+    queueRoll([1, 1, 1, 5, 5, 5]); // 1500 dice points that must NOT count
+    render(<DiceGame currentCard="Plus_Minus" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
+
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.finish_card'));
+
+    fireEvent.click(screen.getByText('dice.bank_points'));
+    expect(onComplete).toHaveBeenCalledWith(1000, true, expect.objectContaining({
+      cards: [{ card: 'Plus_Minus', completed: true }],
+      plusMinusSuccesses: 1,
+      ended: 'banked',
+    }));
+  });
+
+  it('a classic Feuerwerk null banks the whole accumulated chain', async () => {
+    const onComplete = vi.fn();
+    const onDrawCard = vi.fn(() => 'Feuerwerk' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    const { rerender } = render(
+      <DiceGame currentCard="200" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />,
+    );
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.stop_and_score')); // tutto → 1700
+
+    queueRoll([1, 2, 3, 4, 6, 6]); // the forced keep takes the 1...
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+    rerender(<DiceGame currentCard="Feuerwerk" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
+
+    queueRoll([2, 3, 4, 6, 6]); // ...and the next roll is a null → banks everything
+    fireEvent.click(screen.getByText('dice.roll_again'));
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(1800, true, expect.objectContaining({
+      cards: [{ card: '200', completed: true }, { card: 'Feuerwerk', completed: true }],
+      ended: 'banked',
+    })));
+  });
+
+  it('restores a tutto-pending snapshot straight into the bank-or-draw choice', () => {
+    const kept = [1, 2, 3, 4, 5, 6].map(v => ({ id: `d${v}`, val: v }));
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 1800, keptDice: kept, currentRoll: [], kniffelProgress: [],
+      tuttosThisTurn: 1, cardsThisTurn: ['300'], plusMinusSuccesses: 0, chainTuttoCount: 1,
+      turnKey: 'K',
+    }));
+    render(<DiceGame currentCard="300" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
+
+    expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
+    expect(screen.getByTestId('draw-next-card')).toBeInTheDocument();
+  });
+});
+

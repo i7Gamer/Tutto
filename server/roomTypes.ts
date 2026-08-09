@@ -1,4 +1,4 @@
-import type { CardType, InitialCards, Player, DiceSnapshot, DiceMode, HistoryEntry, Ruleset } from '../src/types';
+import type { CardType, InitialCards, Player, DiceSnapshot, DiceMode, HistoryEntry, Ruleset, TurnSummary } from '../src/types';
 
 // CardType / InitialCards / Player are shared with the client (src/types.ts) to
 // keep the card set and player shape from drifting. The server requires the
@@ -38,6 +38,9 @@ export interface RoomState {
   // Name of the player who took the previous turn — see CoreGameState in
   // src/types.ts for why undo keys off this instead of a roster index.
   previousPlayerName: string | null;
+  // The classic-turn summary the previous turn committed with (undo input),
+  // null for modernized turns and timeouts. See TurnSummary in src/types.ts.
+  previousTurnSummary: TurnSummary | null;
   liveTurnState: DiceSnapshot | null;
   // null = every player uses their own diceMode; a DiceMode value = the host
   // has pinned that mode for everyone's own turn. Host-only config.

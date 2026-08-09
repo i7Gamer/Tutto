@@ -5,6 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { playBuzzer, playSuccess, playTone, vibrateBust, vibrateSuccess } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
 import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from '../utils/diceLogic';
+import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../utils/coreGameEngine';
+import { DEFAULT_RULESET } from '../utils/configValidation';
 import { parseSavedDiceState, buildDiceSnapshot, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
 import { deriveTurnControls, sortKeptDiceForDisplay } from '../utils/diceTurnControls';
 import { useAutoContinueCountdown } from '../hooks/useAutoContinueCountdown';
@@ -17,7 +19,7 @@ import { isTestEnv } from '../utils/env';
 import { motion, AnimatePresence } from 'framer-motion';
 import Die, { DiePips } from './game/Die';
 import DiceSummary from './game/DiceSummary';
-import type { CardType, Die as DieType, DiceSnapshot } from '../types';
+import type { CardType, Die as DieType, DiceSnapshot, Ruleset, TurnSummary, TurnCardPlayed, TurnEnd } from '../types';
 
 interface DiceGameProps {
   currentCard: CardType | null;
@@ -25,19 +27,27 @@ interface DiceGameProps {
   // diceTurnState.ts). Left undefined, restoration is unconditional — matches
   // every test in this file that doesn't pass it and predates this prop.
   turnKey?: string;
-  onComplete: (score: number, isSuccess: boolean) => void;
+  onComplete: (score: number, isSuccess: boolean, turnSummary?: TurnSummary) => void;
   onStateChange?: (snapshot: DiceSnapshot | null) => void;
   // Signals that the panel's own entrance animation has finished, so the dice
   // can start rolling automatically without visually overlapping it. Defaults
   // to true for callers (e.g. tests) that render this panel without an
   // entrance animation of their own.
   panelReady?: boolean;
+  // Which rule set governs this turn. Classic turns can chain cards and
+  // always hand a TurnSummary to onComplete.
+  ruleset?: Ruleset;
+  // Classic only: reveals the next card mid-turn (store drawCardMidTurn).
+  // The chain choice is offered only when this is provided.
+  onDrawCard?: () => CardType | null;
 }
 
 interface SummaryData {
   won: boolean;
   score: number;
   isTutto?: boolean;
+  // The chain was ended by a drawn Stop card (classic) — everything is lost.
+  stoppedByCard?: boolean;
 }
 
 const CARD_NAME_MAP: Partial<Record<CardType, string>> = {
@@ -79,8 +89,9 @@ const readRestorableTurn = (turnKey: string | undefined) => {
   return restored;
 };
 
-export default function DiceGame({ currentCard, turnKey, onComplete, onStateChange, panelReady = true }: DiceGameProps) {
+export default function DiceGame({ currentCard, turnKey, onComplete, onStateChange, panelReady = true, ruleset = DEFAULT_RULESET, onDrawCard }: DiceGameProps) {
   const { t } = useTranslation();
+  const isClassic = ruleset === 'classic';
 
   // Read once, during the first render. This used to be an effect that called
   // eight setters, which meant mounting an empty dice table, painting it, and
@@ -96,6 +107,12 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
       isTutto: false,
     }
     : null;
+  // A classic snapshot with all six dice put aside was saved during the
+  // bank-or-draw choice — restore straight back into that choice instead of
+  // into a dice table with nothing left to select.
+  const restoredTutto = !restoredBust && isClassic && restored && restored.keptDice.length === 6
+    ? { won: true, score: restored.turnScore, isTutto: true }
+    : null;
 
   const [keptDice, setKeptDice] = useState<DieType[]>(restored?.keptDice ?? []);
   const [currentRoll, setCurrentRoll] = useState<DieType[]>(restored?.currentRoll ?? []);
@@ -106,21 +123,46 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const [isRolling, setIsRolling] = useState(false);
   const [hasRolled, setHasRolled] = useState(!!restored);
   const [bustState, setBustState] = useState(!!restoredBust);
-  const [showSummary, setShowSummary] = useState(!!restoredBust);
+  const [showSummary, setShowSummary] = useState(!!restoredBust || !!restoredTutto);
   const [summaryData, setSummaryData] = useState<SummaryData>(
-    restoredBust ?? { won: false, score: 0, isTutto: false },
+    restoredBust ?? restoredTutto ?? { won: false, score: 0, isTutto: false },
   );
   const [tuttosThisTurn, setTuttosThisTurn] = useState(restored?.tuttosThisTurn ?? 0);
 
+  // The classic chain, held in a ref so summary/bust callbacks always read the
+  // current value; chainVersion ticks whenever it changes so the snapshot
+  // effect below re-sends. Cards before the last are completed by definition.
+  const [initialChain] = useState<{ cards: TurnCardPlayed[]; tuttoCount: number; plusMinusSuccesses: number; ended: TurnEnd }>(() => {
+    const cardList = restored?.cardsThisTurn ?? (currentCard ? [currentCard] : []);
+    return {
+      cards: cardList.map((card, i) => ({ card, completed: i < cardList.length - 1 || (i === cardList.length - 1 && !!restoredTutto) })),
+      tuttoCount: restored?.chainTuttoCount ?? 0,
+      plusMinusSuccesses: restored?.plusMinusSuccesses ?? 0,
+      ended: restoredBust ? (restoredBust.won ? 'banked' : 'null') : 'banked',
+    };
+  });
+  const chainRef = useRef(initialChain);
+  // Render-safe mirror of chainRef.current.cards.length (refs must not be
+  // read during render); only a draw ever changes it.
+  const [chainCardCount, setChainCardCount] = useState(initialChain.cards.length);
+  // A draw was requested but the new card hasn't arrived through the
+  // currentCard prop yet — roll() must not fire until it has, or its closure
+  // would judge the fresh roll against the previous card's rules.
+  const pendingChainRollRef = useRef<{ card: CardType; base: number } | null>(null);
+
   const selectedRolls = currentRoll.filter(d => d.selected);
+
+  // Classic Plus/Minus: the dice rolled during the segment never count — the
+  // card is worth exactly +1000 on a tutto and nothing otherwise.
+  const countsDicePoints = !(isClassic && currentCard === 'Plus_Minus');
 
   // The selected values are picked out inside the memo rather than passed in.
   // Built with .filter/.map they are a brand-new array on every render, so a
   // dependency on them would invalidate this every render whether or not the
   // selection actually changed — which is the whole thing the memo is for.
   const validation = useMemo(
-    () => checkValidityAndScore(currentRoll.filter(d => d.selected).map(d => d.val), currentCard, kniffelProgress),
-    [currentRoll, currentCard, kniffelProgress],
+    () => checkValidityAndScore(currentRoll.filter(d => d.selected).map(d => d.val), currentCard, kniffelProgress, ruleset),
+    [currentRoll, currentCard, kniffelProgress, ruleset],
   );
 
   const pendingTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -175,10 +217,21 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
 
     const finalizeRoll = () => {
       setIsRolling(false);
-      if (isBust(newRollVals, currentCard, kniffelArray || kniffelProgress)) {
+      if (isBust(newRollVals, currentCard, kniffelArray || kniffelProgress, ruleset)) {
         setBustState(true);
         playBuzzer();
         vibrateBust();
+        if (isClassic) {
+          // A Feuerwerk null BANKS the whole accumulated turn (official
+          // rule); every other null forfeits the entire chain.
+          if (currentCard === 'Feuerwerk' && scoreSoFar > 0) {
+            chainRef.current.ended = 'banked';
+            const chain = chainRef.current.cards;
+            if (chain.length > 0) chain[chain.length - 1].completed = true;
+          } else {
+            chainRef.current.ended = 'null';
+          }
+        }
         const getSummary = () => {
           if (currentCard === 'Kleeblatt') {
             return { won: false, score: 0 };
@@ -198,6 +251,11 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
             setShowSummary(true);
           }, BUST_SUMMARY_DELAY_MS));
         }
+      } else if (isClassic && currentCard === 'Feuerwerk') {
+        // Official Feuerwerk keeps EVERY scoring die — the selection is
+        // forced (toggleDie is a no-op for this card under classic).
+        const forced = new Set(getMaxValidSelection(newRollVals, 'Feuerwerk', [], ruleset));
+        setCurrentRoll(prev => prev.map((d, i) => ({ ...d, selected: forced.has(i) })));
       }
     };
 
@@ -206,7 +264,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     } else {
       pendingTimers.current.push(setTimeout(finalizeRoll, totalAnimationTime + ROLL_SETTLE_BUFFER_MS));
     }
-  }, [currentCard, kniffelProgress]);
+  }, [currentCard, kniffelProgress, ruleset, isClassic]);
 
   // roll is rebuilt whenever kniffelProgress changes, which happens on every
   // kept die. Reached through a ref so the effect below can depend on the
@@ -240,7 +298,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const handleAction = (action: 'roll' | 'stop') => {
     if (!validation.valid && action !== 'stop') return;
 
-    let newTurnScore = turnScore + validation.score;
+    let newTurnScore = turnScore + (countsDicePoints ? validation.score : 0);
     const newKniffelProgress = validation.newKniffelProgress;
     let newKeptDice = [...keptDice, ...selectedRolls];
 
@@ -248,6 +306,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
 
     if (isTutto) {
       newTurnScore = applyTuttoBonus(newTurnScore, currentCard);
+      if (isClassic) chainRef.current.tuttoCount += 1;
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
       playSuccess();
       vibrateSuccess();
@@ -261,10 +320,37 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
           roll(6, newKniffelProgress, newTurnScore);
           return;
         } else {
+          if (isClassic) {
+            const chain = chainRef.current.cards;
+            if (chain.length > 0) chain[chain.length - 1].completed = true;
+            chainRef.current.ended = 'banked';
+          }
           setSummaryData({ won: true, score: newTurnScore, isTutto: true });
           setShowSummary(true);
           return;
         }
+      } else if (isClassic && currentCard !== 'Feuerwerk') {
+        // Classic: the fixed card scores are added here, client-side — the
+        // engine's summary path deliberately takes the total as-is.
+        if (currentCard === 'Kniffel') {
+          newTurnScore += KNIFFEL_SCORE;
+        } else if (currentCard === 'Plus_Minus') {
+          newTurnScore += PLUS_MINUS_SCORE;
+          chainRef.current.plusMinusSuccesses += 1;
+        }
+        const chain = chainRef.current.cards;
+        if (chain.length > 0) chain[chain.length - 1].completed = true;
+        chainRef.current.ended = 'banked';
+        // Committed (not just carried in the summary data) so a reload
+        // restores straight back into this bank-or-draw choice.
+        setTurnScore(newTurnScore);
+        setKeptDice(newKeptDice);
+        setCurrentRoll([]);
+        setDisplayRoll([]);
+        setKniffelProgress(newKniffelProgress);
+        setSummaryData({ won: true, score: newTurnScore, isTutto: true });
+        setShowSummary(true);
+        return;
       } else if (currentCard !== 'Feuerwerk') {
         setSummaryData({ won: true, score: newTurnScore, isTutto: true });
         setShowSummary(true);
@@ -273,6 +359,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     }
 
     if (action === 'stop') {
+      if (isClassic) chainRef.current.ended = 'banked';
       setSummaryData({ won: true, score: newTurnScore, isTutto });
       setShowSummary(true);
       return;
@@ -293,26 +380,84 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
 
   const toggleDie = (id: string) => {
     if (bustState || showSummary || isRolling) return;
+    // Official Feuerwerk keeps every scoring die — the forced selection made
+    // in finalizeRoll must not be editable.
+    if (isClassic && currentCard === 'Feuerwerk') return;
     setCurrentRoll(prev => prev.map(d => d.id === id ? { ...d, selected: !d.selected } : d));
   };
 
   const selectAllValid = () => {
     if (bustState || showSummary || isRolling || !hasRolled) return;
-    const validIndices = new Set(getMaxValidSelection(currentRoll.map(d => d.val), currentCard, kniffelProgress));
+    const validIndices = new Set(getMaxValidSelection(currentRoll.map(d => d.val), currentCard, kniffelProgress, ruleset));
     setCurrentRoll(prev => prev.map((d, i) => ({ ...d, selected: validIndices.has(i) })));
   };
 
+  // Classic: reveal the next card after a tutto and keep the accumulated
+  // total at risk. The fresh roll is deferred until the new card has arrived
+  // through the currentCard prop (see pendingChainRollRef above) — except
+  // when the drawn card is the same type as the current one, where the prop
+  // never changes and the roll can fire immediately.
+  const handleDrawNextCard = useCallback(() => {
+    if (!onDrawCard) return;
+    const newCard = onDrawCard();
+    if (!newCard) return;
+    // turnScore was committed when the tutto choice appeared, so it IS the
+    // accumulated chain total.
+    const base = turnScore;
+    chainRef.current.cards.push({ card: newCard, completed: false });
+    setChainCardCount(c => c + 1);
+    setShowSummary(false);
+    setKeptDice([]);
+    setCurrentRoll([]);
+    setDisplayRoll([]);
+    setKniffelProgress([]);
+    setBustState(false);
+    if (newCard === 'Kleeblatt') setTuttosThisTurn(0);
+    if (newCard === 'Stop') {
+      chainRef.current.ended = 'stopCard';
+      playBuzzer();
+      vibrateBust();
+      setSummaryData({ won: false, score: 0, isTutto: false, stoppedByCard: true });
+      setShowSummary(true);
+      return;
+    }
+    setSummaryData({ won: false, score: 0, isTutto: false });
+    if (newCard === currentCard) {
+      rollRef.current(6, [], base);
+    } else {
+      pendingChainRollRef.current = { card: newCard, base };
+    }
+  }, [onDrawCard, turnScore, currentCard]);
+
+  useEffect(() => {
+    const pending = pendingChainRollRef.current;
+    if (!pending || currentCard !== pending.card) return;
+    pendingChainRollRef.current = null;
+    rollRef.current(6, [], pending.base);
+  }, [currentCard]);
+
   const onStateChangeRef = useRef(onStateChange);
   useEffect(() => { onStateChangeRef.current = onStateChange; }, [onStateChange]);
+
+  // The chain fields ride every snapshot in classic so a reconnect resumes
+  // the whole chain, not just the current card's dice. chainRef is read at
+  // send time (always current); the state deps above it re-fire the effect.
+  const chainSnapshotFields = () => (isClassic ? {
+    cardsThisTurn: chainRef.current.cards.map(c => c.card),
+    plusMinusSuccesses: chainRef.current.plusMinusSuccesses,
+    chainTuttoCount: chainRef.current.tuttoCount,
+  } : {});
 
   useEffect(() => {
     if (!onStateChangeRef.current || !hasRolled || isRolling || bustState) return;
     const timer = setTimeout(() => {
       onStateChangeRef.current?.(buildDiceSnapshot({
         turnScore, keptDice, currentRoll, kniffelProgress, tuttosThisTurn, rollingDiceIndices,
+        ...chainSnapshotFields(),
       }));
     }, LIVE_SNAPSHOT_DEBOUNCE_MS);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keptDice, currentRoll, turnScore, hasRolled, rollingDiceIndices, isRolling, bustState, kniffelProgress, tuttosThisTurn]);
 
   // What a bust snapshot is made of, as of the most recent commit. Held in a
@@ -327,21 +472,41 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
 
   useEffect(() => {
     if (!bustState || !onStateChangeRef.current || !hasRolled) return;
-    onStateChangeRef.current(buildDiceSnapshot({ ...bustSnapshotRef.current, busted: true }));
+    onStateChangeRef.current(buildDiceSnapshot({ ...bustSnapshotRef.current, busted: true, ...chainSnapshotFields() }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bustState, hasRolled]);
 
   const summaryDataRef = useRef(summaryData);
   useEffect(() => { summaryDataRef.current = summaryData; }, [summaryData]);
 
   const finishGame = useCallback(() => {
-    onComplete(summaryDataRef.current.score || 0, summaryDataRef.current.won || false);
-  }, [onComplete]);
+    const data = summaryDataRef.current;
+    if (isClassic) {
+      const chain = chainRef.current;
+      onComplete(data.score || 0, data.won || false, {
+        cards: chain.cards.map(c => ({ ...c })),
+        tuttoCount: chain.tuttoCount,
+        plusMinusSuccesses: chain.plusMinusSuccesses,
+        ended: chain.ended,
+      });
+    } else {
+      onComplete(data.score || 0, data.won || false);
+    }
+  }, [onComplete, isClassic]);
+
+  // The classic bank-or-draw choice: offered on a tutto summary for every
+  // card except Feuerwerk (its null already banks and ends the turn) and
+  // Kleeblatt (a completed one has already won the game).
+  const chainChoiceAvailable = isClassic && showSummary && summaryData.won && !!summaryData.isTutto
+    && currentCard !== 'Kleeblatt' && currentCard !== 'Feuerwerk' && !!onDrawCard;
 
   // Auto-continue to the next player once the turn resolves — for a success the
   // same way as for a bust (the spectator view relies on this turn ending on its
-  // own; only the active player can advance the shared game state).
+  // own; only the active player can advance the shared game state). Deliberately
+  // NOT while the classic bank-or-draw choice is pending: that is a strategic
+  // decision, and the room's turn timer already bounds how long it can take.
   const continueCountdown = useAutoContinueCountdown({
-    shouldStart: showSummary,
+    shouldStart: showSummary && !chainChoiceAvailable,
     onElapsed: finishGame,
   });
 
@@ -355,7 +520,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   });
   const stopButtonText = t(stopButtonTextKey.key, stopButtonTextKey.fallback);
 
-  const displayKeptDice = sortKeptDiceForDisplay(keptDice, currentCard, kniffelProgress);
+  const displayKeptDice = sortKeptDiceForDisplay(keptDice, currentCard, kniffelProgress, ruleset);
 
   // A turn is select → roll or stop, repeated. Each shortcut is bound only when
   // its button is enabled, so a key can never do something a click could not —
@@ -368,6 +533,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     r: canSubmitSelection && isRollAgainApplicable ? () => handleAction('roll') : undefined,
     s: canSubmitSelection && canStop ? () => handleAction('stop') : undefined,
     a: canAct ? selectAllValid : undefined,
+    d: chainChoiceAvailable ? handleDrawNextCard : undefined,
   });
 
   return (
@@ -380,7 +546,13 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
 
       <div className="px-8 pt-6 pb-8 sm:p-8 w-full flex-1 overflow-y-auto">
         {showSummary ? (
-          <DiceSummary summaryData={summaryData} continueCountdown={continueCountdown} finishGame={finishGame} currentCard={currentCard} />
+          <DiceSummary
+            summaryData={summaryData}
+            continueCountdown={continueCountdown}
+            finishGame={finishGame}
+            currentCard={currentCard}
+            onDrawNextCard={chainChoiceAvailable ? handleDrawNextCard : undefined}
+          />
         ) : (
           <>
             <div className="text-center mb-6 sm:mb-8">
@@ -389,8 +561,13 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
                   animation plays when a roll is banked, not on every die
                   click that flips the selection valid/invalid. */}
               <motion.div key={turnScore} data-testid="dice-current-score" initial={{ scale: 1.2 }} animate={{ scale: 1 }} className="text-5xl font-black text-indigo-600 dark:text-indigo-400">
-                {turnScore + (validation.valid ? validation.score : 0)}
+                {turnScore + (validation.valid && countsDicePoints ? validation.score : 0)}
               </motion.div>
+              {isClassic && chainCardCount > 1 && (
+                <div className="text-indigo-500 mt-2 font-bold text-sm bg-indigo-50 dark:bg-indigo-900/30 inline-block px-4 py-1 rounded-full border border-indigo-200 dark:border-indigo-800">
+                  {t('dice.chain_card_count', 'Card {{count}} of this turn', { count: chainCardCount })}
+                </div>
+              )}
               {currentCard === 'Kleeblatt' && (
                 <div className="text-emerald-500 mt-2 font-bold text-lg bg-emerald-50 inline-block px-4 py-1 rounded-full border border-emerald-200">
                   {t('dice.tuttos_count', 'Tuttos: {{count}} / 2', { count: tuttosThisTurn })}

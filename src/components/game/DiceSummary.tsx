@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Check } from 'lucide-react';
+import { Check, Layers } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { isTestEnv } from '../../utils/env';
 import { isSpecialCard } from '../../utils/diceTurnControls';
@@ -9,6 +9,7 @@ interface SummaryData {
   won: boolean;
   score: number;
   isTutto?: boolean;
+  stoppedByCard?: boolean;
 }
 
 interface DiceSummaryProps {
@@ -16,9 +17,13 @@ interface DiceSummaryProps {
   continueCountdown: number | null;
   finishGame: () => void;
   currentCard: CardType | null;
+  // Classic chains: offered next to the bank button after a tutto. The
+  // countdown still runs — banking is the safe default when the player
+  // walks away.
+  onDrawNextCard?: () => void;
 }
 
-export default function DiceSummary({ summaryData, continueCountdown, finishGame, currentCard }: DiceSummaryProps) {
+export default function DiceSummary({ summaryData, continueCountdown, finishGame, currentCard, onDrawNextCard }: DiceSummaryProps) {
   const { t } = useTranslation();
 
   return (
@@ -35,8 +40,13 @@ export default function DiceSummary({ summaryData, continueCountdown, finishGame
           {t('dice.tutto', 'Tutto!')}
         </h3>
       )}
+      {summaryData.stoppedByCard && (
+        <p className="text-xl font-bold text-red-500 bg-red-50 dark:bg-red-900/20 inline-block px-4 py-2 rounded-xl border border-red-100 dark:border-red-900/50">
+          {t('dice.stop_card_drawn', 'Stop card! All points from this turn are lost.')}
+        </p>
+      )}
       {(summaryData.won || currentCard === 'Feuerwerk') &&
-        !isSpecialCard(currentCard) &&
+        (!isSpecialCard(currentCard) || !!onDrawNextCard) &&
         summaryData.score > 0 && (
           <p className="text-2xl text-gray-700 dark:text-gray-200">
             {t('dice.points_gained', 'Points gained: ')}
@@ -46,25 +56,42 @@ export default function DiceSummary({ summaryData, continueCountdown, finishGame
 
       {/* Both a success and a bust auto-continue to the next player after a short
           countdown — only the colour differs (green for a win, red for a bust).
-          The button lets the player skip the wait and continue immediately. */}
+          The button lets the player skip the wait and continue immediately.
+          While the classic bank-or-draw choice is on screen there is no
+          countdown: the decision is the player's, bounded by the turn timer. */}
       <div className="mt-10 flex flex-col items-center gap-3">
-        <p className={`font-semibold text-lg ${summaryData.won ? 'text-emerald-500' : 'text-red-400'}`}>
-          {t('dice.auto_continuing', 'Continuing in {{count}}…', { count: continueCountdown ?? 0 })}
-        </p>
-        <div className={`w-full rounded-full h-2 overflow-hidden ${summaryData.won ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
-          <motion.div
-            className={`h-2 rounded-full ${summaryData.won ? 'bg-emerald-500' : 'bg-red-500'}`}
-            initial={{ width: '100%' }}
-            animate={{ width: '0%' }}
-            transition={{ duration: isTestEnv() ? 0 : 3, ease: 'linear' }}
-          />
-        </div>
+        {!onDrawNextCard && (
+          <>
+            <p className={`font-semibold text-lg ${summaryData.won ? 'text-emerald-500' : 'text-red-400'}`}>
+              {t('dice.auto_continuing', 'Continuing in {{count}}…', { count: continueCountdown ?? 0 })}
+            </p>
+            <div className={`w-full rounded-full h-2 overflow-hidden ${summaryData.won ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
+              <motion.div
+                className={`h-2 rounded-full ${summaryData.won ? 'bg-emerald-500' : 'bg-red-500'}`}
+                initial={{ width: '100%' }}
+                animate={{ width: '0%' }}
+                transition={{ duration: isTestEnv() ? 0 : 3, ease: 'linear' }}
+              />
+            </div>
+          </>
+        )}
         <button
           className="mt-2 bg-indigo-600 hover:bg-indigo-700 text-white w-full py-3 rounded-xl text-lg font-bold flex justify-center items-center gap-2 shadow-lg shadow-indigo-500/30 transition-all"
           onClick={finishGame}
         >
-          {t('dice.continue', 'Continue to Next Player')} <Check size={22} />
+          {onDrawNextCard
+            ? t('dice.bank_points', 'Bank {{score}} points', { score: summaryData.score })
+            : t('dice.continue', 'Continue to Next Player')} <Check size={22} />
         </button>
+        {onDrawNextCard && (
+          <button
+            data-testid="draw-next-card"
+            className="bg-amber-500 hover:bg-amber-600 text-white w-full py-3 rounded-xl text-lg font-bold flex justify-center items-center gap-2 shadow-lg shadow-amber-500/30 transition-all"
+            onClick={onDrawNextCard}
+          >
+            {t('dice.draw_next_card', 'Draw next card — risk everything!')} <Layers size={22} />
+          </button>
+        )}
       </div>
     </motion.div>
   );

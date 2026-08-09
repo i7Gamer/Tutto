@@ -9,6 +9,8 @@ import type {
   GlobalStatsPayload,
   DiceMode,
   Ruleset,
+  CardType,
+  TurnSummary,
 } from '../types';
 
 export type GameMode = 'local' | 'online';
@@ -118,7 +120,10 @@ export interface GameStore extends CoreGameState {
   stopOnlineTimers: () => void;
   startGame: () => void;
   endGame: () => void;
-  nextTurn: (scoreInput: number, isSuccess?: boolean) => void;
+  nextTurn: (scoreInput: number, isSuccess?: boolean, turnSummary?: TurnSummary) => void;
+  // Classic chains: reveal the next card mid-turn after a tutto. Returns the
+  // drawn card (or null when nothing could be drawn).
+  drawCardMidTurn: () => CardType | null;
   undo: () => void;
   setPreGameStats: (stats: PreGameStats | null) => void;
   buildGlobalStatsPayload: () => GlobalStatsPayload;

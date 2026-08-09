@@ -17,6 +17,7 @@ import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, DICE_PANEL_ENTRANCE_MS } from
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import type { PreGameStats } from '../store/storeTypes';
+import type { TurnSummary } from '../types';
 
 import Scoreboard from './game/Scoreboard';
 import CardDisplay from './game/CardDisplay';
@@ -35,6 +36,7 @@ const useGameSlice = () => useGameStore(useShallow(state => ({
   currentCard: state.currentCard,
   cards: state.cards,
   nextTurn: state.nextTurn,
+  drawCardMidTurn: state.drawCardMidTurn,
   undo: state.undo,
   endGame: state.endGame,
   isOnline: state.isOnline,
@@ -64,6 +66,7 @@ const useGameSlice = () => useGameStore(useShallow(state => ({
   finished: state.finished,
   previousCard: state.previousCard,
   previousPlayerName: state.previousPlayerName,
+  previousTurnSummary: state.previousTurnSummary,
 })));
 
 export default function Game() {
@@ -239,7 +242,7 @@ export default function Game() {
         const snapshotWithPlayer = {
           ...liveTurnState,
           playerName: currentPlayer?.name,
-          turnKey: buildTurnKey(roomId, round, currentPlayerIndex, currentCard),
+          turnKey: buildTurnKey(roomId, round, currentPlayerIndex, currentCard, game.ruleset),
         };
         localStorage.setItem(DICE_TURN_STATE_KEY, JSON.stringify(snapshotWithPlayer));
         // The one suppression left in this file, and it is not a stale-render
@@ -262,7 +265,7 @@ export default function Game() {
 
       const raw = localStorage.getItem(DICE_TURN_STATE_KEY);
       const parsed = parseSavedDiceState(raw);
-      const expectedTurnKey = buildTurnKey(roomId, round, currentPlayerIndex, currentCard);
+      const expectedTurnKey = buildTurnKey(roomId, round, currentPlayerIndex, currentCard, game.ruleset);
 
       if (parsed && parsed.turnKey === expectedTurnKey) {
         setShowDiceGame(true);
@@ -274,6 +277,7 @@ export default function Game() {
   }, [
     justReconnected, liveTurnState, isMyTurn, effectiveDiceMode, isOnline,
     currentCard, currentPlayer?.name, currentPlayerIndex, roomId, round, addToast, t,
+    game.ruleset,
   ]);
 
   useEffect(() => {
@@ -341,9 +345,9 @@ export default function Game() {
     nextTurn(0, isSuccess);
   }, [nextTurn]);
 
-  const handleDiceComplete = useCallback((score: number, isSuccess: boolean) => {
+  const handleDiceComplete = useCallback((score: number, isSuccess: boolean, turnSummary?: TurnSummary) => {
     setShowDiceGame(false);
-    nextTurn(score, isSuccess);
+    nextTurn(score, isSuccess, turnSummary);
   }, [nextTurn]);
 
   const currentCardHasInput = hasScoreInput(currentCard);
@@ -374,8 +378,11 @@ export default function Game() {
     enter: isMyTurn ? primaryAction : undefined,
   });
 
-  // A turn exists to undo at all...
-  const hasUndoableTurn = !game.finished && !!game.previousCard && game.previousCard !== 'Stop'
+  // A turn exists to undo at all... (a classic chain that ended on a drawn
+  // Stop card committed real changes and stays undoable — only the bare
+  // modernized Stop, where nothing happened, is not)
+  const hasUndoableTurn = !game.finished && !!game.previousCard
+    && (game.previousCard !== 'Stop' || !!game.previousTurnSummary)
     && game.currentPlayerIndex !== null && !!game.previousPlayerName;
   // ...and this client is allowed to act on it (offline, or online as the
   // active player/host).
@@ -397,6 +404,7 @@ export default function Game() {
             cardsLength={cards?.length || 0}
             isMyTurn={!!isMyTurn}
             diceMode={effectiveDiceMode}
+            ruleset={game.ruleset}
             setShowDiceGame={setShowDiceGame}
             scoreInput={scoreInput}
             setScoreInput={setScoreInput}
@@ -508,10 +516,12 @@ export default function Game() {
           >
             <DiceGame
               currentCard={currentCard}
-              turnKey={buildTurnKey(roomId, round, currentPlayerIndex, currentCard)}
+              turnKey={buildTurnKey(roomId, round, currentPlayerIndex, currentCard, game.ruleset)}
               onComplete={handleDiceComplete}
               onStateChange={effectiveDiceMode === 'digital' ? setLiveTurnState : undefined}
               panelReady={diceGamePanelReady}
+              ruleset={game.ruleset}
+              onDrawCard={game.drawCardMidTurn}
             />
           </motion.div>
         </div>

@@ -1,4 +1,4 @@
-import { MAX_HISTORY_LOG_SIZE, type CardType, type InitialCards, type DiceSnapshot, type HistoryEntry } from '../src/types';
+import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS, type CardType, type InitialCards, type DiceSnapshot, type HistoryEntry, type TurnSummary, type TurnCardPlayed } from '../src/types';
 import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
   isValidEnforcedDiceMode, isValidRuleset,
@@ -76,6 +76,12 @@ const isValidKniffelProgressEntry = (v: unknown): v is number =>
 // rollingDiceIds/busted are optional but, when present, are shape-checked too
 // (rollingDiceIds is rendered the same way — see GameControls.tsx — and
 // busted only ever needs to be a boolean).
+const isValidChainCard = (v: unknown): v is CardType =>
+  typeof v === 'string' && (VALID_CARD_TYPES as readonly string[]).includes(v);
+
+const isValidChainCounter = (v: unknown): v is number =>
+  Number.isInteger(v) && (v as number) >= 0 && (v as number) <= MAX_CHAIN_CARDS;
+
 export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
@@ -89,6 +95,15 @@ export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
     if (!Array.isArray(s.rollingDiceIds) || s.rollingDiceIds.length > 6) return false;
     if (!s.rollingDiceIds.every(id => typeof id === 'string' && id.length > 0 && id.length <= MAX_DICE_ID_LENGTH)) return false;
   }
+  // Classic-chain fields — optional, but shape-checked when present: a mid-
+  // chain reconnect rebuilds the active player's own resume cache from this
+  // relayed snapshot, so a stripped or corrupted chain would lose their turn.
+  if (s.cardsThisTurn !== undefined) {
+    if (!Array.isArray(s.cardsThisTurn) || s.cardsThisTurn.length > MAX_CHAIN_CARDS) return false;
+    if (!s.cardsThisTurn.every(isValidChainCard)) return false;
+  }
+  if (s.plusMinusSuccesses !== undefined && !isValidChainCounter(s.plusMinusSuccesses)) return false;
+  if (s.chainTuttoCount !== undefined && !isValidChainCounter(s.chainTuttoCount)) return false;
   return true;
 };
 
@@ -106,6 +121,43 @@ export const sanitizeDiceSnapshot = (v: DiceSnapshot): DiceSnapshot => {
   };
   if (v.busted) clean.busted = true;
   if (v.rollingDiceIds) clean.rollingDiceIds = [...v.rollingDiceIds];
+  if (v.cardsThisTurn) clean.cardsThisTurn = [...v.cardsThisTurn];
+  if (v.plusMinusSuccesses !== undefined) clean.plusMinusSuccesses = v.plusMinusSuccesses;
+  if (v.chainTuttoCount !== undefined) clean.chainTuttoCount = v.chainTuttoCount;
+  return clean;
+};
+
+// The previous turn's classic summary rides pushState so undo works for every
+// client after a broadcast/reconnect. Bounded like everything else a push may
+// store: card list ≤ MAX_CHAIN_CARDS, counters bounded, names length-capped.
+export const isValidTurnSummary = (v: unknown): v is TurnSummary => {
+  if (typeof v !== 'object' || v === null) return false;
+  const s = v as Record<string, unknown>;
+  if (!Array.isArray(s.cards) || s.cards.length > MAX_CHAIN_CARDS) return false;
+  const cardsOk = s.cards.every(c => {
+    if (typeof c !== 'object' || c === null) return false;
+    const entry = c as Record<string, unknown>;
+    return isValidChainCard(entry.card) && typeof entry.completed === 'boolean';
+  });
+  if (!cardsOk) return false;
+  if (!isValidChainCounter(s.tuttoCount)) return false;
+  if (!isValidChainCounter(s.plusMinusSuccesses)) return false;
+  if (s.ended !== 'banked' && s.ended !== 'null' && s.ended !== 'stopCard') return false;
+  if (s.deductedPlayers !== undefined) {
+    if (!Array.isArray(s.deductedPlayers) || s.deductedPlayers.length > MAX_CHAIN_CARDS) return false;
+    if (!s.deductedPlayers.every(n => typeof n === 'string' && n.length > 0 && n.length <= MAX_PLAYER_NAME_LENGTH)) return false;
+  }
+  return true;
+};
+
+export const sanitizeTurnSummary = (v: TurnSummary): TurnSummary => {
+  const clean: TurnSummary = {
+    cards: v.cards.map((c: TurnCardPlayed) => ({ card: c.card, completed: c.completed })),
+    tuttoCount: v.tuttoCount,
+    plusMinusSuccesses: v.plusMinusSuccesses,
+    ended: v.ended,
+  };
+  if (v.deductedPlayers) clean.deductedPlayers = [...v.deductedPlayers];
   return clean;
 };
 
@@ -126,6 +178,10 @@ const isValidHistoryEntry = (v: unknown): v is HistoryEntry => {
     if (entry.deductedPlayers.length > 100) return false;
     if (!entry.deductedPlayers.every(name => typeof name === 'string' && name.length > 0 && name.length <= MAX_PLAYER_NAME_LENGTH)) return false;
   }
+  if (entry.cards !== undefined) {
+    if (!Array.isArray(entry.cards) || entry.cards.length > MAX_CHAIN_CARDS) return false;
+    if (!entry.cards.every(c => typeof c === 'string' && (VALID_CARD_TYPES as readonly string[]).includes(c))) return false;
+  }
   return true;
 };
 
@@ -139,6 +195,7 @@ const sanitizeHistoryEntry = (v: HistoryEntry): HistoryEntry => {
     score: v.score,
   };
   if (v.playerColor) clean.playerColor = v.playerColor;
+  if (v.cards) clean.cards = [...v.cards];
   if (v.deductedPlayers) clean.deductedPlayers = [...v.deductedPlayers];
   return clean;
 };
@@ -154,7 +211,7 @@ const ACTIVE_PLAYER_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>(
   'currentCard', 'cards', 'currentPlayerIndex', 'round',
   'finished', 'previousCard', 'previousScore', 'previousLeaders',
   'previousWasBust', 'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
-  'previousHighestX2TurnScore', 'previousPlayerName',
+  'previousHighestX2TurnScore', 'previousPlayerName', 'previousTurnSummary',
   'chartValues', 'chartNames', 'chartLabels', 'gameTimeInSeconds',
   'players', 'liveTurnState', 'historyLog',
 ]));
@@ -352,6 +409,13 @@ export const applyPushedState = (
       const v = newState.previousPlayerName;
       if (v === null || (typeof v === 'string' && v.length > 0 && v.length <= MAX_PLAYER_NAME_LENGTH)) {
         state.previousPlayerName = v as string | null;
+      }
+    } else if (key === 'previousTurnSummary') {
+      const v = newState.previousTurnSummary;
+      if (v === null) {
+        state.previousTurnSummary = null;
+      } else if (isValidTurnSummary(v)) {
+        state.previousTurnSummary = sanitizeTurnSummary(v);
       }
     } else if (key === 'chartValues') {
       const v = newState.chartValues;

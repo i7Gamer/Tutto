@@ -61,6 +61,7 @@ export const createRoom = (hostSocketId: string): Room => ({
     previousHighestFeuerwerkTurnScore: 0,
     previousHighestX2TurnScore: 0,
     previousPlayerName: null,
+    previousTurnSummary: null,
     liveTurnState: null,
     enforcedDiceMode: null,
     ruleset: DEFAULT_RULESET,

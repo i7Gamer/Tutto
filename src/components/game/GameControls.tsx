@@ -5,8 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { isTestEnv } from '../../utils/env';
 import { sortKeptDiceForDisplay, hasScoreInput, isSpecialCard } from '../../utils/diceTurnControls';
 import { CARD_FLIP_MS } from '../../utils/uiTimings';
-import { BONUS_CARDS } from '../../utils/configValidation';
-import type { CardType, DiceMode, DiceSnapshot, Player } from '../../types';
+import { BONUS_CARDS, DEFAULT_RULESET } from '../../utils/configValidation';
+import type { CardType, DiceMode, DiceSnapshot, Player, Ruleset } from '../../types';
 import { DiePips } from './Die';
 import ConfirmModal from '../ConfirmModal';
 
@@ -15,6 +15,7 @@ interface GameControlsProps {
   cardsLength: number;
   isMyTurn: boolean;
   diceMode: DiceMode;
+  ruleset?: Ruleset;
   setShowDiceGame: (show: boolean) => void;
   scoreInput: string;
   setScoreInput: (val: string | ((prev: string) => string)) => void;
@@ -37,6 +38,7 @@ export default function GameControls({
   cardsLength,
   isMyTurn,
   diceMode,
+  ruleset = DEFAULT_RULESET,
   setShowDiceGame,
   scoreInput,
   setScoreInput,
@@ -230,11 +232,16 @@ export default function GameControls({
                   <div className="text-4xl font-black text-indigo-600 dark:text-indigo-400 mb-4">
                     {activeTurnState.turnScore}
                   </div>
+                  {(activeTurnState.cardsThisTurn?.length ?? 0) > 1 && (
+                    <p className="text-xs font-bold text-indigo-500 uppercase tracking-wider -mt-3 mb-4">
+                      {t('game.controls.chainCard', 'Card {{count}} of this turn', { count: activeTurnState.cardsThisTurn?.length })}
+                    </p>
+                  )}
                   {activeTurnState.keptDice.length > 0 && (
                     <div className="mb-4">
                       <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('game.controls.keptDice', 'Kept Dice')}</p>
                       <div className="flex gap-2 flex-wrap justify-center">
-                        {sortKeptDiceForDisplay(activeTurnState.keptDice, currentCard, activeTurnState.kniffelProgress).map((d) => (
+                        {sortKeptDiceForDisplay(activeTurnState.keptDice, currentCard, activeTurnState.kniffelProgress, ruleset).map((d) => (
                           <div key={d.id} className="w-10 h-10 bg-indigo-600 text-transparent rounded-xl flex items-center justify-center text-xl font-bold border-2 border-indigo-400 relative">
                             {d.val}
                             <DiePips val={d.val} isSelected={false} bustState={false} size="small" isIndigo={true} />

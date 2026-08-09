@@ -58,6 +58,47 @@ export interface DiceSnapshot {
   // buildTurnKey in diceTurnState.ts) — lets DiceGame tell a same-player-but-
   // expired-turn snapshot apart from a genuinely resumable one.
   turnKey?: string;
+  // Classic-chain progress (absent in modernized turns): the cards drawn this
+  // turn in order, how many Plus/Minus cards succeeded so far, and the total
+  // tuttos rolled (unlike tuttosThisTurn above, never reset by a Kleeblatt
+  // draw). Mirrored in server/pushValidation.ts's snapshot family — a field
+  // missing there is silently stripped from every relayed snapshot.
+  cardsThisTurn?: CardType[];
+  plusMinusSuccesses?: number;
+  chainTuttoCount?: number;
+}
+
+// Sanity cap for classic-chain card lists (snapshot, history, turn summary) —
+// far beyond any real chain, just enough to bound what a pushed payload can
+// make the server store and rebroadcast.
+export const MAX_CHAIN_CARDS = 100;
+
+// How a classic turn ended: banked its points (includes the Feuerwerk null,
+// which banks), rolled a null, or drew a Stop card mid-chain.
+export type TurnEnd = 'banked' | 'null' | 'stopCard';
+
+export interface TurnCardPlayed {
+  card: CardType;
+  // Whether the card's own goal was reached (tutto / straight / Plus-Minus
+  // success / Feuerwerk banked). Every card before the last is completed by
+  // definition — the chain only continues on a completion.
+  completed: boolean;
+}
+
+// What happened during one classic turn, card by card. Built by the client
+// that played the turn and passed to calculateNextTurn, whose classic path
+// derives every per-card counter from it (the score arrives fully computed:
+// straight +2000, Plus/Minus +1000 per success, bonus/x2 already applied).
+// Its very presence is what switches the engine to classic semantics.
+export interface TurnSummary {
+  cards: TurnCardPlayed[];
+  tuttoCount: number;
+  plusMinusSuccesses: number;
+  ended: TurnEnd;
+  // Filled by the ENGINE at commit (one entry per deduction — names repeat
+  // when several Plus/Minus successes hit the same leader) so undo can
+  // reverse times1000PointsDeducted per occurrence.
+  deductedPlayers?: string[];
 }
 
 export interface Player {
@@ -112,6 +153,10 @@ export interface HistoryEntry {
   type: HistoryEventType;
   score: number;
   deductedPlayers?: string[];
+  // Classic chains only: every card of the turn in draw order (card above is
+  // the first of them). Mirrored in server/pushValidation.ts's history-entry
+  // family — a field missing there never reaches the other clients.
+  cards?: CardType[];
 }
 
 export const MAX_HISTORY_LOG_SIZE = 50;
@@ -137,6 +182,10 @@ export interface CoreGameState {
   // an index computed against the CURRENT roster would land on whoever now
   // happens to occupy that slot instead of the player who actually played it.
   previousPlayerName: string | null;
+  // The classic-turn summary the previous turn committed with, or null for a
+  // modernized turn (and for timeouts). Undo needs it to reverse per-card
+  // counters and restore every chain card to the deck.
+  previousTurnSummary: TurnSummary | null;
   finished: boolean;
   gameStartTime: number | null;
   gameTimeInSeconds: number;
@@ -200,6 +249,7 @@ export interface NextTurnResult {
   previousHighestFeuerwerkTurnScore: number;
   previousHighestX2TurnScore: number;
   previousPlayerName: string;
+  previousTurnSummary: TurnSummary | null;
   newDeck: CardType[];
   drawnCard: CardType | null;
   historyEntry: HistoryEntry;

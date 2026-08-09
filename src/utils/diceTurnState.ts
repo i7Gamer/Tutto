@@ -1,4 +1,6 @@
-import type { CardType, Die, DiceSnapshot, SnapshotDie } from '../types';
+import type { CardType, Die, DiceSnapshot, SnapshotDie, Ruleset } from '../types';
+import { MAX_CHAIN_CARDS } from '../types';
+import { VALID_CARD_TYPES, DEFAULT_RULESET } from './configValidation';
 
 /**
  * Where a turn in progress is cached, so a reload or reconnect can resume into
@@ -12,16 +14,21 @@ import type { CardType, Die, DiceSnapshot, SnapshotDie } from '../types';
 export const DICE_TURN_STATE_KEY = 'tutto_dice_turn_state';
 
 // Identifies a specific turn slot: roomId (or 'local') + round + player index +
-// card. Changes whenever the turn actually advances, whether via the active
-// client, the server-authoritative turn timer, or a reconnect — so a snapshot
-// saved for an earlier turn is distinguishable from the current one even when
-// it belongs to the same player (e.g. their turn comes around again next round).
+// card + ruleset. Changes whenever the turn actually advances, whether via the
+// active client, the server-authoritative turn timer, or a reconnect — so a
+// snapshot saved for an earlier turn is distinguishable from the current one
+// even when it belongs to the same player (e.g. their turn comes around again
+// next round). Mid-chain the card component is the LATEST drawn card — both
+// the stamping site (gameSlice.setLiveTurnState) and the restore comparison
+// (Game.tsx) read store currentCard, so the two always agree; the ruleset
+// component keeps a classic snapshot from restoring into a modernized game.
 export const buildTurnKey = (
   roomId: string | null,
   round: number,
   currentPlayerIndex: number | null,
   currentCard: CardType | null,
-): string => `${roomId ?? 'local'}:${round}:${currentPlayerIndex}:${currentCard ?? 'none'}`;
+  ruleset: Ruleset = DEFAULT_RULESET,
+): string => `${roomId ?? 'local'}:${round}:${currentPlayerIndex}:${currentCard ?? 'none'}:${ruleset}`;
 
 interface BuildDiceSnapshotInput {
   turnScore: number;
@@ -31,6 +38,10 @@ interface BuildDiceSnapshotInput {
   tuttosThisTurn: number;
   rollingDiceIndices?: Set<string> | string[];
   busted?: boolean;
+  // Classic-chain fields — see DiceSnapshot in types.ts.
+  cardsThisTurn?: CardType[];
+  plusMinusSuccesses?: number;
+  chainTuttoCount?: number;
 }
 
 // Shape checks below mirror server/pushValidation.ts's isValidDiceSnapshot
@@ -65,11 +76,14 @@ const asValidatedArray = <T,>(v: unknown, isValidEntry: (x: unknown) => x is T):
 const isFiniteNonNegativeNumber = (v: unknown): v is number =>
   typeof v === 'number' && Number.isFinite(v) && v >= 0;
 
+const isPlausibleChainCard = (v: unknown): v is CardType =>
+  (VALID_CARD_TYPES as readonly string[]).includes(v as string);
+
 export const parseSavedDiceState = (raw: string | null): DiceSnapshot | null => {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<DiceSnapshot>;
-    return {
+    const snapshot: DiceSnapshot = {
       turnScore: isFiniteNonNegativeNumber(parsed.turnScore) ? parsed.turnScore : 0,
       keptDice: asValidatedArray(parsed.keptDice, isPlausibleSnapshotDie),
       currentRoll: asValidatedArray(parsed.currentRoll, isPlausibleRolledDie),
@@ -79,6 +93,16 @@ export const parseSavedDiceState = (raw: string | null): DiceSnapshot | null => 
       playerName: typeof parsed.playerName === 'string' ? parsed.playerName : undefined,
       turnKey: typeof parsed.turnKey === 'string' ? parsed.turnKey : undefined,
     };
+    // Chain fields are optional (absent for modernized turns and old caches);
+    // present-but-invalid values reset to absent, same all-or-nothing rule as
+    // the arrays above.
+    if (Array.isArray(parsed.cardsThisTurn) && parsed.cardsThisTurn.length <= MAX_CHAIN_CARDS &&
+        parsed.cardsThisTurn.every(isPlausibleChainCard)) {
+      snapshot.cardsThisTurn = parsed.cardsThisTurn;
+    }
+    if (isFiniteNonNegativeNumber(parsed.plusMinusSuccesses)) snapshot.plusMinusSuccesses = parsed.plusMinusSuccesses;
+    if (isFiniteNonNegativeNumber(parsed.chainTuttoCount)) snapshot.chainTuttoCount = parsed.chainTuttoCount;
+    return snapshot;
   } catch {
     return null;
   }
@@ -92,6 +116,9 @@ export const buildDiceSnapshot = ({
   tuttosThisTurn,
   rollingDiceIndices,
   busted = false,
+  cardsThisTurn,
+  plusMinusSuccesses,
+  chainTuttoCount,
 }: BuildDiceSnapshotInput): DiceSnapshot => {
   const snapshot: DiceSnapshot = {
     turnScore,
@@ -105,5 +132,8 @@ export const buildDiceSnapshot = ({
   } else {
     snapshot.rollingDiceIds = Array.from(rollingDiceIndices ?? []);
   }
+  if (cardsThisTurn) snapshot.cardsThisTurn = [...cardsThisTurn];
+  if (plusMinusSuccesses !== undefined) snapshot.plusMinusSuccesses = plusMinusSuccesses;
+  if (chainTuttoCount !== undefined) snapshot.chainTuttoCount = chainTuttoCount;
   return snapshot;
 };

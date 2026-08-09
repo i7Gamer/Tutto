@@ -14,6 +14,9 @@ import {
   validatePushedPlayers,
   isPlausiblePlayerSnapshot,
   isValidDiceSnapshot,
+  sanitizeDiceSnapshot,
+  isValidTurnSummary,
+  sanitizeTurnSummary,
 } from './pushValidation';
 import { createRoom } from './rooms';
 import { zeroedPlayerStats, PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
@@ -785,5 +788,83 @@ describe('isValidDiceSnapshot', () => {
     expect(isValidDiceSnapshot({ ...valid, rollingDiceIds: [''] })).toBe(false);
     expect(isValidDiceSnapshot({ ...valid, rollingDiceIds: ['x'.repeat(65)] })).toBe(false);
     expect(isValidDiceSnapshot({ ...valid, rollingDiceIds: Array(7).fill('d1') })).toBe(false);
+  });
+});
+
+describe('classic chain fields (snapshot / history / turn summary)', () => {
+  const validSnapshot = {
+    turnScore: 100,
+    keptDice: [{ id: 'd1', val: 1 }],
+    currentRoll: [{ id: 'd2', val: 5, selected: false }],
+    kniffelProgress: [],
+    tuttosThisTurn: 0,
+  };
+
+  it('accepts and copies optional chain fields on a dice snapshot', () => {
+    const withChain = {
+      ...validSnapshot,
+      cardsThisTurn: ['300', 'x2'],
+      plusMinusSuccesses: 1,
+      chainTuttoCount: 2,
+    };
+    expect(isValidDiceSnapshot(withChain)).toBe(true);
+    const clean = sanitizeDiceSnapshot(withChain);
+    expect(clean.cardsThisTurn).toEqual(['300', 'x2']);
+    expect(clean.plusMinusSuccesses).toBe(1);
+    expect(clean.chainTuttoCount).toBe(2);
+    // Still absent when not sent — old clients keep working.
+    expect(sanitizeDiceSnapshot(validSnapshot).cardsThisTurn).toBeUndefined();
+  });
+
+  it('rejects malformed chain fields on a dice snapshot', () => {
+    expect(isValidDiceSnapshot({ ...validSnapshot, cardsThisTurn: ['NotACard'] })).toBe(false);
+    expect(isValidDiceSnapshot({ ...validSnapshot, cardsThisTurn: Array(101).fill('200') })).toBe(false);
+    expect(isValidDiceSnapshot({ ...validSnapshot, plusMinusSuccesses: -1 })).toBe(false);
+    expect(isValidDiceSnapshot({ ...validSnapshot, chainTuttoCount: 1.5 })).toBe(false);
+  });
+
+  const validSummary = {
+    cards: [{ card: '300', completed: true }, { card: 'Stop', completed: false }],
+    tuttoCount: 1,
+    plusMinusSuccesses: 0,
+    ended: 'stopCard',
+  };
+
+  it('validates and sanitizes a turn summary', () => {
+    expect(isValidTurnSummary(validSummary)).toBe(true);
+    expect(isValidTurnSummary({ ...validSummary, ended: 'later' })).toBe(false);
+    expect(isValidTurnSummary({ ...validSummary, cards: [{ card: 'Nope', completed: true }] })).toBe(false);
+    expect(isValidTurnSummary({ ...validSummary, tuttoCount: -1 })).toBe(false);
+    expect(isValidTurnSummary({ ...validSummary, deductedPlayers: [''] })).toBe(false);
+
+    const withExtra = { ...validSummary, deductedPlayers: ['Bob', 'Bob'], junk: 'x' };
+    const clean = sanitizeTurnSummary(withExtra as never);
+    expect(clean).toEqual({ ...validSummary, deductedPlayers: ['Bob', 'Bob'] });
+    expect('junk' in clean).toBe(false);
+  });
+
+  it('lets the active player push previousTurnSummary, validated and sanitized', () => {
+    const state = makeState();
+    applyPushedState(state, { previousTurnSummary: { ...validSummary, junk: 'x' } }, asActivePlayer);
+    expect(state.previousTurnSummary).toEqual(validSummary);
+    applyPushedState(state, { previousTurnSummary: null }, asActivePlayer);
+    expect(state.previousTurnSummary).toBeNull();
+    applyPushedState(state, { previousTurnSummary: { ...validSummary, ended: 'bogus' } }, asActivePlayer);
+    expect(state.previousTurnSummary).toBeNull(); // invalid → ignored
+  });
+
+  it('accepts a history entry carrying a chain card list, and strips a bad one', () => {
+    const state = makeState();
+    const entry = {
+      id: '1-Alice-1', round: 1, playerName: 'Alice', card: '300',
+      type: 'success', score: 2800, cards: ['300', 'Kniffel'],
+    };
+    applyPushedState(state, { historyLog: [entry] }, asActivePlayer);
+    expect(state.historyLog).toHaveLength(1);
+    expect(state.historyLog[0].cards).toEqual(['300', 'Kniffel']);
+
+    applyPushedState(state, { historyLog: [{ ...entry, cards: ['NotACard'] }] }, asActivePlayer);
+    // The malformed entry is rejected, so the log keeps its previous value.
+    expect(state.historyLog[0].cards).toEqual(['300', 'Kniffel']);
   });
 });
