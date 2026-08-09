@@ -329,6 +329,7 @@ export default function HelpPopup() {
                     <li>{t('help.statistics.s4')}</li>
                     <li>{t('help.statistics.s5')}</li>
                     <li>{t('help.statistics.s6')}</li>
+                    <li>{t('help.statistics.s7')}</li>
                   </ul>
                 </Section>
 

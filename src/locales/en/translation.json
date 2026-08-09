@@ -335,6 +335,7 @@
   "help.statistics.s4": "Highest Turn Score: The maximum points you've scored in a single turn.",
   "help.statistics.s5": "Fastest Win (turns): The minimum number of turns you took to win a game.",
   "help.statistics.s6": "Success vs Failures: Tracks outcomes for Kniffel, Plus/Minus, and Kleeblatt cards.",
+  "help.statistics.s7": "Normal vs. Custom: only games on the default winning score and the default deck count toward your normal statistics and the global ones. Changing either records the game under Custom instead. The turn timer, kick timer, random order and an enforced dice mode make no difference. Local games are never recorded.",
   "help.faq.title": "Frequently Asked Questions",
   "help.faq.q1": "What is a Tutto?",
   "help.faq.a1": "A Tutto occurs when all 6 dice are scoring and kept. This completes the active card and ends your turn with the card's success (or lets you roll all 6 dice again if it is a Fireworks card).",

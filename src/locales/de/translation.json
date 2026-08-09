@@ -335,6 +335,7 @@
   "help.statistics.s4": "Höchste Zugpunktzahl: Die maximalen Punkte, die du in einem einzigen Zug erzielt hast.",
   "help.statistics.s5": "Schnellster Sieg (Züge): Die wenigsten Züge, die du für einen Sieg benötigt hast.",
   "help.statistics.s6": "Erfolg vs. Fehlschlag: Zählt die Ausgänge für Kniffel-, Plus/Minus- und Kleeblatt-Karten.",
+  "help.statistics.s7": "Normal vs. Angepasst: Nur Spiele mit der Standard-Siegpunktzahl und dem Standard-Deck zählen zu deiner normalen Statistik und zur globalen. Änderst du eines von beiden, wird das Spiel stattdessen unter „Angepasst“ erfasst. Zug-Timer, Kick-Timer, zufällige Reihenfolge und ein erzwungener Würfelmodus machen keinen Unterschied. Lokale Spiele werden nie erfasst.",
   "help.faq.title": "Häufig gestellte Fragen (FAQ)",
   "help.faq.q1": "Was ist ein Tutto?",
   "help.faq.a1": "Ein Tutto liegt vor, wenn alle 6 Würfel wertbar sind und beiseitegelegt wurden. Dies beendet deinen Zug erfolgreich (oder erlaubt dir bei einem Feuerwerk, mit allen 6 Würfen von vorn zu würfeln).",

@@ -143,6 +143,8 @@ docker run --rm -v tutto-data:/data -v "$(pwd):/backup" alpine cp /data/stats.db
 
 Schema migrations run automatically at startup, so upgrading is just pulling a newer image.
 
+> One migration rebuilds the `device_statistics` table to split normal and custom games apart (SQLite cannot alter a primary key in place). It runs in a transaction and existing rows are carried over as normal games, but taking the backup above before that upgrade is worth the minute it costs.
+
 ### Behind a reverse proxy
 
 Point the proxy at the container's port and forward WebSocket upgrades (`Upgrade` and `Connection` headers) — the game will not sync without them. Leave `CORS_ORIGIN` unset: the frontend is served by the same server, so it is already same-origin. `NODE_ENV=production` is baked into the image, which also makes the server trust `X-Forwarded-For` so per-IP rate limiting sees real client addresses rather than the proxy's.
@@ -225,10 +227,18 @@ npm run test
 ## Advanced Options Explained
 
 In the lobby, you can tweak the following:
-- **Winning Score**: Change it from 6000 to shorter or longer games.
+- **Winning Score**: Change it from 6000 to shorter or longer games. *Makes the game custom.*
 - **Turn Timer**: Limit how long a player has to take their turn online. (doubled for `Kleeblatt` and tripled for `Feuerwerk`)
 - **Kick Timer**: Limit how long the room waits for a disconnected player to return before they are automatically kicked.
-- **Deck Customization**: Add more `x2` cards, remove `Stop` cards, or tweak the deck composition to your liking.
+- **Deck Customization**: Add more `x2` cards, remove `Stop` cards, or tweak the deck composition to your liking. *Makes the game custom.*
+
+### Normal and custom games
+
+Only games played on the default winning score (6000) and the default deck count toward the global statistics and your normal personal record. Changing either one marks the game **custom**: it is still recorded in full, but in a separate personal bucket you can switch to on the statistics screen, and it contributes nothing to the global figures beyond a count of how many custom games have been played.
+
+The turn timer, the kick timer, random order and an enforced dice mode change how a game is paced and played, not what it takes to win it — a game using them still counts as normal. The lobby says so before you start, and the end screen says where the game went.
+
+Local games record no statistics at all, whatever their configuration.
 
 ## License
 
