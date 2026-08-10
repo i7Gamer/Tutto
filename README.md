@@ -1,6 +1,6 @@
 # Tutto Multi-Device
 
-Tutto Multi-Device is a dynamic web application that allows you to play the popular board game **Tutto!** with friends online in real-time or locally on the same device. It features modern UI design, real-time multiplayer synchronization using WebSockets, dynamic animations, multi-language support, and comprehensive statistics tracking.
+Tutto Multi-Device is a dynamic web application that allows you to play the popular card game **Tutto!** with friends online in real-time or locally on the same device. It features modern UI design, real-time multiplayer synchronization using WebSockets, dynamic animations, multi-language support, and comprehensive statistics tracking.
 
 ## Features
 
