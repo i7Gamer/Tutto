@@ -135,7 +135,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
     }
 
     if (!room.turnTimerState) {
-      room.turnTimerState = { lastCard: null, lastPlayerIndex: null };
+      room.turnTimerState = { lastCard: null, lastPlayerIndex: null, lastDeckSize: null, restartsThisTurn: 0 };
     }
 
     if (result.isGameOver) {
@@ -149,16 +149,20 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       }
       room.turnTimerState.lastCard = null;
       room.turnTimerState.lastPlayerIndex = null;
+      room.turnTimerState.lastDeckSize = null;
+      room.turnTimerState.restartsThisTurn = 0;
     } else {
       room.state.currentPlayerIndex = result.nextIndex;
       room.state.round = result.nextRound;
       room.state.cards = result.newDeck;
       room.state.currentCard = result.drawnCard;
       room.state.turnStartTime = Date.now();
-      // Mark this as the "already seen" turn so the next pushState's cardChanged/
-      // playerChanged check doesn't treat it as a fresh turn and reschedule again.
+      // Mark this as the "already seen" turn so the next pushState's deck/
+      // player-change check doesn't treat it as a fresh turn and reschedule.
       room.turnTimerState.lastCard = result.drawnCard;
       room.turnTimerState.lastPlayerIndex = result.nextIndex;
+      room.turnTimerState.lastDeckSize = result.newDeck.length;
+      room.turnTimerState.restartsThisTurn = 0;
       startServerTurnTimer(io, roomId);
     }
 

@@ -1,17 +1,19 @@
 import { getEffectiveTurnDuration } from '../utils/turnDuration';
-import type { CardType } from '../types';
 import type { GameStore, ImmerStateCreator } from './storeTypes';
 
 let gameTimerInterval: ReturnType<typeof setInterval> | null = null;
 let turnTimerInterval: ReturnType<typeof setInterval> | null = null;
 let turnTimerPlayerIndex: number | null = null;
-let turnTimerCard: CardType | null = null;
+// Deck size at the last countdown restart — mirrors the server's trigger
+// (socketGameStateHandlers.ts): the card VALUE cannot see a classic mid-chain
+// draw of the same card type, but a real draw always changes the deck.
+let turnTimerDeckSize: number | null = null;
 
 const clearTurnTimer = () => {
   if (turnTimerInterval) clearInterval(turnTimerInterval);
   turnTimerInterval = null;
   turnTimerPlayerIndex = null;
-  turnTimerCard = null;
+  turnTimerDeckSize = null;
 };
 
 // Test-only escape hatch: gameTimerInterval/turnTimerInterval are module-level,
@@ -75,17 +77,17 @@ export const createTimerSlice: ImmerStateCreator<TimerSlice> = (set, get) => ({
 
       if (state.turnDuration > 0) {
         const playerChanged = state.currentPlayerIndex !== turnTimerPlayerIndex;
-        const cardChanged = state.currentCard !== turnTimerCard;
+        const deckChanged = state.cards.length !== turnTimerDeckSize;
         const justReconnected = state.justReconnected;
         const serverValue = typeof serverRemaining === 'number' ? serverRemaining : null;
 
-        if (playerChanged || cardChanged || justReconnected || serverValue !== null) {
+        if (playerChanged || deckChanged || justReconnected || serverValue !== null) {
           if (turnTimerInterval) clearInterval(turnTimerInterval);
           turnTimerPlayerIndex = state.currentPlayerIndex;
-          turnTimerCard = state.currentCard;
+          turnTimerDeckSize = state.cards.length;
 
           let remaining: number;
-          const isNewTurn = playerChanged || cardChanged;
+          const isNewTurn = playerChanged || deckChanged;
           if (serverValue !== null) {
             remaining = serverValue;
           } else if (!isNewTurn && justReconnected && state.turnTimeRemaining !== null && state.turnTimeRemaining !== undefined) {

@@ -9,6 +9,13 @@ const PUSH_STATE_LIMIT = { windowMs: 1_000, max: 20 };
 // liveTurnState fires ~every 300ms while a player is rolling.
 const LIVE_TURN_STATE_LIMIT = { windowMs: 1_000, max: 15 };
 
+// How many deck-triggered turn-timer restarts one player's turn may earn.
+// A legitimate classic chain draws one card per continuation and even a
+// full-deck chain stays far below this; a patched client pushing deck
+// mutations to keep its own turn alive is cut off here and the deadline
+// finally expires. Exported for the handler tests.
+export const MAX_TIMER_RESTARTS_PER_TURN = 50;
+
 /** The authoritative game state, and the live dice view that rides alongside it. */
 export const registerGameStateHandlers = ({ io, socket }: SocketContext): void => {
   const pushStateLimiter = createSocketEventLimiter(PUSH_STATE_LIMIT);
@@ -75,16 +82,28 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
     }
 
     if (!room.turnTimerState) {
-      room.turnTimerState = { lastCard: null, lastPlayerIndex: null };
+      room.turnTimerState = { lastCard: null, lastPlayerIndex: null, lastDeckSize: null, restartsThisTurn: 0 };
     }
 
-    const cardChanged = room.state.currentCard !== room.turnTimerState.lastCard;
+    // The card value is deliberately NOT a restart trigger: it cannot see a
+    // classic mid-chain draw of the same card type (which must get a fresh
+    // deadline — the deck shrinking is what reveals it), and it WAS a lever a
+    // patched active player could flip back and forth to reset the deadline
+    // indefinitely, defeating the server-authoritative expiry. Every
+    // legitimate card change comes with a player change (nextTurn, undo,
+    // kickoff) or a deck change (mid-chain draw, reshuffle). Deck-triggered
+    // restarts are budgeted per turn — far above any real chain — so a
+    // patched client pushing deck mutations is bounded too.
     const playerChanged = room.state.currentPlayerIndex !== room.turnTimerState.lastPlayerIndex;
+    const deckChanged = room.state.cards.length !== room.turnTimerState.lastDeckSize;
 
-    if (room.state.status === 'playing' && room.state.currentPlayerIndex !== null && (cardChanged || playerChanged)) {
+    if (room.state.status === 'playing' && room.state.currentPlayerIndex !== null &&
+        (playerChanged || (deckChanged && room.turnTimerState.restartsThisTurn < MAX_TIMER_RESTARTS_PER_TURN))) {
       room.state.turnStartTime = Date.now();
       room.turnTimerState.lastCard = room.state.currentCard;
       room.turnTimerState.lastPlayerIndex = room.state.currentPlayerIndex;
+      room.turnTimerState.lastDeckSize = room.state.cards.length;
+      room.turnTimerState.restartsThisTurn = playerChanged ? 0 : room.turnTimerState.restartsThisTurn + 1;
       startServerTurnTimer(io, roomId);
     }
 
@@ -98,6 +117,8 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
       if (room.turnTimerState) {
         room.turnTimerState.lastCard = null;
         room.turnTimerState.lastPlayerIndex = null;
+        room.turnTimerState.lastDeckSize = null;
+        room.turnTimerState.restartsThisTurn = 0;
       }
     }
 

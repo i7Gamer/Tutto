@@ -126,6 +126,33 @@ describe('timer slice', () => {
       expect(useGameStore.getState().turnTimeRemaining).toBe(60);
     });
 
+    it('a classic mid-chain draw of the same card type still restarts the countdown', () => {
+      // The card VALUE cannot see a same-type draw (a '300' chain drawing
+      // another '300') — the deck shrinking is what tells a real draw apart.
+      useGameStore.setState({ ...startedOnlineTurnState, currentCard: '300', cards: ['300', '200'] });
+      useGameStore.getState().syncOnlineTimers();
+      vi.advanceTimersByTime(40_000);
+      expect(useGameStore.getState().turnTimeRemaining).toBe(20);
+
+      useGameStore.setState({ currentCard: '300', cards: ['200'] });
+      useGameStore.getState().syncOnlineTimers();
+      expect(useGameStore.getState().turnTimeRemaining).toBe(60);
+    });
+
+    it('a card change without a deck or player change does not restart the countdown', () => {
+      // Mirrors the server trigger: every legitimate card change comes with a
+      // player change (nextTurn, undo) or a deck change (mid-chain draw); a
+      // bare card flip must not grant fresh time.
+      useGameStore.setState({ ...startedOnlineTurnState, currentCard: '300', cards: ['200'] });
+      useGameStore.getState().syncOnlineTimers();
+      vi.advanceTimersByTime(10_000);
+      expect(useGameStore.getState().turnTimeRemaining).toBe(50);
+
+      useGameStore.setState({ currentCard: '400' });
+      useGameStore.getState().syncOnlineTimers();
+      expect(useGameStore.getState().turnTimeRemaining).toBe(50);
+    });
+
     it('turnDuration 0 (timer disabled) clears the countdown', () => {
       useGameStore.setState({ ...startedOnlineTurnState, turnDuration: 0 });
       useGameStore.getState().syncOnlineTimers();

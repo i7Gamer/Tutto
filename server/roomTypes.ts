@@ -55,6 +55,15 @@ export interface RoomState {
 export interface TurnTimerState {
   lastCard: CardType | null;
   lastPlayerIndex: number | null;
+  // Deck size at the last timer restart. The card VALUE cannot distinguish a
+  // classic mid-chain draw of the same card type from no draw at all — the
+  // deck shrinking is what tells a real draw apart (the same trick Game.tsx's
+  // Stop-buzzer effect uses for consecutive Stop cards).
+  lastDeckSize: number | null;
+  // Deck-triggered restarts granted within the current player's turn (a new
+  // player always resets it). Bounds how long a patched active player can
+  // keep their own turn alive by pushing deck changes.
+  restartsThisTurn: number;
 }
 
 // Tracks which devices/global stats have already been recorded for the room's
