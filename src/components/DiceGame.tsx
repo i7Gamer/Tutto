@@ -459,7 +459,15 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   } : {});
 
   useEffect(() => {
-    if (!onStateChangeRef.current || !hasRolled || isRolling || bustState) return;
+    if (!onStateChangeRef.current || !hasRolled || bustState) return;
+    // A send DURING the roll is allowed exactly while dice are still
+    // tumbling — it is what carries rollingDiceIds to spectators, whose
+    // tumble rendering (GameControls) was unreachable when every snapshot
+    // waited for isRolling to clear: by finalizeRoll, the per-die settle
+    // timers have already emptied the set, so live data never held a single
+    // rolling id. The settle gap (still isRolling, nothing left tumbling)
+    // stays skipped; finalize's own state change sends the settled snapshot.
+    if (isRolling && rollingDiceIndices.size === 0) return;
     const timer = setTimeout(() => {
       onStateChangeRef.current?.(buildDiceSnapshot({
         turnScore, keptDice, currentRoll, kniffelProgress, tuttosThisTurn, rollingDiceIndices,
