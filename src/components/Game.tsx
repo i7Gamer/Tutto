@@ -139,6 +139,19 @@ export default function Game() {
     roomId, round, currentPlayerIndex, currentCard, ruleset: game.ruleset,
     scoreInput,
   });
+  // An externally advanced turn (undo, the online Stop auto-continue, a
+  // server timeout) never passes through the commit handlers that reset the
+  // entry fields. Digits surviving into the new slot would be re-cached by
+  // the chain cache's write-through under the NEW turn's key — undoing the
+  // lifecycle clear one render later — so this corrects at render time (the
+  // stale-modal pattern below), landing before any effect can write.
+  const turnSlot = `${round}:${currentPlayerIndex}`;
+  const [prevTurnSlot, setPrevTurnSlot] = useState(turnSlot);
+  if (turnSlot !== prevTurnSlot) {
+    setPrevTurnSlot(turnSlot);
+    if (scoreInput !== '') setScoreInput('');
+    if (applyBonus) setApplyBonus(false);
+  }
   // Tracks whether the dice panel's own entrance animation has finished, so
   // DiceGame knows when it's safe to start rolling automatically. Reset once
   // the panel closes so the next opening waits for its own animation again.

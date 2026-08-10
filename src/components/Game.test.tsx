@@ -724,6 +724,25 @@ describe('Game Component Integration', () => {
         }));
       });
 
+      it('an externally advanced turn resets the input and leaves no phantom cache entry', () => {
+        // Undo, the online Stop auto-continue and a server timeout advance
+        // the turn slot without passing through the commit handlers that
+        // reset the input. Digits surviving into the new slot would be
+        // re-cached by the write-through under the NEW turn's key — undoing
+        // the lifecycle clear one render later.
+        useGameStore.setState({ currentCard: '300', round: 1, currentPlayerIndex: 0 });
+        render(<Game />);
+
+        fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '500' } });
+        expect(JSON.parse(localStorage.getItem('tutto_physical_turn_state') ?? 'null')).not.toBeNull();
+
+        // The slot changes underneath the component (e.g. undo rewinding).
+        act(() => { useGameStore.setState({ round: 2 }); });
+
+        expect((screen.getByPlaceholderText('game.controls.scorePlaceholder') as HTMLInputElement).value).toBe('');
+        expect(localStorage.getItem('tutto_physical_turn_state')).toBeNull();
+      });
+
       it('writes the cache as the chain grows and clears it on commit', () => {
         const mockDraw = vi.fn(() => {
           useGameStore.setState({ currentCard: '400' });
