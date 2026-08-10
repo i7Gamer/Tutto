@@ -487,7 +487,12 @@ export default function Game() {
   // guards both rely on (typing, open modals, held keys) are in the hook.
   const primaryAction = () => {
     if (isStopCard) {
-      handleYesNo(false);
+      // A Stop showing while the dice modal is up is a classic mid-chain
+      // forfeit that DiceGame commits itself, with the chain summary — the
+      // same reason the Stop auto-continue effect above skips it. Committing
+      // here too would advance the turn a second time (and without the
+      // summary), handing the next player a forfeited turn.
+      if (!showDiceGame) handleYesNo(false);
     } else if (effectiveDiceMode === 'digital') {
       // Digital mode always shows "Roll Dice" for any non-Stop card — it
       // doesn't distinguish input/yes-no cards the way physical mode does.

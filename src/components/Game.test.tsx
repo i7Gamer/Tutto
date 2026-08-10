@@ -948,6 +948,28 @@ describe('Game Component Integration', () => {
       expect(mockNextTurn).not.toHaveBeenCalled();
     });
 
+    it('Space does not commit a Stop card while the dice modal is open (classic mid-chain Stop)', () => {
+      // A classic chain drew a Stop inside DiceGame: the store card flips to
+      // 'Stop' while the modal stays up showing the forfeit summary, which
+      // DiceGame itself commits (with the chain summary). The dice overlay
+      // sets no aria-modal — DiceGame's own shortcuts must keep working — so
+      // Game's Space/Enter binding stays live and used to commit the turn a
+      // second time, without the summary.
+      useGameStore.setState({ ruleset: 'classic', diceMode: 'digital', currentCard: 'x2' });
+      render(<Game />);
+
+      fireEvent.keyDown(window, { key: ' ' }); // opens the dice modal
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+
+      act(() => { useGameStore.setState({ currentCard: 'Stop' }); });
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+
+      fireEvent.keyDown(window, { key: ' ' });
+      expect(mockNextTurn).not.toHaveBeenCalled();
+
+      useGameStore.setState({ ruleset: 'modernized' });
+    });
+
     it('ignores the shortcut while focus is inside the score input', () => {
       useGameStore.setState({ diceMode: 'physical', currentCard: '200' });
       render(<Game />);
