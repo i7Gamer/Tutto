@@ -19,6 +19,7 @@ import { isTestEnv } from '../utils/env';
 import { motion, AnimatePresence } from 'framer-motion';
 import Die, { DiePips } from './game/Die';
 import DiceSummary from './game/DiceSummary';
+import { MAX_CHAIN_CARDS } from '../types';
 import type { CardType, Die as DieType, DiceSnapshot, Ruleset, TurnSummary, TurnCardPlayed, TurnEnd } from '../types';
 
 interface DiceGameProps {
@@ -559,9 +560,14 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
 
   // The classic bank-or-draw choice: offered on a tutto summary for every
   // card except Feuerwerk (its null already banks and ends the turn) and
-  // Kleeblatt (a completed one has already won the game).
+  // Kleeblatt (a completed one has already won the game). Closed once the
+  // chain reaches MAX_CHAIN_CARDS: every validator that carries a chain
+  // (resume cache, pushed snapshot, turn summary) refuses anything longer
+  // wholesale, so past the cap the turn can only bank — via the countdown
+  // that starts whenever this choice is unavailable.
   const chainChoiceAvailable = isClassic && showSummary && summaryData.won && !!summaryData.isTutto
-    && currentCard !== 'Kleeblatt' && currentCard !== 'Feuerwerk' && !!onDrawCard;
+    && currentCard !== 'Kleeblatt' && currentCard !== 'Feuerwerk' && !!onDrawCard
+    && chainCardCount < MAX_CHAIN_CARDS;
 
   // Auto-continue to the next player once the turn resolves — for a success the
   // same way as for a bust (the spectator view relies on this turn ending on its

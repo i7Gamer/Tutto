@@ -130,6 +130,7 @@ export default function Game() {
   const {
     awaitingChoice: physicalAwaitingChoice,
     hasChain: hasPhysicalChain,
+    canDrawAnotherCard,
     completeCurrentCard,
     recordDraw,
     buildSummary: buildPhysicalSummary,
@@ -436,10 +437,14 @@ export default function Game() {
   // Continue button locally), which commits the chain forfeit.
   const handlePhysicalDrawNextCard = useCallback(() => {
     if (!currentCard) return;
+    // The chain caps at MAX_CHAIN_CARDS (see canDrawAnotherCard) — refused
+    // BEFORE drawCardMidTurn, or the drawn card would leave the deck without
+    // ever entering the chain.
+    if (!canDrawAnotherCard()) return;
     const drawn = drawCardMidTurn();
     if (!drawn) return;
     recordDraw(drawn);
-  }, [currentCard, drawCardMidTurn, recordDraw]);
+  }, [currentCard, canDrawAnotherCard, drawCardMidTurn, recordDraw]);
 
   const handleDiceComplete = useCallback((score: number, isSuccess: boolean, turnSummary?: TurnSummary) => {
     setShowDiceGame(false);

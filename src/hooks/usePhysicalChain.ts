@@ -215,6 +215,15 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
   // commit callbacks (e.g. the Stop auto-continue) never see a stale value.
   const hasChain = useCallback(() => chainRef.current !== null, []);
 
+  // Whether the chain may take one more card. Checked by Game BEFORE
+  // drawCardMidTurn mutates the deck: every validator that carries a chain
+  // (this hook's cache, the pushed snapshot, the turn summary) refuses
+  // anything past MAX_CHAIN_CARDS wholesale — a draw beyond it would either
+  // desync chain and deck (if recordDraw refused after the deck moved) or
+  // get the whole turn thrown away on the next restore.
+  const canDrawAnotherCard = useCallback((): boolean =>
+    chainOrCurrentCard().cards.length < MAX_CHAIN_CARDS, [chainOrCurrentCard]);
+
   // What this classic physical turn did, card by card — the digital
   // counterpart is built inside DiceGame. With real dice the tutto count is
   // unknowable; completed cards are its floor (each continuation implies one,
@@ -241,6 +250,6 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
   }, []);
 
   return useMemo(() => ({
-    awaitingChoice, hasChain, completeCurrentCard, recordDraw, buildSummary, clearChain,
-  }), [awaitingChoice, hasChain, completeCurrentCard, recordDraw, buildSummary, clearChain]);
+    awaitingChoice, hasChain, canDrawAnotherCard, completeCurrentCard, recordDraw, buildSummary, clearChain,
+  }), [awaitingChoice, hasChain, canDrawAnotherCard, completeCurrentCard, recordDraw, buildSummary, clearChain]);
 };

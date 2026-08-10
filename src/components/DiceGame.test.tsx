@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Profiler } from 'react';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { parseSavedDiceState } from '../utils/diceTurnState';
+import { MAX_CHAIN_CARDS } from '../types';
 import DiceGame from './DiceGame';
 import { playTone } from '../utils/soundEffects';
 
@@ -1024,5 +1025,37 @@ describe('DiceGame classic chains', () => {
     })));
   });
 
+  it('closes the bank-or-draw choice at the chain-card cap and banks via the countdown', async () => {
+    // Every validator that carries a chain (resume cache, pushed snapshot,
+    // turn summary) refuses anything past MAX_CHAIN_CARDS wholesale — one
+    // more draw would get the whole turn thrown away, so at the cap the only
+    // remaining move is banking.
+    const onComplete = vi.fn();
+    const kept = [1, 2, 3, 4, 5, 6].map(v => ({ id: `d${v}`, val: v }));
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 9000, keptDice: kept, currentRoll: [], kniffelProgress: [],
+      tuttosThisTurn: 1, cardsThisTurn: Array(MAX_CHAIN_CARDS).fill('300'),
+      plusMinusSuccesses: 0, chainTuttoCount: MAX_CHAIN_CARDS, turnKey: 'K',
+    }));
+    render(<DiceGame currentCard="300" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
+
+    expect(screen.queryByTestId('draw-next-card')).not.toBeInTheDocument();
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(9000, true, expect.objectContaining({
+      ended: 'banked',
+    })));
+    expect(onComplete.mock.calls[0][2].cards).toHaveLength(MAX_CHAIN_CARDS);
+  });
+
+  it('still offers the draw one card below the cap', () => {
+    const kept = [1, 2, 3, 4, 5, 6].map(v => ({ id: `d${v}`, val: v }));
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 9000, keptDice: kept, currentRoll: [], kniffelProgress: [],
+      tuttosThisTurn: 1, cardsThisTurn: Array(MAX_CHAIN_CARDS - 1).fill('300'),
+      plusMinusSuccesses: 0, chainTuttoCount: MAX_CHAIN_CARDS - 1, turnKey: 'K',
+    }));
+    render(<DiceGame currentCard="300" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
+
+    expect(screen.getByTestId('draw-next-card')).toBeInTheDocument();
+  });
 });
 

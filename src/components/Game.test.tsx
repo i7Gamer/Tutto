@@ -4,6 +4,7 @@ import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Game from './Game';
 import { useGameStore } from '../store/useGameStore';
+import { MAX_CHAIN_CARDS } from '../types';
 import { vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
 
 vi.mock('../utils/soundEffects', () => ({
@@ -663,6 +664,57 @@ describe('Game Component Integration', () => {
         expect(screen.getByTestId('physical-draw-next-card')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /game.controls.yes/i })).not.toBeInTheDocument();
         expect((screen.getByPlaceholderText('game.controls.scorePlaceholder') as HTMLInputElement).value).toBe('2000');
+      });
+
+      it('refuses to draw past the chain-card cap, and the bank still carries the capped chain', () => {
+        // Every validator that carries a chain (this cache, the pushed
+        // snapshot, the turn summary) refuses anything past MAX_CHAIN_CARDS
+        // wholesale — and the refusal must land BEFORE drawCardMidTurn, or
+        // the drawn card would vanish from both the chain and the deck.
+        const mockDraw = vi.fn(() => '400' as const);
+        useGameStore.setState({ currentCard: '300', round: 1, drawCardMidTurn: mockDraw });
+        localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
+          turnKey: 'local:1:0:300:classic',
+          cards: [
+            ...Array.from({ length: MAX_CHAIN_CARDS - 1 }, () => ({ card: '300', completed: true })),
+            { card: '300', completed: false },
+          ],
+          plusMinusSuccesses: 0,
+          awaitingChoice: false,
+          scoreInput: '500',
+        }));
+        render(<Game />);
+
+        fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+        expect(mockDraw).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByText('game.controls.nextTurn'));
+        expect(mockNextTurn).toHaveBeenCalledWith(500, true, expect.objectContaining({ ended: 'banked' }));
+        expect(mockNextTurn.mock.calls[0][2].cards).toHaveLength(MAX_CHAIN_CARDS);
+      });
+
+      it('allows the draw right up to the cap, then refuses', () => {
+        const mockDraw = vi.fn(() => {
+          useGameStore.setState({ currentCard: '400' });
+          return '400' as const;
+        });
+        useGameStore.setState({ currentCard: '300', round: 1, drawCardMidTurn: mockDraw });
+        localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
+          turnKey: 'local:1:0:300:classic',
+          cards: [
+            ...Array.from({ length: MAX_CHAIN_CARDS - 2 }, () => ({ card: '300', completed: true })),
+            { card: '300', completed: false },
+          ],
+          plusMinusSuccesses: 0,
+          awaitingChoice: false,
+          scoreInput: '',
+        }));
+        render(<Game />);
+
+        fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+        expect(mockDraw).toHaveBeenCalledTimes(1); // MAX_CHAIN_CARDS - 1 → the cap
+        fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+        expect(mockDraw).toHaveBeenCalledTimes(1); // at the cap → refused
       });
 
       it('discards a cache stamped for a different turn instead of resuming it', () => {
