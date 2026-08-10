@@ -113,6 +113,13 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const restoredTutto = !restoredBust && isClassic && restored && restored.keptDice.length === 6
     ? { won: true, score: restored.turnScore, isTutto: true }
     : null;
+  // A classic chain had just drawn a Stop card when the app reloaded (the
+  // turn key carries the current card, so a matching restore under 'Stop'
+  // can only be that forfeit summary) — restore into it, not into a rollable
+  // dice table for a card that allows no rolling.
+  const restoredStopped = !restoredBust && !restoredTutto && isClassic && restored && currentCard === 'Stop'
+    ? { won: false, score: 0, isTutto: false, stoppedByCard: true }
+    : null;
 
   const [keptDice, setKeptDice] = useState<DieType[]>(restored?.keptDice ?? []);
   const [currentRoll, setCurrentRoll] = useState<DieType[]>(restored?.currentRoll ?? []);
@@ -123,9 +130,9 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const [isRolling, setIsRolling] = useState(false);
   const [hasRolled, setHasRolled] = useState(!!restored);
   const [bustState, setBustState] = useState(!!restoredBust);
-  const [showSummary, setShowSummary] = useState(!!restoredBust || !!restoredTutto);
+  const [showSummary, setShowSummary] = useState(!!restoredBust || !!restoredTutto || !!restoredStopped);
   const [summaryData, setSummaryData] = useState<SummaryData>(
-    restoredBust ?? restoredTutto ?? { won: false, score: 0, isTutto: false },
+    restoredBust ?? restoredTutto ?? restoredStopped ?? { won: false, score: 0, isTutto: false },
   );
   const [tuttosThisTurn, setTuttosThisTurn] = useState(restored?.tuttosThisTurn ?? 0);
 
@@ -138,8 +145,8 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
       cards: cardList.map((card, i) => ({ card, completed: i < cardList.length - 1 || (i === cardList.length - 1 && !!restoredTutto) })),
       tuttoCount: restored?.chainTuttoCount ?? 0,
       plusMinusSuccesses: restored?.plusMinusSuccesses ?? 0,
-      ended: restoredBust ? (restoredBust.won ? 'banked' : 'null') : 'banked',
-      forfeitedScore: restoredBust && !restoredBust.won ? restored?.turnScore : undefined,
+      ended: restoredStopped ? 'stopCard' : restoredBust ? (restoredBust.won ? 'banked' : 'null') : 'banked',
+      forfeitedScore: (restoredBust && !restoredBust.won) || restoredStopped ? restored?.turnScore : undefined,
     };
   });
   const chainRef = useRef(initialChain);

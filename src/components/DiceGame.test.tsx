@@ -859,5 +859,30 @@ describe('DiceGame classic chains', () => {
     expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
     expect(screen.getByTestId('draw-next-card')).toBeInTheDocument();
   });
+
+  it('restores a reload during the drawn-Stop summary into that summary, not a dice table', async () => {
+    // The snapshot written while the Stop forfeit summary was showing: no
+    // dice on the table, the chain ending in the drawn Stop. Restoring it
+    // into the regular dice table would let the player roll — and bank —
+    // against a Stop card.
+    const onComplete = vi.fn();
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 1800, keptDice: [], currentRoll: [], kniffelProgress: [],
+      tuttosThisTurn: 1, cardsThisTurn: ['300', 'Stop'], plusMinusSuccesses: 0, chainTuttoCount: 1,
+      turnKey: 'K',
+    }));
+    render(<DiceGame currentCard="Stop" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
+
+    expect(screen.getByText('dice.stop_card_drawn')).toBeInTheDocument();
+    // A forfeit offers no bank-or-draw choice and no dice to roll.
+    expect(screen.queryByText('dice.bank_points')).not.toBeInTheDocument();
+    expect(screen.queryByText('dice.roll_again')).not.toBeInTheDocument();
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, false, expect.objectContaining({
+      cards: [{ card: '300', completed: true }, { card: 'Stop', completed: false }],
+      ended: 'stopCard',
+      forfeitedScore: 1800,
+    })));
+  });
 });
 
