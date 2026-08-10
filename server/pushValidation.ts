@@ -10,10 +10,12 @@ import type { RoomState, ServerPlayer } from './roomTypes';
 
 // A fully-loaded deck has at most MAX_CARD_COUNT of each of the 11 card types.
 const MAX_DECK_SIZE = MAX_CARD_COUNT * 11;
+// Exported for turnTimers.ts: the timeout path appends its own round-end
+// datapoints and must respect the same bound the pushed arrays get.
 // Generous safety cap for per-round arrays (chartLabels/chartValues entries) — far
 // beyond any real game, just enough to stop a malicious pushState from growing
 // these arrays without bound.
-const MAX_ROUNDS = 100000;
+export const MAX_ROUNDS = 100000;
 const MAX_SCORE_MAGNITUDE = 1_000_000;
 const MAX_GAME_SECONDS = 10_000_000;
 
@@ -354,7 +356,10 @@ export const applyPushedState = (
     } else if (key in PUSHED_NUMERIC_FIELD_BOUNDS) {
       const v = newState[key];
       const { min, max } = PUSHED_NUMERIC_FIELD_BOUNDS[key];
-      if (typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max) {
+      // Integers only: the loose >= 0 floor stays (integration tests push 1-2s
+      // turns), but a SUB-SECOND duration would arm the 10ms-floor server
+      // timer as a self-advancing loop that never ends the game.
+      if (typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max) {
         (state as unknown as Record<string, unknown>)[key] = v;
       }
     } else if (key === 'initialCards') {

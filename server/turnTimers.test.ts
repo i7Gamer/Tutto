@@ -331,6 +331,26 @@ describe('turnTimers', () => {
       expect(lastEntry.cards).toEqual(['500', 'Kniffel', 'Feuerwerk']);
     });
 
+    it('stops appending chart datapoints once the MAX_ROUNDS cap is reached', () => {
+      // The timeout path can self-advance forever when no one ever reaches the
+      // winning score (e.g. a patched host arming a 1s turn in an idle room).
+      // Pushed chart arrays are capped at MAX_ROUNDS — the server's own
+      // appends must respect the same bound or state grows without limit.
+      rooms[roomId] = createRoom('host-1');
+      const fullSeries = Array(100000).fill(0);
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 1, currentCard: '300', cards: ['200'],
+        round: 100001, players: [makePlayer('Alice'), makePlayer('Bob')],
+        chartValues: [fullSeries, [...fullSeries]], chartLabels: Array(100000).fill(1),
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      expect(rooms[roomId].state.chartLabels).toHaveLength(100000);
+      expect(rooms[roomId].state.chartValues[0]).toHaveLength(100000);
+      // The turn itself still advances — only the chart bookkeeping stops.
+      expect(rooms[roomId].state.round).toBe(100002);
+    });
+
     it('does not invent a bust when the timeout lands on the bank-or-draw choice', () => {
       // The choice state is exactly where an AFK classic player parks (it has
       // deliberately no client countdown): all six dice are put aside and the

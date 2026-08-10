@@ -269,10 +269,15 @@ describe('applyPushedState', () => {
       // bounds check — pushState must not be a side door for a fractional
       // winning score the config validator would also reject.
       ['winningScore', 6000.5, false], ['winningScore', NaN, false], ['winningScore', Infinity, false],
-      // The timers deliberately keep a loose >= 0 sanity floor (tests push 1-2s turns).
+      // The timers deliberately keep a loose >= 0 sanity floor (tests push 1-2s turns)…
       ['turnDuration', 1, true], ['turnDuration', -1, false],
       ['turnDuration', 600, true], ['turnDuration', 601, false], ['turnDuration', NaN, false],
+      // …but integers only: a pushed SUB-SECOND duration (0.05) would arm the
+      // 10ms-floor server timer as a self-advancing loop that never ends the
+      // game — the exact side door the winningScore rows above close.
+      ['turnDuration', 0.05, false], ['turnDuration', 1.5, false],
       ['reconnectTimeout', 3600, true], ['reconnectTimeout', 3601, false], ['reconnectTimeout', Infinity, false],
+      ['reconnectTimeout', 0.5, false],
     ] as [keyof RoomState, number, boolean][])('%s = %s accepted: %s', (field, value, accepted) => {
       const state = makeState();
       const before = state[field];

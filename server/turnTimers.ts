@@ -3,6 +3,7 @@ import { MAX_HISTORY_LOG_SIZE, type CoreGameState, type TurnSummary } from '../s
 import { calculateNextTurn } from '../src/utils/coreGameEngine';
 import type { Room, ServerPlayer } from './roomTypes';
 import { rooms, calculateRemainingTurnTime, emitRoomState } from './rooms';
+import { MAX_ROUNDS } from './pushValidation';
 
 export const clearServerTurnTimer = (roomId: string): void => {
   const room = rooms[roomId];
@@ -124,8 +125,11 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
     // otherwise labels outgrow every series and the end-screen chart skews.
     // Guarded on chartValues alone (not chartNames, as handleActivePlayerRemoved
     // additionally does) because that is the array actually being appended to
-    // here; chartNames is only a fallback label source for the chart.
-    if (result.isRoundEnd && room.state.chartValues.length === result.players.length) {
+    // here; chartNames is only a fallback label source for the chart. Capped at
+    // MAX_ROUNDS like the pushed arrays: this path can self-advance for as long
+    // as nobody reaches the winning score, and must not grow state unboundedly.
+    if (result.isRoundEnd && room.state.chartValues.length === result.players.length
+        && room.state.chartLabels.length < MAX_ROUNDS) {
       room.state.chartValues.forEach((vals, i) => vals.push(result.players[i]?.score ?? 0));
       room.state.chartLabels.push(room.state.round);
     }
