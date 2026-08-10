@@ -20,6 +20,12 @@ export const indentLogContinuationLines = (value: string): string =>
 // fields get the stricter >= 1 floor instead of the default >= 0.
 const MIN_ONE_STATS_FIELDS = new Set(['fastestWinTurns', 'fastestLossTurns']);
 
+// Modernized rules keep Plus/Minus deductions unclamped (see the engine's
+// deliberate no-clamp comment), so a player can legitimately FINISH a game
+// below zero — flooring their totalScore at 0 silently inflated every sum
+// and average built on it. Counters and records stay non-negative.
+const NEGATIVE_ALLOWED_STATS_FIELDS = new Set(['totalScore']);
+
 export type SanitizedStats = Record<string, number | boolean | null>;
 
 export const sanitizeStats = (raw: unknown): SanitizedStats => {
@@ -38,7 +44,9 @@ export const sanitizeStats = (raw: unknown): SanitizedStats => {
     if (typeof val !== 'number' && typeof val !== 'string') continue;
     const n = Number(val);
     if (!Number.isFinite(n)) continue;
-    const minAllowed = MIN_ONE_STATS_FIELDS.has(key) ? 1 : 0;
+    const minAllowed = MIN_ONE_STATS_FIELDS.has(key) ? 1
+      : NEGATIVE_ALLOWED_STATS_FIELDS.has(key) ? -STATS_VALUE_CAP
+        : 0;
     clean[key] = Math.max(minAllowed, Math.min(Math.floor(n), STATS_VALUE_CAP));
   }
   return clean;

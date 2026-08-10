@@ -95,12 +95,20 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
       // overwrite the displayed streak with the custom bucket's count.
       if (mode === 'normalized' || mode === 'classic') {
         const updatedStats = await getDeviceStats(deviceId, mode);
-        if (mode === 'classic') {
-          player.winStreakClassic = updatedStats?.currentWinStreak ?? 0;
-        } else {
-          player.winStreak = updatedStats?.currentWinStreak ?? 0;
+        // Re-resolved AFTER the two awaits: a players-carrying push landing
+        // in between (e.g. the host's Play Again) rebuilds every roster entry
+        // via mergeMutable, so the pre-await `player` may be a detached
+        // object — writing there would broadcast the stale streak this
+        // refresh exists to fix.
+        const currentSeat = rooms[roomId as string]?.state.players.find(p => p.deviceId === deviceId);
+        if (currentSeat) {
+          if (mode === 'classic') {
+            currentSeat.winStreakClassic = updatedStats?.currentWinStreak ?? 0;
+          } else {
+            currentSeat.winStreak = updatedStats?.currentWinStreak ?? 0;
+          }
+          emitRoomState(io, roomId as string);
         }
-        emitRoomState(io, roomId as string);
       }
     } catch (err) {
       room.statsRecordedForGame.devices.delete(deviceId);

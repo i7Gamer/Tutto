@@ -271,6 +271,14 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
         // the client adopts it instead of keeping a mismatched myName.
         name = existingPlayer.name;
       }
+      // A same-device takeover (second tab, reopened app) supersedes the old
+      // socket — remove it from the Socket.IO room like kickPlayer does, or
+      // the abandoned tab keeps receiving every broadcast forever; if this
+      // roomId is later deleted and reused by strangers, that tab would
+      // silently stream THEIR room state too.
+      if (existingPlayer.socketId && existingPlayer.socketId !== socket.id) {
+        io.sockets.sockets.get(existingPlayer.socketId)?.leave(roomId);
+      }
       if (room.host === existingPlayer.socketId) room.host = socket.id;
       existingPlayer.socketId = socket.id;
       existingPlayer.disconnected = false;

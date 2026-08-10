@@ -28,6 +28,14 @@ describe('sanitizeStats', () => {
     expect(sanitizeStats({ busts: -5 })).toEqual({ busts: 0 });
   });
 
+  it('keeps a legitimately negative totalScore (modernized scores go below zero)', () => {
+    // Plus/Minus deductions are unclamped under modernized rules, so a
+    // player can FINISH negative — flooring that at 0 silently inflated
+    // every totalScore sum and average built on it.
+    expect(sanitizeStats({ totalScore: -3000 })).toEqual({ totalScore: -3000 });
+    expect(sanitizeStats({ totalScore: -2e12 })).toEqual({ totalScore: -STATS_VALUE_CAP });
+  });
+
   it('caps absurdly large numbers', () => {
     expect(sanitizeStats({ totalScore: 1e15 })).toEqual({ totalScore: STATS_VALUE_CAP });
   });

@@ -10,10 +10,14 @@ vi.mock('./database', () => ({
 }));
 import { getDeviceStats } from './database';
 
-const makeFakeIo = () => {
+const makeFakeIo = (knownSockets: Record<string, { leave: ReturnType<typeof vi.fn> }> = {}) => {
   const emit = vi.fn();
   const to = vi.fn(() => ({ emit }));
-  return { io: { to } as unknown as Server, emit };
+  const io = {
+    to,
+    sockets: { sockets: { get: (id: string) => knownSockets[id] } },
+  } as unknown as Server;
+  return { io, emit };
 };
 
 type Handler = (...args: unknown[]) => unknown;
@@ -84,5 +88,31 @@ describe('joinRoom vs a disconnect during its stats await', () => {
     expect(rooms['LIVE-ROOM']).toBeDefined();
     expect(rooms['LIVE-ROOM'].state.players).toHaveLength(1);
     expect(rooms['LIVE-ROOM'].state.players[0].disconnected).toBe(false);
+  });
+
+  it('a same-device takeover removes the superseded socket from the Socket.IO room', async () => {
+    // The old, still-connected tab must stop receiving broadcasts (the same
+    // .leave() kickPlayer performs) — otherwise it streams the room forever,
+    // and if this roomId is later deleted and reused by strangers it would
+    // silently receive THEIR room state too.
+    vi.mocked(getDeviceStats).mockResolvedValue(null);
+
+    const oldSocket = { leave: vi.fn() };
+    const { io } = makeFakeIo({ 'old-sock': oldSocket });
+    const first = makeFakeSocket('old-sock');
+    registerRoomHandlers({ io, socket: first.socket, session: { roomId: null, username: null } });
+    const cb1 = vi.fn();
+    first.handlers['joinRoom']({ roomId: 'TAKEOVER-ROOM', name: 'Alice', deviceId: 'dev-same' }, cb1);
+    await vi.waitFor(() => expect(cb1).toHaveBeenCalled());
+
+    const second = makeFakeSocket('new-sock');
+    registerRoomHandlers({ io, socket: second.socket, session: { roomId: null, username: null } });
+    const cb2 = vi.fn();
+    second.handlers['joinRoom']({ roomId: 'TAKEOVER-ROOM', name: 'Alice', deviceId: 'dev-same' }, cb2);
+    await vi.waitFor(() => expect(cb2).toHaveBeenCalled());
+
+    expect(cb2).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+    expect(oldSocket.leave).toHaveBeenCalledWith('TAKEOVER-ROOM');
+    expect(rooms['TAKEOVER-ROOM'].state.players[0].socketId).toBe('new-sock');
   });
 });
