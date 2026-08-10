@@ -259,4 +259,4 @@ Licensed under the **GNU Affero General Public License v3.0 or later** (AGPL-3.0
 Because Tutto is played over a network, the AGPL's network clause applies: if you run a modified version as a service others can reach, you must offer them the source of your modified version.
 
 ---
-*Created with love for board games!*
+*Created with love for card games!*
