@@ -617,6 +617,106 @@ describe('Game Component Integration', () => {
         ended: 'banked',
       }));
     });
+
+    describe('chain persistence across a reload', () => {
+      beforeEach(() => {
+        localStorage.clear();
+      });
+
+      afterEach(() => {
+        localStorage.clear();
+      });
+
+      it('restores the chain and the typed running total from the turn cache', () => {
+        useGameStore.setState({ currentCard: '400', round: 3, currentPlayerIndex: 0 });
+        localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
+          turnKey: 'local:3:0:400:classic',
+          cards: [{ card: '300', completed: true }, { card: '400', completed: false }],
+          plusMinusSuccesses: 0,
+          awaitingChoice: false,
+          scoreInput: '350',
+        }));
+        render(<Game />);
+
+        const input = screen.getByPlaceholderText('game.controls.scorePlaceholder') as HTMLInputElement;
+        expect(input.value).toBe('350');
+
+        fireEvent.click(screen.getByText('game.controls.nextTurn'));
+        expect(mockNextTurn).toHaveBeenCalledWith(350, true, expect.objectContaining({
+          cards: [{ card: '300', completed: true }, { card: '400', completed: false }],
+          ended: 'banked',
+        }));
+      });
+
+      it('restores straight into the bank-or-draw choice when the Yes was already answered', () => {
+        useGameStore.setState({ currentCard: 'Kniffel', round: 2, currentPlayerIndex: 0 });
+        localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
+          turnKey: 'local:2:0:Kniffel:classic',
+          cards: [{ card: 'Kniffel', completed: true }],
+          plusMinusSuccesses: 0,
+          awaitingChoice: true,
+          scoreInput: '2000',
+        }));
+        render(<Game />);
+
+        // The choice controls, not the yes/no buttons.
+        expect(screen.getByTestId('physical-draw-next-card')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /game.controls.yes/i })).not.toBeInTheDocument();
+        expect((screen.getByPlaceholderText('game.controls.scorePlaceholder') as HTMLInputElement).value).toBe('2000');
+      });
+
+      it('discards a cache stamped for a different turn instead of resuming it', () => {
+        useGameStore.setState({ currentCard: '400', round: 4, currentPlayerIndex: 0 });
+        localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
+          turnKey: 'local:3:0:400:classic', // an earlier round's turn
+          cards: [{ card: '300', completed: true }, { card: '400', completed: false }],
+          plusMinusSuccesses: 0,
+          awaitingChoice: false,
+          scoreInput: '350',
+        }));
+        render(<Game />);
+
+        expect((screen.getByPlaceholderText('game.controls.scorePlaceholder') as HTMLInputElement).value).toBe('');
+        expect(localStorage.getItem('tutto_physical_turn_state')).toBeNull();
+
+        fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '500' } });
+        fireEvent.click(screen.getByText('game.controls.nextTurn'));
+        expect(mockNextTurn).toHaveBeenCalledWith(500, true, expect.objectContaining({
+          cards: [{ card: '400', completed: false }],
+        }));
+      });
+
+      it('writes the cache as the chain grows and clears it on commit', () => {
+        const mockDraw = vi.fn(() => {
+          useGameStore.setState({ currentCard: '400' });
+          return '400' as const;
+        });
+        useGameStore.setState({ currentCard: 'Kniffel', round: 1, currentPlayerIndex: 0, drawCardMidTurn: mockDraw });
+        render(<Game />);
+
+        fireEvent.click(screen.getByRole('button', { name: /game.controls.yes/i }));
+        let cached = JSON.parse(localStorage.getItem('tutto_physical_turn_state') ?? 'null');
+        expect(cached).toMatchObject({
+          turnKey: 'local:1:0:Kniffel:classic',
+          cards: [{ card: 'Kniffel', completed: true }],
+          awaitingChoice: true,
+        });
+
+        fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+        cached = JSON.parse(localStorage.getItem('tutto_physical_turn_state') ?? 'null');
+        expect(cached).toMatchObject({
+          // Stamped with the POST-draw card, the same key a reload will build.
+          turnKey: 'local:1:0:400:classic',
+          cards: [{ card: 'Kniffel', completed: true }, { card: '400', completed: false }],
+          awaitingChoice: false,
+        });
+
+        fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '2400' } });
+        fireEvent.click(screen.getByText('game.controls.nextTurn'));
+        expect(mockNextTurn).toHaveBeenCalled();
+        expect(localStorage.getItem('tutto_physical_turn_state')).toBeNull();
+      });
+    });
   });
 
   describe('Local Game Dice Caching', () => {
