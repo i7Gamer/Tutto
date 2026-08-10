@@ -222,9 +222,15 @@ export const abortGameIfLowPlayers = (io: Server, room: Room, roomId: string): b
     // since gameActualStartTime is only otherwise reset when a client pushes a
     // lobby/finished state — which never happens on a server-initiated abort.
     room.gameActualStartTime = null;
+    // The aborted game's last dice snapshot must not survive into the lobby —
+    // it would ride every subsequent broadcast (and the spectator panel)
+    // until the next game finally overwrote it.
+    room.state.liveTurnState = null;
     if (room.turnTimerState) {
       room.turnTimerState.lastCard = null;
       room.turnTimerState.lastPlayerIndex = null;
+      room.turnTimerState.lastDeckSize = null;
+      room.turnTimerState.restartsThisTurn = 0;
     }
     return true;
   }

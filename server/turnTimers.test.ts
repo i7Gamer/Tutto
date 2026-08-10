@@ -508,11 +508,14 @@ describe('turnTimers', () => {
       rooms[roomId] = createRoom('host-1');
       const room = rooms[roomId];
       room.gameActualStartTime = Date.now();
-      room.turnTimerState = { lastCard: '200', lastPlayerIndex: 0 };
+      room.turnTimerState = { lastCard: '200', lastPlayerIndex: 0, lastDeckSize: 5, restartsThisTurn: 2 };
       room.turnExpireTimer = setTimeout(() => {}, 10000);
       Object.assign(room.state, {
         status: 'playing', players: [makePlayer('Alice')], currentCard: '200', currentPlayerIndex: 0,
         finished: false, turnStartTime: Date.now(),
+        // The last live dice snapshot — must not survive into the lobby,
+        // where it would ride every broadcast until the next game.
+        liveTurnState: { turnScore: 250, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0 },
       });
       const { io, emit, to } = makeFakeIo();
       const aborted = abortGameIfLowPlayers(io, room, roomId);
@@ -526,8 +529,8 @@ describe('turnTimers', () => {
       expect(room.state.finished).toBe(false);
       expect(room.state.turnStartTime).toBeNull();
       expect(room.gameActualStartTime).toBeNull();
-      expect(room.turnTimerState?.lastCard).toBeNull();
-      expect(room.turnTimerState?.lastPlayerIndex).toBeNull();
+      expect(room.state.liveTurnState).toBeNull();
+      expect(room.turnTimerState).toEqual({ lastCard: null, lastPlayerIndex: null, lastDeckSize: null, restartsThisTurn: 0 });
       expect(room.turnExpireTimer).toBeNull();
     });
   });
