@@ -87,7 +87,14 @@ export const MAX_CHAIN_CARDS = 100;
 // turn timer expire with the current card already completed ('timeout' — the
 // turn forfeits, but no null was rolled, so it must not count as a bust; only
 // server/turnTimers.ts ever produces it).
-export type TurnEnd = 'banked' | 'null' | 'stopCard' | 'timeout';
+//
+// The type is DERIVED from the list rather than declared beside it: three
+// validators (the local save, the physical-turn cache, the pushed state) have
+// to recognise these values at runtime, and they used to re-enumerate them by
+// hand — so a fifth kind would have type-checked everywhere while being
+// silently rejected by all three. Now there is one list to add it to.
+export const TURN_ENDS = ['banked', 'null', 'stopCard', 'timeout'] as const;
+export type TurnEnd = typeof TURN_ENDS[number];
 
 export interface TurnCardPlayed {
   card: CardType;

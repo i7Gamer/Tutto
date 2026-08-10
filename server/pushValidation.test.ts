@@ -856,6 +856,17 @@ describe('classic chain fields (snapshot / history / turn summary)', () => {
     expect('junk' in clean).toBe(false);
   });
 
+  // The shape checks are shared with the two local caches (src/utils/turnShapes.ts);
+  // these bounds are the network's own, and must not follow them out of this file.
+  it('keeps the bounds that only untrusted input needs', () => {
+    expect(isValidTurnSummary({ ...validSummary, forfeitedScore: 1_000_000 })).toBe(true);
+    expect(isValidTurnSummary({ ...validSummary, forfeitedScore: 1_000_001 })).toBe(false);
+    expect(isValidTurnSummary({ ...validSummary, prevMostCardsInTurn: 1_000_001 })).toBe(false);
+    expect(isValidTurnSummary({ ...validSummary, prevHighestForfeitedTurnScore: 1_000_001 })).toBe(false);
+    expect(isValidTurnSummary({ ...validSummary, deductedPlayers: ['x'.repeat(30)] })).toBe(true);
+    expect(isValidTurnSummary({ ...validSummary, deductedPlayers: ['x'.repeat(31)] })).toBe(false);
+  });
+
   it('lets the active player push previousTurnSummary, validated and sanitized', () => {
     const state = makeState();
     applyPushedState(state, { previousTurnSummary: { ...validSummary, junk: 'x' } }, asActivePlayer);

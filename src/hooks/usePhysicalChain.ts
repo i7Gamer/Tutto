@@ -1,8 +1,8 @@
 import { localStore } from '../utils/storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildTurnKey, PHYSICAL_TURN_STATE_KEY } from '../utils/diceTurnState';
-import { VALID_CARD_TYPES } from '../utils/configValidation';
 import { MAX_CHAIN_CARDS } from '../types';
+import { isChainCounter, isTurnCardList } from '../utils/turnShapes';
 import type { CardType, Ruleset, TurnCardPlayed, TurnEnd, TurnSummary } from '../types';
 
 /*
@@ -44,14 +44,10 @@ const isPlausibleCache = (v: unknown): v is PhysicalChainCacheShape => {
   if (typeof v !== 'object' || v === null) return false;
   const c = v as Record<string, unknown>;
   if (typeof c.turnKey !== 'string') return false;
-  if (!Array.isArray(c.cards) || c.cards.length === 0 || c.cards.length > MAX_CHAIN_CARDS) return false;
-  const cardsOk = c.cards.every(entry => {
-    if (typeof entry !== 'object' || entry === null) return false;
-    const e = entry as Record<string, unknown>;
-    return (VALID_CARD_TYPES as readonly string[]).includes(e.card as string) && typeof e.completed === 'boolean';
-  });
-  if (!cardsOk) return false;
-  if (!Number.isInteger(c.plusMinusSuccesses) || (c.plusMinusSuccesses as number) < 0 || (c.plusMinusSuccesses as number) > MAX_CHAIN_CARDS) return false;
+  // The shared shape check allows an empty list; an entry with no cards is not
+  // a turn worth resuming, so that one is this cache's own rule.
+  if (!isTurnCardList(c.cards) || c.cards.length === 0) return false;
+  if (!isChainCounter(c.plusMinusSuccesses)) return false;
   if (typeof c.awaitingChoice !== 'boolean') return false;
   return true;
 };

@@ -5,6 +5,7 @@ import {
   isValidEnforcedDiceMode, isValidDiceMode, isValidRuleset, VALID_CARD_TYPES, MAX_CARD_COUNT,
 } from '../utils/configValidation';
 import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS } from '../types';
+import { isChainCounter, isTurnCardList, isTurnEnd } from '../utils/turnShapes';
 import type { CardType, InitialCards } from '../types';
 import type { GameStore, GameMode, GameStatus, ConfigKeys } from './storeTypes';
 
@@ -59,23 +60,17 @@ const isPlausiblePlayer = (v: unknown): boolean => {
 };
 
 // Undo consumes this after a restore: card list, counters and the ended kind
-// must all be sane or reversing the turn would corrupt player stats.
-const TURN_ENDS: readonly string[] = ['banked', 'null', 'stopCard', 'timeout'];
+// must all be sane or reversing the turn would corrupt player stats. The
+// shapes come from utils/turnShapes.ts, shared with the pushed-state validator
+// (server/pushValidation.ts) that checks the very same summary off the wire.
 const isPlausibleTurnSummary = (v: unknown): boolean => {
   if (v === null) return true;
   if (typeof v !== 'object') return false;
   const s = v as Record<string, unknown>;
-  if (!Array.isArray(s.cards) || s.cards.length > MAX_CHAIN_CARDS) return false;
-  const cardsOk = s.cards.every(c => {
-    if (typeof c !== 'object' || c === null) return false;
-    const entry = c as Record<string, unknown>;
-    return (VALID_CARD_TYPES as readonly string[]).includes(entry.card as string)
-      && typeof entry.completed === 'boolean';
-  });
-  if (!cardsOk) return false;
-  if (!Number.isInteger(s.tuttoCount) || (s.tuttoCount as number) < 0) return false;
-  if (!Number.isInteger(s.plusMinusSuccesses) || (s.plusMinusSuccesses as number) < 0) return false;
-  if (!TURN_ENDS.includes(s.ended as string)) return false;
+  if (!isTurnCardList(s.cards)) return false;
+  if (!isChainCounter(s.tuttoCount)) return false;
+  if (!isChainCounter(s.plusMinusSuccesses)) return false;
+  if (!isTurnEnd(s.ended)) return false;
   if (s.forfeitedScore !== undefined && !isNonNegativeNumber(s.forfeitedScore)) return false;
   if (s.prevMostCardsInTurn !== undefined && s.prevMostCardsInTurn !== null && !isNonNegativeNumber(s.prevMostCardsInTurn)) return false;
   if (s.prevHighestForfeitedTurnScore !== undefined && s.prevHighestForfeitedTurnScore !== null && !isNonNegativeNumber(s.prevHighestForfeitedTurnScore)) return false;

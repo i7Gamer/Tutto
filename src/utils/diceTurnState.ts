@@ -1,7 +1,10 @@
 import { localStore } from './storage';
-import type { CardType, Die, DiceSnapshot, SnapshotDie, Ruleset } from '../types';
+import type { CardType, Die, DiceSnapshot, Ruleset } from '../types';
 import { MAX_CHAIN_CARDS } from '../types';
-import { VALID_CARD_TYPES, DEFAULT_RULESET } from './configValidation';
+import { DEFAULT_RULESET } from './configValidation';
+import {
+  isSnapshotDie, isRolledDie, isKniffelProgressEntry, isChainCard, isChainCounter,
+} from './turnShapes';
 
 /**
  * Where a turn in progress is cached, so a reload or reconnect can resume into
@@ -64,26 +67,14 @@ interface BuildDiceSnapshotInput {
   chainTuttoCount?: number;
 }
 
-// Shape checks below mirror server/pushValidation.ts's isValidDiceSnapshot
-// family (id string, val 1-6, kniffelProgress entries 1-6) — this is the
-// same DiceSnapshot shape, just restored from localStorage instead of a
-// socket push. A malformed entry here can't reach another player (only this
-// device's own DiceGame reads its own cache), but it's still rendered
-// directly (Die/DiePips) and consumed by array methods (.filter/.map/.sort)
-// throughout DiceGame — a non-array or garbage entry would otherwise crash
-// the render on mount rather than just resuming from a clean slate.
-const isPlausibleSnapshotDie = (v: unknown): v is SnapshotDie => {
-  if (typeof v !== 'object' || v === null) return false;
-  const d = v as Record<string, unknown>;
-  return typeof d.id === 'string' && d.id.length > 0 &&
-    Number.isInteger(d.val) && (d.val as number) >= 1 && (d.val as number) <= 6;
-};
-
-const isPlausibleRolledDie = (v: unknown): v is SnapshotDie & { selected: boolean } =>
-  isPlausibleSnapshotDie(v) && typeof (v as unknown as Record<string, unknown>).selected === 'boolean';
-
-const isPlausibleKniffelEntry = (v: unknown): v is number =>
-  Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 6;
+// The shape checks come from utils/turnShapes.ts, shared with
+// server/pushValidation.ts's isValidDiceSnapshot family — this is the same
+// DiceSnapshot shape, just restored from localStorage instead of a socket
+// push. A malformed entry here can't reach another player (only this device's
+// own DiceGame reads its own cache), but it's still rendered directly
+// (Die/DiePips) and consumed by array methods (.filter/.map/.sort) throughout
+// DiceGame — a non-array or garbage entry would otherwise crash the render on
+// mount rather than just resuming from a clean slate.
 
 // Whole-array rejection (not per-entry filtering) on any invalid entry —
 // same all-or-nothing rule persistence.ts's pickLocalGameState applies to
@@ -96,23 +87,15 @@ const asValidatedArray = <T,>(v: unknown, isValidEntry: (x: unknown) => x is T):
 const isFiniteNonNegativeNumber = (v: unknown): v is number =>
   typeof v === 'number' && Number.isFinite(v) && v >= 0;
 
-const isPlausibleChainCard = (v: unknown): v is CardType =>
-  (VALID_CARD_TYPES as readonly string[]).includes(v as string);
-
-// Mirrors server/pushValidation.ts's isValidChainCounter: integers only,
-// bounded by the same chain cap.
-const isPlausibleChainCounter = (v: unknown): v is number =>
-  Number.isInteger(v) && (v as number) >= 0 && (v as number) <= MAX_CHAIN_CARDS;
-
 export const parseSavedDiceState = (raw: string | null): DiceSnapshot | null => {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<DiceSnapshot>;
     const snapshot: DiceSnapshot = {
       turnScore: isFiniteNonNegativeNumber(parsed.turnScore) ? parsed.turnScore : 0,
-      keptDice: asValidatedArray(parsed.keptDice, isPlausibleSnapshotDie),
-      currentRoll: asValidatedArray(parsed.currentRoll, isPlausibleRolledDie),
-      kniffelProgress: asValidatedArray(parsed.kniffelProgress, isPlausibleKniffelEntry),
+      keptDice: asValidatedArray(parsed.keptDice, isSnapshotDie),
+      currentRoll: asValidatedArray(parsed.currentRoll, isRolledDie),
+      kniffelProgress: asValidatedArray(parsed.kniffelProgress, isKniffelProgressEntry),
       tuttosThisTurn: isFiniteNonNegativeNumber(parsed.tuttosThisTurn) ? parsed.tuttosThisTurn : 0,
       busted: !!parsed.busted,
       playerName: typeof parsed.playerName === 'string' ? parsed.playerName : undefined,
@@ -123,11 +106,11 @@ export const parseSavedDiceState = (raw: string | null): DiceSnapshot | null => 
     // present-but-invalid values reset to absent, same all-or-nothing rule as
     // the arrays above.
     if (Array.isArray(parsed.cardsThisTurn) && parsed.cardsThisTurn.length <= MAX_CHAIN_CARDS &&
-        parsed.cardsThisTurn.every(isPlausibleChainCard)) {
+        parsed.cardsThisTurn.every(isChainCard)) {
       snapshot.cardsThisTurn = parsed.cardsThisTurn;
     }
-    if (isPlausibleChainCounter(parsed.plusMinusSuccesses)) snapshot.plusMinusSuccesses = parsed.plusMinusSuccesses;
-    if (isPlausibleChainCounter(parsed.chainTuttoCount)) snapshot.chainTuttoCount = parsed.chainTuttoCount;
+    if (isChainCounter(parsed.plusMinusSuccesses)) snapshot.plusMinusSuccesses = parsed.plusMinusSuccesses;
+    if (isChainCounter(parsed.chainTuttoCount)) snapshot.chainTuttoCount = parsed.chainTuttoCount;
     return snapshot;
   } catch {
     return null;

@@ -1,5 +1,9 @@
 import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS, type CardType, type InitialCards, type DiceSnapshot, type HistoryEntry, type TurnSummary, type TurnCardPlayed } from '../src/types';
 import {
+  MAX_DICE_ID_LENGTH, isSnapshotDie, isRolledDie, isKniffelProgressEntry,
+  isChainCard, isChainCounter, isTurnCardList, isTurnEnd,
+} from '../src/utils/turnShapes';
+import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
   isValidEnforcedDiceMode, isValidRuleset,
   MAX_CARD_COUNT, VALID_CARD_TYPES,
@@ -52,23 +56,6 @@ export const isPlausiblePlayerSnapshot = (v: unknown): v is { name: string; scor
   return typeof p.name === 'string' && typeof p.score === 'number' && Number.isFinite(p.score);
 };
 
-// A die id only ever holds a uuidv4() (36 chars) — capped generously above
-// that so a plausible id always passes, while still bounding string size.
-const MAX_DICE_ID_LENGTH = 64;
-
-const isValidSnapshotDie = (v: unknown): v is { id: string; val: number } => {
-  if (typeof v !== 'object' || v === null) return false;
-  const d = v as Record<string, unknown>;
-  return typeof d.id === 'string' && d.id.length > 0 && d.id.length <= MAX_DICE_ID_LENGTH
-    && Number.isInteger(d.val) && (d.val as number) >= 1 && (d.val as number) <= 6;
-};
-
-const isValidRolledDie = (v: unknown): v is { id: string; val: number; selected: boolean } =>
-  isValidSnapshotDie(v) && typeof (v as Record<string, unknown>).selected === 'boolean';
-
-const isValidKniffelProgressEntry = (v: unknown): v is number =>
-  Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 6;
-
 // Every array element is shape-checked, not just the array's length: a
 // spectator's client (GameControls.tsx) renders keptDice/currentRoll entries'
 // `.val` directly into JSX, so a malformed element (e.g. an object where a
@@ -78,20 +65,14 @@ const isValidKniffelProgressEntry = (v: unknown): v is number =>
 // rollingDiceIds/busted are optional but, when present, are shape-checked too
 // (rollingDiceIds is rendered the same way — see GameControls.tsx — and
 // busted only ever needs to be a boolean).
-const isValidChainCard = (v: unknown): v is CardType =>
-  typeof v === 'string' && (VALID_CARD_TYPES as readonly string[]).includes(v);
-
-const isValidChainCounter = (v: unknown): v is number =>
-  Number.isInteger(v) && (v as number) >= 0 && (v as number) <= MAX_CHAIN_CARDS;
-
 export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
   if (!(typeof s.turnScore === 'number' && Number.isFinite(s.turnScore))) return false;
   if (!(typeof s.tuttosThisTurn === 'number' && Number.isFinite(s.tuttosThisTurn))) return false;
-  if (!(Array.isArray(s.keptDice) && s.keptDice.length <= 6 && s.keptDice.every(isValidSnapshotDie))) return false;
-  if (!(Array.isArray(s.currentRoll) && s.currentRoll.length <= 6 && s.currentRoll.every(isValidRolledDie))) return false;
-  if (!(Array.isArray(s.kniffelProgress) && s.kniffelProgress.length <= 6 && s.kniffelProgress.every(isValidKniffelProgressEntry))) return false;
+  if (!(Array.isArray(s.keptDice) && s.keptDice.length <= 6 && s.keptDice.every(isSnapshotDie))) return false;
+  if (!(Array.isArray(s.currentRoll) && s.currentRoll.length <= 6 && s.currentRoll.every(isRolledDie))) return false;
+  if (!(Array.isArray(s.kniffelProgress) && s.kniffelProgress.length <= 6 && s.kniffelProgress.every(isKniffelProgressEntry))) return false;
   if (s.busted !== undefined && typeof s.busted !== 'boolean') return false;
   if (s.stopped !== undefined && typeof s.stopped !== 'boolean') return false;
   if (s.rollingDiceIds !== undefined) {
@@ -103,10 +84,10 @@ export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
   // relayed snapshot, so a stripped or corrupted chain would lose their turn.
   if (s.cardsThisTurn !== undefined) {
     if (!Array.isArray(s.cardsThisTurn) || s.cardsThisTurn.length > MAX_CHAIN_CARDS) return false;
-    if (!s.cardsThisTurn.every(isValidChainCard)) return false;
+    if (!s.cardsThisTurn.every(isChainCard)) return false;
   }
-  if (s.plusMinusSuccesses !== undefined && !isValidChainCounter(s.plusMinusSuccesses)) return false;
-  if (s.chainTuttoCount !== undefined && !isValidChainCounter(s.chainTuttoCount)) return false;
+  if (s.plusMinusSuccesses !== undefined && !isChainCounter(s.plusMinusSuccesses)) return false;
+  if (s.chainTuttoCount !== undefined && !isChainCounter(s.chainTuttoCount)) return false;
   return true;
 };
 
@@ -137,16 +118,10 @@ export const sanitizeDiceSnapshot = (v: DiceSnapshot): DiceSnapshot => {
 export const isValidTurnSummary = (v: unknown): v is TurnSummary => {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
-  if (!Array.isArray(s.cards) || s.cards.length > MAX_CHAIN_CARDS) return false;
-  const cardsOk = s.cards.every(c => {
-    if (typeof c !== 'object' || c === null) return false;
-    const entry = c as Record<string, unknown>;
-    return isValidChainCard(entry.card) && typeof entry.completed === 'boolean';
-  });
-  if (!cardsOk) return false;
-  if (!isValidChainCounter(s.tuttoCount)) return false;
-  if (!isValidChainCounter(s.plusMinusSuccesses)) return false;
-  if (s.ended !== 'banked' && s.ended !== 'null' && s.ended !== 'stopCard' && s.ended !== 'timeout') return false;
+  if (!isTurnCardList(s.cards)) return false;
+  if (!isChainCounter(s.tuttoCount)) return false;
+  if (!isChainCounter(s.plusMinusSuccesses)) return false;
+  if (!isTurnEnd(s.ended)) return false;
   if (s.forfeitedScore !== undefined &&
       !(typeof s.forfeitedScore === 'number' && Number.isFinite(s.forfeitedScore) && s.forfeitedScore >= 0 && s.forfeitedScore <= MAX_SCORE_MAGNITUDE)) return false;
   const isRecordOrNull = (v2: unknown): boolean =>
