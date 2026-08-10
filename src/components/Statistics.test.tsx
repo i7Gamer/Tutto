@@ -582,6 +582,34 @@ describe('Statistics Component', () => {
       expect(screen.getByText('statistics.totalTuttos')).toBeInTheDocument();
       expect(screen.getByText('statistics.highestForfeitedTurn')).toBeInTheDocument();
     });
+
+    it('shows the Feuerwerk/x2 breakdown rows as draw counts only under classic', async () => {
+      const { fetchMock } = serveBuckets();
+      global.fetch = fetchMock;
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+      // Modernized: the two scoring-card rows carry busts and average points.
+      expect(screen.getAllByText('statistics.avgPts')).toHaveLength(2);
+      expect(screen.getAllByText('statistics.busts')).toHaveLength(2);
+
+      fireEvent.click(screen.getByRole('tab', { name: /lobby\.rulesetClassic/i }));
+      await waitFor(() => expect(screen.getByText('statistics.mostCardsInTurn')).toBeInTheDocument());
+
+      // Classic never writes the per-card bust/points attribution (the engine
+      // skips it across chains) — inventing "wins" and "0 avg points" from
+      // the empty counters would misread as data. Draw counts only.
+      expect(screen.queryByText('statistics.avgPts')).not.toBeInTheDocument();
+      expect(screen.queryByText('statistics.busts')).not.toBeInTheDocument();
+      // The genuinely tracked yes/no cards keep their win/lose split.
+      expect(screen.getAllByText('statistics.won').length).toBeGreaterThan(0);
+
+      // The global tab's breakdown follows the same rule.
+      fireEvent.click(screen.getByRole('tab', { name: /statistics\.globalCommunity/i }));
+      await waitFor(() => expect(screen.getByText('statistics.totalGames')).toBeInTheDocument());
+      expect(screen.queryByText('statistics.avgPts')).not.toBeInTheDocument();
+      expect(screen.queryByText('statistics.busts')).not.toBeInTheDocument();
+    });
   });
 
   describe('custom games on the global tab', () => {

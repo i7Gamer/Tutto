@@ -215,16 +215,25 @@ interface CardBreakdownRow {
 // win/lose rate would be meaningless for them.
 const SCORING_CARDS: readonly CardType[] = ['Feuerwerk', 'x2'];
 
-const personalCardBreakdown = (p: PersonalStats): CardBreakdownRow[] => [
+// classicView: the classic engine deliberately never writes the Feuerwerk/x2
+// bust and points attribution ("which card the chain died on" is ill-defined
+// across a chain), so deriving wins/busts/avg points from those empty
+// counters would present invented numbers — the two rows show how often the
+// card was drawn, like the Stop row, and nothing more.
+const personalCardBreakdown = (p: PersonalStats, classicView = false): CardBreakdownRow[] => [
   { card: 'Plus_Minus', labelKey: 'cards.plusMinus', labelFallback: 'Plus/Minus', count: (p.plusMinusCompleted || 0) + (p.plusMinusFailed || 0), wins: p.plusMinusCompleted || 0, fails: p.plusMinusFailed || 0 },
   { card: 'Kniffel', labelKey: 'cards.kniffel', labelFallback: 'Kniffel', count: (p.kniffelCompleted || 0) + (p.kniffelFailed || 0), wins: p.kniffelCompleted || 0, fails: p.kniffelFailed || 0 },
   { card: 'Kleeblatt', labelKey: 'cards.kleeblatt', labelFallback: 'Kleeblatt', count: (p.kleeblattCompleted || 0) + (p.kleeblattFailed || 0), wins: p.kleeblattCompleted || 0, fails: p.kleeblattFailed || 0 },
   { card: 'Stop', labelKey: 'cards.stop', labelFallback: 'Stop', count: p.skipped || 0 },
-  { card: 'Feuerwerk', labelKey: 'cards.feuerwerk', labelFallback: 'Feuerwerk', count: p.feuerwerkReceived || 0, wins: (p.feuerwerkReceived || 0) - (p.feuerwerkBusts || 0), fails: p.feuerwerkBusts || 0, avgPoints: p.feuerwerkPointsScored || 0 },
-  { card: 'x2', labelKey: 'cards.x2', labelFallback: 'x2', count: p.x2Received || 0, wins: (p.x2Received || 0) - (p.x2Busts || 0), fails: p.x2Busts || 0, avgPoints: p.x2PointsScored || 0 },
+  classicView
+    ? { card: 'Feuerwerk', labelKey: 'cards.feuerwerk', labelFallback: 'Feuerwerk', count: p.feuerwerkReceived || 0 }
+    : { card: 'Feuerwerk', labelKey: 'cards.feuerwerk', labelFallback: 'Feuerwerk', count: p.feuerwerkReceived || 0, wins: (p.feuerwerkReceived || 0) - (p.feuerwerkBusts || 0), fails: p.feuerwerkBusts || 0, avgPoints: p.feuerwerkPointsScored || 0 },
+  classicView
+    ? { card: 'x2', labelKey: 'cards.x2', labelFallback: 'x2', count: p.x2Received || 0 }
+    : { card: 'x2', labelKey: 'cards.x2', labelFallback: 'x2', count: p.x2Received || 0, wins: (p.x2Received || 0) - (p.x2Busts || 0), fails: p.x2Busts || 0, avgPoints: p.x2PointsScored || 0 },
 ];
 
-const globalCardBreakdown = (g: GlobalStats): CardBreakdownRow[] => [
+const globalCardBreakdown = (g: GlobalStats, classicView = false): CardBreakdownRow[] => [
   // The server stores completions and totals rather than failures, so the
   // losses are the remainder — floored at zero, because the two counters are
   // written by different code paths and a mid-game crash can leave them
@@ -233,8 +242,12 @@ const globalCardBreakdown = (g: GlobalStats): CardBreakdownRow[] => [
   { card: 'Kniffel', labelKey: 'cards.kniffel', labelFallback: 'Kniffel', count: g.totalKniffel || 0, wins: g.totalKniffelCompleted || 0, fails: Math.max(0, (g.totalKniffel || 0) - (g.totalKniffelCompleted || 0)) },
   { card: 'Kleeblatt', labelKey: 'cards.kleeblatt', labelFallback: 'Kleeblatt', count: g.totalKleeblatt || 0, wins: g.totalKleeblattCompleted || 0, fails: Math.max(0, (g.totalKleeblatt || 0) - (g.totalKleeblattCompleted || 0)) },
   { card: 'Stop', labelKey: 'cards.stop', labelFallback: 'Stop', count: g.totalStop || 0 },
-  { card: 'Feuerwerk', labelKey: 'cards.feuerwerk', labelFallback: 'Feuerwerk', count: g.totalFeuerwerk || 0, wins: (g.totalFeuerwerk || 0) - (g.totalFeuerwerkBusts || 0), fails: g.totalFeuerwerkBusts || 0, avgPoints: g.totalFeuerwerkPoints || 0 },
-  { card: 'x2', labelKey: 'cards.x2', labelFallback: 'x2', count: g.totalx2 || 0, wins: (g.totalx2 || 0) - (g.totalx2Busts || 0), fails: g.totalx2Busts || 0, avgPoints: g.totalx2Points || 0 },
+  classicView
+    ? { card: 'Feuerwerk', labelKey: 'cards.feuerwerk', labelFallback: 'Feuerwerk', count: g.totalFeuerwerk || 0 }
+    : { card: 'Feuerwerk', labelKey: 'cards.feuerwerk', labelFallback: 'Feuerwerk', count: g.totalFeuerwerk || 0, wins: (g.totalFeuerwerk || 0) - (g.totalFeuerwerkBusts || 0), fails: g.totalFeuerwerkBusts || 0, avgPoints: g.totalFeuerwerkPoints || 0 },
+  classicView
+    ? { card: 'x2', labelKey: 'cards.x2', labelFallback: 'x2', count: g.totalx2 || 0 }
+    : { card: 'x2', labelKey: 'cards.x2', labelFallback: 'x2', count: g.totalx2 || 0, wins: (g.totalx2 || 0) - (g.totalx2Busts || 0), fails: g.totalx2Busts || 0, avgPoints: g.totalx2Points || 0 },
 ];
 
 const CardBreakdown = ({ rows }: { rows: CardBreakdownRow[] }) => {
@@ -541,7 +554,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                       <StatTile icon={<Zap size={32} className="text-pink-400" />} value={p.highestX2TurnScore || 0} label={t('statistics.highestX2Turn', 'Highest x2 Turn')} tone="pink" badge={holdsRecord(p.highestX2TurnScore, g?.highestX2TurnScore) && <RecordBadge />} />
                     </div>
                   )}
-                  <CardBreakdown rows={personalCardBreakdown(p)} />
+                  <CardBreakdown rows={personalCardBreakdown(p, isClassicView)} />
                 </div>
               )}
             </motion.div>
@@ -605,7 +618,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                     <StatTile icon={<Hash size={32} className="text-red-400" />} value={g.totalGamesPlayed ? Math.round((g.totalBusts || 0) / g.totalGamesPlayed) : 0} label={t('statistics.avgBustsPerGame', 'Avg Busts / Game')} tone="red" />
                     <StatTile icon={<TrendingDown size={32} className="text-red-400" />} value={`${gBustRate}%`} label={t('statistics.globalBustRate', 'Global Bust Rate')} tone="red" />
                   </div>
-                  <CardBreakdown rows={globalCardBreakdown(g)} />
+                  <CardBreakdown rows={globalCardBreakdown(g, isClassicView)} />
                 </div>
               )}
             </motion.div>
