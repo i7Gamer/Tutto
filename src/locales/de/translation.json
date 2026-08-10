@@ -68,6 +68,8 @@
   "end.kniffelStat": "Kniffel (Erfolg/Fehlschlag)",
   "end.skipped": "Übersprungen",
   "end.feuerwerkStat": "Feuerwerk (Erhalten/Pkt)",
+  "end.feuerwerkReceivedStat": "Feuerwerk (Erhalten)",
+  "end.mostCardsInTurn": "Meiste Karten in einem Zug",
   "game.noCard": "Keine Karte",
   "game.controls.rollDice": "Würfeln",
   "game.controls.scorePlaceholder": "Punkte",

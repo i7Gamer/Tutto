@@ -141,6 +141,41 @@ describe('EndScreen Component', () => {
     expect(container.querySelector('canvas')).toBeNull();
   });
 
+  describe('classic chain row in the game-stats table', () => {
+    afterEach(() => {
+      useGameStore.setState({ ruleset: 'modernized' });
+    });
+
+    it('shows each player\'s longest chain and a received-only Feuerwerk row for a classic game', () => {
+      useGameStore.setState({
+        ruleset: 'classic',
+        players: [
+          { name: 'Alice', score: 10000, position: 1, mostCardsInTurn: 3, timesFeuerwerkReceived: 2 },
+          // Bob never took a turn (e.g. a first-round Kleeblatt win) — the
+          // record is genuinely absent, not zero.
+          { name: 'Bob', score: 5000, position: 2 },
+        ],
+      });
+      const { getByText, queryByText } = render(<EndScreen />);
+
+      expect(getByText('end.mostCardsInTurn')).toBeInTheDocument();
+      expect(getByText('3')).toBeInTheDocument();
+      expect(getByText('–')).toBeInTheDocument();
+      // Classic never attributes points to the Feuerwerk card — the row
+      // shows how often it was drawn, without an invented "0 points".
+      expect(getByText('end.feuerwerkReceivedStat')).toBeInTheDocument();
+      expect(queryByText('end.feuerwerkStat')).not.toBeInTheDocument();
+    });
+
+    it('keeps the modernized table unchanged (no chain row, Feuerwerk with points)', () => {
+      const { getByText, queryByText } = render(<EndScreen />);
+
+      expect(queryByText('end.mostCardsInTurn')).not.toBeInTheDocument();
+      expect(queryByText('end.feuerwerkReceivedStat')).not.toBeInTheDocument();
+      expect(getByText('end.feuerwerkStat')).toBeInTheDocument();
+    });
+  });
+
   it('binds chart lines to player identity (name + color), not chartNames order or the positional palette', () => {
     // Reproduce the online desync: chartNames is in a stale/shuffled order, while
     // the authoritative players array (and chartValues, which is filled in the same

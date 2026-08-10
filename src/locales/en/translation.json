@@ -68,6 +68,8 @@
   "end.kniffelStat": "Kniffel (Success/Fail)",
   "end.skipped": "Skipped",
   "end.feuerwerkStat": "Feuerwerk (Received/Pts)",
+  "end.feuerwerkReceivedStat": "Feuerwerk (Received)",
+  "end.mostCardsInTurn": "Most Cards in a Turn",
   "game.noCard": "No Card",
   "game.controls.rollDice": "Roll Dice",
   "game.controls.scorePlaceholder": "Score",

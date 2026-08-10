@@ -379,12 +379,25 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                 { label: t('end.score', 'Score'), render: (p: Player) => <span className="font-black text-indigo-600">{p.score}</span> },
                 { label: t('end.totalTurns', 'Total Turns'), render: (p: Player) => p.totalTurns },
                 { label: t('end.busts', 'Busts'), render: (p: Player) => <span className="text-red-500 font-bold">{p.busts}</span> },
+                // The chain record of the game that just ended — a classic-only
+                // concept (modernized turns are always exactly one card). A dash
+                // marks a player who never got a turn: the record is genuinely
+                // absent there, not zero.
+                ...(game.ruleset === 'classic' ? [
+                  { label: t('end.mostCardsInTurn', 'Most Cards in a Turn'), render: (p: Player) => <span className="font-bold text-indigo-500">{p.mostCardsInTurn ?? '–'}</span> },
+                ] : []),
                 { label: t('end.avgPtsPerRound', 'Avg Pts / Round'), render: (p: Player) => <span className="font-bold text-emerald-500">{Math.round(p.score / Math.max(1, round))}</span> },
                 { label: t('end.pointsEatenStat', '-1000 Points Eaten'), render: (p: Player) => p.times1000PointsDeducted },
                 { label: t('end.plusMinusStat', 'Plus/Minus (Success/Fail)'), render: (p: Player) => <span><span className="text-emerald-500">{p.timesPlusMinusCompleted}</span> / <span className="text-red-500">{p.timesPlusMinusFailed}</span></span> },
                 { label: t('end.kniffelStat', 'Kniffel (Success/Fail)'), render: (p: Player) => <span><span className="text-emerald-500">{p.timesKniffelCompleted}</span> / <span className="text-red-500">{p.timesKniffelFailed}</span></span> },
                 { label: t('end.skipped', 'Skipped'), render: (p: Player) => p.timesSkipped },
-                { label: t('end.feuerwerkStat', 'Feuerwerk (Received/Pts)'), render: (p: Player) => <span>{p.timesFeuerwerkReceived} / <span className="text-amber-500 font-bold">{p.feuerwerkPointsScored || 0}</span></span> },
+                // Classic never attributes points to the Feuerwerk card (the
+                // engine's summary path skips it, same as the Statistics
+                // breakdown) — the row shows draws only instead of an
+                // invented "0 points".
+                game.ruleset === 'classic'
+                  ? { label: t('end.feuerwerkReceivedStat', 'Feuerwerk (Received)'), render: (p: Player) => p.timesFeuerwerkReceived ?? 0 }
+                  : { label: t('end.feuerwerkStat', 'Feuerwerk (Received/Pts)'), render: (p: Player) => <span>{p.timesFeuerwerkReceived} / <span className="text-amber-500 font-bold">{p.feuerwerkPointsScored || 0}</span></span> },
               ].map(({ label, render }) => (
                 <div key={label} className="flex border-b border-gray-100 dark:border-slate-700/50 last:border-0 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                   <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{label}</div>
