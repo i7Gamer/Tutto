@@ -583,6 +583,23 @@ describe('Statistics Component', () => {
       expect(screen.getByText('statistics.highestForfeitedTurn')).toBeInTheDocument();
     });
 
+    it('shows a dash, not a zero, for classic records that do not exist yet', async () => {
+      const { fetchMock } = serveBuckets();
+      global.fetch = fetchMock;
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+      fireEvent.click(screen.getByRole('tab', { name: /lobby\.rulesetClassic/i }));
+      // The classic_custom bucket has never recorded a chain — its records
+      // are genuinely absent (NULL), which "0" would misread as data.
+      fireEvent.click(screen.getByRole('tab', { name: /statistics\.customGames/i }));
+      await waitFor(() => expect(screen.getByText('44')).toBeInTheDocument());
+
+      // Most Cards in a Turn + Biggest Turn Thrown Away; Total Tuttos is a
+      // counter, where zero is the honest value.
+      expect(screen.getAllByText('–')).toHaveLength(2);
+    });
+
     it('shows the Feuerwerk/x2 breakdown rows as draw counts only under classic', async () => {
       const { fetchMock } = serveBuckets();
       global.fetch = fetchMock;

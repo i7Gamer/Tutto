@@ -544,9 +544,12 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                   </div>
                   {isClassicView ? (
                     <div className="stat-grid-3 mb-8">
-                      <StatTile icon={<Layers size={32} className="text-orange-400" />} value={p.mostCardsInTurn || 0} label={t('statistics.mostCardsInTurn', 'Most Cards in a Turn')} tone="orange" badge={holdsRecord(p.mostCardsInTurn, g?.mostCardsInTurn) && <RecordBadge />} />
+                      {/* The chain records are NULL until a chain happened —
+                          a dash, because "0" would misread as a recorded
+                          value (Total Tuttos is a counter; zero is honest). */}
+                      <StatTile icon={<Layers size={32} className="text-orange-400" />} value={p.mostCardsInTurn ?? '–'} label={t('statistics.mostCardsInTurn', 'Most Cards in a Turn')} tone="orange" badge={holdsRecord(p.mostCardsInTurn, g?.mostCardsInTurn) && <RecordBadge />} />
                       <StatTile icon={<Zap size={32} className="text-yellow-400" />} value={p.totalTuttos || 0} label={t('statistics.totalTuttos', 'Total Tuttos')} tone="yellow" />
-                      <StatTile icon={<Skull size={32} className="text-red-400" />} value={p.highestForfeitedTurnScore || 0} label={t('statistics.highestForfeitedTurn', 'Biggest Turn Thrown Away')} tone="red" />
+                      <StatTile icon={<Skull size={32} className="text-red-400" />} value={p.highestForfeitedTurnScore ?? '–'} label={t('statistics.highestForfeitedTurn', 'Biggest Turn Thrown Away')} tone="red" />
                     </div>
                   ) : (
                     <div className="stat-grid-2 mb-8">
@@ -603,9 +606,9 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                   </div>
                   {isClassicView ? (
                     <div className="stat-grid-3 mb-4">
-                      <StatTile icon={<Layers size={32} className="text-orange-400" />} value={g.mostCardsInTurn || 0} label={t('statistics.mostCardsInTurn', 'Most Cards in a Turn')} tone="orange" />
+                      <StatTile icon={<Layers size={32} className="text-orange-400" />} value={g.mostCardsInTurn ?? '–'} label={t('statistics.mostCardsInTurn', 'Most Cards in a Turn')} tone="orange" />
                       <StatTile icon={<Zap size={32} className="text-yellow-400" />} value={g.totalTuttos || 0} label={t('statistics.totalTuttos', 'Total Tuttos')} tone="yellow" />
-                      <StatTile icon={<Skull size={32} className="text-red-400" />} value={g.highestForfeitedTurnScore || 0} label={t('statistics.highestForfeitedTurn', 'Biggest Turn Thrown Away')} tone="red" />
+                      <StatTile icon={<Skull size={32} className="text-red-400" />} value={g.highestForfeitedTurnScore ?? '–'} label={t('statistics.highestForfeitedTurn', 'Biggest Turn Thrown Away')} tone="red" />
                     </div>
                   ) : (
                     <div className="stat-grid-2 mb-4">
