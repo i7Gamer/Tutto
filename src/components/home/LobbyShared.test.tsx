@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { StartGameButton, PlayerList, AdvancedOptionsPanel, HapticsSettingSelector, CustomGameBadge, RulesetSelector, RulesetBadge } from './LobbyShared';
 import { useGameStore } from '../../store/useGameStore';
 import type { GameStore } from '../../store/useGameStore';
+import { VALID_CARD_TYPES } from '../../utils/configValidation';
 import type { Player } from '../../types';
 
 // AdvancedOptionsPanel subscribes to the store itself (no more `game` prop),
@@ -144,6 +145,52 @@ describe('AdvancedOptionsPanel', () => {
       Stop: 10
     });
   });
+  it('offers a row for every card type, including ones the config has lost', () => {
+    // validateOnlineConfig filters the deck entry-wise, so a corrupted saved
+    // config can arrive missing card types. Rendering only the keys present
+    // meant those cards had no input at all — unreachable except by resetting
+    // the whole deck to defaults.
+    stageStore({ initialCards: { Kleeblatt: 1, Stop: 10 }, setInitialCards: vi.fn() });
+
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={true} />);
+
+    const grid = screen.getByTestId('deck-composition-grid');
+    expect(grid.querySelectorAll('input')).toHaveLength(VALID_CARD_TYPES.length);
+    // The absent ones read as the zero they effectively are.
+    expect(screen.getByLabelText('Feuerwerk')).toHaveValue(0);
+    expect(screen.getByLabelText('Kniffel')).toHaveValue(0);
+  });
+
+  it('can raise a card type the config had lost back above zero', () => {
+    const mockSetInitialCards = vi.fn();
+    stageStore({ initialCards: { Kleeblatt: 1, Stop: 10 }, setInitialCards: mockSetInitialCards });
+
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={true} />);
+
+    const feuerwerk = screen.getByLabelText('Feuerwerk');
+    fireEvent.change(feuerwerk, { target: { value: '4' } });
+    fireEvent.blur(feuerwerk);
+
+    // Merged onto what was there, not replacing it.
+    expect(mockSetInitialCards).toHaveBeenCalledWith({ Kleeblatt: 1, Stop: 10, Feuerwerk: 4 });
+  });
+
+  it('lists the read-only deck by card type too, not by whatever keys survived', () => {
+    stageStore({ initialCards: { Kleeblatt: 1, Stop: 10 } });
+
+    const { container } = render(
+      <AdvancedOptionsPanel showAdvanced={true} isOnline={true} readOnly={true} />
+    );
+
+    // Each chip is "<name>: <count>" with the count in its own element, so the
+    // text is matched per chip rather than as one node.
+    const chips = Array.from(container.querySelectorAll('span')).map(s => s.textContent);
+    expect(chips).toContain('Feuerwerk: 0');
+    expect(chips).toContain('Plus/Minus: 0');
+    expect(chips).toContain('Kleeblatt: 1');
+    expect(chips).toContain('Stop: 10');
+  });
+
   it('reverts the displayed count when the store refuses the edit', () => {
     // Zeroing the LAST non-zero card type makes the deck unplayable, so
     // validateOnlineConfig drops initialCards entirely and the store keeps its

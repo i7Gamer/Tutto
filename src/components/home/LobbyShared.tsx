@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import {
   MIN_WINNING_SCORE, MAX_WINNING_SCORE, MAX_TURN_DURATION, MAX_RECONNECT_TIMEOUT,
   MIN_ENABLED_TURN_DURATION, MIN_ENABLED_RECONNECT_TIMEOUT, MAX_CARD_COUNT,
-  snapDisableableDuration, isNormalizedConfig,
+  snapDisableableDuration, isNormalizedConfig, VALID_CARD_TYPES,
 } from '../../utils/configValidation';
 import type { Player, CardType, DiceMode, Ruleset } from '../../types';
 import { useShallow } from 'zustand/react/shallow';
@@ -471,9 +471,17 @@ export function AdvancedOptionsPanel({
     setInitialCards: s.setInitialCards,
   })));
 
-  const updateCardCount = (card: string, count: number) => {
-    setInitialCards({ ...initialCards, [card as CardType]: count });
+  const updateCardCount = (card: CardType, count: number) => {
+    setInitialCards({ ...initialCards, [card]: count });
   };
+
+  // Driven by the card-type list, not by whatever keys the config happens to
+  // hold: validateOnlineConfig filters the deck entry-wise, so a corrupted
+  // saved config can arrive missing types — and a type with no row has no way
+  // back into the deck short of resetting the whole thing. An absent count
+  // reads as the zero it effectively is. Also fixes the display order, which
+  // followed the object's key order before.
+  const deckRows = VALID_CARD_TYPES.map(card => ({ card, count: initialCards?.[card] ?? 0 }));
 
   return (
     <AnimatePresence>
@@ -512,7 +520,7 @@ export function AdvancedOptionsPanel({
               <div className="pt-4 border-t border-gray-200 dark:border-slate-600">
                 <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{t('lobby.cardsInDeck', 'Cards in Deck')}</h4>
                 <div className="flex flex-wrap gap-2">
-                  {initialCards && Object.entries(initialCards).map(([card, count]) => (
+                  {deckRows.map(({ card, count }) => (
                     <span key={card} className="px-2.5 py-1 bg-gray-100 dark:bg-slate-700/50 text-gray-700 dark:text-gray-300 rounded-md text-sm font-medium border border-gray-200 dark:border-slate-600">
                       {card.replace('_', '/')}: <strong>{count}</strong>
                     </span>
@@ -607,11 +615,12 @@ export function AdvancedOptionsPanel({
                   everywhere else — it belongs here, on the element it is
                   about. */}
               <div data-testid="deck-composition-grid" className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
-                {initialCards && Object.entries(initialCards).map(([card, count]) => (
+                {deckRows.map(({ card, count }) => (
                   <label key={card} className="lobby-row focus-within:ring-2 focus-within:ring-indigo-500 cursor-text">
                     <span className="text-xs font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{card.replace('_', '/')}</span>
                     <BlurInput
                       type="number" minVal={0} maxVal={MAX_CARD_COUNT} inputMode="numeric" pattern="[0-9]*"
+                      aria-label={card.replace('_', '/')}
                       className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-16 py-1 text-gray-900 dark:text-white font-medium"
                       value={count}
                       onValueChange={(val) => updateCardCount(card, val)}
