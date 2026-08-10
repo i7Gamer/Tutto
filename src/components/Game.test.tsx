@@ -686,6 +686,44 @@ describe('Game Component Integration', () => {
         }));
       });
 
+      it('persists the typed total on the first card, before any chain action', () => {
+        useGameStore.setState({ currentCard: '300', round: 1, currentPlayerIndex: 0 });
+        render(<Game />);
+
+        fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '350' } });
+        const cached = JSON.parse(localStorage.getItem('tutto_physical_turn_state') ?? 'null');
+        expect(cached).toMatchObject({
+          turnKey: 'local:1:0:300:classic',
+          cards: [{ card: '300', completed: false }],
+          scoreInput: '350',
+        });
+
+        // Clearing the input leaves nothing worth keeping.
+        fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '' } });
+        expect(localStorage.getItem('tutto_physical_turn_state')).toBeNull();
+      });
+
+      it('a garbled score input does not take the restored chain down with it', () => {
+        useGameStore.setState({ currentCard: '400', round: 2, currentPlayerIndex: 0 });
+        localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
+          turnKey: 'local:2:0:400:classic',
+          cards: [{ card: '300', completed: true }, { card: '400', completed: false }],
+          plusMinusSuccesses: 0,
+          awaitingChoice: false,
+          scoreInput: 'not-a-number!',
+        }));
+        render(<Game />);
+
+        // The input falls back to empty; the chain — which feeds undo and
+        // every per-card counter — still restores.
+        expect((screen.getByPlaceholderText('game.controls.scorePlaceholder') as HTMLInputElement).value).toBe('');
+        fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '500' } });
+        fireEvent.click(screen.getByText('game.controls.nextTurn'));
+        expect(mockNextTurn).toHaveBeenCalledWith(500, true, expect.objectContaining({
+          cards: [{ card: '300', completed: true }, { card: '400', completed: false }],
+        }));
+      });
+
       it('writes the cache as the chain grows and clears it on commit', () => {
         const mockDraw = vi.fn(() => {
           useGameStore.setState({ currentCard: '400' });

@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { buildTurnKey } from '../utils/diceTurnState';
+import { buildTurnKey, PHYSICAL_TURN_STATE_KEY } from '../utils/diceTurnState';
 import { VALID_CARD_TYPES } from '../utils/configValidation';
 import { MAX_CHAIN_CARDS } from '../types';
 import type { CardType, Ruleset, TurnCardPlayed, TurnEnd, TurnSummary } from '../types';
 
-/**
- * Where a classic PHYSICAL turn in progress is cached — the counterpart of
- * DICE_TURN_STATE_KEY for digital turns. With real dice the app owns only the
- * card draws and the running total the player typed, so that is exactly what
- * must survive a reload or reconnect: the chain's cards, the Plus/Minus
- * successes, whether the bank-or-draw choice was open, and the score input.
- * Stamped with the same turn key the digital cache uses (latest drawn card
- * included), so a stale chain can never resume into a different turn.
+/*
+ * The PHYSICAL_TURN_STATE_KEY cache — the counterpart of DICE_TURN_STATE_KEY
+ * for digital turns. With real dice the app owns only the card draws and the
+ * running total the player typed, so that is exactly what must survive a
+ * reload or reconnect: the chain's cards, the Plus/Minus successes, whether
+ * the bank-or-draw choice was open, and the score input. Stamped with the
+ * same turn key the digital cache uses (latest drawn card included), so a
+ * stale chain can never resume into a different turn; game-lifecycle
+ * boundaries clear it via clearTurnCaches (see diceTurnState.ts).
  */
-export const PHYSICAL_TURN_STATE_KEY = 'tutto_physical_turn_state';
 
 interface PhysicalChainState {
   cards: TurnCardPlayed[];
@@ -31,7 +31,15 @@ interface PhysicalChainCache extends PhysicalChainState {
 const MAX_SCORE_INPUT_LENGTH = 7;
 const SCORE_INPUT_SHAPE = /^\d*$/;
 
-const isPlausibleCache = (v: unknown): v is PhysicalChainCache => {
+// The chain fields are load-bearing (undo, per-card counters) and validated
+// all-or-nothing; the score input is merely retypable, so it is sanitized
+// field-wise in readPhysicalChainCache instead of taking the chain down.
+type PhysicalChainCacheShape = Omit<PhysicalChainCache, 'scoreInput'> & { scoreInput?: unknown };
+
+const isPlausibleScoreInput = (v: unknown): v is string =>
+  typeof v === 'string' && v.length <= MAX_SCORE_INPUT_LENGTH && SCORE_INPUT_SHAPE.test(v);
+
+const isPlausibleCache = (v: unknown): v is PhysicalChainCacheShape => {
   if (typeof v !== 'object' || v === null) return false;
   const c = v as Record<string, unknown>;
   if (typeof c.turnKey !== 'string') return false;
@@ -44,16 +52,16 @@ const isPlausibleCache = (v: unknown): v is PhysicalChainCache => {
   if (!cardsOk) return false;
   if (!Number.isInteger(c.plusMinusSuccesses) || (c.plusMinusSuccesses as number) < 0 || (c.plusMinusSuccesses as number) > MAX_CHAIN_CARDS) return false;
   if (typeof c.awaitingChoice !== 'boolean') return false;
-  if (typeof c.scoreInput !== 'string' || c.scoreInput.length > MAX_SCORE_INPUT_LENGTH || !SCORE_INPUT_SHAPE.test(c.scoreInput)) return false;
   return true;
 };
 
 /**
  * Reads the cached physical turn if it belongs to exactly the given turn key;
- * anything else (malformed, or stamped for another turn) is evicted so it can
- * never resurface — the same contract as DiceGame's readRestorableTurn.
- * Exported so Game.tsx can seed its scoreInput state from the same entry the
- * hook restores the chain from.
+ * anything else (malformed chain, or stamped for another turn) is evicted so
+ * it can never resurface — the same contract as DiceGame's readRestorableTurn.
+ * A garbled score input alone falls back to empty rather than evicting the
+ * chain with it. Exported so Game.tsx can seed its scoreInput state from the
+ * same entry the hook restores the chain from.
  */
 export const readPhysicalChainCache = (turnKey: string): PhysicalChainCache | null => {
   try {
@@ -62,7 +70,13 @@ export const readPhysicalChainCache = (turnKey: string): PhysicalChainCache | nu
       localStorage.removeItem(PHYSICAL_TURN_STATE_KEY);
       return null;
     }
-    return parsed;
+    return {
+      turnKey: parsed.turnKey,
+      cards: parsed.cards,
+      plusMinusSuccesses: parsed.plusMinusSuccesses,
+      awaitingChoice: parsed.awaitingChoice,
+      scoreInput: isPlausibleScoreInput(parsed.scoreInput) ? parsed.scoreInput : '',
+    };
   } catch {
     localStorage.removeItem(PHYSICAL_TURN_STATE_KEY);
     return null;
@@ -120,42 +134,57 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
     localStorage.removeItem(PHYSICAL_TURN_STATE_KEY);
   }, [turnSlot]);
 
-  // Read through a ref so the mutators stay referentially stable across
-  // keystrokes (the Stop-card auto-continue effect depends on them).
+  // Read through refs so the mutators stay referentially stable across
+  // keystrokes and card changes (the Stop-card auto-continue effect depends
+  // on them); callbacks and effects always see the current values.
   const scoreInputRef = useRef(scoreInput);
   useEffect(() => { scoreInputRef.current = scoreInput; });
 
   const enabledRef = useRef(enabled);
   useEffect(() => { enabledRef.current = enabled; });
 
-  const writeCache = useCallback((turnKey: string, awaiting: boolean) => {
-    if (!enabledRef.current || !chainRef.current) return;
-    const cache: PhysicalChainCache = {
-      turnKey,
-      cards: chainRef.current.cards,
-      plusMinusSuccesses: chainRef.current.plusMinusSuccesses,
-      awaitingChoice: awaiting,
-      scoreInput: scoreInputRef.current,
-    };
-    localStorage.setItem(PHYSICAL_TURN_STATE_KEY, JSON.stringify(cache));
-  }, []);
-
-  // Keeps the cached entry in step with what the player types between the
-  // explicit writes below (the mutators write immediately because a draw of
-  // the same card type changes neither state nor key, so no effect would run).
-  useEffect(() => {
-    if (!enabled || !chainRef.current) return;
-    writeCache(currentTurnKey, awaitingChoice);
-  }, [enabled, currentTurnKey, awaitingChoice, scoreInput, writeCache]);
+  const currentCardRef = useRef(currentCard);
+  useEffect(() => { currentCardRef.current = currentCard; });
 
   // The chain so far, or — before any chain action this turn — just the
   // current card, still unresolved.
   const chainOrCurrentCard = useCallback((): PhysicalChainState => (
     chainRef.current ?? {
-      cards: currentCard ? [{ card: currentCard, completed: false }] : [],
+      cards: currentCardRef.current ? [{ card: currentCardRef.current, completed: false }] : [],
       plusMinusSuccesses: 0,
     }
-  ), [currentCard]);
+  ), []);
+
+  const writeCache = useCallback((turnKey: string, awaiting: boolean) => {
+    if (!enabledRef.current) return;
+    // Before any chain action the entry still records the unresolved current
+    // card, so a total typed on the FIRST card survives a reload too.
+    const chain = chainOrCurrentCard();
+    if (chain.cards.length === 0) return;
+    const cache: PhysicalChainCache = {
+      turnKey,
+      cards: chain.cards,
+      plusMinusSuccesses: chain.plusMinusSuccesses,
+      awaitingChoice: awaiting,
+      scoreInput: scoreInputRef.current,
+    };
+    localStorage.setItem(PHYSICAL_TURN_STATE_KEY, JSON.stringify(cache));
+  }, [chainOrCurrentCard]);
+
+  // Keeps the cached entry in step with what the player types between the
+  // explicit writes below (the mutators write immediately because a draw of
+  // the same card type changes neither state nor key, so no effect would run).
+  useEffect(() => {
+    if (!enabled) return;
+    // No chain action and nothing typed = nothing worth keeping. Removing
+    // (not just skipping) means a commit-then-cleared input leaves no
+    // synthetic single-card entry behind.
+    if (!chainRef.current && scoreInput === '') {
+      localStorage.removeItem(PHYSICAL_TURN_STATE_KEY);
+      return;
+    }
+    writeCache(currentTurnKey, awaitingChoice);
+  }, [enabled, currentTurnKey, awaitingChoice, scoreInput, writeCache]);
 
   // A special card's Yes: the card is completed (Plus/Minus also counts its
   // success) and the bank-or-draw choice opens. Does NOT commit the turn.
