@@ -42,6 +42,32 @@ const nullSafeExtreme = (agg: 'MAX' | 'MIN', table: string, col: string, newValu
   END
 `;
 
+/**
+ * The best-ever columns, and which direction "best" runs in.
+ *
+ * Both scopes keep the same records: `device_statistics` per device and mode,
+ * `global_statistics` per ruleset. The two update paths below used to carry
+ * their own copy of this list, which meant a column added to one and forgotten
+ * in the other silently stopped being a record there — the same way a stat
+ * missing from PLAYER_STAT_FIELDS (src/utils/playerStats.ts) silently stopped
+ * being kept. One list, read by both, and the tests generate their cases from
+ * it so a new column arrives already covered in both scopes.
+ *
+ * Every one is nullable, NULL meaning "no record yet" — hence nullSafeExtreme
+ * above rather than a bare MAX/MIN, whose sqlite result against NULL is NULL.
+ */
+export const RECORD_COLUMNS: readonly [col: string, agg: 'MAX' | 'MIN'][] = [
+  ['highestTurnScore', 'MAX'],
+  ['fastestWinTurns', 'MIN'],
+  ['fastestLossTurns', 'MIN'],
+  ['mostPlayersInGame', 'MAX'],
+  ['longestGameRounds', 'MAX'],
+  ['highestFeuerwerkTurnScore', 'MAX'],
+  ['highestX2TurnScore', 'MAX'],
+  ['mostCardsInTurn', 'MAX'],
+  ['highestForfeitedTurnScore', 'MAX'],
+];
+
 export interface DeviceStatsRow {
   deviceId: string;
   mode: GameMode;
@@ -146,18 +172,7 @@ export const updateDeviceStats = async (
     `);
   }
 
-  const deviceExtremeCols: [col: string, agg: 'MAX' | 'MIN'][] = [
-    ['highestTurnScore', 'MAX'],
-    ['fastestWinTurns', 'MIN'],
-    ['fastestLossTurns', 'MIN'],
-    ['mostPlayersInGame', 'MAX'],
-    ['longestGameRounds', 'MAX'],
-    ['highestFeuerwerkTurnScore', 'MAX'],
-    ['highestX2TurnScore', 'MAX'],
-    ['mostCardsInTurn', 'MAX'],
-    ['highestForfeitedTurnScore', 'MAX'],
-  ];
-  for (const [col, agg] of deviceExtremeCols) {
+  for (const [col, agg] of RECORD_COLUMNS) {
     if (stats[col] === undefined) continue;
     data[col] = stats[col];
     mergeCols[col] = knex.raw(nullSafeExtreme(agg, 'device_statistics', col, `EXCLUDED.${col}`));
@@ -286,18 +301,7 @@ export const updateGlobalStats = async (stats: StatsPayload, ruleset: Ruleset = 
     updateData[col] = knex.raw(`global_statistics.${col} + ?`, [val]);
   }
 
-  const globalExtremeCols: [col: string, agg: 'MAX' | 'MIN'][] = [
-    ['highestTurnScore', 'MAX'],
-    ['fastestWinTurns', 'MIN'],
-    ['fastestLossTurns', 'MIN'],
-    ['mostPlayersInGame', 'MAX'],
-    ['longestGameRounds', 'MAX'],
-    ['highestFeuerwerkTurnScore', 'MAX'],
-    ['highestX2TurnScore', 'MAX'],
-    ['mostCardsInTurn', 'MAX'],
-    ['highestForfeitedTurnScore', 'MAX'],
-  ];
-  for (const [col, agg] of globalExtremeCols) {
+  for (const [col, agg] of RECORD_COLUMNS) {
     if (stats[col] === undefined) continue;
     const val = stats[col];
     updateData[col] = knex.raw(nullSafeExtreme(agg, 'global_statistics', col, '?'), [val, val, val]);

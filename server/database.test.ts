@@ -2,7 +2,7 @@
 process.env.TEST_DB = 'true';
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import database from './database';
+import database, { RECORD_COLUMNS } from './database';
 
 describe('Database Statistics Integration', () => {
   beforeAll(async () => {
@@ -557,6 +557,53 @@ describe('Database Statistics Integration', () => {
       expect(classicAfter?.customGamesPlayed).toBe((classicBefore?.customGamesPlayed ?? 0) + 1);
       expect(classicAfter?.totalScore).toBe(classicBefore?.totalScore);
       expect((await database.getGlobalStats())?.customGamesPlayed).toBe(modernizedBefore?.customGamesPlayed);
+    });
+  });
+
+  // Both scopes keep the same records with the same aggregate, and the device
+  // and global paths used to spell that list out separately — so a column added
+  // to one and forgotten in the other simply stopped being a record there, with
+  // nothing to say so. These cases are generated FROM the shared list, so a new
+  // column is covered in both scopes the moment it is added to it.
+  describe.each(RECORD_COLUMNS)('the %s record is kept by both scopes', (column, aggregate) => {
+    // A worse value than `best` for this aggregate, and a better one.
+    const best = aggregate === 'MAX' ? 900 : 3;
+    const worse = aggregate === 'MAX' ? 100 : 30;
+    const better = aggregate === 'MAX' ? 1500 : 1;
+
+    it('survives a worse value and yields to a better one, per device', async () => {
+      const deviceId = `record-${column}-${Date.now()}`;
+      await database.updateDeviceStats(deviceId, { [column]: best });
+      await database.updateDeviceStats(deviceId, { [column]: worse });
+      expect((await database.getDeviceStats(deviceId))?.[column]).toBe(best);
+
+      await database.updateDeviceStats(deviceId, { [column]: better });
+      expect((await database.getDeviceStats(deviceId))?.[column]).toBe(better);
+    });
+
+    it('survives a worse value and yields to a better one, globally', async () => {
+      // The global row is shared by the whole suite, so this measures against
+      // whatever is already recorded rather than assuming a clean slate.
+      const startingValue = (await database.getGlobalStats())?.[column] ?? null;
+      const keeps = (candidate: number, stored: number | null): number =>
+        stored === null ? candidate : (aggregate === 'MAX' ? Math.max(candidate, stored) : Math.min(candidate, stored));
+
+      await database.updateGlobalStats({ [column]: worse });
+      expect((await database.getGlobalStats())?.[column]).toBe(keeps(worse, startingValue));
+
+      await database.updateGlobalStats({ [column]: better });
+      expect((await database.getGlobalStats())?.[column]).toBe(keeps(better, keeps(worse, startingValue)));
+    });
+
+    it('is never wiped by a null, in either scope', async () => {
+      const deviceId = `record-null-${column}-${Date.now()}`;
+      await database.updateDeviceStats(deviceId, { [column]: best });
+      await database.updateDeviceStats(deviceId, { [column]: null });
+      expect((await database.getDeviceStats(deviceId))?.[column]).toBe(best);
+
+      const globalBefore = (await database.getGlobalStats())?.[column];
+      await database.updateGlobalStats({ [column]: null });
+      expect((await database.getGlobalStats())?.[column]).toBe(globalBefore);
     });
   });
 });
