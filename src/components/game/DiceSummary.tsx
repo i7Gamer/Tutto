@@ -17,9 +17,11 @@ interface DiceSummaryProps {
   continueCountdown: number | null;
   finishGame: () => void;
   currentCard: CardType | null;
-  // Classic chains: offered next to the bank button after a tutto. The
-  // countdown still runs — banking is the safe default when the player
-  // walks away.
+  // Classic chains: offered next to the bank button after a tutto. While the
+  // choice is up there is deliberately NO countdown (see the render below and
+  // DiceGame's useAutoContinueCountdown wiring) — it is a strategic decision,
+  // bounded online by the room's turn timer, whose expiry forfeits the turn
+  // like any other timeout.
   onDrawNextCard?: () => void;
 }
 
