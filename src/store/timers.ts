@@ -56,7 +56,11 @@ export const createTimerSlice: ImmerStateCreator<TimerSlice> = (set, get) => ({
   syncOnlineTimers: (serverRemaining?: number | null) => {
     const state = get();
 
+    // Nulled, not just cleared: the non-playing path below never reassigns
+    // it, and a dead handle left set makes the module's own "is running"
+    // bookkeeping lie — stopLocalTimers/stopOnlineTimers already null theirs.
     if (gameTimerInterval) clearInterval(gameTimerInterval);
+    gameTimerInterval = null;
 
     if (state.mode === 'online' && !state.finished && state.status === 'playing' && state.currentPlayerIndex !== null) {
       if (state.gameTimeInSeconds !== null && state.gameTimeInSeconds >= 0) {

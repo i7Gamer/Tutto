@@ -3,6 +3,7 @@ import { Check, Layers } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { isTestEnv } from '../../utils/env';
 import { isSpecialCard } from '../../utils/diceTurnControls';
+import { AUTO_CONTINUE_SECONDS } from '../../utils/uiTimings';
 import type { CardType } from '../../types';
 
 interface SummaryData {
@@ -72,7 +73,7 @@ export default function DiceSummary({ summaryData, continueCountdown, finishGame
                 className={`h-2 rounded-full ${summaryData.won ? 'bg-emerald-500' : 'bg-red-500'}`}
                 initial={{ width: '100%' }}
                 animate={{ width: '0%' }}
-                transition={{ duration: isTestEnv() ? 0 : 3, ease: 'linear' }}
+                transition={{ duration: isTestEnv() ? 0 : AUTO_CONTINUE_SECONDS, ease: 'linear' }}
               />
             </div>
           </>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { isTestEnv } from '../utils/env';
+import { AUTO_CONTINUE_SECONDS } from '../utils/uiTimings';
 
 interface UseAutoContinueCountdownOptions {
   shouldStart: boolean;
@@ -16,7 +17,7 @@ export function useAutoContinueCountdown({ shouldStart, onElapsed }: UseAutoCont
   useEffect(() => {
     if (!shouldStart || startedRef.current) return;
     startedRef.current = true;
-    setCountdown(isTestEnv() ? 0 : 3);
+    setCountdown(isTestEnv() ? 0 : AUTO_CONTINUE_SECONDS);
   }, [shouldStart]);
 
   // The countdown reaching 0 is the single source of truth for "time's up" —

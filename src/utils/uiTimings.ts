@@ -20,6 +20,12 @@ export const HELP_SECTION_OPEN_ANIMATION_MS = 350;
 // animating in.
 export const DICE_PANEL_ENTRANCE_MS = 350;
 
+// How long a resolved dice turn's summary counts down before auto-continuing
+// to the next player. The countdown logic (useAutoContinueCountdown) and the
+// summary's shrinking progress bar (DiceSummary) both derive from this one
+// value — as two separate literals they could silently drift apart.
+export const AUTO_CONTINUE_SECONDS = 3;
+
 // DiceGame roll animation: every die tumbles for DIE_TUMBLE_MS, then settles
 // one after another, each DIE_STAGGER_MS after the previous. While tumbling,
 // a die's shown face is re-randomized every DIE_FACE_SHUFFLE_MS. The roll is

@@ -67,6 +67,13 @@ type SocketSliceGet = Parameters<ImmerStateCreator<SocketSlice>>[1];
 // 150-line inline factory.
 const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSliceSet): void => {
   sock.on('gameState', (serverState: Partial<GameStore>) => {
+    // A broadcast can land after this client already returned to local mode
+    // (leaveRoom/kicked flip the mode before the socket fully tears down).
+    // Applying it would inject the online room into local state — which the
+    // local persistence subscriber would immediately write to disk. Every
+    // teardown path upholds this invariant on its own; the guard makes it
+    // structural instead of distributed.
+    if (get().mode !== 'online') return;
     const wasFinished = get().finished;
     set((prev) => {
       const wasDisconnected = prev.showReconnectPopup;

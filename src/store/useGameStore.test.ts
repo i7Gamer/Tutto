@@ -2357,6 +2357,29 @@ describe('useGameStore', () => {
     });
   });
 
+  describe('gameState after leaving online mode', () => {
+    it('ignores a broadcast that lands once the client is back in local mode', () => {
+      // leaveRoom/kicked flip the mode before the socket fully tears down —
+      // a late broadcast applied then would inject the online room into
+      // local state, and the local persistence subscriber would immediately
+      // write it to disk.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.getState().setMode('local');
+      useGameStore.setState({ players: [], status: 'lobby', round: 1 });
+
+      mockOnHandlers['gameState']({
+        status: 'playing', round: 5, currentPlayerIndex: 0,
+        players: [makeOnlinePlayer('Stranger')],
+      });
+
+      const state = useGameStore.getState();
+      expect(state.status).toBe('lobby');
+      expect(state.round).toBe(1);
+      expect(state.players).toEqual([]);
+    });
+  });
+
   describe('online config-change toasts', () => {
     beforeEach(() => {
       // These tests simulate an already-joined lobby receiving a LATER host
