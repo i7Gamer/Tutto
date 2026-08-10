@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from './store/useGameStore';
 import { warnAboutRecentCrash } from './utils/crashLog';
-import { TOAST_LIFETIME_MS } from './utils/uiTimings';
+import { TOAST_LIFETIME_MS, JOIN_TIMEOUT_MS } from './utils/uiTimings';
 import Home from './components/Home';
 import Game from './components/Game';
 import EndScreen from './components/EndScreen';
@@ -120,12 +120,26 @@ function RestoreSessionPopup() {
               useGameStore.setState({ showReconnectPopup: true });
               const { roomId, myName } = pendingReconnectSession;
               clearPendingReconnect();
-              const res = await joinRoom(roomId, myName, true);
+              // Raced against the same deadline the lobby's join button uses:
+              // joinRoom resolves only on the server's ack, which may never
+              // arrive (server down mid-restart, lost ack) — without it, the
+              // "Connection Lost" popup shows "attempting to reconnect"
+              // forever, with the menu button as the only escape.
+              let watchdog: ReturnType<typeof setTimeout> | undefined;
+              const res = await Promise.race([
+                joinRoom(roomId, myName, true),
+                new Promise<{ success: false; error: string }>((resolve) => {
+                  watchdog = setTimeout(
+                    () => resolve({ success: false, error: t('lobby.online.joinTimeout', 'No response from the server. Please try again.') }),
+                    JOIN_TIMEOUT_MS,
+                  );
+                }),
+              ]);
+              clearTimeout(watchdog);
               if (!res.success) {
-                // joinRoom failed outright (room gone, name taken, etc.) — there will
-                // be no gameState event to clear showReconnectPopup, so the "Connection
-                // Lost" popup would otherwise stay up forever with its misleading
-                // "attempting to reconnect" message.
+                // joinRoom failed outright (room gone, name taken, timed out) —
+                // there will be no gameState event to clear showReconnectPopup,
+                // so the "Connection Lost" popup would otherwise stay up forever.
                 useGameStore.setState({ showReconnectPopup: false });
                 addToast(res.error || t('home.restore.failed', 'Failed to reconnect to the game'));
               }

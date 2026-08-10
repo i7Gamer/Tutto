@@ -4,7 +4,7 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import App from './App';
 import * as diceLogic from './utils/diceLogic';
 import { useGameStore, _resetTimersForTests } from './store/useGameStore';
-import { DICE_PANEL_ENTRANCE_MS, TOAST_LIFETIME_MS } from './utils/uiTimings';
+import { DICE_PANEL_ENTRANCE_MS, TOAST_LIFETIME_MS, JOIN_TIMEOUT_MS } from './utils/uiTimings';
 
 // Mock confetti
 vi.mock('canvas-confetti', () => ({
@@ -250,6 +250,38 @@ describe('App Integration (End-to-End)', () => {
 
     expect(useGameStore.getState().pendingReconnectSession).toBeNull();
     expect(screen.queryByText('home.restore.title')).not.toBeInTheDocument();
+  });
+
+  it('times out a reconnect whose ack never arrives instead of spinning forever', async () => {
+    // joinRoom resolves only on the server's ack; if the server is down
+    // mid-restart the promise never settles. The popup must fall back to the
+    // failure path (dismissed + toast) after the shared join deadline rather
+    // than show "attempting to reconnect" indefinitely.
+    vi.useFakeTimers();
+    // Restored afterwards: store reset() only rewinds state fields, so an
+    // overridden ACTION would otherwise leak into every later test.
+    const originalJoinRoom = useGameStore.getState().joinRoom;
+    try {
+      act(() => {
+        useGameStore.setState({
+          pendingReconnectSession: { roomId: 'GHOST_ROOM', myName: 'Charlie' },
+          joinRoom: vi.fn(() => new Promise(() => {})),
+        });
+      });
+      render(<App />);
+
+      fireEvent.click(screen.getByText('home.restore.yes'));
+      expect(useGameStore.getState().showReconnectPopup).toBe(true);
+
+      await act(async () => { vi.advanceTimersByTime(JOIN_TIMEOUT_MS + 100); });
+
+      expect(useGameStore.getState().showReconnectPopup).toBe(false);
+      expect(useGameStore.getState().toasts.map(toast => toast.message))
+        .toContain('lobby.online.joinTimeout');
+    } finally {
+      useGameStore.setState({ joinRoom: originalJoinRoom });
+      vi.useRealTimers();
+    }
   });
 
   it('moves keyboard focus into the reconnect popup when it appears', async () => {

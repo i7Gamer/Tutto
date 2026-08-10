@@ -20,6 +20,13 @@ export const HELP_SECTION_OPEN_ANIMATION_MS = 350;
 // animating in.
 export const DICE_PANEL_ENTRANCE_MS = 350;
 
+// How long a join attempt may stay pending before its caller gives up.
+// joinRoom only resolves on the server's ack, and socket.io buffers the emit
+// while the server is unreachable — without this deadline the promise may
+// never settle. Shared by the lobby's join button and the reconnect popup's
+// "Yes, Reconnect", which race it against the join for the same reason.
+export const JOIN_TIMEOUT_MS = 10_000;
+
 // How long a resolved dice turn's summary counts down before auto-continuing
 // to the next player. The countdown logic (useAutoContinueCountdown) and the
 // summary's shrinking progress bar (DiceSummary) both derive from this one

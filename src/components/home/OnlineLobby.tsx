@@ -10,6 +10,7 @@ import {
 } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
 import { MIN_ONLINE_PLAYERS } from '../../utils/configValidation';
+import { JOIN_TIMEOUT_MS } from '../../utils/uiTimings';
 import { parseRecentRooms, MAX_RECENT_ROOMS, type RecentRoom } from '../../utils/recentRooms';
 import { buildRoomLink } from '../../utils/roomLink';
 import { supportsNativeShare } from '../../utils/shareSupport';
@@ -21,11 +22,8 @@ import RoomQrScanner from './RoomQrScanner';
 // How long the copy button shows its "copied" checkmark before reverting.
 const COPY_FEEDBACK_MS = 1500;
 
-// How long a join attempt may stay pending before the form unlocks again.
-// joinRoom only resolves on the server's ack, and socket.io buffers the emit
-// while the server is unreachable — without this deadline the promise may
-// never settle and the button would stay disabled forever.
-const JOIN_TIMEOUT_MS = 10_000;
+// JOIN_TIMEOUT_MS (utils/uiTimings.ts) bounds how long the join button stays
+// locked on an ack that may never arrive.
 
 interface JoinRoomResult {
   error?: string;
