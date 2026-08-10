@@ -134,6 +134,22 @@ describe('DiceGame State Restoration Logic', () => {
     expect(restored?.kniffelProgress).toEqual([]);
     expect(restored?.tuttosThisTurn).toBe(0);
   });
+
+  it('drops fractional or oversized chain counters instead of restoring them', () => {
+    // The server accepts only bounded integers for these (isValidChainCounter
+    // in pushValidation.ts) — the local cache parse mirrors that, so a
+    // corrupted entry resets to absent rather than riding into a snapshot.
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 100, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+      cardsThisTurn: ['300'], plusMinusSuccesses: 2.5, chainTuttoCount: 101,
+    }));
+
+    const restored = parseSavedDiceState(localStorage.getItem('tutto_dice_turn_state'));
+
+    expect(restored?.cardsThisTurn).toEqual(['300']);
+    expect(restored?.plusMinusSuccesses).toBeUndefined();
+    expect(restored?.chainTuttoCount).toBeUndefined();
+  });
 });
 
 describe('DiceGame restored-state bust rendering', () => {

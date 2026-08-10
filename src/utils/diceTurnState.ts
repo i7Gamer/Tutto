@@ -79,6 +79,11 @@ const isFiniteNonNegativeNumber = (v: unknown): v is number =>
 const isPlausibleChainCard = (v: unknown): v is CardType =>
   (VALID_CARD_TYPES as readonly string[]).includes(v as string);
 
+// Mirrors server/pushValidation.ts's isValidChainCounter: integers only,
+// bounded by the same chain cap.
+const isPlausibleChainCounter = (v: unknown): v is number =>
+  Number.isInteger(v) && (v as number) >= 0 && (v as number) <= MAX_CHAIN_CARDS;
+
 export const parseSavedDiceState = (raw: string | null): DiceSnapshot | null => {
   if (!raw) return null;
   try {
@@ -100,8 +105,8 @@ export const parseSavedDiceState = (raw: string | null): DiceSnapshot | null => 
         parsed.cardsThisTurn.every(isPlausibleChainCard)) {
       snapshot.cardsThisTurn = parsed.cardsThisTurn;
     }
-    if (isFiniteNonNegativeNumber(parsed.plusMinusSuccesses)) snapshot.plusMinusSuccesses = parsed.plusMinusSuccesses;
-    if (isFiniteNonNegativeNumber(parsed.chainTuttoCount)) snapshot.chainTuttoCount = parsed.chainTuttoCount;
+    if (isPlausibleChainCounter(parsed.plusMinusSuccesses)) snapshot.plusMinusSuccesses = parsed.plusMinusSuccesses;
+    if (isPlausibleChainCounter(parsed.chainTuttoCount)) snapshot.chainTuttoCount = parsed.chainTuttoCount;
     return snapshot;
   } catch {
     return null;
