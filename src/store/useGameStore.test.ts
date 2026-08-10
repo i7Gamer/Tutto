@@ -695,6 +695,29 @@ describe('useGameStore', () => {
     expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
   });
 
+  it('starting a new game clears BOTH cached turn entries, digital and physical', () => {
+    // A Play-Again (or any new local game) resets round to 1 with the same
+    // room and ruleset — a chain cached by the PREVIOUS game could otherwise
+    // key-collide and resurrect its cards and typed total into the new one.
+    // The digital cache has always been cleared here; the physical one must
+    // ride along at every such lifecycle boundary.
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 250 }));
+    localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
+      turnKey: 'local:1:0:300:classic',
+      cards: [{ card: '300', completed: true }],
+      plusMinusSuccesses: 0,
+      awaitingChoice: false,
+      scoreInput: '350',
+    }));
+
+    const store = useGameStore.getState();
+    store.addPlayer('Alice');
+    store.startGame();
+
+    expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
+    expect(localStorage.getItem('tutto_physical_turn_state')).toBeNull();
+  });
+
   describe('local game stats saving', () => {
     it('does NOT send any stats when a local game ends', () => {
       global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));

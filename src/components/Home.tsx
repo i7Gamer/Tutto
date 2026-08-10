@@ -9,7 +9,7 @@ import ModeSelector from './home/ModeSelector';
 import LocalLobby from './home/LocalLobby';
 import OnlineLobby from './home/OnlineLobby';
 import ConfirmModal from './ConfirmModal';
-import { DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
+import { clearTurnCaches } from '../utils/diceTurnState';
 
 interface HomeProps {
   onShowStats: () => void;
@@ -45,7 +45,7 @@ export default function Home({ onShowStats }: HomeProps) {
   }, [roomId, setMode]);
 
   const handleClearCache = useCallback(() => {
-    localStorage.removeItem(DICE_TURN_STATE_KEY);
+    clearTurnCaches();
     localStorage.removeItem('tutto_local_game');
     localStorage.removeItem('last_crash_time');
     sessionStorage.removeItem('tutto_online_session');

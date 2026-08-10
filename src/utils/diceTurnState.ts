@@ -13,6 +13,23 @@ import { VALID_CARD_TYPES, DEFAULT_RULESET } from './configValidation';
  */
 export const DICE_TURN_STATE_KEY = 'tutto_dice_turn_state';
 
+// Its physical-dice counterpart — the classic chain, the open bank-or-draw
+// choice and the typed running total (owned by hooks/usePhysicalChain.ts,
+// which documents the shape). Defined here so the lifecycle helper below and
+// the store slices need not import from a React hook module.
+export const PHYSICAL_TURN_STATE_KEY = 'tutto_physical_turn_state';
+
+// Every game-lifecycle boundary that invalidates a cached turn invalidates
+// BOTH caches — a new game, a committed/undone turn, leaving or joining a
+// room, a crash reset. One helper, so a cache can never miss a site: the
+// turn keys alone cannot be trusted across games (Play Again resets round to
+// 1 with the same room and ruleset, so a stale entry can key-collide with
+// the new game's first turn).
+export const clearTurnCaches = (): void => {
+  localStorage.removeItem(DICE_TURN_STATE_KEY);
+  localStorage.removeItem(PHYSICAL_TURN_STATE_KEY);
+};
+
 // Identifies a specific turn slot: roomId (or 'local') + round + player index +
 // card + ruleset. Changes whenever the turn actually advances, whether via the
 // active client, the server-authoritative turn timer, or a reconnect — so a

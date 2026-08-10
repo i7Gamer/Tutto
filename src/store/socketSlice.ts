@@ -8,7 +8,7 @@ import { REACTION_DISPLAY_MS } from '../utils/reactions';
 import type { Reaction, DiceSnapshot } from '../types';
 import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from './storeTypes';
 import { makeToast } from './gameSlice';
-import { DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
+import { clearTurnCaches } from '../utils/diceTurnState';
 
 type SocketSlice = Pick<GameStore,
   | 'connectSocket' | 'joinRoom' | 'leaveRoom' | 'kickPlayer'
@@ -191,7 +191,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     get().addToast(i18n.t('game.kickedByHost', 'You were kicked by the host'));
     get().stopOnlineTimers();
     sessionStorage.removeItem('tutto_online_session');
-    localStorage.removeItem(DICE_TURN_STATE_KEY);
+    clearTurnCaches();
     // Mirrors leaveRoom's reset (see its comment): setMode('local') below
     // only overwrites the keys a saved local game happens to contain, so
     // without clearing the online room's roster/game state here too, it
@@ -234,7 +234,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     pendingCancelReconnectCleanup?.();
     pendingCancelReconnectCleanup = null;
 
-    localStorage.removeItem(DICE_TURN_STATE_KEY);
+    clearTurnCaches();
     sessionStorage.removeItem('tutto_online_session');
     set({ pendingReconnectSession: null, liveTurnState: null, showReconnectPopup: false });
 
@@ -289,7 +289,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
 
   joinRoom: (room, name, isReconnect = false) => {
     if (!isReconnect) {
-      localStorage.removeItem(DICE_TURN_STATE_KEY);
+      clearTurnCaches();
       set({ liveTurnState: null });
     }
     return new Promise<JoinRoomResponse>((resolve) => {
@@ -335,7 +335,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     if (socket) socket.emit('leaveRoom');
     get().stopOnlineTimers();
     sessionStorage.removeItem('tutto_online_session');
-    localStorage.removeItem(DICE_TURN_STATE_KEY);
+    clearTurnCaches();
     set(clearRoomState());
   },
 

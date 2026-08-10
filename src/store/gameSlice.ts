@@ -5,7 +5,7 @@ import {
   buildDeck,
   buildGlobalStatsPayload,
 } from '../utils/coreGameEngine';
-import { buildTurnKey, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
+import { buildTurnKey, DICE_TURN_STATE_KEY, clearTurnCaches } from '../utils/diceTurnState';
 import { MAX_PLAYER_NAME_LENGTH, isNormalizedConfig } from '../utils/configValidation';
 import { zeroedPlayerStats } from '../utils/playerStats';
 import playerColorsData from '../../playerColors.json';
@@ -169,7 +169,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.liveTurnState = null;
       state.historyLog = [];
     });
-    localStorage.removeItem(DICE_TURN_STATE_KEY);
+    clearTurnCaches();
 
     if (get().isOnline) {
       get().pushState();
@@ -206,7 +206,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       chartLabels: [],
       historyLog: [],
     });
-    localStorage.removeItem(DICE_TURN_STATE_KEY);
+    clearTurnCaches();
     if (get().isOnline) get().pushState();
   },
 
@@ -280,7 +280,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
         state.historyLog.shift();
       }
     });
-    localStorage.removeItem(DICE_TURN_STATE_KEY);
+    clearTurnCaches();
 
     // Stats are intentionally only tracked for online games. Local games do not
     // submit statistics — by design, not an oversight.
@@ -330,7 +330,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
         state.historyLog.pop();
       }
     });
-    localStorage.removeItem(DICE_TURN_STATE_KEY);
+    clearTurnCaches();
 
     if (get().isOnline) {
       get().pushState();
