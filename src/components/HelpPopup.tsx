@@ -147,6 +147,7 @@ export default function HelpPopup() {
     { keys: ['R'], description: t('help.shortcuts.rollAgain') },
     { keys: ['S'], description: t('help.shortcuts.stop') },
     { keys: ['A'], description: t('help.shortcuts.selectAll') },
+    { keys: ['D'], description: t('help.shortcuts.drawNextCard') },
   ], [t]);
 
   const faqs = useMemo(() => [

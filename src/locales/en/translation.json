@@ -358,6 +358,7 @@
   "help.shortcuts.rollAgain": "Roll again with the dice you have selected (inside the dice panel).",
   "help.shortcuts.stop": "Stop and bank the dice you have selected (inside the dice panel).",
   "help.shortcuts.selectAll": "Select every die in the current roll that scores.",
+  "help.shortcuts.drawNextCard": "Draw the next card at the bank-or-draw choice (Classic rules, after a Tutto).",
   "help.shortcuts.note": "Shortcuts stay out of the way while you are typing in a field and while a dialog is open, and a key does nothing when its button is greyed out.",
   "help.version": "Version",
   "help.statistics.title": "Statistics Explained",

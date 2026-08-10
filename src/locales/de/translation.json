@@ -358,6 +358,7 @@
   "help.shortcuts.rollAgain": "Mit den ausgewählten Würfeln erneut würfeln (im Würfel-Fenster).",
   "help.shortcuts.stop": "Aufhören und die ausgewählten Würfel sichern (im Würfel-Fenster).",
   "help.shortcuts.selectAll": "Alle Würfel des aktuellen Wurfs auswählen, die punkten.",
+  "help.shortcuts.drawNextCard": "Die nächste Karte ziehen, wenn Sichern-oder-Ziehen zur Wahl steht (Klassische Regeln, nach einem Tutto).",
   "help.shortcuts.note": "Die Kürzel halten sich zurück, während du in ein Feld tippst oder ein Dialog offen ist, und eine Taste tut nichts, wenn ihr Knopf ausgegraut ist.",
   "help.version": "Version",
   "help.statistics.title": "Statistiken erklärt",
