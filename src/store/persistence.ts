@@ -59,7 +59,7 @@ const isPlausiblePlayer = (v: unknown): boolean => {
 
 // Undo consumes this after a restore: card list, counters and the ended kind
 // must all be sane or reversing the turn would corrupt player stats.
-const TURN_ENDS: readonly string[] = ['banked', 'null', 'stopCard'];
+const TURN_ENDS: readonly string[] = ['banked', 'null', 'stopCard', 'timeout'];
 const isPlausibleTurnSummary = (v: unknown): boolean => {
   if (v === null) return true;
   if (typeof v !== 'object') return false;

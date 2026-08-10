@@ -76,8 +76,11 @@ export interface DiceSnapshot {
 export const MAX_CHAIN_CARDS = 100;
 
 // How a classic turn ended: banked its points (includes the Feuerwerk null,
-// which banks), rolled a null, or drew a Stop card mid-chain.
-export type TurnEnd = 'banked' | 'null' | 'stopCard';
+// which banks), rolled a null, drew a Stop card mid-chain, or had the server
+// turn timer expire with the current card already completed ('timeout' — the
+// turn forfeits, but no null was rolled, so it must not count as a bust; only
+// server/turnTimers.ts ever produces it).
+export type TurnEnd = 'banked' | 'null' | 'stopCard' | 'timeout';
 
 export interface TurnCardPlayed {
   card: CardType;

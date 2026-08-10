@@ -66,15 +66,28 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
     let timeoutSummary: TurnSummary | undefined;
     if (snapshot?.cardsThisTurn && snapshot.cardsThisTurn.length > 0) {
       const chainCards = snapshot.cardsThisTurn;
+      const lastCard = chainCards[chainCards.length - 1];
+      // Where the timer caught the player decides what the last card's
+      // outcome really was — the same classification DiceGame's own restore
+      // applies to this snapshot:
+      //  - all six dice put aside without a bust = the bank-or-draw choice
+      //    (the one state an AFK player parks in, since it has no client
+      //    countdown): the card was COMPLETED and no null was ever rolled;
+      //  - a busted Feuerwerk with points on the table = the classic
+      //    banks-on-null summary, whose manual path counts no bust either.
+      const atBankChoice = !snapshot.busted && snapshot.keptDice.length === 6;
+      const feuerwerkBanked = !!snapshot.busted && lastCard === 'Feuerwerk' && snapshot.turnScore > 0;
+      const lastCompleted = atBankChoice || feuerwerkBanked;
       timeoutSummary = {
         // Every card before the last was completed (the chain only continues
-        // on a completion); the last one was still in progress.
-        cards: chainCards.map((card, i) => ({ card, completed: i < chainCards.length - 1 })),
+        // on a completion).
+        cards: chainCards.map((card, i) => ({ card, completed: i < chainCards.length - 1 || lastCompleted })),
         tuttoCount: snapshot.chainTuttoCount ?? 0,
         plusMinusSuccesses: snapshot.plusMinusSuccesses ?? 0,
         // A timeout during the drawn-Stop summary window is still that Stop's
-        // forfeit, not a dice null (a null would count a bust).
-        ended: chainCards[chainCards.length - 1] === 'Stop' ? 'stopCard' : 'null',
+        // forfeit; a completed last card ends as 'timeout' (forfeit without a
+        // bust); only a genuinely unresolved roll counts the dice null.
+        ended: lastCard === 'Stop' ? 'stopCard' : lastCompleted ? 'timeout' : 'null',
         ...(snapshot.turnScore > 0 ? { forfeitedScore: snapshot.turnScore } : {}),
       };
     }

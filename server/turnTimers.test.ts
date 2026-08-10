@@ -331,6 +331,57 @@ describe('turnTimers', () => {
       expect(lastEntry.cards).toEqual(['500', 'Kniffel', 'Feuerwerk']);
     });
 
+    it('does not invent a bust when the timeout lands on the bank-or-draw choice', () => {
+      // The choice state is exactly where an AFK classic player parks (it has
+      // deliberately no client countdown): all six dice are put aside and the
+      // card is COMPLETED. The forfeit stands — but no null was ever rolled,
+      // so no bust, and the completed straight counts as completed.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: 'Kniffel', cards: ['300'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 2000,
+          keptDice: [1, 2, 3, 4, 5, 6].map(v => ({ id: `d${v}`, val: v })),
+          currentRoll: [], kniffelProgress: [1, 2, 3, 4, 5, 6], tuttosThisTurn: 1,
+          cardsThisTurn: ['Kniffel'], plusMinusSuccesses: 0, chainTuttoCount: 1,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const alice = rooms[roomId].state.players[0];
+      expect(alice.busts).toBe(0);
+      expect(alice.timesKniffelCompleted).toBe(1);
+      expect(alice.timesKniffelFailed).toBe(0);
+      // Still a forfeit: nothing banks, and the thrown-away total is recorded.
+      expect(rooms[roomId].state.previousScore).toBe(0);
+      expect(alice.highestForfeitedTurnScore).toBe(2000);
+      expect(rooms[roomId].state.previousTurnSummary?.ended).toBe('timeout');
+      expect(rooms[roomId].state.previousTurnSummary?.cards).toEqual([{ card: 'Kniffel', completed: true }]);
+    });
+
+    it('counts no bust for a timeout on the classic Feuerwerk banks-on-null summary', () => {
+      // The manual path banks that summary without a bust (the null is how a
+      // Feuerwerk ENDS in classic); a client that died on it and timed out
+      // must not be counted differently.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: 'Feuerwerk', cards: ['300'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 1500, keptDice: [], currentRoll: [], kniffelProgress: [],
+          tuttosThisTurn: 1, busted: true,
+          cardsThisTurn: ['300', 'Feuerwerk'], plusMinusSuccesses: 0, chainTuttoCount: 1,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const alice = rooms[roomId].state.players[0];
+      expect(alice.busts).toBe(0);
+      expect(alice.timesFeuerwerkReceived).toBe(1);
+      expect(rooms[roomId].state.previousTurnSummary?.ended).toBe('timeout');
+    });
+
     it('classifies a timeout during a drawn-Stop summary as the Stop forfeit, not a dice bust', () => {
       rooms[roomId] = createRoom('host-1');
       Object.assign(rooms[roomId].state, {

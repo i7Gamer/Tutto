@@ -832,6 +832,10 @@ describe('classic chain fields (snapshot / history / turn summary)', () => {
 
   it('validates and sanitizes a turn summary', () => {
     expect(isValidTurnSummary(validSummary)).toBe(true);
+    // 'timeout' is server-produced (turnTimers), but the committed summary
+    // rides every later pushState round-trip — rejecting it here would strip
+    // the previous turn's summary and break undoing a timed-out chain.
+    expect(isValidTurnSummary({ ...validSummary, ended: 'timeout' })).toBe(true);
     expect(isValidTurnSummary({ ...validSummary, ended: 'later' })).toBe(false);
     expect(isValidTurnSummary({ ...validSummary, cards: [{ card: 'Nope', completed: true }] })).toBe(false);
     expect(isValidTurnSummary({ ...validSummary, tuttoCount: -1 })).toBe(false);

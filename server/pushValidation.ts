@@ -142,7 +142,7 @@ export const isValidTurnSummary = (v: unknown): v is TurnSummary => {
   if (!cardsOk) return false;
   if (!isValidChainCounter(s.tuttoCount)) return false;
   if (!isValidChainCounter(s.plusMinusSuccesses)) return false;
-  if (s.ended !== 'banked' && s.ended !== 'null' && s.ended !== 'stopCard') return false;
+  if (s.ended !== 'banked' && s.ended !== 'null' && s.ended !== 'stopCard' && s.ended !== 'timeout') return false;
   if (s.forfeitedScore !== undefined &&
       !(typeof s.forfeitedScore === 'number' && Number.isFinite(s.forfeitedScore) && s.forfeitedScore >= 0 && s.forfeitedScore <= MAX_SCORE_MAGNITUDE)) return false;
   const isRecordOrNull = (v2: unknown): boolean =>
