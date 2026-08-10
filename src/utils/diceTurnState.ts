@@ -55,6 +55,8 @@ interface BuildDiceSnapshotInput {
   tuttosThisTurn: number;
   rollingDiceIndices?: Set<string> | string[];
   busted?: boolean;
+  // The turn was decided by Stop & Score — see DiceSnapshot in types.ts.
+  stopped?: boolean;
   // Classic-chain fields — see DiceSnapshot in types.ts.
   cardsThisTurn?: CardType[];
   plusMinusSuccesses?: number;
@@ -115,6 +117,7 @@ export const parseSavedDiceState = (raw: string | null): DiceSnapshot | null => 
       playerName: typeof parsed.playerName === 'string' ? parsed.playerName : undefined,
       turnKey: typeof parsed.turnKey === 'string' ? parsed.turnKey : undefined,
     };
+    if (parsed.stopped === true) snapshot.stopped = true;
     // Chain fields are optional (absent for modernized turns and old caches);
     // present-but-invalid values reset to absent, same all-or-nothing rule as
     // the arrays above.
@@ -138,6 +141,7 @@ export const buildDiceSnapshot = ({
   tuttosThisTurn,
   rollingDiceIndices,
   busted = false,
+  stopped = false,
   cardsThisTurn,
   plusMinusSuccesses,
   chainTuttoCount,
@@ -149,6 +153,7 @@ export const buildDiceSnapshot = ({
     kniffelProgress,
     tuttosThisTurn,
   };
+  if (stopped) snapshot.stopped = true;
   if (busted) {
     snapshot.busted = true;
   } else {

@@ -826,6 +826,10 @@ describe('classic chain fields (snapshot / history / turn summary)', () => {
     expect(isValidDiceSnapshot({ ...validSnapshot, cardsThisTurn: Array(101).fill('200') })).toBe(false);
     expect(isValidDiceSnapshot({ ...validSnapshot, plusMinusSuccesses: -1 })).toBe(false);
     expect(isValidDiceSnapshot({ ...validSnapshot, chainTuttoCount: 1.5 })).toBe(false);
+    // The Stop & Score marker — a boolean like busted, or nothing.
+    expect(isValidDiceSnapshot({ ...validSnapshot, stopped: true })).toBe(true);
+    expect(isValidDiceSnapshot({ ...validSnapshot, stopped: 'yes' })).toBe(false);
+    expect(sanitizeDiceSnapshot({ ...validSnapshot, stopped: true } as never).stopped).toBe(true);
   });
 
   const validSummary = {

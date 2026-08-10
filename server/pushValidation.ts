@@ -93,6 +93,7 @@ export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
   if (!(Array.isArray(s.currentRoll) && s.currentRoll.length <= 6 && s.currentRoll.every(isValidRolledDie))) return false;
   if (!(Array.isArray(s.kniffelProgress) && s.kniffelProgress.length <= 6 && s.kniffelProgress.every(isValidKniffelProgressEntry))) return false;
   if (s.busted !== undefined && typeof s.busted !== 'boolean') return false;
+  if (s.stopped !== undefined && typeof s.stopped !== 'boolean') return false;
   if (s.rollingDiceIds !== undefined) {
     if (!Array.isArray(s.rollingDiceIds) || s.rollingDiceIds.length > 6) return false;
     if (!s.rollingDiceIds.every(id => typeof id === 'string' && id.length > 0 && id.length <= MAX_DICE_ID_LENGTH)) return false;
@@ -122,6 +123,7 @@ export const sanitizeDiceSnapshot = (v: DiceSnapshot): DiceSnapshot => {
     tuttosThisTurn: v.tuttosThisTurn,
   };
   if (v.busted) clean.busted = true;
+  if (v.stopped) clean.stopped = true;
   if (v.rollingDiceIds) clean.rollingDiceIds = [...v.rollingDiceIds];
   if (v.cardsThisTurn) clean.cardsThisTurn = [...v.cardsThisTurn];
   if (v.plusMinusSuccesses !== undefined) clean.plusMinusSuccesses = v.plusMinusSuccesses;

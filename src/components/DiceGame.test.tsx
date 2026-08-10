@@ -135,6 +135,12 @@ describe('DiceGame State Restoration Logic', () => {
     expect(restored?.tuttosThisTurn).toBe(0);
   });
 
+  it('keeps the stopped marker through a parse round-trip', () => {
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 450, stopped: true }));
+    const restored = parseSavedDiceState(localStorage.getItem('tutto_dice_turn_state'));
+    expect(restored?.stopped).toBe(true);
+  });
+
   it('drops fractional or oversized chain counters instead of restoring them', () => {
     // The server accepts only bounded integers for these (isValidChainCounter
     // in pushValidation.ts) — the local cache parse mirrors that, so a
@@ -182,6 +188,24 @@ describe('DiceGame restored-state bust rendering', () => {
     expect(screen.queryByText('dice.success')).not.toBeInTheDocument();
     expect(screen.queryByText('dice.tutto')).not.toBeInTheDocument();
     expect(screen.queryByText('dice.points_gained')).not.toBeInTheDocument();
+  });
+
+  it('restores a Stop & Score decision into its banked summary, not a rollable table', () => {
+    // Without the stopped marker this restored into the pre-stop dice table:
+    // the player who had already seen "Success!" could reload inside the
+    // 3-second countdown and pick Roll Again instead — a decision rollback.
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 450,
+      keptDice: [{ id: 'k1', val: 1 }, { id: 'k2', val: 5 }],
+      currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+      stopped: true,
+    }));
+
+    render(<DiceGame currentCard="300" onComplete={vi.fn()} />);
+
+    expect(screen.getByText('dice.success')).toBeInTheDocument();
+    expect(screen.getByText('450')).toBeInTheDocument();
+    expect(screen.queryByText('dice.roll_again')).not.toBeInTheDocument();
   });
 
   it('paints a resumed turn on its first commit rather than correcting itself', () => {
@@ -874,6 +898,24 @@ describe('DiceGame classic chains', () => {
 
     expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
     expect(screen.getByTestId('draw-next-card')).toBeInTheDocument();
+  });
+
+  it('Stop & Score commits the banked state into the live snapshot', async () => {
+    // Spectators and the resume cache must see the DECIDED turn during the
+    // countdown, not the pre-stop table the decision could roll back into.
+    const onStateChange = vi.fn();
+    queueRoll([1, 1, 1, 5, 5, 2]); // five scoring dice; the 2 stays out
+    render(<DiceGame currentCard="300" onComplete={vi.fn()} onStateChange={onStateChange} />);
+
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.stop_and_score'));
+
+    await waitFor(() => {
+      const last = onStateChange.mock.calls.at(-1)?.[0];
+      expect(last?.stopped).toBe(true);
+      expect(last?.turnScore).toBe(1100);
+      expect(last?.currentRoll).toEqual([]);
+    });
   });
 
   it('restores a reload during the drawn-Stop summary into that summary, not a dice table', async () => {

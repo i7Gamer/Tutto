@@ -120,6 +120,11 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const restoredStopped = !restoredBust && !restoredTutto && isClassic && restored && currentCard === 'Stop'
     ? { won: false, score: 0, isTutto: false, stoppedByCard: true }
     : null;
+  // A banked Stop & Score decision — restore into its success summary, never
+  // a dice table where the decision could be rolled back into Roll Again.
+  const restoredBanked = !restoredBust && !restoredTutto && !restoredStopped && restored?.stopped
+    ? { won: true, score: restored.turnScore, isTutto: false }
+    : null;
 
   const [keptDice, setKeptDice] = useState<DieType[]>(restored?.keptDice ?? []);
   const [currentRoll, setCurrentRoll] = useState<DieType[]>(restored?.currentRoll ?? []);
@@ -130,10 +135,13 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const [isRolling, setIsRolling] = useState(false);
   const [hasRolled, setHasRolled] = useState(!!restored);
   const [bustState, setBustState] = useState(!!restoredBust);
-  const [showSummary, setShowSummary] = useState(!!restoredBust || !!restoredTutto || !!restoredStopped);
+  const [showSummary, setShowSummary] = useState(!!restoredBust || !!restoredTutto || !!restoredStopped || !!restoredBanked);
   const [summaryData, setSummaryData] = useState<SummaryData>(
-    restoredBust ?? restoredTutto ?? restoredStopped ?? { won: false, score: 0, isTutto: false },
+    restoredBust ?? restoredTutto ?? restoredStopped ?? restoredBanked ?? { won: false, score: 0, isTutto: false },
   );
+  // Whether the turn was decided by Stop & Score — rides the snapshot so a
+  // reload restores into the banked summary above.
+  const [stopped, setStopped] = useState(!!restoredBanked);
   const [tuttosThisTurn, setTuttosThisTurn] = useState(restored?.tuttosThisTurn ?? 0);
 
   // The classic chain, held in a ref so summary/bust callbacks always read the
@@ -369,6 +377,17 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
 
     if (action === 'stop') {
       if (isClassic) chainRef.current.ended = 'banked';
+      // Committed (like the classic tutto choice above) so the decision
+      // survives a reload: the snapshot otherwise still held the pre-stop
+      // table, and restoring handed the banked decision back — free to Roll
+      // Again instead. Spectators also kept watching the pre-stop board
+      // through the whole countdown.
+      setTurnScore(newTurnScore);
+      setKeptDice(newKeptDice);
+      setCurrentRoll([]);
+      setDisplayRoll([]);
+      setKniffelProgress(newKniffelProgress);
+      setStopped(true);
       setSummaryData({ won: true, score: newTurnScore, isTutto });
       setShowSummary(true);
       return;
@@ -470,13 +489,13 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     if (isRolling && rollingDiceIndices.size === 0) return;
     const timer = setTimeout(() => {
       onStateChangeRef.current?.(buildDiceSnapshot({
-        turnScore, keptDice, currentRoll, kniffelProgress, tuttosThisTurn, rollingDiceIndices,
+        turnScore, keptDice, currentRoll, kniffelProgress, tuttosThisTurn, rollingDiceIndices, stopped,
         ...chainSnapshotFields(),
       }));
     }, LIVE_SNAPSHOT_DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keptDice, currentRoll, turnScore, hasRolled, rollingDiceIndices, isRolling, bustState, kniffelProgress, tuttosThisTurn]);
+  }, [keptDice, currentRoll, turnScore, hasRolled, rollingDiceIndices, isRolling, bustState, kniffelProgress, tuttosThisTurn, stopped]);
 
   // What a bust snapshot is made of, as of the most recent commit. Held in a
   // ref, and updated by an effect declared ahead of the one that reads it so
