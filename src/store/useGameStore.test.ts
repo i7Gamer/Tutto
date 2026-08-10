@@ -205,6 +205,33 @@ describe('useGameStore', () => {
     expect(elapsed).toBeLessThanOrEqual(51);
   });
 
+  it('resuming a mid-game local save also restarts the 1-second game clock', () => {
+    // App routes a restored playing save straight into <Game/> — so
+    // setMode('local'), the only other startLocalTimers caller besides
+    // startGame, never runs on that path. Without init starting the interval
+    // itself, the displayed clock stays frozen at the saved value and the
+    // NEXT reload re-anchors from that stale number, silently discarding all
+    // the time played since this one.
+    vi.useFakeTimers();
+    try {
+      localStorage.setItem('tutto_local_game', JSON.stringify({
+        players: [{ name: 'Alice', color: '#ff0000', score: 100 }],
+        status: 'playing',
+        currentPlayerIndex: 0,
+        finished: false,
+        round: 2,
+        gameTimeInSeconds: 50,
+      }));
+      useGameStore.getState().init('device-xyz');
+
+      vi.advanceTimersByTime(3000);
+      expect(useGameStore.getState().gameTimeInSeconds).toBe(53);
+    } finally {
+      _resetTimersForTests();
+      vi.useRealTimers();
+    }
+  });
+
   it('does not re-anchor the clock when the restored local game is not in progress', () => {
     localStorage.setItem('tutto_local_game', JSON.stringify({
       players: [{ name: 'Alice', color: '#ff0000', score: 0 }],
@@ -2314,6 +2341,43 @@ describe('useGameStore', () => {
   });
 
   describe('online config-change toasts', () => {
+    beforeEach(() => {
+      // These tests simulate an already-joined lobby receiving a LATER host
+      // change — the first-sync suppression (roomStateSynced) must be armed
+      // past its quiet first gameState.
+      useGameStore.setState({ roomStateSynced: true });
+    });
+
+    it('stays quiet on the first gameState after joining — the room introducing itself is not a change', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      // This device once hosted with a custom config; the joined room runs
+      // defaults. The differences are the ROOM'S existing settings, not
+      // changes anybody made.
+      useGameStore.setState({ status: 'lobby', winningScore: 10000, ruleset: 'classic', toasts: [], roomStateSynced: false });
+
+      mockOnHandlers['gameState']({ status: 'lobby', winningScore: 6000, ruleset: 'modernized', players: [] });
+
+      expect(useGameStore.getState().toasts).toEqual([]);
+      // The sync itself still applies…
+      expect(useGameStore.getState().winningScore).toBe(6000);
+
+      // …and a LATER host change toasts as before.
+      mockOnHandlers['gameState']({ status: 'lobby', winningScore: 8000, players: [] });
+      const messages = useGameStore.getState().toasts.map(t => t.message);
+      expect(messages.some(m => m.includes('8000'))).toBe(true);
+    });
+
+    it('joinRoom re-arms the first-sync suppression for the next room', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({ roomStateSynced: true });
+
+      void useGameStore.getState().joinRoom('ROOM2', 'Alice');
+
+      expect(useGameStore.getState().roomStateSynced).toBe(false);
+    });
+
     it('toasts when the host changes the winning score in the lobby', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');

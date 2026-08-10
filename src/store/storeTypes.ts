@@ -47,6 +47,9 @@ export interface GameStore extends CoreGameState {
   deviceId: string | null;
   isOnline: boolean;
   showReconnectPopup: boolean;
+  // False from joinRoom until the room's first gameState lands — that sync
+  // describes the room as it already is, so the config-diff toasts skip it.
+  roomStateSynced: boolean;
   roomId: string | null;
   isHost: boolean;
   hostId: string | null;

@@ -71,7 +71,12 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     set((prev) => {
       const wasDisconnected = prev.showReconnectPopup;
 
-      if (prev.mode === 'online' && prev.status === 'lobby' && serverState.status === 'lobby') {
+      // The first sync after joining describes the room as it already is —
+      // only LATER diffs are host changes worth announcing.
+      const firstRoomSync = !prev.roomStateSynced;
+      prev.roomStateSynced = true;
+
+      if (!firstRoomSync && prev.mode === 'online' && prev.status === 'lobby' && serverState.status === 'lobby') {
         // Each diff is guarded with `key in serverState`, matching the sync
         // loop below: serverState is typed Partial<GameStore>, so an absent
         // key must read as "unchanged", not "changed to undefined" (which
@@ -292,6 +297,11 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       clearTurnCaches();
       set({ liveTurnState: null });
     }
+    // The first gameState after ANY join is the room introducing itself, not
+    // the host changing something — the config-diff toasts must not fire for
+    // it (they would announce every difference between this device's saved
+    // host config and the room's actual settings as "changes").
+    set({ roomStateSynced: false });
     return new Promise<JoinRoomResponse>((resolve) => {
       let initialConfig: Partial<Pick<GameStore, ConfigKeys>> | undefined = undefined;
       try {

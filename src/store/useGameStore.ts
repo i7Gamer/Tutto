@@ -89,6 +89,9 @@ export const useGameStore = create<GameStore>()(
     deviceId: null,
     isOnline: false,
     showReconnectPopup: false,
+    // Whether this client has received its first gameState for the current
+    // room — the config-diff toasts stay quiet until it has (socketSlice).
+    roomStateSynced: false,
     roomId: null,
     isHost: false,
     hostId: null,
@@ -109,6 +112,7 @@ export const useGameStore = create<GameStore>()(
         toasts: [],
         reactions: [],
         showReconnectPopup: false,
+        roomStateSynced: false,
         pendingReconnectSession: null,
       });
     },
@@ -130,6 +134,17 @@ export const useGameStore = create<GameStore>()(
         const session = parseJsonString<ReconnectSession>(sessionStorage.getItem('tutto_online_session'));
         if (session) state.pendingReconnectSession = session;
       });
+
+      // A restored mid-game local save must also restart the 1-second game
+      // clock: App routes straight into <Game/> (the restored state is already
+      // "playing"), so setMode('local') — the only other startLocalTimers
+      // caller besides startGame — never runs on this path. Without this the
+      // displayed clock stays frozen at the saved value, every save persists
+      // that stale number, and the NEXT reload re-anchors gameStartTime from
+      // it — silently discarding all playtime since this one.
+      if (get().mode === 'local' && get().status === 'playing' && !get().finished && get().currentPlayerIndex !== null) {
+        get().startLocalTimers();
+      }
 
       // Validation of dice turn state cache ownership. init() runs at app
       // mount, BEFORE a pending online reconnect can be accepted
