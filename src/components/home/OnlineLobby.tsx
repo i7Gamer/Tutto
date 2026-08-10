@@ -14,6 +14,7 @@ import { JOIN_TIMEOUT_MS } from '../../utils/uiTimings';
 import { parseRecentRooms, MAX_RECENT_ROOMS, type RecentRoom } from '../../utils/recentRooms';
 import { buildRoomLink } from '../../utils/roomLink';
 import { supportsNativeShare } from '../../utils/shareSupport';
+import { localStore } from '../../utils/storage';
 import { useGameStore } from '../../store/useGameStore';
 import ConfirmModal from '../ConfirmModal';
 import RoomQrCode from './RoomQrCode';
@@ -42,12 +43,11 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
 
-  // Reading storage is itself throwable — blocked site data, a third-party
-  // context, dom.storage.enabled=false — so all three initial-state reads go
-  // through here rather than only guarding what happens to the value after.
-  const getStoredValue = (key: string): string => {
-    try { return localStorage.getItem(key) || ''; } catch { return ''; }
-  };
+  // localStore already absorbs a throwing read (blocked site data, a
+  // third-party context, dom.storage.enabled=false — this screen is where
+  // those failure modes were first accounted for); this only adds the
+  // empty-string default the form fields want.
+  const getStoredValue = (key: string): string => localStore.read(key) ?? '';
 
   const [recentRooms, setRecentRooms] = useState<RecentRoom[]>(
     () => parseRecentRooms(getStoredValue('tutto_recent_rooms')),
@@ -158,13 +158,13 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
   };
 
   const persistRecentRooms = (list: RecentRoom[]) => {
-    try {
-      localStorage.setItem('tutto_recent_rooms', JSON.stringify(list));
+    // State only follows a write that actually landed: the list on screen
+    // keeps describing what is stored rather than a change that did not
+    // survive — localStore.write's return value is exactly that answer.
+    if (localStore.write('tutto_recent_rooms', JSON.stringify(list))) {
       setRecentRooms(list);
-    } catch (e) {
-      // State is left alone deliberately: the list on screen keeps describing
-      // what is actually stored rather than a change that did not survive.
-      console.error('Failed to update recent rooms', e);
+    } else {
+      console.error('Failed to update recent rooms');
     }
   };
 
@@ -218,14 +218,12 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     if (res && res.error) {
       setErrorMsg(res.error);
     } else {
-      // Guarded like every other storage touch on this screen: the join has
-      // already SUCCEEDED, so a quota/blocked-storage throw here is
-      // bookkeeping loss, not a join failure — unguarded it escaped the
-      // caller's void'ed promise as an unhandled rejection.
-      try {
-        localStorage.setItem('tutto_last_room', trimmedRoomCode);
-        localStorage.setItem('tutto_last_name', trimmedName);
-      } catch { /* remembering the room is best-effort */ }
+      // The join has already SUCCEEDED, so a refused write here is
+      // bookkeeping loss, not a join failure — localStore absorbs the throw
+      // that used to escape the caller's void'ed promise as an unhandled
+      // rejection. Remembering the room is best-effort.
+      localStore.write('tutto_last_room', trimmedRoomCode);
+      localStore.write('tutto_last_name', trimmedName);
 
       // Same validated read as the initial state above, so the write path
       // can no longer carry a malformed entry forward either.

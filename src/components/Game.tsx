@@ -649,6 +649,7 @@ export default function Game() {
       {showDiceGame && (
         <ModalShell
           open
+          backdropClassName="modal-backdrop modal-backdrop-under-hud"
           panelClassName="w-full max-w-4xl rounded-3xl"
           motionProps={{
             initial: { opacity: 0, scale: 0.9, y: 20 },

@@ -109,6 +109,21 @@ self.addEventListener('activate', event => {
 });
 
 /**
+ * The cached copy of a URL, preferring this worker's own generation.
+ *
+ * caches.match searches generations oldest-first, and the retained previous
+ * cache (see RETAINED_CACHE_GENERATIONS) holds its own copy of every
+ * same-URL-every-build file — index.html above all. A bare caches.match would
+ * hand an offline start the PREVIOUS build's shell even though the current
+ * one is fully cached. The old generation is only ever meant to answer for
+ * URLs the current one doesn't know: the old build's hashed chunks.
+ */
+const matchPreferringCurrent = async url => {
+  const current = await caches.open(PRECACHE);
+  return await current.match(url) ?? await caches.match(url);
+};
+
+/**
  * Rejects rather than hanging, so a dead connection falls back promptly — and
  * abandons the request when it does. Rejecting alone only stopped WAITING for
  * it: the fetch stayed in flight on the same dead connection this exists to
@@ -146,7 +161,7 @@ const handleNavigation = async request => {
     }
     return response;
   } catch {
-    const cached = await caches.match(SHELL_URL);
+    const cached = await matchPreferringCurrent(SHELL_URL);
     if (cached) return cached;
     return Response.error();
   }
@@ -171,7 +186,7 @@ self.addEventListener('fetch', event => {
   if (url.origin !== self.location.origin) return;
   if (PRECACHED.has(url.href) || isBuildAsset(url)) {
     event.respondWith((async () => {
-      const cached = await caches.match(url.href);
+      const cached = await matchPreferringCurrent(url.href);
       return cached ?? fetch(request);
     })());
   }

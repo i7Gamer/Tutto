@@ -265,6 +265,41 @@ describe('service worker fetch', () => {
     expect(response.body).toBe('network:https://tutto.example/index.html');
   });
 
+  it('serves the CURRENT shell offline, not the retained previous generation', async () => {
+    // index.html keeps the same URL every build, so it exists in the retained
+    // old cache too — and caches.match searches generations oldest-first. The
+    // fallback must prefer this worker's own cache, or an offline start boots
+    // the previous build even though the current one is fully cached.
+    await loadSw();
+    cacheStorage.stores.set('tutto-precache-previous', new Map([
+      [SHELL, makeResponse('previous build shell')],
+    ]));
+    await runInstall();
+    await runActivate();
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+
+    const { response } = await runFetch(
+      makeRequest(`${ORIGIN}/`, { mode: 'navigate' }),
+    );
+
+    expect(response.body).toBe('network:https://tutto.example/index.html');
+  });
+
+  it('serves a same-URL precached asset from the current generation, not the old one', async () => {
+    // Same trap for root-level precache entries (manifest.webmanifest, icons):
+    // identical URL across builds, so the oldest cache used to win.
+    await loadSw();
+    cacheStorage.stores.set('tutto-precache-previous', new Map([
+      [`${ORIGIN}/manifest.webmanifest`, makeResponse('previous manifest')],
+    ]));
+    await runInstall();
+    await runActivate();
+
+    const { response } = await runFetch(makeRequest(`${ORIGIN}/manifest.webmanifest`));
+
+    expect(response.body).toBe('network:https://tutto.example/manifest.webmanifest');
+  });
+
   it('aborts the navigation request it gave up on instead of leaving it running', async () => {
     // Without an AbortController the timeout only stopped WAITING: the request
     // stayed in flight, competing with the cached response for the same

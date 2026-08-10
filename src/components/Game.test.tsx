@@ -1167,6 +1167,21 @@ describe('Game Component Integration', () => {
       expect(mockNextTurn).not.toHaveBeenCalled();
     });
 
+    it('keeps the dice backdrop underneath the gameplay HUD layers', () => {
+      // The pre-ModalShell backdrop sat at z-50, below the toasts (z-150),
+      // the emoji reactions (z-100) and the corner buttons (z-100) — the
+      // "Resuming your dice game..." toast fires exactly when this panel
+      // opens, and reactions land mid-roll. ModalShell's default z-200
+      // backdrop buried all of them, so this panel carries the variant that
+      // restores the old layer. jsdom computes no stacking, hence the pin
+      // on the class itself.
+      useGameStore.setState({ diceMode: 'digital', currentCard: 'x2' });
+      render(<Game />);
+      fireEvent.click(screen.getByText('game.controls.rollDice'));
+
+      expect(screen.getByTestId('modal-backdrop')).toHaveClass('modal-backdrop-under-hud');
+    });
+
     it('the open dice panel is announced as a modal dialog', () => {
       // It was the one full-screen overlay in the app that was not a
       // ModalShell: no dialog role, no aria-modal, so nothing told assistive
