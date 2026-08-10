@@ -380,6 +380,37 @@ describe('turnTimers', () => {
       expect(rooms[roomId].state.previousTurnSummary?.cards).toEqual([{ card: 'Kniffel', completed: true }]);
     });
 
+    it('does not invent a bust when the timeout lands on a Stop & Score summary countdown', () => {
+      // The decision was made and committed into the snapshot (stopped: true);
+      // only the short auto-continue never fired (tab died mid-countdown). No
+      // null was rolled — but the card itself was never completed either (no
+      // tutto), so the turn forfeits as 'timeout' without marking the card.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: '300', cards: ['200'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 450,
+          keptDice: [{ id: 'k1', val: 1 }, { id: 'k2', val: 5 }],
+          currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0, stopped: true,
+          cardsThisTurn: ['Kniffel', '300'], plusMinusSuccesses: 0, chainTuttoCount: 1,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const alice = rooms[roomId].state.players[0];
+      expect(alice.busts).toBe(0);
+      expect(alice.timesKniffelCompleted).toBe(1); // completed mid-chain
+      // Still a forfeit: nothing banks, and the thrown-away total is recorded.
+      expect(rooms[roomId].state.previousScore).toBe(0);
+      expect(alice.highestForfeitedTurnScore).toBe(450);
+      expect(rooms[roomId].state.previousTurnSummary?.ended).toBe('timeout');
+      expect(rooms[roomId].state.previousTurnSummary?.cards).toEqual([
+        { card: 'Kniffel', completed: true },
+        { card: '300', completed: false },
+      ]);
+    });
+
     it('counts no bust for a timeout on the classic Feuerwerk banks-on-null summary', () => {
       // The manual path banks that summary without a bust (the null is how a
       // Feuerwerk ENDS in classic); a client that died on it and timed out

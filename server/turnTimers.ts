@@ -75,9 +75,14 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       //    (the one state an AFK player parks in, since it has no client
       //    countdown): the card was COMPLETED and no null was ever rolled;
       //  - a busted Feuerwerk with points on the table = the classic
-      //    banks-on-null summary, whose manual path counts no bust either.
+      //    banks-on-null summary, whose manual path counts no bust either;
+      //  - the stopped marker = a Stop & Score decision parked in its
+      //    summary countdown: decided and banked, no null ever rolled — but
+      //    the card itself was NOT completed (no tutto), so it forfeits as
+      //    'timeout' without marking the last card completed.
       const atBankChoice = !snapshot.busted && snapshot.keptDice.length === 6;
       const feuerwerkBanked = !!snapshot.busted && lastCard === 'Feuerwerk' && snapshot.turnScore > 0;
+      const stoppedBanked = !snapshot.busted && !!snapshot.stopped;
       const lastCompleted = atBankChoice || feuerwerkBanked;
       timeoutSummary = {
         // Every card before the last was completed (the chain only continues
@@ -86,9 +91,10 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
         tuttoCount: snapshot.chainTuttoCount ?? 0,
         plusMinusSuccesses: snapshot.plusMinusSuccesses ?? 0,
         // A timeout during the drawn-Stop summary window is still that Stop's
-        // forfeit; a completed last card ends as 'timeout' (forfeit without a
-        // bust); only a genuinely unresolved roll counts the dice null.
-        ended: lastCard === 'Stop' ? 'stopCard' : lastCompleted ? 'timeout' : 'null',
+        // forfeit; a completed last card — or a banked Stop & Score decision —
+        // ends as 'timeout' (forfeit without a bust); only a genuinely
+        // unresolved roll counts the dice null.
+        ended: lastCard === 'Stop' ? 'stopCard' : (lastCompleted || stoppedBanked) ? 'timeout' : 'null',
         ...(snapshot.turnScore > 0 ? { forfeitedScore: snapshot.turnScore } : {}),
       };
     }
