@@ -7,6 +7,7 @@ import { registerRosterHandlers } from './socketRosterHandlers';
 import { registerReactionHandlers } from './socketReactionHandlers';
 import { registerGameStateHandlers } from './socketGameStateHandlers';
 import { registerStatsHandlers } from './socketStatsHandlers';
+import { isProxyTrusted } from './startupGuards';
 
 // New-connection budget per client address, shared across ALL connections.
 // Every per-connection limiter lives in its connection's own closure, so a
@@ -19,14 +20,16 @@ import { registerStatsHandlers } from './socketStatsHandlers';
 const CONNECTION_LIMIT = { windowMs: 10_000, max: 30 };
 
 // socket.io has no trust-proxy support of its own: handshake.address is the
-// raw peer address, which behind the production reverse proxy is the proxy
-// itself — keying the connection limiter on it would throttle all real users
-// as one client. Mirror index.ts's `trust proxy: 1` (exactly one trusted hop)
-// by using the rightmost X-Forwarded-For entry — the one appended by the
-// trusted proxy — in production only. Outside production XFF is ignored, so a
-// directly-connecting client can't spoof its way into a fresh bucket.
-const getClientAddress = (socket: Socket): string => {
-  if (process.env.NODE_ENV === 'production') {
+// raw peer address, which behind a reverse proxy is the proxy itself —
+// keying the connection limiter on it would throttle all real users as one
+// client. Mirror index.ts's `trust proxy: 1` (exactly one trusted hop) by
+// using the rightmost X-Forwarded-For entry — the one appended by the
+// trusted proxy — when the DEPLOYER declared that hop via TRUST_PROXY=1.
+// Without the declaration XFF is ignored, so a directly-connecting client
+// can't spoof its way into a fresh bucket (NODE_ENV says nothing about the
+// topology — see isProxyTrusted). Exported for its unit tests.
+export const getClientAddress = (socket: Socket): string => {
+  if (isProxyTrusted()) {
     const xff = socket.handshake.headers['x-forwarded-for'];
     const flat = Array.isArray(xff) ? xff.join(',') : xff;
     const rightmost = flat?.split(',').pop()?.trim();

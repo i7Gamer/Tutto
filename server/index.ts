@@ -11,7 +11,7 @@ import cors from 'cors';
 import { registerSocketHandlers } from './socketHandlers';
 import { registerApiRoutes } from './api';
 import { initDb, closeDb } from './database';
-import { resolveCorsOrigin, validateCorsOriginForStartup } from './startupGuards';
+import { resolveCorsOrigin, validateCorsOriginForStartup, isProxyTrusted, warnIfProxyTrustUnset } from './startupGuards';
 import { resolveDbFilename } from './knexfile';
 import { createShutdownHandler, createServerClosers, SHUTDOWN_SIGNALS } from './shutdown';
 
@@ -37,11 +37,15 @@ const CORS_ORIGIN = resolveCorsOrigin(process.env);
 const app = express();
 
 // Rate limiting (server/rateLimit.ts) keys requests by req.ip. Behind a
-// reverse proxy that header is meaningless unless Express is told to trust
-// it and read the client IP from X-Forwarded-For instead.
-if (process.env.NODE_ENV === 'production') {
+// reverse proxy that is meaningless unless Express is told to trust the
+// proxy and read the client IP from X-Forwarded-For instead. Declared by
+// the deployer (TRUST_PROXY=1), never inferred from NODE_ENV — a production
+// build exposed directly must NOT trust the header, or any client could
+// forge itself fresh rate-limit buckets (see isProxyTrusted).
+if (isProxyTrusted()) {
   app.set('trust proxy', 1);
 }
+warnIfProxyTrustUnset();
 
 app.use(cors({ origin: CORS_ORIGIN }));
 app.use(express.json());

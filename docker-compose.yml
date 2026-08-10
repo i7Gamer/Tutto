@@ -39,6 +39,13 @@ services:
       # production is refused at startup.
       # - CORS_ORIGIN=https://tutto.example.com
 
+      # Optional. Set to 1 ONLY when this container sits behind exactly one
+      # reverse proxy: per-IP rate limiting then reads real client addresses
+      # from X-Forwarded-For instead of seeing every user as the proxy.
+      # Leave unset when the port is exposed directly — trusting the header
+      # there would let clients forge their own rate-limit identities.
+      # - TRUST_PROXY=1
+
       # Optional. Affects timestamps in logs.
       # - TZ=Europe/Berlin
 

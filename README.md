@@ -137,6 +137,7 @@ All configuration is environment variables — the image contains no `.env` file
 | `API_TOKEN` | **yes** | — | Guards the admin HTTP endpoints (`POST /api/stats/*`). Players never use it; they submit stats over the WebSocket. The server refuses to start without it, or if it is set to any placeholder published in this repository. Generate with `openssl rand -hex 32`. |
 | `CORS_ORIGIN` | no | same-origin only | Set only if the frontend is served from a *different* origin than the API. Leaving it unset is correct for a normal deployment, including behind a reverse proxy on one domain. Setting it to `*` in production is refused at startup. |
 | `PORT` | no | `3001` | Port inside the container. |
+| `TRUST_PROXY` | no | unset | Set to `1` **only** when the server sits behind exactly one reverse proxy: per-IP rate limiting then reads real client addresses from `X-Forwarded-For`. Leave unset for a directly exposed server (including LAN play) — trusting the header there would let clients forge their own rate-limit identities. A production start without it logs a one-line reminder. |
 | `DB_PATH` | no | `/data/stats.db` | Location of the SQLite database. Change it only if you mount the volume elsewhere. |
 | `TZ` | no | `UTC` | Affects timestamps in the container logs. |
 
@@ -156,7 +157,7 @@ Schema migrations run automatically at startup, so upgrading is just pulling a n
 
 ### Behind a reverse proxy
 
-Point the proxy at the container's port and forward WebSocket upgrades (`Upgrade` and `Connection` headers) — the game will not sync without them. Leave `CORS_ORIGIN` unset: the frontend is served by the same server, so it is already same-origin. `NODE_ENV=production` is baked into the image, which also makes the server trust `X-Forwarded-For` so per-IP rate limiting sees real client addresses rather than the proxy's.
+Point the proxy at the container's port and forward WebSocket upgrades (`Upgrade` and `Connection` headers) — the game will not sync without them. Leave `CORS_ORIGIN` unset: the frontend is served by the same server, so it is already same-origin. Set `TRUST_PROXY=1` so per-IP rate limiting sees real client addresses from `X-Forwarded-For` rather than the proxy's — it is deliberately not automatic, because a server that is *not* behind a proxy must ignore that header (any client can write it).
 
 Terminating TLS here is also what makes the in-app QR [scanner](#inviting-players) usable — browsers only grant camera access on a secure origin. Everything else works the same over plain http.
 

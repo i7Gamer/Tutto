@@ -1,5 +1,5 @@
 /** @vitest-environment node */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
@@ -7,6 +7,8 @@ import {
   validateApiTokenForStartup,
   validateCorsOriginForStartup,
   resolveCorsOrigin,
+  isProxyTrusted,
+  warnIfProxyTrustUnset,
   DEV_DEFAULT_API_TOKEN,
   COMPOSE_PLACEHOLDER_API_TOKEN,
   PUBLISHED_API_TOKENS,
@@ -54,6 +56,44 @@ describe('validateApiTokenForStartup', () => {
 
   it('allows a real API_TOKEN in production', () => {
     expect(validateApiTokenForStartup({ NODE_ENV: 'production', API_TOKEN: 'a-strong-production-token' })).toBeNull();
+  });
+});
+
+describe('isProxyTrusted / warnIfProxyTrustUnset', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('trusts the proxy hop only on an explicit TRUST_PROXY=1', () => {
+    vi.stubEnv('TRUST_PROXY', '');
+    expect(isProxyTrusted()).toBe(false);
+    // NODE_ENV deliberately does not imply the topology.
+    vi.stubEnv('NODE_ENV', 'production');
+    expect(isProxyTrusted()).toBe(false);
+    vi.stubEnv('TRUST_PROXY', '1');
+    expect(isProxyTrusted()).toBe(true);
+    vi.stubEnv('TRUST_PROXY', 'true');
+    expect(isProxyTrusted()).toBe(false);
+  });
+
+  it('warns once at production startup when the flag is unset, and stays quiet otherwise', () => {
+    const log = vi.fn();
+
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('TRUST_PROXY', '');
+    warnIfProxyTrustUnset(log);
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls[0][0]).toContain('TRUST_PROXY');
+
+    log.mockClear();
+    vi.stubEnv('TRUST_PROXY', '1');
+    warnIfProxyTrustUnset(log);
+    expect(log).not.toHaveBeenCalled();
+
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('TRUST_PROXY', '');
+    warnIfProxyTrustUnset(log);
+    expect(log).not.toHaveBeenCalled();
   });
 });
 
