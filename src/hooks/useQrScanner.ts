@@ -123,24 +123,36 @@ export const useQrScanner = ({ enabled, onDecode }: QrScannerOptions): QrScanner
       // permission does not show the refusal until it is refused again.
       setCameraStatus('starting');
 
-      const [{ default: jsQR }, media] = await Promise.all([
-        import('jsqr'),
-        navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: 'environment',
-            width: { ideal: CAPTURE_WIDTH },
-            height: { ideal: CAPTURE_HEIGHT },
-          },
-        }),
-      ]);
+      // Kicked off first so the chunk downloads while the permission prompt
+      // is up. The no-op catch keeps its rejection from surfacing as
+      // unhandled when getUserMedia fails first; the real handling is the
+      // await further down.
+      const modulePromise = import('jsqr');
+      modulePromise.catch(() => {});
 
-      // Both of those resolve on their own schedule: the panel may already be
+      const media = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'environment',
+          width: { ideal: CAPTURE_WIDTH },
+          height: { ideal: CAPTURE_HEIGHT },
+        },
+      });
+
+      // The stream resolves on its own schedule: the panel may already be
       // closed, and a stream nobody holds a reference to keeps the camera on.
       if (stopped) {
         media.getTracks().forEach(track => track.stop());
         return;
       }
+      // Held from the moment the camera grants it — if the decoder chunk
+      // then fails to load (offline, stale SW precache: the failure
+      // RoomQrCode anticipates for its own chunk), the catch's release()
+      // must have tracks to stop, or the camera light stays on behind the
+      // error panel until a page reload.
       stream = media;
+
+      const { default: jsQR } = await modulePromise;
+      if (stopped) return;
 
       const video = videoRef.current;
       if (!video) {

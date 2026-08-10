@@ -220,9 +220,15 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     if (res && res.error) {
       setErrorMsg(res.error);
     } else {
-      localStorage.setItem('tutto_last_room', trimmedRoomCode);
-      localStorage.setItem('tutto_last_name', trimmedName);
-      
+      // Guarded like every other storage touch on this screen: the join has
+      // already SUCCEEDED, so a quota/blocked-storage throw here is
+      // bookkeeping loss, not a join failure — unguarded it escaped the
+      // caller's void'ed promise as an unhandled rejection.
+      try {
+        localStorage.setItem('tutto_last_room', trimmedRoomCode);
+        localStorage.setItem('tutto_last_name', trimmedName);
+      } catch { /* remembering the room is best-effort */ }
+
       // Same validated read as the initial state above, so the write path
       // can no longer carry a malformed entry forward either.
       const remembered = parseRecentRooms(getStoredValue('tutto_recent_rooms'))
