@@ -344,6 +344,10 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   const [personalStats, setPersonalStats] = useState<PersonalStats | null>(null);
   const [globalStats, setGlobalStats] = useState<GlobalStats | null>(null);
   const [loading, setLoading] = useState(true);
+  // A failed re-fetch (tab switch during a server hiccup) must not leave the
+  // PREVIOUS bucket's numbers on screen under the new tab's label — that
+  // reads as data. The failed view shows an error instead.
+  const [fetchFailed, setFetchFailed] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -360,11 +364,17 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
           fetch(`/api/stats/global?ruleset=${statsRuleset}`),
         ]);
         if (!isMounted) return;
-        if (personalRes.ok) setPersonalStats(await parseJsonObject<PersonalStats>(personalRes));
+        setPersonalStats(personalRes.ok ? await parseJsonObject<PersonalStats>(personalRes) : null);
         if (!isMounted) return;
-        if (globalRes.ok) setGlobalStats(await parseJsonObject<GlobalStats>(globalRes));
+        setGlobalStats(globalRes.ok ? await parseJsonObject<GlobalStats>(globalRes) : null);
+        if (isMounted) setFetchFailed(!personalRes.ok || !globalRes.ok);
       } catch (err) {
         console.error('Failed to load statistics:', err);
+        if (isMounted) {
+          setPersonalStats(null);
+          setGlobalStats(null);
+          setFetchFailed(true);
+        }
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -465,6 +475,11 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
           ))}
         </div>
 
+        {fetchFailed ? (
+          <div role="alert" className="text-center text-red-500 py-10 bg-red-50 dark:bg-red-900/20 rounded-2xl border border-red-100 dark:border-red-900/50">
+            {t('statistics.loadFailed', "Couldn't load these statistics — check your connection and switch tabs to retry.")}
+          </div>
+        ) : (
         <AnimatePresence mode="wait">
           {tab === 'personal' && (
             <motion.div key="personal" role="tabpanel" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="flex flex-col w-full">
@@ -627,6 +642,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
             </motion.div>
           )}
         </AnimatePresence>
+        )}
       </motion.div>
     </div>
   );

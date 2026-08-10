@@ -217,6 +217,7 @@
   "time.minutes_short": "m",
   "time.seconds_short": "s",
   "statistics.loading": "Loading Statistics...",
+  "statistics.loadFailed": "Couldn't load these statistics — check your connection and switch tabs to retry.",
   "statistics.total": "Total",
   "statistics.won": "Won",
   "statistics.lost": "Lost",

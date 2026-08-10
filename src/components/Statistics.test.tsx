@@ -197,11 +197,11 @@ describe('Statistics Component', () => {
       expect(screen.queryByText('statistics.loading')).toBeNull();
     });
 
-    // It should render empty states or zeros
-    expect(screen.getByText('statistics.noPersonalGames')).toBeInTheDocument();
-    
-    expect(screen.getByText('statistics.noPersonalGames')).toBeInTheDocument();
-    
+    // A failed load is a failed load — not "you haven't played yet". The
+    // empty state would misinform; the error panel says what happened.
+    expect(screen.getByText('statistics.loadFailed')).toBeInTheDocument();
+    expect(screen.queryByText('statistics.noPersonalGames')).not.toBeInTheDocument();
+
     consoleSpy.mockRestore();
   });
 
@@ -581,6 +581,37 @@ describe('Statistics Component', () => {
       expect(screen.queryByText('statistics.highestFeuerwerkTurn')).not.toBeInTheDocument();
       expect(screen.getByText('statistics.totalTuttos')).toBeInTheDocument();
       expect(screen.getByText('statistics.highestForfeitedTurn')).toBeInTheDocument();
+    });
+
+    it('a failed bucket switch shows an error instead of the previous bucket\'s numbers', async () => {
+      // The re-fetch keeps the old numbers on screen while the new ones load;
+      // if the load FAILS those numbers would sit under the new tab's label
+      // and read as that bucket's data.
+      let failNext = false;
+      global.fetch = vi.fn((url: string) => Promise.resolve(
+        failNext
+          ? { ok: false, status: 500, json: () => Promise.resolve({}) }
+          : {
+            ok: true,
+            json: () => Promise.resolve(url.includes('global')
+              ? { totalGamesPlayed: 50 }
+              : { gamesPlayed: 11, wins: 5 }),
+          },
+      ));
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('11')).toBeInTheDocument());
+
+      failNext = true;
+      fireEvent.click(screen.getByRole('tab', { name: /lobby\.rulesetClassic/i }));
+
+      await waitFor(() => expect(screen.getByText('statistics.loadFailed')).toBeInTheDocument());
+      expect(screen.queryByText('11')).not.toBeInTheDocument();
+
+      // A later successful switch recovers.
+      failNext = false;
+      fireEvent.click(screen.getByRole('tab', { name: /lobby\.rulesetModernized/i }));
+      await waitFor(() => expect(screen.getByText('11')).toBeInTheDocument());
+      expect(screen.queryByText('statistics.loadFailed')).not.toBeInTheDocument();
     });
 
     it('shows a dash, not a zero, for classic records that do not exist yet', async () => {

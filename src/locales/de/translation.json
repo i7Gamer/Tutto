@@ -212,6 +212,7 @@
   "time.minutes_short": "Min",
   "time.seconds_short": "Sek",
   "statistics.loading": "Lade Statistiken...",
+  "statistics.loadFailed": "Statistiken konnten nicht geladen werden — prüfe deine Verbindung und wechsle den Tab, um es erneut zu versuchen.",
   "statistics.total": "Gesamt",
   "statistics.won": "Gewonnen",
   "statistics.lost": "Verloren",
