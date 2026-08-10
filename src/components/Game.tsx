@@ -497,7 +497,13 @@ export default function Game() {
   // ...and this client is allowed to act on it (offline, or online as the
   // active player/host).
   const canActOnUndo = !isOnline || isMyTurn || isHost;
-  const canUndo = hasUndoableTurn && canActOnUndo;
+  // ...and no turn is currently being rolled on this device. The dice panel
+  // covers the screen but the controls behind it stay mounted and focusable
+  // (no focus trap — see the ModalShell note on the panel below), so Undo was
+  // reachable by Tab from behind it. Undoing there hands the turn back to the
+  // previous player while the panel keeps rolling for the current one, and its
+  // score then commits onto whoever undo just made current.
+  const canUndo = hasUndoableTurn && canActOnUndo && !showDiceGame;
 
   return (
     <div className="container mx-auto px-2 md:px-4 pt-2 md:pt-4 pb-20 max-w-3xl flex flex-col gap-2 md:gap-4">

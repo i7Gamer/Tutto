@@ -1072,6 +1072,58 @@ describe('Game Component Integration', () => {
     });
   });
 
+  describe('undo while the dice panel is open', () => {
+    // The panel covers the screen but the controls behind it stay mounted and
+    // focusable (no focus trap, no inert) — so Undo was reachable by Tab from
+    // behind it. Undoing hands the turn back to the PREVIOUS player while the
+    // current one's dice panel is still up, and their roll then commits onto
+    // whoever undo just made current.
+    beforeEach(() => {
+      // The panel must only ever be open because THIS test opened it — the
+      // reconnect-resume path above reopens it from a cached snapshot.
+      localStorage.clear();
+      useGameStore.setState({
+        diceMode: 'digital',
+        currentCard: 'x2',
+        round: 2,
+        previousCard: '300',
+        previousScore: 500,
+        previousPlayerName: 'Alice',
+        previousWasBust: false,
+        finished: false,
+        justReconnected: false,
+        liveTurnState: null,
+      });
+    });
+
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    const undoButton = () => screen.getByText('game.controls.undo').closest('button') as HTMLButtonElement;
+
+    it('offers undo while the panel is closed', () => {
+      render(<Game />);
+      expect(undoButton()).toBeEnabled();
+    });
+
+    it('withdraws undo for as long as the panel is open, and offers it again after', () => {
+      render(<Game />);
+
+      fireEvent.click(screen.getByText('game.controls.rollDice'));
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+      expect(undoButton()).toBeDisabled();
+
+      // The mocked DiceGame never completes, so the panel is closed the way an
+      // externally advanced turn closes it: the turn moves to someone else.
+      act(() => {
+        useGameStore.setState({ isOnline: true, myName: 'Bob', currentPlayerIndex: 0 });
+      });
+      expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
+      expect(undoButton()).toBeEnabled();
+    });
+  });
+
   describe('keyboard shortcuts', () => {
     // Earlier tests in this file (reconnect-resume) can leave justReconnected/
     // liveTurnState set on the shared store, which would auto-open the dice
