@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { joinOnlineRoom } from './helpers';
 
 // Every browser project (chromium/firefox/webkit) runs against the SAME
 // spawned server, and a room's player names stay reserved for the whole
@@ -19,12 +20,8 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     const roomId = uniqueRoomId('ROOM1', testInfo);
 
     // 1. Host creates room
-    await pageA.goto('/');
-    await pageA.getByRole('button', { name: /Online Play/i }).click();
-    await pageA.getByPlaceholder('e.g. 1234').fill(roomId);
-    await pageA.getByPlaceholder('e.g. Alice').fill('AliceHost');
-    await pageA.getByRole('button', { name: /Join \/ Create/i }).click();
-    
+    await joinOnlineRoom(pageA, roomId, 'AliceHost');
+
     // Check if there is an error message
     const errorMsg = pageA.locator('.text-red-500');
     if (await errorMsg.isVisible()) {
@@ -34,14 +31,10 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     // Verify room joined
     await expect(pageA.getByText('AliceHost').first()).toBeVisible({ timeout: 15000 });
     await expect(pageA.getByText(/Room: /i)).toBeVisible({ timeout: 15000 });
-    
+
     // 2. Guest joins room
-    await pageB.goto('/');
-    await pageB.getByRole('button', { name: /Online Play/i }).click();
-    await pageB.getByPlaceholder('e.g. 1234').fill(roomId);
-    await pageB.getByPlaceholder('e.g. Alice').fill('BobGuest');
-    await pageB.getByRole('button', { name: /Join \/ Create/i }).click();
-    
+    await joinOnlineRoom(pageB, roomId, 'BobGuest');
+
     await expect(pageA.getByText('BobGuest').first()).toBeVisible();
     await expect(pageB.getByText('AliceHost').first()).toBeVisible();
 
@@ -71,18 +64,10 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     const roomId = uniqueRoomId('ROOM2', testInfo);
 
     // 1. Host creates room
-    await pageA.goto('/');
-    await pageA.getByRole('button', { name: /Online Play/i }).click();
-    await pageA.getByPlaceholder('e.g. 1234').fill(roomId);
-    await pageA.getByPlaceholder('e.g. Alice').fill('AliceHost');
-    await pageA.getByRole('button', { name: /Join \/ Create/i }).click();
+    await joinOnlineRoom(pageA, roomId, 'AliceHost');
 
     // 2. Guest joins room
-    await pageB.goto('/');
-    await pageB.getByRole('button', { name: /Online Play/i }).click();
-    await pageB.getByPlaceholder('e.g. 1234').fill(roomId);
-    await pageB.getByPlaceholder('e.g. Alice').fill('BobGuest');
-    await pageB.getByRole('button', { name: /Join \/ Create/i }).click();
+    await joinOnlineRoom(pageB, roomId, 'BobGuest');
 
     await expect(pageA.getByText('BobGuest').first()).toBeVisible({ timeout: 15000 });
 
@@ -145,21 +130,13 @@ test.describe('Online lobby ruleset', () => {
     const roomId = uniqueRoomId('RULES', testInfo);
 
     // Host creates the room and sees the editable selector.
-    await pageA.goto('/');
-    await pageA.getByRole('button', { name: /Online Play/i }).click();
-    await pageA.getByPlaceholder('e.g. 1234').fill(roomId);
-    await pageA.getByPlaceholder('e.g. Alice').fill('AliceHost');
-    await pageA.getByRole('button', { name: /Join \/ Create/i }).click();
+    await joinOnlineRoom(pageA, roomId, 'AliceHost');
     await expect(pageA.getByText(/Room: /i)).toBeVisible({ timeout: 15000 });
     await expect(pageA.getByLabel('Modernized', { exact: true })).toBeChecked();
 
     // The guest joins and gets the always-visible read-only badge instead of
     // the radios — the rules are the host's call.
-    await pageB.goto('/');
-    await pageB.getByRole('button', { name: /Online Play/i }).click();
-    await pageB.getByPlaceholder('e.g. 1234').fill(roomId);
-    await pageB.getByPlaceholder('e.g. Alice').fill('BobGuest');
-    await pageB.getByRole('button', { name: /Join \/ Create/i }).click();
+    await joinOnlineRoom(pageB, roomId, 'BobGuest');
     await expect(pageB.getByText('AliceHost').first()).toBeVisible({ timeout: 15000 });
 
     await expect(pageB.getByText(/Rules: Modernized \(set by host\)/)).toBeVisible();

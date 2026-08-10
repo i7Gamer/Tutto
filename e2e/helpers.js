@@ -31,6 +31,21 @@ export const seedLocalDeck = (page, deck = ROLLING_DECK) =>
 export const DEFAULT_PLAYERS = ['Alice', 'Bob'];
 
 /**
+ * Creates or joins an online room from a fresh page: the Online Play flow up
+ * to and including the Join / Create click. Every online spec drove this by
+ * hand, twice per test — one helper keeps the copies from drifting apart.
+ * Waiting for the join to land stays with the caller: each test has its own
+ * idea of what "joined" means (a name, the room banner, an error).
+ */
+export const joinOnlineRoom = async (page, roomId, name) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /Online Play/i }).click();
+  await page.getByPlaceholder('e.g. 1234').fill(roomId);
+  await page.getByPlaceholder('e.g. Alice').fill(name);
+  await page.getByRole('button', { name: /Join \/ Create/i }).click();
+};
+
+/**
  * Takes an already-loaded lobby to a game in progress: adds the players and
  * starts, waiting for each name to appear rather than typing the next one
  * over it.
