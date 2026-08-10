@@ -1,5 +1,6 @@
 import { localStore } from '../utils/storage';
 import {
+  noUndoableTurn,
   calculateNextTurn,
   calculateUndo,
   shuffleArray,
@@ -154,15 +155,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.chartValues = state.players.map(() => []);
       state.chartNames = state.players.map(p => p.name);
       state.chartLabels = [];
-      state.previousCard = null;
-      state.previousScore = null;
-      state.previousLeaders = null;
-      state.previousWasBust = false;
-      state.previousHighestTurnScore = 0;
-      state.previousHighestFeuerwerkTurnScore = 0;
-      state.previousHighestX2TurnScore = 0;
-      state.previousPlayerName = null;
-      state.previousTurnSummary = null;
+      Object.assign(state, noUndoableTurn());
       state.status = 'playing';
 
       // Same constrained shuffle the mid-game rebuilds use (see buildDeck) —
@@ -197,15 +190,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       cards: [],
       turnTimeRemaining: null,
       liveTurnState: null,
-      previousCard: null,
-      previousScore: null,
-      previousLeaders: null,
-      previousWasBust: false,
-      previousHighestTurnScore: 0,
-      previousHighestFeuerwerkTurnScore: 0,
-      previousHighestX2TurnScore: 0,
-      previousPlayerName: null,
-      previousTurnSummary: null,
+      ...noUndoableTurn(),
       chartValues: [],
       chartNames: [],
       chartLabels: [],
@@ -318,15 +303,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.round = result.nextRound;
       state.cards = result.newDeck;
       state.currentCard = result.drawnCard;
-      state.previousCard = null;
-      state.previousScore = null;
-      state.previousLeaders = null;
-      state.previousWasBust = false;
-      state.previousHighestTurnScore = 0;
-      state.previousHighestFeuerwerkTurnScore = 0;
-      state.previousHighestX2TurnScore = 0;
-      state.previousPlayerName = null;
-      state.previousTurnSummary = null;
+      Object.assign(state, noUndoableTurn());
       // The turn being undone may have been mid-roll (digital dice) — its
       // snapshot no longer corresponds to anything once the score is reverted
       // and the turn reassigned, so it must not keep showing to spectators.

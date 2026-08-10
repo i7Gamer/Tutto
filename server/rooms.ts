@@ -1,11 +1,11 @@
 import type { Server } from 'socket.io';
-import { buildDeck, getLeaders } from '../src/utils/coreGameEngine';
+import { buildDeck, getLeaders, noUndoableTurn } from '../src/utils/coreGameEngine';
 import { getEffectiveTurnDuration } from '../src/utils/turnDuration';
 import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
   DEFAULT_RULESET,
 } from '../src/utils/configValidation';
-import type { Room, RoomState, ServerPlayer } from './roomTypes';
+import type { Room, RoomState, ServerPlayer, TurnTimerState } from './roomTypes';
 
 export const rooms: Record<string, Room> = {};
 
@@ -23,6 +23,36 @@ export const MAX_PLAYERS_PER_ROOM = 100;
 // `rooms` — and the O(rooms) one-device-one-room scan every join pays —
 // without bound. Far above any realistic concurrent-game count.
 export const MAX_ROOMS = 500;
+
+/**
+ * "No turn seen yet" for the pushState turn-change tracking.
+ *
+ * The four fields are one answer to "which turn have we already scheduled a
+ * deadline for", so they reset together: a leftover lastDeckSize or
+ * restartsThisTurn would make the next pushState misjudge a fresh turn. Five
+ * sites across three modules reset this, and each used to spell out all four
+ * assignments.
+ */
+export const idleTurnTimerState = (): TurnTimerState => ({
+  lastCard: null,
+  lastPlayerIndex: null,
+  lastDeckSize: null,
+  restartsThisTurn: 0,
+});
+
+/**
+ * Marks the room's CURRENT turn as the one already seen, so the next pushState
+ * doesn't read it as new and hand out a fresh deadline. Call after the state
+ * fields it reads (currentCard, currentPlayerIndex, cards) are settled.
+ */
+export const rememberCurrentTurn = (room: Room): void => {
+  room.turnTimerState = {
+    lastCard: room.state.currentCard,
+    lastPlayerIndex: room.state.currentPlayerIndex,
+    lastDeckSize: room.state.cards.length,
+    restartsThisTurn: 0,
+  };
+};
 
 export const createRoom = (hostSocketId: string): Room => ({
   host: hostSocketId,
@@ -53,15 +83,7 @@ export const createRoom = (hostSocketId: string): Room => ({
     chartLabels: [],
     gameTimeInSeconds: 0,
     turnStartTime: null,
-    previousCard: null,
-    previousScore: null,
-    previousLeaders: null,
-    previousWasBust: false,
-    previousHighestTurnScore: 0,
-    previousHighestFeuerwerkTurnScore: 0,
-    previousHighestX2TurnScore: 0,
-    previousPlayerName: null,
-    previousTurnSummary: null,
+    ...noUndoableTurn(),
     liveTurnState: null,
     enforcedDiceMode: null,
     ruleset: DEFAULT_RULESET,
@@ -119,10 +141,7 @@ export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void 
     // round forward would skip those turns entirely.
     const removedPlayerWasLastInOrder = removedIdx === state.players.length;
     state.currentPlayerIndex = curIdx % Math.max(1, state.players.length);
-    state.previousCard = null;
-    state.previousScore = null;
-    state.previousLeaders = null;
-    state.previousPlayerName = null;
+    Object.assign(state, noUndoableTurn());
     // The removed player was mid-turn — drop their live dice snapshot so
     // spectators don't keep seeing it attributed to the player now in this slot.
     state.liveTurnState = null;
@@ -164,13 +183,7 @@ export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void 
   // Without this, the next pushState compares against the pre-removal values,
   // misreads the shifted index (or freshly changed deck) as a brand-new turn,
   // and resets turnStartTime again — granting the active player extra time.
-  if (!room.turnTimerState) {
-    room.turnTimerState = { lastCard: null, lastPlayerIndex: null, lastDeckSize: null, restartsThisTurn: 0 };
-  }
-  room.turnTimerState.lastCard = state.currentCard;
-  room.turnTimerState.lastPlayerIndex = state.currentPlayerIndex;
-  room.turnTimerState.lastDeckSize = state.cards.length;
-  room.turnTimerState.restartsThisTurn = 0;
+  rememberCurrentTurn(room);
 };
 
 export const calculateGameTime = (room: Room): number => {

@@ -182,6 +182,11 @@ describe('handleActivePlayerRemoved', () => {
         previousScore: 2000,
         previousLeaders: [{ name: 'Bob', score: 10 } as unknown as ServerPlayer],
         previousPlayerName: 'Alice',
+        previousWasBust: true,
+        previousHighestTurnScore: 1200,
+        previousHighestFeuerwerkTurnScore: 800,
+        previousHighestX2TurnScore: 600,
+        previousTurnSummary: { cards: [{ card: 'Kniffel', completed: true }], tuttoCount: 1, plusMinusSuccesses: 0, ended: 'banked' },
         round: 4,
         cards: ['200', '300'],
         currentCard: 'Kniffel',
@@ -208,6 +213,15 @@ describe('handleActivePlayerRemoved', () => {
       expect(room.state.previousPlayerName).toBeNull();
       expect(room.state.liveTurnState).toBeNull();
       expect(room.state.turnStartTime).toBe(Date.now());
+      // Every previous-turn field describes the same one turn, so they clear
+      // together. previousTurnSummary used to be left behind here — inert,
+      // because undo refuses without previousCard, but a half-erased turn
+      // riding every subsequent broadcast all the same.
+      expect(room.state.previousTurnSummary).toBeNull();
+      expect(room.state.previousWasBust).toBe(false);
+      expect(room.state.previousHighestTurnScore).toBe(0);
+      expect(room.state.previousHighestFeuerwerkTurnScore).toBe(0);
+      expect(room.state.previousHighestX2TurnScore).toBe(0);
       // A new card was drawn for the player now occupying the active slot.
       expect(room.state.cards).toEqual(['300']);
       expect(room.state.currentCard).toBe('200');

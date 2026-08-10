@@ -2,7 +2,7 @@ import type { Server } from 'socket.io';
 import { MAX_HISTORY_LOG_SIZE, type CoreGameState, type TurnSummary } from '../src/types';
 import { calculateNextTurn } from '../src/utils/coreGameEngine';
 import type { Room, ServerPlayer } from './roomTypes';
-import { rooms, calculateRemainingTurnTime, emitRoomState } from './rooms';
+import { rooms, calculateRemainingTurnTime, emitRoomState, idleTurnTimerState, rememberCurrentTurn } from './rooms';
 import { MAX_ROUNDS } from './pushValidation';
 
 export const clearServerTurnTimer = (roomId: string): void => {
@@ -140,9 +140,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       room.state.chartLabels.push(room.state.round);
     }
 
-    if (!room.turnTimerState) {
-      room.turnTimerState = { lastCard: null, lastPlayerIndex: null, lastDeckSize: null, restartsThisTurn: 0 };
-    }
+    room.turnTimerState ??= idleTurnTimerState();
 
     if (result.isGameOver) {
       room.state.finished = true;
@@ -153,10 +151,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
         room.state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / 1000);
         room.gameActualStartTime = null;
       }
-      room.turnTimerState.lastCard = null;
-      room.turnTimerState.lastPlayerIndex = null;
-      room.turnTimerState.lastDeckSize = null;
-      room.turnTimerState.restartsThisTurn = 0;
+      room.turnTimerState = idleTurnTimerState();
     } else {
       room.state.currentPlayerIndex = result.nextIndex;
       room.state.round = result.nextRound;
@@ -165,10 +160,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       room.state.turnStartTime = Date.now();
       // Mark this as the "already seen" turn so the next pushState's deck/
       // player-change check doesn't treat it as a fresh turn and reschedule.
-      room.turnTimerState.lastCard = result.drawnCard;
-      room.turnTimerState.lastPlayerIndex = result.nextIndex;
-      room.turnTimerState.lastDeckSize = result.newDeck.length;
-      room.turnTimerState.restartsThisTurn = 0;
+      rememberCurrentTurn(room);
       startServerTurnTimer(io, roomId);
     }
 
@@ -232,12 +224,7 @@ export const abortGameIfLowPlayers = (io: Server, room: Room, roomId: string): b
     // it would ride every subsequent broadcast (and the spectator panel)
     // until the next game finally overwrote it.
     room.state.liveTurnState = null;
-    if (room.turnTimerState) {
-      room.turnTimerState.lastCard = null;
-      room.turnTimerState.lastPlayerIndex = null;
-      room.turnTimerState.lastDeckSize = null;
-      room.turnTimerState.restartsThisTurn = 0;
-    }
+    room.turnTimerState = idleTurnTimerState();
     return true;
   }
   return false;

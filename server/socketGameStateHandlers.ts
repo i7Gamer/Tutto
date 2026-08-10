@@ -1,4 +1,4 @@
-import { rooms, emitRoomState } from './rooms';
+import { rooms, emitRoomState, idleTurnTimerState, rememberCurrentTurn } from './rooms';
 import { applyPushedState, isValidDiceSnapshot, sanitizeDiceSnapshot } from './pushValidation';
 import { isNormalizedConfig } from '../src/utils/configValidation';
 import { clearServerTurnTimer, startServerTurnTimer } from './turnTimers';
@@ -81,9 +81,7 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
       room.gameActualStartTime = Date.now();
     }
 
-    if (!room.turnTimerState) {
-      room.turnTimerState = { lastCard: null, lastPlayerIndex: null, lastDeckSize: null, restartsThisTurn: 0 };
-    }
+    room.turnTimerState ??= idleTurnTimerState();
 
     // The card value is deliberately NOT a restart trigger: it cannot see a
     // classic mid-chain draw of the same card type (which must get a fresh
@@ -100,10 +98,11 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
     if (room.state.status === 'playing' && room.state.currentPlayerIndex !== null &&
         (playerChanged || (deckChanged && room.turnTimerState.restartsThisTurn < MAX_TIMER_RESTARTS_PER_TURN))) {
       room.state.turnStartTime = Date.now();
-      room.turnTimerState.lastCard = room.state.currentCard;
-      room.turnTimerState.lastPlayerIndex = room.state.currentPlayerIndex;
-      room.turnTimerState.lastDeckSize = room.state.cards.length;
-      room.turnTimerState.restartsThisTurn = playerChanged ? 0 : room.turnTimerState.restartsThisTurn + 1;
+      const restartsBefore = room.turnTimerState.restartsThisTurn;
+      rememberCurrentTurn(room);
+      // Budgeted per TURN, so a deck-triggered restart carries the count on;
+      // only a new player starts it over (which rememberCurrentTurn does).
+      room.turnTimerState.restartsThisTurn = playerChanged ? 0 : restartsBefore + 1;
       startServerTurnTimer(io, roomId);
     }
 
@@ -114,12 +113,7 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
         room.state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / 1000);
       }
       room.gameActualStartTime = null;
-      if (room.turnTimerState) {
-        room.turnTimerState.lastCard = null;
-        room.turnTimerState.lastPlayerIndex = null;
-        room.turnTimerState.lastDeckSize = null;
-        room.turnTimerState.restartsThisTurn = 0;
-      }
+      room.turnTimerState = idleTurnTimerState();
     }
 
     emitRoomState(io, roomId);

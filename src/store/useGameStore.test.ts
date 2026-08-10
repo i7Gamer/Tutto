@@ -3130,6 +3130,50 @@ describe('useGameStore', () => {
     });
   });
 
+  // Every previous-turn field describes the same single turn, so the three
+  // sites that end one clear them together — a site that clears some but not
+  // others leaves a half-erased turn for undo and for the broadcast.
+  describe.each([
+    ['startGame', () => { useGameStore.getState().startGame(); }],
+    ['endGame', () => { useGameStore.getState().endGame(); }],
+    ['undo', () => { useGameStore.getState().undo(); }],
+  ])('%s leaves no previous turn behind', (_label, act) => {
+    it('clears every previous* field', () => {
+      useGameStore.getState().addPlayer('Alice');
+      useGameStore.getState().addPlayer('Bob');
+      useGameStore.getState().startGame();
+      useGameStore.setState({
+        // Bob is up in round 2, so Alice's turn is genuinely undoable —
+        // calculateUndo refuses outright in round 1 (nothing to wind back to).
+        currentPlayerIndex: 1,
+        round: 2,
+        currentCard: '200',
+        previousCard: 'Kniffel',
+        previousScore: 2000,
+        previousLeaders: [{ name: 'Bob', score: 10 } as Player],
+        previousWasBust: true,
+        previousHighestTurnScore: 1200,
+        previousHighestFeuerwerkTurnScore: 800,
+        previousHighestX2TurnScore: 600,
+        previousPlayerName: 'Alice',
+        previousTurnSummary: { cards: [{ card: 'Kniffel', completed: true }], tuttoCount: 1, plusMinusSuccesses: 0, ended: 'banked' },
+      });
+
+      act();
+
+      const s = useGameStore.getState();
+      expect(s.previousCard).toBeNull();
+      expect(s.previousScore).toBeNull();
+      expect(s.previousLeaders).toBeNull();
+      expect(s.previousWasBust).toBe(false);
+      expect(s.previousHighestTurnScore).toBe(0);
+      expect(s.previousHighestFeuerwerkTurnScore).toBe(0);
+      expect(s.previousHighestX2TurnScore).toBe(0);
+      expect(s.previousPlayerName).toBeNull();
+      expect(s.previousTurnSummary).toBeNull();
+    });
+  });
+
   describe('storage refusing to cooperate', () => {
     afterEach(() => {
       restoreStorage();

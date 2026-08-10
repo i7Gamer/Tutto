@@ -24,6 +24,40 @@ export const KNIFFEL_SCORE = 2000;
 export const hasPlayableDeck = (initialCards: InitialCards | undefined): boolean =>
   Object.values(initialCards ?? {}).some(count => (count ?? 0) > 0);
 
+/**
+ * The previous-turn bookkeeping in its "there is nothing to undo" state.
+ *
+ * These nine fields all describe the same single turn, so they move together:
+ * calculateNextTurn fills them in as one set, calculateUndo consumes them as
+ * one set, and every site that ends or discards a turn clears them as one set.
+ * Written out once because there are five such sites across the client store
+ * and the server room state, and clearing some but not all leaves a
+ * half-erased turn — which is what server/rooms.ts's active-player removal did,
+ * keeping a previousTurnSummary for a turn whose card and player it had just
+ * dropped. Inert, since undo refuses without previousCard, but it rode every
+ * subsequent broadcast.
+ *
+ * A factory, not a shared literal: the result lands in mutable store state and
+ * in the server's room state (see createInitialLocalState for the same reason).
+ *
+ * `satisfies` rather than a return-type annotation, the same way
+ * playerStats.ts checks its own field set: the annotation would widen
+ * previousLeaders to Player[] | null, which the server's stricter
+ * ServerPlayer[] | null then refuses — while every key is still checked
+ * against CoreGameState, so a field added there fails to compile here.
+ */
+export const noUndoableTurn = () => ({
+  previousCard: null,
+  previousScore: null,
+  previousLeaders: null,
+  previousWasBust: false,
+  previousHighestTurnScore: 0,
+  previousHighestFeuerwerkTurnScore: 0,
+  previousHighestX2TurnScore: 0,
+  previousPlayerName: null,
+  previousTurnSummary: null,
+} satisfies Partial<CoreGameState>);
+
 export const shuffleArray = <T>(array: T[]): T[] => {
   const newArr = [...array];
   for (let i = newArr.length - 1; i > 0; i--) {

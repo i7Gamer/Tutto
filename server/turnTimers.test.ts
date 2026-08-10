@@ -535,6 +535,24 @@ describe('turnTimers', () => {
       expect(emit).not.toHaveBeenCalled();
     });
 
+    it('leaves the turn-timer bookkeeping fully idle, not partly', () => {
+      // The four fields are one answer to "which turn have we already seen",
+      // so every reset site clears all of them — a leftover lastDeckSize would
+      // make the next pushState misread a fresh turn as one already scheduled.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: '300', cards: ['200'],
+        round: 1, players: [makePlayer('Alice')],
+      });
+      rooms[roomId].turnTimerState = { lastCard: '300', lastPlayerIndex: 0, lastDeckSize: 1, restartsThisTurn: 7 };
+
+      expect(abortGameIfLowPlayers(makeFakeIo().io, rooms[roomId], roomId)).toBe(true);
+
+      expect(rooms[roomId].turnTimerState).toEqual({
+        lastCard: null, lastPlayerIndex: null, lastDeckSize: null, restartsThisTurn: 0,
+      });
+    });
+
     it('aborts the game, resets play state, clears the timer, and emits gameAborted', () => {
       rooms[roomId] = createRoom('host-1');
       const room = rooms[roomId];
