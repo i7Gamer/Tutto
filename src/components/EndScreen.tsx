@@ -17,6 +17,7 @@ import { Trophy, RotateCcw, Settings, Award, Zap, TrendingDown } from 'lucide-re
 import { formatTime } from '../utils/formatTime';
 import { parseJsonObject } from '../utils/parseJson';
 import { deviceStatsUrl, gameModeOf, isCustomGameMode } from '../utils/statsApi';
+import { MIN_ONLINE_PLAYERS } from '../utils/configValidation';
 import { computeRankedPlayers, getLeaders } from '../utils/coreGameEngine';
 import { motion } from 'framer-motion';
 import { useGameStore } from '../store/useGameStore';
@@ -125,6 +126,13 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   // turn timer until they reconnect or get kicked. Checked against the LIVE
   // roster (not the frozen end-screen snapshot) so it clears on reconnect.
   const waitingForReconnect = game.isOnline && players.some(p => p.disconnected);
+  // A leaver is spliced out of the roster server-side (not marked
+  // disconnected), so waitingForReconnect never sees them — the lobby's
+  // player minimum must be held here too, or Play Again could start the
+  // 1-player online game the lobby forbids (a guaranteed stats-farming
+  // "win"). Checked against the LIVE roster for the same reason as above.
+  const tooFewForRematch = game.isOnline && players.length < MIN_ONLINE_PLAYERS;
+  const playAgainBlocked = waitingForReconnect || tooFewForRematch;
 
   const [deviceStats, setDeviceStats] = useState<DeviceStats | null>(null);
 
@@ -237,13 +245,17 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
           {(!game.isOnline || game.isHost) ? (
             <div className="flex flex-col sm:flex-row gap-4 w-full max-w-md">
               <motion.button
-                whileHover={!waitingForReconnect ? { scale: 1.05 } : {}}
-                whileTap={!waitingForReconnect ? { scale: 0.95 } : {}}
-                className={`flex-1 py-4 px-6 rounded-2xl text-xl font-bold flex justify-center items-center gap-2 transition-colors ${waitingForReconnect ? 'bg-gray-400 text-gray-200 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'}`}
+                whileHover={!playAgainBlocked ? { scale: 1.05 } : {}}
+                whileTap={!playAgainBlocked ? { scale: 0.95 } : {}}
+                className={`flex-1 py-4 px-6 rounded-2xl text-xl font-bold flex justify-center items-center gap-2 transition-colors ${playAgainBlocked ? 'bg-gray-400 text-gray-200 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'}`}
                 onClick={startGame}
-                disabled={waitingForReconnect}
+                disabled={playAgainBlocked}
               >
-                <RotateCcw size={24} /> {waitingForReconnect ? t('lobby.waitingForPlayersToReconnect', 'Waiting for players to reconnect...') : t('end.playAgain', 'Play Again')}
+                <RotateCcw size={24} /> {waitingForReconnect
+                  ? t('lobby.waitingForPlayersToReconnect', 'Waiting for players to reconnect...')
+                  : tooFewForRematch
+                    ? t('end.tooFewPlayers', 'Not enough players to play again')
+                    : t('end.playAgain', 'Play Again')}
               </motion.button>
               <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="flex-1 bg-white dark:bg-slate-800 hover:bg-black/5 text-gray-700 dark:text-gray-200 border-2 border-gray-200 dark:border-slate-600 py-4 px-6 rounded-2xl text-lg font-bold flex justify-center items-center gap-2 shadow-sm transition-colors" onClick={endGame}>
                 <Settings size={20} /> {t('end.newConfig', 'New Config')}

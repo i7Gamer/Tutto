@@ -9,6 +9,7 @@ import {
   RulesetSelector, RulesetBadge,
 } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
+import { MIN_ONLINE_PLAYERS } from '../../utils/configValidation';
 import { parseRecentRooms, MAX_RECENT_ROOMS, type RecentRoom } from '../../utils/recentRooms';
 import { buildRoomLink } from '../../utils/roomLink';
 import { supportsNativeShare } from '../../utils/shareSupport';
@@ -472,7 +473,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
           <StartGameButton
             startGame={startGame}
             playersCount={players ? players.length : 0}
-            disabled={players.length < 2 || players?.some(p => p.disconnected) || !hasPlayableDeck(initialCards)}
+            disabled={players.length < MIN_ONLINE_PLAYERS || players?.some(p => p.disconnected) || !hasPlayableDeck(initialCards)}
             disabledMessage={!hasPlayableDeck(initialCards) ? t('lobby.emptyDeck', 'Add at least one card to the deck') : undefined}
           />
         ) : (

@@ -141,6 +141,40 @@ describe('EndScreen Component', () => {
     expect(container.querySelector('canvas')).toBeNull();
   });
 
+  describe('Play Again minimum players (online)', () => {
+    afterEach(() => {
+      useGameStore.setState({ isOnline: false, isHost: false });
+    });
+
+    it('blocks Play Again when opponents have LEFT the room (not merely disconnected)', () => {
+      // A leaver is spliced out server-side, so waitingForReconnect never
+      // sees them — without its own roster check the end screen could start
+      // the 1-player online game the lobby forbids (a guaranteed "win" that
+      // farms stats).
+      useGameStore.setState({
+        isOnline: true, isHost: true,
+        players: [{ name: 'Alice', score: 10000, position: 1 }],
+        sortedPlayers: [{ name: 'Alice', score: 10000, position: 1 }],
+      });
+      const { getByText } = render(<EndScreen />);
+
+      expect(getByText('end.tooFewPlayers').closest('button')).toBeDisabled();
+    });
+
+    it('keeps Play Again available for an online rematch with enough players', () => {
+      useGameStore.setState({
+        isOnline: true, isHost: true,
+        players: [
+          { name: 'Alice', score: 10000, position: 1 },
+          { name: 'Bob', score: 5000, position: 2 },
+        ],
+      });
+      const { getByText } = render(<EndScreen />);
+
+      expect(getByText('end.playAgain').closest('button')).not.toBeDisabled();
+    });
+  });
+
   describe('classic chain row in the game-stats table', () => {
     afterEach(() => {
       useGameStore.setState({ ruleset: 'modernized' });

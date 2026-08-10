@@ -12,6 +12,12 @@ export const BONUS_CARDS: readonly CardType[] = ['200', '300', '400', '500', '60
 
 export const MAX_CARD_COUNT = 99;
 
+// Online games take turns between devices — one seat is not a game. Enforced
+// wherever an online game can start: the lobby's Start button, the end
+// screen's Play Again, and the store's startGame itself (players may have
+// LEFT — not merely disconnected — since the lobby check last ran).
+export const MIN_ONLINE_PLAYERS = 2;
+
 // The online path enforces this server-side (socketHandlers.ts joinRoom,
 // pushValidation.ts's own MAX_PLAYER_NAME_LENGTH — keep all three in sync).
 // LocalLobby has no server round-trip to catch an oversized name, so it

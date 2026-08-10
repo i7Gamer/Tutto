@@ -37,6 +37,7 @@
   "end.playedRounds": "Played Rounds",
   "end.playtime": "Playtime",
   "end.playAgain": "Play Again",
+  "end.tooFewPlayers": "Not enough players to play again",
   "end.newConfig": "New Config",
   "end.waitingForHost": "Waiting for host to restart...",
   "end.leaveGame": "Leave Game",

@@ -205,6 +205,23 @@ describe('useGameStore', () => {
     expect(elapsed).toBeLessThanOrEqual(51);
   });
 
+  it('startGame refuses to start an online game below the player minimum', () => {
+    // The lobby enforces two players; the end screen's Play Again reaches
+    // startGame directly, so the store must hold the same line after
+    // opponents have left the finished room.
+    useGameStore.setState({
+      mode: 'online', isOnline: true, isHost: true, status: 'playing', finished: true,
+      round: 7,
+      players: [{ name: 'Alice', score: 10000, position: 1 }],
+    });
+
+    useGameStore.getState().startGame();
+
+    // Refused: the finished game stays finished, nothing resets.
+    expect(useGameStore.getState().finished).toBe(true);
+    expect(useGameStore.getState().round).toBe(7);
+  });
+
   it('resuming a mid-game local save also restarts the 1-second game clock', () => {
     // App routes a restored playing save straight into <Game/> — so
     // setMode('local'), the only other startLocalTimers caller besides

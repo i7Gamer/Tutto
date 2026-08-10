@@ -6,7 +6,7 @@ import {
   buildGlobalStatsPayload,
 } from '../utils/coreGameEngine';
 import { buildTurnKey, DICE_TURN_STATE_KEY, clearTurnCaches } from '../utils/diceTurnState';
-import { MAX_PLAYER_NAME_LENGTH, isNormalizedConfig } from '../utils/configValidation';
+import { MAX_PLAYER_NAME_LENGTH, MIN_ONLINE_PLAYERS, isNormalizedConfig } from '../utils/configValidation';
 import { zeroedPlayerStats } from '../utils/playerStats';
 import playerColorsData from '../../playerColors.json';
 import { v4 as uuidv4 } from 'uuid';
@@ -128,6 +128,10 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
   startGame: () => {
     const s = get();
     if (s.isOnline && !s.isHost) return;
+    // The lobby's two-player minimum, held again here: Play Again reaches
+    // this directly from the end screen, and opponents may have LEFT the
+    // room (spliced out, not marked disconnected) since that check last ran.
+    if (s.isOnline && s.players.length < MIN_ONLINE_PLAYERS) return;
 
     set((state) => {
       const resetPlayers = state.players.map(p => ({
