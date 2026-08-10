@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useGameStore, _resetTimersForTests } from './useGameStore';
 import { disconnectSocket } from './socketRef';
 import { DEFAULT_INITIAL_CARDS } from '../utils/configValidation';
+import { blockStorage, failStorageMethods, restoreStorage } from '../testing/storageStubs';
 import type { Player } from '../types';
 
 let mockEmit = vi.fn();
@@ -3126,6 +3127,50 @@ describe('useGameStore', () => {
       const call = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
       expect(call).toBeDefined();
       expect(call[1].initialConfig).toBeUndefined();
+    });
+  });
+
+  describe('storage refusing to cooperate', () => {
+    afterEach(() => {
+      restoreStorage();
+    });
+
+    // The local-save subscriber writes synchronously inside EVERY store
+    // mutation, so a refused write surfaces from whatever caused it — a turn
+    // commit, a toast — rather than merely losing the save.
+    it.each([
+      ['a refused write', () => failStorageMethods('localStorage', ['setItem'])],
+      ['blocked site data', () => blockStorage('localStorage')],
+    ])('keeps mutating state through %s', (_label, breakStorage) => {
+      useGameStore.getState().addPlayer('Alice');
+      useGameStore.getState().addPlayer('Bob');
+      breakStorage();
+
+      expect(() => useGameStore.getState().startGame()).not.toThrow();
+      // Pinned: startGame shuffles, and the engine substitutes its own score
+      // for a Kniffel/Plus_Minus (or wins outright on a Kleeblatt), none of
+      // which this test is about.
+      useGameStore.setState({ currentCard: '200' });
+      expect(() => useGameStore.getState().nextTurn(300, true)).not.toThrow();
+      expect(() => useGameStore.getState().addToast('still here')).not.toThrow();
+      expect(useGameStore.getState().players[0].score).toBe(300);
+    });
+
+    it('still restores nothing rather than throwing when reads are refused', () => {
+      blockStorage('localStorage');
+      blockStorage('sessionStorage');
+
+      expect(() => useGameStore.getState().init('device-1')).not.toThrow();
+      expect(useGameStore.getState().deviceId).toBe('device-1');
+    });
+
+    it('keeps the live dice snapshot flowing when its cache write is refused', () => {
+      failStorageMethods('localStorage', ['setItem']);
+
+      expect(() => useGameStore.getState().setLiveTurnState({
+        turnScore: 50, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+      })).not.toThrow();
+      expect(useGameStore.getState().liveTurnState?.turnScore).toBe(50);
     });
   });
 

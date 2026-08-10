@@ -1,3 +1,4 @@
+import { localStore } from './utils/storage';
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import translationEN from './locales/en/translation.json';
@@ -15,7 +16,7 @@ const LANGUAGE_STORAGE_KEY = 'tutto_language';
 const isSupportedLanguage = (v: unknown): v is keyof typeof resources =>
   typeof v === 'string' && v in resources;
 
-const storedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+const storedLanguage = localStore.read(LANGUAGE_STORAGE_KEY);
 
 void i18n.use(initReactI18next).init({
   resources,
@@ -30,7 +31,7 @@ void i18n.use(initReactI18next).init({
 // the initial language is either the stored value itself or the default,
 // neither of which needs re-persisting.
 i18n.on('languageChanged', (lng) => {
-  localStorage.setItem(LANGUAGE_STORAGE_KEY, lng);
+  localStore.write(LANGUAGE_STORAGE_KEY, lng);
 });
 
 export default i18n;

@@ -1,3 +1,4 @@
+import { localStore } from '../utils/storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildTurnKey, PHYSICAL_TURN_STATE_KEY } from '../utils/diceTurnState';
 import { VALID_CARD_TYPES } from '../utils/configValidation';
@@ -65,9 +66,9 @@ const isPlausibleCache = (v: unknown): v is PhysicalChainCacheShape => {
  */
 export const readPhysicalChainCache = (turnKey: string): PhysicalChainCache | null => {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(PHYSICAL_TURN_STATE_KEY) ?? 'null');
+    const parsed: unknown = JSON.parse(localStore.read(PHYSICAL_TURN_STATE_KEY) ?? 'null');
     if (!isPlausibleCache(parsed) || parsed.turnKey !== turnKey) {
-      localStorage.removeItem(PHYSICAL_TURN_STATE_KEY);
+      localStore.remove(PHYSICAL_TURN_STATE_KEY);
       return null;
     }
     return {
@@ -78,7 +79,7 @@ export const readPhysicalChainCache = (turnKey: string): PhysicalChainCache | nu
       scoreInput: isPlausibleScoreInput(parsed.scoreInput) ? parsed.scoreInput : '',
     };
   } catch {
-    localStorage.removeItem(PHYSICAL_TURN_STATE_KEY);
+    localStore.remove(PHYSICAL_TURN_STATE_KEY);
     return null;
   }
 };
@@ -131,7 +132,7 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
     if (slotRef.current === turnSlot) return;
     slotRef.current = turnSlot;
     chainRef.current = null;
-    localStorage.removeItem(PHYSICAL_TURN_STATE_KEY);
+    localStore.remove(PHYSICAL_TURN_STATE_KEY);
   }, [turnSlot]);
 
   // Read through refs so the mutators stay referentially stable across
@@ -168,7 +169,7 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
       awaitingChoice: awaiting,
       scoreInput: scoreInputRef.current,
     };
-    localStorage.setItem(PHYSICAL_TURN_STATE_KEY, JSON.stringify(cache));
+    localStore.write(PHYSICAL_TURN_STATE_KEY, JSON.stringify(cache));
   }, [chainOrCurrentCard]);
 
   // Keeps the cached entry in step with what the player types between the
@@ -180,7 +181,7 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
     // (not just skipping) means a commit-then-cleared input leaves no
     // synthetic single-card entry behind.
     if (!chainRef.current && scoreInput === '') {
-      localStorage.removeItem(PHYSICAL_TURN_STATE_KEY);
+      localStore.remove(PHYSICAL_TURN_STATE_KEY);
       return;
     }
     writeCache(currentTurnKey, awaitingChoice);
@@ -246,7 +247,7 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
   const clearChain = useCallback(() => {
     chainRef.current = null;
     setAwaitingChoice(false);
-    localStorage.removeItem(PHYSICAL_TURN_STATE_KEY);
+    localStore.remove(PHYSICAL_TURN_STATE_KEY);
   }, []);
 
   return useMemo(() => ({

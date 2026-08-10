@@ -1,3 +1,4 @@
+import { localStore, sessionStore } from '../utils/storage';
 import { useCallback, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../store/useGameStore';
@@ -46,9 +47,9 @@ export default function Home({ onShowStats }: HomeProps) {
 
   const handleClearCache = useCallback(() => {
     clearTurnCaches();
-    localStorage.removeItem('tutto_local_game');
-    localStorage.removeItem('last_crash_time');
-    sessionStorage.removeItem('tutto_online_session');
+    localStore.remove('tutto_local_game');
+    localStore.remove('last_crash_time');
+    sessionStore.remove('tutto_online_session');
 
     // The Cache Storage API is only exposed on secure contexts (HTTPS/localhost).
     // This app is explicitly playable over plain http:// on a LAN (see the

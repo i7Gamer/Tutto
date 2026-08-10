@@ -1,3 +1,4 @@
+import { localStore } from '../utils/storage';
 import {
   calculateNextTurn,
   calculateUndo,
@@ -99,7 +100,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
   },
 
   changeMyColor: (newColor) => {
-    localStorage.setItem('tutto_color', newColor);
+    localStore.write('tutto_color', newColor);
     get().changePlayerColor(get().myName ?? '', newColor);
     const socket = getSocket();
     if (get().isOnline && socket) {
@@ -120,7 +121,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
         // disconnected, which never got the chance to clear its own cache entry.
         turnKey: buildTurnKey(s.roomId, s.round, s.currentPlayerIndex, s.currentCard, s.ruleset),
       };
-      localStorage.setItem(DICE_TURN_STATE_KEY, JSON.stringify(snapshotWithPlayer));
+      localStore.write(DICE_TURN_STATE_KEY, JSON.stringify(snapshotWithPlayer));
     }
     if (get().isOnline) get().pushLiveTurnState(snapshot);
   },

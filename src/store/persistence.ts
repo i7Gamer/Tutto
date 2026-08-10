@@ -1,3 +1,4 @@
+import { localStore } from '../utils/storage';
 import type { StoreApi } from 'zustand';
 import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
@@ -251,7 +252,7 @@ export const attachPersistence = (store: Pick<StoreApi<GameStore>, 'subscribe'>)
     lastLocalPersistKey = persistKey;
     // The latest gameTimeInSeconds still rides along whenever a real change is saved.
     const localStateToSave = { ...stable, gameTimeInSeconds: state.gameTimeInSeconds };
-    localStorage.setItem('tutto_local_game', JSON.stringify(localStateToSave));
+    localStore.write('tutto_local_game', JSON.stringify(localStateToSave));
   });
 
   let lastOnlinePersistKey: string | null = null;
@@ -272,6 +273,6 @@ export const attachPersistence = (store: Pick<StoreApi<GameStore>, 'subscribe'>)
     const key = JSON.stringify(stable);
     if (key === lastOnlinePersistKey) return;
     lastOnlinePersistKey = key;
-    localStorage.setItem('tutto_online_config', key);
+    localStore.write('tutto_online_config', key);
   });
 };

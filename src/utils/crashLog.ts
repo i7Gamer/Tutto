@@ -6,6 +6,8 @@
 // devices show up in the server log. Offline/PWA play still gets the
 // localStorage entry.
 
+import { localStore } from './storage';
+
 export const CRASH_LOG_KEY = 'tutto_crash_log';
 const MAX_ENTRIES = 5;
 const MAX_FIELD_LENGTH = 2000;
@@ -34,7 +36,7 @@ export const buildCrashEntry = (error: unknown, componentStack?: string | null):
 
 export const readCrashLog = (): CrashLogEntry[] => {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(CRASH_LOG_KEY) ?? '[]');
+    const parsed: unknown = JSON.parse(localStore.read(CRASH_LOG_KEY) ?? '[]');
     return Array.isArray(parsed) ? (parsed as CrashLogEntry[]) : [];
   } catch {
     return [];
@@ -45,7 +47,7 @@ export const recordCrash = (error: unknown, componentStack?: string | null): voi
   const entry = buildCrashEntry(error, componentStack);
   try {
     const log = [...readCrashLog(), entry].slice(-MAX_ENTRIES);
-    localStorage.setItem(CRASH_LOG_KEY, JSON.stringify(log));
+    localStore.write(CRASH_LOG_KEY, JSON.stringify(log));
   } catch {
     // Quota exceeded or storage unavailable — losing the local copy must
     // never block the recovery reload.

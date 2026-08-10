@@ -1,3 +1,4 @@
+import { localStore, sessionStore } from '../utils/storage';
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { parseJsonString } from '../utils/parseJson';
@@ -118,12 +119,12 @@ export const useGameStore = create<GameStore>()(
     },
 
     clearPendingReconnect: () => {
-      sessionStorage.removeItem('tutto_online_session');
+      sessionStore.remove('tutto_online_session');
       set({ pendingReconnectSession: null });
     },
 
     init: (deviceId: string) => {
-      const parsed = parseJsonString<Partial<GameStore>>(localStorage.getItem('tutto_local_game'));
+      const parsed = parseJsonString<Partial<GameStore>>(localStore.read('tutto_local_game'));
 
       set((state) => {
         state.deviceId = deviceId;
@@ -131,7 +132,7 @@ export const useGameStore = create<GameStore>()(
           Object.assign(state, pickLocalGameState(parsed));
           reanchorLocalClock(state);
         }
-        const session = parseJsonString<ReconnectSession>(sessionStorage.getItem('tutto_online_session'));
+        const session = parseJsonString<ReconnectSession>(sessionStore.read('tutto_online_session'));
         if (session) state.pendingReconnectSession = session;
       });
 
@@ -156,25 +157,25 @@ export const useGameStore = create<GameStore>()(
       // in-progress turn. DiceGame's turnKey check (run later, against real
       // post-reconnect state) discards genuinely stale snapshots in every
       // mode, including this one.
-      const restoredDice = parseSavedDiceState(localStorage.getItem(DICE_TURN_STATE_KEY));
+      const restoredDice = parseSavedDiceState(localStore.read(DICE_TURN_STATE_KEY));
       if (restoredDice && restoredDice.playerName && !get().pendingReconnectSession) {
         const activePlayer = get().currentPlayerIndex !== null ? get().players[get().currentPlayerIndex!] : null;
         if (!activePlayer || activePlayer.name !== restoredDice.playerName) {
-          localStorage.removeItem(DICE_TURN_STATE_KEY);
+          localStore.remove(DICE_TURN_STATE_KEY);
         }
       }
 
       // An invalid/corrupted value (or one predating this key) is left alone —
       // the initial state's diceMode already holds DEFAULT_DICE_MODE.
-      const storedDiceMode = localStorage.getItem('tutto_diceMode');
+      const storedDiceMode = localStore.read('tutto_diceMode');
       if (isValidDiceMode(storedDiceMode)) set({ diceMode: storedDiceMode });
 
-      const storedAudioEnabled = localStorage.getItem('tutto_audioEnabled');
+      const storedAudioEnabled = localStore.read('tutto_audioEnabled');
       if (storedAudioEnabled !== null) {
         set({ audioEnabled: storedAudioEnabled === 'true' });
       }
 
-      const storedHapticsEnabled = localStorage.getItem('tutto_hapticsEnabled');
+      const storedHapticsEnabled = localStore.read('tutto_hapticsEnabled');
       if (storedHapticsEnabled !== null) {
         set({ hapticsEnabled: storedHapticsEnabled === 'true' });
       }
@@ -185,10 +186,10 @@ export const useGameStore = create<GameStore>()(
 
       let parsed: Partial<GameStore> | null = null;
       if (isLocal) {
-        const rawLocal = parseJsonString<Partial<GameStore>>(localStorage.getItem('tutto_local_game'));
+        const rawLocal = parseJsonString<Partial<GameStore>>(localStore.read('tutto_local_game'));
         parsed = rawLocal ? pickLocalGameState(rawLocal) : null;
       } else {
-        const raw = localStorage.getItem('tutto_online_config');
+        const raw = localStore.read('tutto_online_config');
         if (raw) {
           try {
             parsed = validateOnlineConfig(JSON.parse(raw));

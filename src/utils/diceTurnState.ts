@@ -1,3 +1,4 @@
+import { localStore } from './storage';
 import type { CardType, Die, DiceSnapshot, SnapshotDie, Ruleset } from '../types';
 import { MAX_CHAIN_CARDS } from '../types';
 import { VALID_CARD_TYPES, DEFAULT_RULESET } from './configValidation';
@@ -26,8 +27,8 @@ export const PHYSICAL_TURN_STATE_KEY = 'tutto_physical_turn_state';
 // 1 with the same room and ruleset, so a stale entry can key-collide with
 // the new game's first turn).
 export const clearTurnCaches = (): void => {
-  localStorage.removeItem(DICE_TURN_STATE_KEY);
-  localStorage.removeItem(PHYSICAL_TURN_STATE_KEY);
+  localStore.remove(DICE_TURN_STATE_KEY);
+  localStore.remove(PHYSICAL_TURN_STATE_KEY);
 };
 
 // Identifies a specific turn slot: roomId (or 'local') + round + player index +

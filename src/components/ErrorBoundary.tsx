@@ -1,3 +1,4 @@
+import { localStore, sessionStore } from '../utils/storage';
 import React from 'react';
 import { recordCrash } from '../utils/crashLog';
 import { clearTurnCaches } from '../utils/diceTurnState';
@@ -28,12 +29,19 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     // Persist + report the crash BEFORE the auto-reload below wipes all traces.
     recordCrash(error, errorInfo.componentStack);
 
-    const lastCrash = localStorage.getItem('last_crash_time');
+    const lastCrash = localStore.read('last_crash_time');
     const now = Date.now();
 
     if (!lastCrash || now - parseInt(lastCrash, 10) > 10000) {
-      localStorage.setItem('last_crash_time', now.toString());
-      this.clearCacheAndReload();
+      // Only auto-reload if the attempt could actually be recorded. Where
+      // storage is unavailable (site data blocked, a third-party context) the
+      // throttle never persists, so every crash would look like the first one
+      // and reload again — the forever-loop the comment below describes, with
+      // no fallback UI to land on. Without a throttle, the manual "Clear Cache
+      // & Reload" button is the honest offer.
+      if (localStore.write('last_crash_time', now.toString())) {
+        this.clearCacheAndReload();
+      }
     }
   }
 
@@ -47,8 +55,8 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     // reaching the fallback UI below. Only the manual "Clear Cache & Reload" button
     // resets it, since that's an explicit user request to retry.
     clearTurnCaches();
-    localStorage.removeItem('tutto_local_game');
-    sessionStorage.removeItem('tutto_online_session');
+    localStore.remove('tutto_local_game');
+    sessionStore.remove('tutto_online_session');
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then(registrations => {
@@ -67,7 +75,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
           <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem', color: '#dc2626' }}>{i18n.t('errorBoundary.title', 'Oops! Something went wrong.')}</h2>
           <p style={{ marginBottom: '2rem' }}>{i18n.t('errorBoundary.description', 'The application encountered an unexpected error and needs to reload.')}</p>
           <button
-            onClick={() => { localStorage.removeItem('last_crash_time'); this.clearCacheAndReload(); }}
+            onClick={() => { localStore.remove('last_crash_time'); this.clearCacheAndReload(); }}
             style={{ padding: '12px 24px', fontSize: '16px', cursor: 'pointer', background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
           >
             {i18n.t('home.clearCache', 'Clear Cache & Reload')}

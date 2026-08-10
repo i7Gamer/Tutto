@@ -1,3 +1,4 @@
+import { localStore } from '../utils/storage';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../store/useGameStore';
@@ -161,7 +162,7 @@ export default function Game() {
   const confettiFiredRef = useRef(false);
   const reconnectHandledRef = useRef(false);
   const onlineReconnectHandledRef = useRef(false);
-  const localCacheOnMountRef = useRef(!!localStorage.getItem(DICE_TURN_STATE_KEY));
+  const localCacheOnMountRef = useRef(!!localStore.read(DICE_TURN_STATE_KEY));
   // Seeded with the initial value (not false) so mounting straight into an
   // already-your-turn state (fresh load, reconnect) doesn't itself count as
   // a "turn started" transition — only a later false-to-true flip does.
@@ -281,7 +282,7 @@ export default function Game() {
           playerName: currentPlayer?.name,
           turnKey: buildTurnKey(roomId, round, currentPlayerIndex, currentCard, game.ruleset),
         };
-        localStorage.setItem(DICE_TURN_STATE_KEY, JSON.stringify(snapshotWithPlayer));
+        localStore.write(DICE_TURN_STATE_KEY, JSON.stringify(snapshotWithPlayer));
         // The one suppression left in this file, and it is not a stale-render
         // case like the ones above: reopening the panel here is one of three
         // things that happen together when a reconnect lands — the cache entry
@@ -300,7 +301,7 @@ export default function Game() {
       reconnectHandledRef.current = true;
       localCacheOnMountRef.current = false;
 
-      const raw = localStorage.getItem(DICE_TURN_STATE_KEY);
+      const raw = localStore.read(DICE_TURN_STATE_KEY);
       const parsed = parseSavedDiceState(raw);
       const expectedTurnKey = buildTurnKey(roomId, round, currentPlayerIndex, currentCard, game.ruleset);
 
@@ -308,7 +309,7 @@ export default function Game() {
         setShowDiceGame(true);
         addToast(t('game.resumingDiceGame', 'Resuming your dice game...'));
       } else {
-        localStorage.removeItem(DICE_TURN_STATE_KEY);
+        localStore.remove(DICE_TURN_STATE_KEY);
       }
     }
   }, [

@@ -1,3 +1,4 @@
+import { localStore } from '../utils/storage';
 import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
 } from '../utils/configValidation';
@@ -16,7 +17,7 @@ type ConfigSlice = Pick<GameStore,
 export const createConfigSlice: ImmerStateCreator<ConfigSlice> = (set, get) => ({
   setDiceMode: (val) => {
     set({ diceMode: val });
-    localStorage.setItem('tutto_diceMode', val);
+    localStore.write('tutto_diceMode', val);
     // While the host is actively enforcing a mode, their own selector doubles
     // as "which mode to enforce" — keep the enforced value following it rather
     // than requiring a separate re-toggle of the checkbox.
@@ -28,13 +29,13 @@ export const createConfigSlice: ImmerStateCreator<ConfigSlice> = (set, get) => (
 
   setAudioEnabled: (val) => {
     set({ audioEnabled: val });
-    localStorage.setItem('tutto_audioEnabled', String(val));
+    localStore.write('tutto_audioEnabled', String(val));
     if (!val) void closeAudioContext();
   },
 
   setHapticsEnabled: (val) => {
     set({ hapticsEnabled: val });
-    localStorage.setItem('tutto_hapticsEnabled', String(val));
+    localStore.write('tutto_hapticsEnabled', String(val));
   },
 
   updateConfig: (config) => {

@@ -1,3 +1,4 @@
+import { localStore } from './utils/storage';
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sun, Moon } from 'lucide-react';
@@ -160,13 +161,13 @@ function RestoreSessionPopup() {
 
 export default function App() {
   const { t } = useTranslation();
-  const [theme, setTheme] = useState(() => localStorage.getItem('tutto-theme') || 'light');
+  const [theme, setTheme] = useState(() => localStore.read('tutto-theme') || 'light');
 
   const [deviceId] = useState(() => {
-    let id = localStorage.getItem('tutto_device_id');
+    let id = localStore.read('tutto_device_id');
     if (!id) {
       id = uuidv4();
-      localStorage.setItem('tutto_device_id', id);
+      localStore.write('tutto_device_id', id);
     }
     return id;
   });
@@ -189,7 +190,7 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('tutto-theme', theme);
+    localStore.write('tutto-theme', theme);
   }, [theme]);
 
   const toggleTheme = () => {

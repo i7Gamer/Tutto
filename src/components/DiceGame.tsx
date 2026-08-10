@@ -1,3 +1,4 @@
+import { localStore } from '../utils/storage';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Hand, RotateCw } from 'lucide-react';
@@ -81,10 +82,10 @@ const getDisplayCardName = (cardName: CardType | null): string => {
  * removes nothing.
  */
 const readRestorableTurn = (turnKey: string | undefined) => {
-  const restored = parseSavedDiceState(localStorage.getItem(DICE_TURN_STATE_KEY));
+  const restored = parseSavedDiceState(localStore.read(DICE_TURN_STATE_KEY));
   if (!restored) return null;
   if (turnKey !== undefined && restored.turnKey !== turnKey) {
-    localStorage.removeItem(DICE_TURN_STATE_KEY);
+    localStore.remove(DICE_TURN_STATE_KEY);
     return null;
   }
   return restored;

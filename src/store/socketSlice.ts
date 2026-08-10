@@ -1,3 +1,4 @@
+import { localStore, sessionStore } from '../utils/storage';
 import { io, type Socket } from 'socket.io-client';
 import { getLeaders } from '../utils/coreGameEngine';
 import i18n from '../i18n';
@@ -202,7 +203,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
   sock.on('kicked', () => {
     get().addToast(i18n.t('game.kickedByHost', 'You were kicked by the host'));
     get().stopOnlineTimers();
-    sessionStorage.removeItem('tutto_online_session');
+    sessionStore.remove('tutto_online_session');
     clearTurnCaches();
     // Mirrors leaveRoom's reset (see its comment): setMode('local') below
     // only overwrites the keys a saved local game happens to contain, so
@@ -223,7 +224,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
   sock.on('connect', () => {
     const { roomId, myName, deviceId } = get();
     if (roomId && myName) {
-      const savedColor = localStorage.getItem('tutto_color');
+      const savedColor = localStore.read('tutto_color');
       sock.emit('joinRoom', { roomId, name: myName, deviceId, color: savedColor }, (res: JoinRoomResponse) => {
         if (res.success) {
           set({ isHost: res.isHost ?? false, myName: res.name ?? myName });
@@ -247,7 +248,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     pendingCancelReconnectCleanup = null;
 
     clearTurnCaches();
-    sessionStorage.removeItem('tutto_online_session');
+    sessionStore.remove('tutto_online_session');
     set({ pendingReconnectSession: null, liveTurnState: null, showReconnectPopup: false });
 
     // Abandoning an active room (the "Return to Main Menu" path) must also drop
@@ -278,7 +279,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
 
     tempSocket.on('connect_error', cleanup);
     tempSocket.on('connect', () => {
-      const savedColor = localStorage.getItem('tutto_color');
+      const savedColor = localStore.read('tutto_color');
       tempSocket.emit('joinRoom', {
         roomId,
         name,
@@ -312,7 +313,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     return new Promise<JoinRoomResponse>((resolve) => {
       let initialConfig: Partial<Pick<GameStore, ConfigKeys>> | undefined = undefined;
       try {
-        const storedConfigStr = localStorage.getItem('tutto_online_config');
+        const storedConfigStr = localStore.read('tutto_online_config');
         if (storedConfigStr) {
           // Only transmit fields the server would accept — same validator the
           // lobby uses when loading this config, so both stay in sync.
@@ -324,7 +325,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       }
 
       get().connectSocket();
-      const savedColor = localStorage.getItem('tutto_color');
+      const savedColor = localStore.read('tutto_color');
       const socket = getSocket();
       if (!socket) {
         resolve({ success: false, error: 'Socket not connected' });
@@ -336,7 +337,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           // a different name keeps the seat's original name (see JoinRoomResponse).
           const seatedName = res.name ?? name;
           set({ roomId: room, isHost: res.isHost ?? false, myName: seatedName, mode: 'online', isOnline: true });
-          sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: room, myName: seatedName }));
+          sessionStore.write('tutto_online_session', JSON.stringify({ roomId: room, myName: seatedName }));
 
           if (res.isHost && !isReconnect && initialConfig) {
             get().addToast(i18n.t('lobby.savedSettingsLoaded'));
@@ -351,7 +352,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     const socket = getSocket();
     if (socket) socket.emit('leaveRoom');
     get().stopOnlineTimers();
-    sessionStorage.removeItem('tutto_online_session');
+    sessionStore.remove('tutto_online_session');
     clearTurnCaches();
     set(clearRoomState());
   },
