@@ -439,6 +439,40 @@ describe('DiceGame interactive turn logic', () => {
   describe('keyboard shortcuts', () => {
     const pressKey = (key: string) => fireEvent.keyDown(window, { key });
 
+    it('still fires while rendered inside an aria-modal panel', () => {
+      // Game renders this panel inside a ModalShell, so an aria-modal element
+      // is always present around it while a turn is being rolled — the
+      // shortcut hook blocks on modals it is NOT inside of, not on all of them.
+      queueRoll([1, 5, 2, 2, 3, 4]);
+      const { container } = render(
+        <div role="dialog" aria-modal="true">
+          <DiceGame currentCard="200" onComplete={vi.fn()} />
+        </div>
+      );
+      expect(container.querySelector('[aria-modal="true"]')).not.toBeNull();
+
+      pressKey('a');
+
+      // 'a' selected every scoring die: the 1 and the 5.
+      expect(screen.getAllByLabelText(/, selected$/)).toHaveLength(2);
+    });
+
+    it('goes quiet while a second modal is open over the panel', () => {
+      queueRoll([1, 5, 2, 2, 3, 4]);
+      render(
+        <>
+          <div role="dialog" aria-modal="true">
+            <DiceGame currentCard="200" onComplete={vi.fn()} />
+          </div>
+          <div role="dialog" aria-modal="true" data-testid="confirm-on-top" />
+        </>
+      );
+
+      pressKey('a');
+
+      expect(screen.queryAllByLabelText(/, selected$/)).toHaveLength(0);
+    });
+
     it('scores the selected dice on S, the same as Stop & Score', async () => {
       const onComplete = vi.fn();
       queueRoll([1, 5, 2, 2, 3, 4]);

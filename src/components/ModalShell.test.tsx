@@ -42,6 +42,25 @@ describe('ModalShell', () => {
     expect(screen.getByRole('button', { name: 'first' })).toHaveFocus();
   });
 
+  it('falls back to the panel when its content has nothing focusable yet', () => {
+    // The dice panel opens with no buttons at all — they appear once the dice
+    // have settled. Leaving focus on the trigger behind the backdrop means
+    // Tab walks the page underneath and the panel's Tab trap never engages,
+    // since it is a handler on the panel itself.
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    trigger.focus();
+
+    render(
+      <ModalShell open>
+        <p>rolling…</p>
+      </ModalShell>
+    );
+
+    expect(screen.getByRole('dialog')).toHaveFocus();
+    expect(trigger).not.toHaveFocus();
+  });
+
   it('focuses the control the caller asks for', () => {
     const Host = () => {
       const lastRef = useRef<HTMLButtonElement>(null);

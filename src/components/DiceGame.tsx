@@ -598,15 +598,20 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const canAct = hasRolled && !bustState && !isRolling && !showSummary;
   const canSubmitSelection = canAct && validation.valid;
 
+  // Game renders this panel inside a modal, so an aria-modal element is always
+  // present around it — passed to the hook so the panel's own keys are not
+  // silenced by the very dialog they belong to (a confirm dialog stacked on
+  // top still silences them).
+  const panelRef = useRef<HTMLDivElement>(null);
   useKeyboardShortcuts({
     r: canSubmitSelection && isRollAgainApplicable ? () => handleAction('roll') : undefined,
     s: canSubmitSelection && canStop ? () => handleAction('stop') : undefined,
     a: canAct ? selectAllValid : undefined,
     d: chainChoiceAvailable ? handleDrawNextCard : undefined,
-  });
+  }, { ownerRef: panelRef });
 
   return (
-    <div className={`bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden rounded-3xl flex flex-col items-center w-full ${showSummary ? 'max-h-[90vh]' : 'h-[calc(100dvh-2rem)] sm:h-auto sm:max-h-[90vh]'}`}>
+    <div ref={panelRef} className={`bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden rounded-3xl flex flex-col items-center w-full ${showSummary ? 'max-h-[90vh]' : 'h-[calc(100dvh-2rem)] sm:h-auto sm:max-h-[90vh]'}`}>
       {!showSummary && (
         <div className="w-full shrink-0 bg-black/5 dark:bg-white/5 border-b border-gray-200 dark:border-slate-600 p-4 flex justify-between items-center">
           <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 m-0">{t('dice.title', 'Dice Game')} - {getDisplayCardName(currentCard)}</h2>

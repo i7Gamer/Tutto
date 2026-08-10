@@ -1160,9 +1160,40 @@ describe('Game Component Integration', () => {
       fireEvent.keyDown(window, { key: ' ' });
       expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
 
-      fireEvent.click(screen.getByTestId('dice-game-backdrop'));
+      // The shared ModalShell backdrop: it carries no onDismiss for this
+      // panel, so the click is a no-op rather than a way out of a turn.
+      fireEvent.click(screen.getByTestId('modal-backdrop'));
       expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
       expect(mockNextTurn).not.toHaveBeenCalled();
+    });
+
+    it('the open dice panel is announced as a modal dialog', () => {
+      // It was the one full-screen overlay in the app that was not a
+      // ModalShell: no dialog role, no aria-modal, so nothing told assistive
+      // tech a dialog had opened and Tab walked straight into the page behind.
+      useGameStore.setState({ diceMode: 'digital', currentCard: 'x2' });
+      render(<Game />);
+
+      expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+
+      fireEvent.click(screen.getByText('game.controls.rollDice'));
+
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toHaveAttribute('aria-modal', 'true');
+      expect(dialog).toContainElement(screen.getByTestId('mock-dice-game'));
+    });
+
+    it('escape does not dismiss the dice panel', () => {
+      // Once opened it auto-rolls immediately; there is no backing out of a
+      // turn already in progress (the backdrop click above is refused for the
+      // same reason).
+      useGameStore.setState({ diceMode: 'digital', currentCard: 'x2' });
+      render(<Game />);
+      fireEvent.click(screen.getByText('game.controls.rollDice'));
+
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
     });
 
     it('Enter submits the physical-mode score input as Next Turn', () => {

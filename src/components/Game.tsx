@@ -21,6 +21,7 @@ import type { TurnSummary } from '../types';
 import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../utils/coreGameEngine';
 import { usePhysicalChain, readPhysicalChainCache } from '../hooks/usePhysicalChain';
 
+import ModalShell from './ModalShell';
 import Scoreboard from './game/Scoreboard';
 import CardDisplay from './game/CardDisplay';
 import GameControls from './game/GameControls';
@@ -628,25 +629,41 @@ export default function Game() {
         </motion.div>
       </div>
 
+      {/* A ModalShell like every other overlay in the app: it was the one
+          full-screen panel that wasn't, so nothing announced a dialog had
+          opened and Tab walked straight into the leaderboard and the End
+          Game / Undo controls behind the backdrop. No onDismiss — the turn
+          auto-rolls the moment this opens and cannot be backed out of, which
+          is also why the backdrop click does nothing. */}
+      {/* Mounted conditionally rather than driven by ModalShell's own `open`:
+          its AnimatePresence keeps a closing panel on screen until the exit
+          finishes, and this panel has to come down in the SAME commit the turn
+          moves away (see the stale-modal correction above) — a full-screen
+          modal outliving its turn by an animation is the thing that guard
+          exists to prevent. The cost is ModalShell's focus-return-on-close,
+          which needs the open->closed transition it never sees here; by then
+          the button that opened this is usually gone anyway, the turn having
+          moved on. The hand-rolled markup this replaced had an exit animation
+          that never ran either, nothing having wrapped it to run it. */}
       {showDiceGame && (
-        <div data-testid="dice-game-backdrop" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="w-full max-w-4xl rounded-3xl"
-          >
-            <DiceGame
-              currentCard={currentCard}
-              turnKey={buildTurnKey(roomId, round, currentPlayerIndex, currentCard, game.ruleset)}
-              onComplete={handleDiceComplete}
-              onStateChange={effectiveDiceMode === 'digital' ? setLiveTurnState : undefined}
-              panelReady={diceGamePanelReady}
-              ruleset={game.ruleset}
-              onDrawCard={game.drawCardMidTurn}
-            />
-          </motion.div>
-        </div>
+        <ModalShell
+          open
+          panelClassName="w-full max-w-4xl rounded-3xl"
+          motionProps={{
+            initial: { opacity: 0, scale: 0.9, y: 20 },
+            animate: { opacity: 1, scale: 1, y: 0 },
+          }}
+        >
+          <DiceGame
+            currentCard={currentCard}
+            turnKey={buildTurnKey(roomId, round, currentPlayerIndex, currentCard, game.ruleset)}
+            onComplete={handleDiceComplete}
+            onStateChange={effectiveDiceMode === 'digital' ? setLiveTurnState : undefined}
+            panelReady={diceGamePanelReady}
+            ruleset={game.ruleset}
+            onDrawCard={game.drawCardMidTurn}
+          />
+        </ModalShell>
       )}
     </div>
   );

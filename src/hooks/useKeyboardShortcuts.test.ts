@@ -108,6 +108,71 @@ describe('useKeyboardShortcuts', () => {
     expect(roll).not.toHaveBeenCalled();
   });
 
+  describe('shortcuts owned by a modal', () => {
+    const openModal = (): HTMLElement => {
+      const modal = document.createElement('div');
+      modal.setAttribute('aria-modal', 'true');
+      document.body.appendChild(modal);
+      return modal;
+    };
+
+    it('runs a shortcut whose owner is inside the open modal', () => {
+      // The dice panel is a modal that binds its own keys — blocking on "any
+      // aria-modal exists" would make its own shortcuts unreachable.
+      const modal = openModal();
+      const owner = document.createElement('div');
+      modal.appendChild(owner);
+
+      const roll = vi.fn();
+      renderHook(() => useKeyboardShortcuts({ r: roll }, { ownerRef: { current: owner } }));
+
+      press('r');
+
+      expect(roll).toHaveBeenCalledTimes(1);
+    });
+
+    it('still blocks a shortcut whose owner is outside the open modal', () => {
+      const modal = openModal();
+      const owner = document.createElement('div');
+      document.body.appendChild(owner);
+      expect(modal.contains(owner)).toBe(false);
+
+      const roll = vi.fn();
+      renderHook(() => useKeyboardShortcuts({ r: roll }, { ownerRef: { current: owner } }));
+
+      press('r');
+
+      expect(roll).not.toHaveBeenCalled();
+    });
+
+    it('blocks an owner inside one modal when a second modal opens on top', () => {
+      // A confirm dialog over the dice panel owns the keyboard: the panel's
+      // own keys must go quiet until it closes.
+      const panel = openModal();
+      const owner = document.createElement('div');
+      panel.appendChild(owner);
+      openModal(); // e.g. the End Game confirmation
+
+      const roll = vi.fn();
+      renderHook(() => useKeyboardShortcuts({ r: roll }, { ownerRef: { current: owner } }));
+
+      press('r');
+
+      expect(roll).not.toHaveBeenCalled();
+    });
+
+    it('runs normally once its modal is the only one and the owner is unmounted', () => {
+      // A null ref (owner not mounted yet) reads as "not inside any modal".
+      openModal();
+      const roll = vi.fn();
+      renderHook(() => useKeyboardShortcuts({ r: roll }, { ownerRef: { current: null } }));
+
+      press('r');
+
+      expect(roll).not.toHaveBeenCalled();
+    });
+  });
+
   it.each([{ ctrlKey: true }, { metaKey: true }, { altKey: true }])(
     'leaves browser and OS chords alone (%o)',
     modifier => {

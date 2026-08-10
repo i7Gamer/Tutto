@@ -58,7 +58,13 @@ export default function ModalShell({
     if (open) {
       wasOpenRef.current = true;
       previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
-      const fallback = panelRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+      // The panel itself is the last resort: a dialog whose content has
+      // nothing focusable yet (the dice panel, before its dice settle) would
+      // otherwise leave focus on the trigger behind the backdrop — Tab then
+      // walks the page underneath, and the trap below never sees a key,
+      // because it is a handler on this panel.
+      const fallback = panelRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)
+        ?? panelRef.current;
       (initialFocusRef?.current ?? fallback)?.focus();
       return;
     }
@@ -100,6 +106,9 @@ export default function ModalShell({
           <motion.div
             ref={panelRef}
             role={role}
+            // Focusable only programmatically (see the fallback above), never
+            // a stop in the page's own tab order.
+            tabIndex={-1}
             aria-modal="true"
             aria-labelledby={labelledBy}
             className={panelClassName}
