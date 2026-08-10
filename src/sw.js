@@ -31,6 +31,34 @@ const PRECACHE_URLS = MANIFEST.map(entry => new URL(entry.url, self.location.hre
 const PRECACHED = new Set(PRECACHE_URLS);
 
 /**
+ * The directories the build emits hashed assets into, derived from the manifest
+ * rather than hardcoded.
+ *
+ * A URL under one of these is build output by construction, which is what makes
+ * it safe to answer from a cache generation other than this worker's own (see
+ * the fetch handler). Root-level entries — index.html, the icons, the
+ * webmanifest — yield "/" and are dropped: that prefix matches the API and the
+ * socket too, and those must never be served from a cache.
+ */
+const ASSET_PREFIXES = [...new Set(
+  PRECACHE_URLS.map(href => {
+    const { pathname } = new URL(href);
+    return pathname.slice(0, pathname.lastIndexOf('/') + 1);
+  }),
+)].filter(prefix => prefix !== '/');
+
+const isBuildAsset = url => ASSET_PREFIXES.some(prefix => url.pathname.startsWith(prefix));
+
+/**
+ * How many cache generations survive an activate: this worker's own, plus the
+ * one before it. skipWaiting/clients.claim below hand this worker control of
+ * tabs still running the PREVIOUS build, whose lazy chunks are not in this
+ * manifest — deleting their generation left those imports to a network that no
+ * longer serves those hashed filenames.
+ */
+const RETAINED_CACHE_GENERATIONS = 2;
+
+/**
  * Cache name derived from the manifest, so a deploy that changes any asset
  * lands in a fresh cache and `activate` can drop the previous one wholesale.
  * Cheap string hash — this only has to change when the contents do.
@@ -70,20 +98,36 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
+    // CacheStorage.keys() is ordered by creation, so the tail is the most
+    // recent — everything older than the retained window goes.
     const names = await caches.keys();
-    await Promise.all(names.filter(name => name !== PRECACHE).map(name => caches.delete(name)));
+    const previous = names.filter(name => name !== PRECACHE).slice(-(RETAINED_CACHE_GENERATIONS - 1));
+    const keep = new Set([PRECACHE, ...previous]);
+    await Promise.all(names.filter(name => !keep.has(name)).map(name => caches.delete(name)));
     await self.clients.claim();
   })());
 });
 
-/** Rejects rather than hanging, so a dead connection falls back promptly. */
-const fetchWithTimeout = (request, timeoutMs) => new Promise((resolve, reject) => {
-  const timer = setTimeout(() => reject(new Error('network timeout')), timeoutMs);
-  fetch(request).then(
-    response => { clearTimeout(timer); resolve(response); },
-    error => { clearTimeout(timer); reject(error); },
-  );
-});
+/**
+ * Rejects rather than hanging, so a dead connection falls back promptly — and
+ * abandons the request when it does. Rejecting alone only stopped WAITING for
+ * it: the fetch stayed in flight on the same dead connection this exists to
+ * route around, holding a socket and, on a metered phone connection, still
+ * paying for a response nobody would read.
+ */
+const fetchWithTimeout = (request, timeoutMs) => {
+  const controller = new AbortController();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error('network timeout'));
+    }, timeoutMs);
+    fetch(request, { signal: controller.signal }).then(
+      response => { clearTimeout(timer); resolve(response); },
+      error => { clearTimeout(timer); reject(error); },
+    );
+  });
+};
 
 /**
  * Network first, so a new deploy reaches a client on its next launch instead of
@@ -117,11 +161,15 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Precached build output: served from cache, falling back to the network for
-  // anything the install pass could not store. Everything else — the API, the
-  // socket, fonts — is left entirely alone.
+  // Build output: served from cache, falling back to the network for anything
+  // no cache holds. caches.match searches every retained generation, which is
+  // what lets a tab still running the previous build load its own chunks (see
+  // RETAINED_CACHE_GENERATIONS) — those are not in THIS manifest, so the
+  // PRECACHED set alone would send them to a server that no longer has them.
+  // Everything else — the API, the socket, fonts — is left entirely alone.
   const url = new URL(request.url);
-  if (url.origin === self.location.origin && PRECACHED.has(url.href)) {
+  if (url.origin !== self.location.origin) return;
+  if (PRECACHED.has(url.href) || isBuildAsset(url)) {
     event.respondWith((async () => {
       const cached = await caches.match(url.href);
       return cached ?? fetch(request);
