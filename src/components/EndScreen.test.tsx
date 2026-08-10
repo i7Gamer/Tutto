@@ -141,6 +141,36 @@ describe('EndScreen Component', () => {
     expect(container.querySelector('canvas')).toBeNull();
   });
 
+  it('keeps a departed player\'s chart line, frozen with the roster snapshot', () => {
+    // The server splices the chart trio in lockstep with the roster when a
+    // player leaves post-game. The table deliberately freezes the roster —
+    // the chart must freeze with it, or the two panels contradict each other.
+    useGameStore.setState({
+      players: [
+        { name: 'Alice', score: 10000, position: 1, color: '#ff0000' },
+        { name: 'Bob', score: 5000, position: 2, color: '#00ff00' },
+      ],
+      chartNames: ['Alice', 'Bob'],
+      chartValues: [[100, 10000], [200, 5000]],
+      chartLabels: [1, 2],
+    });
+    render(<EndScreen theme="light" deviceId="" />);
+
+    act(() => {
+      // Bob leaves the room after game over.
+      useGameStore.setState({
+        players: [{ name: 'Alice', score: 10000, position: 1, color: '#ff0000' }],
+        chartNames: ['Alice'],
+        chartValues: [[100, 10000]],
+        chartLabels: [1, 2],
+      });
+    });
+
+    const datasets = (chartCapture.data as { datasets: ChartDataset[] }).datasets;
+    expect(datasets).toHaveLength(2);
+    expect(datasets.map(d => d.label)).toEqual(['Alice', 'Bob']);
+  });
+
   describe('Play Again minimum players (online)', () => {
     afterEach(() => {
       useGameStore.setState({ isOnline: false, isHost: false });

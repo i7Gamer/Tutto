@@ -81,13 +81,19 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
 
   const snapshotRef = useRef<Player[]>(players);
   const [playerSnapshot, setPlayerSnapshot] = useState<Player[]>(players);
+  // The chart trio is spliced in lockstep with the live roster server-side —
+  // so it must freeze WITH the roster snapshot, or a departing player's line
+  // silently vanishes from the score chart while the frozen table beside it
+  // still lists them.
+  const [chartSnapshot, setChartSnapshot] = useState(() => ({ chartValues, chartNames, chartLabels }));
 
   useEffect(() => {
     if (players.length >= snapshotRef.current.length) {
       snapshotRef.current = players;
       setPlayerSnapshot(players);
+      setChartSnapshot({ chartValues, chartNames, chartLabels });
     }
-  }, [players]);
+  }, [players, chartValues, chartNames, chartLabels]);
 
   const sortedPlayers = computeRankedPlayers(playerSnapshot);
   const winner = sortedPlayers[0];
@@ -188,19 +194,21 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   // re-renders (e.g. deviceStats arriving) don't hand react-chartjs-2 a new
   // object identity every time and defeat its internal diffing.
   const chartData = useMemo(() => ({
-    labels: chartLabels,
-    datasets: chartValues.map((data, i) => {
-      const player = players[i];
+    labels: chartSnapshot.chartLabels,
+    datasets: chartSnapshot.chartValues.map((data, i) => {
+      // The frozen roster is index-aligned with the frozen series — both were
+      // captured in the same snapshot, so a departure can't shift either.
+      const player = playerSnapshot[i];
       const fallback = colors[i % colors.length];
       return {
-        label: player?.name ?? chartNames[i] ?? `Player ${i + 1}`,
+        label: player?.name ?? chartSnapshot.chartNames[i] ?? `Player ${i + 1}`,
         data: data ?? [],
         borderColor: player?.color ?? fallback,
         backgroundColor: player?.color ?? fallback,
         tension: 0.2,
       };
     }),
-  }), [chartLabels, chartValues, chartNames, players]);
+  }), [chartSnapshot, playerSnapshot]);
 
   const chartOptions = useMemo(() => ({
     responsive: true,
@@ -423,7 +431,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
         </div>
       </motion.div>
 
-      {chartLabels && chartLabels.length > 0 && (
+      {chartSnapshot.chartLabels && chartSnapshot.chartLabels.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8 h-[400px]">
           <Line data={chartData} options={chartOptions} />
         </motion.div>
