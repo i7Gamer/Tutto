@@ -133,3 +133,40 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     await expect(pageA.getByText(/BobGuest is currently playing/i)).toBeVisible({ timeout: 10000 });
   });
 });
+
+test.describe('Online lobby ruleset', () => {
+  test('the host picks the rules; the guest gets a read-only badge that follows', async ({ browser }, testInfo) => {
+    const contextA = await browser.newContext();
+    const pageA = await contextA.newPage();
+
+    const contextB = await browser.newContext();
+    const pageB = await contextB.newPage();
+
+    const roomId = uniqueRoomId('RULES', testInfo);
+
+    // Host creates the room and sees the editable selector.
+    await pageA.goto('/');
+    await pageA.getByRole('button', { name: /Online Play/i }).click();
+    await pageA.getByPlaceholder('e.g. 1234').fill(roomId);
+    await pageA.getByPlaceholder('e.g. Alice').fill('AliceHost');
+    await pageA.getByRole('button', { name: /Join \/ Create/i }).click();
+    await expect(pageA.getByText(/Room: /i)).toBeVisible({ timeout: 15000 });
+    await expect(pageA.getByLabel('Modernized', { exact: true })).toBeChecked();
+
+    // The guest joins and gets the always-visible read-only badge instead of
+    // the radios — the rules are the host's call.
+    await pageB.goto('/');
+    await pageB.getByRole('button', { name: /Online Play/i }).click();
+    await pageB.getByPlaceholder('e.g. 1234').fill(roomId);
+    await pageB.getByPlaceholder('e.g. Alice').fill('BobGuest');
+    await pageB.getByRole('button', { name: /Join \/ Create/i }).click();
+    await expect(pageB.getByText('AliceHost').first()).toBeVisible({ timeout: 15000 });
+
+    await expect(pageB.getByText(/Rules: Modernized \(set by host\)/)).toBeVisible();
+    await expect(pageB.getByLabel('Modernized', { exact: true })).toHaveCount(0);
+
+    // A host flip must reach the guest's badge through the config sync.
+    await pageA.getByLabel('Classic', { exact: true }).click();
+    await expect(pageB.getByText(/Rules: Classic \(set by host\)/)).toBeVisible({ timeout: 10000 });
+  });
+});

@@ -65,3 +65,31 @@ test.describe('Lobby deck composition', () => {
     expect(await truncatedNames(grid)).toEqual([]);
   });
 });
+
+/**
+ * The rules choice (Modernized | Classic) changes gameplay fundamentally, so
+ * the lobby offers it as its own always-visible row — never folded into the
+ * collapsed advanced panel. These pin that visibility and that the choice is
+ * part of the saved local config, like the deck above.
+ */
+test.describe('Lobby ruleset selector', () => {
+  test('offers both rulesets without expanding anything, defaulting to Modernized', async ({ page }) => {
+    await page.goto('/');
+
+    // Deliberately no "Show Advanced Options" click first.
+    await expect(page.getByLabel('Modernized', { exact: true })).toBeChecked();
+    await expect(page.getByLabel('Classic', { exact: true })).not.toBeChecked();
+    await expect(page.getByText(/House rules:/)).toBeVisible();
+  });
+
+  test('switching to Classic explains the chain rule and survives a reload', async ({ page }) => {
+    await page.goto('/');
+
+    await page.getByLabel('Classic', { exact: true }).click();
+    await expect(page.getByLabel('Classic', { exact: true })).toBeChecked();
+    await expect(page.getByText(/Official rules:/)).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByLabel('Classic', { exact: true })).toBeChecked();
+  });
+});
