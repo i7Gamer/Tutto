@@ -120,10 +120,13 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const restoredStopped = !restoredBust && !restoredTutto && isClassic && restored && currentCard === 'Stop'
     ? { won: false, score: 0, isTutto: false, stoppedByCard: true }
     : null;
-  // A banked Stop & Score decision — restore into its success summary, never
-  // a dice table where the decision could be rolled back into Roll Again.
+  // A banked decision (Stop & Score, or a modernized turn-ending tutto —
+  // both commit with the stopped marker) — restore into its success summary,
+  // never a dice table where the decision could be rolled back into Roll
+  // Again. All six dice put aside is what a tutto IS, so the kept-dice count
+  // recovers the "Tutto!" headline.
   const restoredBanked = !restoredBust && !restoredTutto && !restoredStopped && restored?.stopped
-    ? { won: true, score: restored.turnScore, isTutto: false }
+    ? { won: true, score: restored.turnScore, isTutto: restored.keptDice.length === 6 }
     : null;
 
   const [keptDice, setKeptDice] = useState<DieType[]>(restored?.keptDice ?? []);
@@ -139,7 +142,8 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const [summaryData, setSummaryData] = useState<SummaryData>(
     restoredBust ?? restoredTutto ?? restoredStopped ?? restoredBanked ?? { won: false, score: 0, isTutto: false },
   );
-  // Whether the turn was decided by Stop & Score — rides the snapshot so a
+  // Whether the turn is decided and banked (Stop & Score, a modernized
+  // turn-ending tutto, a completed Kleeblatt) — rides the snapshot so a
   // reload restores into the banked summary above.
   const [stopped, setStopped] = useState(!!restoredBanked);
   const [tuttosThisTurn, setTuttosThisTurn] = useState(restored?.tuttosThisTurn ?? 0);
@@ -342,6 +346,16 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
             if (chain.length > 0) chain[chain.length - 1].completed = true;
             chainRef.current.ended = 'banked';
           }
+          // Committed + marked stopped (like Stop & Score below) so the won
+          // game survives a reload: the snapshot otherwise still held the
+          // pre-win table, and restoring handed back dice that could reroll
+          // — and bust away — a game already won.
+          setTurnScore(newTurnScore);
+          setKeptDice(newKeptDice);
+          setCurrentRoll([]);
+          setDisplayRoll([]);
+          setKniffelProgress(newKniffelProgress);
+          setStopped(true);
           setSummaryData({ won: true, score: newTurnScore, isTutto: true });
           setShowSummary(true);
           return;
@@ -369,6 +383,17 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         setShowSummary(true);
         return;
       } else if (currentCard !== 'Feuerwerk') {
+        // Modernized turn-ending tutto: committed + marked stopped (like the
+        // classic branch above and Stop & Score below) so a reload restores
+        // into this decided summary — not the pre-tutto table, where the
+        // tutto could be rolled back and played on past the turn's end.
+        // Spectators likewise see the banked total, not the stale board.
+        setTurnScore(newTurnScore);
+        setKeptDice(newKeptDice);
+        setCurrentRoll([]);
+        setDisplayRoll([]);
+        setKniffelProgress(newKniffelProgress);
+        setStopped(true);
         setSummaryData({ won: true, score: newTurnScore, isTutto: true });
         setShowSummary(true);
         return;

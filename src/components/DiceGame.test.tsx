@@ -208,6 +208,46 @@ describe('DiceGame restored-state bust rendering', () => {
     expect(screen.queryByText('dice.roll_again')).not.toBeInTheDocument();
   });
 
+  it('restores a reload during a modernized tutto summary into that summary, not a rollable table', () => {
+    // Without committing the tutto (all six put aside, stopped marker) the
+    // snapshot still held the pre-tutto table: a reload inside the 3-second
+    // countdown restored a rollable table where the player could deselect a
+    // die and keep rolling past the tutto — which modernized forbids.
+    const kept = [1, 1, 1, 5, 5, 5].map((v, i) => ({ id: `d${i}`, val: v }));
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 1800, keptDice: kept, currentRoll: [], kniffelProgress: [],
+      tuttosThisTurn: 0, stopped: true, turnKey: 'K',
+    }));
+
+    render(<DiceGame currentCard="300" turnKey="K" onComplete={vi.fn()} />);
+
+    expect(screen.getByText('dice.success')).toBeInTheDocument();
+    // All six dice put aside IS the tutto — the restored summary keeps saying so.
+    expect(screen.getByText('dice.tutto')).toBeInTheDocument();
+    expect(screen.getByText('1800')).toBeInTheDocument();
+    expect(screen.queryByText('dice.roll_again')).not.toBeInTheDocument();
+    expect(screen.queryByText('dice.stop_and_score')).not.toBeInTheDocument();
+  });
+
+  it('restores a reload during a Kleeblatt win summary into the win, not a rollable table', async () => {
+    // The second tutto had already been rolled and the win summary was on
+    // screen — restoring into a dice table would let the player reroll (and
+    // potentially bust away) a game they had already won.
+    const onComplete = vi.fn();
+    const kept = [1, 1, 1, 5, 5, 5].map((v, i) => ({ id: `d${i}`, val: v }));
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 3000, keptDice: kept, currentRoll: [], kniffelProgress: [],
+      tuttosThisTurn: 1, stopped: true, turnKey: 'K',
+    }));
+
+    render(<DiceGame currentCard="Kleeblatt" turnKey="K" onComplete={onComplete} />);
+
+    expect(screen.getByText('dice.success')).toBeInTheDocument();
+    expect(screen.getByText('dice.tutto')).toBeInTheDocument();
+    expect(screen.queryByText('dice.roll_again')).not.toBeInTheDocument();
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(3000, true));
+  });
+
   it('paints a resumed turn on its first commit rather than correcting itself', () => {
     // Restoration used to be an effect calling eight setters, so resuming a
     // turn meant mounting an empty table, painting it, and only then filling
@@ -918,6 +958,47 @@ describe('DiceGame classic chains', () => {
     });
   });
 
+  it('a modernized tutto commits the banked state into the live snapshot', async () => {
+    // Same contract as Stop & Score above: the DECIDED turn must reach the
+    // resume cache and the spectators — not the pre-tutto table the decision
+    // could be rolled back into.
+    const onStateChange = vi.fn();
+    queueRoll([1, 1, 1, 5, 5, 5]); // all six scoring → tutto
+    render(<DiceGame currentCard="300" onComplete={vi.fn()} onStateChange={onStateChange} />);
+
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.stop_and_score'));
+
+    expect(screen.getByText('dice.tutto')).toBeInTheDocument();
+    await waitFor(() => {
+      const last = onStateChange.mock.calls.at(-1)?.[0];
+      expect(last?.stopped).toBe(true);
+      expect(last?.turnScore).toBe(1800); // 1500 dice + 300 card bonus
+      expect(last?.keptDice).toHaveLength(6);
+      expect(last?.currentRoll).toEqual([]);
+    });
+  });
+
+  it('a completed Kleeblatt win commits the decided state into the live snapshot', async () => {
+    const onStateChange = vi.fn();
+    queueRoll([1, 1, 1, 5, 5, 5]); // first tutto
+    queueRoll([1, 1, 1, 5, 5, 5]); // second tutto — the win
+    render(<DiceGame currentCard="Kleeblatt" onComplete={vi.fn()} onStateChange={onStateChange} />);
+
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.roll_2nd_tutto'));
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.finish_card'));
+
+    expect(screen.getByText('dice.tutto')).toBeInTheDocument();
+    await waitFor(() => {
+      const last = onStateChange.mock.calls.at(-1)?.[0];
+      expect(last?.stopped).toBe(true);
+      expect(last?.keptDice).toHaveLength(6);
+      expect(last?.currentRoll).toEqual([]);
+    });
+  });
+
   it('restores a reload during the drawn-Stop summary into that summary, not a dice table', async () => {
     // The snapshot written while the Stop forfeit summary was showing: no
     // dice on the table, the chain ending in the drawn Stop. Restoring it
@@ -942,5 +1023,6 @@ describe('DiceGame classic chains', () => {
       forfeitedScore: 1800,
     })));
   });
+
 });
 

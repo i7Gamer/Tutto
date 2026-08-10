@@ -60,10 +60,12 @@ export interface DiceSnapshot {
   // buildTurnKey in diceTurnState.ts) — lets DiceGame tell a same-player-but-
   // expired-turn snapshot apart from a genuinely resumable one.
   turnKey?: string;
-  // The player clicked Stop & Score: the turn is decided and banked, showing
-  // its success summary. A restore must land back in that summary — not in a
-  // dice table where the decision could be rolled back. Mirrored in
-  // server/pushValidation.ts's snapshot family like `busted` above.
+  // The turn is decided and banked (Stop & Score, a modernized turn-ending
+  // tutto, a completed Kleeblatt), showing its success summary. A restore
+  // must land back in that summary — not in a dice table where the decision
+  // could be rolled back. The server turn timer also reads it: a timeout on
+  // a banked decision forfeits as 'timeout', never as a rolled null.
+  // Mirrored in server/pushValidation.ts's snapshot family like `busted`.
   stopped?: boolean;
   // Classic-chain progress (absent in modernized turns): the cards drawn this
   // turn in order, how many Plus/Minus cards succeeded so far, and the total
