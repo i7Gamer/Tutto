@@ -192,6 +192,17 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       console.error('[joinRoom] getDeviceStats error:', err);
     }
 
+    // The await above is also the one window in which this socket can die
+    // mid-handler — and its 'disconnect' event cleans up nothing: a fresh
+    // join has no session.roomId yet, and a rejoin's seat still carries the
+    // OLD socketId. Everything below would then seat a dead socket marked
+    // connected: an undeletable ghost room per scripted join-and-close, or a
+    // phantom seat whose pending reconnect timer gets cancelled right here.
+    // Nothing after this point awaits, so one re-check closes the window.
+    if (!socket.connected) {
+      return callback({ success: false, error: 'Disconnected' });
+    }
+
     // A socket may only be an active member of one room at a time. Without this,
     // joining a second, different room without leaving the first leaves a ghost
     // player entry behind forever (the session's room is just overwritten below) —
