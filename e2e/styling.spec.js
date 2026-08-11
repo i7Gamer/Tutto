@@ -71,16 +71,72 @@ test.describe('theme colours resolve', () => {
     test(`every semantic colour has a value in ${theme} mode`, async ({ page }) => {
       await page.goto('/');
 
-      const values = await page.evaluate((theme) => {
+      // The list is passed in rather than closed over — page.evaluate runs in
+      // the browser, so a second copy written inline here would silently stop
+      // covering whatever SEMANTIC grew.
+      const values = await page.evaluate(({ theme, names }) => {
         document.documentElement.setAttribute('data-theme', theme);
         const style = getComputedStyle(document.documentElement);
-        return Object.fromEntries(
-          ['--primary', '--secondary', '--border-color', '--bg-color', '--text-color']
-            .map(name => [name, style.getPropertyValue(name).trim()])
-        );
-      }, theme);
+        return Object.fromEntries(names.map(name => [name, style.getPropertyValue(name).trim()]));
+      }, { theme, names: SEMANTIC });
 
       expect(SEMANTIC.filter(name => values[name] === '')).toEqual([]);
     });
   }
+
+  /**
+   * The `dark:` variant and the `[data-theme="dark"]` rules above are two
+   * different mechanisms — the first is a `@custom-variant` in index.css, the
+   * second an ordinary selector — and only the second is covered by the tests
+   * above. The variant replaced a `darkMode` array in the deleted JS config, and
+   * getting it wrong compiles `dark:` back to `prefers-color-scheme`, which
+   * fails only for a reader whose OS theme disagrees with the in-app toggle.
+   */
+  test('the dark: variant follows the attribute, not the OS', async ({ page }) => {
+    await page.goto('/');
+
+    const read = (theme) => page.evaluate((theme) => {
+      document.documentElement.setAttribute('data-theme', theme);
+      const probe = document.createElement('div');
+      probe.className = 'bg-white dark:bg-slate-800';
+      document.body.appendChild(probe);
+      const value = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return value;
+    }, theme);
+
+    const light = await read('light');
+    const dark = await read('dark');
+
+    expect(light).not.toBe(dark);
+    expect(light).toBe('rgb(255, 255, 255)');
+  });
+
+  /**
+   * The other `@custom-variant`, and the other half of what the deleted JS
+   * config used to hold. The scoreboard reflows into a row on a sideways phone
+   * (Scoreboard.tsx); a width breakpoint alone would also catch a portrait one,
+   * which has the height to lay the tiles out normally.
+   */
+  test('the phone-landscape variant applies only lying down', async ({ page }) => {
+    await page.goto('/');
+
+    const widthAt = async (viewport) => {
+      await page.setViewportSize(viewport);
+      return page.evaluate(() => {
+        const probe = document.createElement('div');
+        probe.className = 'phone-landscape:min-w-[75px]';
+        document.body.appendChild(probe);
+        const value = getComputedStyle(probe).minWidth;
+        probe.remove();
+        return value;
+      });
+    };
+
+    // Only the positive case has an exact value; unset min-width reads back as
+    // `auto` or `0px` depending on the engine, so the others assert absence.
+    expect(await widthAt({ width: 850, height: 420 })).toBe('75px');       // sideways phone
+    expect(await widthAt({ width: 420, height: 850 })).not.toBe('75px');   // same phone, upright
+    expect(await widthAt({ width: 1280, height: 800 })).not.toBe('75px');  // desktop
+  });
 });
