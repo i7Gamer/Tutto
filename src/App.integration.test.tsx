@@ -124,7 +124,7 @@ describe('App Integration (End-to-End)', () => {
     });
 
     const diceElements = screen.getAllByText('1');
-    const actualDice = diceElements.filter(el => el.classList.contains('die'));
+    const actualDice = diceElements.filter(el => el.dataset.testid === 'die');
     actualDice.forEach(die => fireEvent.click(die));
 
     // After 1 Tutto on a 200 card, score should be 2200 points!
@@ -161,7 +161,7 @@ describe('App Integration (End-to-End)', () => {
       expect(dice.length).toBeGreaterThanOrEqual(6);
     });
 
-    const bobDice = screen.getAllByText('1').filter(el => el.classList.contains('die'));
+    const bobDice = screen.getAllByText('1').filter(el => el.dataset.testid === 'die');
     fireEvent.click(bobDice[0]); // Select one '1'
 
     const stopBob = await screen.findByText(/dice.stop_and_score/i);

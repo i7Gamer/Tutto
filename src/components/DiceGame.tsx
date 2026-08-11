@@ -661,7 +661,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
                       display, and index keys would pin AnimatePresence's enter/
                       exit animations to the wrong die after a reorder. */}
                   {displayKeptDice.map(d => (
-                    <motion.div key={d.id} initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} className="die relative w-14 h-14 bg-indigo-600 text-white rounded-xl shadow-md flex items-center justify-center border-2 border-indigo-400">
+                    <motion.div key={d.id} data-testid="die" initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} className="relative w-14 h-14 bg-indigo-600 text-white rounded-xl shadow-md flex items-center justify-center border-2 border-indigo-400">
                       <DiePips val={d.val} isSelected={false} bustState={false} size="large" isIndigo />
                     </motion.div>
                   ))}

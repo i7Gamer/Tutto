@@ -52,3 +52,35 @@ test.describe('stylesheet cascade', () => {
     });
   }
 });
+
+/**
+ * index.css reads two colours out of Tailwind's theme rather than copying them
+ * (`--primary: var(--color-indigo-600)`), which keeps them from drifting the way
+ * they did across the v4 upgrade. The catch is that a theme variable is only
+ * emitted when something references that palette entry — drop the last
+ * `bg-indigo-600` from the app and `--color-indigo-600` stops existing, taking
+ * `--primary` with it. An unresolvable var() in a custom property computes to
+ * the guaranteed-invalid value, which reads back as the empty string, so nothing
+ * throws and nothing logs: the focus ring and the checked checkbox just lose
+ * their colour.
+ */
+test.describe('theme colours resolve', () => {
+  const SEMANTIC = ['--primary', '--secondary', '--border-color', '--bg-color', '--text-color'];
+
+  for (const theme of ['light', 'dark']) {
+    test(`every semantic colour has a value in ${theme} mode`, async ({ page }) => {
+      await page.goto('/');
+
+      const values = await page.evaluate((theme) => {
+        document.documentElement.setAttribute('data-theme', theme);
+        const style = getComputedStyle(document.documentElement);
+        return Object.fromEntries(
+          ['--primary', '--secondary', '--border-color', '--bg-color', '--text-color']
+            .map(name => [name, style.getPropertyValue(name).trim()])
+        );
+      }, theme);
+
+      expect(SEMANTIC.filter(name => values[name] === '')).toEqual([]);
+    });
+  }
+});

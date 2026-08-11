@@ -68,6 +68,11 @@ export function DiePips({
 export default function Die({ die, isSelected, isDieTumbling, bustState, onToggle }: DieProps) {
   return (
     <motion.button
+      // A test hook, not styling — it was a bare `die` class, which is a name
+      // Tailwind could plausibly own one day. That is how the Stop card lost its
+      // ring in the v4 upgrade: a hand-written class in the utility namespace,
+      // silently renamed by a codemod that took it for a utility.
+      data-testid="die"
       animate={{
         rotate: isDieTumbling ? [0, 90, 180, 270, 360] : 0,
         y: isDieTumbling ? [0, -20, 0] : 0,
@@ -76,7 +81,7 @@ export default function Die({ die, isSelected, isDieTumbling, bustState, onToggl
         rotate: { repeat: isDieTumbling ? Infinity : 0, duration: 0.2 },
         y: { repeat: isDieTumbling ? Infinity : 0, duration: 0.15 },
       }}
-      className={`die w-14 h-14 relative rounded-xl flex items-center justify-center text-transparent select-none outline-hidden focus:outline-hidden focus:ring-0 transition-all border-2
+      className={`w-14 h-14 relative rounded-xl flex items-center justify-center text-transparent select-none outline-hidden focus:outline-hidden focus:ring-0 transition-all border-2
         ${isSelected
           ? 'bg-emerald-100 border-emerald-500 dark:bg-slate-700 dark:border-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-110 z-10'
           : bustState
