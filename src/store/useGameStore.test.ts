@@ -771,7 +771,11 @@ describe('useGameStore', () => {
       store.addPlayer('Alice');
       store.startGame();
 
-      useGameStore.getState().nextTurn(6000, false);
+      // Pinned rather than left to startGame's shuffle: a special card is
+      // worth its fixed value or nothing, so whether this turn reaches the
+      // winning score at all would otherwise depend on which card came up.
+      useGameStore.setState({ currentCard: '200' });
+      useGameStore.getState().nextTurn(6000, true);
 
       expect(useGameStore.getState().finished).toBe(true);
       expect(global.fetch).not.toHaveBeenCalledWith('/api/stats/global', expect.any(Object));
@@ -2445,6 +2449,45 @@ describe('useGameStore', () => {
       useGameStore.getState().setMode('local');
       expect(useGameStore.getState().previousCard).toBeNull();
       expect(useGameStore.getState().previousPlayerName).toBeNull();
+    });
+  });
+
+  // chartValues is player-indexed — one score series per player. Both
+  // server-side twins (turnTimers.advanceTurnOnTimeout,
+  // rooms.handleActivePlayerRemoved) refuse to append when the two disagree;
+  // the client indexed result.players past the end and threw, taking the game
+  // into the ErrorBoundary's clear-and-reload.
+  describe('round-end chart bookkeeping', () => {
+    const stagePlayingRound = (chartValues) => {
+      useGameStore.setState({
+        mode: 'local', isOnline: false, status: 'playing',
+        players: [makeOnlinePlayer('Alice'), makeOnlinePlayer('Bob')],
+        currentPlayerIndex: 1, // committing this turn wraps the round
+        currentCard: '200', cards: ['300'], round: 2,
+        chartValues, chartLabels: [1],
+      });
+    };
+
+    it('appends a datapoint per player when the series match the roster', () => {
+      stagePlayingRound([[100], [200]]);
+      useGameStore.getState().nextTurn(100, true);
+      expect(useGameStore.getState().chartValues).toEqual([[100, 0], [200, 100]]);
+      expect(useGameStore.getState().chartLabels).toEqual([1, 2]);
+    });
+
+    it('skips the append instead of crashing when there are more series than players', () => {
+      stagePlayingRound([[100], [200], [300]]);
+      expect(() => useGameStore.getState().nextTurn(100, true)).not.toThrow();
+      expect(useGameStore.getState().chartValues).toEqual([[100], [200], [300]]);
+      // The label may only be appended when the series it labels were.
+      expect(useGameStore.getState().chartLabels).toEqual([1]);
+    });
+
+    it('skips it for fewer series than players too, rather than charting a partial round', () => {
+      stagePlayingRound([[100]]);
+      expect(() => useGameStore.getState().nextTurn(100, true)).not.toThrow();
+      expect(useGameStore.getState().chartValues).toEqual([[100]]);
+      expect(useGameStore.getState().chartLabels).toEqual([1]);
     });
   });
 

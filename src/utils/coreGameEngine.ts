@@ -382,6 +382,14 @@ export const calculateNextTurn = (
       currentPlayer.timesKniffelFailed = (currentPlayer.timesKniffelFailed ?? 0) + 1;
     }
 
+    // A special card is worth its fixed value or nothing — the dice rolled
+    // toward one never score on their own. The success branches above already
+    // override whatever the caller passed; a failure did not, so a caller
+    // handing over a score for a card that was FAILED had it banked. No caller
+    // does today (every failure path commits 0), which is exactly why the rule
+    // belongs here rather than in each of them.
+    if (isSpecialCard(currentCard) && !isSuccess) turnScore = 0;
+
     if (currentCard === 'x2') currentPlayer.x2PointsScored = (currentPlayer.x2PointsScored ?? 0) + turnScore;
     if (currentCard === 'Feuerwerk') currentPlayer.feuerwerkPointsScored = (currentPlayer.feuerwerkPointsScored ?? 0) + turnScore;
 

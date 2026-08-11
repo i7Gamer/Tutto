@@ -559,16 +559,18 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     }
   }, [onComplete, isClassic]);
 
-  // The classic bank-or-draw choice: offered on a tutto summary for every
-  // card except Feuerwerk (its null already banks and ends the turn) and
-  // Kleeblatt (a completed one has already won the game). Closed once the
-  // chain reaches MAX_CHAIN_CARDS: every validator that carries a chain
-  // (resume cache, pushed snapshot, turn summary) refuses anything longer
-  // wholesale, so past the cap the turn can only bank — via the countdown
-  // that starts whenever this choice is unavailable.
-  const chainChoiceAvailable = isClassic && showSummary && summaryData.won && !!summaryData.isTutto
-    && currentCard !== 'Kleeblatt' && currentCard !== 'Feuerwerk' && !!onDrawCard
-    && chainCardCount < MAX_CHAIN_CARDS;
+  // Whether this summary's score is a classic chain total the player is
+  // banking — true for a tutto on every card except Feuerwerk (its null
+  // already banks and ends the turn) and Kleeblatt (a completed one has
+  // already won the game). What the summary calls the score and its button.
+  const banksChainTotal = isClassic && showSummary && summaryData.won && !!summaryData.isTutto
+    && currentCard !== 'Kleeblatt' && currentCard !== 'Feuerwerk' && !!onDrawCard;
+  // ...and whether another card may still be drawn onto it. A separate
+  // question: past MAX_CHAIN_CARDS the chain can only bank, because every
+  // validator that carries one (resume cache, pushed snapshot, turn summary)
+  // refuses anything longer wholesale — so the choice closes and the
+  // countdown that runs whenever it is unavailable takes over.
+  const chainChoiceAvailable = banksChainTotal && chainCardCount < MAX_CHAIN_CARDS;
 
   // Auto-continue to the next player once the turn resolves — for a success the
   // same way as for a bust (the spectator view relies on this turn ending on its
@@ -627,6 +629,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
             finishGame={finishGame}
             currentCard={currentCard}
             onDrawNextCard={chainChoiceAvailable ? handleDrawNextCard : undefined}
+            banksChainTotal={banksChainTotal}
           />
         ) : (
           <>

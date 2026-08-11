@@ -246,7 +246,15 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.previousPlayerName = result.previousPlayerName;
       state.previousTurnSummary = result.previousTurnSummary;
 
-      if (result.isRoundEnd) {
+      // chartValues is player-indexed (one score series per player) and
+      // chartLabels is round-indexed, so a label may only be appended when the
+      // series it labels were. Guarded like both server-side twins
+      // (turnTimers.advanceTurnOnTimeout, rooms.handleActivePlayerRemoved):
+      // the two can only disagree through a corrupted save — pickLocalGameState
+      // drops mismatched chart rows, which leaves whatever the store held
+      // before them — but indexing result.players past the end threw, taking
+      // the whole game into the ErrorBoundary's clear-and-reload.
+      if (result.isRoundEnd && state.chartValues.length === result.players.length) {
         state.chartValues.forEach((vals, i) => vals.push(result.players[i].score));
         state.chartLabels.push(state.round);
       }

@@ -115,7 +115,59 @@ describe('HistoryLog', () => {
     };
     useGameStore.setState({ historyLog: [entry] });
     render(<HistoryLog />);
-    
+
     expect(screen.getByText('history.plusMinusDeducted')).toBeInTheDocument();
+  });
+
+  // A completed Kleeblatt is a binary instant win, so the engine deliberately
+  // records the turn as worth 0 (see calculateNextTurn). The chain message
+  // prints that score, so the game-winning turn read as "scored 0 pts".
+  it('reports a chain that ended on a completed Kleeblatt as the win it is', () => {
+    const entry: HistoryEntry = {
+      id: '2-Alice-1',
+      round: 2,
+      playerName: 'Alice',
+      card: '200',
+      type: 'success',
+      score: 0,
+      cards: ['200', 'Kleeblatt'],
+    };
+    useGameStore.setState({ historyLog: [entry] });
+    render(<HistoryLog />);
+
+    expect(screen.getByText('history.chainKleeblatt')).toBeInTheDocument();
+    expect(screen.queryByText('history.chainSuccess')).toBeNull();
+  });
+
+  it('still reports an ordinary banked chain with its score', () => {
+    const entry: HistoryEntry = {
+      id: '2-Alice-2',
+      round: 2,
+      playerName: 'Alice',
+      card: '200',
+      type: 'success',
+      score: 1500,
+      cards: ['200', 'Kniffel'],
+    };
+    useGameStore.setState({ historyLog: [entry] });
+    render(<HistoryLog />);
+
+    expect(screen.getByText('history.chainSuccess')).toBeInTheDocument();
+  });
+
+  it('reports a chain that BUSTED on a Kleeblatt as the loss it is', () => {
+    const entry: HistoryEntry = {
+      id: '2-Alice-3',
+      round: 2,
+      playerName: 'Alice',
+      card: '200',
+      type: 'bust',
+      score: 0,
+      cards: ['200', 'Kleeblatt'],
+    };
+    useGameStore.setState({ historyLog: [entry] });
+    render(<HistoryLog />);
+
+    expect(screen.getByText('history.chainBust')).toBeInTheDocument();
   });
 });

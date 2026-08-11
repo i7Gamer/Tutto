@@ -28,6 +28,11 @@ const COPY_FEEDBACK_MS = 1500;
 
 interface JoinRoomResult {
   error?: string;
+  // The name the server actually seated us under. A mid-game rejoin is refused
+  // a rename — the seat keeps its original name (see JoinRoomResponse) and the
+  // store adopts it as myName — so remembering what was TYPED left this lobby
+  // prefilling, and listing under Recent Rooms, a name the room will not seat.
+  name?: string;
 }
 
 interface OnlineLobbyProps {
@@ -218,18 +223,22 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     if (res && res.error) {
       setErrorMsg(res.error);
     } else {
+      // The seat's name, not the typed one — see JoinRoomResult. An ack that
+      // names no seat (an older server, or the watchdog resolving first) leaves
+      // what was typed, which is what the store adopted too.
+      const seatedName = res?.name ?? trimmedName;
       // The join has already SUCCEEDED, so a refused write here is
       // bookkeeping loss, not a join failure — localStore absorbs the throw
       // that used to escape the caller's void'ed promise as an unhandled
       // rejection. Remembering the room is best-effort.
       localStore.write('tutto_last_room', trimmedRoomCode);
-      localStore.write('tutto_last_name', trimmedName);
+      localStore.write('tutto_last_name', seatedName);
 
       // Same validated read as the initial state above, so the write path
       // can no longer carry a malformed entry forward either.
       const remembered = parseRecentRooms(getStoredValue('tutto_recent_rooms'))
         .filter(item => item.roomId !== trimmedRoomCode);
-      const joined: RecentRoom = { roomId: trimmedRoomCode, name: trimmedName, timestamp: joinedAt };
+      const joined: RecentRoom = { roomId: trimmedRoomCode, name: seatedName, timestamp: joinedAt };
       persistRecentRooms([joined, ...remembered].slice(0, MAX_RECENT_ROOMS));
     }
   };

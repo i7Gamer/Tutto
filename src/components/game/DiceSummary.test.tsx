@@ -123,4 +123,41 @@ describe('DiceSummary', () => {
       expect(finishGame).toHaveBeenCalledOnce();
     });
   });
+
+  // "Is this a classic chain total being banked?" and "may another card still
+  // be drawn on it?" are two questions. Both used to be answered by
+  // onDrawNextCard alone, so at MAX_CHAIN_CARDS — where the chain can only
+  // bank — the banked total vanished and the button offered to continue to the
+  // next player instead of naming what it was banking.
+  describe('a classic chain total that can no longer be drawn on', () => {
+    const chainBank = {
+      ...baseProps,
+      summaryData: { won: true, score: 2500, isTutto: true },
+      currentCard: 'Kniffel',
+      banksChainTotal: true,
+    };
+
+    it('still shows the banked points for a special card', () => {
+      render(<DiceSummary {...chainBank} />);
+      expect(screen.getByText('2500')).toBeInTheDocument();
+    });
+
+    it('still labels the button as banking that total', () => {
+      render(<DiceSummary {...chainBank} />);
+      expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
+      expect(screen.queryByText('dice.continue')).toBeNull();
+    });
+
+    it('offers no draw button and runs the countdown, since the cap closed the choice', () => {
+      render(<DiceSummary {...chainBank} continueCountdown={2} />);
+      expect(screen.queryByTestId('draw-next-card')).toBeNull();
+      expect(screen.getByText('dice.auto_continuing')).toBeInTheDocument();
+    });
+
+    it('leaves a modernized summary saying "continue"', () => {
+      render(<DiceSummary {...chainBank} banksChainTotal={false} />);
+      expect(screen.getByText('dice.continue')).toBeInTheDocument();
+      expect(screen.queryByText('dice.bank_points')).toBeNull();
+    });
+  });
 });

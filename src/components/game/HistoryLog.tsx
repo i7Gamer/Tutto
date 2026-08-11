@@ -32,6 +32,12 @@ export default function HistoryLog() {
     if (entry.cards && entry.cards.length > 1) {
       const chain = entry.cards.map(getCardName).join(' → ');
       if (entry.type === 'success') {
+        // A completed Kleeblatt is a binary instant win, so the engine records
+        // the turn as worth 0 (see calculateNextTurn) — printing that score
+        // read the game-winning turn as "scored 0 pts".
+        if (entry.cards[entry.cards.length - 1] === 'Kleeblatt') {
+          return t('history.chainKleeblatt', { name, chain, defaultValue: `${name} completed Kleeblatt and won! (${chain})` });
+        }
         return t('history.chainSuccess', { name, score: entry.score, chain, defaultValue: `${name} scored ${entry.score} pts (${chain})` });
       }
       return t('history.chainBust', { name, chain, defaultValue: `${name} lost everything (${chain})` });

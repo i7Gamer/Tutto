@@ -618,6 +618,41 @@ describe('OnlineLobby scanning a friend\'s QR code', () => {
     ]);
   });
 
+  // A mid-game rejoin is refused a rename: the server keeps the seat's
+  // original name and returns it, and the store adopts it as myName. The
+  // lobby remembered what was TYPED, so it kept prefilling — and listing under
+  // Recent Rooms — a name the room will not seat.
+  it('remembers the name the server seated us under, not the one that was typed', async () => {
+    const joinRoom = vi.fn().mockResolvedValue({ success: true, name: 'Robert' });
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+
+    render(<OnlineLobby />);
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.roomCodePlaceholder'), { target: { value: 'R1' } });
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.yourNamePlaceholder'), { target: { value: 'Bob' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('lobby.online.joinCreateButton'));
+    });
+
+    expect(localStorage.getItem('tutto_last_name')).toBe('Robert');
+    expect(JSON.parse(localStorage.getItem('tutto_recent_rooms') || '[]')).toEqual([
+      expect.objectContaining({ roomId: 'R1', name: 'Robert' }),
+    ]);
+  });
+
+  it('falls back to the typed name when the ack names no seat', async () => {
+    const joinRoom = vi.fn().mockResolvedValue({ success: true });
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+
+    render(<OnlineLobby />);
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.roomCodePlaceholder'), { target: { value: 'R1' } });
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.yourNamePlaceholder'), { target: { value: 'Bob' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('lobby.online.joinCreateButton'));
+    });
+
+    expect(localStorage.getItem('tutto_last_name')).toBe('Bob');
+  });
+
   it('waits for a name instead of joining when the form has none', () => {
     const joinRoom = vi.fn();
     stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });

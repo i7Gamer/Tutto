@@ -625,6 +625,26 @@ describe('coreGameEngine', () => {
       expect(result.players[0].timesKniffelFailed).toBe(1);
     });
 
+    // A special card is worth its fixed value or nothing — the dice rolled
+    // toward one never score on their own. That is the engine's rule, so it
+    // holds whatever score the caller hands over: the success path already
+    // overrode it, but a FAILURE used to bank the caller's number.
+    describe('a failed special card banks nothing, whatever score was passed', () => {
+      for (const card of ['Kniffel', 'Plus_Minus', 'Kleeblatt']) {
+        it(card, () => {
+          const result = calculateNextTurn(makeState({ currentCard: card }), 500, false);
+          expect(result.players[0].score).toBe(0);
+          expect(result.previousScore).toBe(0);
+          expect(result.historyEntry.score).toBe(0);
+        });
+      }
+
+      it('leaves the ordinary scoring cards alone', () => {
+        const result = calculateNextTurn(makeState({ currentCard: '200' }), 500, false);
+        expect(result.players[0].score).toBe(500);
+      });
+    });
+
     it('tracks x2 received and points scored', () => {
       const result = calculateNextTurn(makeState({ currentCard: 'x2' }), 500, true);
       expect(result.players[0].timesx2Received).toBe(1);

@@ -24,9 +24,16 @@ interface DiceSummaryProps {
   // bounded online by the room's turn timer, whose expiry forfeits the turn
   // like any other timeout.
   onDrawNextCard?: () => void;
+  // Whether this summary's score is a classic chain total being banked. A
+  // separate question from "may another card be drawn on it?" above: past
+  // MAX_CHAIN_CARDS the chain can only bank, and both the points line and the
+  // button still have to say so. Answering both with onDrawNextCard meant the
+  // banked total vanished at the cap and the button offered to continue to the
+  // next player instead of naming what it was banking.
+  banksChainTotal?: boolean;
 }
 
-export default function DiceSummary({ summaryData, continueCountdown, finishGame, currentCard, onDrawNextCard }: DiceSummaryProps) {
+export default function DiceSummary({ summaryData, continueCountdown, finishGame, currentCard, onDrawNextCard, banksChainTotal = false }: DiceSummaryProps) {
   const { t } = useTranslation();
 
   return (
@@ -48,8 +55,11 @@ export default function DiceSummary({ summaryData, continueCountdown, finishGame
           {t('dice.stop_card_drawn', 'Stop card! All points from this turn are lost.')}
         </p>
       )}
+      {/* A special card's own score is the fixed value the engine awards, not
+          anything this panel knows — so it stays hidden for one, unless the
+          score IS a classic chain total being banked. */}
       {(summaryData.won || currentCard === 'Feuerwerk') &&
-        (!isSpecialCard(currentCard) || !!onDrawNextCard) &&
+        (!isSpecialCard(currentCard) || banksChainTotal) &&
         summaryData.score > 0 && (
           <p className="text-2xl text-gray-700 dark:text-gray-200">
             {t('dice.points_gained', 'Points gained: ')}
@@ -82,7 +92,7 @@ export default function DiceSummary({ summaryData, continueCountdown, finishGame
           className="mt-2 bg-indigo-600 hover:bg-indigo-700 text-white w-full py-3 rounded-xl text-lg font-bold flex justify-center items-center gap-2 shadow-lg shadow-indigo-500/30 transition-all"
           onClick={finishGame}
         >
-          {onDrawNextCard
+          {banksChainTotal
             ? t('dice.bank_points', 'Bank {{score}} points', { score: summaryData.score })
             : t('dice.continue', 'Continue to Next Player')} <Check size={22} />
         </button>

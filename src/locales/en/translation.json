@@ -392,6 +392,7 @@
   "history.bust": "{{name}} busted on {{card}}",
   "history.chainSuccess": "{{name}} scored {{score}} pts ({{chain}})",
   "history.chainBust": "{{name}} lost everything ({{chain}})",
+  "history.chainKleeblatt": "{{name}} completed Kleeblatt and won! ({{chain}})",
   "history.fail": "{{name}} failed {{card}}",
   "history.success": "{{name}} scored {{score}} pts on {{card}}",
   "history.plusMinusDeducted": "{{name}} scored 1000 pts ({{deducted}} lost 1000)",
