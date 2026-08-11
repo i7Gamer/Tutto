@@ -2,9 +2,8 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022"],
-    "module": "CommonJS",
-    "moduleResolution": "node10",
-    "ignoreDeprecations": "6.0",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "skipLibCheck": true,
     "noEmit": true,
 
@@ -18,5 +17,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.js", "eslint.config.js", "postcss.config.js", "playwright.config.js"]
+  "include": ["vite.config.js", "eslint.config.js", "playwright.config.js"]
 }

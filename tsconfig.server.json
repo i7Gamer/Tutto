@@ -2,9 +2,12 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022"],
-    "module": "CommonJS",
-    "moduleResolution": "node10",
-    "ignoreDeprecations": "6.0",
+    /* tsx loads these, so resolution is a bundler's job — and it has to be:
+       server/*.ts share src/utils/*, whose extensionless relative imports
+       node16/nodenext would reject. `preserve` keeps both import and require
+       available, which the CommonJS runtime needs. */
+    "module": "preserve",
+    "moduleResolution": "bundler",
     "skipLibCheck": true,
     "noEmit": true,
 
