@@ -5,6 +5,10 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from '@typescript-eslint/eslint-plugin'
 import tsParser from '@typescript-eslint/parser'
 import { defineConfig, globalIgnores } from 'eslint/config'
+import noConflictingClassnames from './eslint-rules/no-conflicting-classnames.js'
+
+// Repo-local rules. See each rule's own file for the bug it was written against.
+const local = { rules: { 'no-conflicting-classnames': noConflictingClassnames } }
 
 const sharedRules = {
   'no-empty': ['error', { allowEmptyCatch: true }],
@@ -40,7 +44,7 @@ export default defineConfig([
       reactHooks.configs.flat.recommended,
       reactRefresh.configs.vite,
     ],
-    plugins: { '@typescript-eslint': tseslint },
+    plugins: { '@typescript-eslint': tseslint, local },
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -55,6 +59,7 @@ export default defineConfig([
     rules: {
       ...sharedTsRules,
       ...tseslint.configs.recommended.rules,
+      'local/no-conflicting-classnames': 'error',
     },
   },
 
