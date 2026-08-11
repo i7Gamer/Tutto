@@ -9,6 +9,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io } from 'socket.io-client';
 import { startTestServer, testDelay } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
+import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
 describe('Server Socket E2E — presence, kicks & host promotion', () => {
   let serverProcess;
@@ -19,7 +20,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
 
   beforeAll(async () => {
     serverProcess = await startTestServer(PORT);
-  }, 20000);
+  }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {
     if (socket1) socket1.disconnect();
@@ -768,36 +769,79 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
       const cleanup = () => { s1.disconnect(); s2.disconnect(); s3.disconnect(); };
       const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 9000);
 
-      let latestHostId = null;
+      // The scenario only exists inside one window: Alice must disconnect
+      // first, and Bob's disconnect must reach the server BEFORE Alice's
+      // removal timer fires — otherwise Bob is still connected when she is
+      // removed and the server promotes HIM, correctly, and this test is
+      // measuring something else entirely.
+      //
+      // Both halves of that used to be wall-clock guesses (disconnect at 100ms
+      // and 250ms against a 200ms timer), so the ordering held by 50ms and
+      // inverted under load. Bob now disconnects on seeing Alice marked
+      // disconnected — one round trip after her, whatever the machine is
+      // doing — and the timer is five times longer, so the window it has to
+      // land in is ~1s rather than 50ms.
+      //
+      // 5s (pushState's bounds allow it; updateConfig would not) = 1s scaled.
+      const RECONNECT_SECONDS = 5;
+      let aliceDropped = false;
+      let bobDropped = false;
+      let sawAliceRemoved = false;
       let checked = false;
-      s3.on('hostId', (id) => { latestHostId = id; });
 
-      s3.on('gameState', (state) => {
-        // Alice's 1s timer fired: she was removed while Bob is still marked
-        // disconnected (his own timer fires ~600ms later). At this moment the
-        // host must already be Charlie, not Bob's dead socket.
-        const aliceGone = !state.players?.some((p) => p.name === 'Alice');
-        const bobStillThere = state.players?.some((p) => p.name === 'Bob' && p.disconnected);
-        if (aliceGone && bobStillThere && !checked) {
-          checked = true;
-          // hostId is emitted right after gameState — give it a moment, but stay
-          // well below the ~600ms window before Bob's own timer self-heals it.
-          setTimeout(() => {
-            expect(latestHostId).toBe(s3.id);
-            clearTimeout(timeoutId);
-            cleanup();
-            resolve(undefined);
-          }, 200);
+      // Every step waits for the broadcast proving the previous one landed, so
+      // the only clock left is the server's own removal timer.
+      s3.on('gameState', asserting(reject, (state) => {
+        if (!aliceDropped) {
+          // Not before the longer timeout is in force: on the default 60s
+          // Alice is never removed at all and this test just times out.
+          if (state.reconnectTimeout !== RECONNECT_SECONDS) return;
+          aliceDropped = true;
+          s1.disconnect();
+          return;
         }
-      });
+
+        const alice = state.players?.find((p) => p.name === 'Alice');
+        const bob = state.players?.find((p) => p.name === 'Bob');
+
+        if (!bobDropped) {
+          if (!alice?.disconnected) return;
+          bobDropped = true;
+          s2.disconnect();
+          return;
+        }
+
+        if (alice || checked) return;
+
+        // Alice is gone. Bob has to still be here and still be marked
+        // disconnected, or the setup lost its race and the assertion below
+        // would be objecting to a promotion that is actually correct.
+        expect(bob, 'Bob was removed before Alice — their timers interleaved').toBeDefined();
+        expect(bob?.disconnected, 'Bob was still connected when Alice was removed, so promoting him is right — this run proves nothing').toBe(true);
+        sawAliceRemoved = true;
+      }));
+
+      // hostId rides along with every gameState (emitRoomState sends the two
+      // back to back), so this checks the id paired with the very broadcast
+      // that showed Alice gone. The old version read the latest id 200ms
+      // later, which was a straight race with Bob's own removal timer — that
+      // timer self-heals the host, so a slow assertion passed and a prompt one
+      // failed, for identical server behaviour.
+      s3.on('hostId', asserting(reject, (id) => {
+        if (!sawAliceRemoved || checked) return;
+        checked = true;
+        // Bob is disconnected, so the promotion must have skipped him.
+        expect(id).toBe(s3.id);
+        clearTimeout(timeoutId);
+        cleanup();
+        resolve(undefined);
+      }));
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-hts-a', color: '#ff0000' }, () => {
           s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-hts-b', color: '#00ff00' }, () => {
             s3.emit('joinRoom', { roomId, name: 'Charlie', deviceId: 'dev-hts-c', color: '#0000ff' }, () => {
-              s1.emit('pushState', { roomId, newState: { reconnectTimeout: 1 } });
-              setTimeout(() => s1.disconnect(), 100);      // Alice's timer fires at ~300ms (100ms + 200ms scaled timeout)
-              setTimeout(() => s2.disconnect(), 250);      // Bob's timer fires at ~450ms (250ms + 200ms scaled timeout)
+              s1.emit('pushState', { roomId, newState: { reconnectTimeout: RECONNECT_SECONDS } });
             });
           });
         });

@@ -9,6 +9,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io } from 'socket.io-client';
 import { startTestServer, testDelay } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
+import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
 describe('Server Socket E2E — statistics persistence', () => {
   let serverProcess;
@@ -17,7 +18,7 @@ describe('Server Socket E2E — statistics persistence', () => {
 
   beforeAll(async () => {
     serverProcess = await startTestServer(PORT);
-  }, 20000);
+  }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
