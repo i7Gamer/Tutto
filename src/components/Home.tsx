@@ -108,12 +108,12 @@ export default function Home({ onShowStats }: HomeProps) {
         animate={{ opacity: 1, y: 0 }}
         className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 rounded-3xl p-4 sm:p-6 md:p-8 shadow-2xl relative overflow-hidden flex-1 flex flex-col"
       >
-        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
+        <div className="absolute top-0 left-0 w-full h-2 bg-linear-to-r from-indigo-500 via-purple-500 to-pink-500" />
 
         <motion.h1
           initial={{ scale: 0.9 }}
           animate={{ scale: 1 }}
-          className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-pink-500 text-center mb-6 sm:mb-8 tracking-tight"
+          className="text-5xl font-extrabold text-transparent bg-clip-text bg-linear-to-r from-indigo-600 to-pink-500 text-center mb-6 sm:mb-8 tracking-tight"
         >
           {t('app.title', 'Tutto')}
         </motion.h1>

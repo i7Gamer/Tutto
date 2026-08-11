@@ -1,3 +1,10 @@
+/* Tailwind v4 compiles each stylesheet on its own, so `@apply` has to be told
+   where the utilities come from. It must be index.css and not the bare
+   "tailwindcss" package: `dark` is redefined there as [data-theme="dark"], and
+   referencing the package would quietly compile `dark:` back to
+   prefers-color-scheme. `@reference` only reads — it emits nothing. */
+@reference "../index.css";
+
 /* The caption under a number on the end screen. Two of them, because the
    lifetime tiles shrink their label on a narrow screen and the record cards
    do not — kept apart rather than unified, since making the records

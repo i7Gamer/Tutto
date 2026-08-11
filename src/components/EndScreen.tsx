@@ -234,16 +234,16 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
           </div>
         </motion.div>
 
-        <h1 className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-orange-600 mb-8">
+        <h1 className="text-5xl font-extrabold text-transparent bg-clip-text bg-linear-to-r from-amber-500 to-orange-600 mb-8">
           {t('end.winner', 'Winner:')} {winner.name}
         </h1>
 
         <div className="flex flex-wrap justify-center gap-6 mb-10">
-          <div className="bg-black/5 dark:bg-white/5 border border-gray-200 dark:border-slate-600 rounded-2xl p-6 min-w-[180px] shadow-sm">
+          <div className="bg-black/5 dark:bg-white/5 border border-gray-200 dark:border-slate-600 rounded-2xl p-6 min-w-[180px] shadow-xs">
             <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('end.playedRounds', 'Played Rounds')}</div>
             <div className="text-4xl font-black text-indigo-600">{round}</div>
           </div>
-          <div className="bg-black/5 dark:bg-white/5 border border-gray-200 dark:border-slate-600 rounded-2xl p-6 min-w-[180px] shadow-sm">
+          <div className="bg-black/5 dark:bg-white/5 border border-gray-200 dark:border-slate-600 rounded-2xl p-6 min-w-[180px] shadow-xs">
             <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('end.playtime', 'Playtime')}</div>
             <div className="text-4xl font-black text-indigo-600">{formattedTime}</div>
           </div>
@@ -265,7 +265,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                     ? t('end.tooFewPlayers', 'Not enough players to play again')
                     : t('end.playAgain', 'Play Again')}
               </motion.button>
-              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="flex-1 bg-white dark:bg-slate-800 hover:bg-black/5 text-gray-700 dark:text-gray-200 border-2 border-gray-200 dark:border-slate-600 py-4 px-6 rounded-2xl text-lg font-bold flex justify-center items-center gap-2 shadow-sm transition-colors" onClick={endGame}>
+              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="flex-1 bg-white dark:bg-slate-800 hover:bg-black/5 text-gray-700 dark:text-gray-200 border-2 border-gray-200 dark:border-slate-600 py-4 px-6 rounded-2xl text-lg font-bold flex justify-center items-center gap-2 shadow-xs transition-colors" onClick={endGame}>
                 <Settings size={20} /> {t('end.newConfig', 'New Config')}
               </motion.button>
             </div>
@@ -289,7 +289,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 max-w-2xl mx-auto">
             {newHighScore && (
               <div className="flex items-center gap-4 bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-4 border border-amber-100 dark:border-amber-800">
-                <Award size={36} className="text-amber-500 flex-shrink-0" />
+                <Award size={36} className="text-amber-500 shrink-0" />
                 <div>
                   <div className="text-2xl font-black text-amber-600 dark:text-amber-400">{me?.highestTurnScore}</div>
                   <div className="end-record-label">{t('end.newPersonalBestTurnScore', 'New Personal Best Turn Score!')}</div>
@@ -298,7 +298,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
             )}
             {newFastestWin && (
               <div className="flex items-center gap-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-4 border border-emerald-100 dark:border-emerald-800">
-                <Zap size={36} className="text-emerald-500 flex-shrink-0" />
+                <Zap size={36} className="text-emerald-500 shrink-0" />
                 <div>
                   <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{me?.totalTurns}</div>
                   <div className="end-record-label">{t('end.newFastestWin', 'New Fastest Win (turns)!')}</div>
@@ -307,7 +307,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
             )}
             {newFastestLoss && (
               <div className="flex items-center gap-4 bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border border-red-100 dark:border-red-800">
-                <TrendingDown size={36} className="text-red-500 flex-shrink-0" />
+                <TrendingDown size={36} className="text-red-500 shrink-0" />
                 <div>
                   <div className="text-2xl font-black text-red-600 dark:text-red-400">{me?.totalTurns}</div>
                   <div className="end-record-label">{t('end.newFastestLoss', 'New Fastest Loss (turns) — ouch!')}</div>
@@ -316,7 +316,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
             )}
             {newHighestFeuerwerk && (
               <div className="flex items-center gap-4 bg-orange-50 dark:bg-orange-900/20 rounded-2xl p-4 border border-orange-100 dark:border-orange-800">
-                <Award size={36} className="text-orange-500 flex-shrink-0" />
+                <Award size={36} className="text-orange-500 shrink-0" />
                 <div>
                   <div className="text-2xl font-black text-orange-600 dark:text-orange-400">{me?.highestFeuerwerkTurnScore}</div>
                   <div className="end-record-label">{t('end.newHighestFeuerwerk', 'New Personal Best Feuerwerk Turn!')}</div>
@@ -325,7 +325,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
             )}
             {newHighestX2 && (
               <div className="flex items-center gap-4 bg-pink-50 dark:bg-pink-900/20 rounded-2xl p-4 border border-pink-100 dark:border-pink-800">
-                <Award size={36} className="text-pink-500 flex-shrink-0" />
+                <Award size={36} className="text-pink-500 shrink-0" />
                 <div>
                   <div className="text-2xl font-black text-pink-600 dark:text-pink-400">{me?.highestX2TurnScore}</div>
                   <div className="end-record-label">{t('end.newHighestX2', 'New Personal Best x2 Turn!')}</div>
@@ -388,9 +388,9 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
         <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-slate-600">
           <div className="flex flex-col rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 min-w-max">
             <div className="flex border-b border-gray-200 dark:border-slate-600 bg-black/5 dark:bg-white/5">
-              <div className="p-4 w-56 flex-shrink-0 font-bold text-gray-600 dark:text-gray-300">{t('end.stat', 'Stat')}</div>
+              <div className="p-4 w-56 shrink-0 font-bold text-gray-600 dark:text-gray-300">{t('end.stat', 'Stat')}</div>
               {sortedPlayers.map(p => (
-                <div key={p.id ?? p.name} className="p-4 w-32 flex-shrink-0 font-bold text-center" style={{ color: p.color || 'var(--text-color, #4f46e5)' }}>{p.name}</div>
+                <div key={p.id ?? p.name} className="p-4 w-32 shrink-0 font-bold text-center" style={{ color: p.color || 'var(--text-color, #4f46e5)' }}>{p.name}</div>
               ))}
             </div>
             <div className="flex flex-col">
@@ -420,9 +420,9 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                   : { label: t('end.feuerwerkStat', 'Feuerwerk (Received/Pts)'), render: (p: Player) => <span>{p.timesFeuerwerkReceived} / <span className="text-amber-500 font-bold">{p.feuerwerkPointsScored || 0}</span></span> },
               ].map(({ label, render }) => (
                 <div key={label} className="flex border-b border-gray-100 dark:border-slate-700/50 last:border-0 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                  <div className="p-4 w-56 flex-shrink-0 font-medium text-gray-600 dark:text-gray-300">{label}</div>
+                  <div className="p-4 w-56 shrink-0 font-medium text-gray-600 dark:text-gray-300">{label}</div>
                   {sortedPlayers.map(p => (
-                    <div key={p.id ?? p.name} className="p-4 w-32 flex-shrink-0 text-center">{render(p)}</div>
+                    <div key={p.id ?? p.name} className="p-4 w-32 shrink-0 text-center">{render(p)}</div>
                   ))}
                 </div>
               ))}

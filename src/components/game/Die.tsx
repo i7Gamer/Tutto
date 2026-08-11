@@ -76,12 +76,12 @@ export default function Die({ die, isSelected, isDieTumbling, bustState, onToggl
         rotate: { repeat: isDieTumbling ? Infinity : 0, duration: 0.2 },
         y: { repeat: isDieTumbling ? Infinity : 0, duration: 0.15 },
       }}
-      className={`die w-14 h-14 relative rounded-xl flex items-center justify-center text-transparent select-none outline-none focus:outline-none focus:ring-0 transition-all border-2
+      className={`die w-14 h-14 relative rounded-xl flex items-center justify-center text-transparent select-none outline-hidden focus:outline-hidden focus:ring-0 transition-all border-2
         ${isSelected
           ? 'bg-emerald-100 border-emerald-500 dark:bg-slate-700 dark:border-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-110 z-10'
           : bustState
             ? 'bg-red-50 border-red-300 opacity-70 cursor-default'
-            : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 shadow-sm ' + (isDieTumbling ? '' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50')
+            : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 shadow-xs ' + (isDieTumbling ? '' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50')
         }
       `}
       onClick={() => onToggle(die.id)}

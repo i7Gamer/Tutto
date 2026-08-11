@@ -13,7 +13,7 @@ export default function ReactionBar({ sendReaction }: ReactionBarProps) {
           key={emoji}
           whileHover={{ scale: 1.15 }}
           whileTap={{ scale: 0.9 }}
-          className="bg-[var(--card-bg)] hover:bg-indigo-50 dark:hover:bg-indigo-900/40 border border-white/40 rounded-xl w-11 h-11 md:w-12 md:h-12 flex items-center justify-center text-2xl shadow-sm transition-colors"
+          className="bg-(--card-bg) hover:bg-indigo-50 dark:hover:bg-indigo-900/40 border border-white/40 rounded-xl w-11 h-11 md:w-12 md:h-12 flex items-center justify-center text-2xl shadow-xs transition-colors"
           onClick={() => sendReaction(emoji)}
         >
           {emoji}

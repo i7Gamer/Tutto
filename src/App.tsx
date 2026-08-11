@@ -55,7 +55,7 @@ function ToastMessage() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed top-4 left-1/2 -translate-x-1/2 z-[150] flex flex-col gap-2 pointer-events-none"
+      className="fixed top-4 left-1/2 -translate-x-1/2 z-150 flex flex-col gap-2 pointer-events-none"
     >
       <AnimatePresence>
         {toasts.map(toast => (

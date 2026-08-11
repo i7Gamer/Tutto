@@ -679,7 +679,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
                   </button>
                 )}
               </div>
-              <div className="min-h-[80px] p-4 bg-white dark:bg-slate-800 rounded-2xl flex gap-3 flex-wrap justify-center border border-gray-200 dark:border-slate-600 shadow-sm">
+              <div className="min-h-[80px] p-4 bg-white dark:bg-slate-800 rounded-2xl flex gap-3 flex-wrap justify-center border border-gray-200 dark:border-slate-600 shadow-xs">
                 {displayRoll.map(d => {
                   const isDieTumbling = rollingDiceIndices.has(d.id);
                   const isSelected = currentRoll.find(cr => cr.id === d.id)?.selected ?? false;

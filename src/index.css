@@ -1,6 +1,29 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind's configuration lives here rather than in a tailwind.config.js —
+   there is no JS config file. What the v3 one held is below, except
+   `future.hoverOnlyWhenSupported`, which v4 does by default. */
+@import 'tailwindcss' source(none);
+
+/* The files scanned for class names, kept to exactly what the v3 `content`
+   globs covered. Left to its own detection v4 would scan from the repo root,
+   pulling in server/ and e2e/ and emitting utilities for class-shaped strings
+   that never reach the browser. */
+@source '../index.html';
+@source './**/*.{ts,tsx}';
+/* Tests are scanned for class names too unless excluded, and they are full of
+   prose: v3 shipped a `.blur` rule generated from the words "on blur" in a test
+   name. Nothing renders this stylesheet in jsdom, so there is nothing to lose. */
+@source not './**/*.test.{ts,tsx}';
+
+/* Dark mode is an attribute the app writes on <html> (App.tsx), not the OS
+   preference: the in-app toggle has to be able to override the OS. Descendant
+   only, which is what the v3 `darkMode: ['class', '[data-theme="dark"]']`
+   compiled to — nothing carrying a `dark:` class is <html> itself. */
+@custom-variant dark ([data-theme="dark"] &);
+
+/* A phone held sideways — short enough that the scoreboard reflows into a row
+   (Scoreboard.tsx). A width breakpoint alone would also catch a portrait
+   phone, which has the height to lay the tiles out normally. */
+@custom-variant phone-landscape (@media (max-width: 969px) and (orientation: landscape));
 
 :root {
   --bg-color: #f4f7f6;
@@ -42,56 +65,68 @@
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+/* Everything the app puts on bare elements belongs in Tailwind's `base` layer.
+   Unlayered CSS outranks every layer however weak its selector, so left outside
+   this block `* { margin: 0; padding: 0 }` sits above every p-* and m-* utility
+   in the app and silently kills all of them — v3 emitted no layers, so
+   specificity decided and the utility won. The class rules further down stay
+   unlayered deliberately: in v3 they followed the utilities and won ties on
+   order, and that is still what they need to do. */
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 
-body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background-color: var(--bg-color);
-  color: var(--text-color);
-  transition: background-color 0.3s ease, color 0.3s ease;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    transition: background-color 0.3s ease, color 0.3s ease;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
 
-#root {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
+  #root {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
 
+  /* Typography */
+  h1, h2, h3, h4 {
+    font-weight: 700;
+    margin-bottom: 1rem;
+    line-height: 1.2;
+  }
 
-/* Typography */
-h1, h2, h3, h4 {
-  font-weight: 700;
-  margin-bottom: 1rem;
-  line-height: 1.2;
-}
+  h1 { font-size: 2.5rem; text-align: center; background: linear-gradient(to right, var(--primary), var(--secondary)); -webkit-background-clip: text; color: transparent; margin-bottom: 2rem; }
+  h2 { font-size: 1.75rem; }
+  h3 { font-size: 1.25rem; }
 
-h1 { font-size: 2.5rem; text-align: center; background: linear-gradient(to right, var(--primary), var(--secondary)); -webkit-background-clip: text; color: transparent; margin-bottom: 2rem; }
-h2 { font-size: 1.75rem; }
-h3 { font-size: 1.25rem; }
+  @media (max-width: 768px) {
+    h1 { font-size: 2rem; }
+  }
 
-/* Inputs */
-input[type="text"],
-input[type="number"] {
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-color);
-  color: var(--text-color);
-  font-size: 1rem;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
+  /* Inputs */
+  input[type="text"],
+  input[type="number"] {
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-size: 1rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
 
-input:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
+  input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
+  }
 }
 
 .theme-toggle {
@@ -108,10 +143,6 @@ input:focus {
 }
 .theme-toggle:hover {
   background-color: var(--glass-bg);
-}
-
-@media (max-width: 768px) {
-  h1 { font-size: 2rem; }
 }
 
 /* Checkbox Toggle Styling */

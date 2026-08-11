@@ -101,7 +101,7 @@ export function PlayerList({
                       className={`w-6 h-6 p-0 border-0 bg-transparent align-middle cursor-pointer ${!isOnline ? 'mr-1' : ''}`}
                     />
                   ) : (
-                    <span className="inline-block w-4 h-4 rounded-full shadow-sm border border-black/10" style={{ backgroundColor: p.color || '#ffffff' }} />
+                    <span className="inline-block w-4 h-4 rounded-full shadow-xs border border-black/10" style={{ backgroundColor: p.color || '#ffffff' }} />
                   )}
                   {p.name}
                   {isOnline && p.socketId === hostId && <Crown size={16} className="text-amber-500" />}
@@ -120,7 +120,7 @@ export function PlayerList({
                             must not stay focusable (WCAG) — without it, a keyboard
                             user can Tab onto an invisible (opacity-0) button. */}
                         <button
-                          className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded transition-colors ${idx === 0 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
+                          className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded-sm transition-colors ${idx === 0 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
                           onClick={(e) => { e.currentTarget.blur(); if (idx > 0) handleMoveUp(idx); }}
                           aria-hidden={idx === 0}
                           disabled={idx === 0}
@@ -128,7 +128,7 @@ export function PlayerList({
                           <ChevronUp size={18} />
                         </button>
                         <button
-                          className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded transition-colors ${idx === players.length - 1 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
+                          className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded-sm transition-colors ${idx === players.length - 1 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
                           onClick={(e) => { e.currentTarget.blur(); if (idx < players.length - 1) handleMoveDown(idx); }}
                           aria-hidden={idx === players.length - 1}
                           disabled={idx === players.length - 1}
@@ -139,7 +139,7 @@ export function PlayerList({
                     )}
                     <div className="w-8 h-8 flex items-center justify-center ml-1">
                       {(!isOnline || (isHost && p.socketId !== hostId)) && (
-                        <button className="text-red-500 hover:bg-red-100 active:bg-red-200 dark:hover:bg-red-900/40 dark:active:bg-red-900/60 w-full h-full flex items-center justify-center rounded transition-colors" onClick={() => onRemovePlayer(p)}>
+                        <button className="text-red-500 hover:bg-red-100 active:bg-red-200 dark:hover:bg-red-900/40 dark:active:bg-red-900/60 w-full h-full flex items-center justify-center rounded-sm transition-colors" onClick={() => onRemovePlayer(p)}>
                           {isOnline ? <UserMinus size={18} /> : <Trash2 size={18} />}
                         </button>
                       )}
@@ -535,7 +535,7 @@ export function AdvancedOptionsPanel({
                 {onResetGeneralSettings && (
                   <button
                     onClick={onResetGeneralSettings}
-                    className="flex items-center p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors"
+                    className="flex items-center p-1 rounded-sm hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors"
                     title={t('lobby.resetGeneralSettings', 'Reset General Settings to Default Values')}
                   >
                     <RotateCcw size={18} />
@@ -548,7 +548,7 @@ export function AdvancedOptionsPanel({
                   <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.winningScore', 'Winning Score')}</span>
                   <BlurInput
                     type="number" minVal={MIN_WINNING_SCORE} maxVal={MAX_WINNING_SCORE} inputMode="numeric" pattern="[0-9]*"
-                    className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
+                    className="bg-transparent border-0 outline-hidden focus:outline-hidden focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
                     value={winningScore}
                     onValueChange={(val) => setWinningScore(val)}
                   />
@@ -560,7 +560,7 @@ export function AdvancedOptionsPanel({
                       <BlurInput
                         type="number" minVal={0} maxVal={MAX_TURN_DURATION} inputMode="numeric" pattern="[0-9]*"
                         normalize={(val) => snapDisableableDuration(val, MIN_ENABLED_TURN_DURATION)}
-                        className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
+                        className="bg-transparent border-0 outline-hidden focus:outline-hidden focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
                         value={turnDuration}
                         onValueChange={(val) => setTurnDuration(val)}
                         placeholder="0"
@@ -571,7 +571,7 @@ export function AdvancedOptionsPanel({
                       <BlurInput
                         type="number" minVal={0} maxVal={MAX_RECONNECT_TIMEOUT} inputMode="numeric" pattern="[0-9]*"
                         normalize={(val) => snapDisableableDuration(val, MIN_ENABLED_RECONNECT_TIMEOUT)}
-                        className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
+                        className="bg-transparent border-0 outline-hidden focus:outline-hidden focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
                         value={reconnectTimeout}
                         onValueChange={(val) => setReconnectTimeout(val)}
                         placeholder="0"
@@ -588,7 +588,7 @@ export function AdvancedOptionsPanel({
                     <motion.div
                       layout
                       transition={{ type: 'spring', stiffness: 700, damping: 30 }}
-                      className="w-4 h-4 bg-white rounded-full shadow-sm"
+                      className="w-4 h-4 bg-white rounded-full shadow-xs"
                       style={{ marginLeft: randomOrder !== false ? '20px' : '0px' }}
                     />
                   </div>
@@ -600,7 +600,7 @@ export function AdvancedOptionsPanel({
                 {onResetCards && (
                   <button
                     onClick={onResetCards}
-                    className="flex items-center p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors ml-2"
+                    className="flex items-center p-1 rounded-sm hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-gray-400 transition-colors ml-2"
                     title={t('lobby.resetCardsInDeck', 'Reset Cards in Deck to Default Values')}
                   >
                     <RotateCcw size={18} />
@@ -621,7 +621,7 @@ export function AdvancedOptionsPanel({
                     <BlurInput
                       type="number" minVal={0} maxVal={MAX_CARD_COUNT} inputMode="numeric" pattern="[0-9]*"
                       aria-label={card.replace('_', '/')}
-                      className="bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus:border-transparent shadow-none text-right w-16 py-1 text-gray-900 dark:text-white font-medium"
+                      className="bg-transparent border-0 outline-hidden focus:outline-hidden focus:ring-0 focus:border-transparent shadow-none text-right w-16 py-1 text-gray-900 dark:text-white font-medium"
                       value={count}
                       onValueChange={(val) => updateCardCount(card, val)}
                     />

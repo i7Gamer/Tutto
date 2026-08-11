@@ -34,7 +34,7 @@ function Section({ title, id, isOpen, onToggle, children }: SectionProps) {
         className="w-full flex items-center justify-between px-3 py-3 sm:px-4 sm:py-4 bg-white dark:bg-slate-700/50 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
       >
         <span className="text-base sm:text-lg leading-none font-bold text-gray-800 dark:text-gray-100 pt-0.5">{title}</span>
-        {isOpen ? <ChevronDown size={20} className="text-gray-500 flex-shrink-0" /> : <ChevronRight size={20} className="text-gray-500 flex-shrink-0" />}
+        {isOpen ? <ChevronDown size={20} className="text-gray-500 shrink-0" /> : <ChevronRight size={20} className="text-gray-500 shrink-0" />}
       </button>
       <AnimatePresence>
         {isOpen && (
@@ -324,7 +324,7 @@ export default function HelpPopup() {
                           {shortcut.keys.map(key => (
                             <kbd
                               key={key}
-                              className="px-2 py-0.5 rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs font-bold text-gray-700 dark:text-gray-200 shadow-sm"
+                              className="px-2 py-0.5 rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs font-bold text-gray-700 dark:text-gray-200 shadow-xs"
                             >
                               {key}
                             </kbd>

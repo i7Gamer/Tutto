@@ -22,7 +22,7 @@ export const STAT_TONES = {
   // A win streak long enough to be worth showing off: the same amber, turned up.
   amberHot: {
     text: 'text-amber-600 dark:text-amber-400 font-extrabold',
-    surface: 'bg-amber-100/70 dark:bg-amber-900/40 border-amber-200 dark:border-amber-500/50 shadow-sm animate-pulse',
+    surface: 'bg-amber-100/70 dark:bg-amber-900/40 border-amber-200 dark:border-amber-500/50 shadow-xs animate-pulse',
   },
   red: {
     text: 'text-red-600 dark:text-red-400',

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
@@ -40,6 +41,10 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
+      // Tailwind as a Vite plugin rather than through PostCSS: it is the
+      // faster path, and it takes autoprefixer's job with it (v4 prefixes via
+      // Lightning CSS), so the project needs no postcss.config.js at all.
+      tailwindcss(),
       VitePWA({
         // injectManifest, not the default generateSW: the generated worker's
         // workbox runtime does not survive this toolchain's bundling — it

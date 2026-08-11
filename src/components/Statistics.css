@@ -1,3 +1,7 @@
+/* Reads the app's theme so `@apply` resolves — index.css, not "tailwindcss":
+   see the note in EndScreen.css for why the distinction matters. */
+@reference "../index.css";
+
 /* Shared look for the statistics screen's repeating parts. Margins stay at
    the call sites: a `mb-4` here would beat an `mb-8` written on the element,
    since both are plain classes and this file ships after the utilities. */

@@ -1,3 +1,7 @@
+/* Reads the app's theme so `@apply` resolves — index.css, not "tailwindcss":
+   see the note in EndScreen.css for why the distinction matters. */
+@reference "../index.css";
+
 /* Shared look for the wiki's repeating elements. Each of these was a utility
    string copied onto every element that used it — seven copies of the card
    highlight, eight of the section heading — which is how they drift apart. */

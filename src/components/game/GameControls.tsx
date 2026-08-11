@@ -103,7 +103,7 @@ export default function GameControls({
   };
 
   return (
-    <div className="flex flex-col bg-[var(--card-bg)] backdrop-blur border border-white/40 rounded-3xl p-4 md:p-6 shadow-xl relative overflow-hidden h-full w-full min-h-[360px] md:min-h-[400px]">
+    <div className="flex flex-col bg-(--card-bg) backdrop-blur-sm border border-white/40 rounded-3xl p-4 md:p-6 shadow-xl relative overflow-hidden h-full w-full min-h-[360px] md:min-h-[400px]">
       <div className="flex-1 flex flex-col justify-center items-center w-full min-h-[220px]">
         <AnimatePresence mode="wait">
           {isMyTurn && !isStopCard && !isFlipping && (
@@ -136,7 +136,7 @@ export default function GameControls({
                       value={scoreInput}
                       onChange={(e) => setScoreInput(e.target.value)}
                       placeholder={t('game.controls.scorePlaceholder', 'Score')}
-                      className="flex-1 min-w-0 w-full text-center text-2xl md:text-3xl font-bold py-3 md:py-4 rounded-2xl border-2 border-gray-200 dark:border-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/20 bg-[var(--card-bg)] transition-all outline-none"
+                      className="flex-1 min-w-0 w-full text-center text-2xl md:text-3xl font-bold py-3 md:py-4 rounded-2xl border-2 border-gray-200 dark:border-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/20 bg-(--card-bg) transition-all outline-hidden"
                     />
                     {/* The cards that change what a manually entered score is
                         worth: the flat bonuses, plus the doubler. Hidden for
@@ -160,7 +160,7 @@ export default function GameControls({
                         key={val}
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
-                        className="bg-[var(--card-bg)] hover:bg-indigo-50 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-white font-bold py-1.5 md:py-2 text-sm md:text-base rounded-lg md:rounded-xl border border-indigo-100 dark:border-indigo-800 transition-colors shadow-sm"
+                        className="bg-(--card-bg) hover:bg-indigo-50 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-white font-bold py-1.5 md:py-2 text-sm md:text-base rounded-lg md:rounded-xl border border-indigo-100 dark:border-indigo-800 transition-colors shadow-xs"
                         onClick={() => addScore(val)}
                       >
                         +{val}

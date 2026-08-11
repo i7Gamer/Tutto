@@ -50,7 +50,7 @@ export default function ReactionOverlay() {
           }}
           exit={{ opacity: 0, y: -REACTION_EXIT_RISE_DISTANCE_PX }}
           transition={{ duration: REACTION_ANIMATION_DURATION_S }}
-          className="fixed bottom-24 left-1/2 -translate-x-1/2 text-4xl pointer-events-none select-none z-[100]"
+          className="fixed bottom-24 left-1/2 -translate-x-1/2 text-4xl pointer-events-none select-none z-100"
           title={r.senderName}
         >
           {r.emoji}

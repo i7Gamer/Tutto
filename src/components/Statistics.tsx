@@ -147,7 +147,7 @@ interface StatTileProps {
 }
 
 const StatTile = ({ icon, value, label, tone = DEFAULT_STAT_TONE, badge }: StatTileProps) => (
-  <div className={`p-6 rounded-2xl border relative text-left overflow-hidden shadow-sm ${STAT_TONES[tone].surface}`}>
+  <div className={`p-6 rounded-2xl border relative text-left overflow-hidden shadow-xs ${STAT_TONES[tone].surface}`}>
     <div className="absolute top-4 right-4 opacity-50">{icon}</div>
     <div className={`text-3xl font-black mt-2 ${STAT_TONES[tone].text}`}>{value}</div>
     <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-1 pr-8">{label}</div>
@@ -179,7 +179,7 @@ interface BigStatTileProps {
 }
 
 const BigStatTile = ({ value, label, tone = DEFAULT_STAT_TONE }: BigStatTileProps) => (
-  <div className={`p-8 rounded-2xl border text-center shadow-sm ${STAT_TONES[tone].surface}`}>
+  <div className={`p-8 rounded-2xl border text-center shadow-xs ${STAT_TONES[tone].surface}`}>
     <div className={`text-5xl font-black mb-2 ${STAT_TONES[tone].text}`}>{value}</div>
     <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{label}</div>
   </div>
@@ -286,7 +286,7 @@ const CardRow = ({ label, icon, count, wins, fails, avgPoints, hideRate, failsLa
       initial={{ opacity: 0, y: 10 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
-      className="flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm mb-3 hover:shadow-md transition-shadow"
+      className="flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-xs mb-3 hover:shadow-md transition-shadow"
     >
       <div className="flex items-center gap-3 flex-1">
         <span className="text-2xl">{icon}</span>
@@ -436,9 +436,9 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   return (
     <div className="container mx-auto px-4 py-8 max-w-3xl flex flex-col items-center">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-2xl rounded-3xl p-8 relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
+        <div className="absolute top-0 left-0 w-full h-2 bg-linear-to-r from-indigo-500 via-purple-500 to-pink-500" />
         <div className="flex items-center mb-8 relative justify-center">
-          <button className="absolute left-0 p-3 bg-white dark:bg-slate-800 hover:bg-black/5 border border-gray-200 dark:border-slate-600 rounded-xl text-gray-600 dark:text-gray-300 transition-colors shadow-sm" onClick={onBack} aria-label={t('common.back', 'Back')}>
+          <button className="absolute left-0 p-3 bg-white dark:bg-slate-800 hover:bg-black/5 border border-gray-200 dark:border-slate-600 rounded-xl text-gray-600 dark:text-gray-300 transition-colors shadow-xs" onClick={onBack} aria-label={t('common.back', 'Back')}>
             <ArrowLeft size={20} />
           </button>
           <h1 className="text-3xl font-extrabold text-gray-800 dark:text-gray-100 flex items-center gap-3 m-0">

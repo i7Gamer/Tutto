@@ -12,8 +12,8 @@ export default function CardDisplay({ currentCard, cards }: CardDisplayProps) {
   const { t } = useTranslation();
 
   return (
-    <div className="flex flex-col items-center justify-center p-2 bg-white/60 dark:bg-slate-800/60 backdrop-blur border border-white/40 rounded-3xl shadow-xl relative overflow-hidden h-full w-full min-h-[300px] md:min-h-[340px]">
-      <div className="relative w-[200px] md:w-[220px] lg:w-[240px] h-[280px] md:h-[308px] lg:h-[336px] [perspective:1000px]">
+    <div className="flex flex-col items-center justify-center p-2 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm border border-white/40 rounded-3xl shadow-xl relative overflow-hidden h-full w-full min-h-[300px] md:min-h-[340px]">
+      <div className="relative w-[200px] md:w-[220px] lg:w-[240px] h-[280px] md:h-[308px] lg:h-[336px] perspective-[1000px]">
         <AnimatePresence mode="wait">
           {currentCard ? (
             <motion.div
@@ -22,7 +22,7 @@ export default function CardDisplay({ currentCard, cards }: CardDisplayProps) {
               animate={{ rotateY: 0, opacity: 1, scale: 1 }}
               exit={{ rotateY: 90, opacity: 0, scale: 0.8 }}
               transition={{ duration: 0.5, type: 'spring', stiffness: 100 }}
-              className="absolute w-full h-full rounded-[26px] [transform-style:preserve-3d]"
+              className="absolute w-full h-full rounded-[26px] transform-3d"
             >
               <CardFace cardType={currentCard} />
             </motion.div>

@@ -305,7 +305,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
                 value={inputRoomCode}
                 onChange={(e) => setInputRoomCode(e.target.value)}
                 placeholder={t('lobby.online.roomCodePlaceholder', 'e.g. 1234')}
-                className="flex-1 min-w-0 bg-white dark:bg-slate-800/60 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="flex-1 min-w-0 bg-white dark:bg-slate-800/60 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
               />
               {/* Always offered, never pre-emptively hidden: whether the camera
                   can be used depends on the origin and the permission, and the
@@ -333,10 +333,10 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
               value={inputName}
               onChange={(e) => setInputName(e.target.value)}
               placeholder={t('lobby.online.yourNamePlaceholder', 'e.g. Alice')}
-              className="bg-white dark:bg-slate-800/60 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="bg-white dark:bg-slate-800/60 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-          {errorMsg && <div className="text-red-500 text-sm font-medium bg-red-50 p-2 rounded">{errorMsg}</div>}
+          {errorMsg && <div className="text-red-500 text-sm font-medium bg-red-50 p-2 rounded-sm">{errorMsg}</div>}
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}

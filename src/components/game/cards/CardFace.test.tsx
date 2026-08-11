@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { render } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import CardFace from './CardFace';
@@ -181,6 +182,32 @@ describe('CardFace', () => {
       const { container } = render(<CardFace cardType="Plus_Minus" />);
       expect(container.querySelector('.crn-pm-l')).toBeInTheDocument();
       expect(container.querySelector('.crn-pm-r')).toBeInTheDocument();
+    });
+  });
+
+  // These cards are drawn entirely by card.css — not one Tailwind utility among
+  // them. That makes the class names load-bearing in a way a codemod cannot see:
+  // the Tailwind v4 upgrade renamed `.ring` (the Stop card's red circle) to
+  // `.ring-3`, taking it for the v3 `ring` utility, and left the stylesheet
+  // alone. Every test above still passed — including the one that renamed its
+  // own selector to match. They ask whether an element is there, and it was,
+  // just unstyled. This asks the question none of them can.
+  describe('every rendered class is defined in card.css', () => {
+    // Root-relative: vitest runs from the project root, and under its transform
+    // `import.meta.url` is not a file: URL, so it cannot resolve a sibling.
+    const stylesheet = readFileSync('src/components/game/cards/card.css', 'utf8');
+    const defined = new Set(
+      [...stylesheet.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)].map(match => match[1])
+    );
+
+    it.each(ALL_CARD_TYPES)('%s', (cardType) => {
+      const { container } = render(<CardFace cardType={cardType} />);
+      const rendered = [...container.querySelectorAll('[class]')]
+        .flatMap(element => element.className.split(/\s+/))
+        .filter(Boolean);
+
+      expect(rendered.length).toBeGreaterThan(0);
+      expect([...new Set(rendered)].filter(cls => !defined.has(cls))).toEqual([]);
     });
   });
 });
