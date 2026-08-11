@@ -1074,6 +1074,16 @@ describe('DiceGame classic chains', () => {
     render(<DiceGame currentCard="300" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
 
     expect(screen.queryByTestId('draw-next-card')).not.toBeInTheDocument();
+    // The chain can no longer be drawn on, but it is still a chain TOTAL being
+    // banked — so the summary must keep naming it. "may another card be drawn?"
+    // and "is this a banked chain total?" are two questions, and answering both
+    // with the same expression is what hid the banked total here. DiceSummary's
+    // own tests take banksChainTotal as a prop, so this is the only place the
+    // expression that computes it is exercised.
+    expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
+    expect(screen.queryByText('dice.continue')).not.toBeInTheDocument();
+    expect(screen.getByText('dice.points_gained')).toBeInTheDocument();
+
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(9000, true, expect.objectContaining({
       ended: 'banked',
     })));

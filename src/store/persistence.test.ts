@@ -14,7 +14,6 @@ describe('pickLocalGameState', () => {
       players: [{ name: 'Alice', score: 100 }],
       round: 3,
       winningScore: 7000,
-      diceMode: 'digital',
       gameTimeInSeconds: 42,
     };
     expect(pickLocalGameState(parsed)).toEqual(parsed);
@@ -54,9 +53,9 @@ describe('pickLocalGameState', () => {
     // the store expects a number/array — the store keeps its initial default
     // for that field instead of crashing at first use (players.map, round
     // arithmetic, chart rendering, ...).
-    const parsed = { round: 'five', players: 'not-an-array', winningScore: null, diceMode: 'digital' };
+    const parsed = { round: 'five', players: 'not-an-array', winningScore: null, gameTimeInSeconds: 42 };
     const picked = pickLocalGameState(parsed);
-    expect(picked).toEqual({ diceMode: 'digital' });
+    expect(picked).toEqual({ gameTimeInSeconds: 42 });
   });
 
   it('drops corrupted values field-by-field while keeping the valid rest of the save', () => {
@@ -131,6 +130,15 @@ describe('pickLocalGameState', () => {
     expect(pickLocalGameState({ chartValues: [[1]], chartNames: ['A'] })).toEqual({});
   });
 
+  // tutto_diceMode is where the per-device preference lives, and init()
+  // applies it AFTER the save so it already wins there. Carrying it in the
+  // save too let setMode('local') — which does not re-read that key — restore
+  // whatever the last local game happened to be saved under, so the store and
+  // the persisted preference disagreed until the next reload.
+  it('leaves diceMode out of the game save — it is a device preference, not game state', () => {
+    expect(pickLocalGameState({ diceMode: 'physical', round: 3 })).toEqual({ round: 3 });
+  });
+
   it('restores a realistic well-formed mid-game save unchanged', () => {
     const save = {
       players: [
@@ -142,7 +150,6 @@ describe('pickLocalGameState', () => {
       cards: ['Stop', '200', 'Kniffel'],
       round: 6,
       winningScore: 6000,
-      diceMode: 'physical',
       randomOrder: false,
       turnDuration: 120,
       reconnectTimeout: 60,

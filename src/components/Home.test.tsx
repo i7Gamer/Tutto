@@ -163,6 +163,34 @@ describe('Home handleClearCache', () => {
     expect(reloadMock).toHaveBeenCalledTimes(1);
   });
 
+  it('unregisters the worker too, so the reload actually re-precaches', async () => {
+    // src/sw.js only ever fills the precache from its `install` event, and an
+    // unchanged worker never installs again. Deleting the caches underneath a
+    // still-registered worker therefore leaves the app with no offline support
+    // at all until some future deploy happens to change an asset.
+    const reloadMock = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, reload: reloadMock },
+      writable: true,
+    });
+    vi.stubGlobal('caches', { keys: vi.fn().mockResolvedValue(['cache-a']), delete: vi.fn().mockResolvedValue(true) });
+    const unregister = vi.fn().mockResolvedValue(true);
+    Object.defineProperty(window.navigator, 'serviceWorker', {
+      value: { getRegistrations: vi.fn().mockResolvedValue([{ unregister }]) },
+      configurable: true,
+    });
+
+    render(<Home onShowStats={() => {}} />);
+    await act(async () => {
+      fireEvent.click(screen.getByText('home.clearCache'));
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+    });
+
+    expect(unregister).toHaveBeenCalledTimes(1);
+    expect(reloadMock).toHaveBeenCalledTimes(1);
+    delete (window.navigator as unknown as Record<string, unknown>).serviceWorker;
+  });
+
   it('still reloads even if deleting the caches fails', async () => {
     const reloadMock = vi.fn();
     Object.defineProperty(window, 'location', {

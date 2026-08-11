@@ -186,6 +186,28 @@ export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void 
   rememberCurrentTurn(room);
 };
 
+/**
+ * Hands the room to a connected player when the socket that just died was the
+ * one holding it, and reports whether it did.
+ *
+ * A room whose host id is a dead socket is unmanageable: `pushState`'s host
+ * branch, `updateConfig`, `kickPlayer` and `submitGlobalStats` all gate on
+ * `room.host === socket.id`, so nobody can change config, kick the ghost,
+ * restart, or record the game. Both places a host can vanish need this — the
+ * reconnect-timeout timer and, because a disabled kick timer arms no timer at
+ * all, the disconnect itself.
+ *
+ * players[0] is the fallback rather than the preference: it may itself be
+ * disconnected, which is the very state this exists to get out of.
+ */
+export const promoteHostAfterLoss = (room: Room, lostSocketId: string): boolean => {
+  if (room.host !== lostSocketId) return false;
+  const nextHost = room.state.players.find(p => !p.disconnected) ?? room.state.players[0];
+  if (!nextHost) return false;
+  room.host = nextHost.socketId;
+  return true;
+};
+
 export const calculateGameTime = (room: Room): number => {
   if (!room.gameActualStartTime || room.state.status !== 'playing') {
     return room.state.gameTimeInSeconds;

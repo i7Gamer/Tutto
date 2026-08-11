@@ -111,6 +111,37 @@ describe('applyPushedState', () => {
       expect(state.players[0].score).toBe(0);
     });
 
+    // A push is one snapshot of one moment. Rejecting only its roster and
+    // applying the rest let a turn advance and be logged while the score it
+    // banked was silently dropped — the push described a table that no longer
+    // exists, so none of it can be trusted.
+    it('discards the WHOLE push when the roster it was built against is gone', () => {
+      const state = makeState(['Alice', 'Bob']);
+      state.round = 3;
+      state.currentPlayerIndex = 0;
+      state.historyLog = [];
+
+      applyPushedState(state, {
+        // Composed before Carol left, so it still carries three seats.
+        players: [{ name: 'Alice', score: 5000 }, { name: 'Bob' }, { name: 'Carol' }],
+        currentPlayerIndex: 1,
+        round: 4,
+        cards: ['300'],
+        historyLog: [{ id: 'h1', round: 3, playerName: 'Alice', card: '200', type: 'success', score: 5000 }],
+      }, asActivePlayer);
+
+      expect(state.players[0].score, 'the banked score was dropped').toBe(0);
+      expect(state.currentPlayerIndex, 'but the turn advanced anyway').toBe(0);
+      expect(state.round, 'and the round advanced anyway').toBe(3);
+      expect(state.historyLog, 'and the turn was logged anyway').toEqual([]);
+    });
+
+    it('still applies a push that carries no roster at all', () => {
+      const state = makeState();
+      applyPushedState(state, { round: 7 }, asActivePlayer);
+      expect(state.round).toBe(7);
+    });
+
     it('rejects a players array containing an unknown name', () => {
       const state = makeState();
       applyPushedState(state, { players: [{ name: 'Alice', score: 500 }, { name: 'Mallory', score: 1 }] }, asActivePlayer);

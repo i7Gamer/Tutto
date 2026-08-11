@@ -397,6 +397,21 @@ describe('useGameStore', () => {
       expect(localStorage.getItem('tutto_diceMode')).toBe('digital');
     });
 
+    it('a dice mode chosen while online survives the switch back to local', () => {
+      // The local persistence subscriber is inert while online, so the saved
+      // game keeps whatever mode it was written with. setMode('local') applies
+      // that save and does not re-read tutto_diceMode, so carrying diceMode in
+      // the save silently reverted the player's live choice.
+      localStorage.setItem('tutto_local_game', JSON.stringify({ round: 2, diceMode: 'digital' }));
+      useGameStore.setState({ mode: 'online', isOnline: true });
+
+      useGameStore.getState().setDiceMode('physical');
+      useGameStore.getState().setMode('local');
+
+      expect(useGameStore.getState().diceMode).toBe('physical');
+      expect(localStorage.getItem('tutto_diceMode')).toBe('physical');
+    });
+
     it('setDiceMode does not touch enforcedDiceMode while offline or not enforcing', () => {
       useGameStore.getState().setDiceMode('digital');
       expect(useGameStore.getState().enforcedDiceMode).toBeNull();
@@ -2398,6 +2413,7 @@ describe('useGameStore', () => {
         mode: 'online', isOnline: true, roomId: 'R1', myName: 'Alice',
         players: namedPlayers('Alice', 'Bob'),
         status: 'playing', round: 3, currentPlayerIndex: 1, finished: false,
+        turnDuration: 60, turnTimeRemaining: 47,
         chartValues: [[100], [200]], chartNames: ['Alice', 'Bob'], chartLabels: [1],
         historyLog: [{ id: 'h1', round: 1, playerName: 'Alice', card: '200', type: 'success', score: 100 }],
         previousCard: '200', previousScore: 100, previousPlayerName: 'Alice',
@@ -2408,6 +2424,10 @@ describe('useGameStore', () => {
     const expectNothingLeftOver = () => {
       const s = useGameStore.getState();
       expect(s.players).toEqual([]);
+      // Scoreboard renders its turn-timer tile whenever this is non-null, and
+      // a local game has no turn timer at all — so an abandoned room's
+      // countdown would sit frozen in one.
+      expect(s.turnTimeRemaining).toBeNull();
       expect(s.chartValues).toEqual([]);
       expect(s.chartNames).toEqual([]);
       expect(s.chartLabels).toEqual([]);

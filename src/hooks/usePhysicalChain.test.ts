@@ -161,13 +161,34 @@ describe('usePhysicalChain', () => {
       expect(result.current.buildSummary('banked', true).plusMinusSuccesses).toBe(0);
     });
 
-    it('recordDraw appends the drawn card, closes the choice and stamps the POST-draw key', () => {
+    it('recordDraw stamps the POST-draw key itself, before the prop catches up', () => {
+      // The write recordDraw makes is the one that matters: the store already
+      // holds the drawn card, but this render's prop still names the old one,
+      // so stamping with the render's key would leave the entry describing a
+      // turn slot that has already moved on — and a reload in that window
+      // resumes into the wrong card.
+      //
+      // Nothing here re-runs the write-through effect (awaitingChoice is
+      // already false, so setting it false again changes no dependency), which
+      // is what makes recordDraw's own write observable. An earlier version of
+      // this test called completeCurrentCard first and re-rendered inside the
+      // same act(): the effect then rewrote the entry under the new key and
+      // the assertion passed no matter what recordDraw had done.
+      const { result } = mount();
+
+      act(() => result.current.recordDraw('Kniffel'));
+
+      expect(readCache().turnKey).toBe(keyFor('Kniffel'));
+      expect(readCache().cards).toEqual([
+        { card: '200', completed: true },
+        { card: 'Kniffel', completed: false },
+      ]);
+    });
+
+    it('appends the drawn card and closes the choice once the prop catches up', () => {
       const { result, rerender } = mount();
 
       act(() => result.current.completeCurrentCard(false));
-      // How Game calls it: drawCardMidTurn puts the new card in the store and
-      // recordDraw runs in the same handler, so the prop catches up in the
-      // same commit. The entry must end up stamped for the card now showing.
       act(() => {
         result.current.recordDraw('Kniffel');
         rerender({ ...defaultArgs, currentCard: 'Kniffel' });

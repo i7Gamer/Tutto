@@ -79,6 +79,9 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
   // their shared closure (and `disabled` hasn't been committed yet either),
   // so only a synchronously-written ref actually blocks the second call.
   const joiningRef = useRef(false);
+  // One join attempt reports its outcome twice (the raced result and the late
+  // ack behind it), and only the first success may be recorded.
+  const joinRecordedRef = useRef(false);
 
   // Selects only what this lobby renders — the whole store used to arrive as
   // a prop from Home, re-rendering the entire lobby tree on any store change.
@@ -192,11 +195,19 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     if (joiningRef.current) return;
     setErrorMsg('');
     joiningRef.current = true;
+    joinRecordedRef.current = false;
     setIsJoining(true);
     let watchdog: ReturnType<typeof setTimeout> | undefined;
     try {
+      const joining = joinRoom(trimmedRoomCode, trimmedName) as Promise<JoinRoomResult | undefined>;
+      // The watchdog only decides how long the FORM waits. A slow ack that
+      // eventually succeeds still seated this client, so the room has to be
+      // remembered either way — losing that race used to mean the room the
+      // player is now sitting in never reached Recent Rooms at all.
+      // handleJoinResult is idempotent (see the joinRecordedRef guard).
+      void joining.then((late) => handleJoinResult(late, trimmedRoomCode, trimmedName, Date.now()), () => {});
       const res = await Promise.race([
-        joinRoom(trimmedRoomCode, trimmedName) as Promise<JoinRoomResult | undefined>,
+        joining,
         new Promise<JoinRoomResult>((resolve) => {
           watchdog = setTimeout(
             () => resolve({ error: t('lobby.online.joinTimeout', 'No response from the server. Please try again.') }),
@@ -223,6 +234,15 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     if (res && res.error) {
       setErrorMsg(res.error);
     } else {
+      // Called from two places for the same attempt (the raced result and the
+      // late ack behind it), so the room is recorded exactly once — otherwise
+      // a slow-but-successful join would rewrite Recent Rooms twice with two
+      // different timestamps.
+      if (joinRecordedRef.current) return;
+      joinRecordedRef.current = true;
+      // A late success supersedes the watchdog's message: the player IS in the
+      // room, so leaving "no response from the server" on screen is a lie.
+      setErrorMsg('');
       // The seat's name, not the typed one — see JoinRoomResult. An ack that
       // names no seat (an older server, or the watchdog resolving first) leaves
       // what was typed, which is what the store adopted too.

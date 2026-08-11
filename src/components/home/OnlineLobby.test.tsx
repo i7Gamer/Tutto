@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import OnlineLobby from './OnlineLobby';
 import { MAX_RECENT_ROOMS } from '../../utils/recentRooms';
+import { JOIN_TIMEOUT_MS } from '../../utils/uiTimings';
 import { TOUCH_FIRST_POINTER_QUERY } from '../../utils/shareSupport';
 import { useGameStore } from '../../store/useGameStore';
 import type { GameStore } from '../../store/useGameStore';
@@ -637,6 +638,45 @@ describe('OnlineLobby scanning a friend\'s QR code', () => {
     expect(JSON.parse(localStorage.getItem('tutto_recent_rooms') || '[]')).toEqual([
       expect.objectContaining({ roomId: 'R1', name: 'Robert' }),
     ]);
+  });
+
+  it('still remembers the room when the watchdog fires first but the join then succeeds', async () => {
+    // The watchdog only decides how long the FORM waits. A late ack that
+    // succeeds still seated this client, so the room they are now sitting in
+    // has to reach Recent Rooms — and the timeout message has to go, because
+    // by then it is untrue.
+    vi.useFakeTimers();
+    let resolveJoin!: (v: { success: boolean; name?: string }) => void;
+    const joinRoom = vi.fn(() => new Promise<{ success: boolean; name?: string }>(res => { resolveJoin = res; }));
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+
+    render(<OnlineLobby />);
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.roomCodePlaceholder'), { target: { value: 'SLOW' } });
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.yourNamePlaceholder'), { target: { value: 'Alice' } });
+
+    await act(async () => { fireEvent.click(screen.getByText('lobby.online.joinCreateButton')); });
+    await act(async () => { vi.advanceTimersByTime(JOIN_TIMEOUT_MS + 10); });
+    expect(screen.getByText('lobby.online.joinTimeout')).toBeInTheDocument();
+
+    await act(async () => { resolveJoin({ success: true, name: 'Alice' }); });
+
+    expect(JSON.parse(localStorage.getItem('tutto_recent_rooms') || '[]')).toEqual([
+      expect.objectContaining({ roomId: 'SLOW', name: 'Alice' }),
+    ]);
+    expect(screen.queryByText('lobby.online.joinTimeout')).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it('records the room only once when the join wins the race outright', async () => {
+    const joinRoom = vi.fn().mockResolvedValue({ success: true, name: 'Alice' });
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+
+    render(<OnlineLobby />);
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.roomCodePlaceholder'), { target: { value: 'R1' } });
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.yourNamePlaceholder'), { target: { value: 'Alice' } });
+    await act(async () => { fireEvent.click(screen.getByText('lobby.online.joinCreateButton')); });
+
+    expect(JSON.parse(localStorage.getItem('tutto_recent_rooms') || '[]')).toHaveLength(1);
   });
 
   it('falls back to the typed name when the ack names no seat', async () => {

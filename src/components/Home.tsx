@@ -56,22 +56,40 @@ export default function Home({ onShowStats }: HomeProps) {
     // crypto.randomUUID() note in DiceGame.tsx for the same constraint), where
     // `caches` is undefined — referencing it directly would throw before the
     // reload below ever ran, leaving storage half-cleared and no reload.
+    // Unregistering matters as much as deleting: src/sw.js only ever fills the
+    // precache from its `install` event, and an unchanged worker never
+    // installs again. Deleting the caches under a still-registered worker
+    // therefore destroys offline support until the next deploy happens to
+    // change an asset. Unregistering makes the reload register a fresh worker,
+    // which installs and precaches — the same pairing ErrorBoundary's recovery
+    // path already uses.
+    const unregisterThenReload = () => {
+      if (!('serviceWorker' in navigator)) {
+        window.location.reload();
+        return;
+      }
+      navigator.serviceWorker.getRegistrations()
+        .then(registrations => Promise.all(registrations.map(r => r.unregister())))
+        .catch(() => {})
+        .then(() => window.location.reload());
+    };
+
     if (typeof caches === 'undefined') {
-      window.location.reload();
+      unregisterThenReload();
       return;
     }
 
     caches.keys().then(names => {
       Promise.all(names.map(name => caches.delete(name))).then(() => {
-        window.location.reload();
+        unregisterThenReload();
       }).catch((err) => {
         // Reload must happen even if a cache failed to delete — otherwise this
         // explicit "reload" button silently does nothing from the user's
         // perspective beyond the console error.
         console.error(err);
-        window.location.reload();
+        unregisterThenReload();
       });
-    }).catch(() => window.location.reload());
+    }).catch(() => unregisterThenReload());
   }, []);
 
   return (

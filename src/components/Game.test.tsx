@@ -41,6 +41,11 @@ describe('Game Component Integration', () => {
       // Most tests in this file exercise the physical-mode score input/yes-no
       // controls; tests for digital-mode behavior set diceMode explicitly.
       diceMode: 'physical',
+      // Reset for the same reason diceMode is: the store outlives each test,
+      // so a test that switches to classic would otherwise change what the
+      // yes/no and score-input controls DO for every test declared after it
+      // (classic routes them through the chain, not straight to nextTurn).
+      ruleset: 'modernized',
       currentCardHasInput: true,
       currentCardHasYesNo: false,
       players: [
@@ -954,6 +959,61 @@ describe('Game Component Integration', () => {
       useGameStore.setState({
         addToast: mockAddToast,
         liveTurnState: { turnScore: 200, keptDice: [], currentRoll: [] },
+        justReconnected: true,
+      });
+
+      render(<Game />);
+      act(() => { vi.advanceTimersByTime(100); });
+
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+      expect(mockAddToast).toHaveBeenCalledWith('game.resumingDiceGame');
+    });
+
+    it('refuses a chain snapshot that predates a mid-chain draw', () => {
+      // The relayed snapshot carries no turn key (the server strips it), so
+      // re-stamping it with the current one asserts it belongs to the current
+      // card. The ~300ms snapshot debounce means a draw can land while the
+      // last pushed snapshot still describes the card BEFORE it — resuming
+      // that one hands its six kept dice and its accumulated total to a card
+      // the player never played, letting them bank a chain they did not earn.
+      const mockAddToast = vi.fn();
+      useGameStore.setState({
+        addToast: mockAddToast,
+        currentCard: 'Kniffel',
+        ruleset: 'classic',
+        liveTurnState: {
+          turnScore: 2000,
+          keptDice: [1, 2, 3, 4, 5, 6].map(v => ({ id: `d${v}`, val: v })),
+          currentRoll: [],
+          kniffelProgress: [],
+          tuttosThisTurn: 1,
+          cardsThisTurn: ['300'], // the chain still ends on the PREVIOUS card
+          plusMinusSuccesses: 0,
+          chainTuttoCount: 1,
+        },
+        justReconnected: true,
+      });
+
+      render(<Game />);
+      act(() => { vi.advanceTimersByTime(100); });
+
+      expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
+      expect(mockAddToast).not.toHaveBeenCalledWith('game.resumingDiceGame');
+      expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
+    });
+
+    it('still resumes a chain snapshot that does describe the current card', () => {
+      const mockAddToast = vi.fn();
+      useGameStore.setState({
+        addToast: mockAddToast,
+        currentCard: 'Kniffel',
+        ruleset: 'classic',
+        liveTurnState: {
+          turnScore: 2000,
+          keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+          cardsThisTurn: ['300', 'Kniffel'],
+          plusMinusSuccesses: 0, chainTuttoCount: 1,
+        },
         justReconnected: true,
       });
 

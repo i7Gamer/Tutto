@@ -7,7 +7,7 @@ import { startServerTurnTimer, abortGameIfLowPlayers } from './turnTimers';
 import type { ServerPlayer } from './roomTypes';
 import {
   rooms, createRoom, deleteRoom, handleActivePlayerRemoved, emitRoomState,
-  MAX_PLAYERS_PER_ROOM, MAX_ROOMS,
+  promoteHostAfterLoss, MAX_PLAYERS_PER_ROOM, MAX_ROOMS,
 } from './rooms';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
@@ -81,10 +81,23 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       emitRoomState(io, currentRoom);
     } else {
       player.disconnected = true;
+
+      const timeoutSecs = room.state.reconnectTimeout ?? DEFAULT_RECONNECT_TIMEOUT;
+      // With the kick timer disabled no timer is armed, so the seat is never
+      // freed automatically and the failover the timeout path does below never
+      // runs — a host who drops would leave the room owned by a dead socket,
+      // with nobody able to change config, kick the ghost, restart or submit
+      // the game's stats, and no timer to recover it either. Decided BEFORE
+      // the broadcast so clients learn the disconnect and the new owner from
+      // one pair of events. Deliberately not done for a non-zero timeout: a
+      // host who merely blinked gets their reconnect window first.
+      if (timeoutSecs === 0 && !room.state.players.every(p => p.disconnected)) {
+        promoteHostAfterLoss(room, socket.id);
+      }
+
       emitRoomState(io, currentRoom);
       io.to(currentRoom).emit('playerDisconnected', session.username);
 
-      const timeoutSecs = room.state.reconnectTimeout ?? DEFAULT_RECONNECT_TIMEOUT;
       if (timeoutSecs === 0) {
         if (room.state.players.every(p => p.disconnected)) {
           deleteRoom(currentRoom);
@@ -118,15 +131,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
           if (r.state.players.length === 0) {
             deleteRoom(roomIdSnapshot);
           } else {
-            if (r.host === disconnectedSocketId) {
-              // Prefer a connected player — players[0] may itself be disconnected,
-              // which would leave the room with a dead socket as host (no config /
-              // kick / restart) until that player reconnects or times out. If
-              // everyone left is disconnected, fall back to players[0]; their own
-              // pending timers will resolve or clean up the room.
-              const nextHost = r.state.players.find(p => !p.disconnected) ?? r.state.players[0];
-              r.host = nextHost.socketId;
-            }
+            promoteHostAfterLoss(r, disconnectedSocketId);
             const aborted = abortGameIfLowPlayers(io, r, roomIdSnapshot);
             if (!aborted) startServerTurnTimer(io, roomIdSnapshot);
             emitRoomState(io, roomIdSnapshot);

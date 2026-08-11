@@ -2,7 +2,7 @@ import { localStore } from '../utils/storage';
 import type { StoreApi } from 'zustand';
 import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
-  isValidEnforcedDiceMode, isValidDiceMode, isValidRuleset, VALID_CARD_TYPES, MAX_CARD_COUNT,
+  isValidEnforcedDiceMode, isValidRuleset, VALID_CARD_TYPES, MAX_CARD_COUNT,
 } from '../utils/configValidation';
 import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS } from '../types';
 import { isChainCounter, isTurnCardList, isTurnEnd } from '../utils/turnShapes';
@@ -20,9 +20,14 @@ import type { GameStore, GameMode, GameStatus, ConfigKeys } from './storeTypes';
 // needed because calculateUndo looks the previous-turn player up by name (see
 // types.ts) — without all three, undo would stay listed as available after a
 // reload (previousCard is saved) but either corrupt stats or refuse to undo.
+// diceMode is deliberately absent: it is a per-DEVICE input preference, not
+// game state, and it already has its own key (tutto_diceMode) that init()
+// applies after this save. Carrying it here too meant setMode('local') — which
+// never re-reads that key — restored whatever mode the last local game was
+// saved under, silently reverting a choice made while online.
 const STABLE_LOCAL_GAME_KEYS = [
   'players', 'currentPlayerIndex', 'currentCard', 'cards', 'round',
-  'winningScore', 'diceMode', 'initialCards', 'randomOrder',
+  'winningScore', 'initialCards', 'randomOrder',
   'turnDuration', 'reconnectTimeout', 'ruleset', 'finished',
   'previousScore', 'previousCard', 'previousLeaders',
   'previousWasBust', 'previousWasSuccess',
@@ -111,7 +116,6 @@ const LOCAL_GAME_VALIDATORS: Record<(typeof LOCAL_GAME_STATE_KEYS)[number], (v: 
   cards: isCardArray,
   round: v => Number.isInteger(v) && (v as number) >= 1,
   winningScore: isValidWinningScore,
-  diceMode: isValidDiceMode,
   initialCards: v => typeof v === 'object' && v !== null &&
     Object.entries(v).every(([key, val]) => isValidCardEntry(key, val)),
   randomOrder: isBoolean,

@@ -27,7 +27,11 @@ const SHELL_URL = new URL('index.html', self.location.href).href;
 // vite.config.js): [{ url, revision }, ...].
 const MANIFEST = self.__WB_MANIFEST;
 
-const PRECACHE_URLS = MANIFEST.map(entry => new URL(entry.url, self.location.href).href);
+// De-duplicated: the build's glob picks up the icons and the webmanifest that
+// vite-plugin-pwa also injects from its own `manifest` config, so those four
+// arrive twice. install() fetches every entry, and the pair for a 138 KB icon
+// is 138 KB of a phone's data spent for nothing on every deploy.
+const PRECACHE_URLS = [...new Set(MANIFEST.map(entry => new URL(entry.url, self.location.href).href))];
 const PRECACHED = new Set(PRECACHE_URLS);
 
 /**

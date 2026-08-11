@@ -130,6 +130,26 @@ describe('service worker install', () => {
     expect(self.skipWaiting).toHaveBeenCalled();
   });
 
+  it('fetches a URL the manifest lists twice only once', async () => {
+    // The build's glob picks up the icons and the webmanifest that
+    // vite-plugin-pwa also injects from its own `manifest` config, so the real
+    // manifest carries four duplicates — and one of them is a 138 KB icon.
+    // Fetching each pair twice spends a phone's data for nothing on every
+    // deploy, since the second put just overwrites the first.
+    await loadSw({
+      manifest: [
+        { url: 'index.html', revision: 'r1' },
+        { url: 'assets/icon-512.png', revision: null },
+        { url: 'assets/icon-512.png', revision: 'r3' },
+      ],
+    });
+    const cacheName = await runInstall();
+
+    const icon = `${ORIGIN}/assets/icon-512.png`;
+    expect(fetchMock.mock.calls.filter(([u]) => String(u) === icon)).toHaveLength(1);
+    expect([...cacheStorage.stores.get(cacheName).keys()].sort()).toEqual([icon, SHELL]);
+  });
+
   it('keeps the rest of the precache when one asset cannot be fetched', async () => {
     fetchMock = vi.fn(async (url) => (String(url).endsWith('.css')
       ? Promise.reject(new Error('offline'))

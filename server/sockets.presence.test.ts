@@ -849,6 +849,56 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
     });
   }, 10000);
 
+  // With the kick timer disabled nobody is ever removed automatically, so a
+  // dead host's seat can only be freed by a manual kick — which needs a host.
+  // The disconnect path used to return before any failover, leaving the room
+  // owned by a socket that no longer exists: no config, no kick, no restart,
+  // no global-stats submission, and no way back short of everyone leaving.
+  it('hands the room over when the host drops and the kick timer is disabled', () => {
+    return new Promise((resolve, reject) => {
+      const roomId = 'HOSTLESS_NO_KICK_TIMER';
+      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host, drops
+      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — connected, must inherit
+      const cleanup = () => { s1.disconnect(); s2.disconnect(); };
+      const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 9000);
+
+      let aliceDropped = false;
+      let checked = false;
+
+      s2.on('gameState', asserting(reject, (state) => {
+        if (!aliceDropped) {
+          if (state.reconnectTimeout !== 0) return;
+          aliceDropped = true;
+          s1.disconnect();
+          return;
+        }
+        const alice = state.players?.find((p) => p.name === 'Alice');
+        if (!alice?.disconnected || checked) return;
+        checked = true;
+        // Alice keeps her seat (that is what a disabled kick timer means) —
+        // what must not survive is her ownership of the room.
+        expect(state.players).toHaveLength(2);
+      }));
+
+      s2.on('hostId', asserting(reject, (id) => {
+        if (!checked) return;
+        expect(id, 'the room is still owned by the dropped host').toBe(s2.id);
+        clearTimeout(timeoutId);
+        cleanup();
+        resolve(undefined);
+      }));
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-hl-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-hl-b', color: '#00ff00' }, () => {
+            // "Kick Timer: Disabled" from the lobby's advanced panel.
+            s1.emit('updateConfig', { roomId, reconnectTimeout: 0 });
+          });
+        });
+      });
+    });
+  }, 10000);
+
   it('a fired reconnect timer cleans up its bookkeeping entry, so the room is still deleted when the last connected player leaves', () => {
     return new Promise((resolve, reject) => {
       const roomId = 'STALE_TIMER_LEAK_ROOM';

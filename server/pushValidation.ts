@@ -307,11 +307,22 @@ export const applyPushedState = (
 ): void => {
   const allowedFields = isHost ? ALL_FIELDS : ACTIVE_PLAYER_FIELDS;
 
+  // A push is one snapshot of one moment, and its roster is what dates it: a
+  // seat spliced out (a leave, a kick, a reconnect timeout) between the client
+  // composing this and the server receiving it makes the WHOLE snapshot
+  // describe a table that no longer exists. Skipping only `players` and
+  // applying the rest let the turn advance and be logged from a push whose
+  // banked score had just been thrown away — the points were simply lost, and
+  // the next broadcast then overwrote the client with the scoreless roster, so
+  // nothing corrected it. The sender re-derives from that broadcast instead.
+  if ('players' in newState && !validatePushedPlayers(state.players, newState.players as unknown[])) {
+    return;
+  }
+
   for (const key of allowedFields) {
     if (!(key in newState)) continue;
     if (key === 'players') {
       const pushed = newState.players as Record<string, unknown>[];
-      if (!validatePushedPlayers(state.players, pushed)) continue;
 
       const pushedNames = pushed.map(p => p.name as string);
       const isStrictPermutation = new Set(pushedNames).size === state.players.length;

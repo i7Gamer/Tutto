@@ -276,7 +276,17 @@ export default function Game() {
     if (isOnline && justReconnected) {
       if (onlineReconnectHandledRef.current) return;
       onlineReconnectHandledRef.current = true;
-      if (isMyTurn && effectiveDiceMode === 'digital' && liveTurnState) {
+      // The relayed snapshot carries no turn key of its own (the server strips
+      // it — see sanitizeDiceSnapshot), so re-stamping it with the CURRENT key
+      // is an assertion that it belongs to the current card. A classic chain
+      // can disprove that: the ~300ms snapshot debounce means a mid-chain draw
+      // can land while the last pushed snapshot still describes the card
+      // before it, and re-stamping that one hands its six kept dice and its
+      // accumulated total to the newly drawn card — banking a chain the player
+      // never played it for. The chain's own tail is the check.
+      const chain = liveTurnState?.cardsThisTurn;
+      const describesCurrentCard = !chain?.length || chain[chain.length - 1] === currentCard;
+      if (isMyTurn && effectiveDiceMode === 'digital' && liveTurnState && describesCurrentCard) {
         const snapshotWithPlayer = {
           ...liveTurnState,
           playerName: currentPlayer?.name,
