@@ -174,7 +174,10 @@ export const registerApiRoutes = (app: express.Express): void => {
 
   // SPA fallback — must be registered last so it doesn't shadow the API routes.
   app.use((_req: express.Request, res: express.Response) => {
-    res.sendFile(path.join(__dirname, '../dist/index.html'), (err: Error | null) => {
+    // Left to contextual typing rather than annotated: express's Errback has
+    // already changed shape once (Error | null -> Error | undefined, in
+    // @types/express-serve-static-core 5.1.3) and broke the build.
+    res.sendFile(path.join(__dirname, '../dist/index.html'), (err) => {
       if (err) res.status(404).send('Not found');
     });
   });
