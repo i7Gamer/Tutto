@@ -19,8 +19,15 @@ Tutto Multi-Device is a dynamic web application that allows you to play the popu
 - **Frontend**: React, Vite, Tailwind CSS, Framer Motion for animations, Chart.js for stats, React-i18next for localization.
 - **Backend**: Node.js, Express, Socket.IO.
 - **Database**: SQLite, powered by Knex.js for migrations (for robust tracking of global and personal statistics).
-- **Testing**: Vitest for unit and integration testing.
+- **Testing**: Vitest for unit and integration testing, Playwright for end-to-end.
 - **Deployment**: Multi-architecture Docker image (`linux/amd64`, `linux/arm64`) serving frontend, API and WebSockets from a single container.
+
+### Browser support
+
+Safari 16.4+, Chrome 111+ and Firefox 128+ — in practice an iPhone 8 or newer,
+since Safari's version is tied to the OS. Tailwind CSS 4 sets the floor: it
+builds on `@property`, `color-mix()` and cascade layers, none of which degrade
+gracefully, so an older browser gets a broken layout rather than a plain one.
 
 ## How to Play Tutto!
 
@@ -232,6 +239,16 @@ The project has comprehensive test coverage ranging from unit tests for the core
 To run the tests:
 ```bash
 npm run test
+```
+
+The end-to-end suite is separate, and runs against a production build served by
+the real server in Chromium, Firefox and WebKit. It needs its browsers
+downloaded once (and again after any Playwright upgrade):
+```bash
+npx playwright install
+```
+```bash
+npm run test:e2e
 ```
 
 ## Advanced Options Explained
