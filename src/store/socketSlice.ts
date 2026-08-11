@@ -1,6 +1,6 @@
 import { localStore, sessionStore } from '../utils/storage';
 import { io, type Socket } from 'socket.io-client';
-import { getLeaders } from '../utils/coreGameEngine';
+import { getLeaders, noUndoableTurn } from '../utils/coreGameEngine';
 import i18n from '../i18n';
 import { areInitialCardsEqual } from '../utils/configValidation';
 import { validateOnlineConfig } from './persistence';
@@ -31,7 +31,8 @@ export const GAME_STATE_SYNC_KEYS = [
   'turnDuration', 'reconnectTimeout', 'currentCard', 'cards', 'round',
   'currentPlayerIndex', 'finished', 'chartValues', 'chartNames', 'chartLabels',
   'gameTimeInSeconds', 'previousCard', 'previousScore', 'previousLeaders',
-  'previousWasBust', 'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
+  'previousWasBust', 'previousWasSuccess',
+  'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
   'previousHighestX2TurnScore', 'previousPlayerName', 'previousTurnSummary', 'liveTurnState',
   'enforcedDiceMode', 'ruleset', 'historyLog',
 ] as const satisfies readonly (keyof GameStore)[];
@@ -39,6 +40,11 @@ export const GAME_STATE_SYNC_KEYS = [
 export const clearRoomState = (): Pick<GameStore,
   | 'players' | 'currentPlayerIndex' | 'currentCard' | 'cards' | 'round' | 'finished'
   | 'status' | 'roomId' | 'isHost' | 'hostId' | 'myName' | 'liveTurnState'
+  | 'chartValues' | 'chartNames' | 'chartLabels' | 'historyLog'
+  | 'previousCard' | 'previousScore' | 'previousLeaders' | 'previousWasBust'
+  | 'previousWasSuccess' | 'previousHighestTurnScore'
+  | 'previousHighestFeuerwerkTurnScore' | 'previousHighestX2TurnScore'
+  | 'previousPlayerName' | 'previousTurnSummary'
 > => ({
   players: [],
   currentPlayerIndex: null,
@@ -52,6 +58,20 @@ export const clearRoomState = (): Pick<GameStore,
   hostId: null,
   myName: null,
   liveTurnState: null,
+  // The rest of the abandoned game, not just who was at the table. These are
+  // per-game, so leaving them behind is the same bleed the roster used to
+  // cause: setMode('local') only overwrites the keys a saved local game
+  // happens to contain, so with no save (or one predating a key) the online
+  // room's chart series and activity log survive into local mode — and the
+  // local persistence subscriber then writes them to disk. The undo block is
+  // the sharp one: Game.tsx's hasUndoableTurn reads previousCard/
+  // previousPlayerName, so a live Undo button was offered for a turn played
+  // in a room this client had already left.
+  chartValues: [],
+  chartNames: [],
+  chartLabels: [],
+  historyLog: [],
+  ...noUndoableTurn(),
 });
 
 // Tracks the in-flight cancelReconnect attempt (if any) so a second rapid
@@ -382,7 +402,8 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       const {
         players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
         randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
-        previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
+        previousScore, previousCard, previousLeaders, previousWasBust, previousWasSuccess,
+        previousHighestTurnScore,
         previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore,
         previousPlayerName, previousTurnSummary, chartValues, chartNames, chartLabels, status,
         liveTurnState, enforcedDiceMode, ruleset, historyLog,
@@ -392,7 +413,8 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         newState: {
           players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
           randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
-          previousScore, previousCard, previousLeaders, previousWasBust, previousHighestTurnScore,
+          previousScore, previousCard, previousLeaders, previousWasBust, previousWasSuccess,
+          previousHighestTurnScore,
           previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore,
           previousPlayerName, previousTurnSummary, chartValues, chartNames, chartLabels, status,
           liveTurnState, enforcedDiceMode, ruleset, historyLog,

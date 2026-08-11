@@ -32,6 +32,10 @@ export interface RoomState {
   previousScore: number | null;
   previousLeaders: ServerPlayer[] | null;
   previousWasBust: boolean;
+  // Optional for the same reason as CoreGameState's (src/types.ts): a push
+  // from a client predating the field leaves it unset, and undo falls back to
+  // the score comparison such a turn was committed under.
+  previousWasSuccess?: boolean;
   previousHighestTurnScore: number;
   previousHighestFeuerwerkTurnScore: number;
   previousHighestX2TurnScore: number;

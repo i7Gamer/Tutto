@@ -2381,6 +2381,73 @@ describe('useGameStore', () => {
     });
   });
 
+  // clearRoomState's contract: once a room is abandoned, nothing of that game
+  // may survive into local mode. It used to clear only the roster and the room
+  // identity, so the chart series, the activity log and the previous-turn undo
+  // block rode along — and since setMode('local') only overwrites what a saved
+  // local game happens to contain, they could then be persisted into
+  // `tutto_local_game` and shown inside an unrelated local game.
+  describe('abandoning an online room clears the whole game, not just the roster', () => {
+    const seatOnlineGame = () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.setState({
+        mode: 'online', isOnline: true, roomId: 'R1', myName: 'Alice',
+        players: namedPlayers('Alice', 'Bob'),
+        status: 'playing', round: 3, currentPlayerIndex: 1, finished: false,
+        chartValues: [[100], [200]], chartNames: ['Alice', 'Bob'], chartLabels: [1],
+        historyLog: [{ id: 'h1', round: 1, playerName: 'Alice', card: '200', type: 'success', score: 100 }],
+        previousCard: '200', previousScore: 100, previousPlayerName: 'Alice',
+        previousWasBust: false, previousWasSuccess: true, previousHighestTurnScore: 100,
+      });
+    };
+
+    const expectNothingLeftOver = () => {
+      const s = useGameStore.getState();
+      expect(s.players).toEqual([]);
+      expect(s.chartValues).toEqual([]);
+      expect(s.chartNames).toEqual([]);
+      expect(s.chartLabels).toEqual([]);
+      expect(s.historyLog).toEqual([]);
+      expect(s.previousCard).toBeNull();
+      expect(s.previousScore).toBeNull();
+      expect(s.previousPlayerName).toBeNull();
+      expect(s.previousTurnSummary).toBeNull();
+      expect(s.previousHighestTurnScore).toBe(0);
+      // undefined, not false — "no outcome recorded" (see noUndoableTurn).
+      expect(s.previousWasSuccess).toBeUndefined();
+    };
+
+    it('leaveRoom drops the chart series, the activity log and the undo block', () => {
+      seatOnlineGame();
+      useGameStore.getState().leaveRoom();
+      expectNothingLeftOver();
+    });
+
+    it('a kick drops them too', () => {
+      seatOnlineGame();
+      mockOnHandlers['kicked']();
+      expectNothingLeftOver();
+    });
+
+    it('cancelReconnect drops them once a room was actually joined', () => {
+      seatOnlineGame();
+      useGameStore.getState().cancelReconnect();
+      expectNothingLeftOver();
+    });
+
+    it('leaves no live Undo button behind in local mode', () => {
+      // With no saved local game there is nothing to overwrite the leftovers,
+      // so Game.tsx's hasUndoableTurn used to offer Undo for a turn played in
+      // a room this client already left.
+      seatOnlineGame();
+      useGameStore.getState().leaveRoom();
+      localStorage.removeItem('tutto_local_game');
+      useGameStore.getState().setMode('local');
+      expect(useGameStore.getState().previousCard).toBeNull();
+      expect(useGameStore.getState().previousPlayerName).toBeNull();
+    });
+  });
+
   describe('online config-change toasts', () => {
     beforeEach(() => {
       // These tests simulate an already-joined lobby receiving a LATER host

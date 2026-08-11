@@ -25,7 +25,8 @@ const STABLE_LOCAL_GAME_KEYS = [
   'winningScore', 'diceMode', 'initialCards', 'randomOrder',
   'turnDuration', 'reconnectTimeout', 'ruleset', 'finished',
   'previousScore', 'previousCard', 'previousLeaders',
-  'previousWasBust', 'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
+  'previousWasBust', 'previousWasSuccess',
+  'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
   'previousHighestX2TurnScore', 'previousPlayerName', 'previousTurnSummary',
   'chartValues', 'chartNames', 'chartLabels', 'status', 'historyLog',
 ] as const satisfies readonly (keyof GameStore)[];
@@ -125,6 +126,11 @@ const LOCAL_GAME_VALIDATORS: Record<(typeof LOCAL_GAME_STATE_KEYS)[number], (v: 
   previousCard: isCardOrNull,
   previousLeaders: v => v === null || (Array.isArray(v) && v.every(isPlausiblePlayer)),
   previousWasBust: isBoolean,
+  // A save predating this field simply has no key here, so the store keeps its
+  // default — and calculateUndo cannot tell that apart from a recorded `false`.
+  // That is deliberate: it falls back to the score comparison such a save was
+  // committed under (see previousWasSuccess in types.ts).
+  previousWasSuccess: isBoolean,
   previousHighestTurnScore: isNonNegativeNumber,
   previousHighestFeuerwerkTurnScore: isNonNegativeNumber,
   previousHighestX2TurnScore: isNonNegativeNumber,

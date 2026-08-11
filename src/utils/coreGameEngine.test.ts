@@ -1151,6 +1151,90 @@ describe('coreGameEngine', () => {
       expect(result.players[0].timesKniffelCompleted).toBe(0);
       expect(result.players[0].score).toBe(0);
     });
+
+    // A special card's outcome used to be re-derived from previousScore
+    // (=== the card's fixed value means "completed"). That reading is wrong
+    // for a FAILED card whose turn happened to be worth exactly that value:
+    // the already-zero completed counter was decremented (clamped, so a
+    // no-op) and the failure stayed recorded forever. calculateNextTurn
+    // records the outcome now, so undo reads it instead of guessing.
+    describe('the previous turn\'s outcome is read, not inferred from its score', () => {
+      it('reverses a FAILED Plus_Minus whose turn scored exactly PLUS_MINUS_SCORE as a failure', () => {
+        const state = makeState({
+          players: [makePlayer('Alice', { score: 1000, totalTurns: 1, timesPlusMinusFailed: 1 }), makePlayer('Bob')],
+          currentPlayerIndex: 1,
+          previousCard: 'Plus_Minus',
+          previousScore: 1000,
+          previousWasSuccess: false,
+          previousPlayerName: 'Alice',
+        });
+        const result = calculateUndo(state);
+        expect(result.players[0].timesPlusMinusFailed).toBe(0);
+        expect(result.players[0].timesPlusMinusCompleted).toBe(0);
+      });
+
+      it('reverses a FAILED Kniffel whose turn scored exactly KNIFFEL_SCORE as a failure', () => {
+        const state = makeState({
+          players: [makePlayer('Alice', { score: 2000, totalTurns: 1, timesKniffelFailed: 1 }), makePlayer('Bob')],
+          currentPlayerIndex: 1,
+          previousCard: 'Kniffel',
+          previousScore: 2000,
+          previousWasSuccess: false,
+          previousPlayerName: 'Alice',
+        });
+        const result = calculateUndo(state);
+        expect(result.players[0].timesKniffelFailed).toBe(0);
+        expect(result.players[0].timesKniffelCompleted).toBe(0);
+      });
+
+      it('still reverses a COMPLETED one as a completion', () => {
+        const state = makeState({
+          players: [makePlayer('Alice', { score: 1000, totalTurns: 1, timesPlusMinusCompleted: 1 }), makePlayer('Bob')],
+          currentPlayerIndex: 1,
+          previousCard: 'Plus_Minus',
+          previousScore: 1000,
+          previousWasSuccess: true,
+          previousPlayerName: 'Alice',
+        });
+        const result = calculateUndo(state);
+        expect(result.players[0].timesPlusMinusCompleted).toBe(0);
+        expect(result.players[0].timesPlusMinusFailed).toBe(0);
+      });
+
+      it('falls back to the score comparison for a save/push predating the recorded outcome', () => {
+        // No previousWasSuccess at all — the only thing that distinguishes an
+        // old entry from a recorded `false`. Those were committed under the
+        // score comparison, so that is what reverses them.
+        const state = makeState({
+          players: [makePlayer('Alice', { score: 2000, totalTurns: 1, timesKniffelCompleted: 1 }), makePlayer('Bob')],
+          currentPlayerIndex: 1,
+          previousCard: 'Kniffel',
+          previousScore: 2000,
+          previousPlayerName: 'Alice',
+        });
+        const result = calculateUndo(state);
+        expect(result.players[0].timesKniffelCompleted).toBe(0);
+        expect(result.players[0].timesKniffelFailed).toBe(0);
+      });
+    });
+  });
+
+  describe('calculateNextTurn records the turn outcome for undo', () => {
+    it('reports success for a completed special card', () => {
+      const result = calculateNextTurn(makeState({ currentCard: 'Plus_Minus' }), 0, true);
+      expect(result.previousWasSuccess).toBe(true);
+    });
+
+    it('reports failure for a failed one, whatever score it was committed with', () => {
+      const result = calculateNextTurn(makeState({ currentCard: 'Plus_Minus' }), 1000, false);
+      expect(result.previousWasSuccess).toBe(false);
+    });
+
+    it('reports the outcome of a classic chain too', () => {
+      const summary = { cards: [{ card: '200', completed: true }], tuttoCount: 1, plusMinusSuccesses: 0, ended: 'banked' };
+      const result = calculateNextTurn(makeState({ currentCard: '200' }), 500, true, summary);
+      expect(result.previousWasSuccess).toBe(true);
+    });
   });
 
   // End-to-end sequence: plays two turns in order, then undoes, verifying

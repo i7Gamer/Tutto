@@ -210,6 +210,17 @@ export interface CoreGameState {
   previousScore: number | null;
   previousLeaders: Player[] | null;
   previousWasBust: boolean;
+  // Whether the previous turn succeeded, recorded at commit rather than
+  // re-derived by undo. The score alone cannot tell a FAILED Kniffel or
+  // Plus/Minus apart from a completed one: a completion is worth exactly the
+  // card's fixed value, and a failure committed with that same value read as
+  // a completion — so the failure counter was never reversed.
+  //
+  // Optional because absent is the only thing that distinguishes a save (or a
+  // push from a client) predating this field from a recorded `false`; those
+  // fall back to the score comparison they were committed under, see
+  // calculateUndo.
+  previousWasSuccess?: boolean;
   previousHighestTurnScore: number;
   previousHighestFeuerwerkTurnScore: number;
   previousHighestX2TurnScore: number;
@@ -285,6 +296,8 @@ export interface NextTurnResult {
   previousScore: number;
   previousLeaders: Player[] | null;
   previousWasBust: boolean;
+  // Always produced here (unlike CoreGameState, where an old save may lack it).
+  previousWasSuccess: boolean;
   previousHighestTurnScore: number;
   previousHighestFeuerwerkTurnScore: number;
   previousHighestX2TurnScore: number;

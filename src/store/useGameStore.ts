@@ -69,6 +69,9 @@ const createInitialLocalState = (): Omit<CoreGameState, never> & {
   previousCard: null,
   previousLeaders: null,
   previousWasBust: false,
+  // See noUndoableTurn (coreGameEngine.ts) for why this starts undefined
+  // rather than false.
+  previousWasSuccess: undefined,
   previousHighestTurnScore: 0,
   previousHighestFeuerwerkTurnScore: 0,
   previousHighestX2TurnScore: 0,

@@ -239,6 +239,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.previousScore = result.previousScore;
       state.previousLeaders = result.previousLeaders;
       state.previousWasBust = result.previousWasBust;
+      state.previousWasSuccess = result.previousWasSuccess;
       state.previousHighestTurnScore = result.previousHighestTurnScore;
       state.previousHighestFeuerwerkTurnScore = result.previousHighestFeuerwerkTurnScore;
       state.previousHighestX2TurnScore = result.previousHighestX2TurnScore;

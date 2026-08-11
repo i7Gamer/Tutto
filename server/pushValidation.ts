@@ -198,7 +198,8 @@ const HOST_ONLY_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>([
 const ACTIVE_PLAYER_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>([
   'currentCard', 'cards', 'currentPlayerIndex', 'round',
   'finished', 'previousCard', 'previousScore', 'previousLeaders',
-  'previousWasBust', 'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
+  'previousWasBust', 'previousWasSuccess',
+  'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
   'previousHighestX2TurnScore', 'previousPlayerName', 'previousTurnSummary',
   'chartValues', 'chartNames', 'chartLabels', 'gameTimeInSeconds',
   'players', 'liveTurnState', 'historyLog',
@@ -384,6 +385,11 @@ export const applyPushedState = (
       }
     } else if (key === 'previousWasBust') {
       if (typeof newState.previousWasBust === 'boolean') state.previousWasBust = newState.previousWasBust;
+    } else if (key === 'previousWasSuccess') {
+      // A client predating this field omits the key entirely, so the loop
+      // above skips it and the room keeps what it had — which is exactly the
+      // "no outcome recorded" state undo's fallback expects.
+      if (typeof newState.previousWasSuccess === 'boolean') state.previousWasSuccess = newState.previousWasSuccess;
     } else if (key === 'previousHighestTurnScore') {
       const v = newState.previousHighestTurnScore;
       if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= MAX_SCORE_MAGNITUDE) {

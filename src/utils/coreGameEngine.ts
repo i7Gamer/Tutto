@@ -27,7 +27,7 @@ export const hasPlayableDeck = (initialCards: InitialCards | undefined): boolean
 /**
  * The previous-turn bookkeeping in its "there is nothing to undo" state.
  *
- * These nine fields all describe the same single turn, so they move together:
+ * These ten fields all describe the same single turn, so they move together:
  * calculateNextTurn fills them in as one set, calculateUndo consumes them as
  * one set, and every site that ends or discards a turn clears them as one set.
  * Written out once because there are five such sites across the client store
@@ -51,6 +51,12 @@ export const noUndoableTurn = () => ({
   previousScore: null,
   previousLeaders: null,
   previousWasBust: false,
+  // undefined, not false: the field holds "the outcome that was recorded, if
+  // one was", and there is no turn here to have recorded anything. That is the
+  // same value an entry predating the field carries, which is what
+  // calculateUndo's compatibility fallback keys off — and it drops out of
+  // JSON.stringify, so a save written now looks like one written then.
+  previousWasSuccess: undefined,
   previousHighestTurnScore: 0,
   previousHighestFeuerwerkTurnScore: 0,
   previousHighestX2TurnScore: 0,
@@ -428,6 +434,7 @@ export const calculateNextTurn = (
       nextIndex: null, nextRound: round,
       previousCard: currentCard, previousScore: turnScore,
       previousLeaders: snapshotLeaders, previousWasBust: wasBust,
+      previousWasSuccess: isSuccess,
       previousHighestTurnScore: currentPlayer.highestTurnScore ?? 0,
       previousHighestFeuerwerkTurnScore: currentPlayer.highestFeuerwerkTurnScore ?? 0,
       previousHighestX2TurnScore: currentPlayer.highestX2TurnScore ?? 0,
@@ -486,6 +493,7 @@ export const calculateNextTurn = (
     nextIndex,
     nextRound, previousCard: currentCard, previousScore: turnScore,
     previousLeaders: snapshotLeaders, previousWasBust: wasBust,
+    previousWasSuccess: isSuccess,
     previousHighestTurnScore, previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore,
     previousPlayerName: currentPlayer.name,
     previousTurnSummary: summaryForState,
@@ -497,10 +505,18 @@ export const calculateNextTurn = (
 export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
   const {
     players, currentPlayerIndex, round, previousCard, previousScore,
-    previousLeaders, previousWasBust, previousHighestTurnScore,
+    previousLeaders, previousWasBust, previousWasSuccess, previousHighestTurnScore,
     previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore, previousPlayerName,
     previousTurnSummary, currentCard, cards,
   } = gameState;
+
+  // Whether the previous turn's card was completed. Read from the outcome
+  // calculateNextTurn recorded; the score comparison is the compatibility path
+  // for entries written before that field existed (see previousWasSuccess in
+  // types.ts) — it is wrong for a failure worth exactly `fixedScore`, which is
+  // why the flag exists, but it is what those entries were committed under.
+  const wasCompleted = (fixedScore: number): boolean =>
+    previousWasSuccess ?? (previousScore === fixedScore);
 
   if (gameState.finished) return null;
   // A bare Stop turn commits nothing (type 'skip') and stays un-undoable. A
@@ -605,14 +621,14 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
     }
 
     if (previousCard === 'Plus_Minus') {
-      if (previousScore === PLUS_MINUS_SCORE) p.timesPlusMinusCompleted = Math.max(0, (p.timesPlusMinusCompleted ?? 0) - 1);
+      if (wasCompleted(PLUS_MINUS_SCORE)) p.timesPlusMinusCompleted = Math.max(0, (p.timesPlusMinusCompleted ?? 0) - 1);
       else p.timesPlusMinusFailed = Math.max(0, (p.timesPlusMinusFailed ?? 0) - 1);
     }
 
     if (previousCard === 'x2') p.timesx2Received = Math.max(0, (p.timesx2Received ?? 0) - 1);
 
     if (previousCard === 'Kniffel') {
-      if (previousScore === KNIFFEL_SCORE) p.timesKniffelCompleted = Math.max(0, (p.timesKniffelCompleted ?? 0) - 1);
+      if (wasCompleted(KNIFFEL_SCORE)) p.timesKniffelCompleted = Math.max(0, (p.timesKniffelCompleted ?? 0) - 1);
       else p.timesKniffelFailed = Math.max(0, (p.timesKniffelFailed ?? 0) - 1);
     }
 
