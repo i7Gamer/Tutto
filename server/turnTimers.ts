@@ -1,6 +1,7 @@
 import type { Server } from 'socket.io';
 import { MAX_HISTORY_LOG_SIZE, type CoreGameState, type TurnSummary } from '../src/types';
 import { calculateNextTurn } from '../src/utils/coreGameEngine';
+import { hasScoreInput } from '../src/utils/diceTurnControls';
 import type { Room, ServerPlayer } from './roomTypes';
 import { rooms, calculateRemainingTurnTime, emitRoomState, idleTurnTimerState, rememberCurrentTurn } from './rooms';
 import { MAX_ROUNDS } from './pushValidation';
@@ -99,12 +100,27 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       };
     }
 
+    // A modernized turn carries no chain fields, so it never reaches the
+    // reconstruction above — but `stopped` says the same thing the chain's
+    // stoppedBanked case does: the decision was made and banked (Stop & Score,
+    // or a turn-ending tutto) and only the summary's auto-continue never
+    // fired. The points are forfeited like any timeout, yet no dice null was
+    // ever rolled, so this must not be charged a bust either.
+    //
+    // isSuccess is the only input that drives that bust in the engine's
+    // modernized path — and only for a card whose turn ends on a score.
+    // Claiming it for a Yes/No card would instead read as that card COMPLETED,
+    // paying out its fixed value (and handing a Kleeblatt the game outright),
+    // for no gain: a special card is exempt from the bust to begin with.
+    const decidedBeforeTimeout = !timeoutSummary && !!snapshot?.stopped && !snapshot.busted &&
+      hasScoreInput(room.state.currentCard);
+
     // Timeout = the player neither scored nor answered in time, same as a manual
     // "Stop & Score 0" — matches what the client used to send on host-side expiry.
     const result = calculateNextTurn(
       stateForCalc as CoreGameState & { currentPlayerIndex: number },
       0,
-      false,
+      decidedBeforeTimeout,
       timeoutSummary,
     );
 

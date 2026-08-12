@@ -474,6 +474,79 @@ describe('turnTimers', () => {
       expect(lastEntry.cards).toBeUndefined();
     });
 
+    it('does not invent a bust when a MODERNIZED turn times out on a decided Stop & Score', () => {
+      // Modernized snapshots carry no chain fields, so this never reaches the
+      // summary path above — but `stopped` says just as plainly that the
+      // player had already decided and banked, and only the auto-continue
+      // never fired. The points are still forfeited like any timeout; a bust
+      // is a dice null, which this turn never rolled.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: '300', cards: ['200'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 450,
+          keptDice: [{ id: 'k1', val: 1 }, { id: 'k2', val: 5 }],
+          currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0, stopped: true,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const state = rooms[roomId].state;
+      expect(state.players[0].busts).toBe(0);
+      expect(state.currentPlayerIndex).toBe(1);
+      // Still a forfeit, and still the modernized path: no classic summary is
+      // fabricated for a turn that never had a chain.
+      expect(state.players[0].score).toBe(0);
+      expect(state.previousScore).toBe(0);
+      expect(state.previousWasBust).toBe(false);
+      expect(state.previousTurnSummary).toBeNull();
+    });
+
+    it('still counts the bust when a modernized snapshot busted, stale stop marker or not', () => {
+      // The marker only excuses the bust for a turn that was NOT busted — a
+      // dice null is the one thing the bust counter is for.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: '300', cards: ['200'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 0, keptDice: [], currentRoll: [], kniffelProgress: [],
+          tuttosThisTurn: 0, busted: true, stopped: true,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      expect(rooms[roomId].state.players[0].busts).toBe(1);
+    });
+
+    it('never turns a modernized timeout into a special card the player never finished', () => {
+      // The engine only counts the bust for a card whose turn ends on a
+      // score, and that is the only case the no-bust outcome above may claim
+      // — a Yes/No card would take it as the card COMPLETED, paying out its
+      // fixed value and, for Kleeblatt, the game itself.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: 'Kleeblatt', cards: ['200'],
+        round: 1, winningScore: 6000, players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 3000,
+          keptDice: [1, 2, 3, 4, 5, 6].map(v => ({ id: `d${v}`, val: v })),
+          currentRoll: [], kniffelProgress: [], tuttosThisTurn: 1, stopped: true,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const state = rooms[roomId].state;
+      expect(state.finished).toBe(false);
+      expect(state.players[0].score).toBe(0);
+      expect(state.players[0].timesKleeblattCompleted).toBe(0);
+      expect(state.players[0].timesKleeblattFailed).toBe(1);
+      // A special card never counted the bust to begin with.
+      expect(state.players[0].busts).toBe(0);
+      expect(state.currentPlayerIndex).toBe(1);
+    });
+
     it('backstop: swallows an exception from a corrupted room state instead of crashing the process', () => {
       // Real pushState validation (pushValidation.ts) should make an
       // out-of-bounds currentPlayerIndex unreachable, but this handler runs off

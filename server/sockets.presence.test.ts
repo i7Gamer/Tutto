@@ -556,29 +556,51 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
     });
   }, 10000);
 
+  // How long to keep listening after the squatting join has been refused. The
+  // event under test would arrive within one broadcast of the refusal, so this
+  // only has to outlast that hop.
+  const NAME_CONFLICT_SETTLE_MS = 350;
+
+  // Watchdog for the three joins above it: how long a wedged run hangs before
+  // it reports, kept under this case's own 10s budget so the failure is this
+  // message rather than vitest's generic timeout. Unscaled wall clock on
+  // purpose — unlike the settle window it paces nothing on the server, so
+  // TEST_TIMER_SCALE would only shrink the slack a slow machine needs.
+  const NAME_CONFLICT_WATCHDOG_MS = 6000;
+
   it('does not notify the host when the conflicting name belongs to a still-connected player', () => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — stays connected
       const s3 = io(`http://127.0.0.1:${PORT}`); // Charlie — tries to join as "Bob"
 
+      const cleanup = () => { s1.disconnect(); s2.disconnect(); s3.disconnect(); };
+      const timeoutId = setTimeout(() => {
+        cleanup();
+        reject(new Error('Timed out before the squatting join was refused'));
+      }, NAME_CONFLICT_WATCHDOG_MS);
+
       let conflictNotified = false;
       s1.on('nameConflictWithDisconnected', () => { conflictNotified = true; });
-
-      setTimeout(() => {
-        expect(conflictNotified).toBe(false);
-        s1.disconnect(); s2.disconnect(); s3.disconnect();
-        resolve();
-      }, 350);
 
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'ACTIVE_NAME_ROOM', name: 'Alice', deviceId: 'dev-active-alice', color: '#ff0000' }, () => {
           s2.emit('joinRoom', { roomId: 'ACTIVE_NAME_ROOM', name: 'Bob', deviceId: 'dev-active-bob', color: '#00ff00' }, () => {
-            s3.emit('joinRoom', { roomId: 'ACTIVE_NAME_ROOM', name: 'Bob', deviceId: 'dev-active-charlie', color: '#0000ff' }, (res) => {
+            s3.emit('joinRoom', { roomId: 'ACTIVE_NAME_ROOM', name: 'Bob', deviceId: 'dev-active-charlie', color: '#0000ff' }, asserting(reject, (res) => {
               expect(res.success).toBe(false);
-              // Don't resolve here — wait out the timeout below to confirm no
-              // nameConflictWithDisconnected event arrives after the rejection.
-            });
+              // The settle window is armed HERE, by the refusal it is
+              // measuring. Armed from the executor it started before the three
+              // joins had even been emitted, so a slow enough run expired
+              // without the squat ever happening — and reported that as a
+              // pass. testDelay keeps it in step with the compressed timers
+              // the spawned server runs on (see socketTestHarness).
+              setTimeout(asserting(reject, () => {
+                expect(conflictNotified).toBe(false);
+                clearTimeout(timeoutId);
+                cleanup();
+                resolve();
+              }), testDelay(NAME_CONFLICT_SETTLE_MS));
+            }));
           });
         });
       });

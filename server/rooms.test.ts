@@ -513,4 +513,47 @@ describe('deleteRoom', () => {
 
     expect(callback).not.toHaveBeenCalled();
   });
+
+  // Both registries are keyed by client-supplied strings (joinRoom validates
+  // roomId and deviceId only as non-empty strings within a length bound), so
+  // an id naming an Object.prototype member must not resolve to an inherited
+  // value: '__proto__' as a deviceId used to be swallowed by the prototype
+  // setter, leaving a timer nothing could see — or cancel.
+  it('cancels a disconnect timer whose deviceId names an Object.prototype member', () => {
+    vi.useFakeTimers();
+    const room = createRoom('sock-host');
+    const callback = vi.fn();
+    room.disconnectTimers['__proto__'] = setTimeout(callback, 1000);
+    rooms['DELETE_ROOM_TEST_5'] = room;
+
+    expect(Object.keys(room.disconnectTimers)).toEqual(['__proto__']);
+    deleteRoom('DELETE_ROOM_TEST_5');
+    vi.advanceTimersByTime(5000);
+
+    expect(callback).not.toHaveBeenCalled();
+  });
+});
+
+describe('the room registry', () => {
+  it('resolves an id naming an Object.prototype member to nothing, not to the inherited value', () => {
+    // `!rooms[roomId]` is joinRoom's "does this room exist" test and
+    // `rooms[roomId]` is what it then works with. On a plain object literal
+    // both answer with Object.prototype's own members for these ids, so the
+    // room was never created and the handler threw on the inherited value —
+    // an ack that never fires for the caller.
+    expect(rooms['__proto__']).toBeUndefined();
+    expect(rooms['constructor']).toBeUndefined();
+    expect(rooms['toString']).toBeUndefined();
+    expect(rooms['hasOwnProperty']).toBeUndefined();
+  });
+
+  it('stores a room under such an id as a real, enumerable entry', () => {
+    rooms['__proto__'] = createRoom('sock-proto-host');
+
+    expect(rooms['__proto__']).toBeDefined();
+    expect(Object.keys(rooms)).toContain('__proto__');
+
+    deleteRoom('__proto__');
+    expect(rooms['__proto__']).toBeUndefined();
+  });
 });

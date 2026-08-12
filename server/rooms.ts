@@ -7,7 +7,15 @@ import {
 } from '../src/utils/configValidation';
 import type { Room, RoomState, ServerPlayer, TurnTimerState } from './roomTypes';
 
-export const rooms: Record<string, Room> = {};
+// Null-prototype, not `{}`: every key here is a client-supplied roomId, and
+// joinRoom validates it only as a non-empty string within a length bound. On a
+// plain object literal an id naming an Object.prototype member ('__proto__',
+// 'constructor', 'toString', …) reads back as the INHERITED value, so
+// `!rooms[roomId]` says the room exists, nothing is created, and the handler
+// then works with Object.prototype. Object.create(null) makes every key an own
+// property, which is what every `rooms[id]` / `delete rooms[id]` /
+// `Object.keys(rooms)` call site already assumes.
+export const rooms: Record<string, Room> = Object.create(null) as Record<string, Room>;
 
 // Upper bound on distinct players a single room can hold. Without one, a
 // hostile or buggy client could keep joining new deviceIds into one room
@@ -58,7 +66,11 @@ export const createRoom = (hostSocketId: string): Room => ({
   host: hostSocketId,
   gameActualStartTime: null,
   turnTimerState: null,
-  disconnectTimers: {},
+  // Null-prototype for the same reason `rooms` is: the keys are client-supplied
+  // deviceIds. `timers['__proto__'] = setTimeout(...)` on a plain object hits
+  // the prototype setter — the timer becomes the object's prototype, invisible
+  // to the Object.keys/values that cancel it, so deleteRoom cannot stop it.
+  disconnectTimers: Object.create(null) as Room['disconnectTimers'],
   turnExpireTimer: null,
   statsRecordedForGame: { devices: new Set(), global: false },
   // Matches the default config below. Recomputed the moment a game actually

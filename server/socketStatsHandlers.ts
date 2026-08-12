@@ -74,26 +74,36 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // See submitGlobalStats: pre-add blocks concurrent duplicates, rollback
     // on failure keeps a retry possible instead of losing the game's stats.
     room.statsRecordedForGame.devices.add(deviceId);
+    // Recorded in full either way — a custom game just lands in its own
+    // bucket, where it cannot move the totals or the records a player reads
+    // as theirs. Which bucket is the server's call, taken from the config
+    // the game started with: the frozen ruleset picks the pair, the frozen
+    // normalizedGame flag picks within it.
+    const mode = room.ruleset === 'classic'
+      ? (room.normalizedGame ? 'classic' : 'classic_custom')
+      : (room.normalizedGame ? 'normalized' : 'custom');
+    // Scoped to the write alone: it is the only step whose failure means
+    // nothing was committed, and so the only one the dedup may be reopened
+    // for. The refresh below has its own catch for exactly that reason.
     try {
-      // Recorded in full either way — a custom game just lands in its own
-      // bucket, where it cannot move the totals or the records a player reads
-      // as theirs. Which bucket is the server's call, taken from the config
-      // the game started with: the frozen ruleset picks the pair, the frozen
-      // normalizedGame flag picks within it.
-      const mode = room.ruleset === 'classic'
-        ? (room.normalizedGame ? 'classic' : 'classic_custom')
-        : (room.normalizedGame ? 'normalized' : 'custom');
       await updateDeviceStats(deviceId, sanitizeStats(stats), mode);
-      // The win/loss just recorded above may have changed this device's streak.
-      // `player` still holds the value from when they joined, so without this
-      // refresh + broadcast, the streak shown next to the player (leaderboard,
-      // spectators) stays stale until they rejoin a room.
-      //
-      // Only for the two non-custom buckets: each has its own streak field
-      // (the badge shows whichever matches the room's ruleset), and a custom
-      // game neither extends nor breaks either. Refreshing here would
-      // overwrite the displayed streak with the custom bucket's count.
-      if (mode === 'normalized' || mode === 'classic') {
+    } catch (err) {
+      room.statsRecordedForGame.devices.delete(deviceId);
+      console.error('[endGameStats] error:', err);
+      return;
+    }
+
+    // The win/loss just recorded above may have changed this device's streak.
+    // `player` still holds the value from when they joined, so without this
+    // refresh + broadcast, the streak shown next to the player (leaderboard,
+    // spectators) stays stale until they rejoin a room.
+    //
+    // Only for the two non-custom buckets: each has its own streak field
+    // (the badge shows whichever matches the room's ruleset), and a custom
+    // game neither extends nor breaks either. Refreshing here would
+    // overwrite the displayed streak with the custom bucket's count.
+    if (mode === 'normalized' || mode === 'classic') {
+      try {
         const updatedStats = await getDeviceStats(deviceId, mode);
         // Re-resolved AFTER the two awaits: a players-carrying push landing
         // in between (e.g. the host's Play Again) rebuilds every roster entry
@@ -109,10 +119,13 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
           }
           emitRoomState(io, roomId as string);
         }
+      } catch (err) {
+        // Deliberately does NOT touch the dedup: the device row above is
+        // already committed, so reopening it would let a retry count this
+        // game a second time. A stale streak badge is the lesser failure —
+        // it corrects itself on the device's next room join.
+        console.error('[endGameStats] streak refresh error:', err);
       }
-    } catch (err) {
-      room.statsRecordedForGame.devices.delete(deviceId);
-      console.error('[endGameStats] error:', err);
     }
   });
 };

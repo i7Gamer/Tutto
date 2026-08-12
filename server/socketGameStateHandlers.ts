@@ -45,9 +45,6 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
     // with finished=true when the host pushes the next game's opening state.
     const startingGame = isHost && newState.status === 'playing' &&
       (room.state.status === 'lobby' || (room.state.finished && newState.finished === false));
-    if (startingGame) {
-      room.statsRecordedForGame = { devices: new Set(), global: false };
-    }
 
     // Decided from the PRE-push status: once a game is running, a pushed
     // ruleset is refused (see applyPushedState) — a rules flip mid-game would
@@ -55,7 +52,16 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
     // still carry it (it mirrors the lobby config it was started from).
     const allowRulesetWrite = startingGame || room.state.status === 'lobby';
 
-    applyPushedState(room.state, newState, { isHost, startingGame, allowRulesetWrite });
+    const applied = applyPushedState(room.state, newState, { isHost, startingGame, allowRulesetWrite });
+
+    // Gated on the push having landed, and therefore only readable AFTER it:
+    // applyPushedState discards a whole snapshot whose roster no longer
+    // matches the server's, and clearing the dedup for a game that never
+    // started let the host submit the still-finished game's statistics a
+    // second time.
+    if (startingGame && applied) {
+      room.statsRecordedForGame = { devices: new Set(), global: false };
+    }
 
     // Decided AFTER the push is applied: the opening push carries winningScore
     // and initialCards itself, so reading the pre-push state would see only the
@@ -66,7 +72,14 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
     // winning score once running, win in two turns" would otherwise be recorded
     // as a normal game. Hence the downgrade below — and it only ever goes one
     // way: pushing the defaults back before the end must not relabel the game.
-    if (startingGame) {
+    //
+    // Gated on `applied` for the same reason as the dedup reset above: a
+    // discarded push started no game, so re-deriving the label here would read
+    // the STILL-finished game's current config and relabel its statistics
+    // bucket — exactly the upgrade the sticky downgrade below exists to
+    // prevent. The `else if` then keeps the downgrade running, which for an
+    // unchanged state is a no-op.
+    if (startingGame && applied) {
       room.normalizedGame = isNormalizedConfig(room.state);
       // Frozen for the same reason as normalizedGame: the stats handlers
       // must bucket by the rule set the game actually STARTED with, not by
