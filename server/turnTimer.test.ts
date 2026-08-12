@@ -5,6 +5,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'child_process';
 import { io } from 'socket.io-client';
 import { TEST_PORTS } from './testPorts';
+import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
 // Covers the server-authoritative turn timer (server/index.ts: startServerTurnTimer /
 // advanceTurnOnTimeout / clearServerTurnTimer). Before this feature, turn expiry was
@@ -35,7 +36,7 @@ describe('Server-side turn timer', () => {
       serverProcess.stderr.on('data', (data) => console.error('[server]', data.toString()));
       serverProcess.on('error', reject);
     });
-  }, 20000);
+  }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -155,6 +156,17 @@ describe('Server-side turn timer', () => {
     guestSock.disconnect();
   }, 10000);
 
+  // The test below is the one place where the advance cannot be awaited as an
+  // event: it must happen with the room empty, so nothing is listening when it
+  // does and the state can only be SAMPLED, by rejoining afterwards. The window
+  // that sample has to land in is therefore widened at both ends: a 2s turn
+  // (400ms under TEST_TIMER_SCALE=0.2) leaves the expiry room to run late, and
+  // the wait below is half a turn again past that deadline. Landing outside it
+  // is survivable either way — too early is waited out, too late is covered by
+  // asserting only on state a further expiry cannot take back (see below).
+  const EMPTY_ROOM_TURN_DURATION_S = 2;
+  const EMPTY_ROOM_EXPIRY_WAIT_MS = 600;
+
   it('turn still advances even when every client has disconnected', async () => {
     const roomId = 'timer-empty-room';
     const { sock: hostSock } = await joinRoom(roomId, 'Alice');
@@ -169,21 +181,56 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players, status: 'playing', currentPlayerIndex: 0, currentCard: '200',
-        cards: ['300'], round: 1, turnDuration: 1,
+        // Bob draws a Feuerwerk, whose 3x multiplier (pinned by the test below)
+        // stretches the turn AFTER the sampled one to three turns long, so a
+        // slow rejoin has that much longer before a second expiry runs.
+        cards: ['Feuerwerk'], round: 1, turnDuration: EMPTY_ROOM_TURN_DURATION_S,
       },
     });
-    await delay(50);
+    // Waited for rather than slept past: this broadcast is the moment the timer
+    // is armed, and it is what the wait below is measured from. A fixed sleep
+    // here was really a bet that the server processes the push within it — on a
+    // loaded machine it doesn't, and the sample then lands before the turn it
+    // is meant to observe has even started.
+    await waitForState(hostSock, (s) => s.status === 'playing' && s.currentPlayerIndex === 0 && s.currentCard === '200');
 
     hostSock.disconnect();
     guestSock.disconnect();
 
     // Give the server time to run advanceTurnOnTimeout with zero sockets attached.
-    await delay(250);
+    await delay(EMPTY_ROOM_EXPIRY_WAIT_MS);
 
     // Reconnect as Alice (same deviceId) to observe the room's current state.
-    const { state } = await joinRoom(roomId, 'Alice');
-    expect(state.currentPlayerIndex).toBe(1);
-    expect(state.previousCard).toBe('200');
+    const { sock: observerSock, state } = await joinRoom(roomId, 'Alice');
+    // If the expiry is still owed, wait for it now that there is a socket to
+    // hear it, instead of failing on a sample taken too early. Rejoining never
+    // re-arms the turn timer (joinRoom only cancels the disconnect timer), so
+    // this still waits on the timer that was armed while the room was empty.
+    //
+    // What is waited for — and asserted on — has to be CUMULATIVE, because the
+    // sample can land too LATE just as easily as too early: on a machine slow
+    // enough to rejoin after the following turn expired too, currentPlayerIndex
+    // is back at 0 and previousCard holds Bob's card, so an exact-index
+    // assertion fails for the opposite reason to the one this test guards. The
+    // history log only grows (turnTimers.ts appends one entry per expiry and
+    // never clears it), so "a turn expired with nobody connected" holds from
+    // the first expiry onwards however many follow it.
+    const someTurnTimedOut = (s) => (s.historyLog?.length ?? 0) > 0;
+    const advanced = someTurnTimedOut(state)
+      ? state
+      : await waitForState(observerSock, someTurnTimedOut);
+
+    // Beyond what the wait established (that SOME expiry ran): the first entry
+    // is the sampled turn, and it records what a timeout produces — Alice's
+    // '200' charged as a bust, the same way the connected-client case above
+    // pins it. Both are per-game totals, so a second expiry cannot undo them.
+    const [firstTimeout] = advanced.historyLog;
+    expect(firstTimeout.playerName).toBe('Alice');
+    expect(firstTimeout.type).toBe('bust');
+    expect(firstTimeout.card).toBe('200');
+    expect(advanced.players.find((p) => p.name === 'Alice').busts).toBeGreaterThanOrEqual(1);
+
+    observerSock.disconnect();
   }, 10000);
 
   it('Feuerwerk applies a 3x turn duration multiplier', async () => {

@@ -5,6 +5,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'child_process';
 import { io } from 'socket.io-client';
 import { TEST_PORTS } from './testPorts';
+import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
 describe('Socket updateConfig — upper-bound validation', () => {
   let serverProcess;
@@ -31,7 +32,7 @@ describe('Socket updateConfig — upper-bound validation', () => {
       serverProcess.stderr.on('data', (data) => console.error('[server]', data.toString()));
       serverProcess.on('error', reject);
     });
-  }, 20000);
+  }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -138,7 +139,7 @@ describe('Socket security and timer fixes', () => {
       serverProcess.stderr.on('data', (data) => console.error('[server]', data.toString()));
       serverProcess.on('error', reject);
     });
-  }, 20000);
+  }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
