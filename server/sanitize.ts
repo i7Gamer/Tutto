@@ -4,16 +4,39 @@ export const STATS_VALUE_CAP = 1e9;
 // indentLogContinuationLines.
 const LOG_CONTINUATION_INDENT = '    ';
 
+// ANSI CSI sequences. Not just colour: CUU/EL (ESC[1A ESC[2K) move the cursor
+// onto log lines ALREADY written and blank them, so a crafted field can erase
+// or overwrite genuine entries in a live terminal without ever emitting a
+// newline of its own — which is all the CR/LF handling below can stop.
+// eslint-disable-next-line no-control-regex -- matching control characters is the point
+const ANSI_ESCAPE = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
+
+// The remaining control characters a log reader acts on rather than prints: a
+// NUL truncates the line in several log processors, and BEL, backspace and a
+// bare ESC survive the CSI pattern above. CR (\x0d) and LF (\x0a) are excluded
+// — each function below has its own rule for them — and so is tab (\x09),
+// which cannot forge an entry and whose removal would mangle legitimately
+// tab-separated messages.
+// eslint-disable-next-line no-control-regex -- matching control characters is the point
+const LOG_CONTROL_CHARS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+
+const stripLogControlChars = (value: string): string =>
+  value.replace(ANSI_ESCAPE, '').replace(LOG_CONTROL_CHARS, '');
+
 // For client-supplied values interpolated into a log entry's HEADER line
 // (e.g. the crash report's timestamp/message): embedded CR/LF would let a
 // crafted value forge entirely fake log entries.
-export const sanitizeLogHeaderField = (value: string): string => value.replace(/[\r\n]+/g, ' ');
+export const sanitizeLogHeaderField = (value: string): string =>
+  stripLogControlChars(value).replace(/[\r\n]+/g, ' ');
 
 // For legitimately multi-line log fields (stack traces): keeps the newlines
 // but indents every continuation line, so no embedded line can masquerade as
-// a fresh top-level log entry (e.g. a forged "[client-error] ..." line).
+// a fresh top-level log entry (e.g. a forged "[client-error] ..." line). Just
+// as client-supplied as the header fields and bound for the same log, so it
+// gets the same escape stripping — indenting a line does nothing about an
+// ANSI sequence inside it.
 export const indentLogContinuationLines = (value: string): string =>
-  value.replace(/\r\n|\r|\n/g, `\n${LOG_CONTINUATION_INDENT}`);
+  stripLogControlChars(value).replace(/\r\n|\r|\n/g, `\n${LOG_CONTINUATION_INDENT}`);
 
 // A turn count of 0 is meaningless for these two fields (a game always takes
 // at least 1 turn) — named here as the single source of truth for which

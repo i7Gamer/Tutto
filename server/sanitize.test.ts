@@ -85,8 +85,29 @@ describe('sanitizeLogHeaderField', () => {
     expect(sanitizeLogHeaderField('a\r\nb\rc\nd')).toBe('a b c d');
   });
 
+  // Stripping CR/LF alone does not achieve what this function exists for: an
+  // ANSI cursor sequence rewrites log lines that were ALREADY written, so a
+  // crafted field can erase or overwrite genuine entries in a live terminal
+  // without ever emitting a newline of its own.
+  it('strips ANSI escape sequences so a crafted field cannot rewrite earlier log lines', () => {
+    // CUU (cursor up) + EL (erase line): moves onto the previous entry and
+    // blanks it, then writes its own text over the top.
+    expect(sanitizeLogHeaderField('boom\x1b[1A\x1b[2Kforged entry')).toBe('boomforged entry');
+    expect(sanitizeLogHeaderField('\x1b[31mred\x1b[0m')).toBe('red');
+  });
+
+  it('strips NUL and other control characters a log reader would act on', () => {
+    // A NUL truncates the line in several log processors; BEL, backspace and a
+    // bare ESC survive the CSI pattern the previous test covers.
+    expect(sanitizeLogHeaderField('visible\x00hidden')).toBe('visiblehidden');
+    expect(sanitizeLogHeaderField('a\x07b\x1bc\x08d')).toBe('abcd');
+  });
+
   it('leaves single-line values untouched', () => {
     expect(sanitizeLogHeaderField('plain message, no newlines')).toBe('plain message, no newlines');
+    // Tab is the one control character kept: it cannot forge an entry, and
+    // stripping it would mangle legitimately tab-separated messages.
+    expect(sanitizeLogHeaderField('col1\tcol2')).toBe('col1\tcol2');
     expect(sanitizeLogHeaderField('')).toBe('');
   });
 });
@@ -99,6 +120,17 @@ describe('indentLogContinuationLines', () => {
 
   it('normalizes CRLF line endings while indenting', () => {
     expect(indentLogContinuationLines('line1\r\nline2')).toBe('line1\n    line2');
+  });
+
+  // A stack trace is exactly as attacker-controlled as the header fields and
+  // lands in the same log, so it gets the same treatment — indenting a line
+  // does not stop an ANSI sequence inside it from walking the cursor back up
+  // over entries already written.
+  it('strips ANSI escapes and control characters while keeping the line structure', () => {
+    expect(indentLogContinuationLines('Error: boom\x1b[1A\nat Game\x00'))
+      .toBe('Error: boom\n    at Game');
+    expect(indentLogContinuationLines('\x1b[31mError\x1b[0m\nat DiceGame'))
+      .toBe('Error\n    at DiceGame');
   });
 
   it('leaves single-line values untouched', () => {
