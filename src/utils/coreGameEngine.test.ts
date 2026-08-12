@@ -1332,6 +1332,31 @@ describe('coreGameEngine', () => {
       expect(physical.players[1].score).toBe(1000);
       expect(digital.players[1].score).toBe(1000);
     });
+
+    // The modernized counterpart of the classic chain case: a runner-up less
+    // than 1000 behind who completes Plus/Minus on two of their own turns in
+    // a row. The first success overtakes the leader, so the second one finds
+    // this player leading and takes nothing off anybody.
+    it('two consecutive Plus_Minus wins from less than 1000 behind deduct the leader exactly once', () => {
+      const turn = (players, currentPlayerIndex) => calculateNextTurn(
+        makeState({ players, currentPlayerIndex, currentCard: 'Plus_Minus' }),
+        0, true,
+      );
+
+      // Alice 2500, Bob leads with 3000 — a 500-point gap.
+      const first = turn([makePlayer('Alice', { score: 2500 }), makePlayer('Bob', { score: 3000 })], 0);
+      expect(first.players[0].score).toBe(3500);
+      expect(first.players[1].score).toBe(2000);
+      expect(first.players[1].times1000PointsDeducted).toBe(1);
+
+      // Alice's next turn: she is the leader now, so nobody is deducted.
+      const second = turn(first.players, 0);
+      expect(second.players[0].score).toBe(4500);
+      expect(second.players[1].score).toBe(2000);
+      expect(second.players[1].times1000PointsDeducted).toBe(1);
+      expect(second.historyEntry.deductedPlayers).toBeUndefined();
+      expect(second.previousLeaders).toBeNull();
+    });
   });
 
   describe('History Log Entry Generation', () => {
@@ -1506,6 +1531,51 @@ describe('coreGameEngine', () => {
       expect(result.historyEntry.deductedPlayers).toEqual(['Bob', 'Bob']);
       expect(result.previousLeaders).toEqual([expect.objectContaining({ name: 'Bob', score: 1500 })]);
       expect(result.previousTurnSummary?.deductedPlayers).toEqual(['Bob', 'Bob']);
+    });
+
+    // The runner-up trailing by LESS than 1000: the first deduction alone
+    // hands them the lead, and a leader deducts nobody. Guards against the
+    // naive "the pre-turn leaders lose 1000 per success", which would take
+    // 2000 off a player who was only ever 500 ahead.
+    it('atomic Plus/Minus: a second success deducts nobody once the first hands the runner-up the lead', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 2500 }), makePlayer('Bob', { score: 3000 })],
+        currentCard: 'Plus_Minus',
+      });
+      const result = calculateNextTurn(
+        state, 2000, true,
+        summary({
+          cards: [{ card: 'Plus_Minus', completed: true }, { card: 'Plus_Minus', completed: true }],
+          tuttoCount: 2,
+          plusMinusSuccesses: 2,
+        }),
+      );
+      const [alice, bob] = result.players;
+      expect(bob.score).toBe(2000);                    // 3000 − 1000, and no second hit
+      expect(bob.times1000PointsDeducted).toBe(1);
+      expect(alice.score).toBe(4500);                  // 2500 + 2 × 1000
+      expect(result.historyEntry.deductedPlayers).toEqual(['Bob']);
+      expect(result.previousTurnSummary?.deductedPlayers).toEqual(['Bob']);
+    });
+
+    // Same lead-change rule at the exact boundary: a deduction that only TIES
+    // the two still counts as the current player leading, so nothing more is
+    // taken.
+    it('atomic Plus/Minus: a tie after the first deduction also stops the second', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 2000 }), makePlayer('Bob', { score: 3000 })],
+        currentCard: 'Plus_Minus',
+      });
+      const result = calculateNextTurn(
+        state, 2000, true,
+        summary({
+          cards: [{ card: 'Plus_Minus', completed: true }, { card: 'Plus_Minus', completed: true }],
+          tuttoCount: 2,
+          plusMinusSuccesses: 2,
+        }),
+      );
+      expect(result.players[1].score).toBe(2000);
+      expect(result.players[1].times1000PointsDeducted).toBe(1);
     });
 
     it('atomic Plus/Minus: a forfeited chain never deducts, even with successes recorded', () => {
