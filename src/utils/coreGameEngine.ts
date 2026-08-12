@@ -316,13 +316,21 @@ export const calculateNextTurn = (
 
     // Atomic Plus/Minus: the ±1000s resolve only when the turn actually
     // banks — a later null/Stop forfeits them along with everything else.
-    // Applied sequentially (leaders recomputed between deductions) with the
-    // same self-exclusion rule as the modernized path below.
-    if (isSuccess && turnSummary.plusMinusSuccesses > 0) {
+    // Replayed card by card in the order the chain played them: at each one
+    // the current player counts as holding everything the chain had earned by
+    // that point (plusMinusScores), the leaders are recomputed from the
+    // deductions already applied, and a player in the lead takes nothing off
+    // anybody — the same self-exclusion rule as the modernized path below.
+    // Comparing against the bare pre-turn score instead kept deducting after
+    // the chain had already overtaken the leader.
+    if (isSuccess && turnSummary.plusMinusScores.length > 0) {
       const preScores = new Map<string, Player>();
       const deducted: string[] = [];
-      for (let i = 0; i < turnSummary.plusMinusSuccesses; i++) {
-        const leaders = getLeaders(newPlayers);
+      for (const scoreBeforeCard of turnSummary.plusMinusScores) {
+        const asOfThisCard = newPlayers.map(p => (
+          p.name === currentPlayer.name ? { ...p, score: p.score + scoreBeforeCard } : p
+        ));
+        const leaders = getLeaders(asOfThisCard);
         if (leaders.some(l => l.name === currentPlayer.name)) continue;
         leaders.forEach(l => {
           const p = newPlayers.find(np => np.name === l.name);

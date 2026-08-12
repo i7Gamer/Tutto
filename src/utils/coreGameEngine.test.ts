@@ -1251,7 +1251,7 @@ describe('coreGameEngine', () => {
     });
 
     it('reports the outcome of a classic chain too', () => {
-      const summary = { cards: [{ card: '200', completed: true }], tuttoCount: 1, plusMinusSuccesses: 0, ended: 'banked' };
+      const summary = { cards: [{ card: '200', completed: true }], tuttoCount: 1, plusMinusScores: [], ended: 'banked' };
       const result = calculateNextTurn(makeState({ currentCard: '200' }), 500, true, summary);
       expect(result.previousWasSuccess).toBe(true);
     });
@@ -1445,7 +1445,7 @@ describe('coreGameEngine', () => {
     const summary = (overrides = {}) => ({
       cards: [{ card: '300', completed: true }],
       tuttoCount: 1,
-      plusMinusSuccesses: 0,
+      plusMinusScores: [],
       ended: 'banked',
       ...overrides,
     });
@@ -1508,48 +1508,107 @@ describe('coreGameEngine', () => {
       expect(result.previousTurnSummary?.ended).toBe('stopCard');
     });
 
-    it('atomic Plus/Minus: deductions apply only when the turn banks, once per success, clamped at 0', () => {
-      // Bob leads with 1500; Alice banks a chain containing two successful
-      // Plus/Minus cards. Bob is deducted twice, but never below 0.
+    // Every case below turns on the same rule: the ±1000s are replayed in the
+    // order the chain played them, and at each one the player counts as
+    // holding what the chain had earned by that point (plusMinusScores). A
+    // player in the lead deducts nobody, so the chain stops taking points the
+    // moment it overtakes.
+    const twoPlusMinus = (extra = {}) => summary({
+      cards: [{ card: 'Plus_Minus', completed: true }, { card: 'Plus_Minus', completed: true }],
+      tuttoCount: 2,
+      plusMinusScores: [0, 1000],
+      ...extra,
+    });
+
+    it('atomic Plus/Minus: the chain stops deducting once its own gains take the lead', () => {
+      // Bob leads with 1500 and Alice banks two Plus/Minus cards. The first
+      // takes Bob to 500 and puts Alice on 1000 — she leads from there, so the
+      // second deducts nobody. Resolving both against her PRE-TURN 0 took 2000
+      // off a player she had already overtaken.
+      const state = makeState({
+        players: [makePlayer('Alice'), makePlayer('Bob', { score: 1500 })],
+        currentCard: 'Plus_Minus',
+      });
+      const result = calculateNextTurn(state, 2000, true, twoPlusMinus());
+
+      const [alice, bob] = result.players;
+      expect(alice.score).toBe(2000);
+      expect(alice.timesPlusMinusCompleted).toBe(2);
+      expect(bob.score).toBe(500);
+      expect(bob.times1000PointsDeducted).toBe(1);
+      expect(result.historyEntry.deductedPlayers).toEqual(['Bob']);
+      expect(result.previousLeaders).toEqual([expect.objectContaining({ name: 'Bob', score: 1500 })]);
+      expect(result.previousTurnSummary?.deductedPlayers).toEqual(['Bob']);
+    });
+
+    it('atomic Plus/Minus: points from EARLIER cards in the chain count toward the lead too', () => {
+      // Alice chains a 300 bonus (1800) and then a Plus/Minus. She is already
+      // ahead of Bob's 1500 when it resolves, so nobody is deducted — the
+      // whole point of carrying the running total rather than a bare count.
       const state = makeState({
         players: [makePlayer('Alice'), makePlayer('Bob', { score: 1500 })],
         currentCard: 'Plus_Minus',
       });
       const result = calculateNextTurn(
-        state, 2000, true,
+        state, 2800, true,
         summary({
-          cards: [{ card: 'Plus_Minus', completed: true }, { card: 'Plus_Minus', completed: true }],
+          cards: [{ card: '300', completed: true }, { card: 'Plus_Minus', completed: true }],
           tuttoCount: 2,
-          plusMinusSuccesses: 2,
+          plusMinusScores: [1800],
         }),
       );
-      const [alice, bob] = result.players;
-      expect(alice.score).toBe(2000);
-      expect(alice.timesPlusMinusCompleted).toBe(2);
-      expect(bob.score).toBe(0);                       // 1500 → 500 → clamped 0
-      expect(bob.times1000PointsDeducted).toBe(2);
-      expect(result.historyEntry.deductedPlayers).toEqual(['Bob', 'Bob']);
-      expect(result.previousLeaders).toEqual([expect.objectContaining({ name: 'Bob', score: 1500 })]);
+
+      expect(result.players[0].score).toBe(2800);
+      expect(result.players[1].score).toBe(1500);
+      expect(result.players[1].times1000PointsDeducted).toBe(0);
+      expect(result.historyEntry.deductedPlayers).toBeUndefined();
+    });
+
+    it('atomic Plus/Minus: keeps deducting while the chain is still behind', () => {
+      // Bob is far enough ahead that two of the three successes still find
+      // Alice trailing; the third does not.
+      const state = makeState({
+        players: [makePlayer('Alice'), makePlayer('Bob', { score: 3000 })],
+        currentCard: 'Plus_Minus',
+      });
+      const result = calculateNextTurn(
+        state, 3000, true,
+        summary({
+          cards: Array.from({ length: 3 }, () => ({ card: 'Plus_Minus', completed: true })),
+          tuttoCount: 3,
+          plusMinusScores: [0, 1000, 2000],
+        }),
+      );
+
+      expect(result.players[1].score).toBe(1000);       // 3000 → 2000 → 1000
+      expect(result.players[1].times1000PointsDeducted).toBe(2);
       expect(result.previousTurnSummary?.deductedPlayers).toEqual(['Bob', 'Bob']);
     });
 
+    it('atomic Plus/Minus: a deducted score never goes below zero', () => {
+      // Official rule: "a player can never have less than 0 points".
+      const state = makeState({
+        players: [makePlayer('Alice'), makePlayer('Bob', { score: 900 })],
+        currentCard: 'Plus_Minus',
+      });
+      const result = calculateNextTurn(
+        state, 1000, true,
+        summary({ cards: [{ card: 'Plus_Minus', completed: true }], plusMinusScores: [0] }),
+      );
+
+      expect(result.players[1].score).toBe(0);
+      expect(result.players[1].times1000PointsDeducted).toBe(1);
+    });
+
     // The runner-up trailing by LESS than 1000: the first deduction alone
-    // hands them the lead, and a leader deducts nobody. Guards against the
-    // naive "the pre-turn leaders lose 1000 per success", which would take
-    // 2000 off a player who was only ever 500 ahead.
+    // hands them the lead, and a leader deducts nobody.
     it('atomic Plus/Minus: a second success deducts nobody once the first hands the runner-up the lead', () => {
       const state = makeState({
         players: [makePlayer('Alice', { score: 2500 }), makePlayer('Bob', { score: 3000 })],
         currentCard: 'Plus_Minus',
       });
-      const result = calculateNextTurn(
-        state, 2000, true,
-        summary({
-          cards: [{ card: 'Plus_Minus', completed: true }, { card: 'Plus_Minus', completed: true }],
-          tuttoCount: 2,
-          plusMinusSuccesses: 2,
-        }),
-      );
+      const result = calculateNextTurn(state, 2000, true, twoPlusMinus());
+
       const [alice, bob] = result.players;
       expect(bob.score).toBe(2000);                    // 3000 − 1000, and no second hit
       expect(bob.times1000PointsDeducted).toBe(1);
@@ -1558,23 +1617,16 @@ describe('coreGameEngine', () => {
       expect(result.previousTurnSummary?.deductedPlayers).toEqual(['Bob']);
     });
 
-    // Same lead-change rule at the exact boundary: a deduction that only TIES
-    // the two still counts as the current player leading, so nothing more is
-    // taken.
+    // The exact boundary: a deduction that only draws the two LEVEL still
+    // counts as the current player leading, so nothing more is taken.
     it('atomic Plus/Minus: a tie after the first deduction also stops the second', () => {
       const state = makeState({
-        players: [makePlayer('Alice', { score: 2000 }), makePlayer('Bob', { score: 3000 })],
+        players: [makePlayer('Alice', { score: 1000 }), makePlayer('Bob', { score: 3000 })],
         currentCard: 'Plus_Minus',
       });
-      const result = calculateNextTurn(
-        state, 2000, true,
-        summary({
-          cards: [{ card: 'Plus_Minus', completed: true }, { card: 'Plus_Minus', completed: true }],
-          tuttoCount: 2,
-          plusMinusSuccesses: 2,
-        }),
-      );
-      expect(result.players[1].score).toBe(2000);
+      const result = calculateNextTurn(state, 2000, true, twoPlusMinus());
+
+      expect(result.players[1].score).toBe(2000);       // Alice's 1000 + 1000 ties it
       expect(result.players[1].times1000PointsDeducted).toBe(1);
     });
 
@@ -1588,7 +1640,7 @@ describe('coreGameEngine', () => {
         summary({
           cards: [{ card: 'Plus_Minus', completed: true }, { card: '200', completed: false }],
           tuttoCount: 1,
-          plusMinusSuccesses: 1,
+          plusMinusScores: [0],
           ended: 'null',
         }),
       );
@@ -1659,7 +1711,7 @@ describe('coreGameEngine', () => {
               { card: 'Kniffel', completed: true },
             ],
             tuttoCount: 3,
-            plusMinusSuccesses: 1,
+            plusMinusScores: [0],   // the chain opened on it
           }),
         );
         return { state, result };

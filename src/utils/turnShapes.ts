@@ -51,6 +51,15 @@ export const isChainCard = (v: unknown): v is CardType =>
 export const isChainCounter = (v: unknown): v is number =>
   Number.isInteger(v) && (v as number) >= 0 && (v as number) <= MAX_CHAIN_CARDS;
 
+/**
+ * The running totals a chain's Plus/Minus cards resolved on — one per success,
+ * bounded by the chain like the card list. Shape only: score magnitude is the
+ * untrusted boundary's own rule (server/pushValidation.ts).
+ */
+export const isChainScoreList = (v: unknown): v is number[] =>
+  Array.isArray(v) && v.length <= MAX_CHAIN_CARDS
+  && v.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0);
+
 export const isTurnCardPlayed = (v: unknown): v is TurnCardPlayed => {
   const entry = asRecord(v);
   if (!entry) return false;

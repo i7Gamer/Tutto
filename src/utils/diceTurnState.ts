@@ -3,7 +3,7 @@ import type { CardType, Die, DiceSnapshot, Ruleset } from '../types';
 import { MAX_CHAIN_CARDS } from '../types';
 import { DEFAULT_RULESET } from './configValidation';
 import {
-  isSnapshotDie, isRolledDie, isKniffelProgressEntry, isChainCard, isChainCounter,
+  isSnapshotDie, isRolledDie, isKniffelProgressEntry, isChainCard, isChainCounter, isChainScoreList,
 } from './turnShapes';
 
 /**
@@ -63,7 +63,7 @@ interface BuildDiceSnapshotInput {
   stopped?: boolean;
   // Classic-chain fields — see DiceSnapshot in types.ts.
   cardsThisTurn?: CardType[];
-  plusMinusSuccesses?: number;
+  plusMinusScores?: number[];
   chainTuttoCount?: number;
 }
 
@@ -109,7 +109,7 @@ export const parseSavedDiceState = (raw: string | null): DiceSnapshot | null => 
         parsed.cardsThisTurn.every(isChainCard)) {
       snapshot.cardsThisTurn = parsed.cardsThisTurn;
     }
-    if (isChainCounter(parsed.plusMinusSuccesses)) snapshot.plusMinusSuccesses = parsed.plusMinusSuccesses;
+    if (isChainScoreList(parsed.plusMinusScores)) snapshot.plusMinusScores = parsed.plusMinusScores;
     if (isChainCounter(parsed.chainTuttoCount)) snapshot.chainTuttoCount = parsed.chainTuttoCount;
     return snapshot;
   } catch {
@@ -127,7 +127,7 @@ export const buildDiceSnapshot = ({
   busted = false,
   stopped = false,
   cardsThisTurn,
-  plusMinusSuccesses,
+  plusMinusScores,
   chainTuttoCount,
 }: BuildDiceSnapshotInput): DiceSnapshot => {
   const snapshot: DiceSnapshot = {
@@ -144,7 +144,7 @@ export const buildDiceSnapshot = ({
     snapshot.rollingDiceIds = Array.from(rollingDiceIndices ?? []);
   }
   if (cardsThisTurn) snapshot.cardsThisTurn = [...cardsThisTurn];
-  if (plusMinusSuccesses !== undefined) snapshot.plusMinusSuccesses = plusMinusSuccesses;
+  if (plusMinusScores !== undefined) snapshot.plusMinusScores = [...plusMinusScores];
   if (chainTuttoCount !== undefined) snapshot.chainTuttoCount = chainTuttoCount;
   return snapshot;
 };

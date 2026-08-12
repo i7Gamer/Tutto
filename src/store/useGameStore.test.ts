@@ -765,7 +765,7 @@ describe('useGameStore', () => {
     localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
       turnKey: 'local:1:0:300:classic',
       cards: [{ card: '300', completed: true }],
-      plusMinusSuccesses: 0,
+      plusMinusScores: [],
       awaitingChoice: false,
       scoreInput: '350',
     }));
@@ -3286,7 +3286,7 @@ describe('useGameStore', () => {
         previousHighestFeuerwerkTurnScore: 800,
         previousHighestX2TurnScore: 600,
         previousPlayerName: 'Alice',
-        previousTurnSummary: { cards: [{ card: 'Kniffel', completed: true }], tuttoCount: 1, plusMinusSuccesses: 0, ended: 'banked' },
+        previousTurnSummary: { cards: [{ card: 'Kniffel', completed: true }], tuttoCount: 1, plusMinusScores: [], ended: 'banked' },
       });
 
       act();

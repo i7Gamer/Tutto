@@ -309,7 +309,7 @@ describe('turnTimers', () => {
           turnScore: 1800, keptDice: [], currentRoll: [], kniffelProgress: [],
           tuttosThisTurn: 2,
           cardsThisTurn: ['500', 'Kniffel', 'Feuerwerk'],
-          plusMinusSuccesses: 0,
+          plusMinusScores: [],
           chainTuttoCount: 2,
         },
       });
@@ -364,7 +364,7 @@ describe('turnTimers', () => {
           turnScore: 2000,
           keptDice: [1, 2, 3, 4, 5, 6].map(v => ({ id: `d${v}`, val: v })),
           currentRoll: [], kniffelProgress: [1, 2, 3, 4, 5, 6], tuttosThisTurn: 1,
-          cardsThisTurn: ['Kniffel'], plusMinusSuccesses: 0, chainTuttoCount: 1,
+          cardsThisTurn: ['Kniffel'], plusMinusScores: [], chainTuttoCount: 1,
         },
       });
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
@@ -393,7 +393,7 @@ describe('turnTimers', () => {
           turnScore: 450,
           keptDice: [{ id: 'k1', val: 1 }, { id: 'k2', val: 5 }],
           currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0, stopped: true,
-          cardsThisTurn: ['Kniffel', '300'], plusMinusSuccesses: 0, chainTuttoCount: 1,
+          cardsThisTurn: ['Kniffel', '300'], plusMinusScores: [], chainTuttoCount: 1,
         },
       });
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
@@ -422,7 +422,7 @@ describe('turnTimers', () => {
         liveTurnState: {
           turnScore: 1500, keptDice: [], currentRoll: [], kniffelProgress: [],
           tuttosThisTurn: 1, busted: true,
-          cardsThisTurn: ['300', 'Feuerwerk'], plusMinusSuccesses: 0, chainTuttoCount: 1,
+          cardsThisTurn: ['300', 'Feuerwerk'], plusMinusScores: [], chainTuttoCount: 1,
         },
       });
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
@@ -442,7 +442,7 @@ describe('turnTimers', () => {
           turnScore: 800, keptDice: [], currentRoll: [], kniffelProgress: [],
           tuttosThisTurn: 1,
           cardsThisTurn: ['300', 'Stop'],
-          plusMinusSuccesses: 0,
+          plusMinusScores: [],
           chainTuttoCount: 1,
         },
       });

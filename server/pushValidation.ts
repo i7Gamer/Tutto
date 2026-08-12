@@ -1,7 +1,7 @@
 import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS, type CardType, type InitialCards, type DiceSnapshot, type HistoryEntry, type TurnSummary, type TurnCardPlayed } from '../src/types';
 import {
   MAX_DICE_ID_LENGTH, isSnapshotDie, isRolledDie, isKniffelProgressEntry,
-  isChainCard, isChainCounter, isTurnCardList, isTurnEnd,
+  isChainCard, isChainCounter, isChainScoreList, isTurnCardList, isTurnEnd,
 } from '../src/utils/turnShapes';
 import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
@@ -22,6 +22,12 @@ const MAX_DECK_SIZE = MAX_CARD_COUNT * 11;
 export const MAX_ROUNDS = 100000;
 const MAX_SCORE_MAGNITUDE = 1_000_000;
 const MAX_GAME_SECONDS = 10_000_000;
+
+// The chain's Plus/Minus running totals: shape from turnShapes, magnitude the
+// network's own rule — the engine adds each one to a player's score, so an
+// unbounded entry off the wire is an unbounded score.
+const isPlusMinusScoreList = (v: unknown): v is number[] =>
+  isChainScoreList(v) && v.every(n => n <= MAX_SCORE_MAGNITUDE);
 
 export const validateInitialCards = (cards: unknown): cards is InitialCards => {
   if (typeof cards !== 'object' || cards === null) return false;
@@ -86,7 +92,7 @@ export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
     if (!Array.isArray(s.cardsThisTurn) || s.cardsThisTurn.length > MAX_CHAIN_CARDS) return false;
     if (!s.cardsThisTurn.every(isChainCard)) return false;
   }
-  if (s.plusMinusSuccesses !== undefined && !isChainCounter(s.plusMinusSuccesses)) return false;
+  if (s.plusMinusScores !== undefined && !isPlusMinusScoreList(s.plusMinusScores)) return false;
   if (s.chainTuttoCount !== undefined && !isChainCounter(s.chainTuttoCount)) return false;
   return true;
 };
@@ -107,7 +113,7 @@ export const sanitizeDiceSnapshot = (v: DiceSnapshot): DiceSnapshot => {
   if (v.stopped) clean.stopped = true;
   if (v.rollingDiceIds) clean.rollingDiceIds = [...v.rollingDiceIds];
   if (v.cardsThisTurn) clean.cardsThisTurn = [...v.cardsThisTurn];
-  if (v.plusMinusSuccesses !== undefined) clean.plusMinusSuccesses = v.plusMinusSuccesses;
+  if (v.plusMinusScores !== undefined) clean.plusMinusScores = [...v.plusMinusScores];
   if (v.chainTuttoCount !== undefined) clean.chainTuttoCount = v.chainTuttoCount;
   return clean;
 };
@@ -120,7 +126,7 @@ export const isValidTurnSummary = (v: unknown): v is TurnSummary => {
   const s = v as Record<string, unknown>;
   if (!isTurnCardList(s.cards)) return false;
   if (!isChainCounter(s.tuttoCount)) return false;
-  if (!isChainCounter(s.plusMinusSuccesses)) return false;
+  if (!isPlusMinusScoreList(s.plusMinusScores)) return false;
   if (!isTurnEnd(s.ended)) return false;
   if (s.forfeitedScore !== undefined &&
       !(typeof s.forfeitedScore === 'number' && Number.isFinite(s.forfeitedScore) && s.forfeitedScore >= 0 && s.forfeitedScore <= MAX_SCORE_MAGNITUDE)) return false;
@@ -139,7 +145,7 @@ export const sanitizeTurnSummary = (v: TurnSummary): TurnSummary => {
   const clean: TurnSummary = {
     cards: v.cards.map((c: TurnCardPlayed) => ({ card: c.card, completed: c.completed })),
     tuttoCount: v.tuttoCount,
-    plusMinusSuccesses: v.plusMinusSuccesses,
+    plusMinusScores: [...v.plusMinusScores],
     ended: v.ended,
   };
   if (v.forfeitedScore !== undefined) clean.forfeitedScore = v.forfeitedScore;

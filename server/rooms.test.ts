@@ -186,7 +186,7 @@ describe('handleActivePlayerRemoved', () => {
         previousHighestTurnScore: 1200,
         previousHighestFeuerwerkTurnScore: 800,
         previousHighestX2TurnScore: 600,
-        previousTurnSummary: { cards: [{ card: 'Kniffel', completed: true }], tuttoCount: 1, plusMinusSuccesses: 0, ended: 'banked' },
+        previousTurnSummary: { cards: [{ card: 'Kniffel', completed: true }], tuttoCount: 1, plusMinusScores: [], ended: 'banked' },
         round: 4,
         cards: ['200', '300'],
         currentCard: 'Kniffel',

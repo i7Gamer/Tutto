@@ -2,7 +2,7 @@ import { localStore } from '../utils/storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildTurnKey, PHYSICAL_TURN_STATE_KEY } from '../utils/diceTurnState';
 import { MAX_CHAIN_CARDS } from '../types';
-import { isChainCounter, isTurnCardList } from '../utils/turnShapes';
+import { isChainScoreList, isTurnCardList } from '../utils/turnShapes';
 import type { CardType, Ruleset, TurnCardPlayed, TurnEnd, TurnSummary } from '../types';
 
 /*
@@ -18,7 +18,10 @@ import type { CardType, Ruleset, TurnCardPlayed, TurnEnd, TurnSummary } from '..
 
 interface PhysicalChainState {
   cards: TurnCardPlayed[];
-  plusMinusSuccesses: number;
+  // See TurnSummary.plusMinusScores: the running total the player held as each
+  // Plus/Minus was answered Yes. With real dice that total is what they have
+  // typed so far, which Game keeps current across the whole chain.
+  plusMinusScores: number[];
 }
 
 interface PhysicalChainCache extends PhysicalChainState {
@@ -47,7 +50,7 @@ const isPlausibleCache = (v: unknown): v is PhysicalChainCacheShape => {
   // The shared shape check allows an empty list; an entry with no cards is not
   // a turn worth resuming, so that one is this cache's own rule.
   if (!isTurnCardList(c.cards) || c.cards.length === 0) return false;
-  if (!isChainCounter(c.plusMinusSuccesses)) return false;
+  if (!isChainScoreList(c.plusMinusScores)) return false;
   if (typeof c.awaitingChoice !== 'boolean') return false;
   return true;
 };
@@ -70,7 +73,7 @@ export const readPhysicalChainCache = (turnKey: string): PhysicalChainCache | nu
     return {
       turnKey: parsed.turnKey,
       cards: parsed.cards,
-      plusMinusSuccesses: parsed.plusMinusSuccesses,
+      plusMinusScores: parsed.plusMinusScores,
       awaitingChoice: parsed.awaitingChoice,
       scoreInput: isPlausibleScoreInput(parsed.scoreInput) ? parsed.scoreInput : '',
     };
@@ -109,7 +112,7 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
   // as DiceGame's digital cache.
   const [restored] = useState(() => (enabled ? readPhysicalChainCache(currentTurnKey) : null));
   const chainRef = useRef<PhysicalChainState | null>(
-    restored ? { cards: restored.cards, plusMinusSuccesses: restored.plusMinusSuccesses } : null,
+    restored ? { cards: restored.cards, plusMinusScores: restored.plusMinusScores } : null,
   );
   const [awaitingChoice, setAwaitingChoice] = useState(restored?.awaitingChoice ?? false);
 
@@ -148,7 +151,7 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
   const chainOrCurrentCard = useCallback((): PhysicalChainState => (
     chainRef.current ?? {
       cards: currentCardRef.current ? [{ card: currentCardRef.current, completed: false }] : [],
-      plusMinusSuccesses: 0,
+      plusMinusScores: [],
     }
   ), []);
 
@@ -161,7 +164,7 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
     const cache: PhysicalChainCache = {
       turnKey,
       cards: chain.cards,
-      plusMinusSuccesses: chain.plusMinusSuccesses,
+      plusMinusScores: chain.plusMinusScores,
       awaitingChoice: awaiting,
       scoreInput: scoreInputRef.current,
     };
@@ -187,9 +190,14 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
   // success) and the bank-or-draw choice opens. Does NOT commit the turn.
   const completeCurrentCard = useCallback((isPlusMinus: boolean) => {
     const source = chainOrCurrentCard();
+    // The typed total is the chain's running score, and Game adds this card's
+    // own +1000 to it right after this call — so what it holds now is exactly
+    // what the player had when the card resolved, which is what the engine
+    // replays each ±1000 against.
+    const scoreBeforeCard = Math.max(0, parseInt(scoreInputRef.current, 10) || 0);
     chainRef.current = {
       cards: source.cards.map((c, i) => (i === source.cards.length - 1 ? { ...c, completed: true } : c)),
-      plusMinusSuccesses: source.plusMinusSuccesses + (isPlusMinus ? 1 : 0),
+      plusMinusScores: isPlusMinus ? [...source.plusMinusScores, scoreBeforeCard] : source.plusMinusScores,
     };
     setAwaitingChoice(true);
     writeCache(currentTurnKey, true);
@@ -202,7 +210,7 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
     const source = chainOrCurrentCard();
     chainRef.current = {
       cards: [...source.cards.map((c, i) => (i === source.cards.length - 1 ? { ...c, completed: true } : c)), { card: drawn, completed: false }],
-      plusMinusSuccesses: source.plusMinusSuccesses,
+      plusMinusScores: source.plusMinusScores,
     };
     setAwaitingChoice(false);
     writeCache(buildTurnKey(roomId, round, currentPlayerIndex, drawn, ruleset), false);
@@ -232,7 +240,7 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
     return {
       cards,
       tuttoCount: cards.reduce((n, c) => n + (c.completed ? (c.card === 'Kleeblatt' ? 2 : 1) : 0), 0),
-      plusMinusSuccesses: source.plusMinusSuccesses,
+      plusMinusScores: [...source.plusMinusScores],
       ended,
       ...(ended !== 'banked' && forfeitedScore > 0 ? { forfeitedScore } : {}),
     };

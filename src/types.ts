@@ -68,12 +68,13 @@ export interface DiceSnapshot {
   // Mirrored in server/pushValidation.ts's snapshot family like `busted`.
   stopped?: boolean;
   // Classic-chain progress (absent in modernized turns): the cards drawn this
-  // turn in order, how many Plus/Minus cards succeeded so far, and the total
-  // tuttos rolled (unlike tuttosThisTurn above, never reset by a Kleeblatt
-  // draw). Mirrored in server/pushValidation.ts's snapshot family — a field
-  // missing there is silently stripped from every relayed snapshot.
+  // turn in order, the Plus/Minus cards succeeded so far (see plusMinusScores
+  // on TurnSummary for what the numbers are), and the total tuttos rolled
+  // (unlike tuttosThisTurn above, never reset by a Kleeblatt draw). Mirrored
+  // in server/pushValidation.ts's snapshot family — a field missing there is
+  // silently stripped from every relayed snapshot.
   cardsThisTurn?: CardType[];
-  plusMinusSuccesses?: number;
+  plusMinusScores?: number[];
   chainTuttoCount?: number;
 }
 
@@ -112,7 +113,13 @@ export interface TurnCardPlayed {
 export interface TurnSummary {
   cards: TurnCardPlayed[];
   tuttoCount: number;
-  plusMinusSuccesses: number;
+  // One entry per successful Plus/Minus, in the order the chain played them,
+  // each holding the turn total the player ALREADY held when that card
+  // resolved — before its own +1000. The engine replays the ±1000s card by
+  // card against these, so a chain that overtakes the leader partway through
+  // stops deducting from that point on; a bare count could only ever compare
+  // against the pre-turn score and kept deducting past the lead change.
+  plusMinusScores: number[];
   ended: TurnEnd;
   // The accumulated total that was on the table when a null/Stop ended the
   // turn — feeds the highestForfeitedTurnScore record. Absent when banked.

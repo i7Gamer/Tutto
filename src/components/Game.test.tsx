@@ -545,7 +545,8 @@ describe('Game Component Integration', () => {
 
       fireEvent.click(screen.getByText('game.controls.nextTurn'));
       expect(mockNextTurn).toHaveBeenCalledWith(1000, true, expect.objectContaining({
-        plusMinusSuccesses: 1,
+        // Nothing typed before the Yes, so the card resolved on a total of 0.
+        plusMinusScores: [0],
         cards: [{ card: 'Plus_Minus', completed: true }],
         ended: 'banked',
       }));
@@ -638,7 +639,7 @@ describe('Game Component Integration', () => {
         localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
           turnKey: 'local:3:0:400:classic',
           cards: [{ card: '300', completed: true }, { card: '400', completed: false }],
-          plusMinusSuccesses: 0,
+          plusMinusScores: [],
           awaitingChoice: false,
           scoreInput: '350',
         }));
@@ -659,7 +660,7 @@ describe('Game Component Integration', () => {
         localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
           turnKey: 'local:2:0:Kniffel:classic',
           cards: [{ card: 'Kniffel', completed: true }],
-          plusMinusSuccesses: 0,
+          plusMinusScores: [],
           awaitingChoice: true,
           scoreInput: '2000',
         }));
@@ -684,7 +685,7 @@ describe('Game Component Integration', () => {
             ...Array.from({ length: MAX_CHAIN_CARDS - 1 }, () => ({ card: '300', completed: true })),
             { card: '300', completed: false },
           ],
-          plusMinusSuccesses: 0,
+          plusMinusScores: [],
           awaitingChoice: false,
           scoreInput: '500',
         }));
@@ -710,7 +711,7 @@ describe('Game Component Integration', () => {
             ...Array.from({ length: MAX_CHAIN_CARDS - 2 }, () => ({ card: '300', completed: true })),
             { card: '300', completed: false },
           ],
-          plusMinusSuccesses: 0,
+          plusMinusScores: [],
           awaitingChoice: false,
           scoreInput: '',
         }));
@@ -727,7 +728,7 @@ describe('Game Component Integration', () => {
         localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
           turnKey: 'local:3:0:400:classic', // an earlier round's turn
           cards: [{ card: '300', completed: true }, { card: '400', completed: false }],
-          plusMinusSuccesses: 0,
+          plusMinusScores: [],
           awaitingChoice: false,
           scoreInput: '350',
         }));
@@ -765,7 +766,7 @@ describe('Game Component Integration', () => {
         localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
           turnKey: 'local:2:0:400:classic',
           cards: [{ card: '300', completed: true }, { card: '400', completed: false }],
-          plusMinusSuccesses: 0,
+          plusMinusScores: [],
           awaitingChoice: false,
           scoreInput: 'not-a-number!',
         }));
@@ -988,7 +989,7 @@ describe('Game Component Integration', () => {
           kniffelProgress: [],
           tuttosThisTurn: 1,
           cardsThisTurn: ['300'], // the chain still ends on the PREVIOUS card
-          plusMinusSuccesses: 0,
+          plusMinusScores: [],
           chainTuttoCount: 1,
         },
         justReconnected: true,
@@ -1012,7 +1013,7 @@ describe('Game Component Integration', () => {
           turnScore: 2000,
           keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
           cardsThisTurn: ['300', 'Kniffel'],
-          plusMinusSuccesses: 0, chainTuttoCount: 1,
+          plusMinusScores: [], chainTuttoCount: 1,
         },
         justReconnected: true,
       });

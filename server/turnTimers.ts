@@ -89,7 +89,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
         // on a completion).
         cards: chainCards.map((card, i) => ({ card, completed: i < chainCards.length - 1 || lastCompleted })),
         tuttoCount: snapshot.chainTuttoCount ?? 0,
-        plusMinusSuccesses: snapshot.plusMinusSuccesses ?? 0,
+        plusMinusScores: snapshot.plusMinusScores ?? [],
         // A timeout during the drawn-Stop summary window is still that Stop's
         // forfeit; a completed last card — or a banked Stop & Score decision —
         // ends as 'timeout' (forfeit without a bust); only a genuinely

@@ -37,7 +37,7 @@ const writeCache = (entry) =>
 const validEntry = (overrides = {}) => ({
   turnKey: keyFor('200'),
   cards: [{ card: '200', completed: false }],
-  plusMinusSuccesses: 0,
+  plusMinusScores: [],
   awaitingChoice: false,
   scoreInput: '350',
   ...overrides,
@@ -51,7 +51,7 @@ describe('readPhysicalChainCache', () => {
     expect(readPhysicalChainCache(keyFor('200'))).toEqual({
       turnKey: keyFor('200'),
       cards: [{ card: '200', completed: false }],
-      plusMinusSuccesses: 0,
+      plusMinusScores: [],
       awaitingChoice: false,
       scoreInput: '350',
     });
@@ -65,7 +65,7 @@ describe('readPhysicalChainCache', () => {
 
   it.each([
     ['a non-object', '"nope"'],
-    ['a missing turnKey', JSON.stringify({ cards: [{ card: '200', completed: false }], plusMinusSuccesses: 0, awaitingChoice: false })],
+    ['a missing turnKey', JSON.stringify({ cards: [{ card: '200', completed: false }], plusMinusScores: [], awaitingChoice: false })],
     ['unparseable JSON', '{not json'],
   ])('evicts %s', (_label, raw) => {
     localStorage.setItem(PHYSICAL_TURN_STATE_KEY, raw);
@@ -77,7 +77,7 @@ describe('readPhysicalChainCache', () => {
     ['an empty card list', { cards: [] }],
     ['a malformed card entry', { cards: [{ card: 'NotACard', completed: false }] }],
     ['a card list past the chain cap', { cards: Array.from({ length: MAX_CHAIN_CARDS + 1 }, () => ({ card: '200', completed: true })) }],
-    ['a non-integer counter', { plusMinusSuccesses: 1.5 }],
+    ['a malformed running-total list', { plusMinusScores: [1000, -1] }],
     ['a non-boolean choice flag', { awaitingChoice: 'yes' }],
   ])('evicts %s — the chain fields are load-bearing for undo', (_label, overrides) => {
     writeCache(validEntry(overrides));
@@ -116,7 +116,7 @@ describe('usePhysicalChain', () => {
     it('resumes the chain, the choice flag and the typed total', () => {
       writeCache(validEntry({
         cards: [{ card: '200', completed: true }, { card: 'Kniffel', completed: false }],
-        plusMinusSuccesses: 1,
+        plusMinusScores: [1200],
         awaitingChoice: true,
       }));
       const { result } = mount();
@@ -126,7 +126,7 @@ describe('usePhysicalChain', () => {
       expect(result.current.buildSummary('banked', true)).toEqual({
         cards: [{ card: '200', completed: true }, { card: 'Kniffel', completed: true }],
         tuttoCount: 2,
-        plusMinusSuccesses: 1,
+        plusMinusScores: [1200],
         ended: 'banked',
       });
     });
@@ -141,8 +141,12 @@ describe('usePhysicalChain', () => {
   });
 
   describe('recording what the turn did', () => {
-    it('completeCurrentCard marks the card done, opens the choice and counts a Plus/Minus', () => {
-      const { result } = mount({ currentCard: 'Plus_Minus' });
+    it('completeCurrentCard marks the card done, opens the choice and records the Plus/Minus', () => {
+      // The typed total is the chain's running score, and Game adds this
+      // card's own +1000 only after this call — so what gets recorded is what
+      // the player held when the card resolved, which is what the engine
+      // replays the ±1000 against.
+      const { result } = mount({ currentCard: 'Plus_Minus', scoreInput: '1800' });
 
       act(() => result.current.completeCurrentCard(true));
 
@@ -150,15 +154,22 @@ describe('usePhysicalChain', () => {
       expect(result.current.hasChain()).toBe(true);
       expect(result.current.buildSummary('banked', true)).toMatchObject({
         cards: [{ card: 'Plus_Minus', completed: true }],
-        plusMinusSuccesses: 1,
+        plusMinusScores: [1800],
       });
       expect(readCache()).toMatchObject({ turnKey: keyFor('Plus_Minus'), awaitingChoice: true });
     });
 
-    it('does not count a Kniffel toward the Plus/Minus successes', () => {
-      const { result } = mount({ currentCard: 'Kniffel' });
+    it('reads a blank running total as zero rather than NaN', () => {
+      // Nothing typed yet is a real state: the Yes can be the turn's first act.
+      const { result } = mount({ currentCard: 'Plus_Minus' });
+      act(() => result.current.completeCurrentCard(true));
+      expect(result.current.buildSummary('banked', true).plusMinusScores).toEqual([0]);
+    });
+
+    it('does not record a Kniffel among the Plus/Minus successes', () => {
+      const { result } = mount({ currentCard: 'Kniffel', scoreInput: '2000' });
       act(() => result.current.completeCurrentCard(false));
-      expect(result.current.buildSummary('banked', true).plusMinusSuccesses).toBe(0);
+      expect(result.current.buildSummary('banked', true).plusMinusScores).toEqual([]);
     });
 
     it('recordDraw stamps the POST-draw key itself, before the prop catches up', () => {
@@ -251,7 +262,7 @@ describe('usePhysicalChain', () => {
       expect(result.current.buildSummary('null', false)).toEqual({
         cards: [{ card: '600', completed: false }],
         tuttoCount: 0,
-        plusMinusSuccesses: 0,
+        plusMinusScores: [],
         ended: 'null',
       });
     });
@@ -321,7 +332,7 @@ describe('usePhysicalChain', () => {
 
       expect(result.current.hasChain()).toBe(true);
       expect(result.current.awaitingChoice).toBe(true);
-      expect(result.current.buildSummary('banked', true).plusMinusSuccesses).toBe(1);
+      expect(result.current.buildSummary('banked', true).plusMinusScores).toEqual([0]);
     });
   });
 });

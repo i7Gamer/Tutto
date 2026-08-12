@@ -840,13 +840,13 @@ describe('classic chain fields (snapshot / history / turn summary)', () => {
     const withChain = {
       ...validSnapshot,
       cardsThisTurn: ['300', 'x2'],
-      plusMinusSuccesses: 1,
+      plusMinusScores: [1800],
       chainTuttoCount: 2,
     };
     expect(isValidDiceSnapshot(withChain)).toBe(true);
     const clean = sanitizeDiceSnapshot(withChain);
     expect(clean.cardsThisTurn).toEqual(['300', 'x2']);
-    expect(clean.plusMinusSuccesses).toBe(1);
+    expect(clean.plusMinusScores).toEqual([1800]);
     expect(clean.chainTuttoCount).toBe(2);
     // Still absent when not sent — old clients keep working.
     expect(sanitizeDiceSnapshot(validSnapshot).cardsThisTurn).toBeUndefined();
@@ -855,7 +855,8 @@ describe('classic chain fields (snapshot / history / turn summary)', () => {
   it('rejects malformed chain fields on a dice snapshot', () => {
     expect(isValidDiceSnapshot({ ...validSnapshot, cardsThisTurn: ['NotACard'] })).toBe(false);
     expect(isValidDiceSnapshot({ ...validSnapshot, cardsThisTurn: Array(101).fill('200') })).toBe(false);
-    expect(isValidDiceSnapshot({ ...validSnapshot, plusMinusSuccesses: -1 })).toBe(false);
+    expect(isValidDiceSnapshot({ ...validSnapshot, plusMinusScores: [-1] })).toBe(false);
+    expect(isValidDiceSnapshot({ ...validSnapshot, plusMinusScores: 1 })).toBe(false);
     expect(isValidDiceSnapshot({ ...validSnapshot, chainTuttoCount: 1.5 })).toBe(false);
     // The Stop & Score marker — a boolean like busted, or nothing.
     expect(isValidDiceSnapshot({ ...validSnapshot, stopped: true })).toBe(true);
@@ -866,7 +867,7 @@ describe('classic chain fields (snapshot / history / turn summary)', () => {
   const validSummary = {
     cards: [{ card: '300', completed: true }, { card: 'Stop', completed: false }],
     tuttoCount: 1,
-    plusMinusSuccesses: 0,
+    plusMinusScores: [],
     ended: 'stopCard',
   };
 
@@ -896,6 +897,12 @@ describe('classic chain fields (snapshot / history / turn summary)', () => {
     expect(isValidTurnSummary({ ...validSummary, prevHighestForfeitedTurnScore: 1_000_001 })).toBe(false);
     expect(isValidTurnSummary({ ...validSummary, deductedPlayers: ['x'.repeat(30)] })).toBe(true);
     expect(isValidTurnSummary({ ...validSummary, deductedPlayers: ['x'.repeat(31)] })).toBe(false);
+    // The engine adds each Plus/Minus running total to a player's score, so an
+    // unbounded entry off the wire would be an unbounded score.
+    expect(isValidTurnSummary({ ...validSummary, plusMinusScores: [1_000_000] })).toBe(true);
+    expect(isValidTurnSummary({ ...validSummary, plusMinusScores: [1_000_001] })).toBe(false);
+    expect(isValidTurnSummary({ ...validSummary, plusMinusScores: [0, -1] })).toBe(false);
+    expect(isValidTurnSummary({ ...validSummary, plusMinusScores: 2 })).toBe(false);
   });
 
   it('lets the active player push previousTurnSummary, validated and sanitized', () => {

@@ -5,7 +5,7 @@ import {
   isValidEnforcedDiceMode, isValidRuleset, VALID_CARD_TYPES, MAX_CARD_COUNT,
 } from '../utils/configValidation';
 import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS } from '../types';
-import { isChainCounter, isTurnCardList, isTurnEnd } from '../utils/turnShapes';
+import { isChainCounter, isChainScoreList, isTurnCardList, isTurnEnd } from '../utils/turnShapes';
 import type { CardType, InitialCards } from '../types';
 import type { GameStore, GameMode, GameStatus, ConfigKeys } from './storeTypes';
 
@@ -75,7 +75,7 @@ const isPlausibleTurnSummary = (v: unknown): boolean => {
   const s = v as Record<string, unknown>;
   if (!isTurnCardList(s.cards)) return false;
   if (!isChainCounter(s.tuttoCount)) return false;
-  if (!isChainCounter(s.plusMinusSuccesses)) return false;
+  if (!isChainScoreList(s.plusMinusScores)) return false;
   if (!isTurnEnd(s.ended)) return false;
   if (s.forfeitedScore !== undefined && !isNonNegativeNumber(s.forfeitedScore)) return false;
   if (s.prevMostCardsInTurn !== undefined && s.prevMostCardsInTurn !== null && !isNonNegativeNumber(s.prevMostCardsInTurn)) return false;
