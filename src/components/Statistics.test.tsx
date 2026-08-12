@@ -112,6 +112,53 @@ describe('Statistics Component', () => {
     expect(onBackMock).toHaveBeenCalled();
   });
 
+  // The ruleset and normal/custom rows used to be small grey-on-white pills,
+  // visibly a different kind of control from the personal/global pair right
+  // above them even though all three do the same job.
+  describe('every tab row shares one selected/unselected treatment', () => {
+    const renderTabs = async () => {
+      global.fetch = vi.fn(() => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ gamesPlayed: 1, wins: 1, totalPlaytime: 100 }),
+      }));
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+      return {
+        top: screen.getByRole('tab', { name: /statistics\.personal/i }),
+        ruleset: screen.getByRole('tab', { name: /lobby\.rulesetModernized/i }),
+        mode: screen.getByRole('tab', { name: /statistics\.normalGames/i }),
+      };
+    };
+
+    it('gives the selected sub-tabs the selected top-level tab\'s colours', async () => {
+      const { top, ruleset, mode } = await renderTabs();
+
+      for (const tab of [top, ruleset, mode]) {
+        expect(tab).toHaveAttribute('aria-selected', 'true');
+        expect(tab.className).toContain('bg-indigo-600');
+        expect(tab.className).toContain('text-white');
+        expect(tab.className).toContain('font-semibold');
+      }
+    });
+
+    it('gives the unselected sub-tabs the unselected top-level tab\'s colours', async () => {
+      await renderTabs();
+      const unselected = [
+        screen.getByRole('tab', { name: /statistics\.globalCommunity/i }),
+        screen.getByRole('tab', { name: /lobby\.rulesetClassic/i }),
+        screen.getByRole('tab', { name: /statistics\.customGames/i }),
+      ];
+
+      for (const tab of unselected) {
+        expect(tab).toHaveAttribute('aria-selected', 'false');
+        expect(tab.className).toContain('text-gray-600');
+        expect(tab.className).toContain('border-gray-200');
+        // The old pills were text-sm; the sub-tabs now read at body size.
+        expect(tab.className).not.toContain('text-sm');
+      }
+    });
+  });
+
   it('never reports a negative number of lost cards globally', async () => {
     // The server counts completions and totals separately, so a crash between
     // the two writes can leave more completions than the total it derives the

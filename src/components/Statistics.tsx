@@ -117,6 +117,14 @@ const RULESET_TABS: readonly { value: Ruleset; labelKey: string; labelFallback: 
   { value: 'classic', labelKey: 'lobby.rulesetClassic', labelFallback: 'Classic' },
 ];
 
+// The ruleset and normal/custom rows share the personal/global row's look —
+// one selected/unselected treatment for every tab on this screen, a step down
+// in size from the top-level pair so the hierarchy still reads.
+const subTabClass = (selected: boolean): string =>
+  `px-5 py-2.5 rounded-xl font-semibold transition-all ${selected
+    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30'
+    : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-black/5 border border-gray-200 dark:border-slate-600'}`;
+
 // (rulesetTab, normal/custom tab) → the stored device bucket.
 const bucketMode = (ruleset: Ruleset, mode: GameMode): GameMode => {
   if (ruleset !== 'classic') return mode;
@@ -461,17 +469,19 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
           </motion.button>
         </div>
 
-        <div className="flex gap-2 mb-8 justify-center" role="tablist" data-testid="ruleset-tabs">
+        <div className="flex gap-3 mb-8 justify-center" role="tablist" data-testid="ruleset-tabs">
           {RULESET_TABS.map(({ value, labelKey, labelFallback }) => (
-            <button
+            <motion.button
               key={value}
               role="tab"
               aria-selected={statsRuleset === value}
-              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${statsRuleset === value ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-slate-600 hover:bg-black/5'}`}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className={subTabClass(statsRuleset === value)}
               onClick={() => setStatsRuleset(value)}
             >
               {t(labelKey, labelFallback)}
-            </button>
+            </motion.button>
           ))}
         </div>
 
@@ -485,17 +495,19 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
             <motion.div key="personal" role="tabpanel" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="flex flex-col w-full">
               <h3 className="text-xl font-bold mb-6 text-center text-gray-700 dark:text-gray-200">{t('statistics.onlineLifetimeRecord', 'Online Lifetime Record (This Device)')}</h3>
 
-              <div className="flex gap-2 mb-6 justify-center" role="tablist">
+              <div className="flex gap-3 mb-6 justify-center" role="tablist">
                 {MODE_TABS.map(({ value, labelKey, labelFallback }) => (
-                  <button
+                  <motion.button
                     key={value}
                     role="tab"
                     aria-selected={mode === value}
-                    className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${mode === value ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-slate-600 hover:bg-black/5'}`}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className={subTabClass(mode === value)}
                     onClick={() => setMode(value)}
                   >
                     {t(labelKey, labelFallback)}
-                  </button>
+                  </motion.button>
                 ))}
               </div>
               {isCustomView && (
