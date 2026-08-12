@@ -47,11 +47,21 @@ const makeCacheStorage = () => {
   };
 };
 
-const makeResponse = (body, { ok = true } = {}) => ({
+const OK_STATUS = 200;
+const BAD_GATEWAY_STATUS = 502;
+/** What a 30x looks like to a worker: redirect mode 'manual' opacifies it. */
+const OPAQUE_REDIRECT = { type: 'opaqueredirect', status: 0 };
+
+const makeResponse = (body, { ok = true, status = ok ? OK_STATUS : BAD_GATEWAY_STATUS, type = 'basic' } = {}) => ({
   ok,
+  status,
+  type,
   body,
-  clone() { return makeResponse(body, { ok }); },
+  clone() { return makeResponse(body, { ok, status, type }); },
 });
+
+/** The browser follows this itself — the worker only has to hand it back. */
+const makeOpaqueRedirect = () => makeResponse(null, { ok: false, ...OPAQUE_REDIRECT });
 
 /** A fetch event whose respondWith/waitUntil promises the test can await. */
 const makeEvent = (request) => {
@@ -283,6 +293,67 @@ describe('service worker fetch', () => {
     );
 
     expect(response.body).toBe('network:https://tutto.example/index.html');
+  });
+
+  it('falls back to the cached shell when the server answers with an error', async () => {
+    // Behind the documented reverse proxy, a restarting Node container makes
+    // the proxy answer 502 well inside the network timeout — so this never
+    // reaches the offline path, and the installed PWA showed the proxy's error
+    // page instead of the app it already has cached.
+    await loadSw();
+    await runInstall();
+    fetchMock.mockResolvedValueOnce(makeResponse('proxy 502', { ok: false }));
+
+    const { response } = await runFetch(
+      makeRequest(`${ORIGIN}/?room=ABC`, { mode: 'navigate' }),
+    );
+
+    expect(response.body).toBe('network:https://tutto.example/index.html');
+  });
+
+  it('hands an opaque redirect back untouched instead of serving the shell', async () => {
+    // A navigation is fetched with redirect mode 'manual', so a 30x surfaces
+    // here as an opaqueredirect — status 0, ok false — that the browser follows
+    // itself. Treating "not ok" as "server error" swallowed it and answered
+    // index.html under the ORIGINAL url, breaking every deployment that
+    // redirects: auth gateways, canonical host, trailing-slash normalisation.
+    await loadSw();
+    const cacheName = await runInstall();
+    fetchMock.mockResolvedValueOnce(makeOpaqueRedirect());
+
+    const { response } = await runFetch(
+      makeRequest(`${ORIGIN}/?room=ABC`, { mode: 'navigate' }),
+    );
+
+    expect(response.type).toBe('opaqueredirect');
+    // Not the cached shell, and the redirect did not replace it either.
+    expect(response.body).toBeNull();
+    expect(cacheStorage.stores.get(cacheName).get(SHELL).body)
+      .toBe('network:https://tutto.example/index.html');
+  });
+
+  it('does not cache the server error it fell back from', async () => {
+    await loadSw();
+    const cacheName = await runInstall();
+    fetchMock.mockResolvedValueOnce(makeResponse('proxy 502', { ok: false }));
+
+    await runFetch(makeRequest(`${ORIGIN}/`, { mode: 'navigate' }));
+
+    expect(cacheStorage.stores.get(cacheName).get(SHELL).body)
+      .toBe('network:https://tutto.example/index.html');
+  });
+
+  it('returns the server error itself when no shell is cached', async () => {
+    // Nothing better to offer, and the real status beats a synthetic network
+    // error for anyone reading the browser's own diagnostics.
+    await loadSw({ manifest: [{ url: 'assets/index-aaa111.js', revision: null }] });
+    await runInstall();
+    fetchMock.mockResolvedValueOnce(makeResponse('proxy 502', { ok: false }));
+
+    const { response } = await runFetch(makeRequest(`${ORIGIN}/`, { mode: 'navigate' }));
+
+    expect(response.body).toBe('proxy 502');
+    expect(response.ok).toBe(false);
   });
 
   it('serves the CURRENT shell offline, not the retained previous generation', async () => {

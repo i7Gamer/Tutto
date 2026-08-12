@@ -149,6 +149,19 @@ const fetchWithTimeout = (request, timeoutMs) => {
 };
 
 /**
+ * A navigation is fetched with redirect mode 'manual', so a 30x reaches the
+ * worker as an opaque redirect: `type: 'opaqueredirect'`, `status: 0`,
+ * `ok: false`. The browser follows it itself once it is handed back, and the
+ * type is what says so — the status is 0 for a failed fetch too.
+ *
+ * Reading that "not ok" as a server error and answering index.html under the
+ * ORIGINAL url instead breaks every deployment that redirects: auth gateways,
+ * canonical-host redirects, trailing-slash normalisation.
+ */
+const OPAQUE_REDIRECT_TYPE = 'opaqueredirect';
+const isOpaqueRedirect = response => response.type === OPAQUE_REDIRECT_TYPE;
+
+/**
  * Network first, so a new deploy reaches a client on its next launch instead of
  * being shadowed by a stale shell. The cached copy is what makes an offline
  * start — including one from an invite link — possible at all.
@@ -157,18 +170,30 @@ const fetchWithTimeout = (request, timeoutMs) => {
  * `/?room=ABC` is served by the shell cached for `/`.
  */
 const handleNavigation = async request => {
+  let response;
   try {
-    const response = await fetchWithTimeout(request, NAVIGATION_NETWORK_TIMEOUT_MS);
+    response = await fetchWithTimeout(request, NAVIGATION_NETWORK_TIMEOUT_MS);
     if (response && response.ok) {
       const cache = await caches.open(PRECACHE);
       await cache.put(SHELL_URL, response.clone());
+      return response;
     }
-    return response;
+    // Not ok, but not ours to second-guess: a redirect the browser has to
+    // follow goes straight back, uncached.
+    if (response && isOpaqueRedirect(response)) return response;
   } catch {
-    const cached = await matchPreferringCurrent(SHELL_URL);
-    if (cached) return cached;
-    return Response.error();
+    // Offline, refused, or the timeout above aborted it — same fallback as an
+    // error status below.
   }
+  // A server error is treated like a failed fetch. Behind the documented
+  // reverse proxy a restarting container makes the proxy answer 502 promptly,
+  // well inside the timeout, so it never reached the catch — and an installed
+  // PWA showed the proxy's error page while a perfectly good shell sat in the
+  // cache. The error response is still worth returning when there is nothing
+  // cached to prefer over it.
+  const cached = await matchPreferringCurrent(SHELL_URL);
+  if (cached) return cached;
+  return response ?? Response.error();
 };
 
 self.addEventListener('fetch', event => {

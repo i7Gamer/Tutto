@@ -63,9 +63,11 @@ export default defineConfig([
     },
   },
 
-  // Vitest unit / integration tests and the shared test setup (TypeScript).
+  // Vitest unit / integration tests and the shared test setup. The `js` here is
+  // not decoration: the service worker and the Vite config are plain JS, so
+  // their tests are too, and a {ts,tsx}-only glob left them with no rules at all.
   {
-    files: ['**/*.test.{ts,tsx}', 'src/setupTests.tsx'],
+    files: ['**/*.test.{js,ts,tsx}', 'src/setupTests.tsx'],
     plugins: { '@typescript-eslint': tseslint },
     extends: [js.configs.recommended],
     languageOptions: {
@@ -122,9 +124,12 @@ export default defineConfig([
     rules: sharedJsRules,
   },
 
-  // Node-side ES modules: build and tool config files.
+  // Node-side ES modules: build and tool config files, the maintenance scripts,
+  // and the repo-local lint rules. Anything here is `type: module` by the root
+  // package.json, so a bare `*.config.js` glob was quietly excusing whole
+  // directories from the lint run.
   {
-    files: ['*.config.js'],
+    files: ['*.config.js', 'scripts/**/*.mjs', 'eslint-rules/**/*.js'],
     extends: [js.configs.recommended],
     languageOptions: {
       globals: globals.node,
