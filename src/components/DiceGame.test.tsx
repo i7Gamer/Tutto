@@ -142,20 +142,31 @@ describe('DiceGame State Restoration Logic', () => {
     expect(restored?.stopped).toBe(true);
   });
 
-  it('drops fractional or oversized chain counters instead of restoring them', () => {
-    // The server accepts only bounded integers for these (isValidChainCounter
-    // in pushValidation.ts) — the local cache parse mirrors that, so a
-    // corrupted entry resets to absent rather than riding into a snapshot.
+  it('drops malformed or oversized chain fields instead of restoring them', () => {
+    // The server accepts only bounded shapes for these (isChainCounter /
+    // isChainScoreList) — the local cache parse mirrors that, so a corrupted
+    // entry resets to absent rather than riding into a snapshot.
     localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
       turnScore: 100, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
-      cardsThisTurn: ['300'], plusMinusSuccesses: 2.5, chainTuttoCount: 101,
+      cardsThisTurn: ['300'], plusMinusScores: [1800, -1], chainTuttoCount: 101,
     }));
 
     const restored = parseSavedDiceState(localStorage.getItem('tutto_dice_turn_state'));
 
     expect(restored?.cardsThisTurn).toEqual(['300']);
-    expect(restored?.plusMinusSuccesses).toBeUndefined();
+    expect(restored?.plusMinusScores).toBeUndefined();
     expect(restored?.chainTuttoCount).toBeUndefined();
+  });
+
+  it('restores a chain\'s Plus/Minus running totals', () => {
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 2800, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+      cardsThisTurn: ['300', 'Plus_Minus'], plusMinusScores: [1800], chainTuttoCount: 2,
+    }));
+
+    const restored = parseSavedDiceState(localStorage.getItem('tutto_dice_turn_state'));
+
+    expect(restored?.plusMinusScores).toEqual([1800]);
   });
 });
 
@@ -338,6 +349,10 @@ describe('DiceGame interactive turn logic', () => {
 
   afterEach(() => {
     localStorage.clear();
+    // The beforeEach above clears mocks before each test but not after the
+    // last one, and the next describe block counts playTone calls — so
+    // whichever test happens to run last here would bleed its rolls into it.
+    vi.mocked(playTone).mockClear();
   });
 
   const selectAllValid = () => fireEvent.click(screen.getByText('dice.select_all_valid'));
@@ -662,11 +677,60 @@ describe('DiceGame interactive turn logic', () => {
     rerender(<DiceGame currentCard="200" onComplete={vi.fn()} panelReady={true} />);
 
     expect(screen.getAllByLabelText(/Die showing/).length).toBe(6);
+  });
 
-    // This describe block's beforeEach clears mocks before each test, but not
-    // after the last one — leaving this roll's playTone calls to bleed into
-    // the next describe block's own playTone-count assertions.
-    vi.mocked(playTone).mockClear();
+  // Plus/Minus and Kniffel are worth a fixed award for being completed, not the
+  // dice they were rolled with — a straight scores no dice at all, and
+  // Plus/Minus discards its own. The running total names that award the moment
+  // the selection completes the card, instead of standing at zero all the way
+  // to the summary (or, for modernized Plus/Minus, climbing toward a dice total
+  // the engine always replaced with 1000).
+  describe('the running total for a card worth a fixed award', () => {
+    const scoreShown = () => screen.getByTestId('dice-current-score').textContent;
+
+    it('shows Plus/Minus what it pays, not the dice, under modernized rules', () => {
+      queueRoll([1, 1, 1, 5, 5, 5]); // 1500 dice points that are never awarded
+      render(<DiceGame currentCard="Plus_Minus" onComplete={vi.fn()} />);
+
+      clickDie(1);
+      expect(scoreShown()).toBe('0'); // a partial selection completes nothing
+
+      selectAllValid();
+      expect(scoreShown()).toBe('1000');
+    });
+
+    it('shows the same for Plus/Minus under classic rules, on top of the chain total', () => {
+      queueRoll([1, 1, 1, 5, 5, 5]);
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+        turnScore: 1800, keptDice: [], currentRoll: [], kniffelProgress: [],
+        tuttosThisTurn: 0, cardsThisTurn: ['300', 'Plus_Minus'], plusMinusScores: [], chainTuttoCount: 1,
+        turnKey: 'K',
+      }));
+      render(<DiceGame currentCard="Plus_Minus" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
+
+      expect(scoreShown()).toBe('1800');
+      selectAllValid();
+      expect(scoreShown()).toBe('2800');
+    });
+
+    it('shows a completed straight its 2000', () => {
+      queueRoll([1, 2, 3, 4, 5, 6]);
+      render(<DiceGame currentCard="Kniffel" onComplete={vi.fn()} />);
+
+      clickDie(1);
+      expect(scoreShown()).toBe('0');
+
+      selectAllValid();
+      expect(scoreShown()).toBe('2000');
+    });
+
+    it('leaves an ordinary card counting its dice', () => {
+      queueRoll([1, 5, 2, 2, 3, 4]);
+      render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+
+      selectAllValid();
+      expect(scoreShown()).toBe('150'); // 100 + 50, and no card award until the tutto
+    });
   });
 });
 
@@ -840,7 +904,7 @@ describe('DiceGame classic chains', () => {
     expect(onComplete).toHaveBeenCalledWith(1800, true, expect.objectContaining({
       cards: [{ card: '300', completed: true }],
       tuttoCount: 1,
-      plusMinusSuccesses: 0,
+      plusMinusScores: [],
       ended: 'banked',
     }));
   });
@@ -965,7 +1029,36 @@ describe('DiceGame classic chains', () => {
     fireEvent.click(screen.getByText('dice.bank_points'));
     expect(onComplete).toHaveBeenCalledWith(1000, true, expect.objectContaining({
       cards: [{ card: 'Plus_Minus', completed: true }],
-      plusMinusSuccesses: 1,
+      // Nothing was on the table before it — the running total the engine
+      // replays this ±1000 against is 0.
+      plusMinusScores: [0],
+      ended: 'banked',
+    }));
+  });
+
+  it('records the running total a mid-chain Plus/Minus resolved on', () => {
+    // The engine replays each ±1000 against what the player held when the card
+    // resolved, so a Plus/Minus drawn onto 1800 must report 1800 — not 0, which
+    // would deduct from a leader this chain had already overtaken.
+    const onComplete = vi.fn();
+    const onDrawCard = vi.fn(() => 'Plus_Minus' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]); // 300 card: 1500 dice + 300 = 1800
+    const { rerender } = render(
+      <DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />,
+    );
+
+    selectAllValid();
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+    rerender(<DiceGame currentCard="Plus_Minus" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
+
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.finish_card'));
+    fireEvent.click(screen.getByText('dice.bank_points'));
+
+    expect(onComplete).toHaveBeenCalledWith(2800, true, expect.objectContaining({
+      plusMinusScores: [1800],
       ended: 'banked',
     }));
   });
@@ -999,7 +1092,7 @@ describe('DiceGame classic chains', () => {
     const kept = [1, 2, 3, 4, 5, 6].map(v => ({ id: `d${v}`, val: v }));
     localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
       turnScore: 1800, keptDice: kept, currentRoll: [], kniffelProgress: [],
-      tuttosThisTurn: 1, cardsThisTurn: ['300'], plusMinusSuccesses: 0, chainTuttoCount: 1,
+      tuttosThisTurn: 1, cardsThisTurn: ['300'], plusMinusScores: [], chainTuttoCount: 1,
       turnKey: 'K',
     }));
     render(<DiceGame currentCard="300" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
@@ -1093,7 +1186,7 @@ describe('DiceGame classic chains', () => {
     queueRoll([1, 5, 2, 3, 4, 6]);
     localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
       turnScore: 1800, keptDice: [], currentRoll: [], kniffelProgress: [],
-      tuttosThisTurn: 0, cardsThisTurn: ['300', '500'], plusMinusSuccesses: 0, chainTuttoCount: 1,
+      tuttosThisTurn: 0, cardsThisTurn: ['300', '500'], plusMinusScores: [], chainTuttoCount: 1,
       turnKey: 'K',
     }));
     render(<DiceGame currentCard="500" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
@@ -1169,7 +1262,7 @@ describe('DiceGame classic chains', () => {
     const onComplete = vi.fn();
     localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
       turnScore: 1800, keptDice: [], currentRoll: [], kniffelProgress: [],
-      tuttosThisTurn: 1, cardsThisTurn: ['300', 'Stop'], plusMinusSuccesses: 0, chainTuttoCount: 1,
+      tuttosThisTurn: 1, cardsThisTurn: ['300', 'Stop'], plusMinusScores: [], chainTuttoCount: 1,
       turnKey: 'K',
     }));
     render(<DiceGame currentCard="Stop" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
@@ -1192,7 +1285,7 @@ describe('DiceGame classic chains', () => {
     localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
       turnScore: 9000, keptDice: kept, currentRoll: [], kniffelProgress: [],
       tuttosThisTurn: 1, cardsThisTurn: Array(MAX_CHAIN_CARDS).fill('300'),
-      plusMinusSuccesses: 0, chainTuttoCount: MAX_CHAIN_CARDS, turnKey: 'K',
+      plusMinusScores: [], chainTuttoCount: MAX_CHAIN_CARDS, turnKey: 'K',
     }));
     render(<DiceGame currentCard="300" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
 
@@ -1222,7 +1315,7 @@ describe('DiceGame classic chains', () => {
     localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
       turnScore: 9000, keptDice: [], currentRoll: [], kniffelProgress: [],
       tuttosThisTurn: 0, cardsThisTurn: Array(length).fill('300'),
-      plusMinusSuccesses: 0, chainTuttoCount: length - 1, turnKey: 'K',
+      plusMinusScores: [], chainTuttoCount: length - 1, turnKey: 'K',
     }));
     render(<DiceGame currentCard="300" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
     selectAllValid();

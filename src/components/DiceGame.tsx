@@ -68,6 +68,22 @@ const getDisplayCardName = (cardName: CardType | null): string => {
 };
 
 /**
+ * The cards worth a fixed award for being completed rather than the dice they
+ * were rolled with — Plus/Minus discards its dice outright, and a straight
+ * scores none (checkValidityAndScore returns 0 for it).
+ *
+ * The running total counts this in the moment the selection completes the card,
+ * so the panel names what the card will actually pay. It used to show the raw
+ * dice instead: nothing at all for a straight or a classic Plus/Minus, and — in
+ * modernized Plus/Minus — a dice total climbing toward a number the engine was
+ * always going to replace with 1000.
+ */
+const FIXED_CARD_AWARD: Partial<Record<CardType, number>> = {
+  Plus_Minus: PLUS_MINUS_SCORE,
+  Kniffel: KNIFFEL_SCORE,
+};
+
+/**
  * The cached turn to resume into, or null to start fresh.
  *
  * A snapshot stamped for a different turn — e.g. the server's turn timer
@@ -162,12 +178,12 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // The classic chain, held in a ref so summary/bust callbacks always read the
   // current value; chainVersion ticks whenever it changes so the snapshot
   // effect below re-sends. Cards before the last are completed by definition.
-  const [initialChain] = useState<{ cards: TurnCardPlayed[]; tuttoCount: number; plusMinusSuccesses: number; ended: TurnEnd; forfeitedScore?: number }>(() => {
+  const [initialChain] = useState<{ cards: TurnCardPlayed[]; tuttoCount: number; plusMinusScores: number[]; ended: TurnEnd; forfeitedScore?: number }>(() => {
     const cardList = restored?.cardsThisTurn ?? (currentCard ? [currentCard] : []);
     return {
       cards: cardList.map((card, i) => ({ card, completed: i < cardList.length - 1 || (i === cardList.length - 1 && !!restoredTutto) })),
       tuttoCount: restored?.chainTuttoCount ?? 0,
-      plusMinusSuccesses: restored?.plusMinusSuccesses ?? 0,
+      plusMinusScores: restored?.plusMinusScores ?? [],
       ended: restoredStopped ? 'stopCard' : restoredBust ? (restoredBust.won ? 'banked' : 'null') : 'banked',
       forfeitedScore: (restoredBust && !restoredBust.won) || restoredStopped ? restored?.turnScore : undefined,
     };
@@ -187,9 +203,13 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
 
   const selectedRolls = currentRoll.filter(d => d.selected);
 
-  // Classic Plus/Minus: the dice rolled during the segment never count — the
-  // card is worth exactly +1000 on a tutto and nothing otherwise.
-  const countsDicePoints = !(isClassic && currentCard === 'Plus_Minus');
+  // Plus/Minus is worth exactly +1000 for completing it and nothing otherwise,
+  // under EITHER rule set — the dice rolled toward it never count. Classic adds
+  // that 1000 to the chain total here; modernized lets the engine set the whole
+  // turn to it (calculateNextTurn). Counting the dice was harmless arithmetic
+  // in modernized — the engine overwrote the total either way — but it put a
+  // number on screen that nobody was ever awarded.
+  const countsDicePoints = currentCard !== 'Plus_Minus';
 
   // The selected values are picked out inside the memo rather than passed in.
   // Built with .filter/.map they are a brand-new array on every render, so a
@@ -382,8 +402,11 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         if (currentCard === 'Kniffel') {
           newTurnScore += KNIFFEL_SCORE;
         } else if (currentCard === 'Plus_Minus') {
+          // Recorded BEFORE the award: the engine replays each ±1000 against
+          // what the player held when the card resolved, and you are not yet
+          // holding the 1000 the card is about to pay you.
+          chainRef.current.plusMinusScores.push(newTurnScore);
           newTurnScore += PLUS_MINUS_SCORE;
-          chainRef.current.plusMinusSuccesses += 1;
         }
         const chain = chainRef.current.cards;
         if (chain.length > 0) chain[chain.length - 1].completed = true;
@@ -533,7 +556,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // send time (always current); the state deps above it re-fire the effect.
   const chainSnapshotFields = () => (isClassic ? {
     cardsThisTurn: chainRef.current.cards.map(c => c.card),
-    plusMinusSuccesses: chainRef.current.plusMinusSuccesses,
+    plusMinusScores: [...chainRef.current.plusMinusScores],
     chainTuttoCount: chainRef.current.tuttoCount,
   } : {});
 
@@ -583,7 +606,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
       onComplete(data.score || 0, data.won || false, {
         cards: chain.cards.map(c => ({ ...c })),
         tuttoCount: chain.tuttoCount,
-        plusMinusSuccesses: chain.plusMinusSuccesses,
+        plusMinusScores: [...chain.plusMinusScores],
         ended: chain.ended,
         ...(chain.ended !== 'banked' && chain.forfeitedScore ? { forfeitedScore: chain.forfeitedScore } : {}),
       });
@@ -610,6 +633,15 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   });
 
   const isMakingTutto = keptDice.length + selectedRolls.length === 6;
+
+  // What the selection on the table would add to the running total: its dice,
+  // or — for a card whose value is a fixed award — that award, once the
+  // selection actually completes the card.
+  const fixedCardAward = (currentCard ? FIXED_CARD_AWARD[currentCard] : 0) ?? 0;
+  const pendingSelectionScore = !validation.valid ? 0
+    : fixedCardAward > 0 ? (isMakingTutto ? fixedCardAward : 0)
+      : countsDicePoints ? validation.score : 0;
+
   const { canStop, isRollAgainApplicable, stopButtonText: stopButtonTextKey } = deriveTurnControls({
     currentCard,
     hasRolled,
@@ -683,7 +715,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
                   animation plays when a roll is banked, not on every die
                   click that flips the selection valid/invalid. */}
               <motion.div key={turnScore} data-testid="dice-current-score" initial={{ scale: 1.2 }} animate={{ scale: 1 }} className="text-5xl font-black text-indigo-600 dark:text-indigo-400">
-                {turnScore + (validation.valid && countsDicePoints ? validation.score : 0)}
+                {turnScore + pendingSelectionScore}
               </motion.div>
               {isClassic && chainCardCount > 1 && (
                 <div className="text-indigo-500 mt-2 font-bold text-sm bg-indigo-50 dark:bg-indigo-900/30 inline-block px-4 py-1 rounded-full border border-indigo-200 dark:border-indigo-800">
