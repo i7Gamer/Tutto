@@ -16,6 +16,49 @@ import { assignPlayerColor } from './playerColor';
 const JOIN_ROOM_LIMIT = { windowMs: 10_000, max: 10 };
 
 /**
+ * Why a joinRoom was refused, as a stable identifier rather than prose.
+ *
+ * The `error` sentences below are written here, in English, and the lobby used
+ * to render them straight into its error box — so a German UI was told
+ * "Username already exists in this room". These codes are what the client
+ * translates (see JOIN_ERROR_KEYS in src/utils/joinErrors.ts, shared by the
+ * lobby's error box, the restore-session popup and the auto-reconnect
+ * handler); the prose rides along
+ * unchanged as the fallback for a client that does not know a given code.
+ * Renaming one is a breaking change for every deployed client — add, don't
+ * rename.
+ *
+ * A runtime array with the union derived from it, rather than a bare type: a
+ * type alone is erased at build time, so nothing could check that the client's
+ * key table still covers every code — a thirteenth refusal added here
+ * would ship untranslated in silence. `as const` keeps the union exactly as
+ * narrow as the hand-written one was; the equality is asserted in
+ * src/locales/translations.test.ts.
+ */
+export const JOIN_REFUSAL_CODES = [
+  'rate_limited',
+  'invalid_payload',
+  'invalid_room',
+  'invalid_device',
+  'invalid_name',
+  'disconnected',
+  'device_in_other_room',
+  'already_seated',
+  'server_full',
+  'name_taken',
+  'game_running',
+  'room_full',
+] as const;
+
+type JoinRefusal = typeof JOIN_REFUSAL_CODES[number];
+
+const refuse = (
+  callback: (result: { success: boolean; error?: string; code?: JoinRefusal }) => void,
+  code: JoinRefusal,
+  error: string,
+): void => callback({ success: false, code, error });
+
+/**
  * Taking a seat and giving it up: joining, leaving, dropping off.
  *
  * These three share handlePlayerLeave, which is why they are one module —
@@ -145,29 +188,29 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
 
   safeOn(socket, 'joinRoom', async (
     payload: { roomId?: string; name?: string; deviceId?: string; color?: string; initialConfig?: Record<string, unknown> } | null | undefined,
-    callback: (result: { success: boolean; isHost?: boolean; socketId?: string; error?: string; name?: string }) => void
+    callback: (result: { success: boolean; isHost?: boolean; socketId?: string; error?: string; code?: JoinRefusal; name?: string }) => void
   ) => {
     // Reject malformed payloads before any field is used. Without these guards a
     // client that omits the ack callback or sends a non-string name crashes the
     // handler (e.g. name.toLowerCase() throws), which can take down the server.
     if (typeof callback !== 'function') return;
-    if (!joinRoomLimiter()) return callback({ success: false, error: 'Too many requests' });
+    if (!joinRoomLimiter()) return refuse(callback, 'rate_limited', 'Too many requests');
     if (!payload || typeof payload !== 'object') {
-      return callback({ success: false, error: 'Invalid payload' });
+      return refuse(callback, 'invalid_payload', 'Invalid payload');
     }
     const { roomId, name: rawName, deviceId, color, initialConfig } = payload;
     if (typeof roomId !== 'string' || roomId.length === 0 || roomId.length > 100) {
-      return callback({ success: false, error: 'Invalid room' });
+      return refuse(callback, 'invalid_room', 'Invalid room');
     }
     if (typeof deviceId !== 'string' || deviceId.length === 0 || deviceId.length > 200) {
-      return callback({ success: false, error: 'Invalid device' });
+      return refuse(callback, 'invalid_device', 'Invalid device');
     }
     if (typeof rawName !== 'string') {
-      return callback({ success: false, error: 'Invalid name' });
+      return refuse(callback, 'invalid_name', 'Invalid name');
     }
     let name = rawName.trim();
     if (name.length === 0 || name.length > 30) {
-      return callback({ success: false, error: 'Invalid name' });
+      return refuse(callback, 'invalid_name', 'Invalid name');
     }
 
     // The ONLY await in this handler, done before any room state is read or
@@ -205,7 +248,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
     // phantom seat whose pending reconnect timer gets cancelled right here.
     // Nothing after this point awaits, so one re-check closes the window.
     if (!socket.connected) {
-      return callback({ success: false, error: 'Disconnected' });
+      return refuse(callback, 'disconnected', 'Disconnected');
     }
 
     // A socket may only be an active member of one room at a time. Without this,
@@ -232,7 +275,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       id !== roomId && rooms[id].state.players.some(p => p.deviceId === deviceId)
     );
     if (otherRoomId) {
-      return callback({ success: false, error: 'This device is already in another room. Leave it before joining a new one.' });
+      return refuse(callback, 'device_in_other_room', 'This device is already in another room. Leave it before joining a new one.');
     }
 
     if (!rooms[roomId]) {
@@ -240,7 +283,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       // rooms are unaffected (they don't grow the room count). See MAX_ROOMS
       // in rooms.ts for why the count must be bounded.
       if (Object.keys(rooms).length >= MAX_ROOMS) {
-        return callback({ success: false, error: 'Server is full. Try again later.' });
+        return refuse(callback, 'server_full', 'Server is full. Try again later.');
       }
       rooms[roomId] = createRoom(socket.id);
 
@@ -250,6 +293,23 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
     }
 
     const room = rooms[roomId];
+
+    // Seat identity in this room is the SOCKET, not the device — a separate
+    // rule from the one-room-per-device check above (which excludes this room)
+    // and from the deviceId lookup below. Without it, one socket emitting
+    // joinRoom twice for the same room under two deviceIds takes two seats:
+    // handlePlayerLeave and kickPlayer both find a seat by socketId with
+    // findIndex, so they only ever free the first, leaving a seat that is
+    // marked connected forever — the room can then never empty out (and so
+    // never be deleted), and promoteHostAfterLoss can hand it to that dead
+    // socket. The seat belonging to THIS deviceId is excluded: replacing its
+    // socketId is exactly the reconnect/rejoin path below.
+    const seatHeldByThisSocket = room.state.players.find(
+      p => p.socketId === socket.id && p.deviceId !== deviceId
+    );
+    if (seatHeldByThisSocket) {
+      return refuse(callback, 'already_seated', 'This connection already has a seat in this room.');
+    }
 
     const existingPlayer = room.state.players.find(p => p.deviceId === deviceId);
     if (existingPlayer) {
@@ -265,7 +325,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
           p => p.deviceId !== deviceId && p.name.toLowerCase() === name.toLowerCase()
         );
         if (nameTakenByOther) {
-          return callback({ success: false, error: 'Username already exists in this room' });
+          return refuse(callback, 'name_taken', 'Username already exists in this room');
         }
         existingPlayer.name = name;
       } else {
@@ -302,11 +362,11 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
     }
 
     if (room.state.status !== 'lobby') {
-      return callback({ success: false, error: 'Game is already running. You cannot join mid-game.' });
+      return refuse(callback, 'game_running', 'Game is already running. You cannot join mid-game.');
     }
 
     if (room.state.players.length >= MAX_PLAYERS_PER_ROOM) {
-      return callback({ success: false, error: 'Room is full' });
+      return refuse(callback, 'room_full', 'Room is full');
     }
 
     const nameConflict = room.state.players.find(p => p.name.toLowerCase() === name.toLowerCase());
@@ -316,7 +376,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       if (nameConflict.disconnected) {
         io.to(room.host).emit('nameConflictWithDisconnected', nameConflict.name);
       }
-      return callback({ success: false, error: 'Username already exists in this room' });
+      return refuse(callback, 'name_taken', 'Username already exists in this room');
     }
 
     session.roomId = roomId;

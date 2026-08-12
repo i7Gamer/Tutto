@@ -25,6 +25,10 @@ export interface JoinRoomResponse {
   success: boolean;
   isHost?: boolean;
   error?: string;
+  // Which refusal `error` is describing, for translating it (see
+  // src/utils/joinErrors.ts). Absent on a success, and from any server older
+  // than the codes — the prose is then shown as-is.
+  code?: string;
   // The name the server actually seated this client under. Differs from the
   // requested name when rejoining a running game: mid-game renames are
   // refused server-side (names are the identity key for pushState merging),

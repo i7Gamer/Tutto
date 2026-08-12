@@ -141,6 +141,48 @@ describe('OnlineLobby join double-submit guard', () => {
   });
 });
 
+// The server's refusals are English prose built server-side, so rendering
+// `error` straight into the box put "Username already exists in this room" in
+// front of a German UI. The ack now carries a stable machine code beside the
+// prose (see server/socketRoomHandlers.ts) and that is what gets translated.
+describe('OnlineLobby server-side join errors', () => {
+  const joinWith = async (result: Record<string, unknown>) => {
+    stageStore({ joinRoom: vi.fn().mockResolvedValue(result) as unknown as GameStore['joinRoom'] });
+    render(<OnlineLobby />);
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.roomCodePlaceholder'), { target: { value: 'R1' } });
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.yourNamePlaceholder'), { target: { value: 'Alice' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('lobby.online.joinCreateButton'));
+    });
+  };
+
+  it('shows the translated message for a code it knows', async () => {
+    await joinWith({ success: false, code: 'name_taken', error: 'Username already exists in this room' });
+
+    expect(screen.getByText('lobby.online.joinError.nameTaken')).toBeInTheDocument();
+    expect(screen.queryByText('Username already exists in this room')).toBeNull();
+  });
+
+  it('translates the other refusals the lobby can provoke', async () => {
+    await joinWith({ success: false, code: 'game_running', error: 'Game is already running. You cannot join mid-game.' });
+    expect(screen.getByText('lobby.online.joinError.gameRunning')).toBeInTheDocument();
+  });
+
+  it('falls back to the server prose for a code this build does not know', async () => {
+    // A newer server, or one this client was not built against: an untranslated
+    // sentence still beats an empty error box.
+    await joinWith({ success: false, code: 'some_future_refusal', error: 'Something the server invented' });
+
+    expect(screen.getByText('Something the server invented')).toBeInTheDocument();
+  });
+
+  it('falls back to the server prose when the ack carries no code at all', async () => {
+    await joinWith({ success: false, error: 'Username already exists in this room' });
+
+    expect(screen.getByText('Username already exists in this room')).toBeInTheDocument();
+  });
+});
+
 describe('OnlineLobby copy room code button', () => {
   const stageRoom = (overrides: Partial<GameStore> = {}) => stageStore({
     roomId: '1234',

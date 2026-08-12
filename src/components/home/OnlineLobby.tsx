@@ -19,6 +19,7 @@ import { useGameStore } from '../../store/useGameStore';
 import ConfirmModal from '../ConfirmModal';
 import RoomQrCode from './RoomQrCode';
 import RoomQrScanner from './RoomQrScanner';
+import { joinErrorMessage } from '../../utils/joinErrors';
 
 // How long the copy button shows its "copied" checkmark before reverting.
 const COPY_FEEDBACK_MS = 1500;
@@ -28,6 +29,10 @@ const COPY_FEEDBACK_MS = 1500;
 
 interface JoinRoomResult {
   error?: string;
+  // Which refusal `error` is describing, for translating it. Absent on a
+  // success, on the watchdog's own timeout result, and from any server older
+  // than the codes.
+  code?: string;
   // The name the server actually seated us under. A mid-game rejoin is refused
   // a rename — the seat keeps its original name (see JoinRoomResponse) and the
   // store adopts it as myName — so remembering what was TYPED left this lobby
@@ -232,7 +237,9 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     joinedAt: number,
   ) => {
     if (res && res.error) {
-      setErrorMsg(res.error);
+      // Falls back to the server's own sentence when the code is unknown here,
+      // so an older or newer server still fills the error box (see joinErrors).
+      setErrorMsg(joinErrorMessage(res, (key, defaultValue) => t(key, defaultValue)) ?? res.error);
     } else {
       // Called from two places for the same attempt (the raced result and the
       // late ack behind it), so the room is recorded exactly once — otherwise
