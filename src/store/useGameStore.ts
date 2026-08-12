@@ -128,10 +128,19 @@ export const useGameStore = create<GameStore>()(
 
     init: (deviceId: string) => {
       const parsed = parseJsonString<Partial<GameStore>>(localStore.read('tutto_local_game'));
+      // A join link has already switched this client to online play by the
+      // time init() runs: <Home/> mounts on App's first render and its link
+      // effect flushes before App's own (child effects run first). Restoring
+      // the saved game on top of that invitation routes App straight into
+      // <Game/>, unmounting the only screen that consumes the link — so the
+      // restore waits. Nothing is lost: the save stays on disk (the local
+      // persistence subscriber is inert while online), and choosing local play
+      // runs it through setMode('local') instead.
+      const savedGamePostponed = !!parsed && get().mode !== 'local';
 
       set((state) => {
         state.deviceId = deviceId;
-        if (parsed) {
+        if (parsed && !savedGamePostponed) {
           Object.assign(state, pickLocalGameState(parsed));
           reanchorLocalClock(state);
         }
@@ -159,9 +168,12 @@ export const useGameStore = create<GameStore>()(
       // always mismatch and silently delete the reconnecting player's
       // in-progress turn. DiceGame's turnKey check (run later, against real
       // post-reconnect state) discards genuinely stale snapshots in every
-      // mode, including this one.
+      // mode, including this one. A postponed local restore is the same
+      // situation from the other side: the roster the cache would be judged
+      // against is still on disk rather than in state, so checking it here
+      // would delete the half-rolled turn of the game being kept for later.
       const restoredDice = parseSavedDiceState(localStore.read(DICE_TURN_STATE_KEY));
-      if (restoredDice && restoredDice.playerName && !get().pendingReconnectSession) {
+      if (restoredDice && restoredDice.playerName && !get().pendingReconnectSession && !savedGamePostponed) {
         const activePlayer = get().currentPlayerIndex !== null ? get().players[get().currentPlayerIndex!] : null;
         if (!activePlayer || activePlayer.name !== restoredDice.playerName) {
           localStore.remove(DICE_TURN_STATE_KEY);

@@ -5,7 +5,7 @@ import { parseJsonObject } from '../utils/parseJson';
 import { CARD_EMOJIS } from '../utils/cardVisuals';
 import { STAT_TONES, DEFAULT_STAT_TONE, type StatTone } from '../utils/statTones';
 import { percentageOf } from '../utils/percentage';
-import { deviceStatsUrl } from '../utils/statsApi';
+import { deviceStatsRequest } from '../utils/statsApi';
 import { DEFAULT_GAME_MODE, type CardType, type GameMode, type Ruleset } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -368,7 +368,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
         // clicked included — with the spinner. The previous bucket's numbers
         // stay put for the moment the new ones take to arrive.
         const [personalRes, globalRes] = await Promise.all([
-          fetch(deviceStatsUrl(deviceId, bucketMode(statsRuleset, mode))),
+          fetch(...deviceStatsRequest(deviceId, bucketMode(statsRuleset, mode))),
           fetch(`/api/stats/global?ruleset=${statsRuleset}`),
         ]);
         if (!isMounted) return;
@@ -393,17 +393,6 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
       isMounted = false;
     };
   }, [deviceId, mode, statsRuleset]);
-
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-full min-h-[500px]">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-          <h2 className="text-xl font-bold text-gray-700 dark:text-gray-200">{t('statistics.loading', 'Loading Statistics...')}</h2>
-        </div>
-      </div>
-    );
-  }
 
   const p = personalStats;
   const g = globalStats;
@@ -454,6 +443,19 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
           </h1>
         </div>
 
+        {/* Only the tiles wait for the fetch. The header above — the Back
+            button with it — renders either way: a request that never settles
+            used to be the whole page, leaving a browser reload as the only
+            way out of this screen. */}
+        {loading ? (
+          <div className="flex justify-center items-center h-full min-h-[500px]">
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+              <h2 className="text-xl font-bold text-gray-700 dark:text-gray-200">{t('statistics.loading', 'Loading Statistics...')}</h2>
+            </div>
+          </div>
+        ) : (
+        <>
         <div className="flex gap-4 mb-10 justify-center" role="tablist">
           <motion.button role="tab" aria-selected={tab === 'personal'} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
             className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${tab === 'personal' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-black/5 border border-gray-200 dark:border-slate-600'}`}
@@ -654,6 +656,8 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
             </motion.div>
           )}
         </AnimatePresence>
+        )}
+        </>
         )}
       </motion.div>
     </div>

@@ -26,6 +26,19 @@ describe('Statistics Component', () => {
     expect(screen.getByText('statistics.loading')).toBeInTheDocument();
   });
 
+  it('keeps the way back open while the statistics are still loading', () => {
+    // A request that never settles (server down mid-fetch) used to leave the
+    // spinner as the whole page, with a browser reload the only way out.
+    global.fetch = vi.fn(() => new Promise(() => {})); // Never resolves
+    const onBackMock = vi.fn();
+    render(<Statistics deviceId="test-device" onBack={onBackMock} />);
+
+    expect(screen.getByText('statistics.loading')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'common.back' }));
+
+    expect(onBackMock).toHaveBeenCalled();
+  });
+
   it('fetches and displays personal and global statistics', async () => {
     const mockPersonalStats = {
       gamesPlayed: 10,
@@ -110,6 +123,28 @@ describe('Statistics Component', () => {
     const backButton = screen.getByRole('button', { name: 'common.back' });
     fireEvent.click(backButton);
     expect(onBackMock).toHaveBeenCalled();
+  });
+
+  it('names the device in a header rather than in the URL', async () => {
+    // A path segment is written into every fronting proxy's access.log, and
+    // this id is what lets a client reclaim its seat — see deviceStatsRequest.
+    const fetchMock = vi.fn((url: string) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(
+        url.includes('global')
+          ? { totalGamesPlayed: 1, totalPlaytime: 1 }
+          : { gamesPlayed: 1, wins: 1, totalPlaytime: 100 },
+      ),
+    }));
+    global.fetch = fetchMock;
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+    const personalCall = fetchMock.mock.calls.find(([url]) => !url.includes('global'));
+    expect(personalCall).toBeDefined();
+    expect(personalCall[0]).not.toContain('test-device');
+    expect(personalCall[1]).toEqual({ headers: { 'x-tutto-device': 'test-device' } });
   });
 
   // The ruleset and normal/custom rows used to be small grey-on-white pills,

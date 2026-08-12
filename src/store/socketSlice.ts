@@ -10,6 +10,7 @@ import type { Reaction, DiceSnapshot } from '../types';
 import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from './storeTypes';
 import { makeToast } from './gameSlice';
 import { clearTurnCaches } from '../utils/diceTurnState';
+import { joinErrorMessage } from '../utils/joinErrors';
 
 type SocketSlice = Pick<GameStore,
   | 'connectSocket' | 'joinRoom' | 'leaveRoom' | 'kickPlayer'
@@ -244,27 +245,44 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
   });
 
   sock.on('disconnect', () => {
-    if (get().mode === 'online') set({ showReconnectPopup: true });
+    // Only a client holding a seat has anything to reconnect TO. Online mode
+    // alone is not enough: sitting on the join form (after leaving a room or
+    // finishing a game) there is no room to recover, and the 'connect' handler
+    // below would have had no rejoin to run — so the full-screen "attempting
+    // to reconnect" modal stayed up over a connection that was already back.
+    const { mode, roomId, myName } = get();
+    if (mode === 'online' && roomId && myName) set({ showReconnectPopup: true });
   });
 
   sock.on('connect', () => {
-    const { roomId, myName, deviceId } = get();
-    if (roomId && myName) {
-      const savedColor = localStore.read('tutto_color');
-      sock.emit('joinRoom', { roomId, name: myName, deviceId, color: savedColor }, (res: JoinRoomResponse) => {
-        if (res.success) {
-          set({ isHost: res.isHost ?? false, myName: res.name ?? myName });
-          return;
-        }
-        // The seat is unrecoverable (room deleted after the reconnect
-        // timeout, name reclaimed, …) — retrying on the next 'connect'
-        // can never succeed, so stop showing the "attempting to
-        // reconnect" popup and drop back to the online join form.
-        get().addToast(res.error || i18n.t('home.restore.failed', 'Failed to reconnect to the game'));
-        get().leaveRoom();
-        set({ showReconnectPopup: false, hostId: null });
-      });
+    const { mode, roomId, myName, deviceId } = get();
+    if (!roomId || !myName) {
+      // Nothing to rejoin, so anything the drop raised is now stale. Limited
+      // to online mode because a session restore raises the popup itself and
+      // only then calls joinRoom: until the server acks that join the store
+      // still holds no room AND is still in local mode, and this very
+      // connection is the one carrying it — lowering it here would pull the
+      // modal out from under an attempt that is still running.
+      if (mode === 'online') set({ showReconnectPopup: false });
+      return;
     }
+    const savedColor = localStore.read('tutto_color');
+    sock.emit('joinRoom', { roomId, name: myName, deviceId, color: savedColor }, (res: JoinRoomResponse) => {
+      if (res.success) {
+        set({ isHost: res.isHost ?? false, myName: res.name ?? myName });
+        return;
+      }
+      // The seat is unrecoverable (room deleted after the reconnect
+      // timeout, name reclaimed, …) — retrying on the next 'connect'
+      // can never succeed, so stop showing the "attempting to
+      // reconnect" popup and drop back to the online join form.
+      get().addToast(
+        joinErrorMessage(res, (key, defaultValue) => i18n.t(key, defaultValue))
+          ?? i18n.t('home.restore.failed', 'Failed to reconnect to the game'),
+      );
+      get().leaveRoom();
+      set({ showReconnectPopup: false, hostId: null });
+    });
   });
 };
 

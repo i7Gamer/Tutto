@@ -250,6 +250,30 @@ describe('useGameStore', () => {
     }
   });
 
+  it('does not restore the saved local game over a join link, and leaves the save on disk', () => {
+    // A join link switches the client to online play before init() ever runs:
+    // <Home/> mounts on App's first render and its link effect flushes ahead
+    // of App's own (child effects run first). Restoring the saved game on top
+    // of that routes App straight into <Game/>, unmounting the lobby the
+    // invitation was meant to fill in.
+    const savedGame = JSON.stringify({
+      players: [{ name: 'Alice', color: '#ff0000', score: 100 }],
+      status: 'playing', currentPlayerIndex: 0, finished: false, round: 2, gameTimeInSeconds: 50,
+    });
+    localStorage.setItem('tutto_local_game', savedGame);
+    useGameStore.setState({ mode: 'online' });
+
+    useGameStore.getState().init('device-xyz');
+
+    const state = useGameStore.getState();
+    expect(state.deviceId).toBe('device-xyz');
+    expect(state.players).toEqual([]);
+    expect(state.currentPlayerIndex).toBeNull();
+    expect(state.round).toBe(1);
+    // The game is postponed, not lost — setMode('local') restores it later.
+    expect(localStorage.getItem('tutto_local_game')).toBe(savedGame);
+  });
+
   it('does not re-anchor the clock when the restored local game is not in progress', () => {
     localStorage.setItem('tutto_local_game', JSON.stringify({
       players: [{ name: 'Alice', color: '#ff0000', score: 0 }],
@@ -962,45 +986,57 @@ describe('useGameStore', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
     });
 
+    afterEach(() => {
+      // Every test below drives socketSlice through the handler it registered
+      // under these keys. Left standing between tests, one test's registration
+      // would keep answering for the next — and a registration socketSlice
+      // stopped making altogether would still appear to be there. Dropping the
+      // socket too is what makes the beforeEach above register afresh (
+      // connectSocket is a no-op while a socket already exists).
+      mockOnHandlers = {};
+      disconnectSocket();
+    });
+
     it('gameAborted adds a toast', () => {
-      if (mockOnHandlers['gameAborted']) {
-        mockOnHandlers['gameAborted']();
-        const toasts = useGameStore.getState().toasts;
-        expect(toasts.some(t => t.message === 'game.aborted' || t.message.toLowerCase().includes('aborted'))).toBe(true);
-      }
+      expect(mockOnHandlers['gameAborted']).toBeTypeOf('function');
+      mockOnHandlers['gameAborted']();
+
+      const toasts = useGameStore.getState().toasts;
+      expect(toasts.some(t => t.message === 'game.aborted' || t.message.toLowerCase().includes('aborted'))).toBe(true);
     });
 
     it('playerReaction appends to reactions and self-prunes after the display window', () => {
       vi.useFakeTimers();
-      if (mockOnHandlers['playerReaction']) {
+      try {
+        expect(mockOnHandlers['playerReaction']).toBeTypeOf('function');
         mockOnHandlers['playerReaction']({ id: 1, emoji: '🔥', senderName: 'Alice', senderColor: '#ff0000' });
         expect(useGameStore.getState().reactions).toEqual([{ id: 1, emoji: '🔥', senderName: 'Alice', senderColor: '#ff0000' }]);
 
         vi.runAllTimers();
         expect(useGameStore.getState().reactions).toEqual([]);
+      } finally {
+        vi.useRealTimers();
       }
-      vi.useRealTimers();
     });
 
     it('hostId updates isHost and hostId state', () => {
-      if (mockOnHandlers['hostId']) {
-        mockOnHandlers['hostId']('socket-123'); // matches mock socket id
-        expect(useGameStore.getState().isHost).toBe(true);
-        expect(useGameStore.getState().hostId).toBe('socket-123');
+      expect(mockOnHandlers['hostId']).toBeTypeOf('function');
+      mockOnHandlers['hostId']('socket-123'); // matches mock socket id
+      expect(useGameStore.getState().isHost).toBe(true);
+      expect(useGameStore.getState().hostId).toBe('socket-123');
 
-        mockOnHandlers['hostId']('other-socket');
-        expect(useGameStore.getState().isHost).toBe(false);
-        expect(useGameStore.getState().hostId).toBe('other-socket');
-      }
+      mockOnHandlers['hostId']('other-socket');
+      expect(useGameStore.getState().isHost).toBe(false);
+      expect(useGameStore.getState().hostId).toBe('other-socket');
     });
 
     it('playerDisconnected adds a toast with reconnectTimeout', () => {
       useGameStore.setState({ reconnectTimeout: 45 });
-      if (mockOnHandlers['playerDisconnected']) {
-        mockOnHandlers['playerDisconnected']('Alice');
-        const toasts = useGameStore.getState().toasts;
-        expect(toasts.some(t => t.message.includes('Alice disconnected! They have 45 seconds to reconnect.'))).toBe(true);
-      }
+      expect(mockOnHandlers['playerDisconnected']).toBeTypeOf('function');
+      mockOnHandlers['playerDisconnected']('Alice');
+
+      const toasts = useGameStore.getState().toasts;
+      expect(toasts.some(t => t.message.includes('Alice disconnected! They have 45 seconds to reconnect.'))).toBe(true);
     });
 
     it('playerDisconnected omits the reconnect deadline when the kick timer is disabled (reconnectTimeout 0)', () => {
@@ -1008,20 +1044,20 @@ describe('useGameStore', () => {
       // player (see server/socketHandlers.ts) — a "N seconds to reconnect"
       // message would invent a deadline that doesn't exist.
       useGameStore.setState({ reconnectTimeout: 0 });
-      if (mockOnHandlers['playerDisconnected']) {
-        mockOnHandlers['playerDisconnected']('Alice');
-        const toasts = useGameStore.getState().toasts;
-        expect(toasts.some(t => t.message === 'Alice disconnected!')).toBe(true);
-        expect(toasts.some(t => t.message.includes('seconds to reconnect'))).toBe(false);
-      }
+      expect(mockOnHandlers['playerDisconnected']).toBeTypeOf('function');
+      mockOnHandlers['playerDisconnected']('Alice');
+
+      const toasts = useGameStore.getState().toasts;
+      expect(toasts.some(t => t.message === 'Alice disconnected!')).toBe(true);
+      expect(toasts.some(t => t.message.includes('seconds to reconnect'))).toBe(false);
     });
 
     it('nameConflictWithDisconnected adds a warning toast', () => {
-      if (mockOnHandlers['nameConflictWithDisconnected']) {
-        mockOnHandlers['nameConflictWithDisconnected']('Bob');
-        const toasts = useGameStore.getState().toasts;
-        expect(toasts.some(t => t.message.includes('Someone tried to join as "Bob", which belongs to a disconnected player'))).toBe(true);
-      }
+      expect(mockOnHandlers['nameConflictWithDisconnected']).toBeTypeOf('function');
+      mockOnHandlers['nameConflictWithDisconnected']('Bob');
+
+      const toasts = useGameStore.getState().toasts;
+      expect(toasts.some(t => t.message.includes('Someone tried to join as "Bob", which belongs to a disconnected player'))).toBe(true);
     });
 
     it('connect event emits joinRoom if roomId and myName exist', () => {
@@ -1029,15 +1065,15 @@ describe('useGameStore', () => {
       localStorage.setItem('tutto_color', '#ff0000');
       mockEmit.mockClear();
 
-      if (mockOnHandlers['connect']) {
-        mockOnHandlers['connect']();
-        expect(mockEmit).toHaveBeenCalledWith('joinRoom', expect.objectContaining({
-          roomId: 'ROOM1',
-          name: 'Alice',
-          deviceId: 'dev-alice',
-          color: '#ff0000',
-        }), expect.any(Function));
-      }
+      expect(mockOnHandlers['connect']).toBeTypeOf('function');
+      mockOnHandlers['connect']();
+
+      expect(mockEmit).toHaveBeenCalledWith('joinRoom', expect.objectContaining({
+        roomId: 'ROOM1',
+        name: 'Alice',
+        deviceId: 'dev-alice',
+        color: '#ff0000',
+      }), expect.any(Function));
     });
 
     it('a failed auto-rejoin clears the reconnect popup and drops back to the join form', () => {
@@ -1056,6 +1092,7 @@ describe('useGameStore', () => {
       sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'GONE_ROOM', myName: 'Alice' }));
       mockEmit.mockClear();
 
+      expect(mockOnHandlers['connect']).toBeTypeOf('function');
       mockOnHandlers['connect']();
       const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
       expect(joinRoomCall).toBeTruthy();
@@ -1073,6 +1110,46 @@ describe('useGameStore', () => {
       expect(s.toasts.some(t => t.message.includes('Username already exists'))).toBe(true);
     });
 
+    it('translates a refusal the server named a code for, instead of toasting its English prose', () => {
+      // The server sends prose AND a stable code (JOIN_REFUSAL_CODES); the
+      // prose is English whatever the player's language is, so the code is
+      // what the toast should actually be built from.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.setState({
+        mode: 'online', isOnline: true,
+        roomId: 'GONE_ROOM', myName: 'Alice', deviceId: 'dev-alice',
+        showReconnectPopup: true,
+      });
+      mockEmit.mockClear();
+
+      mockOnHandlers['connect']();
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(joinRoomCall).toBeTruthy();
+      joinRoomCall[2]({ success: false, code: 'name_taken', error: 'Username already exists in this room' });
+
+      const messages = useGameStore.getState().toasts.map(t => t.message);
+      expect(messages).toContain('That name is already taken in this room.');
+      expect(messages.some(m => m.includes('Username already exists'))).toBe(false);
+    });
+
+    it('falls back to the raw prose for a refusal carrying no code', () => {
+      // An older server, or a refusal this client has no key for: the player
+      // still learns why, just untranslated.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.setState({
+        mode: 'online', isOnline: true,
+        roomId: 'GONE_ROOM', myName: 'Alice', deviceId: 'dev-alice',
+      });
+      mockEmit.mockClear();
+
+      mockOnHandlers['connect']();
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      joinRoomCall[2]({ success: false, error: 'Refused for a reason this client predates' });
+
+      expect(useGameStore.getState().toasts.map(t => t.message))
+        .toContain('Refused for a reason this client predates');
+    });
+
     it('a successful auto-rejoin keeps the room state and only refreshes isHost', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.setState({
@@ -1082,8 +1159,10 @@ describe('useGameStore', () => {
       });
       mockEmit.mockClear();
 
+      expect(mockOnHandlers['connect']).toBeTypeOf('function');
       mockOnHandlers['connect']();
       const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(joinRoomCall).toBeTruthy();
       joinRoomCall[2]({ success: true, isHost: true });
 
       const s = useGameStore.getState();
@@ -1173,10 +1252,11 @@ describe('useGameStore', () => {
   });
 
   describe('socket disconnect behavior', () => {
-    it('sets showReconnectPopup when disconnected unexpectedly while online', () => {
+    it('sets showReconnectPopup when disconnected unexpectedly while seated in a room', () => {
       // Connect to online mode
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
+      useGameStore.setState({ roomId: 'ROOM1', myName: 'Alice' });
 
       // Ensure the 'disconnect' handler was registered
       expect(mockOnHandlers['disconnect']).toBeDefined();
@@ -1184,6 +1264,68 @@ describe('useGameStore', () => {
       // Trigger unexpected disconnect
       mockOnHandlers['disconnect']();
 
+      expect(useGameStore.getState().showReconnectPopup).toBe(true);
+    });
+
+    it('does NOT set showReconnectPopup when online without a seat to reclaim', () => {
+      // Sitting on the online join form (left the room / finished the game):
+      // there is nothing to reconnect TO, so the full-screen "attempting to
+      // reconnect" modal reports a loss the player cannot act on.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({ roomId: null, myName: null });
+
+      expect(mockOnHandlers['disconnect']).toBeTypeOf('function');
+      mockOnHandlers['disconnect']();
+
+      expect(useGameStore.getState().showReconnectPopup).toBe(false);
+    });
+
+    it('lowers a raised reconnect popup on connect when there is nothing to rejoin', () => {
+      // The other half of the same bug: without this, a popup raised while
+      // seatless stayed up after the connection came back, because the
+      // 'connect' handler only ever acted when a seat was worth reclaiming.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({ roomId: null, myName: null, showReconnectPopup: true });
+      mockEmit.mockClear();
+
+      expect(mockOnHandlers['connect']).toBeTypeOf('function');
+      mockOnHandlers['connect']();
+
+      expect(useGameStore.getState().showReconnectPopup).toBe(false);
+      expect(mockEmit).not.toHaveBeenCalledWith('joinRoom', expect.anything(), expect.anything());
+    });
+
+    it('leaves the popup up on connect while a session restore is still in flight', () => {
+      // The restore prompt raises the popup itself and only then calls
+      // joinRoom — the store holds no roomId (and is still in local mode)
+      // until the server acks, so the reconnect that carries that very join
+      // must not pull the modal out from under it.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.setState({ mode: 'local', roomId: null, myName: null, showReconnectPopup: true });
+
+      expect(mockOnHandlers['connect']).toBeTypeOf('function');
+      mockOnHandlers['connect']();
+
+      expect(useGameStore.getState().showReconnectPopup).toBe(true);
+    });
+
+    it('still attempts the auto-rejoin, popup and all, when a seat is held', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice', showReconnectPopup: true,
+      });
+      mockEmit.mockClear();
+
+      expect(mockOnHandlers['connect']).toBeTypeOf('function');
+      mockOnHandlers['connect']();
+
+      expect(mockEmit).toHaveBeenCalledWith('joinRoom', expect.objectContaining({
+        roomId: 'ROOM1', name: 'Alice', deviceId: 'dev-alice',
+      }), expect.any(Function));
+      // Still "attempting to reconnect" until the ack decides the seat's fate.
       expect(useGameStore.getState().showReconnectPopup).toBe(true);
     });
 
@@ -1199,9 +1341,10 @@ describe('useGameStore', () => {
       expect(mockDisconnect).toHaveBeenCalled();
 
       // Trigger 'disconnect' event (simulating what socket.io would do after disconnect() is called)
-      if (mockOnHandlers['disconnect']) {
-        mockOnHandlers['disconnect']();
-      }
+      // Asserted, not guarded: a missing handler would make the expectation
+      // below pass without anything having happened.
+      expect(mockOnHandlers['disconnect']).toBeTypeOf('function');
+      mockOnHandlers['disconnect']();
 
       // showReconnectPopup should be false because mode is local
       expect(useGameStore.getState().showReconnectPopup).toBe(false);
@@ -3139,6 +3282,40 @@ describe('useGameStore', () => {
 
       // Should NOT be cleared — a pending online reconnect owns this cache
       expect(localStorage.getItem('tutto_dice_turn_state')).not.toBeNull();
+    });
+
+    it('does not delete tutto_dice_turn_state when the saved local game\'s restore was postponed for a join link', () => {
+      // Same reasoning as the pending-reconnect case above, from the other
+      // side: the roster this cache would be judged against is still on disk
+      // rather than in state, so checking it here would delete the half-rolled
+      // turn of the very game being kept for later.
+      localStorage.setItem('tutto_local_game', JSON.stringify({
+        players: [{ name: 'Alice', color: '#ff0000', score: 100 }],
+        status: 'playing', currentPlayerIndex: 0, finished: false, round: 2,
+      }));
+      const cachedTurn = JSON.stringify({ turnScore: 250, playerName: 'Alice' });
+      localStorage.setItem('tutto_dice_turn_state', cachedTurn);
+      useGameStore.setState({ mode: 'online' }); // what Home's join-link effect already did
+
+      useGameStore.getState().init('test-device-id');
+
+      expect(localStorage.getItem('tutto_dice_turn_state')).toBe(cachedTurn);
+    });
+
+    it('still clears an orphaned tutto_dice_turn_state when there is no saved local game to postpone', () => {
+      // Only a POSTPONED restore protects the cache. With no save at all there
+      // is no game coming back for it, so the ordinary ownership check applies
+      // even though a join link has already switched the mode.
+      localStorage.removeItem('tutto_local_game');
+      localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+        turnScore: 250,
+        playerName: 'Alice',
+      }));
+      useGameStore.setState({ mode: 'online' });
+
+      useGameStore.getState().init('test-device-id');
+
+      expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
     });
 
     it('does not crash when currentPlayerIndex is null during init', () => {

@@ -16,6 +16,7 @@ import HelpPopup from './components/HelpPopup';
 import ModalShell from './components/ModalShell';
 import ReactionOverlay from './components/ReactionOverlay';
 import IOSHapticProxy from './components/IOSHapticProxy';
+import { joinErrorMessage } from './utils/joinErrors';
 import './index.css';
 import type { Toast } from './types';
 
@@ -142,7 +143,10 @@ function RestoreSessionPopup() {
                 // there will be no gameState event to clear showReconnectPopup,
                 // so the "Connection Lost" popup would otherwise stay up forever.
                 useGameStore.setState({ showReconnectPopup: false });
-                addToast(res.error || t('home.restore.failed', 'Failed to reconnect to the game'));
+                addToast(
+                  joinErrorMessage(res, (key, defaultValue) => t(key, defaultValue))
+                    ?? t('home.restore.failed', 'Failed to reconnect to the game'),
+                );
               }
             }}
           >

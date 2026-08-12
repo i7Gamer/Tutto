@@ -284,6 +284,57 @@ describe('App Integration (End-to-End)', () => {
     }
   });
 
+  it('translates a refused restore the server named a code for', async () => {
+    // The restore popup toasts whatever the ack carried, and the ack's prose is
+    // English in every language — so a refusal with a code must be rendered
+    // from the code, the way the lobby's error box already is.
+    const originalJoinRoom = useGameStore.getState().joinRoom;
+    try {
+      act(() => {
+        useGameStore.setState({
+          pendingReconnectSession: { roomId: 'GHOST_ROOM', myName: 'Charlie' },
+          joinRoom: vi.fn(async () => ({
+            success: false as const,
+            code: 'name_taken',
+            error: 'Username already exists in this room',
+          })),
+        });
+      });
+      render(<App />);
+
+      await act(async () => { fireEvent.click(screen.getByText('home.restore.yes')); });
+
+      const messages = useGameStore.getState().toasts.map(toast => toast.message);
+      expect(messages).toContain('lobby.online.joinError.nameTaken');
+      expect(messages.some(m => m.includes('Username already exists'))).toBe(false);
+      expect(useGameStore.getState().showReconnectPopup).toBe(false);
+    } finally {
+      useGameStore.setState({ joinRoom: originalJoinRoom });
+    }
+  });
+
+  it('shows a codeless refusal as the prose the server sent', async () => {
+    // An older server, or a refusal with no key here yet: the sentence is still
+    // shown rather than replaced by the generic failure message.
+    const originalJoinRoom = useGameStore.getState().joinRoom;
+    try {
+      act(() => {
+        useGameStore.setState({
+          pendingReconnectSession: { roomId: 'GHOST_ROOM', myName: 'Charlie' },
+          joinRoom: vi.fn(async () => ({ success: false as const, error: 'Refused, reason unknown to this client' })),
+        });
+      });
+      render(<App />);
+
+      await act(async () => { fireEvent.click(screen.getByText('home.restore.yes')); });
+
+      expect(useGameStore.getState().toasts.map(toast => toast.message))
+        .toContain('Refused, reason unknown to this client');
+    } finally {
+      useGameStore.setState({ joinRoom: originalJoinRoom });
+    }
+  });
+
   it('moves keyboard focus into the reconnect popup when it appears', async () => {
     // Neither of these popups is opened by a click, so nothing puts focus
     // inside them: it stays wherever the player left it, behind the backdrop.
@@ -913,6 +964,33 @@ describe('App Integration (End-to-End)', () => {
       // Local time should match server time within ±1 second
       expect(Math.abs(server - local)).toBeLessThanOrEqual(1);
     });
+  });
+
+  it('lets a join link win over a saved local game, and keeps the save', async () => {
+    // Following an invitation with an unfinished local game on this device
+    // used to land on that old game's board: init() restored it, so App routed
+    // into <Game/> and <Home/> — the only thing that consumes the link — was
+    // unmounted before the code could be typed anywhere.
+    const savedGame = JSON.stringify({
+      players: [{ name: 'Alice', color: '#ff0000', score: 100 }],
+      status: 'playing', currentPlayerIndex: 0, finished: false, round: 2, gameTimeInSeconds: 50,
+    });
+    localStorage.setItem('tutto_local_game', savedGame);
+    window.history.replaceState({}, '', '/?room=LINKED');
+
+    try {
+      render(<App />);
+
+      // The invitation's lobby, with the room already filled in.
+      await waitFor(() => expect(screen.getByDisplayValue('LINKED')).toBeInTheDocument());
+      expect(screen.queryByText('game.round')).not.toBeInTheDocument();
+
+      // Nothing was thrown away: the save is still on disk, so picking local
+      // play resumes the game exactly where it was left.
+      expect(JSON.parse(localStorage.getItem('tutto_local_game')).players[0].name).toBe('Alice');
+    } finally {
+      window.history.replaceState({}, '', '/');
+    }
   });
 
   it('Game time sync works for both online and local games', async () => {
