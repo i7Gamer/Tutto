@@ -381,6 +381,18 @@ describe('OnlineLobby leave-room confirmation', () => {
 
     expect(leaveRoom).toHaveBeenCalledTimes(1);
   });
+
+  it('is an X alone on phones, and still names itself to assistive tech', () => {
+    // The label costs header width the room code (which truncates) and the
+    // three icon buttons beside it need more. Dropping it visually must not
+    // drop it from the accessible name.
+    stageRoom();
+    render(<OnlineLobby />);
+
+    const leaveButton = screen.getByRole('button', { name: 'lobby.online.leaveRoom' });
+    expect(leaveButton.querySelector('svg.sm\\:hidden')).not.toBeNull();
+    expect(screen.getByText('lobby.online.leaveRoom').className).toContain('hidden sm:inline');
+  });
 });
 
 describe('OnlineLobby start button / waiting indicator', () => {

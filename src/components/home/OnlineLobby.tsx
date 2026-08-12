@@ -433,10 +433,15 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
             </button>
           </div>
           <button
-            className="shrink-0 text-red-500 hover:bg-red-50 border border-red-200 px-4 py-2 rounded-lg font-medium transition-colors"
+            className="shrink-0 text-red-500 hover:bg-red-50 border border-red-200 px-2 sm:px-4 py-2 rounded-lg font-medium transition-colors"
             onClick={() => setShowLeaveConfirm(true)}
+            title={t('lobby.online.leaveRoom', 'Leave Room')}
+            aria-label={t('lobby.online.leaveRoom', 'Leave Room')}
           >
-            {t('lobby.online.leaveRoom', 'Leave Room')}
+            {/* Icon-only on phones — the label costs header width the room
+                code (which truncates) and the three icon buttons need more. */}
+            <X size={20} className="sm:hidden" />
+            <span className="hidden sm:inline">{t('lobby.online.leaveRoom', 'Leave Room')}</span>
           </button>
         </div>
 
