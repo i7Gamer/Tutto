@@ -817,18 +817,24 @@ describe('DiceGame classic chains', () => {
     fireEvent.click(dice[0]);
   };
 
-  it('offers bank-or-draw after a tutto and banks with a turn summary', () => {
+  it('offers bank and draw side by side on the tutto, and banks with a turn summary', () => {
     const onComplete = vi.fn();
     queueRoll([1, 1, 1, 5, 5, 5]); // 1000 + 500, all six scoring
     render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
 
+    // Both options sit in the same button row, on the selection that completes
+    // the tutto — the player is not told the turn stopped and then offered a
+    // way to carry on.
     selectAllValid();
-    fireEvent.click(screen.getByText('dice.stop_and_score')); // completes the tutto
+    expect(screen.getByText('dice.stop_and_score')).toBeInTheDocument();
+    expect(screen.getByTestId('draw-next-card')).toBeInTheDocument();
 
-    // The choice is on screen: bank (default, countdown) or draw the next card.
+    fireEvent.click(screen.getByText('dice.stop_and_score'));
+
+    // Banking is now a decided turn: the summary states the total and counts
+    // down, offering no second choice.
     expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
-    const drawButton = screen.getByTestId('draw-next-card');
-    expect(drawButton).toBeInTheDocument();
+    expect(screen.queryByTestId('draw-next-card')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText('dice.bank_points'));
     expect(onComplete).toHaveBeenCalledWith(1800, true, expect.objectContaining({
@@ -837,6 +843,26 @@ describe('DiceGame classic chains', () => {
       plusMinusSuccesses: 0,
       ended: 'banked',
     }));
+  });
+
+  it('offers the draw only once the selection completes the tutto', () => {
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
+
+    clickDie(1); // one scoring die: valid, but nowhere near a tutto
+    expect(screen.queryByTestId('draw-next-card')).not.toBeInTheDocument();
+
+    selectAllValid();
+    expect(screen.getByTestId('draw-next-card')).toBeInTheDocument();
+  });
+
+  it('never offers the draw under modernized rules', () => {
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    render(<DiceGame currentCard="300" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
+
+    selectAllValid();
+    expect(screen.getByText('dice.stop_and_score')).toBeInTheDocument();
+    expect(screen.queryByTestId('draw-next-card')).not.toBeInTheDocument();
   });
 
   it('drawing an x2 mid-chain doubles the whole accumulated total on its tutto', () => {
@@ -848,14 +874,14 @@ describe('DiceGame classic chains', () => {
     );
 
     selectAllValid();
-    fireEvent.click(screen.getByText('dice.stop_and_score')); // tutto → 1800 banked-or-draw
-
     queueRoll([1, 1, 1, 5, 5, 5]); // the fresh 6-dice roll on the x2 card
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    fireEvent.click(screen.getByTestId('draw-next-card')); // tutto → 1800, drawn on
     expect(onDrawCard).toHaveBeenCalled();
 
-    // The new card arrives through the prop; only then does the roll fire.
+    // The new card arrives through the prop, and the roll waits for the reveal
+    // to be dismissed on top of that.
     rerender(<DiceGame currentCard="x2" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
 
     selectAllValid();
     fireEvent.click(screen.getByText('dice.stop_and_score'));
@@ -876,8 +902,13 @@ describe('DiceGame classic chains', () => {
     render(<DiceGame currentCard="500" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
 
     selectAllValid();
-    fireEvent.click(screen.getByText('dice.stop_and_score'));
     fireEvent.click(screen.getByTestId('draw-next-card'));
+
+    // The Stop is revealed like any other drawn card; the forfeit summary
+    // follows once the player has seen it.
+    expect(screen.getByTestId('drawn-card-continue')).toBeInTheDocument();
+    expect(screen.queryByText('dice.stop_card_drawn')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
 
     expect(screen.getByText('dice.stop_card_drawn')).toBeInTheDocument();
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, false, expect.objectContaining({
@@ -947,11 +978,10 @@ describe('DiceGame classic chains', () => {
       <DiceGame currentCard="200" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />,
     );
     selectAllValid();
-    fireEvent.click(screen.getByText('dice.stop_and_score')); // tutto → 1700
-
     queueRoll([1, 2, 3, 4, 6, 6]); // the forced keep takes the 1...
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    fireEvent.click(screen.getByTestId('draw-next-card')); // tutto → 1700, drawn on
     rerender(<DiceGame currentCard="Feuerwerk" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
 
     queueRoll([2, 3, 4, 6, 6]); // ...and the next roll is a null → banks everything
     fireEvent.click(screen.getByText('dice.roll_again'));
@@ -962,7 +992,10 @@ describe('DiceGame classic chains', () => {
     })));
   });
 
-  it('restores a tutto-pending snapshot straight into the bank-or-draw choice', () => {
+  it('restores a snapshot with all six dice put aside into the banked summary', () => {
+    // Six kept dice under classic is a completed tutto that was BANKED — the
+    // draw was already declined in the button row, so restoring must not
+    // reopen it (nor hand back a table with nothing left to select).
     const kept = [1, 2, 3, 4, 5, 6].map(v => ({ id: `d${v}`, val: v }));
     localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
       turnScore: 1800, keptDice: kept, currentRoll: [], kniffelProgress: [],
@@ -972,7 +1005,101 @@ describe('DiceGame classic chains', () => {
     render(<DiceGame currentCard="300" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
 
     expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
-    expect(screen.getByTestId('draw-next-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('draw-next-card')).not.toBeInTheDocument();
+    expect(screen.queryByText('dice.roll_again')).not.toBeInTheDocument();
+  });
+
+  it('shows the drawn card and holds the fresh roll until it is dismissed', () => {
+    const onDrawCard = vi.fn(() => '500' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    const { rerender } = render(
+      <DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />,
+    );
+
+    selectAllValid();
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+    rerender(<DiceGame currentCard="500" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />);
+
+    // The reveal names the drawn card, which card of the chain it is, and the
+    // total it puts at risk — this modal covers the board, so nothing else
+    // would tell the player any of it.
+    expect(screen.getByText('dice.drawn_card_title')).toBeInTheDocument();
+    expect(screen.getByText('dice.chain_card_count')).toBeInTheDocument();
+    expect(screen.getByText('1800')).toBeInTheDocument();
+    // No dice yet: rolling behind the reveal would waste the roll the player
+    // never saw.
+    expect(screen.queryAllByTestId('die')).toHaveLength(0);
+    expect(screen.queryByText('dice.current_score')).not.toBeInTheDocument();
+
+    queueRoll([1, 5, 2, 3, 4, 6]);
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
+
+    expect(screen.queryByText('dice.drawn_card_title')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Die showing 1, not selected')).toBeInTheDocument();
+  });
+
+  it('banks the tutto when the store refuses to draw', async () => {
+    // The store declines for a finished game or an empty deck. The tutto is
+    // already committed by then, so the turn has to land on the banked
+    // summary — not on a decided table with nothing left to press.
+    const onComplete = vi.fn();
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={() => null} onComplete={onComplete} />);
+
+    selectAllValid();
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+
+    expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(1800, true, expect.objectContaining({
+      cards: [{ card: '300', completed: true }],
+      ended: 'banked',
+    })));
+  });
+
+  it('draws a second card of the same type without waiting for a prop that never changes', () => {
+    // currentCard does not change when the drawn card matches the current one,
+    // so the deferred roll can only be released by the reveal being dismissed.
+    const onDrawCard = vi.fn(() => '300' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />);
+
+    selectAllValid();
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+    expect(screen.getByTestId('drawn-card-continue')).toBeInTheDocument();
+
+    queueRoll([1, 5, 2, 3, 4, 6]);
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
+
+    expect(screen.getByLabelText('Die showing 1, not selected')).toBeInTheDocument();
+    expect(screen.getByTestId('dice-current-score')).toHaveTextContent('1800');
+  });
+
+  it('D draws the next card, the same as the button', () => {
+    const onDrawCard = vi.fn(() => '500' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />);
+
+    selectAllValid();
+    fireEvent.keyDown(window, { key: 'd' });
+
+    expect(onDrawCard).toHaveBeenCalled();
+    expect(screen.getByTestId('drawn-card-continue')).toBeInTheDocument();
+  });
+
+  it('resumes a reload taken between the draw and its first roll by rolling', () => {
+    // The reveal panel holds that window open for as long as the player takes
+    // to dismiss it, so the empty table it snapshots is now genuinely
+    // reachable — restoring it as-is left no dice and no way to get any.
+    queueRoll([1, 5, 2, 3, 4, 6]);
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 1800, keptDice: [], currentRoll: [], kniffelProgress: [],
+      tuttosThisTurn: 0, cardsThisTurn: ['300', '500'], plusMinusSuccesses: 0, chainTuttoCount: 1,
+      turnKey: 'K',
+    }));
+    render(<DiceGame currentCard="500" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
+
+    expect(screen.getByLabelText('Die showing 1, not selected')).toBeInTheDocument();
+    expect(screen.getByTestId('dice-current-score')).toHaveTextContent('1800');
   });
 
   it('Stop & Score commits the banked state into the live snapshot', async () => {
@@ -1059,11 +1186,7 @@ describe('DiceGame classic chains', () => {
     })));
   });
 
-  it('closes the bank-or-draw choice at the chain-card cap and banks via the countdown', async () => {
-    // Every validator that carries a chain (resume cache, pushed snapshot,
-    // turn summary) refuses anything past MAX_CHAIN_CARDS wholesale — one
-    // more draw would get the whole turn thrown away, so at the cap the only
-    // remaining move is banking.
+  it('names the banked chain total at the chain-card cap and banks via the countdown', async () => {
     const onComplete = vi.fn();
     const kept = [1, 2, 3, 4, 5, 6].map(v => ({ id: `d${v}`, val: v }));
     localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
@@ -1073,12 +1196,11 @@ describe('DiceGame classic chains', () => {
     }));
     render(<DiceGame currentCard="300" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
 
-    expect(screen.queryByTestId('draw-next-card')).not.toBeInTheDocument();
-    // The chain can no longer be drawn on, but it is still a chain TOTAL being
-    // banked — so the summary must keep naming it. "may another card be drawn?"
-    // and "is this a banked chain total?" are two questions, and answering both
-    // with the same expression is what hid the banked total here. DiceSummary's
-    // own tests take banksChainTotal as a prop, so this is the only place the
+    // A capped chain is still a chain TOTAL being banked, so the summary has
+    // to keep naming it. "May another card be drawn?" and "is this a banked
+    // chain total?" are two questions, and answering both with the same
+    // expression is what once hid the banked total here. DiceSummary's own
+    // tests take banksChainTotal as a prop, so this is the only place the
     // expression that computes it is exercised.
     expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
     expect(screen.queryByText('dice.continue')).not.toBeInTheDocument();
@@ -1090,14 +1212,31 @@ describe('DiceGame classic chains', () => {
     expect(onComplete.mock.calls[0][2].cards).toHaveLength(MAX_CHAIN_CARDS);
   });
 
-  it('still offers the draw one card below the cap', () => {
-    const kept = [1, 2, 3, 4, 5, 6].map(v => ({ id: `d${v}`, val: v }));
+  // Every validator that carries a chain (resume cache, pushed snapshot, turn
+  // summary) refuses anything past MAX_CHAIN_CARDS wholesale — one more draw
+  // would get the whole turn thrown away, so at the cap the only move left is
+  // banking. Both resume mid-draw (empty table → fresh roll) and play the
+  // tutto, which is where the offer is now made.
+  const renderChainOfLength = (length: number) => {
+    queueRoll([1, 1, 1, 5, 5, 5]);
     localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
-      turnScore: 9000, keptDice: kept, currentRoll: [], kniffelProgress: [],
-      tuttosThisTurn: 1, cardsThisTurn: Array(MAX_CHAIN_CARDS - 1).fill('300'),
-      plusMinusSuccesses: 0, chainTuttoCount: MAX_CHAIN_CARDS - 1, turnKey: 'K',
+      turnScore: 9000, keptDice: [], currentRoll: [], kniffelProgress: [],
+      tuttosThisTurn: 0, cardsThisTurn: Array(length).fill('300'),
+      plusMinusSuccesses: 0, chainTuttoCount: length - 1, turnKey: 'K',
     }));
     render(<DiceGame currentCard="300" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
+    selectAllValid();
+  };
+
+  it('closes the draw at the chain-card cap, leaving only Stop & Score', () => {
+    renderChainOfLength(MAX_CHAIN_CARDS);
+
+    expect(screen.queryByTestId('draw-next-card')).not.toBeInTheDocument();
+    expect(screen.getByText('dice.stop_and_score')).toBeInTheDocument();
+  });
+
+  it('still offers the draw one card below the cap', () => {
+    renderChainOfLength(MAX_CHAIN_CARDS - 1);
 
     expect(screen.getByTestId('draw-next-card')).toBeInTheDocument();
   });

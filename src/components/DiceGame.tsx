@@ -1,7 +1,7 @@
 import { localStore } from '../utils/storage';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Hand, RotateCw } from 'lucide-react';
+import { Hand, Layers, RotateCw } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { playBuzzer, playSuccess, playTone, vibrateBust, vibrateSuccess } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
@@ -20,6 +20,7 @@ import { isTestEnv } from '../utils/env';
 import { motion, AnimatePresence } from 'framer-motion';
 import Die, { DiePips } from './game/Die';
 import DiceSummary from './game/DiceSummary';
+import DrawnCardReveal from './game/DrawnCardReveal';
 import { MAX_CHAIN_CARDS } from '../types';
 import type { CardType, Die as DieType, DiceSnapshot, Ruleset, TurnSummary, TurnCardPlayed, TurnEnd } from '../types';
 
@@ -109,9 +110,10 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
       isTutto: false,
     }
     : null;
-  // A classic snapshot with all six dice put aside was saved during the
-  // bank-or-draw choice — restore straight back into that choice instead of
-  // into a dice table with nothing left to select.
+  // A classic snapshot with all six dice put aside is a completed tutto that
+  // was banked — restore into its summary, not into a dice table with nothing
+  // left to select. (Banking marks `stopped` too, so this mostly catches
+  // caches written before it did.)
   const restoredTutto = !restoredBust && isClassic && restored && restored.keptDice.length === 6
     ? { won: true, score: restored.turnScore, isTutto: true }
     : null;
@@ -130,6 +132,13 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const restoredBanked = !restoredBust && !restoredTutto && !restoredStopped && restored?.stopped
     ? { won: true, score: restored.turnScore, isTutto: restored.keptDice.length === 6 }
     : null;
+  // An empty table that is neither busted nor banked was snapshotted between
+  // drawing a chain card and its first roll (the reveal panel below holds that
+  // window open for as long as the player takes to dismiss it). Resuming it
+  // has to roll: restoring as-is hands back a table with no dice on it and no
+  // button that would put any there.
+  const restoredMidDraw = !!restored && !restoredBust && !restoredTutto && !restoredStopped && !restoredBanked
+    && restored.keptDice.length === 0 && restored.currentRoll.length === 0;
 
   const [keptDice, setKeptDice] = useState<DieType[]>(restored?.keptDice ?? []);
   const [currentRoll, setCurrentRoll] = useState<DieType[]>(restored?.currentRoll ?? []);
@@ -138,7 +147,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const [turnScore, setTurnScore] = useState(restored?.turnScore ?? 0);
   const [kniffelProgress, setKniffelProgress] = useState<number[]>(restored?.kniffelProgress ?? []);
   const [isRolling, setIsRolling] = useState(false);
-  const [hasRolled, setHasRolled] = useState(!!restored);
+  const [hasRolled, setHasRolled] = useState(!!restored && !restoredMidDraw);
   const [bustState, setBustState] = useState(!!restoredBust);
   const [showSummary, setShowSummary] = useState(!!restoredBust || !!restoredTutto || !!restoredStopped || !!restoredBanked);
   const [summaryData, setSummaryData] = useState<SummaryData>(
@@ -171,6 +180,10 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // currentCard prop yet — roll() must not fire until it has, or its closure
   // would judge the fresh roll against the previous card's rules.
   const pendingChainRollRef = useRef<{ card: CardType; base: number } | null>(null);
+  // The card just drawn, held on screen until the player dismisses it. It is
+  // the only place they see it: this modal covers the board, and the very next
+  // thing to happen is a roll judged by the new card's rules.
+  const [revealedCard, setRevealedCard] = useState<CardType | null>(null);
 
   const selectedRolls = currentRoll.filter(d => d.selected);
 
@@ -298,11 +311,12 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
 
   // Auto-starts the first roll once the panel has finished appearing — there's
   // no manual "Roll" button anymore. Skipped for a resumed turn, which already
-  // has dice on the table.
+  // has dice on the table; a mid-draw resume has none, and rolls carrying the
+  // chain total it must bank on a Feuerwerk null.
   useEffect(() => {
-    if (!panelReady || restored) return;
-    rollRef.current(6);
-  }, [panelReady, restored]);
+    if (!panelReady || (restored && !restoredMidDraw)) return;
+    rollRef.current(6, null, restored?.turnScore ?? 0);
+  }, [panelReady, restored, restoredMidDraw]);
 
   useEffect(() => {
     if (rollingDiceIndices.size === 0) return;
@@ -318,7 +332,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     return () => clearInterval(interval);
   }, [rollingDiceIndices, currentRoll]);
 
-  const handleAction = (action: 'roll' | 'stop') => {
+  const handleAction = (action: 'roll' | 'stop' | 'draw') => {
     if (!validation.valid && action !== 'stop') return;
 
     let newTurnScore = turnScore + (countsDicePoints ? validation.score : 0);
@@ -375,12 +389,18 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         if (chain.length > 0) chain[chain.length - 1].completed = true;
         chainRef.current.ended = 'banked';
         // Committed (not just carried in the summary data) so a reload
-        // restores straight back into this bank-or-draw choice.
+        // restores the decision, not the pre-tutto table it could be rolled
+        // back into.
         setTurnScore(newTurnScore);
         setKeptDice(newKeptDice);
         setCurrentRoll([]);
         setDisplayRoll([]);
         setKniffelProgress(newKniffelProgress);
+        // Bank or draw was decided by which button was pressed — the summary
+        // no longer asks a second time (it used to, under a heading that said
+        // the turn had stopped). A draw the store refuses banks instead.
+        if (action === 'draw' && drawNextCard(newTurnScore)) return;
+        setStopped(true);
         setSummaryData({ won: true, score: newTurnScore, isTutto: true });
         setShowSummary(true);
         return;
@@ -447,21 +467,23 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     setCurrentRoll(prev => prev.map((d, i) => ({ ...d, selected: validIndices.has(i) })));
   };
 
-  // Classic: reveal the next card after a tutto and keep the accumulated
-  // total at risk. The fresh roll is deferred until the new card has arrived
-  // through the currentCard prop (see pendingChainRollRef above) — except
-  // when the drawn card is the same type as the current one, where the prop
-  // never changes and the roll can fire immediately.
-  const handleDrawNextCard = useCallback(() => {
-    if (!onDrawCard) return;
+  // Classic: reveal the next card after a tutto and keep the accumulated total
+  // at risk. `base` is the chain total the new card is played on — passed in
+  // rather than read from turnScore, because the caller commits the tutto that
+  // produced it in the same batch, where this closure would still see the
+  // pre-tutto value.
+  // Returns whether a card actually came out: the store refuses to draw for a
+  // finished game or an empty deck, and the caller has already committed the
+  // tutto by then — so a refusal has to fall back to banking it rather than
+  // leave the panel on a decided turn with nothing left to press.
+  const drawNextCard = useCallback((base: number): boolean => {
+    if (!onDrawCard) return false;
     const newCard = onDrawCard();
-    if (!newCard) return;
-    // turnScore was committed when the tutto choice appeared, so it IS the
-    // accumulated chain total.
-    const base = turnScore;
+    if (!newCard) return false;
     chainRef.current.cards.push({ card: newCard, completed: false });
     setChainCardCount(c => c + 1);
     setShowSummary(false);
+    setTurnScore(base);
     setKeptDice([]);
     setCurrentRoll([]);
     setDisplayRoll([]);
@@ -473,24 +495,35 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
       chainRef.current.forfeitedScore = base;
       playBuzzer();
       vibrateBust();
-      setSummaryData({ won: false, score: 0, isTutto: false, stoppedByCard: true });
-      setShowSummary(true);
-      return;
-    }
-    setSummaryData({ won: false, score: 0, isTutto: false });
-    if (newCard === currentCard) {
-      rollRef.current(6, [], base);
     } else {
+      setSummaryData({ won: false, score: 0, isTutto: false });
+      // The fresh roll waits for BOTH the reveal to be dismissed and the new
+      // card to arrive through the currentCard prop (see pendingChainRollRef
+      // above and the effect below).
       pendingChainRollRef.current = { card: newCard, base };
     }
-  }, [onDrawCard, turnScore, currentCard]);
+    setRevealedCard(newCard);
+    return true;
+  }, [onDrawCard]);
+
+  // Dismissing the reveal resumes the turn: for every card that can be played
+  // on, by releasing the deferred roll below; for a drawn Stop, by showing the
+  // forfeit the draw already committed to the chain.
+  const acknowledgeDrawnCard = useCallback(() => {
+    const drawn = revealedCard;
+    setRevealedCard(null);
+    if (drawn === 'Stop') {
+      setSummaryData({ won: false, score: 0, isTutto: false, stoppedByCard: true });
+      setShowSummary(true);
+    }
+  }, [revealedCard]);
 
   useEffect(() => {
     const pending = pendingChainRollRef.current;
-    if (!pending || currentCard !== pending.card) return;
+    if (!pending || revealedCard || currentCard !== pending.card) return;
     pendingChainRollRef.current = null;
     rollRef.current(6, [], pending.base);
-  }, [currentCard]);
+  }, [currentCard, revealedCard]);
 
   const onStateChangeRef = useRef(onStateChange);
   useEffect(() => { onStateChangeRef.current = onStateChange; }, [onStateChange]);
@@ -565,20 +598,14 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // already won the game). What the summary calls the score and its button.
   const banksChainTotal = isClassic && showSummary && summaryData.won && !!summaryData.isTutto
     && currentCard !== 'Kleeblatt' && currentCard !== 'Feuerwerk' && !!onDrawCard;
-  // ...and whether another card may still be drawn onto it. A separate
-  // question: past MAX_CHAIN_CARDS the chain can only bank, because every
-  // validator that carries one (resume cache, pushed snapshot, turn summary)
-  // refuses anything longer wholesale — so the choice closes and the
-  // countdown that runs whenever it is unavailable takes over.
-  const chainChoiceAvailable = banksChainTotal && chainCardCount < MAX_CHAIN_CARDS;
 
   // Auto-continue to the next player once the turn resolves — for a success the
   // same way as for a bust (the spectator view relies on this turn ending on its
-  // own; only the active player can advance the shared game state). Deliberately
-  // NOT while the classic bank-or-draw choice is pending: that is a strategic
-  // decision, and the room's turn timer already bounds how long it can take.
+  // own; only the active player can advance the shared game state). Every
+  // summary reached here is a decided turn: the classic bank-or-draw choice is
+  // made in the button row below, before any summary is shown.
   const continueCountdown = useAutoContinueCountdown({
-    shouldStart: showSummary && !chainChoiceAvailable,
+    shouldStart: showSummary,
     onElapsed: finishGame,
   });
 
@@ -592,13 +619,24 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   });
   const stopButtonText = t(stopButtonTextKey.key, stopButtonTextKey.fallback);
 
+  // Drawing on is offered next to Stop & Score, on the very selection that
+  // completes the tutto — one choice, in the panel that asked it, instead of a
+  // second panel offering to carry on under a heading that said the turn had
+  // stopped. Feuerwerk never gets here (its null banks and ends the turn) and
+  // a completed Kleeblatt has already won the game. Past MAX_CHAIN_CARDS the
+  // chain can only bank: every validator that carries one (resume cache,
+  // pushed snapshot, turn summary) refuses anything longer wholesale.
+  const canDrawAfterTutto = isClassic && !!onDrawCard && isMakingTutto && canStop
+    && currentCard !== 'Feuerwerk' && currentCard !== 'Kleeblatt'
+    && chainCardCount < MAX_CHAIN_CARDS;
+
   const displayKeptDice = sortKeptDiceForDisplay(keptDice, currentCard, kniffelProgress, ruleset);
 
   // A turn is select → roll or stop, repeated. Each shortcut is bound only when
   // its button is enabled, so a key can never do something a click could not —
   // an unavailable action passes `undefined` and the key falls through to the
   // page. Listed for players in HelpPopup's shortcuts section.
-  const canAct = hasRolled && !bustState && !isRolling && !showSummary;
+  const canAct = hasRolled && !bustState && !isRolling && !showSummary && !revealedCard;
   const canSubmitSelection = canAct && validation.valid;
 
   // Game renders this panel inside a modal, so an aria-modal element is always
@@ -610,25 +648,31 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     r: canSubmitSelection && isRollAgainApplicable ? () => handleAction('roll') : undefined,
     s: canSubmitSelection && canStop ? () => handleAction('stop') : undefined,
     a: canAct ? selectAllValid : undefined,
-    d: chainChoiceAvailable ? handleDrawNextCard : undefined,
+    d: canSubmitSelection && canDrawAfterTutto ? () => handleAction('draw') : undefined,
   }, { ownerRef: panelRef });
 
   return (
-    <div ref={panelRef} className={`bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden rounded-3xl flex flex-col items-center w-full ${showSummary ? 'max-h-[90vh]' : 'h-[calc(100dvh-2rem)] sm:h-auto sm:max-h-[90vh]'}`}>
-      {!showSummary && (
+    <div ref={panelRef} className={`bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden rounded-3xl flex flex-col items-center w-full ${showSummary || revealedCard ? 'max-h-[90vh]' : 'h-[calc(100dvh-2rem)] sm:h-auto sm:max-h-[90vh]'}`}>
+      {!showSummary && !revealedCard && (
         <div className="w-full shrink-0 bg-black/5 dark:bg-white/5 border-b border-gray-200 dark:border-slate-600 p-4 flex justify-between items-center">
           <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 m-0">{t('dice.title', 'Dice Game')} - {getDisplayCardName(currentCard)}</h2>
         </div>
       )}
 
       <div className="px-8 pt-6 pb-8 sm:p-8 w-full flex-1 overflow-y-auto">
-        {showSummary ? (
+        {revealedCard ? (
+          <DrawnCardReveal
+            card={revealedCard}
+            chainCardCount={chainCardCount}
+            turnScore={turnScore}
+            onContinue={acknowledgeDrawnCard}
+          />
+        ) : showSummary ? (
           <DiceSummary
             summaryData={summaryData}
             continueCountdown={continueCountdown}
             finishGame={finishGame}
             currentCard={currentCard}
-            onDrawNextCard={chainChoiceAvailable ? handleDrawNextCard : undefined}
             banksChainTotal={banksChainTotal}
           />
         ) : (
@@ -728,6 +772,16 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
                       onClick={() => handleAction('stop')}
                     >
                       <Hand size={20} /> {stopButtonText}
+                    </button>
+                  )}
+                  {canDrawAfterTutto && (
+                    <button
+                      data-testid="draw-next-card"
+                      className={`flex-1 flex justify-center items-center gap-2 py-4 rounded-xl font-bold text-lg transition-all ${validation.valid && !isRolling ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/30' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+                      disabled={!validation.valid || isRolling}
+                      onClick={() => handleAction('draw')}
+                    >
+                      <Layers size={20} /> {t('dice.draw_next_card', 'Draw next card — risk everything!')}
                     </button>
                   )}
                 </motion.div>

@@ -124,12 +124,11 @@ describe('DiceSummary', () => {
     });
   });
 
-  // "Is this a classic chain total being banked?" and "may another card still
-  // be drawn on it?" are two questions. Both used to be answered by
-  // onDrawNextCard alone, so at MAX_CHAIN_CARDS — where the chain can only
-  // bank — the banked total vanished and the button offered to continue to the
-  // next player instead of naming what it was banking.
-  describe('a classic chain total that can no longer be drawn on', () => {
+  // Drawing another card is decided in the dice panel's button row, on the
+  // roll that completes the tutto — by the time this summary is on screen the
+  // turn is banked, whatever the chain could still have done. All this panel
+  // owes the player is naming the total it banked.
+  describe('a banked classic chain total', () => {
     const chainBank = {
       ...baseProps,
       summaryData: { won: true, score: 2500, isTutto: true },
@@ -148,7 +147,7 @@ describe('DiceSummary', () => {
       expect(screen.queryByText('dice.continue')).toBeNull();
     });
 
-    it('offers no draw button and runs the countdown, since the cap closed the choice', () => {
+    it('offers no draw button and runs the countdown, the turn being decided', () => {
       render(<DiceSummary {...chainBank} continueCountdown={2} />);
       expect(screen.queryByTestId('draw-next-card')).toBeNull();
       expect(screen.getByText('dice.auto_continuing')).toBeInTheDocument();
