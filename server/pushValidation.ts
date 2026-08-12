@@ -2,6 +2,7 @@ import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS, type CardType, type InitialCards
 import {
   isSnapshotDie, isRolledDie, isKniffelProgressEntry, isRollingDiceIdList,
   isChainCard, isChainCounter, isChainScoreList, isTurnCardList, isTurnEnd,
+  TOTAL_DICE,
 } from '../src/utils/turnShapes';
 import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
@@ -86,17 +87,18 @@ export const isPlausiblePlayerSnapshot = (v: unknown): v is { name: string; scor
 // number is expected) reaching every viewer via broadcast crashes their
 // render and trips the ErrorBoundary's cache-clear-and-reload for all of
 // them, repeatedly, until the sender's next push is well-formed again.
-// rollingDiceIds/busted are optional but, when present, are shape-checked too
-// (rollingDiceIds is rendered the same way — see GameControls.tsx — and
-// busted only ever needs to be a boolean).
+// rollingDiceIds/busted are optional but, when present, are shape-checked too:
+// the same render membership-tests rollingDiceIds per die, so a non-array has
+// no `.includes` and throws there just as surely (see isRollingDiceIdList),
+// and busted only ever needs to be a boolean.
 export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
   if (!(typeof s.turnScore === 'number' && Number.isFinite(s.turnScore))) return false;
   if (!(typeof s.tuttosThisTurn === 'number' && Number.isFinite(s.tuttosThisTurn))) return false;
-  if (!(Array.isArray(s.keptDice) && s.keptDice.length <= 6 && s.keptDice.every(isSnapshotDie))) return false;
-  if (!(Array.isArray(s.currentRoll) && s.currentRoll.length <= 6 && s.currentRoll.every(isRolledDie))) return false;
-  if (!(Array.isArray(s.kniffelProgress) && s.kniffelProgress.length <= 6 && s.kniffelProgress.every(isKniffelProgressEntry))) return false;
+  if (!(Array.isArray(s.keptDice) && s.keptDice.length <= TOTAL_DICE && s.keptDice.every(isSnapshotDie))) return false;
+  if (!(Array.isArray(s.currentRoll) && s.currentRoll.length <= TOTAL_DICE && s.currentRoll.every(isRolledDie))) return false;
+  if (!(Array.isArray(s.kniffelProgress) && s.kniffelProgress.length <= TOTAL_DICE && s.kniffelProgress.every(isKniffelProgressEntry))) return false;
   if (s.busted !== undefined && typeof s.busted !== 'boolean') return false;
   if (s.stopped !== undefined && typeof s.stopped !== 'boolean') return false;
   if (s.rollingDiceIds !== undefined && !isRollingDiceIdList(s.rollingDiceIds)) return false;

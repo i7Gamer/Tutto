@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  MAX_DICE_ID_LENGTH, MAX_ROLLING_DICE_IDS, isSnapshotDie, isRolledDie, isKniffelProgressEntry,
+  MAX_DICE_ID_LENGTH, TOTAL_DICE, isSnapshotDie, isRolledDie, isKniffelProgressEntry,
   isChainCard, isChainCounter, isTurnCardPlayed, isTurnEnd, isTurnCardList, isRollingDiceIdList,
 } from './turnShapes';
 import { MAX_CHAIN_CARDS, TURN_ENDS } from '../types';
@@ -114,7 +114,7 @@ describe('isRollingDiceIdList', () => {
 
   it('accepts the ids of a roll still in flight', () => {
     expect(isRollingDiceIdList(['d1', 'd2', 'd3'])).toBe(true);
-    expect(isRollingDiceIdList(Array(MAX_ROLLING_DICE_IDS).fill('d1'))).toBe(true);
+    expect(isRollingDiceIdList(Array(TOTAL_DICE).fill('d1'))).toBe(true);
   });
 
   it('accepts an empty list — every die has settled', () => {
@@ -122,7 +122,7 @@ describe('isRollingDiceIdList', () => {
   });
 
   it('rejects more ids than there are dice on the table', () => {
-    expect(isRollingDiceIdList(Array(MAX_ROLLING_DICE_IDS + 1).fill('d1'))).toBe(false);
+    expect(isRollingDiceIdList(Array(TOTAL_DICE + 1).fill('d1'))).toBe(false);
   });
 
   it('accepts an id at the length cap and rejects one past it', () => {

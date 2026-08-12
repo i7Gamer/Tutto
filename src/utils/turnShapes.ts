@@ -42,22 +42,30 @@ export const isSnapshotDie = (v: unknown): v is SnapshotDie => {
 export const isRolledDie = (v: unknown): v is SnapshotDie & { selected: boolean } =>
   isSnapshotDie(v) && typeof (v as unknown as Record<string, unknown>).selected === 'boolean';
 
-/** A roll is never more than the six dice on the table. */
-export const MAX_ROLLING_DICE_IDS = 6;
+/**
+ * The six dice the game is played with. Every per-turn dice list is bounded by
+ * it — the dice kept, the dice rolled, the ids still tumbling, and the
+ * Straight's progress, which puts one die aside per number it still needs.
+ */
+export const TOTAL_DICE = 6;
 
 /**
  * The ids of the dice still tumbling when a snapshot was taken — the only
  * thing that says a cached roll had not been judged yet, since `busted` is
- * written by finalizeRoll once every die has settled while the live snapshot
+ * written by finalizeRoll once every die has settled, while the live snapshot
  * is written a debounce after the roll starts.
  *
- * Shared because both boundaries need exactly this rule: the localStorage
+ * Shared because both boundaries need exactly this rule. The localStorage
  * cache resets a corrupted entry to absent (i.e. to "settled") rather than
- * restoring it, and a pushed snapshot's copy is rendered straight into every
- * spectator's JSX.
+ * restoring it into somebody's turn. Off the wire it matters more: a
+ * spectator's GameControls membership-tests this list once per die
+ * (`rollingDiceIds?.includes(d.id)`), so a value that is not an array has no
+ * `.includes` and throws mid-render — taking every viewer through the
+ * ErrorBoundary's cache-clear-and-reload — while a string, which does have
+ * one, would quietly misreport which dice are still moving.
  */
 export const isRollingDiceIdList = (v: unknown): v is string[] =>
-  Array.isArray(v) && v.length <= MAX_ROLLING_DICE_IDS
+  Array.isArray(v) && v.length <= TOTAL_DICE
   && v.every(id => typeof id === 'string' && id.length > 0 && id.length <= MAX_DICE_ID_LENGTH);
 
 export const isKniffelProgressEntry = (v: unknown): v is number => isFaceValue(v);
