@@ -102,6 +102,57 @@ describe('useWakeLock', () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
+  it('does not acquire a second lock while a request is still in flight', async () => {
+    const sentinel = createFakeSentinel();
+    let settleRequest: (s: unknown) => void = () => {};
+    const request = vi.fn(() => new Promise((resolve) => { settleRequest = resolve; }));
+    Object.defineProperty(navigator, 'wakeLock', { value: { request }, configurable: true });
+
+    const { unmount } = renderHook(() => useWakeLock());
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+
+    // Two rapid app-switches (mobile) while the mount request is still
+    // unresolved. `sentinel` is only assigned once that promise settles, so a
+    // bare `!sentinel` guard still reads null here and would let each of
+    // these acquire a lock of its own — and only the last one assigned ever
+    // gets released, leaving the screen awake after the game ends.
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(request).toHaveBeenCalledTimes(1);
+
+    settleRequest(sentinel);
+    await waitFor(() => expect(sentinel.addEventListener).toHaveBeenCalled());
+
+    unmount();
+    expect(sentinel.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a release fired by a sentinel that is no longer the one held', async () => {
+    const firstSentinel = createFakeSentinel();
+    const secondSentinel = createFakeSentinel();
+    const request = vi.fn()
+      .mockResolvedValueOnce(firstSentinel)
+      .mockResolvedValueOnce(secondSentinel);
+    Object.defineProperty(navigator, 'wakeLock', { value: { request }, configurable: true });
+
+    renderHook(() => useWakeLock());
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+
+    await firstSentinel.release();
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+
+    // A late/duplicate release event from the SUPERSEDED sentinel must not
+    // clear the reference to the one now held — that would strand the live
+    // lock (never released on unmount) and re-request on top of it.
+    await firstSentinel.release();
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it('re-requests the lock once the tab becomes visible again if the initial request was rejected', async () => {
     const sentinel = createFakeSentinel();
     const request = vi.fn()
