@@ -1816,6 +1816,38 @@ describe('coreGameEngine', () => {
       expect(result.historyEntry.cards).toEqual(['300', 'Kleeblatt']);
     });
 
+    it('a chain that ends on a Kleeblatt still applies its earlier Plus/Minus', () => {
+      // The Kleeblatt win returns early, before the turn score is added — but
+      // AFTER the deductions, which is the whole point. The activity log
+      // reports only the win for such a turn, so this pins that the scores and
+      // the counters underneath it are not what gets skipped.
+      const state = makeState({
+        players: [makePlayer('Alice'), makePlayer('Bob', { score: 4000 })],
+        currentCard: 'Kleeblatt',
+      });
+      const result = calculateNextTurn(
+        state, 1000, true,
+        summary({
+          cards: [{ card: 'Plus_Minus', completed: true }, { card: 'Kleeblatt', completed: true }],
+          tuttoCount: 3,
+          plusMinusScores: [0],
+        }),
+      );
+
+      const [alice, bob] = result.players;
+      expect(bob.score).toBe(3000);                       // 4000 − 1000, really applied
+      expect(bob.times1000PointsDeducted).toBe(1);
+      expect(alice.timesPlusMinusCompleted).toBe(1);
+      // The win is set above the DEDUCTED field, not the pre-deduction one.
+      expect(alice.score).toBe(6000);
+      expect(result.isGameOver).toBe(true);
+      // The entry carries the deduction even though HistoryLog renders only
+      // the win for a Kleeblatt-ending chain — the data is there if that
+      // message is ever widened.
+      expect(result.historyEntry.deductedPlayers).toEqual(['Bob']);
+      expect(result.previousTurnSummary?.deductedPlayers).toEqual(['Bob']);
+    });
+
     describe('undo of a classic chain', () => {
       const playChain = () => {
         const state = makeState({
