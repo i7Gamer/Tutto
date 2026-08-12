@@ -1617,17 +1617,138 @@ describe('coreGameEngine', () => {
       expect(result.previousTurnSummary?.deductedPlayers).toEqual(['Bob']);
     });
 
-    // The exact boundary: a deduction that only draws the two LEVEL still
-    // counts as the current player leading, so nothing more is taken.
-    it('atomic Plus/Minus: a tie after the first deduction also stops the second', () => {
+    // The exact boundary: drawing LEVEL with the leader does not save them.
+    // Official rule — every tied leader is deducted; the roller is exempt only
+    // from paying it themselves, not from imposing it on the others.
+    it('atomic Plus/Minus: a co-leader is still deducted after the chain draws level', () => {
       const state = makeState({
         players: [makePlayer('Alice', { score: 1000 }), makePlayer('Bob', { score: 3000 })],
         currentCard: 'Plus_Minus',
       });
       const result = calculateNextTurn(state, 2000, true, twoPlusMinus());
 
-      expect(result.players[1].score).toBe(2000);       // Alice's 1000 + 1000 ties it
-      expect(result.players[1].times1000PointsDeducted).toBe(1);
+      // 1st: Alice on 1000 trails 3000 → Bob to 2000. 2nd: Alice's 1000+1000
+      // ties Bob's 2000, and a tied Bob pays anyway → 1000.
+      expect(result.players[1].score).toBe(1000);
+      expect(result.players[1].times1000PointsDeducted).toBe(2);
+      expect(result.players[0].score).toBe(3000);       // 1000 + 2 × 1000, never self-deducted
+    });
+
+    // The rule the classic path implements and the modernized one deliberately
+    // does not: leading TOGETHER with someone still fires the card, taking
+    // 1000 off the co-leaders while the roller keeps theirs.
+    describe('atomic Plus/Minus: the roller is exempt from paying, not from imposing', () => {
+      const onePlusMinus = (scoreBefore = 0) => summary({
+        cards: [{ card: 'Plus_Minus', completed: true }],
+        plusMinusScores: [scoreBefore],
+      });
+
+      it('deducts the co-leader when the roller is one of two tied leaders', () => {
+        const state = makeState({
+          players: [makePlayer('Alice', { score: 2000 }), makePlayer('Bob', { score: 2000 })],
+          currentCard: 'Plus_Minus',
+        });
+        const result = calculateNextTurn(state, 1000, true, onePlusMinus());
+
+        expect(result.players[1].score).toBe(1000);      // Bob, the co-leader, pays
+        expect(result.players[1].times1000PointsDeducted).toBe(1);
+        expect(result.players[0].score).toBe(3000);      // Alice keeps hers, +1000
+        expect(result.players[0].times1000PointsDeducted).toBe(0);
+        expect(result.historyEntry.deductedPlayers).toEqual(['Bob']);
+      });
+
+      it('deducts every co-leader in a three-way tie, and nobody below them', () => {
+        const state = makeState({
+          players: [
+            makePlayer('Alice', { score: 2000 }),
+            makePlayer('Bob', { score: 2000 }),
+            makePlayer('Carol', { score: 2000 }),
+            makePlayer('Dave', { score: 1500 }),
+          ],
+          currentCard: 'Plus_Minus',
+        });
+        const result = calculateNextTurn(state, 1000, true, onePlusMinus());
+
+        expect(result.players[1].score).toBe(1000);
+        expect(result.players[2].score).toBe(1000);
+        expect(result.players[3].score).toBe(1500);      // not a leader, untouched
+        expect(result.historyEntry.deductedPlayers).toEqual(['Bob', 'Carol']);
+      });
+
+      it('deducts nobody when the roller leads alone', () => {
+        const state = makeState({
+          players: [makePlayer('Alice', { score: 3000 }), makePlayer('Bob', { score: 2000 })],
+          currentCard: 'Plus_Minus',
+        });
+        const result = calculateNextTurn(state, 1000, true, onePlusMinus());
+
+        expect(result.players[1].score).toBe(2000);
+        expect(result.players[1].times1000PointsDeducted).toBe(0);
+        expect(result.previousLeaders).toBeNull();
+        expect(result.historyEntry.deductedPlayers).toBeUndefined();
+      });
+
+      it('records nothing when the tied leaders are all still on zero', () => {
+        // Before anyone has scored every player is tied on 0, so they are all
+        // "leaders" — but the 0-floor means none of them actually loses a
+        // point, and a score that never moved is not a deduction to report in
+        // the history or count in the statistics.
+        const state = makeState({
+          players: [makePlayer('Alice'), makePlayer('Bob'), makePlayer('Carol')],
+          currentCard: 'Plus_Minus',
+        });
+        const result = calculateNextTurn(state, 1000, true, onePlusMinus());
+
+        expect(result.players[0].score).toBe(1000);
+        expect(result.players[1].score).toBe(0);
+        expect(result.players[2].score).toBe(0);
+        expect(result.players[1].times1000PointsDeducted).toBe(0);
+        expect(result.players[2].times1000PointsDeducted).toBe(0);
+        expect(result.previousLeaders).toBeNull();
+        expect(result.historyEntry.deductedPlayers).toBeUndefined();
+      });
+
+      it('still deducts a co-leader partially when that takes them to the floor', () => {
+        const state = makeState({
+          players: [makePlayer('Alice', { score: 600 }), makePlayer('Bob', { score: 600 })],
+          currentCard: 'Plus_Minus',
+        });
+        const result = calculateNextTurn(state, 1000, true, onePlusMinus());
+
+        expect(result.players[1].score).toBe(0);         // 600 − 1000, floored
+        expect(result.players[1].times1000PointsDeducted).toBe(1);
+        expect(result.historyEntry.deductedPlayers).toEqual(['Bob']);
+      });
+
+      it('undoes a co-leader deduction back to the exact pre-turn score', () => {
+        const state = makeState({
+          players: [makePlayer('Alice', { score: 2000 }), makePlayer('Bob', { score: 2000 })],
+          currentCard: 'Plus_Minus',
+        });
+        const played = calculateNextTurn(state, 1000, true, onePlusMinus());
+
+        const undone = calculateUndo({
+          players: played.players,
+          currentPlayerIndex: played.nextIndex,
+          currentCard: played.drawnCard,
+          round: played.nextRound,
+          winningScore: 6000,
+          cards: played.newDeck,
+          initialCards: { '200': 5 },
+          previousCard: played.previousCard,
+          previousScore: played.previousScore,
+          previousLeaders: played.previousLeaders,
+          previousWasBust: played.previousWasBust,
+          previousWasSuccess: played.previousWasSuccess,
+          previousHighestTurnScore: played.previousHighestTurnScore,
+          previousPlayerName: played.previousPlayerName,
+          previousTurnSummary: played.previousTurnSummary,
+        });
+
+        expect(undone.players[0].score).toBe(2000);
+        expect(undone.players[1].score).toBe(2000);
+        expect(undone.players[1].times1000PointsDeducted).toBe(0);
+      });
     });
 
     it('atomic Plus/Minus: a forfeited chain never deducts, even with successes recorded', () => {

@@ -318,11 +318,19 @@ export const calculateNextTurn = (
     // banks — a later null/Stop forfeits them along with everything else.
     // Replayed card by card in the order the chain played them: at each one
     // the current player counts as holding everything the chain had earned by
-    // that point (plusMinusScores), the leaders are recomputed from the
-    // deductions already applied, and a player in the lead takes nothing off
-    // anybody — the same self-exclusion rule as the modernized path below.
-    // Comparing against the bare pre-turn score instead kept deducting after
-    // the chain had already overtaken the leader.
+    // that point (plusMinusScores), and the leaders are recomputed from the
+    // deductions already applied. Comparing against the bare pre-turn score
+    // instead kept deducting after the chain had already overtaken the leader.
+    //
+    // EVERY tied leader loses 1000 — the roller among them for deciding WHO
+    // leads, but excluded from paying: "If more than one player is leading
+    // with the same number of points, each of them has 1,000 points deducted…
+    // If it is the leading player who reveals this card, naturally they don't
+    // have to deduct any points from their score" (ABACUSSPIELE 2024). So the
+    // roller is filtered out of the victims rather than cancelling the whole
+    // deduction, which is what lets a CO-leader's 1000 land; a sole leader
+    // filters down to nobody, the same rule falling out of it. The modernized
+    // path below deliberately keeps its older all-or-nothing reading.
     if (isSuccess && turnSummary.plusMinusScores.length > 0) {
       const preScores = new Map<string, Player>();
       const deducted: string[] = [];
@@ -330,19 +338,25 @@ export const calculateNextTurn = (
         const asOfThisCard = newPlayers.map(p => (
           p.name === currentPlayer.name ? { ...p, score: p.score + scoreBeforeCard } : p
         ));
-        const leaders = getLeaders(asOfThisCard);
-        if (leaders.some(l => l.name === currentPlayer.name)) continue;
-        leaders.forEach(l => {
+        const victims = getLeaders(asOfThisCard).filter(l => l.name !== currentPlayer.name);
+        victims.forEach(l => {
           const p = newPlayers.find(np => np.name === l.name);
           if (!p) return;
+          // Official rule: "a player can never have less than 0 points" —
+          // clamped here (classic) only; the modernized path keeps its
+          // long-standing negative-scores behavior.
+          const clamped = Math.max(0, p.score - PLUS_MINUS_SCORE);
+          // A leader already sitting on 0 loses nothing, and an untouched
+          // score is not a deduction to record, display or undo. This is not
+          // hypothetical: before anyone has scored, EVERY player is tied on 0,
+          // so the game's first Plus/Minus would otherwise report the whole
+          // table as deducted while changing nobody's score.
+          if (clamped === p.score) return;
           // First touch snapshots the true pre-commit score, so undo can
           // restore absolutely however many deductions follow.
           if (!preScores.has(p.name)) preScores.set(p.name, { ...p });
           p.times1000PointsDeducted = (p.times1000PointsDeducted ?? 0) + 1;
-          // Official rule: "a player can never have less than 0 points" —
-          // clamped here (classic) only; the modernized path keeps its
-          // long-standing negative-scores behavior.
-          p.score = Math.max(0, p.score - PLUS_MINUS_SCORE);
+          p.score = clamped;
           deducted.push(p.name);
         });
       }
