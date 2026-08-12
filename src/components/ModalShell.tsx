@@ -4,7 +4,12 @@ import './ModalShell.css';
 
 // Everything focusable a dialog is likely to hold. Used both to pick the
 // control that gets focus on open and to work out where Tab wraps around.
-const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+// Disabled controls are excluded because they cannot take focus: counting one
+// as the first or last match makes the wrap below unreachable (focus can never
+// be on it), and Tab then escapes into the page behind the backdrop.
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), '
+  + 'textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])';
 
 interface ModalShellProps {
   open: boolean;

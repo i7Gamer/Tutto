@@ -1,9 +1,26 @@
 import { useRef, useState } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import ModalShell from './ModalShell';
 
 describe('ModalShell', () => {
+  // The control that opened the dialog, sitting on the page behind it. RTL's
+  // auto-cleanup only unmounts its own container, so a node appended straight
+  // to document.body has to be taken out by hand — otherwise it stays focusable
+  // and findable for every later test in this file.
+  const outsideTriggers: HTMLButtonElement[] = [];
+  const focusTriggerOutsideDialog = (): HTMLButtonElement => {
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    outsideTriggers.push(trigger);
+    trigger.focus();
+    return trigger;
+  };
+
+  afterEach(() => {
+    outsideTriggers.splice(0).forEach(trigger => { trigger.remove(); });
+  });
+
   const Dialog = ({ open = true, ...props }: { open?: boolean; [key: string]: unknown }) => (
     <ModalShell open={open} {...props}>
       <button>first</button>
@@ -42,14 +59,25 @@ describe('ModalShell', () => {
     expect(screen.getByRole('button', { name: 'first' })).toHaveFocus();
   });
 
+  it('moves focus past a disabled control on open', () => {
+    // A disabled control cannot take focus at all, so aiming at it leaves
+    // focus on <body> — outside the panel, where the Tab trap never sees a key.
+    render(
+      <ModalShell open>
+        <button disabled>rolling…</button>
+        <button>close</button>
+      </ModalShell>
+    );
+
+    expect(screen.getByRole('button', { name: 'close' })).toHaveFocus();
+  });
+
   it('falls back to the panel when its content has nothing focusable yet', () => {
     // The dice panel opens with no buttons at all — they appear once the dice
     // have settled. Leaving focus on the trigger behind the backdrop means
     // Tab walks the page underneath and the panel's Tab trap never engages,
     // since it is a handler on the panel itself.
-    const trigger = document.createElement('button');
-    document.body.appendChild(trigger);
-    trigger.focus();
+    const trigger = focusTriggerOutsideDialog();
 
     render(
       <ModalShell open>
@@ -188,5 +216,82 @@ describe('ModalShell', () => {
 
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Tab', shiftKey: true });
     expect(last).toHaveFocus();
+  });
+
+  it('wraps Tab around the disabled controls at the end of the panel', () => {
+    // The wrap only fires when focus is *on* the edge control. A disabled one
+    // can never hold focus, so counting it as the edge makes the branch
+    // unreachable and Tab walks straight out into the page behind the backdrop.
+    render(
+      <ModalShell open>
+        <button>first</button>
+        <button>last enabled</button>
+        <button disabled>tumbling</button>
+      </ModalShell>
+    );
+    const first = screen.getByRole('button', { name: 'first' });
+
+    screen.getByRole('button', { name: 'last enabled' }).focus();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Tab' });
+
+    expect(first).toHaveFocus();
+  });
+
+  it('wraps Shift+Tab around the disabled controls at the start of the panel', () => {
+    render(
+      <ModalShell open>
+        <button disabled>tumbling</button>
+        <button>first enabled</button>
+        <button>last</button>
+      </ModalShell>
+    );
+    const last = screen.getByRole('button', { name: 'last' });
+
+    screen.getByRole('button', { name: 'first enabled' }).focus();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Tab', shiftKey: true });
+
+    expect(last).toHaveFocus();
+  });
+
+  it('skips disabled controls of every kind, not just buttons', () => {
+    render(
+      <ModalShell open>
+        <input disabled aria-label="disabled input" />
+        <select aria-label="live select">
+          <option>one</option>
+        </select>
+        <span tabIndex={0}>live span</span>
+        <textarea disabled aria-label="disabled textarea" />
+      </ModalShell>
+    );
+    const select = screen.getByRole('combobox', { name: 'live select' });
+    expect(select).toHaveFocus();
+
+    screen.getByText('live span').focus();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Tab' });
+
+    expect(select).toHaveFocus();
+  });
+
+  it('keeps focus on the panel when every control in it is disabled', () => {
+    // The dice panel while the dice tumble: every die and all three action
+    // buttons are disabled at once. There is nothing to wrap to, so the panel
+    // itself has to hold focus — otherwise it sits on whatever opened the
+    // dialog, behind the backdrop.
+    const trigger = focusTriggerOutsideDialog();
+
+    render(
+      <ModalShell open>
+        <button disabled>roll</button>
+        <button disabled>bank</button>
+      </ModalShell>
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveFocus();
+
+    fireEvent.keyDown(dialog, { key: 'Tab' });
+
+    expect(dialog).toHaveFocus();
+    expect(trigger).not.toHaveFocus();
   });
 });

@@ -173,6 +173,109 @@ describe('useKeyboardShortcuts', () => {
     });
   });
 
+  describe('keys the focused control activates on natively', () => {
+    // Tabbing to Undo or the theme toggle and pressing Enter must press THAT
+    // button: swallowing the key here would run the game's primary action
+    // instead of the control the keyboard user is standing on.
+    const focusMarkup = (html: string): HTMLElement => {
+      document.body.innerHTML = html;
+      const element = document.body.firstElementChild as HTMLElement;
+      element.focus();
+      return element;
+    };
+
+    it.each(['Enter', ' '])('leaves "%s" to a focused button', key => {
+      const primary = vi.fn();
+      renderHook(() => useKeyboardShortcuts({ enter: primary, space: primary }));
+      focusMarkup('<button type="button">Undo</button>');
+
+      const event = press(key);
+
+      expect(primary).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it.each([
+      ['a link', '<a href="#rules">Rules</a>'],
+      ['a summary', '<summary tabindex="0">Details</summary>'],
+      ['a role="button" element', '<div role="button" tabindex="0">Menu</div>'],
+    ])('leaves Enter to %s', (_label, html) => {
+      const primary = vi.fn();
+      renderHook(() => useKeyboardShortcuts({ enter: primary }));
+      const element = focusMarkup(html);
+      expect(document.activeElement).toBe(element);
+
+      const event = press('Enter');
+
+      expect(primary).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it.each([
+      ['a summary', '<summary tabindex="0">Details</summary>'],
+      ['a role="button" element', '<div role="button" tabindex="0">Menu</div>'],
+    ])('leaves Space to %s as well', (_label, html) => {
+      const primary = vi.fn();
+      renderHook(() => useKeyboardShortcuts({ space: primary }));
+      focusMarkup(html);
+
+      const event = press(' ');
+
+      expect(primary).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('keeps Space for the game while a link is focused', () => {
+      // A link is not a button: Enter follows it, Space scrolls the page.
+      // Treating both keys as "the link's" loses the keystroke entirely —
+      // neither the link nor the game acts on it.
+      const primary = vi.fn();
+      renderHook(() => useKeyboardShortcuts({ space: primary }));
+      const link = focusMarkup('<a href="#rules">Rules</a>');
+      expect(document.activeElement).toBe(link);
+
+      const event = press(' ');
+
+      expect(primary).toHaveBeenCalledTimes(1);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('keeps Enter when nothing is focused', () => {
+      const primary = vi.fn();
+      renderHook(() => useKeyboardShortcuts({ enter: primary }));
+      expect(document.activeElement).toBe(document.body);
+
+      const event = press('Enter');
+
+      expect(primary).toHaveBeenCalledTimes(1);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('keeps Enter when the focused element does not activate on it', () => {
+      // A focusable wrapper (the dice panel) has nothing to activate, so the
+      // game keeps the key.
+      const primary = vi.fn();
+      renderHook(() => useKeyboardShortcuts({ enter: primary }));
+      focusMarkup('<div tabindex="0">panel</div>');
+
+      press('Enter');
+
+      expect(primary).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps a key the focused button does not activate on', () => {
+      // Only Enter and Space press a button — 'r' still has to reach the game.
+      const roll = vi.fn();
+      renderHook(() => useKeyboardShortcuts({ r: roll }));
+      focusMarkup('<button type="button">Undo</button>');
+
+      const event = press('r');
+
+      expect(roll).toHaveBeenCalledTimes(1);
+      expect(event.defaultPrevented).toBe(true);
+    });
+  });
+
   it.each([{ ctrlKey: true }, { metaKey: true }, { altKey: true }])(
     'leaves browser and OS chords alone (%o)',
     modifier => {
