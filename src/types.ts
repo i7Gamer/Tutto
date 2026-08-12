@@ -128,6 +128,12 @@ export interface TurnSummary {
   // when several Plus/Minus successes hit the same leader) so undo can
   // reverse times1000PointsDeducted per occurrence.
   deductedPlayers?: string[];
+  // What each of those deductions actually removed, same index as the name
+  // above. The classic 0-floor can make a hit worth less than PLUS_MINUS_SCORE
+  // (a leader on 400 loses 400), and the amount is not recoverable afterwards
+  // — the scores it was computed from are already gone. Absent on the
+  // modernized path, which never clamps; see summarizeDeductions' fallback.
+  deductedAmounts?: number[];
   // Also engine-filled: the player's classic records BEFORE this turn, so
   // undo can restore them without another round of previous* plumbing.
   // null = the player had no value yet.
@@ -197,6 +203,11 @@ export interface HistoryEntry {
   type: HistoryEventType;
   score: number;
   deductedPlayers?: string[];
+  // Per-deduction amounts for the names above (see TurnSummary.deductedAmounts)
+  // — what the log prints, rather than re-deriving the full 1000 a clamped
+  // deduction never took. Mirrored in server/pushValidation.ts's history-entry
+  // family — a field missing there never reaches the other clients.
+  deductedAmounts?: number[];
   // Classic chains only: every card of the turn in draw order (card above is
   // the first of them). Mirrored in server/pushValidation.ts's history-entry
   // family — a field missing there never reaches the other clients.

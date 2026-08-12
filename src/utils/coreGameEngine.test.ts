@@ -1,6 +1,9 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
-import { getLeaders, buildGlobalStatsPayload, shuffleArray, buildDeck, calculateNextTurn, calculateUndo, computeRankedPlayers, hasPlayableDeck } from './coreGameEngine';
+import { getLeaders, buildGlobalStatsPayload, shuffleArray, buildDeck, calculateNextTurn, calculateUndo, computeRankedPlayers, hasPlayableDeck, PLUS_MINUS_SCORE } from './coreGameEngine';
+// The consumer of the recorded amounts: what the activity log will actually
+// print for an entry is what makes "no amounts here" right or wrong.
+import { summarizeDeductions } from './deductionSummary';
 
 const makePlayer = (name, overrides = {}) => ({
   name, score: 0, times1000PointsDeducted: 0, timesKniffelCompleted: 0,
@@ -350,6 +353,64 @@ describe('coreGameEngine', () => {
       expect(payload.mostPlayersInGame).toBe(3);
       expect(payload.highestFeuerwerkTurnScore).toBe(300);
       expect(payload.highestX2TurnScore).toBe(600);
+    });
+
+    // The classic records travel a different route from the counters above:
+    // tuttos accumulate, the other two are game-wide maxima that stay null
+    // until somebody actually has one. Every case below puts the winning value
+    // somewhere other than first, so an inverted comparison cannot pass by
+    // accidentally keeping the value it started with.
+    describe('classic records', () => {
+      it('sums the tuttos and takes the maximum of the per-player records', () => {
+        const finalPlayers = [
+          makePlayer('Alice', { totalTuttos: 3, mostCardsInTurn: 4, highestForfeitedTurnScore: 300 }),
+          makePlayer('Bob', { totalTuttos: 1, mostCardsInTurn: 7, highestForfeitedTurnScore: 1200 }),
+          makePlayer('Cara', { totalTuttos: 0, mostCardsInTurn: 2, highestForfeitedTurnScore: 900 }),
+        ];
+
+        const payload = buildGlobalStatsPayload(finalPlayers, 90, true, 4);
+
+        expect(payload.totalTuttos).toBe(4);
+        expect(payload.mostCardsInTurn).toBe(7);
+        expect(payload.highestForfeitedTurnScore).toBe(1200);
+      });
+
+      it('a player with no classic record does not erase one that another player has', () => {
+        // The record-less player is listed FIRST: the maxima start at null, so
+        // an absent value that is allowed through seeds them with undefined,
+        // and every later comparison against undefined is false — the real
+        // record behind it would never land.
+        const finalPlayers = [
+          makePlayer('Alice'),
+          makePlayer('Bob', { totalTuttos: 5, mostCardsInTurn: 3, highestForfeitedTurnScore: 750 }),
+        ];
+
+        const payload = buildGlobalStatsPayload(finalPlayers, 90, true, 4);
+
+        expect(payload.totalTuttos).toBe(5);      // absent counts as 0, not NaN
+        expect(payload.mostCardsInTurn).toBe(3);
+        expect(payload.highestForfeitedTurnScore).toBe(750);
+      });
+
+      it('reports null only when nobody has the record at all', () => {
+        const payload = buildGlobalStatsPayload([makePlayer('Alice'), makePlayer('Bob')], 90, true, 4);
+
+        expect(payload.totalTuttos).toBe(0);
+        expect(payload.mostCardsInTurn).toBeNull();
+        expect(payload.highestForfeitedTurnScore).toBeNull();
+      });
+
+      it('treats a recorded zero as a record, not as "never happened"', () => {
+        // Forfeiting a turn worth nothing is a real record of 0 — reported as
+        // 0, while null means the player never forfeited at all.
+        const payload = buildGlobalStatsPayload(
+          [makePlayer('Alice', { highestForfeitedTurnScore: 0, mostCardsInTurn: 1 })],
+          90, true, 4,
+        );
+
+        expect(payload.highestForfeitedTurnScore).toBe(0);
+        expect(payload.mostCardsInTurn).toBe(1);
+      });
     });
   });
 
@@ -1598,6 +1659,116 @@ describe('coreGameEngine', () => {
 
       expect(result.players[1].score).toBe(0);
       expect(result.players[1].times1000PointsDeducted).toBe(1);
+    });
+
+    // What the 0-floor actually took. The activity log renders these amounts
+    // (summarizeDeductions); re-deriving them from PLUS_MINUS_SCORE told a
+    // leader on 400 he had lost 1000 while his score dropped by 400.
+    describe('atomic Plus/Minus: the recorded amount is what was removed', () => {
+      const onePlusMinus = () => summary({
+        cards: [{ card: 'Plus_Minus', completed: true }],
+        plusMinusScores: [0],
+      });
+
+      it('records only what a clamped leader could actually pay', () => {
+        const state = makeState({
+          players: [makePlayer('Alice'), makePlayer('Bob', { score: 400 })],
+          currentCard: 'Plus_Minus',
+        });
+        const result = calculateNextTurn(state, 1000, true, onePlusMinus());
+
+        expect(result.players[1].score).toBe(0);
+        expect(result.historyEntry.deductedPlayers).toEqual(['Bob']);
+        expect(result.historyEntry.deductedAmounts).toEqual([400]);
+        expect(result.previousTurnSummary?.deductedAmounts).toEqual([400]);
+      });
+
+      it('records the full 1000 when the floor never bit', () => {
+        const state = makeState({
+          players: [makePlayer('Alice'), makePlayer('Bob', { score: 1500 })],
+          currentCard: 'Plus_Minus',
+        });
+        const result = calculateNextTurn(state, 1000, true, onePlusMinus());
+
+        expect(result.players[1].score).toBe(500);
+        expect(result.historyEntry.deductedAmounts).toEqual([1000]);
+      });
+
+      it('records one amount per tied co-leader, each clamped on their own score', () => {
+        const state = makeState({
+          players: [makePlayer('Alice'), makePlayer('Bob', { score: 400 }), makePlayer('Carol', { score: 400 })],
+          currentCard: 'Plus_Minus',
+        });
+        const result = calculateNextTurn(state, 1000, true, onePlusMinus());
+
+        expect(result.historyEntry.deductedPlayers).toEqual(['Bob', 'Carol']);
+        expect(result.historyEntry.deductedAmounts).toEqual([400, 400]);
+      });
+
+      it('stays index-aligned with the names when one player is hit twice', () => {
+        // The two lists are consumed in parallel, so a hit must never appear in
+        // one and not the other — Bob pays 1000 twice before Alice overtakes.
+        const state = makeState({
+          players: [makePlayer('Alice'), makePlayer('Bob', { score: 3000 })],
+          currentCard: 'Plus_Minus',
+        });
+        const result = calculateNextTurn(
+          state, 3000, true,
+          summary({
+            cards: Array.from({ length: 3 }, () => ({ card: 'Plus_Minus', completed: true })),
+            tuttoCount: 3,
+            plusMinusScores: [0, 1000, 2000],
+          }),
+        );
+
+        expect(result.previousTurnSummary?.deductedPlayers).toEqual(['Bob', 'Bob']);
+        expect(result.previousTurnSummary?.deductedAmounts).toEqual([1000, 1000]);
+      });
+
+      it('records no amounts at all when nobody was deducted', () => {
+        const runnerUpScore = 2000;
+        const state = makeState({
+          players: [makePlayer('Alice', { score: 3000 }), makePlayer('Bob', { score: runnerUpScore })],
+          currentCard: 'Plus_Minus',
+        });
+        const result = calculateNextTurn(state, 1000, true, onePlusMinus());
+
+        // The premise, asserted rather than assumed: the roller already led, so
+        // the card deducted nobody. Without this the amount assertions below
+        // hold for any turn at all — and `previousTurnSummary?.` reads
+        // undefined straight through a summary that was never committed.
+        expect(result.previousTurnSummary).not.toBeNull();
+        expect(result.players[1].score).toBe(runnerUpScore);
+        expect(result.players[1].times1000PointsDeducted).toBe(0);
+        expect(result.historyEntry.deductedPlayers).toBeUndefined();
+        expect(result.previousTurnSummary?.deductedPlayers).toBeUndefined();
+
+        // No names, therefore no amounts — not even an empty list, which the
+        // log would carry to every client as a field it has to reason about.
+        expect(result.historyEntry.deductedAmounts).toBeUndefined();
+        expect(result.previousTurnSummary?.deductedAmounts).toBeUndefined();
+      });
+
+      it('leaves the modernized path without amounts — it never clamps', () => {
+        // No turnSummary: the house rules let a score go negative, so every hit
+        // is the full 1000 and summarizeDeductions' fallback is the right read.
+        const leaderScoreBefore = 400;
+        const state = makeState({
+          players: [makePlayer('Alice', { score: leaderScoreBefore }), makePlayer('Bob')],
+          currentPlayerIndex: 1,
+          currentCard: 'Plus_Minus',
+        });
+        const result = calculateNextTurn(state, 0, true);
+
+        expect(result.players[0].score).toBe(leaderScoreBefore - PLUS_MINUS_SCORE);
+        expect(result.historyEntry.deductedPlayers).toEqual(['Alice']);
+        expect(result.historyEntry.deductedAmounts).toBeUndefined();
+        // Absent is only CORRECT here because the fallback is the truth: what
+        // the log will print must equal what the score actually lost. The
+        // toBeUndefined() above says nothing about that on its own.
+        expect(summarizeDeductions(result.historyEntry.deductedPlayers!, result.historyEntry.deductedAmounts))
+          .toEqual([{ name: 'Alice', amount: leaderScoreBefore - result.players[0].score }]);
+      });
     });
 
     // The runner-up trailing by LESS than 1000: the first deduction alone

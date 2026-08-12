@@ -29,6 +29,19 @@ const MAX_GAME_SECONDS = 10_000_000;
 const isPlusMinusScoreList = (v: unknown): v is number[] =>
   isChainScoreList(v) && v.every(n => n <= MAX_SCORE_MAGNITUDE);
 
+// What each Plus/Minus deduction actually removed, one entry per name in
+// deductedPlayers. Bounded like every other pushed score, and never negative —
+// the classic 0-floor can shrink a hit, never invert it. The lengths must
+// match because the activity log reads the two lists BY INDEX
+// (summarizeDeductions): a longer or shorter list would print one player's
+// clamped amount against another's name, so a misaligned pair is rejected
+// rather than half-kept. Missing names with amounts present is the same fault.
+const isDeductedAmountList = (amounts: unknown, names: unknown): boolean => {
+  if (!Array.isArray(amounts)) return false;
+  if (amounts.length !== (Array.isArray(names) ? names.length : 0)) return false;
+  return amounts.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= MAX_SCORE_MAGNITUDE);
+};
+
 export const validateInitialCards = (cards: unknown): cards is InitialCards => {
   if (typeof cards !== 'object' || cards === null) return false;
   const entries = Object.entries(cards as Record<string, unknown>);
@@ -55,11 +68,16 @@ export const applyValidatedConfig = (state: RoomState, config: Record<string, un
 };
 
 // Minimal shape check for a previousLeaders snapshot entry — just enough for
-// calculateUndo (client-side) to read name/score back out safely.
+// calculateUndo (client-side) to read name/score back out safely. Bounded like
+// every other pushed name and score: undo restores these scores onto real
+// players, and the entries ride every later broadcast until the next turn
+// overwrites them, so one push could otherwise plant a megabyte-long name or a
+// 1e308 score and have the server re-send it to the whole room.
 export const isPlausiblePlayerSnapshot = (v: unknown): v is { name: string; score: number } => {
   if (typeof v !== 'object' || v === null) return false;
   const p = v as Record<string, unknown>;
-  return typeof p.name === 'string' && typeof p.score === 'number' && Number.isFinite(p.score);
+  if (!(typeof p.name === 'string' && p.name.length > 0 && p.name.length <= MAX_PLAYER_NAME_LENGTH)) return false;
+  return typeof p.score === 'number' && Number.isFinite(p.score) && Math.abs(p.score) <= MAX_SCORE_MAGNITUDE;
 };
 
 // Every array element is shape-checked, not just the array's length: a
@@ -138,6 +156,9 @@ export const isValidTurnSummary = (v: unknown): v is TurnSummary => {
     if (!Array.isArray(s.deductedPlayers) || s.deductedPlayers.length > MAX_CHAIN_CARDS) return false;
     if (!s.deductedPlayers.every(n => typeof n === 'string' && n.length > 0 && n.length <= MAX_PLAYER_NAME_LENGTH)) return false;
   }
+  // Optional: a modernized turn records none, and a client predating the field
+  // sends none — both must stay valid.
+  if (s.deductedAmounts !== undefined && !isDeductedAmountList(s.deductedAmounts, s.deductedPlayers)) return false;
   return true;
 };
 
@@ -152,6 +173,7 @@ export const sanitizeTurnSummary = (v: TurnSummary): TurnSummary => {
   if (v.prevMostCardsInTurn !== undefined) clean.prevMostCardsInTurn = v.prevMostCardsInTurn;
   if (v.prevHighestForfeitedTurnScore !== undefined) clean.prevHighestForfeitedTurnScore = v.prevHighestForfeitedTurnScore;
   if (v.deductedPlayers) clean.deductedPlayers = [...v.deductedPlayers];
+  if (v.deductedAmounts) clean.deductedAmounts = [...v.deductedAmounts];
   return clean;
 };
 
@@ -172,6 +194,9 @@ const isValidHistoryEntry = (v: unknown): v is HistoryEntry => {
     if (entry.deductedPlayers.length > 100) return false;
     if (!entry.deductedPlayers.every(name => typeof name === 'string' && name.length > 0 && name.length <= MAX_PLAYER_NAME_LENGTH)) return false;
   }
+  // Same index-alignment rule as the turn summary's — this is the entry the
+  // activity log actually renders, so a misaligned pair would be printed.
+  if (entry.deductedAmounts !== undefined && !isDeductedAmountList(entry.deductedAmounts, entry.deductedPlayers)) return false;
   if (entry.cards !== undefined) {
     if (!Array.isArray(entry.cards) || entry.cards.length > MAX_CHAIN_CARDS) return false;
     if (!entry.cards.every(c => typeof c === 'string' && (VALID_CARD_TYPES as readonly string[]).includes(c))) return false;
@@ -191,6 +216,10 @@ const sanitizeHistoryEntry = (v: HistoryEntry): HistoryEntry => {
   if (v.playerColor) clean.playerColor = v.playerColor;
   if (v.cards) clean.cards = [...v.cards];
   if (v.deductedPlayers) clean.deductedPlayers = [...v.deductedPlayers];
+  // Rebuilt from a fixed field list, so an amount not copied here is stripped
+  // from every relayed push: the sender would see the clamped 400 their own
+  // engine recorded while everyone else read the flat 1000.
+  if (v.deductedAmounts) clean.deductedAmounts = [...v.deductedAmounts];
   return clean;
 };
 
@@ -302,6 +331,11 @@ const mergeMutable = (existing: ServerPlayer, p: Record<string, unknown> | undef
 // every accepted value must pass its shape/bounds check — anything else is
 // silently ignored so a malformed or malicious push can never corrupt server
 // state. Pure state-in/state-out (no io, no timers) so it can be unit-tested.
+//
+// Returns whether the snapshot was applied at all. Individual fields are still
+// dropped silently (that is the point of the checks above); false means only
+// the wholesale bail-out below fired, and the caller's own "this push started a
+// game" bookkeeping must not run for a push that changed nothing.
 export const applyPushedState = (
   state: RoomState,
   newState: Record<string, unknown>,
@@ -310,7 +344,7 @@ export const applyPushedState = (
   // state.status inside the field loop below, because 'status' is the first
   // Set entry and has already been overwritten by the time later keys apply.
   { isHost, startingGame, allowRulesetWrite = false }: { isHost: boolean; startingGame: boolean; allowRulesetWrite?: boolean },
-): void => {
+): boolean => {
   const allowedFields = isHost ? ALL_FIELDS : ACTIVE_PLAYER_FIELDS;
 
   // A push is one snapshot of one moment, and its roster is what dates it: a
@@ -322,7 +356,7 @@ export const applyPushedState = (
   // the next broadcast then overwrote the client with the scoreless roster, so
   // nothing corrected it. The sender re-derives from that broadcast instead.
   if ('players' in newState && !validatePushedPlayers(state.players, newState.players as unknown[])) {
-    return;
+    return false;
   }
 
   for (const key of allowedFields) {
@@ -488,4 +522,6 @@ export const applyPushedState = (
       }
     }
   }
+
+  return true;
 };

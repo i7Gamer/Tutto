@@ -1,9 +1,27 @@
 import { render, screen } from '@testing-library/react';
 import { PropsWithChildren } from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import HistoryLog from './HistoryLog';
 import { useGameStore } from '../../store/useGameStore';
+import { PLUS_MINUS_SCORE } from '../../utils/coreGameEngine';
 import type { HistoryEntry } from '../../types';
+
+// The shared setup mock (src/setupTests.tsx) renders every message as its bare
+// key and drops the interpolation values, so a deducted AMOUNT never reaches
+// the DOM here. `t` itself is therefore the only place the number the player
+// reads is observable — same mock behaviour (key in, key out) so every
+// which-message-was-chosen assertion below is unaffected.
+const { translate } = vi.hoisted(() => ({
+  translate: vi.fn<(key: string, opts?: Record<string, unknown>) => string>(key => key),
+}));
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: translate,
+    i18n: { changeLanguage: () => new Promise(() => {}) },
+  }),
+  initReactI18next: { type: '3rdParty', init: () => {} },
+}));
 
 vi.mock('framer-motion', () => ({
   motion: {
@@ -21,6 +39,10 @@ vi.mock('framer-motion', () => ({
 }));
 
 describe('HistoryLog', () => {
+  beforeEach(() => {
+    translate.mockClear();
+  });
+
   it('renders empty state message when historyLog is empty', () => {
     useGameStore.setState({ historyLog: [] });
     render(<HistoryLog />);
@@ -207,5 +229,102 @@ describe('HistoryLog', () => {
     render(<HistoryLog />);
 
     expect(screen.getByText('history.chainBust')).toBeInTheDocument();
+  });
+
+  // What the classic 0-floor really took. The engine records it per hit
+  // (historyEntry.deductedAmounts); this log is the only thing that shows it,
+  // and it used to re-derive a flat PLUS_MINUS_SCORE instead — so a leader on
+  // 400 was reported as having lost 1000 while his score dropped by 400.
+  describe('the amount a deduction actually took', () => {
+    // Bob led on this much, so the Plus/Minus could take no more than this.
+    const CLAMPED_DEDUCTION = 400;
+
+    it('prints what a clamped deduction removed, not the full Plus/Minus', () => {
+      const entry: HistoryEntry = {
+        id: '5-Alice-1',
+        round: 5,
+        playerName: 'Alice',
+        card: 'Plus_Minus',
+        type: 'success',
+        score: PLUS_MINUS_SCORE,
+        deductedPlayers: ['Bob'],
+        deductedAmounts: [CLAMPED_DEDUCTION],
+      };
+      useGameStore.setState({ historyLog: [entry] });
+      render(<HistoryLog />);
+
+      expect(screen.getByText('history.plusMinusDeducted')).toBeInTheDocument();
+      expect(translate).toHaveBeenCalledWith(
+        'history.deductedEntry',
+        expect.objectContaining({ name: 'Bob', amount: CLAMPED_DEDUCTION }),
+      );
+    });
+
+    // The chain branch is a second, separate call site — the multi-card turn
+    // is exactly where classic clamping happens most.
+    it('prints a chain deduction at its clamped amount too', () => {
+      const entry: HistoryEntry = {
+        id: '5-Alice-2',
+        round: 5,
+        playerName: 'Alice',
+        card: '300',
+        type: 'success',
+        score: 2800,
+        cards: ['300', 'Plus_Minus'],
+        deductedPlayers: ['Bob'],
+        deductedAmounts: [CLAMPED_DEDUCTION],
+      };
+      useGameStore.setState({ historyLog: [entry] });
+      render(<HistoryLog />);
+
+      expect(screen.getByText('history.chainSuccessDeducted')).toBeInTheDocument();
+      expect(translate).toHaveBeenCalledWith(
+        'history.deductedEntry',
+        expect.objectContaining({ name: 'Bob', amount: CLAMPED_DEDUCTION }),
+      );
+    });
+
+    it('still prints the full Plus/Minus when the floor never bit', () => {
+      const entry: HistoryEntry = {
+        id: '5-Alice-3',
+        round: 5,
+        playerName: 'Alice',
+        card: 'Plus_Minus',
+        type: 'success',
+        score: PLUS_MINUS_SCORE,
+        deductedPlayers: ['Bob'],
+        deductedAmounts: [PLUS_MINUS_SCORE],
+      };
+      useGameStore.setState({ historyLog: [entry] });
+      render(<HistoryLog />);
+
+      expect(translate).toHaveBeenCalledWith(
+        'history.deductedEntry',
+        expect.objectContaining({ name: 'Bob', amount: PLUS_MINUS_SCORE }),
+      );
+    });
+
+    // A modernized turn (never clamps) and an entry relayed by a server that
+    // does not carry the field both arrive without amounts — the flat
+    // PLUS_MINUS_SCORE fallback is the right read for them.
+    it('falls back to the full Plus/Minus for an entry carrying no amounts', () => {
+      const entry: HistoryEntry = {
+        id: '5-Alice-4',
+        round: 5,
+        playerName: 'Alice',
+        card: 'Plus_Minus',
+        type: 'success',
+        score: PLUS_MINUS_SCORE,
+        deductedPlayers: ['Bob'],
+      };
+      useGameStore.setState({ historyLog: [entry] });
+      render(<HistoryLog />);
+
+      expect(screen.getByText('history.plusMinusDeducted')).toBeInTheDocument();
+      expect(translate).toHaveBeenCalledWith(
+        'history.deductedEntry',
+        expect.objectContaining({ name: 'Bob', amount: PLUS_MINUS_SCORE }),
+      );
+    });
   });
 });

@@ -14,11 +14,23 @@ export interface DeductionTotal {
  * rendering that list raw would print their name twice instead of doubling the
  * amount. Insertion order is kept, so the list reads in the order the chain
  * imposed the deductions.
+ *
+ * deductedAmounts is the parallel list of what each of those hits ACTUALLY
+ * removed — the classic 0-floor can make that less than PLUS_MINUS_SCORE, and
+ * re-deriving the amount here reported a leader on 400 as having lost 1000
+ * while his score visibly dropped by 400. It is optional because a modernized
+ * turn never clamps (so every hit is the full amount) and because an entry
+ * relayed by a server that does not carry the field yet arrives without it;
+ * the fallback is per index, not per list, so a truncated list still reports
+ * the amounts it does carry.
  */
-export const summarizeDeductions = (deductedPlayers: readonly string[]): DeductionTotal[] => {
+export const summarizeDeductions = (
+  deductedPlayers: readonly string[],
+  deductedAmounts?: readonly number[],
+): DeductionTotal[] => {
   const totals = new Map<string, number>();
-  for (const name of deductedPlayers) {
-    totals.set(name, (totals.get(name) ?? 0) + PLUS_MINUS_SCORE);
-  }
+  deductedPlayers.forEach((name, i) => {
+    totals.set(name, (totals.get(name) ?? 0) + (deductedAmounts?.[i] ?? PLUS_MINUS_SCORE));
+  });
   return [...totals].map(([name, amount]) => ({ name, amount }));
 };

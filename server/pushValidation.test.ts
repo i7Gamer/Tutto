@@ -136,6 +136,17 @@ describe('applyPushedState', () => {
       expect(state.historyLog, 'and the turn was logged anyway').toEqual([]);
     });
 
+    it('reports whether the push was applied at all', () => {
+      // The caller (socketGameStateHandlers) decides from this whether a
+      // game-starting push really started a game: a snapshot discarded for a
+      // stale roster must not reset the finished game's stats dedup.
+      const state = makeState(['Alice', 'Bob']);
+      expect(applyPushedState(state, {
+        players: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Carol' }],
+      }, asActivePlayer)).toBe(false);
+      expect(applyPushedState(state, { round: 4 }, asActivePlayer)).toBe(true);
+    });
+
     it('still applies a push that carries no roster at all', () => {
       const state = makeState();
       applyPushedState(state, { round: 7 }, asActivePlayer);
@@ -457,6 +468,20 @@ describe('applyPushedState', () => {
       expect(state.previousLeaders).toBeNull();
     });
 
+    it('previousLeaders: rejects an entry with an over-long name or an absurd score', () => {
+      // These entries ride every subsequent broadcast, so one push planting a
+      // megabyte-long name or a 1e308 score would re-send it to every client
+      // for the rest of the game — the same hole chartNames' cap closed.
+      const state = makeState();
+      applyPushedState(state, { previousLeaders: [{ name: 'Alice', score: 100 }] }, asActivePlayer);
+      for (const bad of [{ name: 'x'.repeat(31), score: 1 }, { name: '', score: 1 }, { name: 'Alice', score: 1e308 }, { name: 'Alice', score: -1_000_001 }]) {
+        applyPushedState(state, { previousLeaders: [bad] }, asActivePlayer);
+        expect(state.previousLeaders).toEqual([{ name: 'Alice', score: 100 }]);
+      }
+      applyPushedState(state, { previousLeaders: [{ name: 'x'.repeat(30), score: 1_000_000 }] }, asActivePlayer);
+      expect(state.previousLeaders).toEqual([{ name: 'x'.repeat(30), score: 1_000_000 }]);
+    });
+
     it('previousLeaders: strips fields beyond name/score from each entry', () => {
       // isPlausiblePlayerSnapshot only shape-checks name/score — without
       // rebuilding the entries, an extra property would ride along into
@@ -757,6 +782,14 @@ describe('isPlausiblePlayerSnapshot', () => {
     expect(isPlausiblePlayerSnapshot({ name: 1, score: 1 })).toBe(false);
     expect(isPlausiblePlayerSnapshot({ name: 'A', score: NaN })).toBe(false);
   });
+
+  it('bounds the name length and the score magnitude, like every other pushed name/score', () => {
+    expect(isPlausiblePlayerSnapshot({ name: 'x'.repeat(30), score: 1_000_000 })).toBe(true);
+    expect(isPlausiblePlayerSnapshot({ name: 'x'.repeat(31), score: 1 })).toBe(false);
+    expect(isPlausiblePlayerSnapshot({ name: '', score: 1 })).toBe(false);
+    expect(isPlausiblePlayerSnapshot({ name: 'A', score: 1_000_001 })).toBe(false);
+    expect(isPlausiblePlayerSnapshot({ name: 'A', score: -1_000_001 })).toBe(false);
+  });
 });
 
 describe('isValidDiceSnapshot', () => {
@@ -905,6 +938,37 @@ describe('classic chain fields (snapshot / history / turn summary)', () => {
     expect(isValidTurnSummary({ ...validSummary, plusMinusScores: 2 })).toBe(false);
   });
 
+  // What the classic 0-floor actually took, one entry per name in
+  // deductedPlayers. The activity log reads the two lists BY INDEX
+  // (summarizeDeductions), so a pair that cannot be read that way is worse
+  // than none at all — and a field the sanitizer drops never reaches the other
+  // clients, who would then see the flat 1000 the sender does not.
+  const deductedPair = { deductedPlayers: ['Bob'], deductedAmounts: [400] };
+
+  it('carries the per-deduction amounts through a turn summary', () => {
+    expect(isValidTurnSummary({ ...validSummary, ...deductedPair })).toBe(true);
+    // Absent stays valid: the modernized path records none, and a client
+    // predating the field sends none.
+    expect(isValidTurnSummary({ ...validSummary, deductedPlayers: ['Bob'] })).toBe(true);
+    expect(isValidTurnSummary({ ...validSummary, ...deductedPair, deductedAmounts: [0] })).toBe(true);
+    expect(isValidTurnSummary({ ...validSummary, ...deductedPair, deductedAmounts: [1_000_000] })).toBe(true);
+
+    // The sanitizer rebuilds the summary from a fixed field list — without the
+    // field there, the amounts are stripped off every relayed push.
+    const clean = sanitizeTurnSummary({ ...validSummary, ...deductedPair } as never);
+    expect(clean).toEqual({ ...validSummary, ...deductedPair });
+  });
+
+  it('rejects deduction amounts that cannot be read alongside the names', () => {
+    expect(isValidTurnSummary({ ...validSummary, deductedPlayers: ['Bob'], deductedAmounts: [400, 400] })).toBe(false);
+    expect(isValidTurnSummary({ ...validSummary, deductedAmounts: [400] })).toBe(false);
+    expect(isValidTurnSummary({ ...validSummary, ...deductedPair, deductedAmounts: ['400'] })).toBe(false);
+    expect(isValidTurnSummary({ ...validSummary, ...deductedPair, deductedAmounts: [-1] })).toBe(false);
+    expect(isValidTurnSummary({ ...validSummary, ...deductedPair, deductedAmounts: [1_000_001] })).toBe(false);
+    expect(isValidTurnSummary({ ...validSummary, ...deductedPair, deductedAmounts: [NaN] })).toBe(false);
+    expect(isValidTurnSummary({ ...validSummary, ...deductedPair, deductedAmounts: 400 })).toBe(false);
+  });
+
   it('lets the active player push previousTurnSummary, validated and sanitized', () => {
     const state = makeState();
     applyPushedState(state, { previousTurnSummary: { ...validSummary, junk: 'x' } }, asActivePlayer);
@@ -928,5 +992,34 @@ describe('classic chain fields (snapshot / history / turn summary)', () => {
     applyPushedState(state, { historyLog: [{ ...entry, cards: ['NotACard'] }] }, asActivePlayer);
     // The malformed entry is rejected, so the log keeps its previous value.
     expect(state.historyLog[0].cards).toEqual(['300', 'Kniffel']);
+  });
+
+  // Same rule as the turn summary above, on the entry the activity log renders
+  // directly: the player who took the turn sees the clamped amount from their
+  // own engine, so a field stripped here means everyone ELSE reads the flat
+  // 1000 for a hit that took 400.
+  it('relays the amount a clamped deduction really took on a history entry', () => {
+    const state = makeState();
+    const entry = {
+      id: '1-Alice-1', round: 1, playerName: 'Alice', card: 'Plus_Minus',
+      type: 'success', score: 1000,
+      ...deductedPair,
+    };
+    applyPushedState(state, { historyLog: [entry] }, asActivePlayer);
+    expect(state.historyLog[0].deductedAmounts).toEqual([400]);
+
+    // Read by index, so a misaligned or non-numeric pair is rejected whole —
+    // the log keeps the last entry it accepted.
+    applyPushedState(state, { historyLog: [{ ...entry, deductedAmounts: [400, 400] }] }, asActivePlayer);
+    expect(state.historyLog[0].deductedAmounts).toEqual([400]);
+    applyPushedState(state, { historyLog: [{ ...entry, deductedAmounts: ['400'] }] }, asActivePlayer);
+    expect(state.historyLog[0].deductedAmounts).toEqual([400]);
+    applyPushedState(state, { historyLog: [{ ...entry, deductedAmounts: [1_000_001] }] }, asActivePlayer);
+    expect(state.historyLog[0].deductedAmounts).toEqual([400]);
+
+    // An entry from a client predating the field keeps working, amount-free.
+    applyPushedState(state, { historyLog: [{ ...entry, deductedAmounts: undefined }] }, asActivePlayer);
+    expect(state.historyLog[0].deductedAmounts).toBeUndefined();
+    expect(state.historyLog[0].deductedPlayers).toEqual(['Bob']);
   });
 });

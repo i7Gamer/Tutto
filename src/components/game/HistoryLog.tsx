@@ -26,9 +26,14 @@ export default function HistoryLog() {
   };
 
   // Who lost points to this turn's Plus/Minus cards, totalled per player —
-  // one list, so a chain and a single card word it identically.
-  const deductionList = (deductedPlayers: readonly string[]) =>
-    summarizeDeductions(deductedPlayers)
+  // one list, so a chain and a single card word it identically. The amounts
+  // ride along because the classic 0-floor can make a hit worth less than the
+  // full Plus/Minus: without them this printed "Bob lost 1000" at a leader
+  // whose score visibly dropped by 400. Absent for a modernized turn (never
+  // clamps) and for an entry relayed by a server predating the field — see
+  // summarizeDeductions' per-index fallback.
+  const deductionList = (deductedPlayers: readonly string[], deductedAmounts?: readonly number[]) =>
+    summarizeDeductions(deductedPlayers, deductedAmounts)
       .map(({ name, amount }) => t('history.deductedEntry', { name, amount, defaultValue: `${name} lost ${amount}` }))
       .join(', ');
 
@@ -51,7 +56,7 @@ export default function HistoryLog() {
         // — so every deduction a chain imposed went unmentioned anywhere, and
         // the deducted player watched 1000 disappear with no explanation.
         if (entry.deductedPlayers?.length) {
-          const deducted = deductionList(entry.deductedPlayers);
+          const deducted = deductionList(entry.deductedPlayers, entry.deductedAmounts);
           return t('history.chainSuccessDeducted', { name, score: entry.score, chain, deducted, defaultValue: `${name} scored ${entry.score} pts (${chain}) — ${deducted}` });
         }
         return t('history.chainSuccess', { name, score: entry.score, chain, defaultValue: `${name} scored ${entry.score} pts (${chain})` });
@@ -73,7 +78,7 @@ export default function HistoryLog() {
         return t('history.kleeblatt', { name, defaultValue: `${name} completed Kleeblatt and won!` });
       }
       if (entry.card === 'Plus_Minus' && entry.deductedPlayers && entry.deductedPlayers.length > 0) {
-        const deducted = deductionList(entry.deductedPlayers);
+        const deducted = deductionList(entry.deductedPlayers, entry.deductedAmounts);
         return t('history.plusMinusDeducted', { name, score: entry.score, deducted, defaultValue: `${name} scored ${entry.score} pts (${deducted})` });
       }
       return t('history.success', { name, score: entry.score, card: cardName, defaultValue: `${name} scored ${entry.score} pts on ${cardName}` });

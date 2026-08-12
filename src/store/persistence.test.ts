@@ -139,6 +139,47 @@ describe('pickLocalGameState', () => {
     expect(pickLocalGameState({ diceMode: 'physical', round: 3 })).toEqual({ round: 3 });
   });
 
+  // Unlike the server's validators, these keep an entry whole rather than
+  // rebuilding it — so deductedAmounts round-trips through localStorage
+  // unchecked. The activity log then adds it up (summarizeDeductions), and a
+  // string element makes that `0 + "400"` and prints "0400" as the amount.
+  describe('per-deduction amounts in a restored save', () => {
+    const historyEntry = {
+      id: '3-Alice-2', playerName: 'Alice', card: 'Plus_Minus',
+      type: 'success', round: 3, score: 1000, deductedPlayers: ['Bob'],
+    };
+
+    it('keeps well-formed amounts on a history entry and drops corrupted ones', () => {
+      const valid = { ...historyEntry, deductedAmounts: [400] };
+      expect(pickLocalGameState({ historyLog: [valid] })).toEqual({ historyLog: [valid] });
+
+      expect(pickLocalGameState({ historyLog: [{ ...historyEntry, deductedAmounts: ['400'] }] })).toEqual({});
+      expect(pickLocalGameState({ historyLog: [{ ...historyEntry, deductedAmounts: [null] }] })).toEqual({});
+      expect(pickLocalGameState({ historyLog: [{ ...historyEntry, deductedAmounts: 400 }] })).toEqual({});
+
+      // A save written before the field existed carries none, and restores.
+      expect(pickLocalGameState({ historyLog: [historyEntry] })).toEqual({ historyLog: [historyEntry] });
+    });
+
+    it('keeps well-formed amounts on a turn summary and drops corrupted ones', () => {
+      const summary = {
+        cards: [{ card: 'Plus_Minus', completed: true }],
+        tuttoCount: 1,
+        plusMinusScores: [0],
+        ended: 'banked',
+        deductedPlayers: ['Bob'],
+      };
+      const valid = { ...summary, deductedAmounts: [400] };
+      expect(pickLocalGameState({ previousTurnSummary: valid })).toEqual({ previousTurnSummary: valid });
+
+      expect(pickLocalGameState({ previousTurnSummary: { ...summary, deductedAmounts: ['400'] } })).toEqual({});
+      expect(pickLocalGameState({ previousTurnSummary: { ...summary, deductedAmounts: [null] } })).toEqual({});
+      expect(pickLocalGameState({ previousTurnSummary: { ...summary, deductedAmounts: 400 } })).toEqual({});
+
+      expect(pickLocalGameState({ previousTurnSummary: summary })).toEqual({ previousTurnSummary: summary });
+    });
+  });
+
   it('restores a realistic well-formed mid-game save unchanged', () => {
     const save = {
       players: [

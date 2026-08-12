@@ -50,6 +50,11 @@ const isCardArray = (v: unknown): boolean =>
   Array.isArray(v) && v.length <= MAX_SAVED_DECK_SIZE &&
   v.every(c => (VALID_CARD_TYPES as readonly string[]).includes(c as string));
 const isNonNegativeNumber = (v: unknown): boolean => isFiniteNumber(v) && v >= 0;
+// What each Plus/Minus deduction removed, parallel to deductedPlayers. Unlike
+// the server's validators these keep an entry whole rather than rebuilding it,
+// so a corrupted save round-trips this straight into summarizeDeductions —
+// which sums the entries, making a string element print `0 + "400"`.
+const isDeductedAmountList = (v: unknown): boolean => Array.isArray(v) && v.every(isFiniteNumber);
 
 // A restored player must have the identity/score fields the engine does
 // arithmetic and lookups on; every other present field may only be a
@@ -84,6 +89,8 @@ const isPlausibleTurnSummary = (v: unknown): boolean => {
     if (!Array.isArray(s.deductedPlayers) || s.deductedPlayers.length > MAX_CHAIN_CARDS) return false;
     if (!s.deductedPlayers.every(n => typeof n === 'string' && n.length > 0)) return false;
   }
+  // Optional: absent on a modernized turn and on any save predating the field.
+  if (s.deductedAmounts !== undefined && !isDeductedAmountList(s.deductedAmounts)) return false;
   return true;
 };
 
@@ -92,6 +99,9 @@ const isPlausibleTurnSummary = (v: unknown): boolean => {
 const isPlausibleHistoryEntry = (v: unknown): boolean => {
   if (typeof v !== 'object' || v === null) return false;
   const entry = v as Record<string, unknown>;
+  // Same optional-but-checked rule as the turn summary's amounts above; this
+  // is the entry the activity log renders the numbers from.
+  if (entry.deductedAmounts !== undefined && !isDeductedAmountList(entry.deductedAmounts)) return false;
   return typeof entry.id === 'string' && typeof entry.playerName === 'string'
     && typeof entry.card === 'string' && typeof entry.type === 'string'
     && Number.isInteger(entry.round) && isFiniteNumber(entry.score);

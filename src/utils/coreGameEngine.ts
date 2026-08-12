@@ -334,6 +334,10 @@ export const calculateNextTurn = (
     if (isSuccess && turnSummary.plusMinusScores.length > 0) {
       const preScores = new Map<string, Player>();
       const deducted: string[] = [];
+      // Parallel to `deducted`: what each hit really took off. Recorded here
+      // because it cannot be recomputed later — once the scores have moved,
+      // nothing left in the entry says whether the floor swallowed part of it.
+      const deductedAmounts: number[] = [];
       for (const scoreBeforeCard of turnSummary.plusMinusScores) {
         const asOfThisCard = newPlayers.map(p => (
           p.name === currentPlayer.name ? { ...p, score: p.score + scoreBeforeCard } : p
@@ -356,6 +360,7 @@ export const calculateNextTurn = (
           // restore absolutely however many deductions follow.
           if (!preScores.has(p.name)) preScores.set(p.name, { ...p });
           p.times1000PointsDeducted = (p.times1000PointsDeducted ?? 0) + 1;
+          deductedAmounts.push(p.score - clamped);
           p.score = clamped;
           deducted.push(p.name);
         });
@@ -363,6 +368,7 @@ export const calculateNextTurn = (
       if (deducted.length > 0) {
         snapshotLeaders = [...preScores.values()];
         summaryForState.deductedPlayers = deducted;
+        summaryForState.deductedAmounts = deductedAmounts;
       }
     }
 
@@ -443,6 +449,10 @@ export const calculateNextTurn = (
   }
   if (summaryForState?.deductedPlayers?.length) {
     historyEntry.deductedPlayers = [...summaryForState.deductedPlayers];
+    // Both lists or neither: the log reads them by index. The modernized
+    // branch below carries no amounts — it never clamps, so the flat
+    // PLUS_MINUS_SCORE summarizeDeductions falls back to is the true one.
+    if (summaryForState.deductedAmounts) historyEntry.deductedAmounts = [...summaryForState.deductedAmounts];
   } else if (!turnSummary && currentCard === 'Plus_Minus' && isSuccess && snapshotLeaders) {
     historyEntry.deductedPlayers = snapshotLeaders.map(l => l.name);
   }
