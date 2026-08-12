@@ -16,6 +16,11 @@ interface GameControlsProps {
   isMyTurn: boolean;
   diceMode: DiceMode;
   ruleset?: Ruleset;
+  // Whether the dice panel is up over these controls. It covers the screen
+  // but leaves them mounted and focusable (no focus trap — see the ModalShell
+  // note in Game.tsx), so the Stop card's committing Continue is reachable
+  // from behind it.
+  showDiceGame?: boolean;
   setShowDiceGame: (show: boolean) => void;
   scoreInput: string;
   setScoreInput: (val: string | ((prev: string) => string)) => void;
@@ -45,6 +50,7 @@ export default function GameControls({
   isMyTurn,
   diceMode,
   ruleset = DEFAULT_RULESET,
+  showDiceGame = false,
   setShowDiceGame,
   scoreInput,
   setScoreInput,
@@ -217,7 +223,12 @@ export default function GameControls({
             </motion.div>
           )}
 
-          {isMyTurn && isStopCard && !isFlipping && (
+          {/* A Stop showing while the dice panel is up is a classic mid-chain
+              forfeit that DiceGame commits itself, with the chain summary —
+              the same reason Game's Stop auto-continue and its Space/Enter
+              shortcut both stand down for it. Committing from here too would
+              advance the turn a second time, and without that summary. */}
+          {isMyTurn && isStopCard && !isFlipping && !showDiceGame && (
             <motion.div
               key="stop-controls"
               initial={{ opacity: 0, scale: 0.9 }}

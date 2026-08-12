@@ -189,6 +189,39 @@ describe('diceTurnState', () => {
       expect(parseSavedDiceState(JSON.stringify({ playerName: 12345 }))!.playerName).toBeUndefined();
       expect(parseSavedDiceState(JSON.stringify({ playerName: 'Alice' }))!.playerName).toBe('Alice');
     });
+
+    it('carries rollingDiceIds through, the only marker that the roll was still resolving', () => {
+      // Dropped on restore, a snapshot cached mid-tumble is indistinguishable
+      // from a settled one that nobody has selected from yet — and its
+      // `busted` flag is written by finalizeRoll, which had not run when it
+      // was cached. DiceGame needs this field to know the verdict is missing.
+      const raw = JSON.stringify({
+        turnScore: 0, keptDice: [], currentRoll: [{ id: 'r1', val: 2, selected: false }],
+        kniffelProgress: [], tuttosThisTurn: 0, rollingDiceIds: ['r1', 'r2'],
+      });
+      expect(parseSavedDiceState(raw)!.rollingDiceIds).toEqual(['r1', 'r2']);
+      expect(parseSavedDiceState(JSON.stringify({ turnScore: 0, rollingDiceIds: [] }))!.rollingDiceIds).toEqual([]);
+    });
+
+    it('leaves rollingDiceIds absent for a settled or legacy snapshot', () => {
+      expect(parseSavedDiceState(JSON.stringify({ turnScore: 100 }))!.rollingDiceIds).toBeUndefined();
+      expect(parseSavedDiceState(JSON.stringify({ turnScore: 0, busted: true }))!.rollingDiceIds).toBeUndefined();
+    });
+
+    it('drops a malformed rollingDiceIds back to absent instead of restoring it', () => {
+      // Same all-or-nothing rule as the arrays above, and the same shape the
+      // server enforces on a pushed snapshot's copy of this field: at most one
+      // id per die on the table, each a plausible die id.
+      const rolling = (v: unknown) =>
+        parseSavedDiceState(JSON.stringify({ turnScore: 0, rollingDiceIds: v }))!.rollingDiceIds;
+
+      expect(rolling('r1')).toBeUndefined();
+      expect(rolling([123])).toBeUndefined();
+      expect(rolling([''])).toBeUndefined();
+      expect(rolling(['x'.repeat(65)])).toBeUndefined();
+      expect(rolling(Array(7).fill('r1'))).toBeUndefined();
+      expect(rolling(['r1', 'r2', 'r3', 'r4', 'r5', 'r6'])).toEqual(['r1', 'r2', 'r3', 'r4', 'r5', 'r6']);
+    });
   });
 
   describe('buildDiceSnapshot', () => {

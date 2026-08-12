@@ -6,6 +6,19 @@ interface DieProps {
   isSelected: boolean;
   isDieTumbling: boolean;
   bustState: boolean;
+  // The roll as a whole has not finalized yet. A die stops tumbling before its
+  // roll does (the last one settles a settle buffer ahead of the bust check),
+  // and DiceGame drops clicks on every die until then — so without this the
+  // die kept offering a pointer cursor and a hover highlight for a click that
+  // was going to be swallowed. Defaults to false: a die rendered outside a
+  // live roll has nothing to wait for.
+  isRollPending?: boolean;
+  // The current card makes the selection for you and refuses to let it be
+  // edited (official Feuerwerk keeps every scoring die), so DiceGame's toggle
+  // is a no-op for every die on the board — the same look-clickable/act-dead
+  // mismatch as isRollPending, just for the whole card instead of one roll.
+  // Defaults to false: most cards let you pick your own dice.
+  isSelectionLocked?: boolean;
   onToggle: (id: string) => void;
 }
 
@@ -65,7 +78,8 @@ export function DiePips({
   );
 }
 
-export default function Die({ die, isSelected, isDieTumbling, bustState, onToggle }: DieProps) {
+export default function Die({ die, isSelected, isDieTumbling, bustState, isRollPending = false, isSelectionLocked = false, onToggle }: DieProps) {
+  const isClickable = !bustState && !isDieTumbling && !isRollPending && !isSelectionLocked;
   return (
     <motion.button
       // A test hook, not styling — it was a bare `die` class, which is a name
@@ -86,11 +100,11 @@ export default function Die({ die, isSelected, isDieTumbling, bustState, onToggl
           ? 'bg-emerald-100 border-emerald-500 dark:bg-slate-700 dark:border-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-110 z-10'
           : bustState
             ? 'bg-red-50 border-red-300 opacity-70 cursor-default'
-            : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 shadow-xs ' + (isDieTumbling ? '' : 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50')
+            : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-500 shadow-xs ' + (isClickable ? 'cursor-pointer hover:border-indigo-400 hover:bg-indigo-50' : '')
         }
       `}
       onClick={() => onToggle(die.id)}
-      disabled={bustState || isDieTumbling}
+      disabled={!isClickable}
       aria-pressed={isSelected}
       aria-label={`Die showing ${die.val}, ${isSelected ? 'selected' : 'not selected'}`}
     >

@@ -76,6 +76,52 @@ describe('Die', () => {
     expect(screen.getByRole('button')).toBeDisabled();
   });
 
+  it('renders a settled die of a still-pending roll as unclickable, not just disabled', () => {
+    // A die stops tumbling before its roll finalizes, and DiceGame drops every
+    // click until then — so the pointer cursor and hover highlight have to go
+    // with the click, or the die keeps offering one it will swallow.
+    const handleToggle = vi.fn();
+    render(
+      <Die
+        die={defaultDie}
+        isSelected={false}
+        isDieTumbling={false}
+        bustState={false}
+        isRollPending={true}
+        onToggle={handleToggle}
+      />
+    );
+    const button = screen.getByRole('button');
+    expect(button).toBeDisabled();
+    expect(button.className).not.toContain('cursor-pointer');
+    expect(button.className).not.toContain('hover:border-indigo-400');
+    fireEvent.click(button);
+    expect(handleToggle).not.toHaveBeenCalled();
+  });
+
+  it('renders a die the card will not let you toggle as unclickable', () => {
+    // Official Feuerwerk keeps every scoring die: the selection is forced and
+    // toggleDie is a no-op for that card. Same mismatch as the pending roll —
+    // the die must not look clickable when the click cannot land.
+    const handleToggle = vi.fn();
+    render(
+      <Die
+        die={defaultDie}
+        isSelected={false}
+        isDieTumbling={false}
+        bustState={false}
+        isSelectionLocked={true}
+        onToggle={handleToggle}
+      />
+    );
+    const button = screen.getByRole('button');
+    expect(button).toBeDisabled();
+    expect(button.className).not.toContain('cursor-pointer');
+    expect(button.className).not.toContain('hover:border-indigo-400');
+    fireEvent.click(button);
+    expect(handleToggle).not.toHaveBeenCalled();
+  });
+
   it('rounds the die corners (Tailwind class, not a legacy stylesheet rule)', () => {
     render(
       <Die

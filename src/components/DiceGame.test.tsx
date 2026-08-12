@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Profiler } from 'react';
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor, cleanup } from '@testing-library/react';
 import { parseSavedDiceState } from '../utils/diceTurnState';
+import { DIE_TUMBLE_MS, DIE_STAGGER_MS, ROLL_SETTLE_BUFFER_MS } from '../utils/uiTimings';
 import { MAX_CHAIN_CARDS } from '../types';
 import DiceGame from './DiceGame';
 import { playTone } from '../utils/soundEffects';
@@ -258,6 +259,96 @@ describe('DiceGame restored-state bust rendering', () => {
     expect(screen.getByText('dice.tutto')).toBeInTheDocument();
     expect(screen.queryByText('dice.roll_again')).not.toBeInTheDocument();
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(3000, true));
+  });
+
+  // A snapshot cached while the dice were still tumbling carries no verdict:
+  // the live snapshot is debounced from the moment the roll starts, while the
+  // `busted` flag is only written once finalizeRoll has run (every die
+  // settled, plus the settle buffer). Restoring such an entry as a settled
+  // board left a busting roll unjudged — hasRolled, no bust, no auto-roll, and
+  // isBust only ever runs inside roll() — so nothing on the device could end
+  // the turn, and this panel cannot be dismissed.
+  const midTumbleSnapshot = (vals: number[], extra: Record<string, unknown> = {}) => ({
+    turnScore: 0,
+    keptDice: [],
+    currentRoll: vals.map((val, i) => ({ id: `d${i}`, val, selected: false })),
+    kniffelProgress: [],
+    tuttosThisTurn: 0,
+    rollingDiceIds: vals.map((_, i) => `d${i}`),
+    turnKey: 'K',
+    ...extra,
+  });
+
+  it('restores a mid-tumble snapshot of a busting roll into the bust, not an unresolved table', async () => {
+    const onComplete = vi.fn();
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify(midTumbleSnapshot([2, 2, 3, 3, 4, 6])));
+
+    render(<DiceGame currentCard="300" turnKey="K" onComplete={onComplete} />);
+
+    expect(screen.getByText('dice.bust')).toBeInTheDocument();
+    expect(screen.queryByText('dice.roll_again')).not.toBeInTheDocument();
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, false));
+  });
+
+  it('banks a mid-tumble Feuerwerk null that had points on it, like the live null does', async () => {
+    // A Feuerwerk null BANKS everything accumulated — the re-derived verdict
+    // has to reach the same summary the live path would have.
+    const onComplete = vi.fn();
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify(
+      midTumbleSnapshot([2, 2, 3, 3, 4, 6], { turnScore: 1500 }),
+    ));
+
+    render(<DiceGame currentCard="Feuerwerk" turnKey="K" onComplete={onComplete} />);
+
+    expect(screen.getByText('dice.success')).toBeInTheDocument();
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(1500, true));
+  });
+
+  it('resumes a mid-tumble snapshot of a scoring roll as a playable table', () => {
+    const onComplete = vi.fn();
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify(midTumbleSnapshot([1, 5, 2, 3, 4, 6])));
+
+    render(<DiceGame currentCard="300" turnKey="K" onComplete={onComplete} />);
+
+    expect(screen.queryByText('dice.bust')).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText(/Die showing/).length).toBe(6);
+
+    fireEvent.click(screen.getByLabelText('Die showing 1, not selected'));
+    expect(screen.getByText('dice.stop_and_score').closest('button')).not.toBeDisabled();
+  });
+
+  it('re-applies classic Feuerwerk\'s forced keep when resuming a mid-tumble scoring roll', () => {
+    // The forced selection is made in finalizeRoll, which never ran for this
+    // snapshot — and toggleDie is a no-op for classic Feuerwerk, so a restore
+    // with nothing selected has no button that could act either.
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify(midTumbleSnapshot([1, 5, 2, 3, 4, 6])));
+
+    render(<DiceGame currentCard="Feuerwerk" turnKey="K" ruleset="classic" onComplete={vi.fn()} />);
+
+    expect(screen.getByLabelText('Die showing 1, selected')).toBeInTheDocument();
+    expect(screen.getByLabelText('Die showing 5, selected')).toBeInTheDocument();
+    expect(screen.getByLabelText('Die showing 2, not selected')).toBeInTheDocument();
+    expect(screen.getByText('dice.roll_again').closest('button')).not.toBeDisabled();
+    // And the re-applied keep is as uneditable as a live one: the dice must not
+    // invite clicks that toggleDie is going to drop.
+    screen.getAllByLabelText(/Die showing/).forEach(die => expect(die).toBeDisabled());
+  });
+
+  it('still trusts a settled snapshot: no rollingDiceIds means the roll was already judged', () => {
+    // The same busting dice, cached AFTER they settled and were rejudged as a
+    // scoring board (the player had put the scoring dice aside) — nothing to
+    // re-derive, so this must still resume as a table.
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 100,
+      keptDice: [{ id: 'k1', val: 1 }],
+      currentRoll: [{ id: 'r1', val: 2, selected: false }, { id: 'r2', val: 3, selected: false }],
+      kniffelProgress: [], tuttosThisTurn: 0, turnKey: 'K',
+    }));
+
+    render(<DiceGame currentCard="300" turnKey="K" onComplete={vi.fn()} />);
+
+    expect(screen.queryByText('dice.bust')).not.toBeInTheDocument();
+    expect(screen.getByTestId('dice-current-score')).toHaveTextContent('100');
   });
 
   it('paints a resumed turn on its first commit rather than correcting itself', () => {
@@ -829,6 +920,196 @@ describe('DiceGame roll-again mid-animation button stability', () => {
   });
 });
 
+describe('DiceGame chain draw the server discards', () => {
+  // Two server paths drop a pushed state outright: applyPushedState's roster
+  // bail-out, and the socket-identity gate in socketGameStateHandlers when a
+  // transport blip means the sender's socket is no longer the seat's socketId.
+  // The next emitRoomState then reverts currentCard (a GAME_STATE_SYNC_KEY) to
+  // the card that was drawn FROM — and the deferred chain roll waits on a
+  // guard that value can never satisfy again, leaving an empty table with
+  // every button disabled on a panel that cannot be dismissed.
+  beforeEach(() => {
+    localStorage.clear();
+    rollQueue.length = 0;
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    localStorage.clear();
+  });
+
+  // Generously past the panel's own recovery deadline — the test pins that the
+  // turn recovers, not how long it waits first.
+  const PAST_RECOVERY_DEADLINE_MS = 30_000;
+
+  const selectAllValid = () => fireEvent.click(screen.getByText('dice.select_all_valid'));
+
+  const drawAndDismiss = () => {
+    selectAllValid();
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
+  };
+
+  it('banks the committed tutto when the drawn card never arrives, instead of stranding the roll', () => {
+    const onComplete = vi.fn();
+    const onDrawCard = vi.fn(() => '500' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]); // 1500 dice + 300 card = 1800
+    render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
+
+    drawAndDismiss();
+    // currentCard is never re-rendered as '500': the push was discarded, so
+    // the store still says '300'.
+    act(() => { vi.advanceTimersByTime(PAST_RECOVERY_DEADLINE_MS); });
+
+    // The same fallback a draw the store refuses already takes: bank the tutto
+    // that was already committed.
+    expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
+    expect(onComplete).toHaveBeenCalledWith(1800, true, expect.objectContaining({
+      // The card that never became this turn's must not ride into the summary
+      // — nor count against the chain cap.
+      cards: [{ card: '300', completed: true }],
+      tuttoCount: 1,
+      ended: 'banked',
+    }));
+  });
+
+  it('recovers on the contradiction itself, without stranding the reveal or waiting out the deadline', () => {
+    // The real sequence: drawCardMidTurn sets the drawn card locally before the
+    // push is even sent, so the reveal goes up on a card that IS current — and
+    // the discarded push's revert lands while the player is still reading it.
+    // Arming the deadline only on dismissal put them in front of an empty table
+    // with every button disabled for the whole of it.
+    const onComplete = vi.fn();
+    const onDrawCard = vi.fn(() => '500' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]); // 1500 dice + 300 card = 1800
+    const props = { ruleset: 'classic' as const, onDrawCard, onComplete };
+    const { rerender } = render(<DiceGame currentCard="300" {...props} />);
+
+    selectAllValid();
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+    rerender(<DiceGame currentCard="500" {...props} />); // the store's own optimistic set...
+    rerender(<DiceGame currentCard="300" {...props} />); // ...reverted by the next room state
+
+    // No timer advanced: the reveal for a card that is not in play is gone and
+    // the panel is on the banked summary for the card the server does call
+    // current — a state the player can act on.
+    expect(screen.queryByTestId('drawn-card-continue')).not.toBeInTheDocument();
+    expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('dice.bank_points'));
+    expect(onComplete).toHaveBeenCalledWith(1800, true, expect.objectContaining({
+      cards: [{ card: '300', completed: true }],
+      tuttoCount: 1,
+      ended: 'banked',
+    }));
+  });
+
+  it('leaves the accepted draw alone: the card arrives, the roll is released, nothing is banked', () => {
+    const onComplete = vi.fn();
+    const onDrawCard = vi.fn(() => '500' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    const { rerender } = render(
+      <DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />,
+    );
+
+    selectAllValid();
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+    queueRoll([1, 5, 2, 3, 4, 6]); // the fresh roll on the new card
+    rerender(<DiceGame currentCard="500" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
+
+    act(() => { vi.advanceTimersByTime(PAST_RECOVERY_DEADLINE_MS); });
+
+    expect(screen.getByLabelText('Die showing 1, not selected')).toBeInTheDocument();
+    expect(screen.queryByText('dice.bank_points')).not.toBeInTheDocument();
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it('does not mistake a second card of the same type for a discarded draw', () => {
+    // currentCard cannot change when the drawn card matches the current one,
+    // so this draw looks exactly like a reverted one from the outside — the
+    // reveal being dismissed is what releases it.
+    const onComplete = vi.fn();
+    const onDrawCard = vi.fn(() => '300' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
+
+    selectAllValid();
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+    queueRoll([1, 5, 2, 3, 4, 6]);
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
+
+    act(() => { vi.advanceTimersByTime(PAST_RECOVERY_DEADLINE_MS); });
+
+    expect(screen.getByLabelText('Die showing 1, not selected')).toBeInTheDocument();
+    expect(screen.getByTestId('dice-current-score')).toHaveTextContent('1800');
+    expect(screen.queryByText('dice.bank_points')).not.toBeInTheDocument();
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+});
+
+describe('DiceGame dice settled before the roll finalizes', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    rollQueue.length = 0;
+    vi.clearAllMocks();
+    // The real (test-env) fast path collapses the whole roll to one synchronous
+    // step, which is exactly the window this is about.
+    isTestEnvMock.mockReturnValue(false);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    isTestEnvMock.mockReturnValue(true);
+    localStorage.clear();
+  });
+
+  const DICE_IN_A_ROLL = 6;
+  // The last die of a full roll stops tumbling here; finalizeRoll — which is
+  // what actually lets clicks through — only runs ROLL_SETTLE_BUFFER_MS later.
+  const LAST_DIE_SETTLES_MS = DIE_TUMBLE_MS + (DICE_IN_A_ROLL - 1) * DIE_STAGGER_MS;
+
+  it('renders a settled die disabled while the roll as a whole is still pending', () => {
+    // The die had stopped moving and looked clickable — pointer cursor, hover
+    // highlight — while DiceGame's own handler still dropped the click: the
+    // player clicks a 1 and nothing happens.
+    queueRoll([1, 5, 2, 3, 4, 6]);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+
+    act(() => { vi.advanceTimersByTime(LAST_DIE_SETTLES_MS); });
+
+    const settled = screen.getByLabelText('Die showing 1, not selected');
+    expect(settled).toBeDisabled();
+    expect(settled.className).not.toContain('cursor-pointer');
+    fireEvent.click(settled);
+    expect(screen.getByLabelText('Die showing 1, not selected')).toBeInTheDocument();
+
+    act(() => { vi.advanceTimersByTime(ROLL_SETTLE_BUFFER_MS); });
+
+    // Finalized: the guard is gone, so the die offers itself again — and means it.
+    const finalized = screen.getByLabelText('Die showing 1, not selected');
+    expect(finalized).not.toBeDisabled();
+    expect(finalized.className).toContain('cursor-pointer');
+    fireEvent.click(finalized);
+    expect(screen.getByLabelText('Die showing 1, selected')).toBeInTheDocument();
+  });
+
+  it('keeps a busted roll\'s dice disabled once it finalizes', () => {
+    // The pending flag clears on the same tick the bust arrives — the dice
+    // must not become clickable in the swap.
+    queueRoll([2, 2, 3, 3, 4, 6]);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+
+    act(() => { vi.advanceTimersByTime(LAST_DIE_SETTLES_MS + ROLL_SETTLE_BUFFER_MS); });
+
+    expect(screen.getByText('dice.bust_description')).toBeInTheDocument();
+    screen.getAllByLabelText(/Die showing/).forEach(die => expect(die).toBeDisabled());
+  });
+});
+
 describe('DiceGame Kleeblatt bust delay', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -994,6 +1275,24 @@ describe('DiceGame classic chains', () => {
     expect(screen.getByLabelText('Die showing 1, selected')).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('Die showing 2, not selected'));
     expect(screen.getByLabelText('Die showing 2, not selected')).toBeInTheDocument();
+  });
+
+  it('renders classic Feuerwerk\'s locked dice as unclickable, not merely dead to clicks', () => {
+    // The no-op above was invisible: every die still came with a pointer cursor
+    // and a hover highlight, so the whole board invited clicks it swallowed.
+    queueRoll([1, 5, 2, 3, 4, 6]);
+    render(<DiceGame currentCard="Feuerwerk" ruleset="classic" onComplete={vi.fn()} />);
+
+    screen.getAllByLabelText(/Die showing/).forEach(die => {
+      expect(die).toBeDisabled();
+      expect(die.className).not.toContain('cursor-pointer');
+    });
+
+    // Modernized Feuerwerk picks its own dice — that board stays clickable.
+    cleanup();
+    queueRoll([1, 5, 2, 3, 4, 6]);
+    render(<DiceGame currentCard="Feuerwerk" onComplete={vi.fn()} />);
+    expect(screen.getByLabelText('Die showing 1, not selected')).not.toBeDisabled();
   });
 
   it('classic straight collects any missing numbers, in any order', () => {

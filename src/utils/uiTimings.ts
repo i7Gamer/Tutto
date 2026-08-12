@@ -57,6 +57,25 @@ export const LIVE_SNAPSHOT_DEBOUNCE_MS = 300;
 // does not queue up into a wall.
 export const TOAST_LIFETIME_MS = 3000;
 
+// Backstop for a classic mid-chain draw whose card never arrives through
+// DiceGame's currentCard prop: how long the deferred chain roll waits before
+// the draw is treated as never having happened.
+//
+// The push that carries a mid-chain draw can be discarded server side —
+// applyPushedState's roster bail-out, or the socket-identity gate when a
+// transport blip means the sender's socket is no longer the seat's socketId.
+// The next room state then reverts currentCard (a GAME_STATE_SYNC_KEY) to the
+// card that was drawn FROM, which the release guard can never be satisfied by
+// again: the roll would stay parked forever behind an empty table whose every
+// button is disabled, on a panel that is deliberately non-dismissible. A
+// revert that lands on that same card changes no prop and so wakes nothing —
+// only this deadline is left. (A revert that does change it is caught the
+// moment it arrives; see DiceGame's discarded-draw effect.)
+//
+// Generous next to a round trip (and to the socket.io reconnect one of those
+// blips implies), well inside the shortest turn timer that can be configured.
+export const DISCARDED_DRAW_RECOVERY_MS = 5000;
+
 // Lobby reorder buttons defer the actual swap: on mobile, swapping the rows
 // synchronously re-renders while the tap's hover/active state is still held,
 // leaving that highlight stuck on a DIFFERENT row's button after the press.

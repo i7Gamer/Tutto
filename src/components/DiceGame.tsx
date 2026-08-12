@@ -14,7 +14,7 @@ import { useAutoContinueCountdown } from '../hooks/useAutoContinueCountdown';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import {
   DIE_TUMBLE_MS, DIE_STAGGER_MS, DIE_FACE_SHUFFLE_MS, ROLL_SETTLE_BUFFER_MS,
-  BUST_SUMMARY_DELAY_MS, LIVE_SNAPSHOT_DEBOUNCE_MS,
+  BUST_SUMMARY_DELAY_MS, LIVE_SNAPSHOT_DEBOUNCE_MS, DISCARDED_DRAW_RECOVERY_MS,
 } from '../utils/uiTimings';
 import { isTestEnv } from '../utils/env';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -84,6 +84,17 @@ const FIXED_CARD_AWARD: Partial<Record<CardType, number>> = {
 };
 
 /**
+ * Official Feuerwerk keeps EVERY scoring die — the selection is forced, and
+ * toggleDie is a no-op for that card, so the board is only playable once this
+ * has been applied. Shared by the live roll (finalizeRoll) and the restore of
+ * a roll that was cached before finalizeRoll ever ran.
+ */
+const withForcedFeuerwerkSelection = (roll: DieType[], ruleset: Ruleset): DieType[] => {
+  const forced = new Set(getMaxValidSelection(roll.map(d => d.val), 'Feuerwerk', [], ruleset));
+  return roll.map((d, i) => ({ ...d, selected: forced.has(i) }));
+};
+
+/**
  * The cached turn to resume into, or null to start fresh.
  *
  * A snapshot stamped for a different turn — e.g. the server's turn timer
@@ -117,9 +128,22 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // only then correcting it into the turn the player was actually in the middle
   // of — a visible flash of a game they had not been playing.
   const [restored] = useState(() => readRestorableTurn(turnKey));
+  // A snapshot cached while the dice were still tumbling carries no verdict:
+  // the live snapshot is debounced from the moment the roll starts, while
+  // `busted` is written by finalizeRoll — the only place isBust ever runs —
+  // once every die has settled. Restored as if it were a settled board, a
+  // busting roll would stay unjudged forever: no bust, no auto-roll, and this
+  // panel is deliberately non-dismissible, so nothing could end the turn.
+  // Re-derive what finalizeRoll would have decided from the dice the snapshot
+  // does carry, rather than trusting a flag that was never written.
+  const restoredRollValues = restored?.currentRoll.map(d => d.val) ?? [];
+  const restoredUnresolvedRoll = !!restored && !restored.busted && !restored.stopped
+    && (restored.rollingDiceIds?.length ?? 0) > 0 && restoredRollValues.length > 0;
+  const restoredRollBusts = restoredUnresolvedRoll
+    && isBust(restoredRollValues, currentCard, restored?.kniffelProgress ?? [], ruleset);
   // A bust is restored straight into its summary: the turn is already over and
   // what is left to show is its outcome.
-  const restoredBust = restored?.busted
+  const restoredBust = restored && (restored.busted || restoredRollBusts)
     ? {
       won: currentCard === 'Feuerwerk' && restored.turnScore > 0,
       score: currentCard === 'Feuerwerk' ? restored.turnScore : 0,
@@ -156,8 +180,16 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const restoredMidDraw = !!restored && !restoredBust && !restoredTutto && !restoredStopped && !restoredBanked
     && restored.keptDice.length === 0 && restored.currentRoll.length === 0;
 
+  // finalizeRoll's other branch, for the same never-finalized snapshot: an
+  // unresolved classic Feuerwerk roll comes back with nothing selected, and
+  // its selection cannot be made by hand (toggleDie is a no-op for that card),
+  // so the board would have no actionable button either.
+  const restoredCurrentRoll = restoredUnresolvedRoll && !restoredRollBusts && isClassic && currentCard === 'Feuerwerk'
+    ? withForcedFeuerwerkSelection(restored?.currentRoll ?? [], ruleset)
+    : restored?.currentRoll ?? [];
+
   const [keptDice, setKeptDice] = useState<DieType[]>(restored?.keptDice ?? []);
-  const [currentRoll, setCurrentRoll] = useState<DieType[]>(restored?.currentRoll ?? []);
+  const [currentRoll, setCurrentRoll] = useState<DieType[]>(restoredCurrentRoll);
   const [displayRoll, setDisplayRoll] = useState<DieType[]>(restored?.currentRoll ?? []);
   const [rollingDiceIndices, setRollingDiceIndices] = useState<Set<string>>(new Set());
   const [turnScore, setTurnScore] = useState(restored?.turnScore ?? 0);
@@ -308,10 +340,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
           }, BUST_SUMMARY_DELAY_MS));
         }
       } else if (isClassic && currentCard === 'Feuerwerk') {
-        // Official Feuerwerk keeps EVERY scoring die — the selection is
-        // forced (toggleDie is a no-op for this card under classic).
-        const forced = new Set(getMaxValidSelection(newRollVals, 'Feuerwerk', [], ruleset));
-        setCurrentRoll(prev => prev.map((d, i) => ({ ...d, selected: forced.has(i) })));
+        setCurrentRoll(prev => withForcedFeuerwerkSelection(prev, ruleset));
       }
     };
 
@@ -476,11 +505,16 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     }
   };
 
+  // Official Feuerwerk keeps every scoring die — the forced selection made in
+  // finalizeRoll (or re-applied on restore) must not be editable. Read by the
+  // dice themselves as well as by the guard below, so the board cannot go on
+  // offering a pointer cursor and a hover highlight for a click that toggleDie
+  // is going to drop.
+  const isSelectionLocked = isClassic && currentCard === 'Feuerwerk';
+
   const toggleDie = (id: string) => {
     if (bustState || showSummary || isRolling) return;
-    // Official Feuerwerk keeps every scoring die — the forced selection made
-    // in finalizeRoll must not be editable.
-    if (isClassic && currentCard === 'Feuerwerk') return;
+    if (isSelectionLocked) return;
     setCurrentRoll(prev => prev.map(d => d.id === id ? { ...d, selected: !d.selected } : d));
   };
 
@@ -541,12 +575,68 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     }
   }, [revealedCard]);
 
+  // Whether currentCard has actually BEEN the drawn card since the draw.
+  // drawCardMidTurn sets it locally before the push is even sent, so this turns
+  // true within a render of the draw — which is what makes a later move off
+  // that card readable as the store contradicting the draw rather than as its
+  // update simply not having arrived yet.
+  const drawnCardWasCurrentRef = useRef(false);
+
   useEffect(() => {
     const pending = pendingChainRollRef.current;
-    if (!pending || revealedCard || currentCard !== pending.card) return;
+    if (!pending || currentCard !== pending.card) return;
+    drawnCardWasCurrentRef.current = true;
+    if (revealedCard) return;
     pendingChainRollRef.current = null;
+    drawnCardWasCurrentRef.current = false;
     rollRef.current(6, [], pending.base);
   }, [currentCard, revealedCard]);
+
+  // The drawn card is not coming (see DISCARDED_DRAW_RECOVERY_MS): the store
+  // has settled back on the card the draw was made from, so there is nothing
+  // to roll for. Fall back to what a draw the store refuses outright already
+  // does — bank the tutto that was committed before it — and take the
+  // optimistic push back out of the chain, which is still exactly the entry
+  // this draw pushed: nothing else can push one while a draw is pending.
+  //
+  // The reveal goes with it. It announces a card the turn never got, and the
+  // summary this lands on would otherwise sit behind it — counting down to the
+  // end of the turn under a modal the player is still reading.
+  const abandonDiscardedDraw = useCallback((base: number) => {
+    pendingChainRollRef.current = null;
+    drawnCardWasCurrentRef.current = false;
+    chainRef.current.cards.pop();
+    setChainCardCount(c => c - 1);
+    chainRef.current.ended = 'banked';
+    setRevealedCard(null);
+    setStopped(true);
+    setSummaryData({ won: true, score: base, isTutto: true });
+    setShowSummary(true);
+  }, []);
+
+  // Declared after the release effect above so that, on the render where the
+  // card does arrive, the release has already cleared the pending roll before
+  // this one re-reads it — the deadline is dropped rather than left armed.
+  useEffect(() => {
+    const pending = pendingChainRollRef.current;
+    if (!pending || currentCard === pending.card) return;
+    // The store held the drawn card and has moved off it again: that push was
+    // discarded and reverted, so waiting changes nothing. Recover on the spot,
+    // reveal or no reveal — the revert usually lands while the player is still
+    // reading the card it just took away from them.
+    if (drawnCardWasCurrentRef.current) {
+      abandonDiscardedDraw(pending.base);
+      return;
+    }
+    // Nothing contradicting has arrived at all: a revert onto the very card the
+    // draw was made from leaves this prop untouched and wakes no effect, so the
+    // deadline is the only way out of that one.
+    const timer = setTimeout(() => abandonDiscardedDraw(pending.base), DISCARDED_DRAW_RECOVERY_MS);
+    return () => clearTimeout(timer);
+    // revealedCard is not read above, but a draw sets it in the same batch as
+    // the pending roll — a ref this effect cannot depend on. It is what wakes
+    // this effect for the draw at all.
+  }, [currentCard, revealedCard, abandonDiscardedDraw]);
 
   const onStateChangeRef = useRef(onStateChange);
   useEffect(() => { onStateChangeRef.current = onStateChange; }, [onStateChange]);
@@ -760,7 +850,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
                   const isDieTumbling = rollingDiceIndices.has(d.id);
                   const isSelected = currentRoll.find(cr => cr.id === d.id)?.selected ?? false;
                   return (
-                    <Die key={d.id} die={d} isSelected={isSelected} isDieTumbling={isDieTumbling} bustState={bustState} onToggle={toggleDie} />
+                    <Die key={d.id} die={d} isSelected={isSelected} isDieTumbling={isDieTumbling} bustState={bustState} isRollPending={isRolling} isSelectionLocked={isSelectionLocked} onToggle={toggleDie} />
                   );
                 })}
               </div>

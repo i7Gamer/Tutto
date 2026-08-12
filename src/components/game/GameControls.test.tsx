@@ -419,3 +419,73 @@ describe('GameControls end/leave game confirmation dialogs', () => {
     expect(undoBtn).toBeDisabled();
   });
 });
+
+describe('GameControls Stop card while the dice panel is open', () => {
+  const stopProps = (overrides: Partial<ComponentProps<typeof GameControls>> = {}) => ({
+    currentCard: 'Stop' as CardType,
+    cardsLength: 5,
+    isMyTurn: true,
+    diceMode: 'digital' as const,
+    setShowDiceGame: vi.fn(),
+    scoreInput: '',
+    setScoreInput: vi.fn(),
+    applyBonus: false,
+    setApplyBonus: vi.fn(),
+    handleNextTurn: vi.fn(),
+    handleYesNo: vi.fn(),
+    undo: vi.fn(),
+    canUndo: true,
+    endGame: vi.fn(),
+    isOnline: false,
+    isHost: true,
+    leaveRoom: vi.fn(),
+    activeTurnState: null,
+    currentPlayer: { name: 'Alice' } as Player,
+    ...overrides,
+  });
+
+  it('shows Continue and commits the turn while the dice panel is closed', () => {
+    const handleYesNo = vi.fn();
+    render(<GameControls {...stopProps({ showDiceGame: false, handleYesNo })} />);
+
+    expect(screen.getByText('game.controls.stopTurnOver')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /game.controls.continue/i }));
+    expect(handleYesNo).toHaveBeenCalledWith(false);
+  });
+
+  it('does not render the Continue button behind an open dice panel', () => {
+    // A classic chain that draws a Stop inside DiceGame leaves the panel up
+    // showing the forfeit summary, which DiceGame commits itself. These
+    // controls stay mounted behind it (no focus trap), so a live Continue
+    // here is reachable and would commit the turn a second time — without
+    // the chain summary.
+    // Nothing to click here on purpose: with the block unrendered there IS no
+    // interaction that could reach handleYesNo, which is the whole point — the
+    // test above pins that the same Continue commits the turn when it is up.
+    render(<GameControls {...stopProps({ showDiceGame: true })} />);
+
+    expect(screen.queryByRole('button', { name: /game.controls.continue/i })).toBeNull();
+    expect(screen.queryByText('game.controls.stopTurnOver')).toBeNull();
+  });
+
+  it('treats an omitted showDiceGame as "panel closed"', () => {
+    render(<GameControls {...stopProps()} />);
+    expect(screen.getByRole('button', { name: /game.controls.continue/i })).toBeInTheDocument();
+  });
+
+  it('leaves the other branches alone while the dice panel is open', () => {
+    // Only the stop-controls block is guarded: a non-Stop card behind the
+    // panel keeps rendering exactly as before (the panel closes with the
+    // turn, and these controls are what the player returns to).
+    render(<GameControls {...stopProps({ currentCard: '200' as CardType, showDiceGame: true })} />);
+
+    expect(screen.getByText('game.controls.rollDice')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /game.controls.continue/i })).toBeNull();
+  });
+
+  it('still shows the spectator view for a Stop card on someone else\'s turn', () => {
+    render(<GameControls {...stopProps({ isMyTurn: false, showDiceGame: false })} />);
+    expect(screen.getByText('game.controls.waiting')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /game.controls.continue/i })).toBeNull();
+  });
+});

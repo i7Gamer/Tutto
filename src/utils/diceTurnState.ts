@@ -4,6 +4,7 @@ import { MAX_CHAIN_CARDS } from '../types';
 import { DEFAULT_RULESET } from './configValidation';
 import {
   isSnapshotDie, isRolledDie, isKniffelProgressEntry, isChainCard, isChainCounter, isChainScoreList,
+  MAX_DICE_ID_LENGTH,
 } from './turnShapes';
 
 /**
@@ -87,6 +88,22 @@ const asValidatedArray = <T,>(v: unknown, isValidEntry: (x: unknown) => x is T):
 const isFiniteNonNegativeNumber = (v: unknown): v is number =>
   typeof v === 'number' && Number.isFinite(v) && v >= 0;
 
+// A roll is never more than the six dice on the table, so a well-formed
+// rollingDiceIds cannot be longer — the same bound server/pushValidation.ts
+// puts on a pushed snapshot's copy of this field.
+const MAX_ROLLING_DICE_IDS = 6;
+
+// The ids of the dice still tumbling when the snapshot was taken. It is the
+// only thing that says a cached roll had not been judged yet: `busted` is
+// written by finalizeRoll, which runs after every die has settled, while the
+// live snapshot is written a debounce after the roll starts. Shape-checked
+// like the arrays above (and like the server's copy of it) so a corrupted
+// entry resets to absent — i.e. to "settled" — rather than riding into the
+// restore.
+const isRollingDiceIdList = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.length <= MAX_ROLLING_DICE_IDS
+  && v.every(id => typeof id === 'string' && id.length > 0 && id.length <= MAX_DICE_ID_LENGTH);
+
 export const parseSavedDiceState = (raw: string | null): DiceSnapshot | null => {
   if (!raw) return null;
   try {
@@ -102,6 +119,7 @@ export const parseSavedDiceState = (raw: string | null): DiceSnapshot | null => 
       turnKey: typeof parsed.turnKey === 'string' ? parsed.turnKey : undefined,
     };
     if (parsed.stopped === true) snapshot.stopped = true;
+    if (isRollingDiceIdList(parsed.rollingDiceIds)) snapshot.rollingDiceIds = [...parsed.rollingDiceIds];
     // Chain fields are optional (absent for modernized turns and old caches);
     // present-but-invalid values reset to absent, same all-or-nothing rule as
     // the arrays above.
