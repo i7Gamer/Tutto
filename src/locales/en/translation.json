@@ -394,10 +394,12 @@
   "history.skip": "{{name}} skipped (Stop)",
   "history.bust": "{{name}} busted on {{card}}",
   "history.chainSuccess": "{{name}} scored {{score}} pts ({{chain}})",
+  "history.chainSuccessDeducted": "{{name}} scored {{score}} pts ({{chain}}) — {{deducted}}",
   "history.chainBust": "{{name}} lost everything ({{chain}})",
   "history.chainKleeblatt": "{{name}} completed Kleeblatt and won! ({{chain}})",
   "history.fail": "{{name}} failed {{card}}",
   "history.success": "{{name}} scored {{score}} pts on {{card}}",
-  "history.plusMinusDeducted": "{{name}} scored 1000 pts ({{deducted}} lost 1000)",
+  "history.plusMinusDeducted": "{{name}} scored {{score}} pts ({{deducted}})",
+  "history.deductedEntry": "{{name}} lost {{amount}}",
   "history.kleeblatt": "{{name}} completed Kleeblatt and won!"
 }

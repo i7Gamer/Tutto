@@ -119,6 +119,44 @@ describe('HistoryLog', () => {
     expect(screen.getByText('history.plusMinusDeducted')).toBeInTheDocument();
   });
 
+  // A multi-card turn only ever reaches the chain branch, which reported the
+  // score and the cards and said nothing about the ±1000s — so a player could
+  // watch 1000 vanish with no line anywhere explaining it.
+  it('reports the deductions a classic chain imposed, not just its score', () => {
+    const entry: HistoryEntry = {
+      id: '3-Alice-1',
+      round: 3,
+      playerName: 'Alice',
+      card: 'Plus_Minus',
+      type: 'success',
+      score: 2800,
+      cards: ['300', 'Plus_Minus'],
+      deductedPlayers: ['Bob'],
+    };
+    useGameStore.setState({ historyLog: [entry] });
+    render(<HistoryLog />);
+
+    expect(screen.getByText('history.chainSuccessDeducted')).toBeInTheDocument();
+    expect(screen.queryByText('history.chainSuccess')).not.toBeInTheDocument();
+  });
+
+  it('leaves a chain that deducted nobody on the plain chain message', () => {
+    const entry: HistoryEntry = {
+      id: '4-Alice-1',
+      round: 4,
+      playerName: 'Alice',
+      card: '300',
+      type: 'success',
+      score: 2800,
+      cards: ['300', 'x2'],
+    };
+    useGameStore.setState({ historyLog: [entry] });
+    render(<HistoryLog />);
+
+    expect(screen.getByText('history.chainSuccess')).toBeInTheDocument();
+    expect(screen.queryByText('history.chainSuccessDeducted')).not.toBeInTheDocument();
+  });
+
   // A completed Kleeblatt is a binary instant win, so the engine deliberately
   // records the turn as worth 0 (see calculateNextTurn). The chain message
   // prints that score, so the game-winning turn read as "scored 0 pts".

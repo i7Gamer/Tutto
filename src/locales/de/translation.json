@@ -394,10 +394,12 @@
   "history.skip": "{{name}} übersprungen (Stop)",
   "history.bust": "{{name}} Niete bei {{card}}",
   "history.chainSuccess": "{{name}} erzielte {{score}} Punkte ({{chain}})",
+  "history.chainSuccessDeducted": "{{name}} erzielte {{score}} Punkte ({{chain}}) — {{deducted}}",
   "history.chainBust": "{{name}} hat alles verloren ({{chain}})",
   "history.chainKleeblatt": "{{name}} erzielt Kleeblatt und gewinnt! ({{chain}})",
   "history.fail": "{{name}} Fehlschlag bei {{card}}",
   "history.success": "{{name}} erzielt {{score}} Pkt. bei {{card}}",
-  "history.plusMinusDeducted": "{{name}} erzielt 1000 Pkt. ({{deducted}} abgezogen 1000)",
+  "history.plusMinusDeducted": "{{name}} erzielt {{score}} Pkt. ({{deducted}})",
+  "history.deductedEntry": "{{name}} verliert {{amount}}",
   "history.kleeblatt": "{{name}} erzielt Kleeblatt und gewinnt!"
 }

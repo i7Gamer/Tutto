@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '../../store/useGameStore';
 import type { HistoryEntry } from '../../types';
 import { CARD_EMOJIS, UNKNOWN_CARD_EMOJI } from '../../utils/cardVisuals';
+import { summarizeDeductions } from '../../utils/deductionSummary';
 
 export default function HistoryLog() {
   const { t } = useTranslation();
@@ -24,6 +25,13 @@ export default function HistoryLog() {
     return t(cardKey, cardType);
   };
 
+  // Who lost points to this turn's Plus/Minus cards, totalled per player —
+  // one list, so a chain and a single card word it identically.
+  const deductionList = (deductedPlayers: readonly string[]) =>
+    summarizeDeductions(deductedPlayers)
+      .map(({ name, amount }) => t('history.deductedEntry', { name, amount, defaultValue: `${name} lost ${amount}` }))
+      .join(', ');
+
   const getLogMessage = (entry: HistoryEntry) => {
     const cardName = getCardName(entry.card);
     const name = entry.playerName;
@@ -37,6 +45,14 @@ export default function HistoryLog() {
         // read the game-winning turn as "scored 0 pts".
         if (entry.cards[entry.cards.length - 1] === 'Kleeblatt') {
           return t('history.chainKleeblatt', { name, chain, defaultValue: `${name} completed Kleeblatt and won! (${chain})` });
+        }
+        // A chain's Plus/Minus deductions are only reported here. This branch
+        // used to drop them, and it is the ONLY one a multi-card turn reaches
+        // — so every deduction a chain imposed went unmentioned anywhere, and
+        // the deducted player watched 1000 disappear with no explanation.
+        if (entry.deductedPlayers?.length) {
+          const deducted = deductionList(entry.deductedPlayers);
+          return t('history.chainSuccessDeducted', { name, score: entry.score, chain, deducted, defaultValue: `${name} scored ${entry.score} pts (${chain}) — ${deducted}` });
         }
         return t('history.chainSuccess', { name, score: entry.score, chain, defaultValue: `${name} scored ${entry.score} pts (${chain})` });
       }
@@ -57,8 +73,8 @@ export default function HistoryLog() {
         return t('history.kleeblatt', { name, defaultValue: `${name} completed Kleeblatt and won!` });
       }
       if (entry.card === 'Plus_Minus' && entry.deductedPlayers && entry.deductedPlayers.length > 0) {
-        const deducted = entry.deductedPlayers.join(', ');
-        return t('history.plusMinusDeducted', { name, deducted, defaultValue: `${name} scored 1000 pts (${deducted} lost 1000)` });
+        const deducted = deductionList(entry.deductedPlayers);
+        return t('history.plusMinusDeducted', { name, score: entry.score, deducted, defaultValue: `${name} scored ${entry.score} pts (${deducted})` });
       }
       return t('history.success', { name, score: entry.score, card: cardName, defaultValue: `${name} scored ${entry.score} pts on ${cardName}` });
     }
