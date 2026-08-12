@@ -398,13 +398,25 @@ describe('EndScreen Component', () => {
       vi.restoreAllMocks();
     });
 
-    it('does not fetch device stats for local games', () => {
+    it('does not fetch device stats for local games', async () => {
+      vi.useFakeTimers();
       global.fetch = vi.fn();
       useGameStore.setState({ isOnline: false });
 
       render(<EndScreen deviceId="device-local-1" />);
 
+      // Nothing fetches synchronously anyway — the first request is debounced by
+      // STATS_FETCH_INITIAL_DELAY_MS — so the whole window in which a request
+      // could be made has to be advanced through, retries included. Asserting
+      // before that passes just as happily with the local-game guard deleted.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(
+          STATS_FETCH_INITIAL_DELAY_MS + STATS_FETCH_RETRY_DELAY_MS * (STATS_FETCH_MAX_RETRIES + 1)
+        );
+      });
+
       expect(global.fetch).not.toHaveBeenCalled();
+      vi.useRealTimers();
     });
 
     it('does not render the lifetime stats block for local games', () => {
@@ -433,7 +445,11 @@ describe('EndScreen Component', () => {
         await Promise.resolve();
       });
 
-      expect(global.fetch).toHaveBeenCalledWith('/api/stats/device-online-1?mode=normalized');
+      // The id rides the header, never the URL — see deviceStatsRequest.
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/stats/device?mode=normalized',
+        { headers: { 'x-tutto-device': 'device-online-1' } },
+      );
       vi.useRealTimers();
     });
 
@@ -453,7 +469,10 @@ describe('EndScreen Component', () => {
         await Promise.resolve();
       });
 
-      expect(global.fetch).toHaveBeenCalledWith('/api/stats/device-online-2?mode=custom');
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/stats/device?mode=custom',
+        { headers: { 'x-tutto-device': 'device-online-2' } },
+      );
       vi.useRealTimers();
     });
 

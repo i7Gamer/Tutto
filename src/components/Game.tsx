@@ -13,7 +13,7 @@ import { formatTime } from '../utils/formatTime';
 import { buildTurnKey, parseSavedDiceState, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
 import { hasScoreInput, isSpecialCard } from '../utils/diceTurnControls';
 import { parseJsonObject } from '../utils/parseJson';
-import { deviceStatsUrl, gameModeOf, isCustomGameMode } from '../utils/statsApi';
+import { deviceStatsRequest, gameModeOf, isCustomGameMode } from '../utils/statsApi';
 import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, DICE_PANEL_ENTRANCE_MS } from '../utils/uiTimings';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
@@ -240,7 +240,7 @@ export default function Game() {
 
     void (async () => {
       try {
-        const res = await fetch(deviceStatsUrl(deviceAtStart, modeAtStart));
+        const res = await fetch(...deviceStatsRequest(deviceAtStart, modeAtStart));
         if (!res.ok) return;
         const data = await parseJsonObject<Partial<PreGameStats>>(res);
         if (cancelled || !data) return;
@@ -533,6 +533,7 @@ export default function Game() {
             isMyTurn={!!isMyTurn}
             diceMode={effectiveDiceMode}
             ruleset={game.ruleset}
+            showDiceGame={showDiceGame}
             setShowDiceGame={setShowDiceGame}
             scoreInput={scoreInput}
             setScoreInput={setScoreInput}

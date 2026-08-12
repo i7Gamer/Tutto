@@ -7,6 +7,7 @@ import { createRateLimiter } from './rateLimit';
 import { DEV_DEFAULT_API_TOKEN, validateApiTokenForStartup } from './startupGuards';
 import { DEFAULT_GAME_MODE, GAME_MODES, type GameMode, type Ruleset } from '../src/types';
 import { DEFAULT_RULESET, isValidRuleset } from '../src/utils/configValidation';
+import { DEVICE_ID_HEADER, DEVICE_STATS_PATH } from '../src/utils/statsApi';
 
 // Client crash reports from the ErrorBoundary (see src/utils/crashLog.ts).
 // Unauthenticated by design — crash reporting must work for any player — so
@@ -25,6 +26,14 @@ const STATS_RATE_LIMIT_MAX = 60;
 // Same length cap joinRoom enforces on deviceIds (socketHandlers.ts) — the
 // HTTP and socket paths must not accept different shapes for the same key.
 const MAX_DEVICE_ID_LENGTH = 200;
+
+// How a client walking away mid-response reaches an express callback: the
+// player hit stop or reload, or the connection dropped, while a file was
+// streaming. Not an error anyone can be told about — see the SPA fallback.
+const CLIENT_ABORT_ERROR_CODES = ['ECONNABORTED', 'ECONNRESET'];
+
+const isClientAbort = (err: unknown): boolean =>
+  CLIENT_ABORT_ERROR_CODES.includes((err as { code?: string }).code ?? '');
 
 // Reads env at call time (not import time) so it runs after index.ts has
 // loaded .env via dotenv — module bodies are hoisted above that statement.
@@ -64,17 +73,39 @@ export const registerApiRoutes = (app: express.Express): void => {
     next();
   };
 
+  const isValidDeviceId = (deviceId: unknown): deviceId is string =>
+    typeof deviceId === 'string' && deviceId.length > 0 && deviceId.length <= MAX_DEVICE_ID_LENGTH;
+
   const requireValidDeviceId = (
     req: express.Request,
     res: express.Response,
     next: express.NextFunction
   ): void => {
-    const deviceId = req.params.deviceId;
-    if (typeof deviceId !== 'string' || deviceId.length === 0 || deviceId.length > MAX_DEVICE_ID_LENGTH) {
+    if (!isValidDeviceId(req.params.deviceId)) {
       res.status(400).json({ error: 'Invalid device id' });
       return;
     }
     next();
+  };
+
+  // The device id a read carries, decoded back to the raw value the database
+  // and the socket path both key on — or null when the header is missing,
+  // unusable or over the cap, which the caller answers exactly as an unusable
+  // path param is answered. The client percent-encodes it (see
+  // deviceStatsRequest) because a header value may only carry visible ASCII,
+  // so the cap is measured after decoding.
+  const deviceIdFromHeader = (req: express.Request): string | null => {
+    const escaped = req.header(DEVICE_ID_HEADER);
+    if (typeof escaped !== 'string') return null;
+    let deviceId: string;
+    try {
+      deviceId = decodeURIComponent(escaped);
+    } catch {
+      // A malformed escape ('%zz'). Express rejects one in a path param with a
+      // 400 of its own; letting decodeURIComponent throw here would raise a 500.
+      return null;
+    }
+    return isValidDeviceId(deviceId) ? deviceId : null;
   };
 
   // Which statistics bucket a request means. Anything unrecognised — absent
@@ -142,9 +173,19 @@ export const registerApiRoutes = (app: express.Express): void => {
     }
   });
 
-  app.get('/api/stats/:deviceId', statsRateLimiter, requireValidDeviceId, async (req: express.Request, res: express.Response) => {
+  // One fixed path for every device, with the id in DEVICE_ID_HEADER: this is
+  // the only unauthenticated route that names a device, and a path segment
+  // would be written into every fronting proxy's access.log — where anyone
+  // who can read logs would then hold the id that lets a client reclaim its
+  // seat. No path-param fallback, or the leak would simply stay available.
+  app.get(DEVICE_STATS_PATH, statsRateLimiter, async (req: express.Request, res: express.Response) => {
+    const deviceId = deviceIdFromHeader(req);
+    if (deviceId === null) {
+      res.status(400).json({ error: 'Invalid device id' });
+      return;
+    }
     try {
-      const stats = await getDeviceStats(req.params.deviceId as string, requestedMode(req));
+      const stats = await getDeviceStats(deviceId, requestedMode(req));
       res.json(stats ?? {});
     } catch (err) {
       console.error('DB error in device GET:', err);
@@ -178,7 +219,13 @@ export const registerApiRoutes = (app: express.Express): void => {
     // already changed shape once (Error | null -> Error | undefined, in
     // @types/express-serve-static-core 5.1.3) and broke the build.
     res.sendFile(path.join(__dirname, '../dist/index.html'), (err) => {
-      if (err) res.status(404).send('Not found');
+      if (!err) return;
+      // An abort is not a missing file, and once the response has started
+      // there is nothing that can be said anyway: answering again throws
+      // ERR_HTTP_HEADERS_SENT out of this callback — uncaught, so a single
+      // client reloading mid-download would take the server with it.
+      if (res.headersSent || isClientAbort(err)) return;
+      res.status(404).send('Not found');
     });
   });
 };

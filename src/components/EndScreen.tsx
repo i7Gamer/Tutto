@@ -16,7 +16,7 @@ import {
 import { Trophy, RotateCcw, Settings, Award, Zap, TrendingDown } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
 import { parseJsonObject } from '../utils/parseJson';
-import { deviceStatsUrl, gameModeOf, isCustomGameMode } from '../utils/statsApi';
+import { deviceStatsRequest, gameModeOf, isCustomGameMode } from '../utils/statsApi';
 import { MIN_ONLINE_PLAYERS } from '../utils/configValidation';
 import { computeRankedPlayers, getLeaders } from '../utils/coreGameEngine';
 import { motion } from 'framer-motion';
@@ -154,7 +154,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
     const fetchStats = async (retries = 0) => {
       if (!isMounted) return;
       try {
-        const res = await fetch(deviceStatsUrl(deviceId, gameMode));
+        const res = await fetch(...deviceStatsRequest(deviceId, gameMode));
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await parseJsonObject<DeviceStats>(res);
 

@@ -1,10 +1,12 @@
 /**
  * @vitest-environment node
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import type express from 'express';
+import { registerApiRoutes } from './api';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
@@ -57,9 +59,38 @@ describe('API Endpoints Token Protection', () => {
     expect(res.status).toBe(200);
   });
 
-  it('GET /api/stats/:deviceId works without token', async () => {
-    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/test-dev`);
+  // The device id rides a header, never a path segment — see
+  // deviceStatsRequest in src/utils/statsApi.ts for why. Escaped here exactly
+  // as the client escapes it.
+  const deviceStatsGet = (deviceId: string, query = ''): Promise<Response> =>
+    fetch(`http://127.0.0.1:${PORT}/api/stats/device${query}`, {
+      headers: { 'x-tutto-device': encodeURIComponent(deviceId) },
+    });
+
+  it('GET the device stats route works without a token', async () => {
+    const res = await deviceStatsGet('test-dev');
     expect(res.status).toBe(200);
+  });
+
+  it('GET the device stats route rejects a request carrying no device header', async () => {
+    // No header, no id — the same rejection an unusable path param used to get.
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/device`);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Invalid device id' });
+  });
+
+  it('GET the device stats route rejects an empty device header', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/device`, {
+      headers: { 'x-tutto-device': '' },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('no longer answers a device id spelled into the path', async () => {
+    // The path segment was the leak: every fronting proxy writes it into
+    // access.log, and this id is what lets a client reclaim its seat.
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/test-dev`);
+    expect(res.status).toBe(404);
   });
 
   it('POST /api/stats/global fails without token', async () => {
@@ -150,10 +181,34 @@ describe('API Endpoints Token Protection', () => {
     expect(res.headers.get('content-type')).toContain('text/html');
   });
 
-  it('GET /api/stats/:deviceId rejects an oversized device id with 400', async () => {
-    // Same 200-char cap the socket path enforces in joinRoom.
-    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/${'x'.repeat(201)}`);
+  it('GET the device stats route rejects an oversized device id with 400', async () => {
+    // Same 200-char cap the socket path enforces in joinRoom, measured on the
+    // decoded id rather than the escaping around it.
+    const res = await deviceStatsGet('x'.repeat(201));
     expect(res.status).toBe(400);
+  });
+
+  it('GET the device stats route rejects a malformed escape in the device header with 400', async () => {
+    // decodeURIComponent throws on this; express answers a path param with the
+    // same escape a 400, so the header must not fall through as a 500.
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/device`, {
+      headers: { 'x-tutto-device': '%zz' },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('reads back the id the header escapes, not the escaping', async () => {
+    // The header is decoded before it reaches the database, so a row stays
+    // keyed on the same raw id the socket path and the admin POST write.
+    const deviceId = 'dev/odd id?x';
+    const written = await fetch(`http://127.0.0.1:${PORT}/api/stats/${encodeURIComponent(deviceId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-tutto-token': API_TOKEN },
+      body: JSON.stringify({ gamesPlayed: 3 }),
+    });
+    expect(written.status).toBe(200);
+
+    expect((await (await deviceStatsGet(deviceId)).json()).gamesPlayed).toBe(3);
   });
 
   it('POST /api/stats/:deviceId rejects an oversized device id with 400 even with a valid token', async () => {
@@ -177,7 +232,7 @@ describe('API Endpoints Token Protection', () => {
       });
 
     const read = async (deviceId: string, query = ''): Promise<Record<string, number>> =>
-      (await fetch(statsUrl(deviceId, query))).json();
+      (await deviceStatsGet(deviceId, query)).json();
 
     it('keeps the two modes apart end to end', async () => {
       const deviceId = 'api-mode-split';
@@ -405,6 +460,84 @@ describe('production CORS defaults to same-origin', () => {
     const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/global`);
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ totalGamesPlayed: expect.any(Number) });
+  });
+});
+
+// The SPA fallback's sendFile callback, driven directly rather than through a
+// request: express reports an aborted request through it like any other error
+// — the client hit stop or reload, or the connection dropped, while
+// dist/index.html was streaming — and no real request can reproduce that on
+// demand, since index.html leaves the server in a single write.
+describe('the SPA fallback when sendFile reports an error', () => {
+  // registerApiRoutes' last path-less app.use; the unmatched-/api 404 above it
+  // is mounted on '/api'.
+  const spaFallback = (): express.RequestHandler => {
+    const pathless: express.RequestHandler[] = [];
+    const app = {
+      get: () => {},
+      post: () => {},
+      use: (...args: unknown[]) => {
+        if (typeof args[0] === 'function') pathless.push(args[0] as express.RequestHandler);
+      },
+    } as unknown as express.Express;
+
+    registerApiRoutes(app);
+    return pathless[pathless.length - 1] as express.RequestHandler;
+  };
+
+  // What express hands the callback: an Error carrying the syscall code the
+  // failure surfaced as.
+  type SendFileError = Error & { code: string };
+
+  const errorWithCode = (code: string): SendFileError => Object.assign(new Error(code), { code });
+
+  // What the handler writes once sendFile hands it `error`, with the response
+  // either already started or not.
+  const responseTo = (error: SendFileError | undefined, headersSent: boolean) => {
+    const send = vi.fn();
+    const status = vi.fn(() => ({ send }));
+    const res = {
+      headersSent,
+      status,
+      send,
+      sendFile: (_filePath: string, callback: (err?: SendFileError) => void): void => callback(error),
+    } as unknown as express.Response;
+
+    spaFallback()({} as express.Request, res, (() => {}) as express.NextFunction);
+    return { status, send };
+  };
+
+  it('writes nothing when the client aborts after the response has started', () => {
+    // The headers are already on the wire, so answering anyway throws
+    // ERR_HTTP_HEADERS_SENT out of this callback — uncaught, which takes the
+    // whole server down over one client hitting reload.
+    const { status, send } = responseTo(errorWithCode('ECONNABORTED'), true);
+
+    expect(status).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing when the connection drops before the response starts', () => {
+    // Nothing is throwing here, but there is also nobody left to answer: a 404
+    // would misreport a perfectly present index.html.
+    const { status, send } = responseTo(errorWithCode('ECONNRESET'), false);
+
+    expect(status).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('still answers 404 when dist/index.html is genuinely missing', () => {
+    const { status, send } = responseTo(errorWithCode('ENOENT'), false);
+
+    expect(status).toHaveBeenCalledWith(404);
+    expect(send).toHaveBeenCalledWith('Not found');
+  });
+
+  it('adds nothing to a file that went out fine', () => {
+    const { status, send } = responseTo(undefined, true);
+
+    expect(status).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
   });
 });
 

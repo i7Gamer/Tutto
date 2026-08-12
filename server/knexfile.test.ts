@@ -55,9 +55,64 @@ describe('resolveDbFilename', () => {
 });
 
 describe('knex configuration', () => {
+  // The sqlite3 client reads the config two ways: it calls the connection
+  // provider when the pool opens a connection, and reads .filename off it while
+  // constructing the client (only to warn when there is none). Both are pinned.
+  const connection = knexConfig.connection as unknown as (() => { filename: string }) & { filename: string };
+
+  // A path nothing here could produce by accident, exported into the
+  // environment only inside a case — i.e. long after the import at the top of
+  // this file evaluated the config.
+  const LATE_DB_PATH = '/late-mounted-volume/stats.db';
+
+  // Applies env overrides for the duration of fn and restores them afterwards
+  // (undefined = unset). TEST_DB is among them: the runner sets it (see
+  // vite.config.js), and it short-circuits every other branch of the resolver,
+  // so a case that never touches it can only ever observe ':memory:'.
+  const withEnv = (overrides: Record<string, string | undefined>, fn: () => void): void => {
+    const original: Record<string, string | undefined> = {};
+    for (const [key, value] of Object.entries(overrides)) {
+      original[key] = process.env[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    try {
+      fn();
+    } finally {
+      for (const [key, value] of Object.entries(original)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  };
+
+  it('reads the database path when the pool connects, not when the module was imported', () => {
+    // The whole point of the connection *provider*: index.ts loads .env with a
+    // statement, so every import in that file — ./database, which builds knex
+    // out of this config, among them — has already run by the time a DB_PATH
+    // set there exists. The override below therefore lands after this file's
+    // own import, the same way round; a config that had baked its filename in
+    // at import time would still answer the pre-.env value here.
+    withEnv({ TEST_DB: undefined, DB_PATH: LATE_DB_PATH }, () => {
+      expect(connection.filename).toBe(LATE_DB_PATH);
+      expect(connection().filename).toBe(LATE_DB_PATH);
+    });
+  });
+
   it('resolves its filename through resolveDbFilename', () => {
-    const connection = knexConfig.connection as { filename: string };
-    expect(connection.filename).toBe(resolveDbFilename(process.env));
+    // Not `toBe(resolveDbFilename(process.env))`: under the runner's TEST_DB
+    // both sides of that collapse to ':memory:' no matter what the config does
+    // with the rest of the environment, so it no longer discriminates anything.
+    // Pinned instead on envs this case controls, which show the config routing
+    // the WHOLE environment through the resolver — DB_PATH and the NODE_ENV
+    // fallback both, each against the resolver's own answer for that env.
+    withEnv({ TEST_DB: undefined, DB_PATH: LATE_DB_PATH }, () => {
+      expect(connection.filename).toBe(resolveDbFilename({ DB_PATH: LATE_DB_PATH }));
+    });
+    withEnv({ TEST_DB: undefined, DB_PATH: undefined, NODE_ENV: 'production' }, () => {
+      expect(connection.filename).toBe(resolveDbFilename({ NODE_ENV: 'production' }));
+      expect(connection.filename).toBe(DEFAULT_DB_FILE);
+    });
   });
 
   it('keeps the single-connection pool sqlite needs', () => {

@@ -34,11 +34,29 @@ export const resolveDbFilename = (
   return path.join(__dirname, env.NODE_ENV === 'production' ? PRODUCTION_DB_FILE : DEVELOPMENT_DB_FILE);
 };
 
+// Resolved when the pool opens its first connection, not when this module is
+// imported. index.ts loads .env with a dotenv.config() *statement*, so every
+// import in that file has already been evaluated by the time it runs —
+// ./database, which builds the knex instance out of this config, among them.
+// A `{ filename }` object here is deep-cloned into the client at that moment,
+// i.e. before a DB_PATH set in .env exists, so the server connected to the
+// default database while index.ts logged the .env path as the one in use. A
+// connection *provider* is called after startup instead, which is after .env.
+// (api.ts documents the same import-order hazard for its own env reads.)
+const resolveConnection = (): Knex.Sqlite3ConnectionConfig => ({
+  filename: resolveDbFilename(process.env),
+});
+
+// The sqlite3 client still looks for connection.filename when it is
+// constructed, purely to warn when it finds none — answered here with the same
+// value the provider returns, as a getter so this stays a live read too.
+Object.defineProperty(resolveConnection, 'filename', {
+  get: (): string => resolveDbFilename(process.env),
+});
+
 const config: Knex.Config = {
   client: 'sqlite3',
-  connection: {
-    filename: resolveDbFilename(process.env),
-  },
+  connection: resolveConnection,
   useNullAsDefault: true,
   // SQLite supports only a single writer. A single shared connection avoids
   // SQLITE_BUSY contention on concurrent stat writes, and is required for an

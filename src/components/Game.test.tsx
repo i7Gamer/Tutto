@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Game from './Game';
 import { useGameStore } from '../store/useGameStore';
 import { MAX_CHAIN_CARDS } from '../types';
+import { STOP_CARD_AUTO_CONTINUE_MS } from '../utils/uiTimings';
 import { vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
 
 vi.mock('../utils/soundEffects', () => ({
@@ -1185,6 +1186,63 @@ describe('Game Component Integration', () => {
     });
   });
 
+  describe('the Stop card controls while the dice panel is open', () => {
+    // Same exposure as Undo above: the panel covers the screen but the
+    // controls behind it stay mounted and reachable. A classic chain that
+    // draws a Stop inside DiceGame flips the store card to 'Stop' while the
+    // panel stays up showing the forfeit summary, which DiceGame commits
+    // itself — a live Continue behind it commits the turn a second time,
+    // without that summary. Whether that button renders is pinned in
+    // GameControls.test.tsx: jsdom never finishes a framer-motion exit
+    // animation, so the controls block the flip to Stop swaps in never
+    // mounts here at all, and this level can only assert the commit.
+    beforeEach(() => {
+      // The panel must only ever be open because THIS test opened it.
+      localStorage.clear();
+      useGameStore.setState({
+        // Online, because the Stop auto-continue only arms itself under
+        // isOnline && isMyTurn (Game.tsx) — offline there is no timer to catch
+        // and the "commits nothing" assertion below could never fail.
+        isOnline: true,
+        ruleset: 'classic',
+        diceMode: 'digital',
+        currentCard: '300',
+        justReconnected: false,
+        liveTurnState: null,
+      });
+    });
+
+    afterEach(() => {
+      localStorage.clear();
+      useGameStore.setState({ ruleset: 'modernized', isOnline: true });
+    });
+
+    it('offers a committing Continue on a Stop card while the panel is closed', () => {
+      useGameStore.setState({ currentCard: 'Stop' });
+      render(<Game />);
+
+      fireEvent.click(screen.getByRole('button', { name: /game.controls.continue/i }));
+      expect(mockNextTurn).toHaveBeenCalledTimes(1);
+    });
+
+    it('commits nothing from behind the panel when a chain draws a Stop', () => {
+      render(<Game />);
+
+      fireEvent.click(screen.getByText('game.controls.rollDice'));
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+
+      // DiceGame drew the Stop mid-chain: the card flips underneath, the
+      // panel stays up and keeps the summary it is about to commit.
+      act(() => { useGameStore.setState({ currentCard: 'Stop' }); });
+      // Past the auto-continue Game.tsx would arm for a Stop it owns — the
+      // open panel is the only thing keeping that timer from being scheduled.
+      act(() => { vi.advanceTimersByTime(STOP_CARD_AUTO_CONTINUE_MS); });
+
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+      expect(mockNextTurn).not.toHaveBeenCalled();
+    });
+  });
+
   describe('keyboard shortcuts', () => {
     // Earlier tests in this file (reconnect-resume) can leave justReconnected/
     // liveTurnState set on the shared store, which would auto-open the dice
@@ -1392,7 +1450,11 @@ describe('Game Component Integration', () => {
 
       await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
-      expect(global.fetch).toHaveBeenCalledWith('/api/stats/device-1?mode=normalized');
+      // The id rides the header, never the URL — see deviceStatsRequest.
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/stats/device?mode=normalized',
+        { headers: { 'x-tutto-device': 'device-1' } },
+      );
       expect(setPreGameStats).toHaveBeenCalledWith({
         highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null,
         highestFeuerwerkTurnScore: null, highestX2TurnScore: null,

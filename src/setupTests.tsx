@@ -66,13 +66,18 @@ if (typeof window !== 'undefined') {
 // HTMLCanvasElement is now mocked by jest-canvas-mock
 
 (globalThis as Record<string, unknown>).__nativeFetch = globalThis.fetch;
-globalThis.fetch = vi.fn((url: string) => {
-  if (url === '/api/stats/global') {
+globalThis.fetch = vi.fn((url: string, init?: { headers?: Record<string, string> }) => {
+  // startsWith, not ===, because the global row carries a ?ruleset= query.
+  if (url.startsWith('/api/stats/global')) {
     return Promise.resolve({
       ok: true, json: () => Promise.resolve({ gamesPlayed: 10, totalScore: 50000 }),
     } as Response);
   }
-  if (url.startsWith('/api/stats/')) {
+  // The device route names its device in a header, not in the path (see
+  // deviceStatsRequest) — so the header is what resolves it here too, and a
+  // call site that forgets it falls through to the loud rejection below.
+  const deviceHeader = init?.headers?.['x-tutto-device'];
+  if (url.startsWith('/api/stats/') && deviceHeader) {
     return Promise.resolve({
       ok: true, json: () => Promise.resolve({ gamesPlayed: 5, wins: 2 }),
     } as Response);

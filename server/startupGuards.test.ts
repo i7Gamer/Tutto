@@ -14,6 +14,7 @@ import {
   PUBLISHED_API_TOKENS,
   WILDCARD_CORS_ORIGIN,
 } from './startupGuards';
+import knexConfig, { resolveDbFilename } from './knexfile';
 
 const ENV_EXAMPLE_PATH = path.join(__dirname, '..', '.env.example');
 // Stands in for the secret the README tells a deployer to export before
@@ -202,6 +203,69 @@ describe('.env.example is a startable production configuration', () => {
     // The reason CORS_ORIGIN=* was in the file at all. Unset already resolves
     // to '*' outside production, so dropping the line costs dev nothing.
     expect(resolveCorsOrigin({ ...example, NODE_ENV: 'development' })).toBe(WILDCARD_CORS_ORIGIN);
+  });
+});
+
+// index.ts prints the statistics database at startup, and knex opens the one
+// the knexfile points at — a deployment that set DB_PATH in .env had the two
+// disagree, connecting to the default database while the log named the .env
+// path. A value from .env only reaches process.env when index.ts calls
+// dotenv.config(), a statement, so every import in that file has already been
+// evaluated by the time it runs — ./database, which builds the knex instance
+// out of this config, among them. Importing the knexfile at the top of this
+// file and setting DB_PATH inside the test reproduces that order exactly. A
+// real .env is deliberately not written: it is the developer's own gitignored
+// file, and the suites that spawn server processes would read it mid-run.
+describe('the database knex opens and the database startup logs', () => {
+  // Stands in for a DB_PATH line in a copied .env — the documented way to put
+  // the database somewhere other than the application directory.
+  const DOTENV_SUPPLIED_DB_PATH = '/data/from-dotenv.db';
+
+  // Whichever shape the knexfile uses: knex clones a connection object when
+  // the client is constructed, and calls a connection provider when the pool
+  // opens its first connection.
+  const filenameKnexWillOpen = (): string => {
+    const connection = knexConfig.connection as { filename: string } | (() => { filename: string });
+    return typeof connection === 'function' ? connection().filename : connection.filename;
+  };
+
+  // The whole suite runs with TEST_DB set (see vite.config.js), which outranks
+  // DB_PATH by design, so it has to be cleared for these to stand in for a
+  // real server process.
+  const asServerProcess = (): void => {
+    vi.stubEnv('TEST_DB', '');
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('agrees on a DB_PATH that arrives only once .env has been loaded', () => {
+    asServerProcess();
+    vi.stubEnv('DB_PATH', DOTENV_SUPPLIED_DB_PATH);
+
+    expect(filenameKnexWillOpen()).toBe(DOTENV_SUPPLIED_DB_PATH);
+    // resolveDbFilename(process.env) is what index.ts logs at startup.
+    expect(filenameKnexWillOpen()).toBe(resolveDbFilename(process.env));
+  });
+
+  it('agrees on the environment default when nothing sets DB_PATH', () => {
+    // The other direction: a connection that simply always answered with
+    // DB_PATH would satisfy the case above and take every unconfigured
+    // deployment to the wrong file.
+    asServerProcess();
+
+    expect(filenameKnexWillOpen()).toBe(resolveDbFilename(process.env));
+    expect(filenameKnexWillOpen()).not.toBe(DOTENV_SUPPLIED_DB_PATH);
+  });
+
+  it('still lets TEST_DB win over a DB_PATH from .env', () => {
+    // Resolving later must not reorder the precedence resolveDbFilename
+    // defines: a developer with DB_PATH in .env would otherwise have the
+    // suites writing into a real database file.
+    vi.stubEnv('DB_PATH', DOTENV_SUPPLIED_DB_PATH);
+
+    expect(filenameKnexWillOpen()).toBe(':memory:');
   });
 });
 
