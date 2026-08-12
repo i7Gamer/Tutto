@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  MAX_DICE_ID_LENGTH, isSnapshotDie, isRolledDie, isKniffelProgressEntry,
-  isChainCard, isChainCounter, isTurnCardPlayed, isTurnEnd, isTurnCardList,
+  MAX_DICE_ID_LENGTH, MAX_ROLLING_DICE_IDS, isSnapshotDie, isRolledDie, isKniffelProgressEntry,
+  isChainCard, isChainCounter, isTurnCardPlayed, isTurnEnd, isTurnCardList, isRollingDiceIdList,
 } from './turnShapes';
 import { MAX_CHAIN_CARDS, TURN_ENDS } from '../types';
 import { VALID_CARD_TYPES } from './configValidation';
@@ -106,5 +106,37 @@ describe('isTurnCardList', () => {
   it('rejects a non-array, and any list with one bad entry', () => {
     expect(isTurnCardList('x2')).toBe(false);
     expect(isTurnCardList([card, { card: 'Joker', completed: true }])).toBe(false);
+  });
+});
+
+describe('isRollingDiceIdList', () => {
+  const id = 'a'.repeat(MAX_DICE_ID_LENGTH);
+
+  it('accepts the ids of a roll still in flight', () => {
+    expect(isRollingDiceIdList(['d1', 'd2', 'd3'])).toBe(true);
+    expect(isRollingDiceIdList(Array(MAX_ROLLING_DICE_IDS).fill('d1'))).toBe(true);
+  });
+
+  it('accepts an empty list — every die has settled', () => {
+    expect(isRollingDiceIdList([])).toBe(true);
+  });
+
+  it('rejects more ids than there are dice on the table', () => {
+    expect(isRollingDiceIdList(Array(MAX_ROLLING_DICE_IDS + 1).fill('d1'))).toBe(false);
+  });
+
+  it('accepts an id at the length cap and rejects one past it', () => {
+    expect(isRollingDiceIdList([id])).toBe(true);
+    expect(isRollingDiceIdList([`${id}a`])).toBe(false);
+  });
+
+  it.each([null, undefined, 42, 'd1', {}])('rejects the non-array %p', (v) => {
+    expect(isRollingDiceIdList(v)).toBe(false);
+  });
+
+  it('rejects a list with one bad entry', () => {
+    expect(isRollingDiceIdList(['d1', ''])).toBe(false);
+    expect(isRollingDiceIdList(['d1', 42])).toBe(false);
+    expect(isRollingDiceIdList(['d1', null])).toBe(false);
   });
 });

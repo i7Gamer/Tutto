@@ -42,6 +42,24 @@ export const isSnapshotDie = (v: unknown): v is SnapshotDie => {
 export const isRolledDie = (v: unknown): v is SnapshotDie & { selected: boolean } =>
   isSnapshotDie(v) && typeof (v as unknown as Record<string, unknown>).selected === 'boolean';
 
+/** A roll is never more than the six dice on the table. */
+export const MAX_ROLLING_DICE_IDS = 6;
+
+/**
+ * The ids of the dice still tumbling when a snapshot was taken — the only
+ * thing that says a cached roll had not been judged yet, since `busted` is
+ * written by finalizeRoll once every die has settled while the live snapshot
+ * is written a debounce after the roll starts.
+ *
+ * Shared because both boundaries need exactly this rule: the localStorage
+ * cache resets a corrupted entry to absent (i.e. to "settled") rather than
+ * restoring it, and a pushed snapshot's copy is rendered straight into every
+ * spectator's JSX.
+ */
+export const isRollingDiceIdList = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.length <= MAX_ROLLING_DICE_IDS
+  && v.every(id => typeof id === 'string' && id.length > 0 && id.length <= MAX_DICE_ID_LENGTH);
+
 export const isKniffelProgressEntry = (v: unknown): v is number => isFaceValue(v);
 
 export const isChainCard = (v: unknown): v is CardType =>

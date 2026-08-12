@@ -1,6 +1,6 @@
 import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS, type CardType, type InitialCards, type DiceSnapshot, type HistoryEntry, type TurnSummary, type TurnCardPlayed } from '../src/types';
 import {
-  MAX_DICE_ID_LENGTH, isSnapshotDie, isRolledDie, isKniffelProgressEntry,
+  isSnapshotDie, isRolledDie, isKniffelProgressEntry, isRollingDiceIdList,
   isChainCard, isChainCounter, isChainScoreList, isTurnCardList, isTurnEnd,
 } from '../src/utils/turnShapes';
 import {
@@ -99,10 +99,7 @@ export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
   if (!(Array.isArray(s.kniffelProgress) && s.kniffelProgress.length <= 6 && s.kniffelProgress.every(isKniffelProgressEntry))) return false;
   if (s.busted !== undefined && typeof s.busted !== 'boolean') return false;
   if (s.stopped !== undefined && typeof s.stopped !== 'boolean') return false;
-  if (s.rollingDiceIds !== undefined) {
-    if (!Array.isArray(s.rollingDiceIds) || s.rollingDiceIds.length > 6) return false;
-    if (!s.rollingDiceIds.every(id => typeof id === 'string' && id.length > 0 && id.length <= MAX_DICE_ID_LENGTH)) return false;
-  }
+  if (s.rollingDiceIds !== undefined && !isRollingDiceIdList(s.rollingDiceIds)) return false;
   // Classic-chain fields — optional, but shape-checked when present: a mid-
   // chain reconnect rebuilds the active player's own resume cache from this
   // relayed snapshot, so a stripped or corrupted chain would lose their turn.
