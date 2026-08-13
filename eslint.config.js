@@ -56,9 +56,14 @@ export default defineConfig([
       // `__APP_VERSION__` is replaced the same way — see `define` in vite.config.js.
       globals: { ...globals.browser, process: 'readonly', __APP_VERSION__: 'readonly' },
     },
+    // The preset first, the shared overrides after — spread order is precedence
+    // here. The other way round, recommended's bare `no-unused-vars: 'error'`
+    // silently re-defaulted every option sharedTsRules configures (the ^_
+    // ignore patterns, ignoreRestSiblings, caughtErrors: 'none'), in every
+    // block that spreads both. Same order in all three TS blocks below.
     rules: {
-      ...sharedTsRules,
       ...tseslint.configs.recommended.rules,
+      ...sharedTsRules,
       'local/no-conflicting-classnames': 'error',
     },
   },
@@ -76,8 +81,8 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
     rules: {
-      ...sharedTsRules,
       ...tseslint.configs.recommended.rules,
+      ...sharedTsRules,
     },
   },
 
@@ -95,8 +100,8 @@ export default defineConfig([
       },
     },
     rules: {
-      ...sharedTsRules,
       ...tseslint.configs.recommended.rules,
+      ...sharedTsRules,
     },
   },
 
