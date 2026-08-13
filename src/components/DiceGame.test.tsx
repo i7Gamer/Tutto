@@ -1048,6 +1048,86 @@ describe('DiceGame chain draw the server discards', () => {
     expect(screen.queryByText('dice.bank_points')).not.toBeInTheDocument();
     expect(onComplete).not.toHaveBeenCalled();
   });
+
+  it('recovers a discarded Stop draw while its reveal is still up', () => {
+    // A drawn Stop never arms the deferred roll, so none of the recovery above
+    // watches it — yet its push can be discarded exactly like any other draw.
+    // Committing the forfeit anyway logs a Stop the server's deck still holds.
+    const onComplete = vi.fn();
+    const onDrawCard = vi.fn(() => 'Stop' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]); // 1500 dice + 300 card = 1800
+    const props = { ruleset: 'classic' as const, onDrawCard, onComplete };
+    const { rerender } = render(<DiceGame currentCard="300" {...props} />);
+
+    selectAllValid();
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+    rerender(<DiceGame currentCard="Stop" {...props} />); // the store's own optimistic set...
+    rerender(<DiceGame currentCard="300" {...props} />); // ...reverted by the next room state
+
+    // The reveal announces a card the turn never got — gone with the draw, and
+    // the forfeit it would have led to never shows. The committed tutto banks,
+    // the same fallback as every other discarded draw.
+    expect(screen.queryByTestId('drawn-card-continue')).not.toBeInTheDocument();
+    expect(screen.queryByText('dice.stop_card_drawn')).not.toBeInTheDocument();
+    expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('dice.bank_points'));
+    expect(onComplete).toHaveBeenCalledWith(1800, true, expect.objectContaining({
+      cards: [{ card: '300', completed: true }],
+      tuttoCount: 1,
+      ended: 'banked',
+    }));
+  });
+
+  it('recovers when the revert lands after the Stop reveal was dismissed', () => {
+    // The forfeit summary runs a countdown before it commits — a revert
+    // landing inside that window must still convert the turn to its bank.
+    const onComplete = vi.fn();
+    const onDrawCard = vi.fn(() => 'Stop' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    const props = { ruleset: 'classic' as const, onDrawCard, onComplete };
+    const { rerender } = render(<DiceGame currentCard="300" {...props} />);
+
+    selectAllValid();
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+    rerender(<DiceGame currentCard="Stop" {...props} />);
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
+    expect(screen.getByText('dice.stop_card_drawn')).toBeInTheDocument();
+
+    rerender(<DiceGame currentCard="300" {...props} />);
+
+    expect(screen.queryByText('dice.stop_card_drawn')).not.toBeInTheDocument();
+    expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('dice.bank_points'));
+    expect(onComplete).toHaveBeenCalledWith(1800, true, expect.objectContaining({
+      cards: [{ card: '300', completed: true }],
+      tuttoCount: 1,
+      ended: 'banked',
+    }));
+  });
+
+  it('leaves a Stop the store does hold alone — the forfeit is real', () => {
+    // The optimistic set makes currentCard 'Stop' and nothing reverts it: the
+    // recovery must not fire on the interim renders around the reveal.
+    const onComplete = vi.fn();
+    const onDrawCard = vi.fn(() => 'Stop' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    const props = { ruleset: 'classic' as const, onDrawCard, onComplete };
+    const { rerender } = render(<DiceGame currentCard="300" {...props} />);
+
+    selectAllValid();
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+    rerender(<DiceGame currentCard="Stop" {...props} />);
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
+
+    expect(screen.getByText('dice.stop_card_drawn')).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(PAST_RECOVERY_DEADLINE_MS); });
+    expect(onComplete).toHaveBeenCalledWith(0, false, expect.objectContaining({
+      cards: [{ card: '300', completed: true }, { card: 'Stop', completed: false }],
+      ended: 'stopCard',
+    }));
+  });
 });
 
 describe('DiceGame dice settled before the roll finalizes', () => {

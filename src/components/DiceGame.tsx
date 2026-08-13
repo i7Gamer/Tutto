@@ -638,6 +638,38 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     // this effect for the draw at all.
   }, [currentCard, revealedCard, abandonDiscardedDraw]);
 
+  // The same discard, for a drawn STOP: it never arms the deferred roll, so
+  // neither effect above watches it — but its push can be thrown away all the
+  // same, and committing the forfeit then logs a Stop the server's deck still
+  // holds and will deal again. Its contradiction has no deadline case, unlike
+  // the playable-card one: the card a draw is made from can never itself be
+  // Stop, so a revert always moves the prop off 'Stop'. Watched for as long
+  // as the draw is on screen — the reveal, or the forfeit summary it leads to
+  // (which a reload during the reveal restores straight into).
+  //
+  // Seen-current first, like drawnCardWasCurrentRef above: drawCardMidTurn
+  // sets the store before the reveal can render, so production always shows
+  // this effect 'Stop' before any revert — but only the sight of it makes a
+  // later non-Stop prop MEAN a revert rather than an update that has not
+  // arrived yet.
+  const stopDrawSeenCurrentRef = useRef(false);
+  const stopDrawShowing = revealedCard === 'Stop' || (showSummary && !!summaryData.stoppedByCard);
+  useEffect(() => {
+    if (!stopDrawShowing) {
+      stopDrawSeenCurrentRef.current = false;
+      return;
+    }
+    if (currentCard === 'Stop') {
+      stopDrawSeenCurrentRef.current = true;
+      return;
+    }
+    if (!stopDrawSeenCurrentRef.current) return;
+    stopDrawSeenCurrentRef.current = false;
+    // The tutto was committed before the draw, so the discarded draw banks it
+    // — the exact fallback a draw the store refuses outright already takes.
+    abandonDiscardedDraw(turnScore);
+  }, [stopDrawShowing, currentCard, abandonDiscardedDraw, turnScore]);
+
   const onStateChangeRef = useRef(onStateChange);
   useEffect(() => { onStateChangeRef.current = onStateChange; }, [onStateChange]);
 
