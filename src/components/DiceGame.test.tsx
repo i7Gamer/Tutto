@@ -36,6 +36,24 @@ vi.mock('../utils/diceLogic', async (importOriginal) => {
 // the values are pushed twice.
 const queueRoll = (vals: number[]) => { rollQueue.push(...vals, ...vals); };
 
+// The die's accessible name is `${t('dice.die_showing')} ${val}` — under the
+// test i18n mock, `dice.die_showing ${val}` — and its selection state lives in
+// aria-pressed, not in the label. These two find dice the way the old
+// "Die showing X, (not) selected" labels did: by value AND state, with
+// dieShowing keeping getBy* semantics (throws unless exactly one match).
+const diceShowing = (val: number, selected: boolean): HTMLElement[] =>
+  screen.getAllByLabelText(`dice.die_showing ${val}`)
+    .filter(el => el.getAttribute('aria-pressed') === String(selected));
+const dieShowing = (val: number, selected: boolean): HTMLElement => {
+  const matches = diceShowing(val, selected);
+  if (matches.length !== 1) {
+    throw new Error(`Expected exactly one die showing ${val} with selected=${selected}, found ${matches.length}`);
+  }
+  return matches[0];
+};
+const selectedDice = (): HTMLElement[] =>
+  screen.queryAllByLabelText(/dice.die_showing/).filter(el => el.getAttribute('aria-pressed') === 'true');
+
 // Real isTestEnv() collapses all of DiceGame's roll/bust animation timers to 0
 // (they fire synchronously), which is convenient elsewhere but means there'd
 // be nothing to verify cleanup against for the unmount test below. Default to
@@ -311,9 +329,9 @@ describe('DiceGame restored-state bust rendering', () => {
     render(<DiceGame currentCard="300" turnKey="K" onComplete={onComplete} />);
 
     expect(screen.queryByText('dice.bust')).not.toBeInTheDocument();
-    expect(screen.getAllByLabelText(/Die showing/).length).toBe(6);
+    expect(screen.getAllByLabelText(/dice.die_showing/).length).toBe(6);
 
-    fireEvent.click(screen.getByLabelText('Die showing 1, not selected'));
+    fireEvent.click(dieShowing(1, false));
     expect(screen.getByText('dice.stop_and_score').closest('button')).not.toBeDisabled();
   });
 
@@ -325,13 +343,13 @@ describe('DiceGame restored-state bust rendering', () => {
 
     render(<DiceGame currentCard="Feuerwerk" turnKey="K" ruleset="classic" onComplete={vi.fn()} />);
 
-    expect(screen.getByLabelText('Die showing 1, selected')).toBeInTheDocument();
-    expect(screen.getByLabelText('Die showing 5, selected')).toBeInTheDocument();
-    expect(screen.getByLabelText('Die showing 2, not selected')).toBeInTheDocument();
+    expect(dieShowing(1, true)).toBeInTheDocument();
+    expect(dieShowing(5, true)).toBeInTheDocument();
+    expect(dieShowing(2, false)).toBeInTheDocument();
     expect(screen.getByText('dice.roll_again').closest('button')).not.toBeDisabled();
     // And the re-applied keep is as uneditable as a live one: the dice must not
     // invite clicks that toggleDie is going to drop.
-    screen.getAllByLabelText(/Die showing/).forEach(die => expect(die).toBeDisabled());
+    screen.getAllByLabelText(/dice.die_showing/).forEach(die => expect(die).toBeDisabled());
   });
 
   it('still trusts a settled snapshot: no rollingDiceIds means the roll was already judged', () => {
@@ -416,7 +434,7 @@ describe('DiceGame stale turn restoration (turnKey)', () => {
     render(<DiceGame currentCard="Kleeblatt" turnKey="ROOM1:3:0:Kleeblatt" onComplete={vi.fn()} />);
 
     // A fresh turn auto-rolls immediately, not the stale bust summary.
-    expect(screen.getAllByLabelText(/Die showing/).length).toBe(6);
+    expect(screen.getAllByLabelText(/dice.die_showing/).length).toBe(6);
     expect(screen.queryByText('dice.bust')).not.toBeInTheDocument();
     // Cleared, not just ignored, so it can't resurface on a later mount either.
     expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
@@ -448,7 +466,7 @@ describe('DiceGame interactive turn logic', () => {
 
   const selectAllValid = () => fireEvent.click(screen.getByText('dice.select_all_valid'));
   const clickDie = (val: number) => {
-    const dice = screen.getAllByLabelText(`Die showing ${val}, not selected`);
+    const dice = diceShowing(val, false);
     fireEvent.click(dice[0]);
   };
 
@@ -560,7 +578,7 @@ describe('DiceGame interactive turn logic', () => {
       pressKey('a');
 
       // 'a' selected every scoring die: the 1 and the 5.
-      expect(screen.getAllByLabelText(/, selected$/)).toHaveLength(2);
+      expect(selectedDice()).toHaveLength(2);
     });
 
     it('goes quiet while a second modal is open over the panel', () => {
@@ -576,7 +594,7 @@ describe('DiceGame interactive turn logic', () => {
 
       pressKey('a');
 
-      expect(screen.queryAllByLabelText(/, selected$/)).toHaveLength(0);
+      expect(selectedDice()).toHaveLength(0);
     });
 
     it('scores the selected dice on S, the same as Stop & Score', async () => {
@@ -755,7 +773,7 @@ describe('DiceGame interactive turn logic', () => {
   it('does not roll automatically while the panel is still appearing (panelReady=false)', () => {
     render(<DiceGame currentCard="200" onComplete={vi.fn()} panelReady={false} />);
 
-    expect(screen.queryAllByLabelText(/Die showing/).length).toBe(0);
+    expect(screen.queryAllByLabelText(/dice.die_showing/).length).toBe(0);
     expect(playTone).not.toHaveBeenCalled();
   });
 
@@ -763,11 +781,11 @@ describe('DiceGame interactive turn logic', () => {
     queueRoll([1, 5, 2, 2, 3, 4]);
     const { rerender } = render(<DiceGame currentCard="200" onComplete={vi.fn()} panelReady={false} />);
 
-    expect(screen.queryAllByLabelText(/Die showing/).length).toBe(0);
+    expect(screen.queryAllByLabelText(/dice.die_showing/).length).toBe(0);
 
     rerender(<DiceGame currentCard="200" onComplete={vi.fn()} panelReady={true} />);
 
-    expect(screen.getAllByLabelText(/Die showing/).length).toBe(6);
+    expect(screen.getAllByLabelText(/dice.die_showing/).length).toBe(6);
   });
 
   // Plus/Minus and Kniffel are worth a fixed award for being completed, not the
@@ -892,7 +910,7 @@ describe('DiceGame roll-again mid-animation button stability', () => {
     // this suite), which runAllTimers would spin on forever.
     act(() => { vi.advanceTimersByTime(2000); }); // let the first roll's animation settle
 
-    fireEvent.click(screen.getAllByLabelText('Die showing 1, not selected')[0]); // a lone 1 scores: valid
+    fireEvent.click(diceShowing(1, false)[0]); // a lone 1 scores: valid
 
     const rollAgainBefore = screen.getByText('dice.roll_again').closest('button');
     const stopBefore = screen.getByText('dice.stop_and_score').closest('button');
@@ -1022,7 +1040,7 @@ describe('DiceGame chain draw the server discards', () => {
 
     act(() => { vi.advanceTimersByTime(PAST_RECOVERY_DEADLINE_MS); });
 
-    expect(screen.getByLabelText('Die showing 1, not selected')).toBeInTheDocument();
+    expect(dieShowing(1, false)).toBeInTheDocument();
     expect(screen.queryByText('dice.bank_points')).not.toBeInTheDocument();
     expect(onComplete).not.toHaveBeenCalled();
   });
@@ -1043,7 +1061,7 @@ describe('DiceGame chain draw the server discards', () => {
 
     act(() => { vi.advanceTimersByTime(PAST_RECOVERY_DEADLINE_MS); });
 
-    expect(screen.getByLabelText('Die showing 1, not selected')).toBeInTheDocument();
+    expect(dieShowing(1, false)).toBeInTheDocument();
     expect(screen.getByTestId('dice-current-score')).toHaveTextContent('1800');
     expect(screen.queryByText('dice.bank_points')).not.toBeInTheDocument();
     expect(onComplete).not.toHaveBeenCalled();
@@ -1161,20 +1179,20 @@ describe('DiceGame dice settled before the roll finalizes', () => {
 
     act(() => { vi.advanceTimersByTime(LAST_DIE_SETTLES_MS); });
 
-    const settled = screen.getByLabelText('Die showing 1, not selected');
+    const settled = dieShowing(1, false);
     expect(settled).toBeDisabled();
     expect(settled.className).not.toContain('cursor-pointer');
     fireEvent.click(settled);
-    expect(screen.getByLabelText('Die showing 1, not selected')).toBeInTheDocument();
+    expect(dieShowing(1, false)).toBeInTheDocument();
 
     act(() => { vi.advanceTimersByTime(ROLL_SETTLE_BUFFER_MS); });
 
     // Finalized: the guard is gone, so the die offers itself again — and means it.
-    const finalized = screen.getByLabelText('Die showing 1, not selected');
+    const finalized = dieShowing(1, false);
     expect(finalized).not.toBeDisabled();
     expect(finalized.className).toContain('cursor-pointer');
     fireEvent.click(finalized);
-    expect(screen.getByLabelText('Die showing 1, selected')).toBeInTheDocument();
+    expect(dieShowing(1, true)).toBeInTheDocument();
   });
 
   it('keeps a busted roll\'s dice disabled once it finalizes', () => {
@@ -1186,7 +1204,7 @@ describe('DiceGame dice settled before the roll finalizes', () => {
     act(() => { vi.advanceTimersByTime(LAST_DIE_SETTLES_MS + ROLL_SETTLE_BUFFER_MS); });
 
     expect(screen.getByText('dice.bust_description')).toBeInTheDocument();
-    screen.getAllByLabelText(/Die showing/).forEach(die => expect(die).toBeDisabled());
+    screen.getAllByLabelText(/dice.die_showing/).forEach(die => expect(die).toBeDisabled());
   });
 });
 
@@ -1238,7 +1256,7 @@ describe('DiceGame classic chains', () => {
 
   const selectAllValid = () => fireEvent.click(screen.getByText('dice.select_all_valid'));
   const clickDie = (val: number) => {
-    const dice = screen.getAllByLabelText(`Die showing ${val}, not selected`);
+    const dice = diceShowing(val, false);
     fireEvent.click(dice[0]);
   };
 
@@ -1346,15 +1364,15 @@ describe('DiceGame classic chains', () => {
     queueRoll([1, 5, 2, 3, 4, 6]); // exactly two scoring dice: the 1 and the 5
     render(<DiceGame currentCard="Feuerwerk" ruleset="classic" onComplete={vi.fn()} />);
 
-    expect(screen.getByLabelText('Die showing 1, selected')).toBeInTheDocument();
-    expect(screen.getByLabelText('Die showing 5, selected')).toBeInTheDocument();
-    expect(screen.getByLabelText('Die showing 2, not selected')).toBeInTheDocument();
+    expect(dieShowing(1, true)).toBeInTheDocument();
+    expect(dieShowing(5, true)).toBeInTheDocument();
+    expect(dieShowing(2, false)).toBeInTheDocument();
 
     // toggleDie is a no-op: clicking the forced selection changes nothing.
-    fireEvent.click(screen.getByLabelText('Die showing 1, selected'));
-    expect(screen.getByLabelText('Die showing 1, selected')).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText('Die showing 2, not selected'));
-    expect(screen.getByLabelText('Die showing 2, not selected')).toBeInTheDocument();
+    fireEvent.click(dieShowing(1, true));
+    expect(dieShowing(1, true)).toBeInTheDocument();
+    fireEvent.click(dieShowing(2, false));
+    expect(dieShowing(2, false)).toBeInTheDocument();
   });
 
   it('renders classic Feuerwerk\'s locked dice as unclickable, not merely dead to clicks', () => {
@@ -1363,7 +1381,7 @@ describe('DiceGame classic chains', () => {
     queueRoll([1, 5, 2, 3, 4, 6]);
     render(<DiceGame currentCard="Feuerwerk" ruleset="classic" onComplete={vi.fn()} />);
 
-    screen.getAllByLabelText(/Die showing/).forEach(die => {
+    screen.getAllByLabelText(/dice.die_showing/).forEach(die => {
       expect(die).toBeDisabled();
       expect(die.className).not.toContain('cursor-pointer');
     });
@@ -1372,7 +1390,7 @@ describe('DiceGame classic chains', () => {
     cleanup();
     queueRoll([1, 5, 2, 3, 4, 6]);
     render(<DiceGame currentCard="Feuerwerk" onComplete={vi.fn()} />);
-    expect(screen.getByLabelText('Die showing 1, not selected')).not.toBeDisabled();
+    expect(dieShowing(1, false)).not.toBeDisabled();
   });
 
   it('classic straight collects any missing numbers, in any order', () => {
@@ -1507,7 +1525,7 @@ describe('DiceGame classic chains', () => {
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
 
     expect(screen.queryByText('dice.drawn_card_title')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Die showing 1, not selected')).toBeInTheDocument();
+    expect(dieShowing(1, false)).toBeInTheDocument();
   });
 
   it('banks the tutto when the store refuses to draw', async () => {
@@ -1542,7 +1560,7 @@ describe('DiceGame classic chains', () => {
     queueRoll([1, 5, 2, 3, 4, 6]);
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
 
-    expect(screen.getByLabelText('Die showing 1, not selected')).toBeInTheDocument();
+    expect(dieShowing(1, false)).toBeInTheDocument();
     expect(screen.getByTestId('dice-current-score')).toHaveTextContent('1800');
   });
 
@@ -1570,7 +1588,7 @@ describe('DiceGame classic chains', () => {
     }));
     render(<DiceGame currentCard="500" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
 
-    expect(screen.getByLabelText('Die showing 1, not selected')).toBeInTheDocument();
+    expect(dieShowing(1, false)).toBeInTheDocument();
     expect(screen.getByTestId('dice-current-score')).toHaveTextContent('1800');
   });
 

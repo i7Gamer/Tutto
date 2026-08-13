@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import type { Die as DieType } from '../../types';
 
 interface DieProps {
@@ -79,6 +80,7 @@ export function DiePips({
 }
 
 export default function Die({ die, isSelected, isDieTumbling, bustState, isRollPending = false, isSelectionLocked = false, onToggle }: DieProps) {
+  const { t } = useTranslation();
   const isClickable = !bustState && !isDieTumbling && !isRollPending && !isSelectionLocked;
   return (
     <motion.button
@@ -106,7 +108,14 @@ export default function Die({ die, isSelected, isDieTumbling, bustState, isRollP
       onClick={() => onToggle(die.id)}
       disabled={!isClickable}
       aria-pressed={isSelected}
-      aria-label={`Die showing ${die.val}, ${isSelected ? 'selected' : 'not selected'}`}
+      // The label was hardcoded English — the one string in the game a German
+      // screen-reader user always heard untranslated. A translated prefix with
+      // the value appended (rather than interpolated into the phrase) because
+      // the test i18n mock returns bare keys: interpolation would make every
+      // die's accessible name identical under test. Selection state is NOT in
+      // the label — aria-pressed above already announces it, and unlike label
+      // text it announces the CHANGE on toggle.
+      aria-label={`${t('dice.die_showing', 'Die showing')} ${die.val}`}
     >
       {die.val}
       <DiePips val={die.val} isSelected={isSelected} bustState={bustState} size="large" />

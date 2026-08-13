@@ -24,6 +24,7 @@
   "dice.chain_card_count": "Card {{count}} of this turn",
   "dice.bank_points": "Bank {{score}} points",
   "dice.draw_next_card": "Draw next card — risk everything!",
+  "dice.die_showing": "Die showing",
   "dice.drawn_card_title": "You drew:",
   "dice.drawn_card_continue": "Continue",
   "dice.points_at_risk": "At risk: ",

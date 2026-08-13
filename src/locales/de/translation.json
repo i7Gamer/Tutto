@@ -24,6 +24,7 @@
   "dice.chain_card_count": "Karte {{count}} dieses Zugs",
   "dice.bank_points": "{{score}} Punkte sichern",
   "dice.draw_next_card": "Nächste Karte ziehen — alles riskieren!",
+  "dice.die_showing": "Würfel zeigt",
   "dice.drawn_card_title": "Du hast gezogen:",
   "dice.drawn_card_continue": "Weiter",
   "dice.points_at_risk": "Im Risiko: ",
