@@ -357,16 +357,18 @@ export const applyPushedState = (
     if (key === 'players') {
       const pushed = newState.players as Record<string, unknown>[];
 
-      const pushedNames = pushed.map(p => p.name as string);
-      const isStrictPermutation = new Set(pushedNames).size === state.players.length;
-
-      if (startingGame && isStrictPermutation) {
+      // No permutation re-check here: the roster gate above already refused
+      // anything that is not one (equal length, unique names, every name
+      // known), so a surviving push's roster IS a strict permutation. A
+      // second check would be dead code that reads as if non-permutations
+      // could reach this branch.
+      if (startingGame) {
         // Adopt the host's chosen ordering, but keep the server-side player
         // identities and non-mutable fields. Keeps chartNames/chartValues
         // (pushed in the same order) aligned with the authoritative roster.
         const byName = new Map(state.players.map(p => [p.name, p]));
-        state.players = pushedNames.map(name =>
-          mergeMutable(byName.get(name)!, pushed.find(q => q.name === name)),
+        state.players = pushed.map(q =>
+          mergeMutable(byName.get(q.name as string)!, q),
         );
       } else {
         state.players = state.players.map(existing =>
