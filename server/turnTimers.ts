@@ -80,10 +80,20 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       //  - the stopped marker = a Stop & Score decision parked in its
       //    summary countdown: decided and banked, no null ever rolled — but
       //    the card itself was NOT completed (no tutto), so it forfeits as
-      //    'timeout' without marking the last card completed.
+      //    'timeout' without marking the last card completed;
+      //  - an empty table, neither busted nor stopped = the drawn-card
+      //    reveal (or the reload window it restores into): the new card is
+      //    in the chain but its first roll never happened, so like the
+      //    stopped case it forfeits as 'timeout' with the last card
+      //    uncompleted — DiceGame's restoredMidDraw reads this same
+      //    snapshot as "resume by rolling", not as a bust. A drawn Stop
+      //    parks here too, and stays the Stop forfeit via the `ended`
+      //    ternary below.
       const atBankChoice = !snapshot.busted && snapshot.keptDice.length === 6;
       const feuerwerkBanked = !!snapshot.busted && lastCard === 'Feuerwerk' && snapshot.turnScore > 0;
       const stoppedBanked = !snapshot.busted && !!snapshot.stopped;
+      const atDrawWindow = !snapshot.busted && !snapshot.stopped
+        && snapshot.keptDice.length === 0 && snapshot.currentRoll.length === 0;
       const lastCompleted = atBankChoice || feuerwerkBanked;
       timeoutSummary = {
         // Every card before the last was completed (the chain only continues
@@ -95,7 +105,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
         // forfeit; a completed last card — or a banked Stop & Score decision —
         // ends as 'timeout' (forfeit without a bust); only a genuinely
         // unresolved roll counts the dice null.
-        ended: lastCard === 'Stop' ? 'stopCard' : (lastCompleted || stoppedBanked) ? 'timeout' : 'null',
+        ended: lastCard === 'Stop' ? 'stopCard' : (lastCompleted || stoppedBanked || atDrawWindow) ? 'timeout' : 'null',
         ...(snapshot.turnScore > 0 ? { forfeitedScore: snapshot.turnScore } : {}),
       };
     }

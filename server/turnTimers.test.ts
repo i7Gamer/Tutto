@@ -306,7 +306,13 @@ describe('turnTimers', () => {
         status: 'playing', currentPlayerIndex: 0, currentCard: 'Feuerwerk', cards: ['300'],
         round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
         liveTurnState: {
-          turnScore: 1800, keptDice: [], currentRoll: [], kniffelProgress: [],
+          turnScore: 1800, keptDice: [],
+          // A genuinely unresolved roll: the tab died mid-roll, so the dice
+          // sit on the table with no verdict — the one state the timeout
+          // still reads as the dice null. (An EMPTY flagless table is the
+          // drawn-card reveal, classified as its own case below.)
+          currentRoll: [{ id: 'r1', val: 2, selected: false }, { id: 'r2', val: 3, selected: false }],
+          kniffelProgress: [],
           tuttosThisTurn: 2,
           cardsThisTurn: ['500', 'Kniffel', 'Feuerwerk'],
           plusMinusScores: [],
@@ -453,6 +459,39 @@ describe('turnTimers', () => {
       expect(alice.timesSkipped).toBe(1);
       expect(alice.highestForfeitedTurnScore).toBe(800);
       expect(rooms[roomId].state.previousTurnSummary?.ended).toBe('stopCard');
+    });
+
+    it('does not invent a bust when the timeout lands on the drawn-card reveal', () => {
+      // The reveal is the other place an AFK classic player parks (it has no
+      // countdown either): the drawn card is in the chain but its first roll
+      // never happened — an empty table, neither busted nor stopped. The
+      // forfeit stands, but no null was ever rolled, so no bust; the drawn
+      // card was never played, so it stays uncompleted. DiceGame's own
+      // restore reads this exact snapshot as "resume by rolling", not a bust.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: '500', cards: ['200'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 1800, keptDice: [], currentRoll: [], kniffelProgress: [],
+          tuttosThisTurn: 1,
+          cardsThisTurn: ['300', '500'],
+          plusMinusScores: [],
+          chainTuttoCount: 1,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const alice = rooms[roomId].state.players[0];
+      expect(alice.busts).toBe(0);
+      // Still a forfeit: nothing banks, and the thrown-away total is recorded.
+      expect(rooms[roomId].state.previousScore).toBe(0);
+      expect(alice.highestForfeitedTurnScore).toBe(1800);
+      expect(rooms[roomId].state.previousTurnSummary?.ended).toBe('timeout');
+      expect(rooms[roomId].state.previousTurnSummary?.cards).toEqual([
+        { card: '300', completed: true },
+        { card: '500', completed: false },
+      ]);
     });
 
     it('keeps the legacy timeout behavior when the snapshot carries no chain (modernized / physical)', () => {
