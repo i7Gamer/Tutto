@@ -1,7 +1,7 @@
 import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS, type CardType, type InitialCards, type DiceSnapshot, type HistoryEntry, type TurnSummary, type TurnCardPlayed } from '../src/types';
 import {
   isSnapshotDie, isRolledDie, isKniffelProgressEntry, isRollingDiceIdList,
-  isChainCard, isChainCounter, isChainScoreList, isTurnCardList, isTurnEnd,
+  isChainCard, isChainCounter, isChainScoreList, isDeductedAmountList, isTurnCardList, isTurnEnd,
   TOTAL_DICE,
 } from '../src/utils/turnShapes';
 import {
@@ -30,18 +30,12 @@ const MAX_GAME_SECONDS = 10_000_000;
 const isPlusMinusScoreList = (v: unknown): v is number[] =>
   isChainScoreList(v) && v.every(n => n <= MAX_SCORE_MAGNITUDE);
 
-// What each Plus/Minus deduction actually removed, one entry per name in
-// deductedPlayers. Bounded like every other pushed score, and never negative —
-// the classic 0-floor can shrink a hit, never invert it. The lengths must
-// match because the activity log reads the two lists BY INDEX
-// (summarizeDeductions): a longer or shorter list would print one player's
-// clamped amount against another's name, so a misaligned pair is rejected
-// rather than half-kept. Missing names with amounts present is the same fault.
-const isDeductedAmountList = (amounts: unknown, names: unknown): boolean => {
-  if (!Array.isArray(amounts)) return false;
-  if (amounts.length !== (Array.isArray(names) ? names.length : 0)) return false;
-  return amounts.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= MAX_SCORE_MAGNITUDE);
-};
+// The shared shape (array, index parity with deductedPlayers, non-negative
+// finite entries — see turnShapes) plus this boundary's own rule: bounded like
+// every other pushed score, because the log renders these numbers to every
+// client in the room.
+const isBoundedDeductedAmountList = (amounts: unknown, names: unknown): boolean =>
+  isDeductedAmountList(amounts, names) && amounts.every(n => n <= MAX_SCORE_MAGNITUDE);
 
 export const validateInitialCards = (cards: unknown): cards is InitialCards => {
   if (typeof cards !== 'object' || cards === null) return false;
@@ -157,7 +151,7 @@ export const isValidTurnSummary = (v: unknown): v is TurnSummary => {
   }
   // Optional: a modernized turn records none, and a client predating the field
   // sends none — both must stay valid.
-  if (s.deductedAmounts !== undefined && !isDeductedAmountList(s.deductedAmounts, s.deductedPlayers)) return false;
+  if (s.deductedAmounts !== undefined && !isBoundedDeductedAmountList(s.deductedAmounts, s.deductedPlayers)) return false;
   return true;
 };
 
@@ -195,7 +189,7 @@ const isValidHistoryEntry = (v: unknown): v is HistoryEntry => {
   }
   // Same index-alignment rule as the turn summary's — this is the entry the
   // activity log actually renders, so a misaligned pair would be printed.
-  if (entry.deductedAmounts !== undefined && !isDeductedAmountList(entry.deductedAmounts, entry.deductedPlayers)) return false;
+  if (entry.deductedAmounts !== undefined && !isBoundedDeductedAmountList(entry.deductedAmounts, entry.deductedPlayers)) return false;
   if (entry.cards !== undefined) {
     if (!Array.isArray(entry.cards) || entry.cards.length > MAX_CHAIN_CARDS) return false;
     if (!entry.cards.every(c => typeof c === 'string' && (VALID_CARD_TYPES as readonly string[]).includes(c))) return false;

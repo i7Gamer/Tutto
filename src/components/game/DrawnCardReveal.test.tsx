@@ -42,6 +42,13 @@ describe('DrawnCardReveal', () => {
     expect(screen.getByText('0')).toBeInTheDocument();
   });
 
+  it('anchors keyboard focus on its continue button', () => {
+    // The draw button that opened this reveal unmounts with the dice table,
+    // which would drop focus to <body> — outside the dialog's tab order.
+    render(<DrawnCardReveal {...baseProps} />);
+    expect(screen.getByTestId('drawn-card-continue')).toHaveFocus();
+  });
+
   it('resumes the turn on continue', () => {
     render(<DrawnCardReveal {...baseProps} />);
 

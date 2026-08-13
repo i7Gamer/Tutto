@@ -86,6 +86,21 @@ export const isChainScoreList = (v: unknown): v is number[] =>
   Array.isArray(v) && v.length <= MAX_CHAIN_CARDS
   && v.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0);
 
+/**
+ * What each Plus/Minus deduction actually removed, parallel to its
+ * deductedPlayers list. The activity log reads the two lists BY INDEX
+ * (summarizeDeductions), so a longer, shorter or nameless amounts list would
+ * print one player's amount against another's name — a misaligned pair is
+ * rejected whole, never half-kept. Entries are never negative: the classic
+ * 0-floor can shrink a hit, not invert it. Shape only: score magnitude is the
+ * untrusted boundary's own rule (server/pushValidation.ts).
+ */
+export const isDeductedAmountList = (amounts: unknown, names: unknown): amounts is number[] => {
+  if (!Array.isArray(amounts)) return false;
+  if (amounts.length !== (Array.isArray(names) ? names.length : 0)) return false;
+  return amounts.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0);
+};
+
 export const isTurnCardPlayed = (v: unknown): v is TurnCardPlayed => {
   const entry = asRecord(v);
   if (!entry) return false;

@@ -144,10 +144,11 @@ describe('pickLocalGameState', () => {
   // unchecked. The activity log then adds it up (summarizeDeductions), and a
   // string element makes that `0 + "400"` and prints "0400" as the amount.
   describe('per-deduction amounts in a restored save', () => {
-    const historyEntry = {
+    const bareEntry = {
       id: '3-Alice-2', playerName: 'Alice', card: 'Plus_Minus',
-      type: 'success', round: 3, score: 1000, deductedPlayers: ['Bob'],
+      type: 'success', round: 3, score: 1000,
     };
+    const historyEntry = { ...bareEntry, deductedPlayers: ['Bob'] };
 
     it('keeps well-formed amounts on a history entry and drops corrupted ones', () => {
       const valid = { ...historyEntry, deductedAmounts: [400] };
@@ -157,24 +158,36 @@ describe('pickLocalGameState', () => {
       expect(pickLocalGameState({ historyLog: [{ ...historyEntry, deductedAmounts: [null] }] })).toEqual({});
       expect(pickLocalGameState({ historyLog: [{ ...historyEntry, deductedAmounts: 400 }] })).toEqual({});
 
+      // The log reads names and amounts by index (summarizeDeductions), so a
+      // mismatched pair would print one player's amount against another's
+      // name — same rule as the server's validators.
+      expect(pickLocalGameState({ historyLog: [{ ...historyEntry, deductedAmounts: [400, 400] }] })).toEqual({});
+      expect(pickLocalGameState({ historyLog: [{ ...historyEntry, deductedAmounts: [] }] })).toEqual({});
+      expect(pickLocalGameState({ historyLog: [{ ...bareEntry, deductedAmounts: [400] }] })).toEqual({});
+
       // A save written before the field existed carries none, and restores.
       expect(pickLocalGameState({ historyLog: [historyEntry] })).toEqual({ historyLog: [historyEntry] });
     });
 
     it('keeps well-formed amounts on a turn summary and drops corrupted ones', () => {
-      const summary = {
+      const bareSummary = {
         cards: [{ card: 'Plus_Minus', completed: true }],
         tuttoCount: 1,
         plusMinusScores: [0],
         ended: 'banked',
-        deductedPlayers: ['Bob'],
       };
+      const summary = { ...bareSummary, deductedPlayers: ['Bob'] };
       const valid = { ...summary, deductedAmounts: [400] };
       expect(pickLocalGameState({ previousTurnSummary: valid })).toEqual({ previousTurnSummary: valid });
 
       expect(pickLocalGameState({ previousTurnSummary: { ...summary, deductedAmounts: ['400'] } })).toEqual({});
       expect(pickLocalGameState({ previousTurnSummary: { ...summary, deductedAmounts: [null] } })).toEqual({});
       expect(pickLocalGameState({ previousTurnSummary: { ...summary, deductedAmounts: 400 } })).toEqual({});
+
+      // Same index-alignment rule as the history entry above.
+      expect(pickLocalGameState({ previousTurnSummary: { ...summary, deductedAmounts: [400, 400] } })).toEqual({});
+      expect(pickLocalGameState({ previousTurnSummary: { ...summary, deductedAmounts: [] } })).toEqual({});
+      expect(pickLocalGameState({ previousTurnSummary: { ...bareSummary, deductedAmounts: [400] } })).toEqual({});
 
       expect(pickLocalGameState({ previousTurnSummary: summary })).toEqual({ previousTurnSummary: summary });
     });

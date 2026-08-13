@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { ChevronRight } from 'lucide-react';
@@ -24,6 +25,13 @@ interface DrawnCardRevealProps {
  */
 export default function DrawnCardReveal({ card, chainCardCount, turnScore, onContinue }: DrawnCardRevealProps) {
   const { t } = useTranslation();
+
+  // The draw button that opened this reveal unmounts with the dice table, and
+  // the panel's ModalShell anchors focus only when the dialog OPENS — a content
+  // swap inside it drops keyboard focus to <body>, outside the tab order.
+  // Anchor it on the one control this screen has.
+  const continueRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { continueRef.current?.focus(); }, []);
 
   return (
     <motion.div
@@ -55,6 +63,7 @@ export default function DrawnCardReveal({ card, chainCardCount, turnScore, onCon
       </p>
 
       <button
+        ref={continueRef}
         data-testid="drawn-card-continue"
         className="bg-indigo-600 hover:bg-indigo-700 text-white w-full max-w-sm py-3 rounded-xl text-lg font-bold flex justify-center items-center gap-2 shadow-lg shadow-indigo-500/30 transition-all"
         onClick={onContinue}

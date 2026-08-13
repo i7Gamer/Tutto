@@ -5,7 +5,7 @@ import {
   isValidEnforcedDiceMode, isValidRuleset, VALID_CARD_TYPES, MAX_CARD_COUNT,
 } from '../utils/configValidation';
 import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS } from '../types';
-import { isChainCounter, isChainScoreList, isTurnCardList, isTurnEnd } from '../utils/turnShapes';
+import { isChainCounter, isChainScoreList, isDeductedAmountList, isTurnCardList, isTurnEnd } from '../utils/turnShapes';
 import type { CardType, InitialCards } from '../types';
 import type { GameStore, GameMode, GameStatus, ConfigKeys } from './storeTypes';
 
@@ -50,11 +50,6 @@ const isCardArray = (v: unknown): boolean =>
   Array.isArray(v) && v.length <= MAX_SAVED_DECK_SIZE &&
   v.every(c => (VALID_CARD_TYPES as readonly string[]).includes(c as string));
 const isNonNegativeNumber = (v: unknown): boolean => isFiniteNumber(v) && v >= 0;
-// What each Plus/Minus deduction removed, parallel to deductedPlayers. Unlike
-// the server's validators these keep an entry whole rather than rebuilding it,
-// so a corrupted save round-trips this straight into summarizeDeductions —
-// which sums the entries, making a string element print `0 + "400"`.
-const isDeductedAmountList = (v: unknown): boolean => Array.isArray(v) && v.every(isFiniteNumber);
 
 // A restored player must have the identity/score fields the engine does
 // arithmetic and lookups on; every other present field may only be a
@@ -90,7 +85,10 @@ const isPlausibleTurnSummary = (v: unknown): boolean => {
     if (!s.deductedPlayers.every(n => typeof n === 'string' && n.length > 0)) return false;
   }
   // Optional: absent on a modernized turn and on any save predating the field.
-  if (s.deductedAmounts !== undefined && !isDeductedAmountList(s.deductedAmounts)) return false;
+  // These validators keep an entry whole rather than rebuilding it, so a
+  // corrupted save would round-trip straight into summarizeDeductions — which
+  // sums the entries by index against deductedPlayers.
+  if (s.deductedAmounts !== undefined && !isDeductedAmountList(s.deductedAmounts, s.deductedPlayers)) return false;
   return true;
 };
 
@@ -101,7 +99,7 @@ const isPlausibleHistoryEntry = (v: unknown): boolean => {
   const entry = v as Record<string, unknown>;
   // Same optional-but-checked rule as the turn summary's amounts above; this
   // is the entry the activity log renders the numbers from.
-  if (entry.deductedAmounts !== undefined && !isDeductedAmountList(entry.deductedAmounts)) return false;
+  if (entry.deductedAmounts !== undefined && !isDeductedAmountList(entry.deductedAmounts, entry.deductedPlayers)) return false;
   return typeof entry.id === 'string' && typeof entry.playerName === 'string'
     && typeof entry.card === 'string' && typeof entry.type === 'string'
     && Number.isInteger(entry.round) && isFiniteNumber(entry.score);

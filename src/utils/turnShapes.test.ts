@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   MAX_DICE_ID_LENGTH, TOTAL_DICE, isSnapshotDie, isRolledDie, isKniffelProgressEntry,
   isChainCard, isChainCounter, isTurnCardPlayed, isTurnEnd, isTurnCardList, isRollingDiceIdList,
+  isDeductedAmountList,
 } from './turnShapes';
 import { MAX_CHAIN_CARDS, TURN_ENDS } from '../types';
 import { VALID_CARD_TYPES } from './configValidation';
@@ -138,5 +139,35 @@ describe('isRollingDiceIdList', () => {
     expect(isRollingDiceIdList(['d1', ''])).toBe(false);
     expect(isRollingDiceIdList(['d1', 42])).toBe(false);
     expect(isRollingDiceIdList(['d1', null])).toBe(false);
+  });
+});
+
+describe('isDeductedAmountList', () => {
+  it('accepts amounts matching the names list one to one', () => {
+    expect(isDeductedAmountList([400], ['Bob'])).toBe(true);
+    expect(isDeductedAmountList([1000, 400], ['Bob', 'Carol'])).toBe(true);
+  });
+
+  it('accepts an empty pair — no deductions, nothing to align', () => {
+    expect(isDeductedAmountList([], [])).toBe(true);
+    expect(isDeductedAmountList([], undefined)).toBe(true);
+  });
+
+  it('rejects a length mismatch in either direction — the log reads by index', () => {
+    expect(isDeductedAmountList([400, 400], ['Bob'])).toBe(false);
+    expect(isDeductedAmountList([], ['Bob'])).toBe(false);
+    expect(isDeductedAmountList([400], ['Bob', 'Carol'])).toBe(false);
+  });
+
+  it('rejects amounts with no names at all', () => {
+    expect(isDeductedAmountList([400], undefined)).toBe(false);
+  });
+
+  it('rejects a non-array, and any entry that is not a non-negative finite number', () => {
+    expect(isDeductedAmountList(400, ['Bob'])).toBe(false);
+    expect(isDeductedAmountList(['400'], ['Bob'])).toBe(false);
+    expect(isDeductedAmountList([-400], ['Bob'])).toBe(false);
+    expect(isDeductedAmountList([Infinity], ['Bob'])).toBe(false);
+    expect(isDeductedAmountList([NaN], ['Bob'])).toBe(false);
   });
 });
