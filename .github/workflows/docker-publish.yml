@@ -88,11 +88,21 @@ jobs:
           echo "Verifying and publishing ${sha}"
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
 
+      # Deliberately no `cache: 'npm'` here, unlike ci.yml. This workflow is the
+      # privileged one — it inherits the Docker Hub secrets and checks out
+      # whatever `inputs.ref` names — and setup-node's cache option registers a
+      # post-job SAVE into the default branch's cache scope. Every step below
+      # runs code out of that checkout, so a publish pointed at an unreviewed
+      # ref could write into ~/.npm and leave a poisoned cache behind for later
+      # publishes to restore and ship (CodeQL
+      # actions/cache-poisoning/poisonable-step). Publishes are manual and rare,
+      # so re-resolving the tree costs about a minute against a multi-minute
+      # native multi-arch build. ci.yml keeps its cache on purpose: it holds no
+      # secrets, and GitHub scopes fork-PR caches away from the default branch.
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
