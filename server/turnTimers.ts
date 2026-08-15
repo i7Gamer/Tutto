@@ -1,9 +1,10 @@
 import type { Server } from 'socket.io';
 import { MAX_HISTORY_LOG_SIZE, type CoreGameState, type TurnSummary } from '../src/types';
+import { TOTAL_DICE } from '../src/utils/turnShapes';
 import { calculateNextTurn } from '../src/utils/coreGameEngine';
 import { hasScoreInput } from '../src/utils/diceTurnControls';
 import type { Room, ServerPlayer } from './roomTypes';
-import { rooms, calculateRemainingTurnTime, emitRoomState, idleTurnTimerState, rememberCurrentTurn } from './rooms';
+import { rooms, calculateRemainingTurnTime, emitRoomState, idleTurnTimerState, rememberCurrentTurn, roomChannel } from './rooms';
 import { MAX_ROUNDS } from './pushValidation';
 
 export const clearServerTurnTimer = (roomId: string): void => {
@@ -89,7 +90,18 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       //    snapshot as "resume by rolling", not as a bust. A drawn Stop
       //    parks here too, and stays the Stop forfeit via the `ended`
       //    ternary below.
-      const atBankChoice = !snapshot.busted && snapshot.keptDice.length === 6;
+      // Counted across BOTH lists: DiceGame opens the choice on
+      // `keptDice.length + selectedRolls.length === TOTAL_DICE`
+      // (DiceGame.tsx), so at the moment this window is actually open the
+      // completing dice are still `selected` inside currentRoll —
+      // buildDiceSnapshot copies the two lists separately and preserves the
+      // flags. keptDice alone only reaches six AFTER the player presses a
+      // button, which also sets `stopped` (the stoppedBanked case below), so
+      // reading it alone never matched this window at all and charged an AFK
+      // player a bust for a card they had completed.
+      const asideCount = snapshot.keptDice.length
+        + snapshot.currentRoll.filter(d => d.selected).length;
+      const atBankChoice = !snapshot.busted && !snapshot.stopped && asideCount === TOTAL_DICE;
       const feuerwerkBanked = !!snapshot.busted && lastCard === 'Feuerwerk' && snapshot.turnScore > 0;
       const stoppedBanked = !snapshot.busted && !!snapshot.stopped;
       const atDrawWindow = !snapshot.busted && !snapshot.stopped
@@ -236,7 +248,7 @@ export const abortGameIfLowPlayers = (io: Server, room: Room, roomId: string): b
   // show a misleading "game aborted" toast for a game that already ended normally.
   if (room.state.status === 'playing' && !room.state.finished && room.state.players.length < 2) {
     clearServerTurnTimer(roomId);
-    io.to(roomId).emit('gameAborted');
+    io.to(roomChannel(roomId)).emit('gameAborted');
     room.state.status = 'lobby';
     room.state.currentCard = null;
     room.state.currentPlayerIndex = null;

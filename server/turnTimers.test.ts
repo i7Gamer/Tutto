@@ -12,7 +12,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Server } from 'socket.io';
-import { rooms, createRoom } from './rooms';
+import { rooms, createRoom, roomChannel } from './rooms';
 import { clearServerTurnTimer, startServerTurnTimer, advanceTurnOnTimeout, abortGameIfLowPlayers } from './turnTimers';
 import type { ServerPlayer } from './roomTypes';
 
@@ -386,6 +386,65 @@ describe('turnTimers', () => {
       expect(rooms[roomId].state.previousTurnSummary?.cards).toEqual([{ card: 'Kniffel', completed: true }]);
     });
 
+    it('does not invent a bust at the bank-or-draw choice while the completing dice are still selected', () => {
+      // The shape the client ACTUALLY emits at that choice: DiceGame offers it
+      // on `keptDice.length + selectedRolls.length === 6` (DiceGame.tsx), so
+      // the dice that complete the tutto are still `selected` inside
+      // currentRoll — buildDiceSnapshot copies the two lists separately and
+      // preserves the flags. `keptDice.length === 6` only ever happens AFTER
+      // the player presses a button, which also sets stopped: true. Reading
+      // keptDice alone therefore misses the real window entirely and charges
+      // an AFK player a bust for a card they completed.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: 'Kniffel', cards: ['300'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 2000,
+          keptDice: [1, 2, 3].map(v => ({ id: `k${v}`, val: v })),
+          currentRoll: [4, 5, 6].map(v => ({ id: `r${v}`, val: v, selected: true })),
+          kniffelProgress: [1, 2, 3, 4, 5, 6], tuttosThisTurn: 1,
+          cardsThisTurn: ['Kniffel'], plusMinusScores: [], chainTuttoCount: 1,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const alice = rooms[roomId].state.players[0];
+      expect(alice.busts).toBe(0);
+      expect(alice.timesKniffelCompleted).toBe(1);
+      expect(alice.timesKniffelFailed).toBe(0);
+      expect(rooms[roomId].state.previousTurnSummary?.ended).toBe('timeout');
+      expect(rooms[roomId].state.previousTurnSummary?.cards).toEqual([{ card: 'Kniffel', completed: true }]);
+      // NOT asserted: historyLog type. coreGameEngine collapses every classic
+      // non-success to 'bust' because HistoryEventType has no 'timeout'
+      // member — a separate display concern from the counters above.
+    });
+
+    it('still counts a bust when only SOME of the current roll is selected', () => {
+      // The counterpart the guard above must not swallow: five dice aside is
+      // not the choice, it is an unresolved roll, and a timeout there is a
+      // genuine null.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: 'Kniffel', cards: ['300'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 300,
+          keptDice: [1, 2, 3].map(v => ({ id: `k${v}`, val: v })),
+          currentRoll: [{ id: 'r4', val: 4, selected: true }, { id: 'r5', val: 5, selected: true },
+            { id: 'r6', val: 6, selected: false }],
+          kniffelProgress: [1, 2, 3], tuttosThisTurn: 0,
+          cardsThisTurn: ['Kniffel'], plusMinusScores: [], chainTuttoCount: 0,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const alice = rooms[roomId].state.players[0];
+      expect(alice.busts).toBe(1);
+      expect(alice.timesKniffelFailed).toBe(1);
+      expect(rooms[roomId].state.previousTurnSummary?.ended).toBe('null');
+    });
+
     it('does not invent a bust when the timeout lands on a Stop & Score summary countdown', () => {
       // The decision was made and committed into the snapshot (stopped: true);
       // only the short auto-continue never fired (tab died mid-countdown). No
@@ -682,7 +741,10 @@ describe('turnTimers', () => {
       const aborted = abortGameIfLowPlayers(io, room, roomId);
 
       expect(aborted).toBe(true);
-      expect(to).toHaveBeenCalledWith(roomId);
+      // The namespaced channel, never the bare roomId — see roomChannel() in
+      // rooms.ts for why a room may not broadcast on a name that could equal
+      // a socket id.
+      expect(to).toHaveBeenCalledWith(roomChannel(roomId));
       expect(emit).toHaveBeenCalledWith('gameAborted');
       expect(room.state.status).toBe('lobby');
       expect(room.state.currentCard).toBeNull();

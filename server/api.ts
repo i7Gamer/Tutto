@@ -184,6 +184,13 @@ export const registerApiRoutes = (app: express.Express): void => {
       res.status(400).json({ error: 'Invalid device id' });
       return;
     }
+    // Defence in depth for the header-based id above: moving it out of the path
+    // made this URL identical for EVERY device, so the only thing distinguishing
+    // two responses is a request header. Any shared cache in front of /api with
+    // a positive TTL would hand one device's stats to the next caller. `Vary`
+    // alone would not cover it — Cloudflare ignores Vary on most plans — so the
+    // response is simply not storable.
+    res.setHeader('Cache-Control', 'private, no-store');
     try {
       const stats = await getDeviceStats(deviceId, requestedMode(req));
       res.json(stats ?? {});

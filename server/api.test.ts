@@ -72,6 +72,17 @@ describe('API Endpoints Token Protection', () => {
     expect(res.status).toBe(200);
   });
 
+  it('GET the device stats route forbids shared caching of a per-device answer', async () => {
+    // Since the device id moved into a header, this URL is IDENTICAL for every
+    // device — so the response is only ever distinguishable by that header. A
+    // shared cache in front of /api with a positive TTL would serve one
+    // device's stats to the next caller. Vary alone is not enough (Cloudflare
+    // ignores Vary on most plans), so the response must simply not be stored.
+    const res = await deviceStatsGet('test-dev-cache');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+  });
+
   it('GET the device stats route rejects a request carrying no device header', async () => {
     // No header, no id — the same rejection an unusable path param used to get.
     const res = await fetch(`http://127.0.0.1:${PORT}/api/stats/device`);

@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Server, Socket } from 'socket.io';
 import { registerRoomHandlers } from './socketRoomHandlers';
-import { rooms, deleteRoom } from './rooms';
+import { rooms, deleteRoom, roomChannel } from './rooms';
 import type { ConnectionSession } from './socketContext';
 
 vi.mock('./database', () => ({
@@ -112,7 +112,8 @@ describe('joinRoom vs a disconnect during its stats await', () => {
     await vi.waitFor(() => expect(cb2).toHaveBeenCalled());
 
     expect(cb2).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
-    expect(oldSocket.leave).toHaveBeenCalledWith('TAKEOVER-ROOM');
+    // The namespaced channel, never the bare roomId — see roomChannel().
+    expect(oldSocket.leave).toHaveBeenCalledWith(roomChannel('TAKEOVER-ROOM'));
     expect(rooms['TAKEOVER-ROOM'].state.players[0].socketId).toBe('new-sock');
   });
 });

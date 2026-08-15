@@ -104,3 +104,60 @@ describe('pushState turn-timer restarts', () => {
     expect(rooms[roomId].turnTimerState?.restartsThisTurn).toBe(0);
   });
 });
+
+describe('pushState against an already-finished game', () => {
+  const roomId = 'FINISHED-CLOCK-ROOM';
+  const GAME_START = 500_000;
+  const GAME_END = 920_000; // 7 minutes of play
+  const LATER_PUSH = 1_000_000;
+  const PLAYED_SECONDS = (GAME_END - GAME_START) / 1000;
+  let pushState: Handler;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    rooms[roomId] = createRoom('active-sock');
+    // A finished game keeps status 'playing' with finished: true all the way
+    // through the end screen (see the startingGame comment in pushState), and
+    // the finishing push already nulled gameActualStartTime while banking the
+    // elapsed time into gameTimeInSeconds.
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null, currentCard: null,
+      round: 5, turnDuration: 60, turnStartTime: null,
+      gameTimeInSeconds: PLAYED_SECONDS,
+      players: [makePlayer('Alice', 'active-sock'), makePlayer('Bob', 'other-sock')],
+    });
+    rooms[roomId].gameActualStartTime = null;
+
+    const fake = makeFakeSocket('active-sock');
+    registerGameStateHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Alice' } });
+    pushState = fake.handlers['pushState'];
+    vi.setSystemTime(LATER_PUSH);
+  });
+
+  afterEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.useRealTimers();
+  });
+
+  it('does not re-arm the clock, so the final game time survives a later push', () => {
+    // status is still 'playing', so the "game is running, start the clock"
+    // branch re-armed gameActualStartTime to now — and the finished branch a
+    // few lines below then recomputed gameTimeInSeconds as now-minus-now = 0
+    // and broadcast it, repainting every end screen to 00:00.
+    pushState({ roomId, newState: { round: 5 } });
+
+    expect(rooms[roomId].gameActualStartTime).toBeNull();
+    expect(rooms[roomId].state.gameTimeInSeconds).toBe(PLAYED_SECONDS);
+  });
+
+  it('does not zero the clock even when the push is discarded for a stale roster', () => {
+    // applyPushedState bails on a roster mismatch, but the clock bookkeeping
+    // ran regardless of whether anything was applied — so a Play Again click
+    // carrying a roster a departing player had just invalidated still wiped
+    // the finished game's duration.
+    pushState({ roomId, newState: { players: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Carol' }] } });
+
+    expect(rooms[roomId].state.gameTimeInSeconds).toBe(PLAYED_SECONDS);
+  });
+});

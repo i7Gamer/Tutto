@@ -7,7 +7,7 @@ import { startServerTurnTimer, abortGameIfLowPlayers } from './turnTimers';
 import type { ServerPlayer } from './roomTypes';
 import {
   rooms, createRoom, deleteRoom, handleActivePlayerRemoved, emitRoomState,
-  promoteHostAfterLoss, MAX_PLAYERS_PER_ROOM, MAX_ROOMS,
+  promoteHostAfterLoss, roomChannel, MAX_PLAYERS_PER_ROOM, MAX_ROOMS,
 } from './rooms';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
@@ -139,7 +139,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       }
 
       emitRoomState(io, currentRoom);
-      io.to(currentRoom).emit('playerDisconnected', session.username);
+      io.to(roomChannel(currentRoom)).emit('playerDisconnected', session.username);
 
       if (timeoutSecs === 0) {
         if (room.state.players.every(p => p.disconnected)) {
@@ -256,7 +256,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
     // player entry behind forever (the session's room is just overwritten below) —
     // an unbounded way to accumulate abandoned rooms.
     if (session.roomId && session.roomId !== roomId) {
-      socket.leave(session.roomId);
+      socket.leave(roomChannel(session.roomId));
       // handlePlayerLeave reads the room off the session itself
       // (emitRoomState, delete rooms[...], etc.) — clear it only AFTER.
       handlePlayerLeave(true);
@@ -342,7 +342,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       // roomId is later deleted and reused by strangers, that tab would
       // silently stream THEIR room state too.
       if (existingPlayer.socketId && existingPlayer.socketId !== socket.id) {
-        io.sockets.sockets.get(existingPlayer.socketId)?.leave(roomId);
+        io.sockets.sockets.get(existingPlayer.socketId)?.leave(roomChannel(roomId));
       }
       if (room.host === existingPlayer.socketId) room.host = socket.id;
       existingPlayer.socketId = socket.id;
@@ -353,7 +353,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
         delete room.disconnectTimers[deviceId];
       }
 
-      socket.join(roomId);
+      socket.join(roomChannel(roomId));
       session.roomId = roomId;
       session.username = name;
       callback({ success: true, isHost: room.host === socket.id, socketId: socket.id, name });
@@ -399,14 +399,14 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
     // socket must never be in the Socket.IO room while absent from the
     // roster, or a concurrent broadcast (e.g. another player's pushState)
     // would reach it showing a player list that doesn't include itself.
-    socket.join(roomId);
+    socket.join(roomChannel(roomId));
 
     callback({ success: true, isHost: room.host === socket.id, socketId: socket.id, name });
     emitRoomState(io, roomId);
   });
 
   safeOn(socket, 'leaveRoom', () => {
-    if (session.roomId) socket.leave(session.roomId);
+    if (session.roomId) socket.leave(roomChannel(session.roomId));
     handlePlayerLeave(true);
     session.roomId = null;
     session.username = null;

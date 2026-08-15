@@ -1,4 +1,4 @@
-import { rooms } from './rooms';
+import { rooms, roomChannel } from './rooms';
 import { REACTION_EMOJIS } from '../src/utils/reactions';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
@@ -26,7 +26,7 @@ export const registerReactionHandlers = ({ io, socket, session }: SocketContext)
     const room = rooms[roomId];
     const sender = room.state.players.find(p => p.socketId === socket.id);
     if (!sender) return;
-    io.to(roomId).emit('playerReaction', {
+    io.to(roomChannel(roomId)).emit('playerReaction', {
       id: Date.now() + Math.random(),
       emoji,
       senderName: sender.name,

@@ -1,4 +1,4 @@
-import { rooms, emitRoomState, idleTurnTimerState, rememberCurrentTurn } from './rooms';
+import { rooms, emitRoomState, idleTurnTimerState, rememberCurrentTurn, roomChannel } from './rooms';
 import { applyPushedState, isValidDiceSnapshot, sanitizeDiceSnapshot } from './pushValidation';
 import { isNormalizedConfig } from '../src/utils/configValidation';
 import { clearServerTurnTimer, startServerTurnTimer } from './turnTimers';
@@ -90,7 +90,17 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
       room.normalizedGame &&= isNormalizedConfig(room.state);
     }
 
-    if (room.state.status === 'playing' && !room.gameActualStartTime) {
+    // `!finished` matters as much as the status: a finished game KEEPS status
+    // 'playing' all the way through the end screen, and its finishing push
+    // already nulled gameActualStartTime after banking the elapsed time. So
+    // without this, any later push against the finished room re-armed the
+    // clock to now — and the finished branch below then recomputed
+    // gameTimeInSeconds as now-minus-now = 0 and broadcast it, repainting
+    // every end screen to 00:00. It also happens for a push that was
+    // DISCARDED (a stale roster bails out of applyPushedState, but this
+    // bookkeeping runs regardless), and a player who rejoins after that
+    // broadcast then submits totalPlaytime: 0 to the stats.
+    if (room.state.status === 'playing' && !room.state.finished && !room.gameActualStartTime) {
       room.gameActualStartTime = Date.now();
     }
 
@@ -165,6 +175,6 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
       return;
     }
 
-    io.to(roomId).emit('liveTurnState', { liveTurnState: room.state.liveTurnState });
+    io.to(roomChannel(roomId)).emit('liveTurnState', { liveTurnState: room.state.liveTurnState });
   });
 };

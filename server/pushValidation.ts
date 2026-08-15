@@ -21,8 +21,15 @@ const MAX_DECK_SIZE = MAX_CARD_COUNT * 11;
 // beyond any real game, just enough to stop a malicious pushState from growing
 // these arrays without bound.
 export const MAX_ROUNDS = 100000;
-const MAX_SCORE_MAGNITUDE = 1_000_000;
+// Exported so the tests can assert the bound itself rather than restating it.
+export const MAX_SCORE_MAGNITUDE = 1_000_000;
 const MAX_GAME_SECONDS = 10_000_000;
+
+// The bound every numeric in a client-pushed payload must clear: finite AND
+// within the sanity cap. Named once so a new field cannot accidentally settle
+// for finiteness alone (which is how turnScore came to be uncapped).
+const isBoundedNumber = (v: unknown): v is number =>
+  typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= MAX_SCORE_MAGNITUDE;
 
 // The chain's Plus/Minus running totals: shape from turnShapes, magnitude the
 // network's own rule — the engine adds each one to a player's score, so an
@@ -88,8 +95,15 @@ export const isPlausiblePlayerSnapshot = (v: unknown): v is { name: string; scor
 export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
-  if (!(typeof s.turnScore === 'number' && Number.isFinite(s.turnScore))) return false;
-  if (!(typeof s.tuttosThisTurn === 'number' && Number.isFinite(s.tuttosThisTurn))) return false;
+  // Bounded, not merely finite, like every other numeric in this file: the
+  // liveTurnState handler accepts `isHost || isActivePlayer`, so a patched
+  // host can plant a snapshot for ANOTHER player's turn and then force expiry
+  // (shortening turnDuration mid-game). turnTimers reads turnScore straight
+  // into that player's highestForfeitedTurnScore, which their own unmodified
+  // client then submits for their device — where the DB merges it with MAX,
+  // permanently.
+  if (!isBoundedNumber(s.turnScore)) return false;
+  if (!isBoundedNumber(s.tuttosThisTurn)) return false;
   if (!(Array.isArray(s.keptDice) && s.keptDice.length <= TOTAL_DICE && s.keptDice.every(isSnapshotDie))) return false;
   if (!(Array.isArray(s.currentRoll) && s.currentRoll.length <= TOTAL_DICE && s.currentRoll.every(isRolledDie))) return false;
   if (!(Array.isArray(s.kniffelProgress) && s.kniffelProgress.length <= TOTAL_DICE && s.kniffelProgress.every(isKniffelProgressEntry))) return false;
@@ -285,6 +299,27 @@ const PLAYER_MUTABLE: (keyof ServerPlayer)[] = [
   'position', 'color',
 ];
 
+/**
+ * The PLAYER_MUTABLE entries whose "no value yet" is ABSENCE, not zero.
+ *
+ * They are absent from zeroedPlayerStats (a player does not start a game on a
+ * per-turn maximum), so `createInitialPlayer` omits them and a Play Again
+ * kickoff push carries no key for them. mergeMutable skips absent fields — its
+ * whole point, so an ordinary mid-game push cannot wipe a record it merely
+ * did not mention — which meant the merge onto the PREVIOUS game's server
+ * player let last game's record survive into the new one. Since
+ * calculateNextTurn only ever RAISES these, the new game's genuine record was
+ * then never recorded at all: EndScreen and the stats tiles kept showing the
+ * old number for the rest of the game.
+ *
+ * So absence has to mean two different things depending on the push, and only
+ * a game start may read it as "cleared".
+ */
+const PLAYER_OPTIONAL_RECORDS: (keyof ServerPlayer)[] = [
+  'highestTurnScore', 'highestFeuerwerkTurnScore', 'highestX2TurnScore',
+  'mostCardsInTurn', 'highestForfeitedTurnScore',
+];
+
 // Matched by name, not deviceId: name is already unique within a room (enforced
 // at join) and, unlike deviceId, was never meant to be secret — reorderPlayers
 // already keys off it the same way. Keeping deviceId out of this match means it
@@ -301,11 +336,22 @@ export const validatePushedPlayers = (existing: ServerPlayer[], pushed: unknown[
   return pushed.every(p => typeof p === 'object' && p !== null && existingNames.has((p as { name?: string }).name ?? ''));
 };
 
-const mergeMutable = (existing: ServerPlayer, p: Record<string, unknown> | undefined): ServerPlayer => {
+const mergeMutable = (
+  existing: ServerPlayer,
+  p: Record<string, unknown> | undefined,
+  // Only a game start may read an absent optional record as "cleared" — see
+  // PLAYER_OPTIONAL_RECORDS.
+  { clearAbsentRecords = false }: { clearAbsentRecords?: boolean } = {},
+): ServerPlayer => {
   if (!p) return existing;
   const updated = { ...existing };
   for (const f of PLAYER_MUTABLE) {
-    if (!(f in p)) continue;
+    if (!(f in p)) {
+      if (clearAbsentRecords && PLAYER_OPTIONAL_RECORDS.includes(f)) {
+        delete (updated as Record<string, unknown>)[f];
+      }
+      continue;
+    }
     const v = p[f];
     if (f === 'color') {
       if (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) updated.color = v;
@@ -368,7 +414,7 @@ export const applyPushedState = (
         // (pushed in the same order) aligned with the authoritative roster.
         const byName = new Map(state.players.map(p => [p.name, p]));
         state.players = pushed.map(q =>
-          mergeMutable(byName.get(q.name as string)!, q),
+          mergeMutable(byName.get(q.name as string)!, q, { clearAbsentRecords: true }),
         );
       } else {
         state.players = state.players.map(existing =>

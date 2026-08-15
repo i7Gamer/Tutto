@@ -1,4 +1,4 @@
-import { rooms, deleteRoom, handleActivePlayerRemoved, emitRoomState } from './rooms';
+import { rooms, deleteRoom, handleActivePlayerRemoved, emitRoomState, roomChannel } from './rooms';
 import { startServerTurnTimer, abortGameIfLowPlayers } from './turnTimers';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
@@ -113,6 +113,6 @@ export const registerRosterHandlers = ({ io, socket, session }: SocketContext): 
     }
 
     const targetSocket = io.sockets.sockets.get(targetSocketId);
-    if (targetSocket) targetSocket.leave(roomId);
+    if (targetSocket) targetSocket.leave(roomChannel(roomId));
   });
 };

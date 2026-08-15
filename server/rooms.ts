@@ -17,6 +17,29 @@ import type { Room, RoomState, ServerPlayer, TurnTimerState } from './roomTypes'
 // `Object.keys(rooms)` call site already assumes.
 export const rooms: Record<string, Room> = Object.create(null) as Record<string, Room>;
 
+/**
+ * The Socket.IO channel a room broadcasts on — never the bare roomId.
+ *
+ * socket.io auto-joins every socket to a room named its own id (`this.join
+ * (this.id)` in Socket._onconnect), so Socket.IO room names and socket ids are
+ * ONE namespace. joinRoom validates roomId only as a 1-100 char string, and
+ * sanitizePlayerForBroadcast strips only deviceId — so `players[].socketId`
+ * rides every gameState and any co-member can read a victim's id. Broadcasting
+ * on the bare id then lets that member join a "room" named after the victim's
+ * socket from a second connection and have every io.to(...) send for it
+ * delivered straight into the victim's client, which applies a gameState
+ * wholesale (GAME_STATE_SYNC_KEYS in src/store/socketSlice.ts): foreign roster,
+ * status, currentPlayerIndex, and an isHost flip. The reverse collision is the
+ * same bug from the other side — io.to(someSocketId).emit('kicked') would reach
+ * every member of a room that happens to be named that id.
+ *
+ * The prefix cannot occur in a socket id (socket.io ids are base64url — no
+ * colon), so one helper on both sides keeps the namespaces disjoint by
+ * construction. Only the wire channel is prefixed: the `rooms` map key, every
+ * `session.roomId`, and every client-facing payload stay the bare roomId.
+ */
+export const roomChannel = (roomId: string): string => `room:${roomId}`;
+
 // Upper bound on distinct players a single room can hold. Without one, a
 // hostile or buggy client could keep joining new deviceIds into one room
 // forever, growing its player/chart arrays (and every broadcast of them)
@@ -258,6 +281,6 @@ export const emitRoomState = (io: Server, roomId: string): void => {
     turnTimeRemaining: calculateRemainingTurnTime(room),
     gameTimeInSeconds: calculateGameTime(room),
   };
-  io.to(roomId).emit('gameState', gameState);
-  io.to(roomId).emit('hostId', room.host);
+  io.to(roomChannel(roomId)).emit('gameState', gameState);
+  io.to(roomChannel(roomId)).emit('hostId', room.host);
 };

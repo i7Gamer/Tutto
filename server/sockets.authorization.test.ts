@@ -84,6 +84,68 @@ describe('Server Socket E2E — authorization & payload validation', () => {
     });
   }, 10000);
 
+  it('does not deliver a room named after a socket id to that socket', () => {
+    // socket.io auto-joins every socket to a room named its own id
+    // (`this.join(this.id)` in Socket._onconnect), and joinRoom accepts any
+    // 1-100 char string as a roomId — so if rooms broadcast on the bare id,
+    // the two namespaces are one. `players[].socketId` rides every gameState
+    // (sanitizePlayerForBroadcast strips only deviceId), so any co-member can
+    // read a victim's id, join a "room" named after it from a second
+    // connection, and have every io.to(...) send for that fake room delivered
+    // into the victim's client — which applies a gameState wholesale
+    // (socketSlice.ts GAME_STATE_SYNC_KEYS), taking over roster, status,
+    // currentPlayerIndex and isHost.
+    return new Promise((resolve, reject) => {
+      const victim = io(`http://127.0.0.1:${PORT}`);
+      const attacker = io(`http://127.0.0.1:${PORT}`);
+
+      const finish = (err) => {
+        victim.disconnect();
+        attacker.disconnect();
+        if (err) reject(err); else resolve();
+      };
+
+      victim.on('connect', () => {
+        victim.emit('joinRoom', { roomId: 'E2E_NS_VICTIM', name: 'Victim', deviceId: 'dev-ns-v' }, (ack) => {
+          const victimSocketId = ack.socketId;
+
+          // Only now: the victim's own join broadcast is already delivered, so
+          // anything arriving after this point came from the attacker's room.
+          victim.on('gameState', (state) => {
+            if (state.players?.some(p => p.name === 'Attacker')) {
+              clearTimeout(timeoutId);
+              finish(new Error('A room named after the victim\'s socket id broadcast into the victim\'s client'));
+            }
+          });
+          victim.on('hostId', (hostSocketId) => {
+            if (hostSocketId !== victimSocketId) {
+              clearTimeout(timeoutId);
+              finish(new Error(`Foreign hostId ${hostSocketId} reached the victim; it would flip isHost`));
+            }
+          });
+
+          attacker.emit(
+            'joinRoom',
+            { roomId: victimSocketId, name: 'Attacker', deviceId: 'dev-ns-a' },
+            (attackerAck) => {
+              // The join itself may legitimately succeed (the id is just a
+              // string); what must not happen is its broadcast reaching the
+              // victim. Push too, so a second emit has to stay contained.
+              if (attackerAck.success) {
+                attacker.emit('pushState', {
+                  roomId: victimSocketId,
+                  newState: { status: 'playing', currentPlayerIndex: 0 },
+                });
+              }
+            },
+          );
+        });
+      });
+
+      const timeoutId = setTimeout(() => finish(null), 600);
+    });
+  }, 10000);
+
   it('rejects pushState of host-only fields (status, winningScore) from a non-host active player', () => {
     return new Promise((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host

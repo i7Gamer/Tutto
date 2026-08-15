@@ -17,6 +17,7 @@ import {
   sanitizeDiceSnapshot,
   isValidTurnSummary,
   sanitizeTurnSummary,
+  MAX_SCORE_MAGNITUDE,
 } from './pushValidation';
 import { createRoom } from './rooms';
 import { zeroedPlayerStats, PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
@@ -283,6 +284,45 @@ describe('applyPushedState', () => {
       expect(state.players.map(p => p.name)).toEqual(['Alice', 'Bob']);
       expect(state.players[0].score).toBe(9);
       expect(state.players[1].score).toBe(7);
+    });
+
+    it('clears the previous game\'s per-turn records on a Play Again start', () => {
+      // The five optional records are absent from a fresh player
+      // (createInitialPlayer builds from zeroedPlayerStats, which has none of
+      // them), and mergeMutable skips any field not present in the push — so
+      // a Play Again kickoff merged onto the PREVIOUS game's server player and
+      // the old record survived into the new game. Because calculateNextTurn
+      // only ever RAISES these maxima, the new game's genuine record then
+      // never gets recorded at all.
+      const state = makeState();
+      Object.assign(state.players[0], {
+        highestTurnScore: 3000, highestFeuerwerkTurnScore: 1200, highestX2TurnScore: 900,
+        mostCardsInTurn: 5, highestForfeitedTurnScore: 2500,
+      });
+
+      applyPushedState(state, {
+        players: [{ name: 'Alice', score: 0 }, { name: 'Bob', score: 0 }],
+        status: 'playing',
+      }, asHostStarting);
+
+      expect(state.players[0].highestTurnScore).toBeUndefined();
+      expect(state.players[0].highestFeuerwerkTurnScore).toBeUndefined();
+      expect(state.players[0].highestX2TurnScore).toBeUndefined();
+      expect(state.players[0].mostCardsInTurn).toBeUndefined();
+      expect(state.players[0].highestForfeitedTurnScore).toBeUndefined();
+    });
+
+    it('keeps a per-turn record that an ordinary mid-game push omits', () => {
+      // The counterpart: only a game START clears these. A push that simply
+      // does not mention the field must not wipe the record set earlier this
+      // same game.
+      const state = makeState();
+      Object.assign(state.players[0], { highestTurnScore: 3000, mostCardsInTurn: 5 });
+
+      applyPushedState(state, { players: [{ name: 'Alice', score: 50 }, { name: 'Bob' }] }, asHost);
+
+      expect(state.players[0].highestTurnScore).toBe(3000);
+      expect(state.players[0].mostCardsInTurn).toBe(5);
     });
 
     it('rejects the whole players push when the pushed list has duplicate names (SERVER-PV-1)', () => {
@@ -806,6 +846,20 @@ describe('isValidDiceSnapshot', () => {
     expect(isValidDiceSnapshot({ ...valid, keptDice: Array(7).fill(0) })).toBe(false);
     expect(isValidDiceSnapshot({ ...valid, currentRoll: Array(7).fill(0) })).toBe(false);
     expect(isValidDiceSnapshot({ ...valid, kniffelProgress: Array(7).fill(0) })).toBe(false);
+  });
+
+  it('rejects scores past the magnitude cap every other numeric field enforces', () => {
+    // turnScore was finiteness-checked only, while every sibling numeric in
+    // this file is bounded by MAX_SCORE_MAGNITUDE. The timeout path launders
+    // it onto a player's permanent record: the liveTurnState handler accepts
+    // isHost || isActivePlayer, so a patched host can plant a snapshot for
+    // someone ELSE's turn, force expiry, and turnTimers writes it to their
+    // highestForfeitedTurnScore — which that player's own unmodified client
+    // then submits for their device, where the DB merges it with MAX.
+    expect(isValidDiceSnapshot({ ...valid, turnScore: 1e308 })).toBe(false);
+    expect(isValidDiceSnapshot({ ...valid, turnScore: -1e308 })).toBe(false);
+    expect(isValidDiceSnapshot({ ...valid, turnScore: MAX_SCORE_MAGNITUDE })).toBe(true);
+    expect(isValidDiceSnapshot({ ...valid, tuttosThisTurn: 1e308 })).toBe(false);
   });
 
   it('accepts well-formed dice/kniffel-progress elements', () => {
