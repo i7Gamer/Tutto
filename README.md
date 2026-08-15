@@ -233,6 +233,20 @@ docker build -t tutto:local .
 
 In production, an unset `CORS_ORIGIN` means same-origin requests only, which is what you want when the frontend is served by this same server. Set it only if the frontend lives on a different origin; setting it to `*` is refused at startup.
 
+### Restart safety
+
+Rooms live in the server's memory, so restarting ends every game in progress. With `TUTTO_STATUS_LINE=1` the server keeps one line at the bottom of its console saying whether that would interrupt anyone:
+
+```
+[activity] idle — safe to restart
+[activity] 1 game in progress · 4 players — DO NOT RESTART
+[activity] 1 finished game awaiting stats — DO NOT RESTART
+```
+
+A restart is called unsafe while a game is being played, and while a finished game's statistics have not been submitted yet (they are sent by the host's client after the game ends and are lost if the server goes away first). `start-tutto-prod.bat` sets the variable for you.
+
+On a terminal the line is rewritten in place, so it never scrolls; redirected to a file it prints one line per change instead. The variable is off by default, so Docker, CI and development servers log exactly as they otherwise would.
+
 ## Testing
 
 The project has comprehensive test coverage ranging from unit tests for the core game engine, to React component tests, and end-to-end integration tests.

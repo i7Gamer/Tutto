@@ -14,6 +14,9 @@ import { initDb, closeDb } from './database';
 import { resolveCorsOrigin, validateCorsOriginForStartup, isProxyTrusted, warnIfProxyTrustUnset } from './startupGuards';
 import { resolveDbFilename } from './knexfile';
 import { createShutdownHandler, createServerClosers, SHUTDOWN_SIGNALS } from './shutdown';
+import { rooms } from './rooms';
+import { summarizeActivity, renderActivityLine } from './activity';
+import { createStatusLine, isStatusLineEnabled } from './statusLine';
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection, shutting down:', reason);
@@ -63,6 +66,21 @@ registerApiRoutes(app);
 
 const PORT = process.env.PORT || 3001;
 
+// Whether a game is in progress, on one line rewritten in place at the bottom
+// of this console — the answer to "may I close this window?", which nothing can
+// give once the process holding `rooms` is gone. Opt-in (start-tutto-prod.bat
+// sets TUTTO_STATUS_LINE), so containers and CI log exactly what they did
+// before. null when it is not asked for: nothing is timed and console is left
+// untouched.
+const statusLine = isStatusLineEnabled(process.env)
+  ? createStatusLine({
+    render: () => renderActivityLine(summarizeActivity(rooms)),
+    write: chunk => process.stdout.write(chunk),
+    isTTY: Boolean(process.stdout.isTTY),
+    hostConsole: console,
+  })
+  : null;
+
 const start = async (): Promise<void> => {
   await initDb();
   server.listen(PORT, () => {
@@ -71,6 +89,9 @@ const start = async (): Promise<void> => {
     // files unless DB_PATH says otherwise (see knexfile.ts), and finding that
     // out from a statistics screen that looks empty is far too late.
     console.log(`Statistics database: ${resolveDbFilename(process.env)}`);
+    // After the startup lines, so it settles below them rather than being
+    // scrolled past by them.
+    statusLine?.start();
   });
 };
 
@@ -100,6 +121,9 @@ const shutdown = createShutdownHandler({
 // disposition, killing the process mid-migration.
 for (const signal of SHUTDOWN_SIGNALS) {
   process.on(signal, () => {
+    // Before the shutdown log: it hands the console back and closes the line,
+    // so the ordered-shutdown messages are not written over a sticky one.
+    statusLine?.stop();
     void shutdown(signal);
   });
 }
