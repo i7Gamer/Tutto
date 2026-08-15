@@ -279,7 +279,11 @@ describe('App Integration (End-to-End)', () => {
       expect(useGameStore.getState().toasts.map(toast => toast.message))
         .toContain('lobby.online.joinTimeout');
     } finally {
-      useGameStore.setState({ joinRoom: originalJoinRoom });
+      // act(): this runs before RTL unmounts App, so restoring the overridden
+      // action re-renders a still-mounted tree. The restore itself cannot be
+      // dropped — store reset() rewinds state fields only, so an overridden
+      // ACTION would leak into every later test.
+      act(() => { useGameStore.setState({ joinRoom: originalJoinRoom }); });
       vi.useRealTimers();
     }
   });
@@ -309,7 +313,11 @@ describe('App Integration (End-to-End)', () => {
       expect(messages.some(m => m.includes('Username already exists'))).toBe(false);
       expect(useGameStore.getState().showReconnectPopup).toBe(false);
     } finally {
-      useGameStore.setState({ joinRoom: originalJoinRoom });
+      // act(): this runs before RTL unmounts App, so restoring the overridden
+      // action re-renders a still-mounted tree. The restore itself cannot be
+      // dropped — store reset() rewinds state fields only, so an overridden
+      // ACTION would leak into every later test.
+      act(() => { useGameStore.setState({ joinRoom: originalJoinRoom }); });
     }
   });
 
@@ -331,7 +339,11 @@ describe('App Integration (End-to-End)', () => {
       expect(useGameStore.getState().toasts.map(toast => toast.message))
         .toContain('Refused, reason unknown to this client');
     } finally {
-      useGameStore.setState({ joinRoom: originalJoinRoom });
+      // act(): this runs before RTL unmounts App, so restoring the overridden
+      // action re-renders a still-mounted tree. The restore itself cannot be
+      // dropped — store reset() rewinds state fields only, so an overridden
+      // ACTION would leak into every later test.
+      act(() => { useGameStore.setState({ joinRoom: originalJoinRoom }); });
     }
   });
 

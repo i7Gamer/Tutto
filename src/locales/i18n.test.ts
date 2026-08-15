@@ -18,20 +18,6 @@ const getJsonKeys = (obj, prefix = '') => {
   return keys;
 };
 
-const getAllSourceFiles = (dirPath, arrayOfFiles = []) => {
-  const files = fs.readdirSync(dirPath);
-
-  files.forEach((file) => {
-    if (fs.statSync(path.join(dirPath, file)).isDirectory()) {
-      arrayOfFiles = getAllSourceFiles(path.join(dirPath, file), arrayOfFiles);
-    } else if (file.endsWith('.js') || file.endsWith('.jsx')) {
-      arrayOfFiles.push(path.join(dirPath, file));
-    }
-  });
-
-  return arrayOfFiles;
-};
-
 describe('i18n Translations completeness', () => {
   const enTranslations = JSON.parse(fs.readFileSync(path.join(localesDir, 'en', 'translation.json'), 'utf8'));
   const deTranslations = JSON.parse(fs.readFileSync(path.join(localesDir, 'de', 'translation.json'), 'utf8'));
@@ -49,26 +35,12 @@ describe('i18n Translations completeness', () => {
     expect(missingInEn, `Keys missing in English translation: ${missingInEn.join(', ')}`).toEqual([]);
   });
 
-  it('verifies that all translation keys used in source code exist in the translation files', () => {
-    const allFiles = getAllSourceFiles(srcDir);
-    const translationKeyRegex = /(?:^|[^a-zA-Z0-9_])t\(\s*['"]([a-zA-Z0-9_.-]+)['"]/g;
-    
-    const usedKeys = new Set();
-
-    allFiles.forEach(file => {
-      // Skip test files
-      if (file.endsWith('.test.js') || file.endsWith('.test.jsx')) return;
-      
-      const content = fs.readFileSync(file, 'utf8');
-      let match;
-      while ((match = translationKeyRegex.exec(content)) !== null) {
-        usedKeys.add(match[1]);
-      }
-    });
-
-    const usedKeysArray = Array.from(usedKeys);
-    const missingKeys = usedKeysArray.filter(key => !enKeys.includes(key));
-
-    expect(missingKeys, `Found translation keys in source code that are missing from translation.json: ${missingKeys.join(', ')}`).toEqual([]);
-  });
+  // Deliberately NOT repeated here: "every t('...') key exists in the locale
+  // files". That check lives in translations.test.ts, which scans .ts/.tsx and
+  // verifies BOTH locales. The version that used to sit here filtered for
+  // .js/.jsx in a TypeScript project, so it saw exactly two files (src/sw.js,
+  // which contains no t(), and src/sw.test.js, which it skipped): usedKeys was
+  // always empty and the assertion was `expect([]).toEqual([])`. Proved by
+  // mutation — adding a t('totally.missing.key') to a component leaves this
+  // file green and fails translations.test.ts.
 });

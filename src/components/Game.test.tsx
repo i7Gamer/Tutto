@@ -514,10 +514,9 @@ describe('Game Component Integration', () => {
     beforeEach(() => {
       useGameStore.setState({ ruleset: 'classic', diceMode: 'physical' });
     });
-
-    afterEach(() => {
-      useGameStore.setState({ ruleset: 'modernized' });
-    });
+    // No afterEach reset: the outer beforeEach already restores 'modernized'
+    // for every test, and resetting here runs before RTL unmounts Game, so the
+    // store update would land outside act().
 
     it('a Kniffel Yes does not commit: it pre-fills 2000 and offers bank or draw', () => {
       useGameStore.setState({ currentCard: 'Kniffel' });
@@ -1213,8 +1212,10 @@ describe('Game Component Integration', () => {
     });
 
     afterEach(() => {
+      // Store state is not reset here: the outer beforeEach already restores
+      // ruleset/isOnline for every test, and resetting here runs before RTL
+      // unmounts Game, so the update would land outside act().
       localStorage.clear();
-      useGameStore.setState({ ruleset: 'modernized', isOnline: true });
     });
 
     it('offers a committing Continue on a Stop card while the panel is closed', () => {
@@ -1392,8 +1393,8 @@ describe('Game Component Integration', () => {
 
       fireEvent.keyDown(window, { key: ' ' });
       expect(mockNextTurn).not.toHaveBeenCalled();
-
-      useGameStore.setState({ ruleset: 'modernized' });
+      // No ruleset reset here: beforeEach already restores 'modernized', and
+      // setting it while Game is still mounted updates state outside act().
     });
 
     it('ignores the shortcut while focus is inside the score input', () => {

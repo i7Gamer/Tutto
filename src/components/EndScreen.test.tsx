@@ -38,9 +38,16 @@ describe('EndScreen Component', () => {
     });
   });
 
+  // cleanup() FIRST, then the reset: a store write while EndScreen is still
+  // mounted re-renders it outside act(). Every store field a nested describe
+  // stages belongs here rather than in its own afterEach, which would run
+  // before this one — i.e. before the unmount.
   afterEach(() => {
     cleanup();
-    useGameStore.setState({ isOnline: false, isHost: false, myName: null, preGameStats: null });
+    useGameStore.setState({
+      isOnline: false, isHost: false, myName: null, preGameStats: null,
+      ruleset: 'modernized',
+    });
     vi.useRealTimers();
   });
 
@@ -172,10 +179,6 @@ describe('EndScreen Component', () => {
   });
 
   describe('Play Again minimum players (online)', () => {
-    afterEach(() => {
-      useGameStore.setState({ isOnline: false, isHost: false });
-    });
-
     it('blocks Play Again when opponents have LEFT the room (not merely disconnected)', () => {
       // A leaver is spliced out server-side, so waitingForReconnect never
       // sees them — without its own roster check the end screen could start
@@ -206,10 +209,6 @@ describe('EndScreen Component', () => {
   });
 
   describe('classic chain row in the game-stats table', () => {
-    afterEach(() => {
-      useGameStore.setState({ ruleset: 'modernized' });
-    });
-
     it('shows each player\'s longest chain and a received-only Feuerwerk row for a classic game', () => {
       useGameStore.setState({
         ruleset: 'classic',
