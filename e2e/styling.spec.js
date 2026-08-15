@@ -54,6 +54,38 @@ test.describe('stylesheet cascade', () => {
 });
 
 /**
+ * The same trap, caught on a real element rather than a probe: `.lobby-row`
+ * sets background-color from OUTSIDE any layer, so it outranks `@layer
+ * utilities` however specific the utility is — a `hover:bg-gray-50` on the row
+ * itself silently never applied, and the Random Order switch had no hover cue
+ * at all. The fix moves the hover into the same unlayered context
+ * (`.lobby-row-hoverable:hover`, LobbyShared.css), which only a real browser
+ * can confirm: the rule is present in the stylesheet either way, and jsdom
+ * resolves neither layers nor :hover.
+ */
+test.describe('the lobby row hover cue survives the cascade', () => {
+  test('hovering the Random Order switch actually changes its background', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: /Show Advanced Options/i }).click();
+
+    const toggle = page.getByRole('switch', { name: /Random Order/i });
+    await expect(toggle).toBeVisible();
+
+    const background = () => toggle.evaluate(el => getComputedStyle(el).backgroundColor);
+
+    // Park the pointer somewhere harmless first, so the "resting" reading is
+    // genuinely un-hovered however the previous action left the mouse.
+    await page.mouse.move(0, 0);
+    const resting = await background();
+
+    await toggle.hover();
+    await expect.poll(background, {
+      message: '.lobby-row-hoverable:hover lost to the unlayered .lobby-row background',
+    }).not.toBe(resting);
+  });
+});
+
+/**
  * index.css reads two colours out of Tailwind's theme rather than copying them
  * (`--primary: var(--color-indigo-600)`), which keeps them from drifting the way
  * they did across the v4 upgrade. The catch is that a theme variable is only

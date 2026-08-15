@@ -93,3 +93,35 @@ test.describe('Lobby ruleset selector', () => {
     await expect(page.getByLabel('Classic', { exact: true })).toBeChecked();
   });
 });
+
+/**
+ * The Random Order switch was a bare `<div onClick>`, and it is the only call
+ * site of setRandomOrder — so a keyboard-only host had no keystroke at all
+ * that could change the play order (WCAG 2.1.1 Level A). The unit test focuses
+ * it directly, which cannot prove the browser's own sequential navigation ever
+ * REACHES it; that is what this adds. A `<div>` without tabIndex is skipped by
+ * Tab entirely, so this is the assertion the original markup fails.
+ */
+test.describe('Lobby Random Order switch is operable without a mouse', () => {
+  test('Tab reaches it and Space toggles it', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: /Show Advanced Options/i }).click();
+
+    const toggle = page.getByRole('switch', { name: /Random Order/i });
+    await expect(toggle).toBeVisible();
+    const before = await toggle.getAttribute('aria-checked');
+
+    // Walk the real tab order from the top of the document rather than
+    // focusing the switch directly — reachability is the whole point.
+    await page.evaluate(() => document.body.focus());
+    let reached = false;
+    for (let i = 0; i < 40 && !reached; i += 1) {
+      await page.keyboard.press('Tab');
+      reached = await toggle.evaluate(el => el === document.activeElement);
+    }
+    expect(reached, 'Tab never reached the Random Order switch').toBe(true);
+
+    await page.keyboard.press('Space');
+    await expect(toggle).toHaveAttribute('aria-checked', before === 'true' ? 'false' : 'true');
+  });
+});
