@@ -29,9 +29,13 @@ const SERVER_DIR = __dirname;
 const REPO_ROOT = path.join(__dirname, '..');
 
 // Helpers that exist only for the test suites. They must never appear in the
-// production import graph — socketTestHarness spawns child processes, and
-// neither is copied into the image.
-const TEST_ONLY_HELPERS = ['socketTestHarness.ts', 'testPorts.ts'];
+// production import graph — socketTestHarness spawns child processes, and none
+// of them is copied into the image.
+//
+// Kept honest by "lists every genuinely test-only helper" below, which derives
+// the same fact from the imports: every other assertion here reads from THIS
+// list, so before that check a helper missing from it was invisible.
+const TEST_ONLY_HELPERS = ['socketTestHarness.ts', 'testPorts.ts', 'testTimeouts.ts'];
 
 // Repo-relative paths (file or directory) outside server/ that the production
 // image copies. Must mirror the COPY lines in the Dockerfile.
@@ -233,6 +237,60 @@ describe('production import graph', () => {
       .map(file => path.basename(file))
       .filter(name => TEST_ONLY_HELPERS.includes(name));
     expect(leaked).toEqual([]);
+  });
+
+  it('lists every genuinely test-only helper in TEST_ONLY_HELPERS', () => {
+    // The oracle the other two assertions lack. Both the leak check above and
+    // the .dockerignore check below derive from TEST_ONLY_HELPERS, so a helper
+    // MISSING from that list is invisible to both — which is how
+    // testTimeouts.ts came to be shipped by `COPY server/*.ts` and enrolled as
+    // a production graph root. This derives the same fact from the imports
+    // instead: a non-test server file whose importers are all test files (or
+    // themselves test-only) is test-only, whatever the list happens to say.
+    const serverFiles = fs
+      .readdirSync(SERVER_DIR)
+      .filter(name => name.endsWith('.ts'));
+
+    const importsOf = new Map<string, Set<string>>();
+    for (const name of serverFiles) {
+      const specifiers = readImportSpecifiers(path.join(SERVER_DIR, name))
+        .filter(specifier => specifier.startsWith('.'));
+      for (const specifier of specifiers) {
+        const resolved = resolveRelativeImport(path.join(SERVER_DIR, name), specifier);
+        if (resolved === null || path.dirname(resolved) !== SERVER_DIR) continue;
+        const target = path.basename(resolved);
+        if (!importsOf.has(target)) importsOf.set(target, new Set());
+        (importsOf.get(target) as Set<string>).add(name);
+      }
+    }
+
+    // Fixed point, so a helper imported only by another test-only helper is
+    // still recognised as test-only.
+    const testOnly = new Set(serverFiles.filter(isTestFile));
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const name of serverFiles) {
+        if (testOnly.has(name)) continue;
+        const importers = importsOf.get(name);
+        // No importer at all = an entry point (index.ts), not a helper.
+        if (!importers || importers.size === 0) continue;
+        if ([...importers].every(importer => testOnly.has(importer))) {
+          testOnly.add(name);
+          grew = true;
+        }
+      }
+    }
+
+    const undeclared = [...testOnly]
+      .filter(name => !isTestFile(name))
+      .filter(name => !TEST_ONLY_HELPERS.includes(name))
+      .sort();
+
+    expect(
+      undeclared,
+      `Imported only by tests, but absent from TEST_ONLY_HELPERS (so it ships in the image and roots the production graph): ${undeclared.join(', ')}`,
+    ).toEqual([]);
   });
 });
 

@@ -39,9 +39,12 @@ src/**/*.test.tsx
 src/setupTests.tsx
 server/**/*.test.ts
 # Test-only helpers: socketTestHarness spawns child processes, testPorts is the
-# suites' port registry. Neither has any business in a production image.
+# suites' port registry, testTimeouts holds their hook budgets. None of them has
+# any business in a production image. Mirrored by TEST_ONLY_HELPERS in
+# server/packaging.test.ts, which now derives the membership independently.
 server/socketTestHarness.ts
 server/testPorts.ts
+server/testTimeouts.ts
 
 # Databases and their backups — the image starts empty and uses a volume
 *.db
