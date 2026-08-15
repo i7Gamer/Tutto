@@ -420,6 +420,38 @@ describe('turnTimers', () => {
       // member — a separate display concern from the counters above.
     });
 
+    it('keeps a banked tutto marked completed when the summary countdown times out', () => {
+      // The counterpart to the split-shape case above, and the one a naive
+      // `!stopped` guard breaks. Several DiceGame paths commit a COMPLETED
+      // tutto and mark it stopped in the same breath (the classic bank/draw
+      // choice at 'Finish', the modernized turn-ending tutto, the Kleeblatt
+      // win): keptDice holds all six, currentRoll is emptied, stopped is true.
+      // If the tab then dies during the summary countdown the server timer
+      // fires — and the card must stay COMPLETED. stoppedBanked only decides
+      // `ended`; it does not mark the card, so completion has to come from the
+      // dice count alone.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: 'Kniffel', cards: ['300'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 2000,
+          keptDice: [1, 2, 3, 4, 5, 6].map(v => ({ id: `d${v}`, val: v })),
+          currentRoll: [], kniffelProgress: [1, 2, 3, 4, 5, 6], tuttosThisTurn: 1,
+          stopped: true,
+          cardsThisTurn: ['Kniffel'], plusMinusScores: [], chainTuttoCount: 1,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const alice = rooms[roomId].state.players[0];
+      expect(alice.busts).toBe(0);
+      expect(alice.timesKniffelCompleted, 'a banked tutto must not be recorded as failed').toBe(1);
+      expect(alice.timesKniffelFailed).toBe(0);
+      expect(rooms[roomId].state.previousTurnSummary?.cards).toEqual([{ card: 'Kniffel', completed: true }]);
+      expect(rooms[roomId].state.previousTurnSummary?.ended).toBe('timeout');
+    });
+
     it('still counts a bust when only SOME of the current roll is selected', () => {
       // The counterpart the guard above must not swallow: five dice aside is
       // not the choice, it is an unresolved roll, and a timeout there is a

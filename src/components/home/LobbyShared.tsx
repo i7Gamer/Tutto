@@ -584,10 +584,11 @@ export function AdvancedOptionsPanel({
                     was no keystroke at all by which a keyboard-only host could
                     change the play order, and nothing announced its state.
                     Every sibling row in this grid is already a real control.
-                    The hover background lives in .lobby-row:hover rather than
-                    on a utility here — .lobby-row sets background-color from
-                    outside any cascade layer, so it outranks @layer utilities
-                    and a hover:bg-* here silently never applied. */}
+                    The hover background lives in .lobby-row-hoverable:hover
+                    (LobbyShared.css) rather than on a utility here —
+                    .lobby-row sets background-color from outside any cascade
+                    layer, so it outranks @layer utilities and a hover:bg-*
+                    here silently never applied. */}
                 <button
                   type="button"
                   role="switch"

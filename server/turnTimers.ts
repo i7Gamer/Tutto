@@ -90,18 +90,25 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       //    snapshot as "resume by rolling", not as a bust. A drawn Stop
       //    parks here too, and stays the Stop forfeit via the `ended`
       //    ternary below.
-      // Counted across BOTH lists: DiceGame opens the choice on
-      // `keptDice.length + selectedRolls.length === TOTAL_DICE`
-      // (DiceGame.tsx), so at the moment this window is actually open the
-      // completing dice are still `selected` inside currentRoll —
-      // buildDiceSnapshot copies the two lists separately and preserves the
-      // flags. keptDice alone only reaches six AFTER the player presses a
-      // button, which also sets `stopped` (the stoppedBanked case below), so
-      // reading it alone never matched this window at all and charged an AFK
-      // player a bust for a card they had completed.
+      // Counted across BOTH lists, because six dice aside is what a completed
+      // card looks like in EITHER of the two shapes the client emits:
+      //  - the choice still OPEN: DiceGame offers it on
+      //    `keptDice.length + selectedRolls.length === TOTAL_DICE`, so the
+      //    completing dice are still `selected` inside currentRoll and
+      //    buildDiceSnapshot copies the two lists separately. Reading keptDice
+      //    alone never matched this window at all, and charged an AFK player a
+      //    bust for a card they had completed;
+      //  - the decision already BANKED (Finish / a modernized turn-ending
+      //    tutto / the Kleeblatt win): those paths move all six into keptDice,
+      //    empty currentRoll and set `stopped` together. `stopped` must NOT
+      //    disqualify them — it only says the decision was made, not that the
+      //    tutto was not, and stoppedBanked below decides `ended`, never the
+      //    per-card completion flag.
+      // A Stop & Score without a tutto also sets `stopped`, but banks fewer
+      // than six, so the count alone still tells the two apart.
       const asideCount = snapshot.keptDice.length
         + snapshot.currentRoll.filter(d => d.selected).length;
-      const atBankChoice = !snapshot.busted && !snapshot.stopped && asideCount === TOTAL_DICE;
+      const atBankChoice = !snapshot.busted && asideCount === TOTAL_DICE;
       const feuerwerkBanked = !!snapshot.busted && lastCard === 'Feuerwerk' && snapshot.turnScore > 0;
       const stoppedBanked = !snapshot.busted && !!snapshot.stopped;
       const atDrawWindow = !snapshot.busted && !snapshot.stopped

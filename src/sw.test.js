@@ -113,7 +113,13 @@ const runFetch = async (request) => {
   const event = makeEvent(request);
   listeners.fetch(event);
   if (event.responses.length === 0) return { handled: false, response: undefined };
-  return { handled: true, response: await event.responses[0] };
+  const response = await event.responses[0];
+  // The asset handler repairs a precache hole through waitUntil rather than
+  // awaiting the write inside respondWith (see sw.js) — so the write is only
+  // settled once these are, and a test that asserts on the cache must await
+  // them or it races the repair.
+  await Promise.all(event.waited);
+  return { handled: true, response };
 };
 
 beforeEach(() => {
@@ -264,6 +270,37 @@ describe('service worker activate', () => {
     // The repair is what makes the NEXT offline start work.
     const stored = await (await cacheStorage.open(cacheKey)).match(missing);
     expect(stored, 'the recovered asset was not written back into the precache').toBeDefined();
+  });
+
+  it('still delivers the asset when the repair write itself fails', async () => {
+    // The repair must never cost the delivery it rides on. Awaiting the put
+    // inside respondWith would reject the whole response when the put rejects
+    // — QuotaExceededError on a full device — failing an asset whose fetch had
+    // actually succeeded, which is strictly worse than the hole being repaired.
+    const missing = `${ORIGIN}/assets/index-aaa111.js`;
+    fetchMock = vi.fn(async (input) => {
+      const url = typeof input === 'string' ? input : input.url;
+      if (url === missing) throw new Error('flaky network');
+      return makeResponse(`network:${url}`);
+    });
+    await loadSw();
+    await runInstall();
+
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input.url;
+      return makeResponse(`network:${url}`);
+    });
+    // Every put now rejects, as a device out of storage would.
+    const openSpy = vi.spyOn(cacheStorage, 'open').mockImplementation(async () => ({
+      put: async () => { throw new Error('QuotaExceededError'); },
+      match: async () => undefined,
+    }));
+
+    const { handled, response } = await runFetch(makeRequest(missing));
+
+    expect(handled).toBe(true);
+    expect(response.body, 'a failed cache write must not fail the response').toBe(`network:${missing}`);
+    openSpy.mockRestore();
   });
 
   it('does not cache a failed response, nor an asset outside this build', async () => {

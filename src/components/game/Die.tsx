@@ -101,7 +101,12 @@ export default function Die({ die, isSelected, isDieTumbling, bustState, isRollP
       // without a replacement a keyboard player tabbing the six dice saw
       // nothing change at any step (WCAG 2.4.7). focus-visible keeps it off
       // for pointer users, who get the hover/selection cues instead.
-      className={`w-14 h-14 relative rounded-xl flex items-center justify-center text-transparent select-none outline-hidden focus:outline-hidden focus:ring-0 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 transition-all border-2
+      //
+      // No ring-offset: Tailwind's --tw-ring-offset-color defaults to #fff, so
+      // an offset would draw a white halo between the die and its ring on the
+      // dark theme. Every other focus ring in the app (GameControls, the lobby
+      // rows) is offsetless for the same reason.
+      className={`w-14 h-14 relative rounded-xl flex items-center justify-center text-transparent select-none outline-hidden focus:outline-hidden focus:ring-0 focus-visible:ring-2 focus-visible:ring-indigo-500 transition-all border-2
         ${isSelected
           ? 'bg-emerald-100 border-emerald-500 dark:bg-slate-700 dark:border-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.6)] scale-110 z-10'
           : bustState

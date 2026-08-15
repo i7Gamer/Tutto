@@ -151,6 +151,23 @@ describe('pushState against an already-finished game', () => {
     expect(rooms[roomId].state.gameTimeInSeconds).toBe(PLAYED_SECONDS);
   });
 
+  it('DOES start a fresh clock when Play Again actually restarts the game', () => {
+    // The other side of the !finished guard. A rematch is exactly the push
+    // that clears finished, and it must get a new anchor — guarding on status
+    // alone was wrong, but guarding too eagerly would leave the next game
+    // timing from null and reporting 0.
+    pushState({
+      roomId,
+      newState: {
+        status: 'playing', finished: false, currentPlayerIndex: 0, round: 1,
+        players: [{ name: 'Alice' }, { name: 'Bob' }],
+      },
+    });
+
+    expect(rooms[roomId].state.finished).toBe(false);
+    expect(rooms[roomId].gameActualStartTime).toBe(LATER_PUSH);
+  });
+
   it('does not zero the clock even when the push is discarded for a stale roster', () => {
     // applyPushedState bails on a roster mismatch, but the clock bookkeeping
     // ran regardless of whether anything was applied — so a Play Again click

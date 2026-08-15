@@ -380,10 +380,10 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
         // EndScreen.tsx and Game.tsx re-check after their parse for the same
         // reason.
         const personal = personalRes.ok ? await parseJsonObject<PersonalStats>(personalRes) : null;
-        const global = globalRes.ok ? await parseJsonObject<GlobalStats>(globalRes) : null;
+        const community = globalRes.ok ? await parseJsonObject<GlobalStats>(globalRes) : null;
         if (!isMounted) return;
         setPersonalStats(personal);
-        setGlobalStats(global);
+        setGlobalStats(community);
         setFetchFailed(!personalRes.ok || !globalRes.ok);
       } catch (err) {
         console.error('Failed to load statistics:', err);

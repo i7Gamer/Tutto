@@ -231,9 +231,21 @@ self.addEventListener('fetch', event => {
       // cache) does not belong in a generation whose name claims to describe
       // this manifest, and a non-ok response must never be stored at all —
       // that would turn a transient 502 into a cached one.
+      //
+      // Through waitUntil, and swallowing its own failure, so the repair can
+      // never cost the delivery it rides on: awaiting the write inside
+      // respondWith would both delay the response and — if the put rejected,
+      // which QuotaExceededError does on a full device — reject the whole
+      // respondWith, failing an asset whose fetch had actually succeeded.
+      // waitUntil still keeps the worker alive until the write lands. Same
+      // reasoning as install's try/catch around its own put.
       if (response.ok && PRECACHED.has(url.href)) {
-        const cache = await caches.open(PRECACHE);
-        await cache.put(url.href, response.clone());
+        const copy = response.clone();
+        event.waitUntil(
+          caches.open(PRECACHE)
+            .then(cache => cache.put(url.href, copy))
+            .catch(() => {}),
+        );
       }
       return response;
     })());
