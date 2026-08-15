@@ -92,7 +92,16 @@ export default function ModalShell({
     }
     if (e.key !== 'Tab' || !panelRef.current) return;
     const focusable = panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
-    if (focusable.length === 0) return;
+    if (focusable.length === 0) {
+      // Nothing to wrap to, but the Tab still has to be swallowed: returning
+      // plainly left the browser to run its own sequential navigation, which
+      // walks straight out of the panel to whatever sits behind the backdrop.
+      // That is reachable in the non-dismissible dice modal during the ~1.6s
+      // roll window, where every die and every action button is disabled at
+      // once — and GameControls' End/Leave Game behind it stays enabled.
+      e.preventDefault();
+      return;
+    }
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
     if (e.shiftKey && document.activeElement === first) {

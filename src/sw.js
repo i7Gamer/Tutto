@@ -216,7 +216,26 @@ self.addEventListener('fetch', event => {
   if (PRECACHED.has(url.href) || isBuildAsset(url)) {
     event.respondWith((async () => {
       const cached = await matchPreferringCurrent(url.href);
-      return cached ?? fetch(request);
+      if (cached) return cached;
+      const response = await fetch(request);
+      // Write back, or a precache hole is PERMANENT. `install` deliberately
+      // tolerates a per-asset failure (one bad request should not cost offline
+      // support entirely), but nothing else ever fills the gap: the cache name
+      // is a hash of the manifest, so a hole still looks like a complete
+      // generation, and install only re-runs when sw.js itself changes. A
+      // first visit on a flaky link therefore lost an asset forever, and the
+      // next offline start rendered an empty document.
+      //
+      // Only for THIS build's own precache entries: a successful response for
+      // an old generation's chunk (isBuildAsset, served from the retained
+      // cache) does not belong in a generation whose name claims to describe
+      // this manifest, and a non-ok response must never be stored at all —
+      // that would turn a transient 502 into a cached one.
+      if (response.ok && PRECACHED.has(url.href)) {
+        const cache = await caches.open(PRECACHE);
+        await cache.put(url.href, response.clone());
+      }
+      return response;
     })());
   }
 });

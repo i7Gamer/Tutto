@@ -27,11 +27,30 @@ void i18n.use(initReactI18next).init({
   },
 });
 
+/**
+ * Keeps <html lang> in step with the UI language.
+ *
+ * index.html ships a hardcoded lang="en" and nothing ever updated it, so a
+ * screen reader announced the entire German UI with an English voice and
+ * English phoneme rules (WCAG 3.1.1, Level A). Guarded because i18n.ts is also
+ * imported by node-environment tests, which have no document.
+ */
+const applyDocumentLanguage = (lng: string): void => {
+  if (typeof document === 'undefined') return;
+  document.documentElement.lang = lng;
+};
+
 // Registered after init so only an actual switch (LanguageSwitcher) writes —
 // the initial language is either the stored value itself or the default,
 // neither of which needs re-persisting.
 i18n.on('languageChanged', (lng) => {
   localStore.write(LANGUAGE_STORAGE_KEY, lng);
+  applyDocumentLanguage(lng);
 });
+
+// The restored language never fires 'languageChanged' (init adopts it
+// directly), so the reload path — the one that needs no user interaction at
+// all — would otherwise keep the hardcoded "en" from index.html.
+applyDocumentLanguage(i18n.language);
 
 export default i18n;

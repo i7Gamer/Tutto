@@ -233,6 +233,58 @@ describe('service worker activate', () => {
     expect(handled).toBe(true);
     expect(response.body).toBe(`network:${ORIGIN}/assets/index-new777.js`);
   });
+
+  it('repairs a precache hole left by a partially failed install', async () => {
+    // install() deliberately tolerates a per-asset failure so one bad request
+    // does not cost offline support entirely — but the runtime handler was
+    // read-only, so the hole was PERMANENT: the cache name is a hash of the
+    // manifest, so a hole still looks like a complete generation, and install
+    // only re-runs when sw.js itself changes. A first visit on a flaky link
+    // therefore left the entry bundle missing forever, and the next offline
+    // start rendered an empty <div id="root">.
+    const missing = `${ORIGIN}/assets/index-aaa111.js`;
+    fetchMock = vi.fn(async (input) => {
+      const url = typeof input === 'string' ? input : input.url;
+      if (url === missing) throw new Error('flaky network');
+      return makeResponse(`network:${url}`);
+    });
+    await loadSw();
+    const cacheKey = await runInstall();
+    expect(await (await cacheStorage.open(cacheKey)).match(missing)).toBeUndefined();
+
+    // Back online: the asset is fetched and must now be WRITTEN BACK.
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input.url;
+      return makeResponse(`network:${url}`);
+    });
+    const { handled, response } = await runFetch(makeRequest(missing));
+    expect(handled).toBe(true);
+    expect(response.body).toBe(`network:${missing}`);
+
+    // The repair is what makes the NEXT offline start work.
+    const stored = await (await cacheStorage.open(cacheKey)).match(missing);
+    expect(stored, 'the recovered asset was not written back into the precache').toBeDefined();
+  });
+
+  it('does not cache a failed response, nor an asset outside this build', async () => {
+    // A 502 or an old build's chunk must not be written into the current
+    // generation — that would turn a transient error into a cached one, and
+    // pollute a generation whose name claims to describe this manifest.
+    fetchMock = vi.fn(async (input) => {
+      const url = typeof input === 'string' ? input : input.url;
+      if (url.includes('index-aaa111.js')) return makeResponse('gateway error', { ok: false });
+      return makeResponse(`network:${url}`);
+    });
+    await loadSw();
+    const cacheKey = await runInstall();
+    const store = await cacheStorage.open(cacheKey);
+
+    await runFetch(makeRequest(`${ORIGIN}/assets/index-aaa111.js`));
+    expect(await store.match(`${ORIGIN}/assets/index-aaa111.js`)).toBeUndefined();
+
+    await runFetch(makeRequest(`${ORIGIN}/assets/index-old999.js`));
+    expect(await store.match(`${ORIGIN}/assets/index-old999.js`)).toBeUndefined();
+  });
 });
 
 describe('service worker fetch', () => {

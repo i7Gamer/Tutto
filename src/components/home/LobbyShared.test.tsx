@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { StartGameButton, PlayerList, AdvancedOptionsPanel, HapticsSettingSelector, CustomGameBadge, RulesetSelector, RulesetBadge } from './LobbyShared';
 import { useGameStore } from '../../store/useGameStore';
@@ -145,6 +146,48 @@ describe('AdvancedOptionsPanel', () => {
       Stop: 10
     });
   });
+  describe('the Random Order toggle', () => {
+    // It was a bare <div onClick>: no tabIndex, no key handler, no role and no
+    // aria-checked, with its state carried by track colour and knob offset
+    // alone. It is the ONLY call site of setRandomOrder, so a keyboard-only
+    // host had no keystroke at all that could change the play order
+    // (WCAG 2.1.1 Level A), and a screen reader could not read its state
+    // (4.1.2 Level A). Every sibling row in the same grid is a real control.
+    const renderToggle = (randomOrder: boolean, setRandomOrder = vi.fn()) => {
+      stageStore({ randomOrder, setRandomOrder, initialCards: { Kleeblatt: 1 }, setInitialCards: vi.fn() });
+      render(<AdvancedOptionsPanel showAdvanced={true} isOnline={true} />);
+      return { setRandomOrder, toggle: screen.getByRole('switch', { name: /lobby.randomOrder/i }) };
+    };
+
+    it('exposes its state to assistive technology', () => {
+      const { toggle } = renderToggle(true);
+      expect(toggle).toHaveAttribute('aria-checked', 'true');
+
+      act(() => { useGameStore.setState({ randomOrder: false }); });
+      expect(screen.getByRole('switch', { name: /lobby.randomOrder/i })).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('is reachable and operable from the keyboard', async () => {
+      const user = userEvent.setup();
+      const { setRandomOrder, toggle } = renderToggle(true);
+
+      toggle.focus();
+      expect(toggle).toHaveFocus();
+
+      await user.keyboard('{Enter}');
+      expect(setRandomOrder).toHaveBeenCalledWith(false);
+
+      await user.keyboard(' ');
+      expect(setRandomOrder).toHaveBeenCalledTimes(2);
+    });
+
+    it('still toggles on click', () => {
+      const { setRandomOrder, toggle } = renderToggle(false);
+      fireEvent.click(toggle);
+      expect(setRandomOrder).toHaveBeenCalledWith(true);
+    });
+  });
+
   it('offers a row for every card type, including ones the config has lost', () => {
     // validateOnlineConfig filters the deck entry-wise, so a corrupted saved
     // config can arrive missing card types. Rendering only the keys present
@@ -479,7 +522,11 @@ describe('PlayerList win streak', () => {
 
 describe('CustomGameBadge', () => {
   afterEach(() => {
-    useGameStore.setState(pristineStore, true);
+    // act(), as in AdvancedOptionsPanel above: this hook runs before RTL
+    // unmounts the badge, so the reset re-renders a still-mounted component.
+    act(() => {
+      useGameStore.setState(pristineStore, true);
+    });
   });
 
   const badge = () => screen.queryByText('lobby.customGameNoStats');

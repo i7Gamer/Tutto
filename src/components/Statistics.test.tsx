@@ -769,4 +769,56 @@ describe('Statistics Component', () => {
       expect(screen.queryByText('statistics.customGamesNotCounted')).not.toBeInTheDocument();
     });
   });
+
+  describe('a fetch superseded while its body is still being parsed', () => {
+    it('drops a stale personal response instead of pairing it with fresh global stats', async () => {
+      // The staleness guard was read BEFORE the `await parseJsonObject(...)`
+      // that sat inside the setter's own ARGUMENT, so a superseded fetch still
+      // ran setPersonalStats; the next guard then aborted before setGlobalStats
+      // — leaving the old bucket's personal numbers under the new bucket's
+      // label, which also skews the holdsRecord comparison between them.
+      // EndScreen.tsx and Game.tsx both re-check after their parse; this was
+      // the one site that did not.
+      let releaseStaleBody!: (v: unknown) => void;
+      const staleBody = new Promise((resolve) => { releaseStaleBody = resolve; });
+      // The device id rides the x-tutto-device HEADER, not the URL, so the two
+      // personal requests are indistinguishable by url — order is what tells
+      // them apart.
+      let personalCalls = 0;
+
+      global.fetch = vi.fn((url: string) => {
+        if (url.includes('global')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ totalGamesPlayed: 100, totalPlaytime: 1000 }) });
+        }
+        personalCalls += 1;
+        // The first personal body hangs in json(), not in fetch(): the request
+        // itself resolves, so the effect gets past its first guard and parks
+        // exactly where the bug lives.
+        if (personalCalls === 1) {
+          return Promise.resolve({ ok: true, json: () => staleBody });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ gamesPlayed: 42, wins: 21, totalPlaytime: 100, totalTurns: 100, totalScore: 40000 }),
+        });
+      }) as unknown as typeof fetch;
+
+      const { rerender } = render(<Statistics deviceId="device-old" onBack={vi.fn()} />);
+      // Let Promise.all settle so the effect is parked on the parse.
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Supersede it: a new deviceId re-runs the effect, and its cleanup marks
+      // the first one stale.
+      rerender(<Statistics deviceId="device-new" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+      expect(screen.getByText('42')).toBeInTheDocument();
+
+      // Now the stale body lands. It must be dropped entirely.
+      releaseStaleBody({ gamesPlayed: 7, wins: 1, totalPlaytime: 1, totalTurns: 1, totalScore: 1 });
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(screen.getByText('42'), 'the superseded response overwrote the current bucket').toBeInTheDocument();
+      expect(screen.queryByText('7')).not.toBeInTheDocument();
+    });
+  });
 });

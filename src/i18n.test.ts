@@ -33,3 +33,32 @@ describe('i18n language persistence', () => {
     expect(localStorage.getItem('tutto_language')).toBe('de');
   });
 });
+
+describe('the document language attribute', () => {
+  // index.html ships a hardcoded <html lang="en">. Nothing ever updated it, so
+  // a screen reader announced the whole German UI with an English voice and
+  // English phoneme rules (WCAG 3.1.1, Level A) — including on a reload, where
+  // the stored choice is restored without any user interaction at all.
+  beforeEach(() => {
+    vi.resetModules();
+    localStorage.clear();
+    document.documentElement.lang = 'en';
+  });
+
+  it('follows the language restored at startup', async () => {
+    localStorage.setItem('tutto_language', 'de');
+    await importFreshI18n();
+    expect(document.documentElement.lang).toBe('de');
+  });
+
+  it('follows a language switch', async () => {
+    const i18n = await importFreshI18n();
+    expect(document.documentElement.lang).toBe('en');
+
+    await i18n.changeLanguage('de');
+    expect(document.documentElement.lang).toBe('de');
+
+    await i18n.changeLanguage('en');
+    expect(document.documentElement.lang).toBe('en');
+  });
+});

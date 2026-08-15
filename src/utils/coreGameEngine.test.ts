@@ -400,6 +400,34 @@ describe('coreGameEngine', () => {
         expect(payload.highestForfeitedTurnScore).toBeNull();
       });
 
+      it('does not credit a "fastest loss" to a player who never took a turn', () => {
+        // A game can end mid-round — a completed Kleeblatt wins instantly, and
+        // Kleeblatt is in the default deck — leaving players later in the turn
+        // order on totalTurns: 0. Reporting that as a 0-turn loss is a record
+        // nobody played: sanitize.ts clamps it up to 1 and the DB merges
+        // fastestLossTurns with MIN, so the bucket is pinned at 1 forever and
+        // the "new record" celebration can never fire for it again.
+        const payload = buildGlobalStatsPayload(
+          [makePlayer('Alice', { score: 6000, totalTurns: 4 }), makePlayer('Bob', { score: 0, totalTurns: 0 })],
+          90, true, 4,
+        );
+
+        expect(payload.fastestLossTurns).toBeNull();
+      });
+
+      it('still reports the fastest loss of a player who did take turns', () => {
+        const payload = buildGlobalStatsPayload(
+          [
+            makePlayer('Alice', { score: 6000, totalTurns: 4 }),
+            makePlayer('Bob', { score: 0, totalTurns: 0 }),
+            makePlayer('Carol', { score: 500, totalTurns: 3 }),
+          ],
+          90, true, 4,
+        );
+
+        expect(payload.fastestLossTurns).toBe(3);
+      });
+
       it('treats a recorded zero as a record, not as "never happened"', () => {
         // Forfeiting a turn worth nothing is a real record of 0 — reported as
         // 0, while null means the player never forfeited at all.

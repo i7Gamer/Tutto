@@ -470,7 +470,13 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           totalTuttos: me.totalTuttos || 0,
           highestTurnScore: me.highestTurnScore || 0, totalScore: me.score || 0,
           fastestWinTurns: didIWin ? (me.totalTurns || 0) : null,
-          fastestLossTurns: !didIWin ? (me.totalTurns || 0) : null,
+          // null, not 0, when this device never got a turn — a game can end
+          // mid-round (a completed Kleeblatt wins instantly), so a player
+          // later in the turn order can finish on 0. sanitize.ts clamps a 0
+          // up to 1 and the DB merges this column with MIN, which would pin
+          // the record at 1 permanently. See buildGlobalStatsPayload for the
+          // same rule on the global side.
+          fastestLossTurns: !didIWin && (me.totalTurns || 0) > 0 ? me.totalTurns : null,
           totalPlayersSum: s.players.length, mostPlayersInGame: s.players.length,
           totalRoundsSum: s.round || 0, longestGameRounds: s.round || 0,
           highestFeuerwerkTurnScore: me.highestFeuerwerkTurnScore || 0,

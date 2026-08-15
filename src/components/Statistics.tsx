@@ -371,11 +371,20 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
           fetch(...deviceStatsRequest(deviceId, bucketMode(statsRuleset, mode))),
           fetch(`/api/stats/global?ruleset=${statsRuleset}`),
         ]);
+        // Parsed into locals FIRST, then one guard before any setter. Reading
+        // the guard before an `await` that sits inside the setter's own
+        // argument checked staleness at the wrong moment: a superseded fetch
+        // still ran setPersonalStats, and the next guard then aborted before
+        // setGlobalStats — pairing one bucket's personal numbers with another
+        // bucket's global ones (which also skews holdsRecord between them).
+        // EndScreen.tsx and Game.tsx re-check after their parse for the same
+        // reason.
+        const personal = personalRes.ok ? await parseJsonObject<PersonalStats>(personalRes) : null;
+        const global = globalRes.ok ? await parseJsonObject<GlobalStats>(globalRes) : null;
         if (!isMounted) return;
-        setPersonalStats(personalRes.ok ? await parseJsonObject<PersonalStats>(personalRes) : null);
-        if (!isMounted) return;
-        setGlobalStats(globalRes.ok ? await parseJsonObject<GlobalStats>(globalRes) : null);
-        if (isMounted) setFetchFailed(!personalRes.ok || !globalRes.ok);
+        setPersonalStats(personal);
+        setGlobalStats(global);
+        setFetchFailed(!personalRes.ok || !globalRes.ok);
       } catch (err) {
         console.error('Failed to load statistics:', err);
         if (isMounted) {

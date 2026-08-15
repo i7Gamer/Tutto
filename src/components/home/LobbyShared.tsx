@@ -579,9 +579,21 @@ export function AdvancedOptionsPanel({
                     </label>
                   </>
                 )}
-                <div
+                {/* A real <button role="switch">, not a div: this is the only
+                    call site of setRandomOrder, so as a bare onClick div there
+                    was no keystroke at all by which a keyboard-only host could
+                    change the play order, and nothing announced its state.
+                    Every sibling row in this grid is already a real control.
+                    The hover background lives in .lobby-row:hover rather than
+                    on a utility here — .lobby-row sets background-color from
+                    outside any cascade layer, so it outranks @layer utilities
+                    and a hover:bg-* here silently never applied. */}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={randomOrder !== false}
                   onClick={() => setRandomOrder(!randomOrder)}
-                  className="lobby-row cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800"
+                  className="lobby-row lobby-row-hoverable w-full text-left cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2 py-1">{t('lobby.randomOrder', 'Random Order')}</span>
                   <div className={`w-10 h-5 rounded-full flex items-center p-0.5 transition-colors ${randomOrder !== false ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-slate-600'}`}>
@@ -592,7 +604,7 @@ export function AdvancedOptionsPanel({
                       style={{ marginLeft: randomOrder !== false ? '20px' : '0px' }}
                     />
                   </div>
-                </div>
+                </button>
               </div>
 
               <div className="flex items-center justify-between mb-4">

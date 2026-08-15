@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ErrorBoundary } from './ErrorBoundary';
 import { blockStorage, restoreStorage } from '../testing/storageStubs';
@@ -30,7 +30,8 @@ describe('ErrorBoundary', () => {
   // a confusing cascade.
   afterEach(() => {
     vi.unstubAllGlobals();
-    restoreStorage();
+    restoreStorage();
+
   });
 
   it('renders children when there is no error', () => {
@@ -170,5 +171,77 @@ describe('ErrorBoundary', () => {
     );
     expect(reloadMock).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Oops! Something went wrong.')).toBeInTheDocument();
+  });
+
+  describe('the "Clear Cache & Reload" button', () => {
+    // The button was rendered by an existing test but never CLICKED, so its
+    // whole handler was uncovered — and it did not do what its label says: it
+    // unregistered the worker and reloaded, but never touched Cache Storage,
+    // unlike Home.tsx's identically-labelled button.
+    const clickRecovery = async () => {
+      localStorage.setItem('last_crash_time', Date.now().toString());
+      render(
+        <ErrorBoundary>
+          <ProblemChild />
+        </ErrorBoundary>
+      );
+      fireEvent.click(screen.getByText('Clear Cache & Reload'));
+      // Let the caches/serviceWorker promise chains settle.
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+    };
+
+    let reloadMock: ReturnType<typeof vi.fn>;
+    let deleteMock: ReturnType<typeof vi.fn>;
+    let unregisterMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      reloadMock = vi.fn();
+      Object.defineProperty(window, 'location', {
+        value: { ...window.location, reload: reloadMock },
+        writable: true,
+      });
+      deleteMock = vi.fn().mockResolvedValue(true);
+      vi.stubGlobal('caches', {
+        keys: vi.fn().mockResolvedValue(['tutto-precache-a', 'tutto-precache-b']),
+        delete: deleteMock,
+      });
+      unregisterMock = vi.fn().mockResolvedValue(true);
+      Object.defineProperty(navigator, 'serviceWorker', {
+        value: { getRegistrations: vi.fn().mockResolvedValue([{ unregister: unregisterMock }]) },
+        configurable: true,
+      });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('actually clears Cache Storage, not just the worker registration', async () => {
+      await clickRecovery();
+
+      expect(deleteMock).toHaveBeenCalledWith('tutto-precache-a');
+      expect(deleteMock).toHaveBeenCalledWith('tutto-precache-b');
+    });
+
+    it('unregisters the worker and reloads', async () => {
+      await clickRecovery();
+
+      expect(unregisterMock).toHaveBeenCalled();
+      expect(reloadMock).toHaveBeenCalled();
+    });
+
+    it('resets the crash throttle so the retry is not swallowed', async () => {
+      await clickRecovery();
+
+      expect(localStorage.getItem('last_crash_time')).toBeNull();
+    });
+
+    it('still reloads when Cache Storage is unavailable (plain http on a LAN)', async () => {
+      vi.stubGlobal('caches', undefined);
+
+      await clickRecovery();
+
+      expect(reloadMock).toHaveBeenCalled();
+    });
   });
 });

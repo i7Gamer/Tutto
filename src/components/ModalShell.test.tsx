@@ -289,9 +289,41 @@ describe('ModalShell', () => {
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveFocus();
 
-    fireEvent.keyDown(dialog, { key: 'Tab' });
+    // The assertions below are the ONLY ones here that can fail: jsdom
+    // implements no sequential focus navigation, so a Tab keyDown never moves
+    // focus in this environment and "still has focus afterwards" would hold
+    // however broken the trap was. What the real browser acts on is whether
+    // the default was prevented — with no enabled control the handler returned
+    // early without preventing it, so the browser moved focus out of the
+    // panel on its own, to whatever sits behind the backdrop.
+    const notPrevented = fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(notPrevented, 'Tab must be prevented, or the browser moves focus out of the panel').toBe(false);
 
     expect(dialog).toHaveFocus();
     expect(trigger).not.toHaveFocus();
+  });
+
+  it('prevents a Shift+Tab that has nothing to wrap to as well', () => {
+    render(
+      <ModalShell open>
+        <button disabled>roll</button>
+      </ModalShell>
+    );
+
+    const notPrevented = fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Tab', shiftKey: true });
+    expect(notPrevented).toBe(false);
+  });
+
+  it('still lets a non-Tab key through untouched', () => {
+    // The early return must not become a blanket preventDefault: typing in a
+    // dialog input has to keep working.
+    render(
+      <ModalShell open>
+        <button disabled>roll</button>
+      </ModalShell>
+    );
+
+    const notPrevented = fireEvent.keyDown(screen.getByRole('dialog'), { key: 'a' });
+    expect(notPrevented).toBe(true);
   });
 });

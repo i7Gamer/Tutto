@@ -35,6 +35,23 @@ describe('Die', () => {
     expect(screen.getByText('5')).toBeInTheDocument();
   });
 
+  it('replaces the outline it strips with a visible focus indicator', () => {
+    // The class string strips the native outline (outline-hidden,
+    // focus:outline-hidden, focus:ring-0) and used to put nothing back — the
+    // conditional branches below it are SELECTION state, not focus. index.css
+    // styles focus for inputs/checkboxes/radios only, never buttons, so a
+    // keyboard player tabbing across the six dice saw nothing change at any
+    // step and could not tell which die Space would toggle (WCAG 2.4.7, AA).
+    // Every other outline-stripping site in the app supplies a replacement.
+    render(
+      <Die die={defaultDie} isSelected={false} isDieTumbling={false} bustState={false} onToggle={() => {}} />
+    );
+
+    const button = screen.getByRole('button');
+    expect(button.className).toMatch(/focus-visible:ring-2/);
+    expect(button.className).toMatch(/focus-visible:ring-indigo-500/);
+  });
+
   it('calls onToggle with die ID when clicked', () => {
     const handleToggle = vi.fn();
     render(

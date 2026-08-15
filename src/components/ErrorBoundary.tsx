@@ -58,14 +58,35 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     localStore.remove('tutto_local_game');
     sessionStore.remove('tutto_online_session');
 
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(registrations => {
-        registrations.forEach(r => r.unregister());
+    const unregisterThenReload = (): void => {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(registrations => {
+          registrations.forEach(r => r.unregister());
+          window.location.reload();
+        }).catch(() => window.location.reload());
+      } else {
         window.location.reload();
-      }).catch(() => window.location.reload());
-    } else {
-      window.location.reload();
+      }
+    };
+
+    // The button says "Clear Cache & Reload" and this is the only thing that
+    // makes that true — the handler previously unregistered the worker and
+    // reloaded but never touched Cache Storage, so the precached bundle that
+    // may well be what is crashing survived the "clear". Home.tsx's
+    // identically-labelled button already does both.
+    //
+    // `typeof caches` rather than a bare reference: the app is explicitly
+    // playable over plain http:// on a LAN, where Cache Storage is undefined
+    // and touching it would throw before the reload ever ran — leaving the
+    // crash screen up with the button apparently doing nothing.
+    if (typeof caches === 'undefined') {
+      unregisterThenReload();
+      return;
     }
+    caches.keys()
+      .then(names => Promise.all(names.map(name => caches.delete(name))))
+      .catch(() => {})
+      .then(unregisterThenReload);
   };
 
   render() {

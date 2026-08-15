@@ -52,14 +52,31 @@
           if (!lastReload || (now - parseInt(lastReload)) > RELOAD_COOLDOWN_MS) {
             console.error('[Auto-reloading] Triggering reload due to:', e.message || e.target?.src);
             localStorage.setItem('tutto_last_reload', now.toString());
+            // Unregistering matters as much as deleting, and this was the one
+            // recovery path that skipped it. src/sw.js only fills the precache
+            // from its `install` event, and an unchanged worker never installs
+            // again — so wiping the caches under a still-registered worker
+            // destroys offline support until some later deploy happens to
+            // change an asset. Unregistering makes the reload register a fresh
+            // worker, which installs and precaches. Same pairing Home.tsx and
+            // ErrorBoundary.tsx already use for their own recovery buttons.
+            var unregisterThenReload = function() {
+              if (!('serviceWorker' in navigator)) {
+                window.location.reload();
+                return;
+              }
+              navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                return Promise.all(registrations.map(function(r) { return r.unregister(); }));
+              })['catch'](function() {})
+                .then(function() { window.location.reload(); });
+            };
             if ('caches' in window) {
               caches.keys().then(function(names) {
                 return Promise.all(names.map(function(name) { return caches.delete(name); }));
-              }).then(function() {
-                window.location.reload();
-              });
+              })['catch'](function() {})
+                .then(unregisterThenReload);
             } else {
-              window.location.reload();
+              unregisterThenReload();
             }
           } else {
             console.log('[Auto-reload skipped] Too soon since last reload');

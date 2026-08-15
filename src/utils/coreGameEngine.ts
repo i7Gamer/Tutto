@@ -227,7 +227,13 @@ export const buildGlobalStatsPayload = (
       if (fastestWinTurns === null || p.totalTurns < fastestWinTurns) {
         fastestWinTurns = p.totalTurns;
       }
-    } else {
+    } else if (p.totalTurns > 0) {
+      // Zero turns is not a fast loss, it is no game played: a completed
+      // Kleeblatt wins instantly and can end the game mid-round, leaving
+      // players later in the turn order on 0. Reporting that as a record is
+      // permanent damage — sanitize.ts clamps it up to 1 and the DB merges
+      // fastestLossTurns with MIN, so the bucket sticks at 1 forever and the
+      // "new record" celebration can never fire for it again.
       if (fastestLossTurns === null || p.totalTurns < fastestLossTurns) {
         fastestLossTurns = p.totalTurns;
       }

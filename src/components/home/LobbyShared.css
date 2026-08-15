@@ -16,6 +16,18 @@
   @apply flex items-center justify-between bg-white dark:bg-slate-800/80 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 transition-colors;
 }
 
+/* The hover background for a row that is itself the control (the Random Order
+   switch). It has to live HERE, not as a `hover:bg-*` utility on the element:
+   .lobby-row sets background-color from outside any cascade layer, so it
+   outranks everything in @layer utilities however specific the utility is —
+   the same mechanism index.css and e2e/styling.spec.js document. A utility
+   there simply never applied, so the row had no hover cue at all. Being in
+   this file puts it in the same unlayered context, where source order decides
+   and this rule wins. */
+.lobby-row-hoverable:hover {
+  @apply bg-gray-50 dark:bg-slate-800;
+}
+
 /* The label beside a radio button (the control itself is .radio-wrapper, in
    index.css, which every app-wide form control shares). */
 .lobby-radio {
