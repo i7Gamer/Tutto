@@ -79,12 +79,40 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref }}
+          # The ancestry check below has to walk history, and the default
+          # shallow clone carries none. 603 commits / 6 MB — the full fetch is
+          # not worth optimising.
+          fetch-depth: 0
 
-      - name: Resolve the commit under test
+      # Deliberately ahead of every step that executes code out of the checkout
+      # (npm ci and everything after it), because that is the window this
+      # closes. `ref` is a workflow_call input: nothing in the workflow itself
+      # constrains it, while the job holds credentials for the DEFAULT BRANCH's
+      # Actions cache scope and the jobs below inherit the Docker Hub secrets.
+      # Code from an unreviewed ref could therefore write cache entries that a
+      # later, legitimate publish restores and ships — CodeQL
+      # actions/cache-poisoning/poisonable-step, which flags exactly the five
+      # steps beneath this one.
+      #
+      # All three callers already pass master or a SHA read from it
+      # (publish-latest passes the SHA it resolved; publish-tag and
+      # publish-nightly pass no ref at all, taking the master default). This
+      # turns that convention into an enforced invariant. Publishing from a
+      # side branch — a release candidate off a feature branch, say — would
+      # have to relax this on purpose, which is the point.
+      - name: Resolve and vet the commit under test
         id: resolve
         run: |
           set -euo pipefail
           sha="$(git rev-parse HEAD)"
+          # FETCH_HEAD rather than origin/master: it does not depend on how
+          # checkout happened to configure the remote-tracking refs, which
+          # differs between a branch ref and a raw SHA.
+          git fetch --no-tags origin master
+          if ! git merge-base --is-ancestor "${sha}" FETCH_HEAD; then
+            echo "::error::${sha} is not on master — refusing to build and publish an unreviewed commit"
+            exit 1
+          fi
           echo "Verifying and publishing ${sha}"
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
 
