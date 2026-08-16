@@ -16,7 +16,7 @@ import { isProxyTrusted } from './startupGuards';
 // NAT'd household reconnecting after a router blip opens well under 30
 // sockets in 10s). Max is env-tunable because the test suites legitimately
 // open bursts of local connections far beyond any real client (see
-// vite.config.js test.env and playwright.config.js webServer.env).
+// vite.config.ts test.env and playwright.config.ts webServer.env).
 const CONNECTION_LIMIT = { windowMs: 10_000, max: 30 };
 
 // socket.io has no trust-proxy support of its own: handshake.address is the

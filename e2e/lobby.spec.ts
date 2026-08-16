@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 
 /**
  * The deck editor puts a card's name and its count on one line, and the name
@@ -15,7 +15,7 @@ test.describe('Lobby deck composition', () => {
   // Past Tailwind's `sm` breakpoint, where the markup asks for three columns.
   const TABLET_VIEWPORT = { width: 700, height: 900 };
 
-  const openDeckEditor = async page => {
+  const openDeckEditor = async (page: Page) => {
     await page.goto('/');
     await page.getByRole('button', { name: /Show Advanced Options/i }).click();
     const grid = page.getByTestId('deck-composition-grid');
@@ -23,16 +23,16 @@ test.describe('Lobby deck composition', () => {
     return grid;
   };
 
-  const gridColumns = grid =>
+  const gridColumns = (grid: Locator) =>
     grid.evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
 
   // A name set to ellipsis overflows its box before it is clipped, so the
   // element is wider than the space it is given. The pixel of slack keeps
   // sub-pixel layout rounding from reading as a cut-off name.
-  const truncatedNames = grid =>
+  const truncatedNames = (grid: Locator) =>
     grid.locator('label > span').evaluateAll(nodes => nodes
       .filter(node => node.scrollWidth > node.clientWidth + 1)
-      .map(node => node.textContent.trim()));
+      .map(node => (node.textContent ?? '').trim()));
 
   test('shows every card name in full on a phone', async ({ page }) => {
     await page.setViewportSize(PHONE_VIEWPORT);

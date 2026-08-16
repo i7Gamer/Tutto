@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type TestInfo } from '@playwright/test';
 import { joinOnlineRoom } from './helpers';
 
 // Every browser project (chromium/firefox/webkit) runs against the SAME
@@ -6,7 +6,7 @@ import { joinOnlineRoom } from './helpers';
 // reconnect timeout after a context closes — so a fixed room id makes the
 // second browser's join collide with the first browser's ghost players.
 // Unique ids per project/worker/run keep the tests isolated.
-const uniqueRoomId = (label, testInfo) =>
+const uniqueRoomId = (label: string, testInfo: TestInfo) =>
   `E2E-${label}-${testInfo.project.name}-w${testInfo.workerIndex}-${Date.now()}`;
 
 test.describe('Tutto Online Ghost Lobbies', () => {
@@ -216,7 +216,7 @@ test.describe('Online classic chain', () => {
     // letting it wait out the deadline it was given and fail with its message.
     const spectatorSeconds = async () => {
       try {
-        return parseInt(await spectatorTimer.textContent({ timeout: TIMER_READ_TIMEOUT_MS }), 10);
+        return parseInt(await spectatorTimer.textContent({ timeout: TIMER_READ_TIMEOUT_MS }) ?? '', 10);
       } catch {
         return NaN; // no timer tile on screen at this instant — poll again
       }

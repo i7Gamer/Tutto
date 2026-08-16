@@ -24,7 +24,7 @@ const NAVIGATION_NETWORK_TIMEOUT_MS = 3000;
 const SHELL_URL = new URL('index.html', self.location.href).href;
 
 // Injected at build time from the build output (see injectManifest in
-// vite.config.js): [{ url, revision }, ...].
+// vite.config.ts): [{ url, revision }, ...].
 const MANIFEST = self.__WB_MANIFEST;
 
 // De-duplicated: the build's glob picks up the icons and the webmanifest that

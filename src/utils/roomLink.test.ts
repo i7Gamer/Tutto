@@ -12,7 +12,7 @@ describe('buildRoomLink', () => {
   });
 
   it('keeps a sub-path deploy intact', () => {
-    // base: './' in vite.config.js means the app can be served from a subpath,
+    // base: './' in vite.config.ts means the app can be served from a subpath,
     // so the link has to carry the path it is actually running under.
     expect(buildRoomLink('ROOM1', 'https://example.com/games/tutto/')).toBe(
       'https://example.com/games/tutto/?room=ROOM1'

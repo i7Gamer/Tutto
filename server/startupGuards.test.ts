@@ -229,7 +229,7 @@ describe('the database knex opens and the database startup logs', () => {
     return typeof connection === 'function' ? connection().filename : connection.filename;
   };
 
-  // The whole suite runs with TEST_DB set (see vite.config.js), which outranks
+  // The whole suite runs with TEST_DB set (see vite.config.ts), which outranks
   // DB_PATH by design, so it has to be cleared for these to stand in for a
   // real server process.
   const asServerProcess = (): void => {

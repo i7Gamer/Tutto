@@ -67,7 +67,7 @@ describe('knex configuration', () => {
 
   // Applies env overrides for the duration of fn and restores them afterwards
   // (undefined = unset). TEST_DB is among them: the runner sets it (see
-  // vite.config.js), and it short-circuits every other branch of the resolver,
+  // vite.config.ts), and it short-circuits every other branch of the resolver,
   // so a case that never touches it can only ever observe ':memory:'.
   const withEnv = (overrides: Record<string, string | undefined>, fn: () => void): void => {
     const original: Record<string, string | undefined> = {};

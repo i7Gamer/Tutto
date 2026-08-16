@@ -43,7 +43,10 @@ test.describe('stylesheet cascade', () => {
         const host = document.createElement('div');
         host.innerHTML = html;
         document.body.appendChild(host);
-        const value = getComputedStyle(host.firstElementChild)[property];
+        // Indexed by the camelCase JS name, exactly as the untyped version
+        // did — getPropertyValue would want the kebab-case CSS name instead.
+        const styles = getComputedStyle(host.firstElementChild as Element) as unknown as Record<string, string>;
+        const value = styles[property];
         host.remove();
         return value;
       }, { html, property });
@@ -127,7 +130,7 @@ test.describe('theme colours resolve', () => {
   test('the dark: variant follows the attribute, not the OS', async ({ page }) => {
     await page.goto('/');
 
-    const read = (theme) => page.evaluate((theme) => {
+    const read = (theme: string) => page.evaluate((theme) => {
       document.documentElement.setAttribute('data-theme', theme);
       const probe = document.createElement('div');
       probe.className = 'bg-white dark:bg-slate-800';
@@ -153,7 +156,7 @@ test.describe('theme colours resolve', () => {
   test('the phone-landscape variant applies only lying down', async ({ page }) => {
     await page.goto('/');
 
-    const widthAt = async (viewport) => {
+    const widthAt = async (viewport: { width: number; height: number }) => {
       await page.setViewportSize(viewport);
       return page.evaluate(() => {
         const probe = document.createElement('div');

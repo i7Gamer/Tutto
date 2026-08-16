@@ -1,8 +1,8 @@
 /**
  * Shared setup for the e2e specs. Not a spec itself — playwright only collects
- * *.spec.js from this directory, so this file is only ever imported.
+ * *.spec.ts from this directory, so this file is only ever imported.
  */
-import { expect } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 /**
  * Cards that always play an ordinary turn: draw one and the player rolls.
@@ -22,7 +22,7 @@ export const ROLLING_DECK = { '200': 5, '300': 5, '400': 5, '500': 5, '600': 5 }
  * src/store/persistence.ts), so seeding the deck leaves the rest of the saved
  * state — players, config, an interrupted game — exactly as it was.
  */
-export const seedLocalDeck = (page, deck = ROLLING_DECK) =>
+export const seedLocalDeck = (page: Page, deck: Record<string, number> = ROLLING_DECK) =>
   page.addInitScript(initialCards => {
     localStorage.setItem('tutto_local_game', JSON.stringify({ initialCards }));
   }, deck);
@@ -37,7 +37,7 @@ export const DEFAULT_PLAYERS = ['Alice', 'Bob'];
  * Waiting for the join to land stays with the caller: each test has its own
  * idea of what "joined" means (a name, the room banner, an error).
  */
-export const joinOnlineRoom = async (page, roomId, name) => {
+export const joinOnlineRoom = async (page: Page, roomId: string, name: string) => {
   await page.goto('/');
   await page.getByRole('button', { name: /Online Play/i }).click();
   await page.getByPlaceholder('e.g. 1234').fill(roomId);
@@ -54,7 +54,7 @@ export const joinOnlineRoom = async (page, roomId, name) => {
  * subject in its own right, and game.spec.js still walks it step by step —
  * that test is about what the player sees on the way, not about arriving.
  */
-export const startLocalGame = async (page, names = DEFAULT_PLAYERS) => {
+export const startLocalGame = async (page: Page, names: string[] = DEFAULT_PLAYERS) => {
   const playerInput = page.getByPlaceholder(/Player name/i);
   for (const name of names) {
     await playerInput.fill(name);

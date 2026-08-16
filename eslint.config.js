@@ -53,7 +53,7 @@ export default defineConfig([
       },
       // `process` is here because Vite statically replaces `process.env.NODE_ENV`
       // at build time (used for test-only code paths in a few components).
-      // `__APP_VERSION__` is replaced the same way — see `define` in vite.config.js.
+      // `__APP_VERSION__` is replaced the same way — see `define` in vite.config.ts.
       globals: { ...globals.browser, process: 'readonly', __APP_VERSION__: 'readonly' },
     },
     // The preset first, the shared overrides after — spread order is precedence
@@ -69,8 +69,8 @@ export default defineConfig([
   },
 
   // Vitest unit / integration tests and the shared test setup. The `js` here is
-  // not decoration: the service worker and the Vite config are plain JS, so
-  // their tests are too, and a {ts,tsx}-only glob left them with no rules at all.
+  // not decoration: the service worker is plain JS, so its test is too, and a
+  // {ts,tsx}-only glob left it with no rules at all.
   {
     files: ['**/*.test.{js,ts,tsx}', 'src/setupTests.tsx'],
     plugins: { '@typescript-eslint': tseslint },
@@ -129,10 +129,10 @@ export default defineConfig([
     rules: sharedJsRules,
   },
 
-  // Node-side ES modules: build and tool config files, the maintenance scripts,
-  // and the repo-local lint rules. Anything here is `type: module` by the root
-  // package.json, so a bare `*.config.js` glob was quietly excusing whole
-  // directories from the lint run.
+  // Node-side ES modules still written in JS: this config itself, the
+  // maintenance scripts, and the repo-local lint rules. Anything here is
+  // `type: module` by the root package.json, so a bare `*.config.js` glob was
+  // quietly excusing whole directories from the lint run.
   {
     files: ['*.config.js', 'scripts/**/*.mjs', 'eslint-rules/**/*.js'],
     extends: [js.configs.recommended],
@@ -143,15 +143,34 @@ export default defineConfig([
     rules: sharedJsRules,
   },
 
+  // Node-side TypeScript config files (Vite, Playwright).
+  {
+    files: ['*.config.ts'],
+    plugins: { '@typescript-eslint': tseslint },
+    extends: [js.configs.recommended],
+    languageOptions: {
+      parser: tsParser,
+      globals: globals.node,
+    },
+    rules: {
+      ...tseslint.configs.recommended.rules,
+      ...sharedTsRules,
+    },
+  },
+
   // Playwright e2e specs: Node, plus browser globals for the callbacks handed
   // to page.evaluate — those run in the page, not in the test process.
   {
-    files: ['e2e/**/*.js'],
+    files: ['e2e/**/*.ts'],
+    plugins: { '@typescript-eslint': tseslint },
     extends: [js.configs.recommended],
     languageOptions: {
+      parser: tsParser,
       globals: { ...globals.node, ...globals.browser },
-      sourceType: 'module',
     },
-    rules: sharedJsRules,
+    rules: {
+      ...tseslint.configs.recommended.rules,
+      ...sharedTsRules,
+    },
   },
 ])

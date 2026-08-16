@@ -48,7 +48,7 @@ jobs:
         run: npm run build
 
       # test:coverage rather than test: enforces the coverage floor configured
-      # in vite.config.js (COVERAGE_FLOOR_PERCENT), so a drop below it fails CI.
+      # in vite.config.ts (COVERAGE_FLOOR_PERCENT), so a drop below it fails CI.
       - name: Run Unit & Integration Tests
         run: npm run test:coverage
 
@@ -95,7 +95,7 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
 
-      # playwright.config.js starts the app itself via "npm start" and, because
+      # playwright.config.ts starts the app itself via "npm start" and, because
       # CI is set, never reuses an existing server, runs single-worker with two
       # retries, and points the API server at an in-memory database (TEST_DB).
       - name: Run End-to-End Tests

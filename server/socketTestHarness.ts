@@ -31,7 +31,7 @@ import { registerSocketHandlers } from './socketHandlers';
 
 dotenv.config();
 
-// TEST_TIMER_SCALE (see vite.config.js) compresses the spawned server's own
+// TEST_TIMER_SCALE (see vite.config.ts) compresses the spawned server's own
 // timers, so orchestration waits in the tests have to scale with them or they
 // would wait far longer than the behaviour they are pacing. Mirrors the same
 // computation in turnTimers.ts and socketHandlers.ts.

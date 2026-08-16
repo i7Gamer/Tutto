@@ -1,5 +1,8 @@
 import { readFileSync } from 'node:fs'
-import { defineConfig, loadEnv } from 'vite'
+// vitest/config rather than vite: same defineConfig, plus the type for the
+// `test` block below.
+import { defineConfig } from 'vitest/config'
+import { loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -10,7 +13,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 // declared in src/vite-env.d.ts) and asserted against the manifest in its test.
 const { version: appVersion } = JSON.parse(
   readFileSync(new URL('./package.json', import.meta.url), 'utf8')
-)
+) as { version: string }
 
 // Packages reached only through a dynamic import. Kept out of the manual chunk
 // assignment below so the split actually happens — see the note there.
@@ -117,7 +120,7 @@ export default defineConfig(({ mode }) => {
     build: {
       rollupOptions: {
         output: {
-          manualChunks: (id) => {
+          manualChunks: (id: string) => {
             // Returning nothing leaves these to the default chunking, which
             // honours dynamic imports. The catch-all vendor rule at the bottom
             // would otherwise pull them into the bundle every player

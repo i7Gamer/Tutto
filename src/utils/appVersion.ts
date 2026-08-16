@@ -1,5 +1,5 @@
 // The version from package.json, substituted at build time by the `define` in
-// vite.config.js. Importing the manifest instead would pull it into the bundle
+// vite.config.ts. Importing the manifest instead would pull it into the bundle
 // and drag its whole dependency list along with it.
 //
 // Surfaced in HelpPopup's footer so a player (or whoever deployed the Docker

@@ -1,5 +1,5 @@
-import { test, expect } from '@playwright/test';
-import { seedLocalDeck, startLocalGame } from './helpers.js';
+import { test, expect, type Page } from '@playwright/test';
+import { seedLocalDeck, startLocalGame } from './helpers';
 
 /**
  * The service worker only exists in a built app, so nothing exercised it until
@@ -27,7 +27,7 @@ test.describe('Offline', () => {
   // Cache API, and waitForFunction treats the promise an async predicate
   // returns as its (always truthy) result — so it would report success
   // immediately and every test here would race the install.
-  const waitForPrecache = async page => {
+  const waitForPrecache = async (page: Page) => {
     await page.goto('/');
     await expect.poll(
       () => page.evaluate(async () => {

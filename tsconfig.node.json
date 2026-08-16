@@ -1,13 +1,15 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "skipLibCheck": true,
     "noEmit": true,
 
-    /* Config files are plain JS until migrated */
+    /* eslint.config.js and the repo-local lint rules stay plain JS (flat
+       config and custom rules are JS-first in the ESLint ecosystem); allowJs
+       keeps them in the program without type-checking them. */
     "allowJs": true,
     "checkJs": false,
 
@@ -17,5 +19,11 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.js", "eslint.config.js", "playwright.config.js"]
+  "include": [
+    "vite.config.ts",
+    "vite.config.test.ts",
+    "eslint.config.js",
+    "playwright.config.ts",
+    "e2e/**/*.ts"
+  ]
 }

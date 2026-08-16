@@ -51,7 +51,7 @@ const makeFakeIo = () => {
 
 const roomId = 'timer-unit-room';
 
-// vite.config.js sets TEST_TIMER_SCALE for the whole suite to accelerate the
+// vite.config.ts sets TEST_TIMER_SCALE for the whole suite to accelerate the
 // spawned-server integration tests, and startServerTurnTimer applies it here
 // too — so a turn nominally lasting N seconds is armed for N * scale. Tests that
 // advance the fake clock must scale with it, mirroring turnTimers.ts exactly:
