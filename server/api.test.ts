@@ -2,11 +2,11 @@
  * @vitest-environment node
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import type express from 'express';
 import { registerApiRoutes } from './api';
+import { startTestServer } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
@@ -25,28 +25,16 @@ describe('API Endpoints Token Protection', () => {
   const PORT = TEST_PORTS.apiTokenProtection;
   const API_TOKEN = 'tutto-local-dev-token';
 
-  beforeAll(() => {
+  beforeAll(async () => {
     if (globalThis.__nativeFetch) {
       globalThis.fetch = globalThis.__nativeFetch;
     }
 
-    return new Promise((resolve, reject) => {
-      serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: { ...process.env, PORT, API_TOKEN, TEST_DB: 'true', FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2' },
-        stdio: 'pipe'
-      });
-
-      let stdout = '';
-      serverProcess.stdout.on('data', (data) => {
-        stdout += data.toString();
-        if (stdout.includes('Server running on port')) resolve();
-      });
-      serverProcess.stderr.on('data', (data) => {
-        const msg = data.toString();
-        if (!msg.includes('[client-error]')) console.error(msg);
-      });
-
-      serverProcess.on('error', (err) => reject(err));
+    // The crash-log tests below intentionally make the child log
+    // '[client-error]' entries — expected noise, quieted; anything else is real.
+    serverProcess = await startTestServer(PORT, {
+      env: { API_TOKEN },
+      quietStderr: ['[client-error]'],
     });
   }, SERVER_BOOT_TIMEOUT_MS);
 
@@ -314,29 +302,12 @@ describe('POST /api/log/client-error rate limiting', () => {
   // PORT across server/*.test.ts must stay unique for the same reason.
   const PORT = TEST_PORTS.apiClientErrorRateLimit;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     if (globalThis.__nativeFetch) {
       globalThis.fetch = globalThis.__nativeFetch;
     }
 
-    return new Promise((resolve, reject) => {
-      serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: { ...process.env, PORT, TEST_DB: 'true', FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2' },
-        stdio: 'pipe'
-      });
-
-      let stdout = '';
-      serverProcess.stdout.on('data', (data) => {
-        stdout += data.toString();
-        if (stdout.includes('Server running on port')) resolve();
-      });
-      serverProcess.stderr.on('data', (data) => {
-        const msg = data.toString();
-        if (!msg.includes('[client-error]')) console.error(msg);
-      });
-
-      serverProcess.on('error', (err) => reject(err));
-    });
+    serverProcess = await startTestServer(PORT, { quietStderr: ['[client-error]'] });
   }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {
@@ -366,26 +337,12 @@ describe('CORS_ORIGIN configuration', () => {
   const PORT = TEST_PORTS.apiCorsOrigin;
   const CORS_ORIGIN = 'https://tutto.example.com';
 
-  beforeAll(() => {
+  beforeAll(async () => {
     if (globalThis.__nativeFetch) {
       globalThis.fetch = globalThis.__nativeFetch;
     }
 
-    return new Promise((resolve, reject) => {
-      serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: { ...process.env, PORT, CORS_ORIGIN, TEST_DB: 'true', FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2' },
-        stdio: 'pipe'
-      });
-
-      let stdout = '';
-      serverProcess.stdout.on('data', (data) => {
-        stdout += data.toString();
-        if (stdout.includes('Server running on port')) resolve();
-      });
-      serverProcess.stderr.on('data', (data) => console.error(data.toString()));
-
-      serverProcess.on('error', (err) => reject(err));
-    });
+    serverProcess = await startTestServer(PORT, { env: { CORS_ORIGIN } });
   }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {
@@ -408,34 +365,17 @@ describe('production CORS defaults to same-origin', () => {
   const PORT = TEST_PORTS.apiProductionCors;
   const FOREIGN_ORIGIN = 'https://evil.example';
 
-  beforeAll(() => {
+  beforeAll(async () => {
     if (globalThis.__nativeFetch) {
       globalThis.fetch = globalThis.__nativeFetch;
     }
 
-    return new Promise((resolve, reject) => {
-      serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: {
-          ...process.env,
-          PORT,
-          NODE_ENV: 'production',
-          API_TOKEN: 'a-strong-production-token',
-          CORS_ORIGIN: '',
-          TEST_DB: 'true',
-          FORCE_INIT_DB: 'true',
-          TEST_TIMER_SCALE: '0.2',
-        },
-        stdio: 'pipe'
-      });
-
-      let stdout = '';
-      serverProcess.stdout.on('data', (data) => {
-        stdout += data.toString();
-        if (stdout.includes('Server running on port')) resolve();
-      });
-      serverProcess.stderr.on('data', (data) => console.error(data.toString()));
-
-      serverProcess.on('error', (err) => reject(err));
+    serverProcess = await startTestServer(PORT, {
+      env: {
+        NODE_ENV: 'production',
+        API_TOKEN: 'a-strong-production-token',
+        CORS_ORIGIN: '',
+      },
     });
   }, SERVER_BOOT_TIMEOUT_MS);
 
@@ -556,26 +496,12 @@ describe('GET /api/stats/global rate limiting', () => {
   let serverProcess;
   const PORT = TEST_PORTS.apiGlobalStatsRateLimit;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     if (globalThis.__nativeFetch) {
       globalThis.fetch = globalThis.__nativeFetch;
     }
 
-    return new Promise((resolve, reject) => {
-      serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: { ...process.env, PORT, TEST_DB: 'true', FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2' },
-        stdio: 'pipe'
-      });
-
-      let stdout = '';
-      serverProcess.stdout.on('data', (data) => {
-        stdout += data.toString();
-        if (stdout.includes('Server running on port')) resolve();
-      });
-      serverProcess.stderr.on('data', (data) => console.error(data.toString()));
-
-      serverProcess.on('error', (err) => reject(err));
-    });
+    serverProcess = await startTestServer(PORT);
   }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {

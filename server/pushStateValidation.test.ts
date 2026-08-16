@@ -3,8 +3,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io } from 'socket.io-client';
-import { spawn } from 'child_process';
-import { asserting } from './socketTestHarness';
+import { asserting, startTestServer } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
@@ -21,20 +20,8 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
   let serverProcess;
   const PORT = TEST_PORTS.pushStateValidation;
 
-  beforeAll(() => {
-    return new Promise((resolve, reject) => {
-      serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: { ...process.env, PORT, API_TOKEN: 'test-token', TEST_DB: 'true', FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2' },
-        stdio: 'pipe',
-      });
-      let stdout = '';
-      serverProcess.stdout.on('data', (data) => {
-        stdout += data.toString();
-        if (stdout.includes('Server running on port')) resolve();
-      });
-      serverProcess.stderr.on('data', (data) => console.error('[server]', data.toString()));
-      serverProcess.on('error', reject);
-    });
+  beforeAll(async () => {
+    serverProcess = await startTestServer(PORT, { env: { API_TOKEN: 'test-token' } });
   }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {

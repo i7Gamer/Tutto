@@ -2,8 +2,8 @@
  * @vitest-environment node
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawn } from 'child_process';
 import { io } from 'socket.io-client';
+import { startTestServer } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
@@ -30,27 +30,8 @@ describe('Socket updateConfig — upper-bound validation', () => {
   let serverProcess;
   const PORT = TEST_PORTS.socketConfigBounds;
 
-  beforeAll(() => {
-    return new Promise((resolve, reject) => {
-      serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: {
-          ...process.env,
-          PORT,
-          API_TOKEN: 'test-token',
-          TEST_DB: 'true',
-          FORCE_INIT_DB: 'true',
-          TEST_TIMER_SCALE: '0.2',
-        },
-        stdio: 'pipe',
-      });
-      let stdout = '';
-      serverProcess.stdout.on('data', (data) => {
-        stdout += data.toString();
-        if (stdout.includes('Server running on port')) resolve();
-      });
-      serverProcess.stderr.on('data', (data) => console.error('[server]', data.toString()));
-      serverProcess.on('error', reject);
-    });
+  beforeAll(async () => {
+    serverProcess = await startTestServer(PORT, { env: { API_TOKEN: 'test-token' } });
   }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {
@@ -120,27 +101,8 @@ describe('Socket security and timer fixes', () => {
   let serverProcess;
   const PORT = TEST_PORTS.socketSecurityTimers;
 
-  beforeAll(() => {
-    return new Promise((resolve, reject) => {
-      serverProcess = spawn(process.execPath, ['--require', require.resolve('tsx/cjs'), 'server/index.ts'], {
-        env: {
-          ...process.env,
-          PORT,
-          API_TOKEN: 'test-token',
-          TEST_DB: 'true',
-          FORCE_INIT_DB: 'true',
-          TEST_TIMER_SCALE: '0.2',
-        },
-        stdio: 'pipe',
-      });
-      let stdout = '';
-      serverProcess.stdout.on('data', (data) => {
-        stdout += data.toString();
-        if (stdout.includes('Server running on port')) resolve();
-      });
-      serverProcess.stderr.on('data', (data) => console.error('[server]', data.toString()));
-      serverProcess.on('error', reject);
-    });
+  beforeAll(async () => {
+    serverProcess = await startTestServer(PORT, { env: { API_TOKEN: 'test-token' } });
   }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {

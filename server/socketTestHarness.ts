@@ -38,6 +38,18 @@ dotenv.config();
 const SCALE = process.env.TEST_TIMER_SCALE ? parseFloat(process.env.TEST_TIMER_SCALE) : 1;
 export const testDelay = (ms: number) => Math.max(20, Math.floor(ms * SCALE));
 
+export interface StartTestServerOptions {
+  /** Extra child env on top of the inherited process.env (e.g. API_TOKEN, CORS_ORIGIN, NODE_ENV). */
+  env?: Record<string, string>;
+  /**
+   * stderr lines containing any of these are not echoed — for suites whose
+   * tests intentionally produce server-side error output (e.g. the crash-log
+   * endpoint logging '[client-error]'), so real failures stay visible without
+   * the expected noise.
+   */
+  quietStderr?: string[];
+}
+
 /**
  * Spawns the real server as a child process and resolves once it reports BOTH
  * that it is listening and that its in-memory database finished migrating.
@@ -45,13 +57,16 @@ export const testDelay = (ms: number) => Math.max(20, Math.floor(ms * SCALE));
  * assertions observe real writes — resolving on "listening" alone would race
  * them against a half-ready database.
  */
-export const startTestServer = (port: string): Promise<ChildProcess> =>
+export const startTestServer = (
+  port: string,
+  { env = {}, quietStderr = [] }: StartTestServerOptions = {},
+): Promise<ChildProcess> =>
   new Promise((resolve, reject) => {
     const serverProcess = spawn(
       process.execPath,
       ['--require', require.resolve('tsx/cjs'), 'server/index.ts'],
       {
-        env: { ...process.env, PORT: port, FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2' },
+        env: { ...process.env, PORT: port, FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2', ...env },
         stdio: 'pipe',
       },
     );
@@ -68,7 +83,9 @@ export const startTestServer = (port: string): Promise<ChildProcess> =>
     });
 
     serverProcess.stderr?.on('data', (data) => {
-      console.error(`Server stderr (port ${port}):`, data.toString());
+      const text = data.toString();
+      if (quietStderr.some(pattern => text.includes(pattern))) return;
+      console.error(`Server stderr (port ${port}):`, text);
     });
 
     serverProcess.on('error', reject);
