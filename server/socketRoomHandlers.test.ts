@@ -1,7 +1,8 @@
 /** @vitest-environment node */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Server, Socket } from 'socket.io';
+import type { Server } from 'socket.io';
 import { registerRoomHandlers } from './socketRoomHandlers';
+import { makeFakeSocket, type Handler } from './socketTestHarness';
 import { rooms, deleteRoom, roomChannel } from './rooms';
 import type { ConnectionSession } from './socketContext';
 
@@ -18,24 +19,6 @@ const makeFakeIo = (knownSockets: Record<string, { leave: ReturnType<typeof vi.f
     sockets: { sockets: { get: (id: string) => knownSockets[id] } },
   } as unknown as Server;
   return { io, emit };
-};
-
-type Handler = (...args: unknown[]) => unknown;
-
-// A minimal socket double: registerRoomHandlers wires its listeners through
-// safeOn (which wraps and swallows the returned promise), so tests capture the
-// wrapped handlers off `on` and invoke them directly.
-const makeFakeSocket = (id: string) => {
-  const handlers: Record<string, Handler> = {};
-  const socket = {
-    id,
-    connected: true,
-    join: vi.fn(),
-    leave: vi.fn(),
-    emit: vi.fn(),
-    on: (event: string, fn: Handler) => { handlers[event] = fn; },
-  } as unknown as Socket;
-  return { socket, handlers };
 };
 
 describe('joinRoom vs a disconnect during its stats await', () => {

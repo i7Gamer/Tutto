@@ -7,6 +7,25 @@ import { io } from 'socket.io-client';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
+// Join a room as host and resolve once the server has emitted the initial
+// gameState. Shared by both describes below, which spawn their servers on
+// different ports — hence the explicit port parameter.
+const joinRoom = (port, roomId) =>
+  new Promise((resolve, reject) => {
+    const sock = io(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
+    sock.on('connect', () => {
+      sock.emit(
+        'joinRoom',
+        { roomId, name: 'Host', deviceId: `dev-${roomId}`, color: '#ff0000' },
+        (res) => {
+          if (res.error) { sock.disconnect(); return reject(new Error(res.error)); }
+          sock.once('gameState', (state) => resolve({ sock, state }));
+        }
+      );
+    });
+    sock.on('connect_error', reject);
+  });
+
 describe('Socket updateConfig — upper-bound validation', () => {
   let serverProcess;
   const PORT = TEST_PORTS.socketConfigBounds;
@@ -38,23 +57,6 @@ describe('Socket updateConfig — upper-bound validation', () => {
     if (serverProcess) serverProcess.kill();
   });
 
-  // Join a room as host and resolve once the server has emitted the initial gameState.
-  const joinRoom = (roomId) =>
-    new Promise((resolve, reject) => {
-      const sock = io(`http://127.0.0.1:${PORT}`, { transports: ['websocket'] });
-      sock.on('connect', () => {
-        sock.emit(
-          'joinRoom',
-          { roomId, name: 'Host', deviceId: `dev-${roomId}`, color: '#ff0000' },
-          (res) => {
-            if (res.error) { sock.disconnect(); return reject(new Error(res.error)); }
-            sock.once('gameState', (state) => resolve({ sock, state }));
-          }
-        );
-      });
-      sock.on('connect_error', reject);
-    });
-
   // Send updateConfig and return the resulting gameState.
   const sendConfig = (sock, roomId, config) =>
     new Promise((resolve) => {
@@ -65,7 +67,7 @@ describe('Socket updateConfig — upper-bound validation', () => {
   // ─── winningScore ────────────────────────────────────────────────────────────
 
   it('rejects winningScore above 99999', async () => {
-    const { sock, state: initial } = await joinRoom('ws-room-1');
+    const { sock, state: initial } = await joinRoom(PORT, 'ws-room-1');
     expect(initial.winningScore).toBe(6000);
     const next = await sendConfig(sock, 'ws-room-1', { winningScore: 100000 });
     expect(next.winningScore).toBe(6000);
@@ -73,7 +75,7 @@ describe('Socket updateConfig — upper-bound validation', () => {
   });
 
   it('accepts winningScore exactly at 99999', async () => {
-    const { sock } = await joinRoom('ws-room-2');
+    const { sock } = await joinRoom(PORT, 'ws-room-2');
     const next = await sendConfig(sock, 'ws-room-2', { winningScore: 99999 });
     expect(next.winningScore).toBe(99999);
     sock.disconnect();
@@ -82,7 +84,7 @@ describe('Socket updateConfig — upper-bound validation', () => {
   // ─── turnDuration ────────────────────────────────────────────────────────────
 
   it('rejects turnDuration above 600', async () => {
-    const { sock, state: initial } = await joinRoom('ws-room-3');
+    const { sock, state: initial } = await joinRoom(PORT, 'ws-room-3');
     expect(initial.turnDuration).toBe(120);
     const next = await sendConfig(sock, 'ws-room-3', { turnDuration: 601 });
     expect(next.turnDuration).toBe(120);
@@ -90,7 +92,7 @@ describe('Socket updateConfig — upper-bound validation', () => {
   });
 
   it('accepts turnDuration exactly at 600', async () => {
-    const { sock } = await joinRoom('ws-room-4');
+    const { sock } = await joinRoom(PORT, 'ws-room-4');
     const next = await sendConfig(sock, 'ws-room-4', { turnDuration: 600 });
     expect(next.turnDuration).toBe(600);
     sock.disconnect();
@@ -99,7 +101,7 @@ describe('Socket updateConfig — upper-bound validation', () => {
   // ─── reconnectTimeout ────────────────────────────────────────────────────────
 
   it('rejects reconnectTimeout above 3600', async () => {
-    const { sock, state: initial } = await joinRoom('ws-room-5');
+    const { sock, state: initial } = await joinRoom(PORT, 'ws-room-5');
     expect(initial.reconnectTimeout).toBe(60);
     const next = await sendConfig(sock, 'ws-room-5', { reconnectTimeout: 3601 });
     expect(next.reconnectTimeout).toBe(60);
@@ -107,7 +109,7 @@ describe('Socket updateConfig — upper-bound validation', () => {
   });
 
   it('accepts reconnectTimeout exactly at 3600', async () => {
-    const { sock } = await joinRoom('ws-room-6');
+    const { sock } = await joinRoom(PORT, 'ws-room-6');
     const next = await sendConfig(sock, 'ws-room-6', { reconnectTimeout: 3600 });
     expect(next.reconnectTimeout).toBe(3600);
     sock.disconnect();
@@ -145,22 +147,6 @@ describe('Socket security and timer fixes', () => {
     if (serverProcess) serverProcess.kill();
   });
 
-  const joinRoom = (roomId) =>
-    new Promise((resolve, reject) => {
-      const sock = io(`http://127.0.0.1:${PORT}`, { transports: ['websocket'] });
-      sock.on('connect', () => {
-        sock.emit(
-          'joinRoom',
-          { roomId, name: 'Host', deviceId: `dev-${roomId}`, color: '#ff0000' },
-          (res) => {
-            if (res.error) { sock.disconnect(); return reject(new Error(res.error)); }
-            sock.once('gameState', (state) => resolve({ sock, state }));
-          }
-        );
-      });
-      sock.on('connect_error', reject);
-    });
-
   const joinAsGuest = (roomId, name = 'Guest') =>
     new Promise((resolve, reject) => {
       const sock = io(`http://127.0.0.1:${PORT}`, { transports: ['websocket'] });
@@ -181,7 +167,7 @@ describe('Socket security and timer fixes', () => {
 
   it('rejects reorderPlayers that would create duplicate player entries', async () => {
     const roomId = 'sec-room-1';
-    const { sock: hostSock } = await joinRoom(roomId);
+    const { sock: hostSock } = await joinRoom(PORT, roomId);
 
     // Guest joins; host receives updated gameState
     const guestJoinedState = new Promise(r => hostSock.once('gameState', r));
@@ -218,7 +204,7 @@ describe('Socket security and timer fixes', () => {
 
   it('resets turn timer when the active player is kicked mid-turn', async () => {
     const roomId = 'sec-room-2';
-    const { sock: hostSock } = await joinRoom(roomId);
+    const { sock: hostSock } = await joinRoom(PORT, roomId);
 
     // Guest joins
     const guestJoinedState = new Promise(r => hostSock.once('gameState', r));
@@ -271,7 +257,7 @@ describe('Socket security and timer fixes', () => {
 
   it('ignores insane config values arriving via pushState instead of applying them', async () => {
     const roomId = 'sec-room-3';
-    const { sock: hostSock, state: initial } = await joinRoom(roomId);
+    const { sock: hostSock, state: initial } = await joinRoom(PORT, roomId);
     expect(initial.turnDuration).toBe(120);
 
     // A negative turnDuration would make the server-side turn timer re-arm

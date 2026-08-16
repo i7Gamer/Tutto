@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io } from 'socket.io-client';
 import { spawn } from 'child_process';
+import { asserting } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
@@ -39,21 +40,6 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
   });
-
-  /**
-   * Wraps a socket listener that asserts, so an expect() throwing inside one
-   * rejects the test instead of escaping as an unhandled listener error — which
-   * leaves the promise unsettled and reports the generic "Test timed out",
-   * losing the assertion that actually broke. Same helper as
-   * sockets.presence.test.ts.
-   */
-  const asserting = (reject, listener) => (...args) => {
-    try {
-      listener(...args);
-    } catch (e) {
-      reject(e);
-    }
-  };
 
   const joinRoom = (roomId, name, deviceId) =>
     new Promise((resolve, reject) => {

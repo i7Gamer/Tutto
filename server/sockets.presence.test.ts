@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io } from 'socket.io-client';
-import { startTestServer, testDelay } from './socketTestHarness';
+import { startTestServer, testDelay, asserting } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
@@ -27,23 +27,6 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
     if (socket2) socket2.disconnect();
     if (serverProcess) serverProcess.kill();
   });
-
-  /**
-   * Wraps a socket listener that asserts.
-   *
-   * An expect() throwing inside one is an unhandled listener error, not a
-   * rejected test: the promise never settles, and the failure surfaces as this
-   * suite's generic "Test timed out" with the actual assertion message lost.
-   * Routing the throw to reject keeps it. (sockets.room.test.ts already does
-   * this inline; this is the same thing, once.)
-   */
-  const asserting = (reject, listener) => (...args) => {
-    try {
-      listener(...args);
-    } catch (e) {
-      reject(e);
-    }
-  };
 
   it('preserves socket metadata, detects disconnects, and kicks player correctly', () => {
     return new Promise((resolve, reject) => {

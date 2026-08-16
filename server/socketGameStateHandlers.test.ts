@@ -1,7 +1,8 @@
 /** @vitest-environment node */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Server, Socket } from 'socket.io';
+import type { Server } from 'socket.io';
 import { registerGameStateHandlers, MAX_TIMER_RESTARTS_PER_TURN } from './socketGameStateHandlers';
+import { makeFakeSocket, type Handler } from './socketTestHarness';
 import { rooms, createRoom, deleteRoom } from './rooms';
 import { zeroedPlayerStats } from '../src/utils/playerStats';
 import type { ServerPlayer } from './roomTypes';
@@ -10,21 +11,6 @@ const makeFakeIo = () => {
   const emit = vi.fn();
   const to = vi.fn(() => ({ emit }));
   return { io: { to } as unknown as Server, emit };
-};
-
-type Handler = (...args: unknown[]) => unknown;
-
-const makeFakeSocket = (id: string) => {
-  const handlers: Record<string, Handler> = {};
-  const socket = {
-    id,
-    connected: true,
-    join: vi.fn(),
-    leave: vi.fn(),
-    emit: vi.fn(),
-    on: (event: string, fn: Handler) => { handlers[event] = fn; },
-  } as unknown as Socket;
-  return { socket, handlers };
 };
 
 const makePlayer = (name: string, socketId: string): ServerPlayer => ({
