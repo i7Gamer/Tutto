@@ -8,6 +8,11 @@ on:
   schedule:
     # Off the full hour: GitHub delays or drops scheduled runs queued exactly
     # on the hour under load.
+    #
+    # Caveat: GitHub auto-disables scheduled workflows after ~60 days without
+    # repository activity — exactly the idle stretch this run exists for. A
+    # push re-enables it; past that, GitHub emails a "workflow disabled"
+    # notice, and the Actions tab shows it. Nothing here can prevent that.
     - cron: '23 6 * * *'
   # For checking on demand, e.g. right after triaging an advisory.
   workflow_dispatch:

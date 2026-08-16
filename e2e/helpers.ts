@@ -51,7 +51,7 @@ export const joinOnlineRoom = async (page: Page, roomId: string, name: string) =
  * over it.
  *
  * For specs that need a game to be underway. The lobby flow itself is a
- * subject in its own right, and game.spec.js still walks it step by step —
+ * subject in its own right, and game.spec.ts still walks it step by step —
  * that test is about what the player sees on the way, not about arriving.
  */
 export const startLocalGame = async (page: Page, names: string[] = DEFAULT_PLAYERS) => {

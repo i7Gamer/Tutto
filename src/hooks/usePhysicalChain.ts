@@ -58,7 +58,8 @@ const isPlausibleCache = (v: unknown): v is PhysicalChainCacheShape => {
 /**
  * Reads the cached physical turn if it belongs to exactly the given turn key;
  * anything else (malformed chain, or stamped for another turn) is evicted so
- * it can never resurface — the same contract as DiceGame's readRestorableTurn.
+ * it can never resurface — the same contract as readRestorableTurn in
+ * diceTurnRestore.ts.
  * A garbled score input alone falls back to empty rather than evicting the
  * chain with it. Exported so Game.tsx can seed its scoreInput state from the
  * same entry the hook restores the chain from.
