@@ -1,0 +1,40 @@
+name: Scheduled Dependency Audit
+
+# ci.yml audits both lockfiles, but only when something is pushed. An advisory
+# published while the repository sits idle stays invisible until the next
+# commit — this run puts a daily bound on that window. A finding surfaces as a
+# red run on the Actions tab and GitHub's default workflow-failure email.
+on:
+  schedule:
+    # Off the full hour: GitHub delays or drops scheduled runs queued exactly
+    # on the hour under load.
+    - cron: '23 6 * * *'
+  # For checking on demand, e.g. right after triaging an advisory.
+  workflow_dispatch:
+
+# Checkout is all this workflow needs the token for — same reasoning as ci.yml.
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: npm audit (root & server)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      # npm audit reads the manifest and lockfile and asks the registry — no
+      # node_modules needed, so there is deliberately no npm ci here.
+      - name: Security Audit (root)
+        run: npm audit --audit-level=high
+
+      - name: Security Audit (server)
+        run: npm audit --audit-level=high
+        working-directory: server

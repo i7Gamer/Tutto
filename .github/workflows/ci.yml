@@ -47,8 +47,10 @@ jobs:
       - name: Build Application
         run: npm run build
 
+      # test:coverage rather than test: enforces the coverage floor configured
+      # in vite.config.js (COVERAGE_FLOOR_PERCENT), so a drop below it fails CI.
       - name: Run Unit & Integration Tests
-        run: npm run test
+        run: npm run test:coverage
 
       # The publish workflow's Hub-cleanup shell deletes manifests from a public
       # registry and otherwise only ever runs during a real publish — where it

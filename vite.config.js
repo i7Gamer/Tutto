@@ -16,6 +16,14 @@ const { version: appVersion } = JSON.parse(
 // assignment below so the split actually happens — see the note there.
 const LAZY_PACKAGES = ['qrcode-generator', 'jsqr']
 
+// Coverage gate for `npm run test:coverage` (which CI runs): a floor well
+// under the suite's actual level (~92% statements / ~88% branches as of
+// v1.5.3), so it catches real erosion without turning every refactor into a
+// threshold fight. Note the number understates the server: most of
+// server/api.test.ts drives a spawned server subprocess, which V8 coverage
+// cannot see into.
+const COVERAGE_FLOOR_PERCENT = 80
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   // Falls back to localhost for local dev. Set ALLOWED_HOST to the deployed
@@ -139,6 +147,14 @@ export default defineConfig(({ mode }) => {
       // test.describe() to be called here", for a file that is not part of
       // the project at all.
       exclude: ['node_modules', 'dist', '.idea', '.git', '.cache', 'e2e/**', 'server/node_modules/**', 'scratch/**'],
+      coverage: {
+        thresholds: {
+          statements: COVERAGE_FLOOR_PERCENT,
+          branches: COVERAGE_FLOOR_PERCENT,
+          functions: COVERAGE_FLOOR_PERCENT,
+          lines: COVERAGE_FLOOR_PERCENT,
+        },
+      },
       env: {
         TEST_DB: 'true',
         // Makes testDelay(ms) in socket/server integration tests scale down
