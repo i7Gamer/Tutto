@@ -1,15 +1,15 @@
-import { localStore } from '../utils/storage';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Hand, Layers, RotateCw } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { playBuzzer, playSuccess, playTone, vibrateBust, vibrateSuccess } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
 import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from '../utils/diceLogic';
 import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../utils/coreGameEngine';
 import { DEFAULT_RULESET } from '../utils/configValidation';
-import { parseSavedDiceState, buildDiceSnapshot, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
-import { deriveTurnControls, sortKeptDiceForDisplay } from '../utils/diceTurnControls';
+import { buildDiceSnapshot } from '../utils/diceTurnState';
+import { deriveTurnControls, sortKeptDiceForDisplay, withForcedFeuerwerkSelection } from '../utils/diceTurnControls';
+import { readRestorableTurn, deriveRestoredTurn, type RestoredChain, type RestoredSummary } from '../utils/diceTurnRestore';
+import { getDisplayCardName } from '../utils/cardVisuals';
 import { useAutoContinueCountdown } from '../hooks/useAutoContinueCountdown';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import {
@@ -17,12 +17,14 @@ import {
   BUST_SUMMARY_DELAY_MS, LIVE_SNAPSHOT_DEBOUNCE_MS, DISCARDED_DRAW_RECOVERY_MS,
 } from '../utils/uiTimings';
 import { isTestEnv } from '../utils/env';
-import { motion, AnimatePresence } from 'framer-motion';
-import Die, { DiePips } from './game/Die';
 import DiceSummary from './game/DiceSummary';
 import DrawnCardReveal from './game/DrawnCardReveal';
+import TurnScoreHeader from './game/TurnScoreHeader';
+import KeptDiceTray from './game/KeptDiceTray';
+import CurrentRollBoard from './game/CurrentRollBoard';
+import TurnActionBar from './game/TurnActionBar';
 import { MAX_CHAIN_CARDS } from '../types';
-import type { CardType, Die as DieType, DiceSnapshot, Ruleset, TurnSummary, TurnCardPlayed, TurnEnd } from '../types';
+import type { CardType, Die as DieType, DiceSnapshot, Ruleset, TurnSummary } from '../types';
 
 interface DiceGameProps {
   currentCard: CardType | null;
@@ -45,27 +47,9 @@ interface DiceGameProps {
   onDrawCard?: () => CardType | null;
 }
 
-interface SummaryData {
-  won: boolean;
-  score: number;
-  isTutto?: boolean;
-  // The chain was ended by a drawn Stop card (classic) — everything is lost.
-  stoppedByCard?: boolean;
-}
-
-const CARD_NAME_MAP: Partial<Record<CardType, string>> = {
-  'Plus_Minus': 'Plus/Minus',
-  '200': '200 Bonus',
-  '300': '300 Bonus',
-  '400': '400 Bonus',
-  '500': '500 Bonus',
-  '600': '600 Bonus',
-};
-
-const getDisplayCardName = (cardName: CardType | null): string => {
-  if (!cardName) return '';
-  return CARD_NAME_MAP[cardName] ?? cardName;
-};
+// What DiceSummary shows. The restore module owns the shape — a reload
+// restores straight into one of these.
+type SummaryData = RestoredSummary;
 
 /**
  * The cards worth a fixed award for being completed rather than the dice they
@@ -83,42 +67,6 @@ const FIXED_CARD_AWARD: Partial<Record<CardType, number>> = {
   Kniffel: KNIFFEL_SCORE,
 };
 
-/**
- * Official Feuerwerk keeps EVERY scoring die — the selection is forced, and
- * toggleDie is a no-op for that card, so the board is only playable once this
- * has been applied. Shared by the live roll (finalizeRoll) and the restore of
- * a roll that was cached before finalizeRoll ever ran.
- */
-const withForcedFeuerwerkSelection = (roll: DieType[], ruleset: Ruleset): DieType[] => {
-  const forced = new Set(getMaxValidSelection(roll.map(d => d.val), 'Feuerwerk', [], ruleset));
-  return roll.map((d, i) => ({ ...d, selected: forced.has(i) }));
-};
-
-/**
- * The cached turn to resume into, or null to start fresh.
- *
- * A snapshot stamped for a different turn — e.g. the server's turn timer
- * advanced past this player while they were disconnected or backgrounded, so
- * their own client never got the chance to clear its cache entry — is dropped
- * rather than resumed into the new turn. turnKey is undefined for callers that
- * don't pass it (predating that prop), in which case restoration stays
- * unconditional as before.
- *
- * Evicting the stale entry here means this runs during the first render rather
- * than after it. That is safe to repeat, which is what StrictMode's second
- * invocation of a lazy initializer does: the second pass reads no entry and
- * removes nothing.
- */
-const readRestorableTurn = (turnKey: string | undefined) => {
-  const restored = parseSavedDiceState(localStore.read(DICE_TURN_STATE_KEY));
-  if (!restored) return null;
-  if (turnKey !== undefined && restored.turnKey !== turnKey) {
-    localStore.remove(DICE_TURN_STATE_KEY);
-    return null;
-  }
-  return restored;
-};
-
 export default function DiceGame({ currentCard, turnKey, onComplete, onStateChange, panelReady = true, ruleset = DEFAULT_RULESET, onDrawCard }: DiceGameProps) {
   const { t } = useTranslation();
   const isClassic = ruleset === 'classic';
@@ -128,98 +76,35 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // only then correcting it into the turn the player was actually in the middle
   // of — a visible flash of a game they had not been playing.
   const [restored] = useState(() => readRestorableTurn(turnKey));
-  // A snapshot cached while the dice were still tumbling carries no verdict:
-  // the live snapshot is debounced from the moment the roll starts, while
-  // `busted` is written by finalizeRoll — the only place isBust ever runs —
-  // once every die has settled. Restored as if it were a settled board, a
-  // busting roll would stay unjudged forever: no bust, no auto-roll, and this
-  // panel is deliberately non-dismissible, so nothing could end the turn.
-  // Re-derive what finalizeRoll would have decided from the dice the snapshot
-  // does carry, rather than trusting a flag that was never written.
-  const restoredRollValues = restored?.currentRoll.map(d => d.val) ?? [];
-  const restoredUnresolvedRoll = !!restored && !restored.busted && !restored.stopped
-    && (restored.rollingDiceIds?.length ?? 0) > 0 && restoredRollValues.length > 0;
-  const restoredRollBusts = restoredUnresolvedRoll
-    && isBust(restoredRollValues, currentCard, restored?.kniffelProgress ?? [], ruleset);
-  // A bust is restored straight into its summary: the turn is already over and
-  // what is left to show is its outcome.
-  const restoredBust = restored && (restored.busted || restoredRollBusts)
-    ? {
-      won: currentCard === 'Feuerwerk' && restored.turnScore > 0,
-      score: currentCard === 'Feuerwerk' ? restored.turnScore : 0,
-      isTutto: false,
-    }
-    : null;
-  // A classic snapshot with all six dice put aside is a completed tutto that
-  // was banked — restore into its summary, not into a dice table with nothing
-  // left to select. (Banking marks `stopped` too, so this mostly catches
-  // caches written before it did.)
-  const restoredTutto = !restoredBust && isClassic && restored && restored.keptDice.length === 6
-    ? { won: true, score: restored.turnScore, isTutto: true }
-    : null;
-  // A classic chain had just drawn a Stop card when the app reloaded (the
-  // turn key carries the current card, so a matching restore under 'Stop'
-  // can only be that forfeit summary) — restore into it, not into a rollable
-  // dice table for a card that allows no rolling.
-  const restoredStopped = !restoredBust && !restoredTutto && isClassic && restored && currentCard === 'Stop'
-    ? { won: false, score: 0, isTutto: false, stoppedByCard: true }
-    : null;
-  // A banked decision (Stop & Score, or a modernized turn-ending tutto —
-  // both commit with the stopped marker) — restore into its success summary,
-  // never a dice table where the decision could be rolled back into Roll
-  // Again. All six dice put aside is what a tutto IS, so the kept-dice count
-  // recovers the "Tutto!" headline.
-  const restoredBanked = !restoredBust && !restoredTutto && !restoredStopped && restored?.stopped
-    ? { won: true, score: restored.turnScore, isTutto: restored.keptDice.length === 6 }
-    : null;
-  // An empty table that is neither busted nor banked was snapshotted between
-  // drawing a chain card and its first roll (the reveal panel below holds that
-  // window open for as long as the player takes to dismiss it). Resuming it
-  // has to roll: restoring as-is hands back a table with no dice on it and no
-  // button that would put any there.
-  const restoredMidDraw = !!restored && !restoredBust && !restoredTutto && !restoredStopped && !restoredBanked
-    && restored.keptDice.length === 0 && restored.currentRoll.length === 0;
-
-  // finalizeRoll's other branch, for the same never-finalized snapshot: an
-  // unresolved classic Feuerwerk roll comes back with nothing selected, and
-  // its selection cannot be made by hand (toggleDie is a no-op for that card),
-  // so the board would have no actionable button either.
-  const restoredCurrentRoll = restoredUnresolvedRoll && !restoredRollBusts && isClassic && currentCard === 'Feuerwerk'
-    ? withForcedFeuerwerkSelection(restored?.currentRoll ?? [], ruleset)
-    : restored?.currentRoll ?? [];
+  // What to resume into. Every branch of that judgment — re-deriving a
+  // mid-tumble bust, Feuerwerk's forced keep, banked decisions, the chain —
+  // lives and is unit-tested in diceTurnRestore.ts. Recomputed per render,
+  // but only read for initial state and primitive effect deps below, so the
+  // fresh object identity is harmless.
+  const restore = deriveRestoredTurn({ restored, currentCard, ruleset });
 
   const [keptDice, setKeptDice] = useState<DieType[]>(restored?.keptDice ?? []);
-  const [currentRoll, setCurrentRoll] = useState<DieType[]>(restoredCurrentRoll);
+  const [currentRoll, setCurrentRoll] = useState<DieType[]>(restore.currentRoll);
   const [displayRoll, setDisplayRoll] = useState<DieType[]>(restored?.currentRoll ?? []);
   const [rollingDiceIndices, setRollingDiceIndices] = useState<Set<string>>(new Set());
   const [turnScore, setTurnScore] = useState(restored?.turnScore ?? 0);
   const [kniffelProgress, setKniffelProgress] = useState<number[]>(restored?.kniffelProgress ?? []);
   const [isRolling, setIsRolling] = useState(false);
-  const [hasRolled, setHasRolled] = useState(!!restored && !restoredMidDraw);
-  const [bustState, setBustState] = useState(!!restoredBust);
-  const [showSummary, setShowSummary] = useState(!!restoredBust || !!restoredTutto || !!restoredStopped || !!restoredBanked);
-  const [summaryData, setSummaryData] = useState<SummaryData>(
-    restoredBust ?? restoredTutto ?? restoredStopped ?? restoredBanked ?? { won: false, score: 0, isTutto: false },
-  );
+  const [hasRolled, setHasRolled] = useState(restore.hasRolled);
+  const [bustState, setBustState] = useState(restore.busted);
+  // A decided restore (bust, banked tutto, forfeit) opens on its summary.
+  const [showSummary, setShowSummary] = useState(restore.summary !== null);
+  const [summaryData, setSummaryData] = useState<SummaryData>(restore.summary ?? { won: false, score: 0, isTutto: false });
   // Whether the turn is decided and banked (Stop & Score, a modernized
   // turn-ending tutto, a completed Kleeblatt) — rides the snapshot so a
   // reload restores into the banked summary above.
-  const [stopped, setStopped] = useState(!!restoredBanked);
+  const [stopped, setStopped] = useState(restore.bankedDecision);
   const [tuttosThisTurn, setTuttosThisTurn] = useState(restored?.tuttosThisTurn ?? 0);
 
   // The classic chain, held in a ref so summary/bust callbacks always read the
-  // current value; chainVersion ticks whenever it changes so the snapshot
-  // effect below re-sends. Cards before the last are completed by definition.
-  const [initialChain] = useState<{ cards: TurnCardPlayed[]; tuttoCount: number; plusMinusScores: number[]; ended: TurnEnd; forfeitedScore?: number }>(() => {
-    const cardList = restored?.cardsThisTurn ?? (currentCard ? [currentCard] : []);
-    return {
-      cards: cardList.map((card, i) => ({ card, completed: i < cardList.length - 1 || (i === cardList.length - 1 && !!restoredTutto) })),
-      tuttoCount: restored?.chainTuttoCount ?? 0,
-      plusMinusScores: restored?.plusMinusScores ?? [],
-      ended: restoredStopped ? 'stopCard' : restoredBust ? (restoredBust.won ? 'banked' : 'null') : 'banked',
-      forfeitedScore: (restoredBust && !restoredBust.won) || restoredStopped ? restored?.turnScore : undefined,
-    };
-  });
+  // current value; the snapshot effect below re-reads it whenever one of its
+  // state deps ticks.
+  const [initialChain] = useState<RestoredChain>(() => restore.initialChain);
   const chainRef = useRef(initialChain);
   // Render-safe mirror of chainRef.current.cards.length (refs must not be
   // read during render); only a draw ever changes it.
@@ -363,9 +248,9 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // has dice on the table; a mid-draw resume has none, and rolls carrying the
   // chain total it must bank on a Feuerwerk null.
   useEffect(() => {
-    if (!panelReady || (restored && !restoredMidDraw)) return;
+    if (!panelReady || (restored && !restore.midDraw)) return;
     rollRef.current(6, null, restored?.turnScore ?? 0);
-  }, [panelReady, restored, restoredMidDraw]);
+  }, [panelReady, restored, restore.midDraw]);
 
   useEffect(() => {
     if (rollingDiceIndices.size === 0) return;
@@ -831,116 +716,40 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
           />
         ) : (
           <>
-            <div className="text-center mb-6 sm:mb-8">
-              <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1">{t('dice.current_score', 'Current Score')}</div>
-              {/* Keyed by turnScore alone (not the live selection) so the pop
-                  animation plays when a roll is banked, not on every die
-                  click that flips the selection valid/invalid. */}
-              <motion.div key={turnScore} data-testid="dice-current-score" initial={{ scale: 1.2 }} animate={{ scale: 1 }} className="text-5xl font-black text-indigo-600 dark:text-indigo-400">
-                {turnScore + pendingSelectionScore}
-              </motion.div>
-              {isClassic && chainCardCount > 1 && (
-                <div className="text-indigo-500 mt-2 font-bold text-sm bg-indigo-50 dark:bg-indigo-900/30 inline-block px-4 py-1 rounded-full border border-indigo-200 dark:border-indigo-800">
-                  {t('dice.chain_card_count', 'Card {{count}} of this turn', { count: chainCardCount })}
-                </div>
-              )}
-              {currentCard === 'Kleeblatt' && (
-                <div className="text-emerald-500 mt-2 font-bold text-lg bg-emerald-50 inline-block px-4 py-1 rounded-full border border-emerald-200">
-                  {t('dice.tuttos_count', 'Tuttos: {{count}} / 2', { count: tuttosThisTurn })}
-                </div>
-              )}
-            </div>
+            <TurnScoreHeader
+              turnScore={turnScore}
+              pendingSelectionScore={pendingSelectionScore}
+              isClassic={isClassic}
+              chainCardCount={chainCardCount}
+              currentCard={currentCard}
+              tuttosThisTurn={tuttosThisTurn}
+            />
 
-            <div className="mb-6">
-              <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">{t('dice.kept_dice', 'Kept Dice')}</h4>
-              <div className="min-h-[80px] p-4 bg-black/5 dark:bg-white/5 rounded-2xl flex gap-3 flex-wrap items-center border border-gray-200 dark:border-slate-600/50 shadow-inner">
-                <AnimatePresence>
-                  {/* Keyed by die id, not index: Kniffel re-sorts kept dice for
-                      display, and index keys would pin AnimatePresence's enter/
-                      exit animations to the wrong die after a reorder. */}
-                  {displayKeptDice.map(d => (
-                    <motion.div key={d.id} data-testid="die" initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} className="relative w-14 h-14 bg-indigo-600 text-white rounded-xl shadow-md flex items-center justify-center border-2 border-indigo-400">
-                      <DiePips val={d.val} isSelected={false} bustState={false} size="large" isIndigo />
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-                {displayKeptDice.length === 0 && <span className="text-gray-400 font-medium italic mx-auto">{t('dice.none', 'None')}</span>}
-              </div>
-            </div>
+            <KeptDiceTray keptDice={displayKeptDice} />
 
-            <div className="mb-8">
-              <div className="flex items-center justify-between mb-2 sm:mb-3">
-                <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('dice.current_roll', 'Current Roll')}</h4>
-                {hasRolled && !isRolling && !bustState && (
-                  <button className="text-xs font-bold px-2.5 py-1 rounded-md border border-indigo-300 dark:border-indigo-600 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors" onClick={selectAllValid}>
-                    {t('dice.select_all_valid', 'Select all')}
-                  </button>
-                )}
-              </div>
-              <div className="min-h-[80px] p-4 bg-white dark:bg-slate-800 rounded-2xl flex gap-3 flex-wrap justify-center border border-gray-200 dark:border-slate-600 shadow-xs">
-                {displayRoll.map(d => {
-                  const isDieTumbling = rollingDiceIndices.has(d.id);
-                  const isSelected = currentRoll.find(cr => cr.id === d.id)?.selected ?? false;
-                  return (
-                    <Die key={d.id} die={d} isSelected={isSelected} isDieTumbling={isDieTumbling} bustState={bustState} isRollPending={isRolling} isSelectionLocked={isSelectionLocked} onToggle={toggleDie} />
-                  );
-                })}
-              </div>
-              {bustState && (
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="text-center text-red-500 text-2xl font-black mt-6 bg-red-50 py-3 rounded-xl border border-red-100">
-                  {t('dice.bust_description', 'Bust! (Volltreffer/Niete)')}
-                </motion.div>
-              )}
-              {!bustState && (
-                <div className="text-center mt-3 min-h-[24px]">
-                  {/* Always mounted (visibility toggled, not presence) so
-                      this line's reserved space never pops in/out as the
-                      selection flips valid/invalid. */}
-                  <span
-                    className={`text-red-500 font-bold bg-red-50 px-3 py-1 rounded-full border border-red-100 ${
-                      !validation.valid && selectedRolls.length > 0 ? '' : 'invisible'
-                    }`}
-                  >
-                    {t('dice.invalid_selection', 'Invalid selection')}
-                  </span>
-                </div>
-              )}
-            </div>
+            <CurrentRollBoard
+              displayRoll={displayRoll}
+              currentRoll={currentRoll}
+              rollingDiceIndices={rollingDiceIndices}
+              bustState={bustState}
+              isRolling={isRolling}
+              isSelectionLocked={isSelectionLocked}
+              hasRolled={hasRolled}
+              selectionValid={validation.valid}
+              selectedCount={selectedRolls.length}
+              onToggleDie={toggleDie}
+              onSelectAllValid={selectAllValid}
+            />
 
-            <AnimatePresence>
-              {hasRolled && !bustState && (
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row gap-4 justify-center mt-8 pt-6 border-t border-gray-100 dark:border-slate-700">
-                  {isRollAgainApplicable && (
-                    <button
-                      className={`flex-1 flex justify-center items-center gap-2 py-4 rounded-xl font-bold text-lg transition-all ${validation.valid && !isRolling ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/30' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
-                      disabled={!validation.valid || isRolling}
-                      onClick={() => handleAction('roll')}
-                    >
-                      <RotateCw size={20} /> {t('dice.roll_again', 'Roll Again')}
-                    </button>
-                  )}
-                  {canStop && (
-                    <button
-                      className={`flex-1 flex justify-center items-center gap-2 py-4 rounded-xl font-bold text-lg transition-all ${validation.valid && !isRolling ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
-                      disabled={!validation.valid || isRolling}
-                      onClick={() => handleAction('stop')}
-                    >
-                      <Hand size={20} /> {stopButtonText}
-                    </button>
-                  )}
-                  {canDrawAfterTutto && (
-                    <button
-                      data-testid="draw-next-card"
-                      className={`flex-1 flex justify-center items-center gap-2 py-4 rounded-xl font-bold text-lg transition-all ${validation.valid && !isRolling ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/30' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
-                      disabled={!validation.valid || isRolling}
-                      onClick={() => handleAction('draw')}
-                    >
-                      <Layers size={20} /> {t('dice.draw_next_card', 'Draw next card — risk everything!')}
-                    </button>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
+            <TurnActionBar
+              show={hasRolled && !bustState}
+              actionable={validation.valid && !isRolling}
+              isRollAgainApplicable={isRollAgainApplicable}
+              canStop={canStop}
+              stopButtonText={stopButtonText}
+              canDrawAfterTutto={canDrawAfterTutto}
+              onAction={handleAction}
+            />
           </>
         )}
       </div>

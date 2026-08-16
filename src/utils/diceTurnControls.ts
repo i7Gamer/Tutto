@@ -1,5 +1,6 @@
 import type { CardType, Die, Ruleset } from '../types';
 import { DEFAULT_RULESET } from './configValidation';
+import { getMaxValidSelection } from './diceLogic';
 
 export const SPECIAL_CARDS: readonly CardType[] = ['Kniffel', 'Plus_Minus', 'Kleeblatt'];
 
@@ -65,6 +66,18 @@ export const deriveTurnControls = ({
   }
 
   return { isSpecialCard: special, canStop, isRollAgainApplicable, stopButtonText };
+};
+
+/**
+ * Official Feuerwerk keeps EVERY scoring die — the selection is forced, and
+ * toggleDie is a no-op for that card, so the board is only playable once this
+ * has been applied. Shared by the live roll (DiceGame's finalizeRoll) and the
+ * restore of a roll that was cached before finalizeRoll ever ran
+ * (deriveRestoredTurn).
+ */
+export const withForcedFeuerwerkSelection = (roll: Die[], ruleset: Ruleset): Die[] => {
+  const forced = new Set(getMaxValidSelection(roll.map(d => d.val), 'Feuerwerk', [], ruleset));
+  return roll.map((d, i) => ({ ...d, selected: forced.has(i) }));
 };
 
 export const sortKeptDiceForDisplay = (

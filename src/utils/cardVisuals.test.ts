@@ -1,6 +1,6 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
-import { CARD_EMOJIS, UNKNOWN_CARD_EMOJI } from './cardVisuals';
+import { CARD_EMOJIS, UNKNOWN_CARD_EMOJI, getDisplayCardName } from './cardVisuals';
 import { VALID_CARD_TYPES } from './configValidation';
 
 describe('cardVisuals', () => {
@@ -27,5 +27,21 @@ describe('cardVisuals', () => {
       // card name in one is not guaranteed to be a card this build deals.
       expect(UNKNOWN_CARD_EMOJI).toBeTruthy();
     });
+  });
+});
+
+describe('getDisplayCardName', () => {
+  it('renames the cards whose raw id would read cryptic or bare', () => {
+    expect(getDisplayCardName('Plus_Minus')).toBe('Plus/Minus');
+    expect(getDisplayCardName('300')).toBe('300 Bonus');
+  });
+
+  it('leaves self-explanatory cards under their own id', () => {
+    expect(getDisplayCardName('Kleeblatt')).toBe('Kleeblatt');
+    expect(getDisplayCardName('Feuerwerk')).toBe('Feuerwerk');
+  });
+
+  it('names no card at all as the empty string', () => {
+    expect(getDisplayCardName(null)).toBe('');
   });
 });

@@ -1,6 +1,6 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
-import { isSpecialCard, hasScoreInput, deriveTurnControls, sortKeptDiceForDisplay } from './diceTurnControls';
+import { isSpecialCard, hasScoreInput, deriveTurnControls, sortKeptDiceForDisplay, withForcedFeuerwerkSelection } from './diceTurnControls';
 import { VALID_CARD_TYPES } from './configValidation';
 
 describe('diceTurnControls', () => {
@@ -140,5 +140,27 @@ describe('diceTurnControls', () => {
     it('classic: sorts even before any progress exists', () => {
       expect(sortKeptDiceForDisplay(dice, 'Kniffel', [], 'classic').map(d => d.val)).toEqual([1, 2, 3]);
     });
+  });
+});
+
+describe('withForcedFeuerwerkSelection', () => {
+  const roll = (...vals: number[]) => vals.map((val, i) => ({ id: `d${i}`, val, selected: false }));
+
+  it('selects every scoring die and nothing else', () => {
+    const forced = withForcedFeuerwerkSelection(roll(1, 2, 5, 3), 'classic');
+
+    expect(forced.map(d => d.selected)).toEqual([true, false, true, false]);
+  });
+
+  it('selects a scoring triple along with the singles', () => {
+    const forced = withForcedFeuerwerkSelection(roll(2, 2, 2, 5), 'classic');
+
+    expect(forced.map(d => d.selected)).toEqual([true, true, true, true]);
+  });
+
+  it('overwrites a stale selection rather than adding to it', () => {
+    const stale = [{ id: 'd0', val: 2, selected: true }, { id: 'd1', val: 1, selected: false }];
+
+    expect(withForcedFeuerwerkSelection(stale, 'classic').map(d => d.selected)).toEqual([false, true]);
   });
 });
