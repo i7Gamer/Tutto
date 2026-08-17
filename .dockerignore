@@ -33,11 +33,17 @@ coverage
 test-results
 playwright-report
 e2e
-playwright.config.js
-src/**/*.test.ts
-src/**/*.test.tsx
+playwright.config.ts
+# Extension left open rather than enumerated: the .ts/.tsx list here silently
+# stopped covering src/sw.test.js, and the bare root pattern is what
+# vite.config.test.ts walked past. Docker matches with Go's filepath.Match plus
+# `**`, where `*` never crosses a '/', so the root pattern stays at the root.
+# Brace alternation is NOT in that grammar — `*.test.{js,ts}` would match a file
+# literally named that and nothing else. packaging.test.ts enforces both.
+*.test.*
+src/**/*.test.*
 src/setupTests.tsx
-server/**/*.test.ts
+server/**/*.test.*
 # Test-only helpers: socketTestHarness spawns child processes, testPorts is the
 # suites' port registry, testTimeouts holds their hook budgets. None of them has
 # any business in a production image. Mirrored by TEST_ONLY_HELPERS in

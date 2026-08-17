@@ -201,6 +201,33 @@ describe('room membership (kick host migration, mid-game rename guard)', () => {
     expect(rooms['SELF_KICK_ROOM'].state.players.map(p => p.name)).toEqual(['Peer']);
   });
 
+  it('deletes the room when the host self-kicks and every remaining seat is a timerless ghost', async () => {
+    // reconnectTimeout=0 means the server never arms a reconnect timer, so a
+    // dropped player keeps their seat marked disconnected indefinitely. Kicking
+    // the last connected socket out of such a room leaves nothing behind that
+    // could ever free it: no socket left to disconnect, no timer left to fire,
+    // and a host id pointing at a dead socket. The room leaks for the process's
+    // lifetime. handlePlayerLeave's explicit-leave path already guards exactly
+    // this (socketRoomHandlers.ts, "all remaining players are disconnected with
+    // no reconnect timers"); the kick path did not.
+    const roomId = 'SELF_KICK_GHOSTS';
+    const host = await server.connectAndJoin(roomId, 'Host', 'dev-skg-h');
+    const peer = await server.connectAndJoin(roomId, 'Peer', 'dev-skg-p');
+
+    host.emit('updateConfig', { roomId, reconnectTimeout: 0 });
+    await waitFor(() => rooms[roomId]?.state.reconnectTimeout === 0);
+
+    peer.disconnect();
+    await waitFor(() => rooms[roomId]?.state.players.some(p => p.name === 'Peer' && p.disconnected) === true);
+    // The premise of the leak: the ghost seat has no timer pending, so nothing
+    // scheduled will ever revisit this room.
+    expect(Object.keys(rooms[roomId].disconnectTimers)).toEqual([]);
+
+    host.emit('kickPlayer', host.id);
+
+    await waitFor(() => rooms[roomId] === undefined);
+  });
+
   it('kicking a non-host player leaves the host unchanged', async () => {
     const host = await server.connectAndJoin('NORMAL_KICK_ROOM', 'Host', 'dev-nk-h');
     const peer = await server.connectAndJoin('NORMAL_KICK_ROOM', 'Peer', 'dev-nk-p');

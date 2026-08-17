@@ -336,6 +336,29 @@ const matchesCopySource = (source: string, file: string): boolean => {
   return new RegExp(`^${pattern}$`).test(file);
 };
 
+/** The .dockerignore's active pattern lines, comments and blanks stripped. */
+const dockerignoreEntries = (): string[] =>
+  fs
+    .readFileSync(path.join(REPO_ROOT, '.dockerignore'), 'utf8')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0 && !line.startsWith('#'));
+
+// Never walked when expanding a pattern: node_modules and dist would add tens
+// of thousands of paths to every glob for nothing (both are ignored wholesale),
+// .git is not part of the build context, and scratch/ is gitignored local junk
+// a contributor may or may not have.
+const UNSCANNED_DIRS = ['node_modules', 'dist', '.git', 'scratch'];
+
+/** Repo-relative matches for a glob, with separators normalised to '/'. */
+const globRepo = (patterns: string | string[]): string[] =>
+  fs
+    .globSync(patterns, {
+      cwd: REPO_ROOT,
+      exclude: (entry: string) => UNSCANNED_DIRS.includes(entry.split(/[\\/]/)[0] as string),
+    })
+    .map(match => match.split(path.sep).join('/'));
+
 describe('files the Docker image must copy', () => {
   const isCoveredByImage = (repoRelativePath: string): boolean =>
     IMAGE_EXTERNAL_PATHS.some(
@@ -382,11 +405,7 @@ describe('files the Docker image must copy', () => {
 
   it('keeps test-only helpers out of the build context', () => {
     // The .dockerignore is what stops them being copied by `COPY server/*.ts`.
-    const dockerignore = fs.readFileSync(path.join(REPO_ROOT, '.dockerignore'), 'utf8');
-    const entries = dockerignore
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0 && !line.startsWith('#'));
+    const entries = dockerignoreEntries();
     const unignored = TEST_ONLY_HELPERS.filter(helper => !entries.includes(`server/${helper}`));
     expect(unignored).toEqual([]);
   });
@@ -417,6 +436,91 @@ describe('files the Docker image must copy', () => {
     // Keeps the Dockerfile from accumulating COPY lines for shared code the
     // server has stopped using.
     expect(unused).toEqual([]);
+  });
+});
+
+/**
+ * The .dockerignore as a whole, rather than only the test-only-helper lines the
+ * check above derives from TEST_ONLY_HELPERS.
+ *
+ * A pattern here fails silently in both directions: one that matches nothing
+ * still reads like protection, and a file the patterns never learned about is
+ * copied without a word. Neither shows up in a build log.
+ */
+describe('.dockerignore keeps the build context clean', () => {
+  // `?` and `[]` included: Docker's matcher is Go's filepath.Match plus `**`,
+  // and all of them mean an entry names a set rather than one concrete path.
+  const GLOB_METACHARACTERS = /[*?[\]]/;
+
+  // Test files are named for one of these, everywhere in the repository.
+  const TEST_FILE_PATTERNS = ['**/*.test.*', '**/*.spec.*'];
+
+  // Entries that deliberately match nothing in a clean checkout. The Token
+  // Savior index is a machine-local cache and is never committed.
+  const OPTIONALLY_ABSENT_ENTRIES = ['.token-savior-cache.json'];
+
+  /**
+   * Whether the .dockerignore keeps a repo-relative path out of the context.
+   *
+   * Expanded against the real filesystem rather than reimplementing Docker's
+   * matcher. Node's glob is a different engine, but it agrees with Docker's on
+   * every construct this file uses — and the one construct where they DIVERGE,
+   * brace alternation, is rejected outright by the syntax test below, so this
+   * only ever expands patterns both engines read the same way.
+   */
+  const isIgnored = (() => {
+    const exact = new Set<string>();
+    const directories: string[] = [];
+    for (const entry of dockerignoreEntries()) {
+      for (const match of globRepo(entry)) {
+        exact.add(match);
+        if (fs.statSync(path.join(REPO_ROOT, match)).isDirectory()) directories.push(`${match}/`);
+      }
+    }
+    return (file: string): boolean =>
+      exact.has(file) || directories.some(directory => file.startsWith(directory));
+  })();
+
+  it('uses only pattern syntax Docker implements', () => {
+    // Brace alternation is NOT in Docker's grammar: `*.test.{js,ts}` matches a
+    // file literally named "*.test.{js,ts}" and nothing else, so a pattern
+    // written that way silently protects nothing while looking thorough — and
+    // Node's glob DOES expand braces, so isIgnored above would report the
+    // coverage Docker never delivers. `!` negation Docker does implement, but
+    // isIgnored does not model it, which would over-report just as quietly.
+    const unsupported = dockerignoreEntries().filter(
+      entry => /[{}]/.test(entry) || entry.startsWith('!'),
+    );
+    expect(unsupported).toEqual([]);
+  });
+
+  it('names no concrete file that has since moved or been deleted', () => {
+    // How playwright.config.js outlived the rename to .ts: the entry stayed,
+    // stopped matching anything, and nothing anywhere said so. Only entries
+    // naming a file (an extension, no wildcard) are checked — the extensionless
+    // ones are directories a clean checkout legitimately may not have.
+    const stale = dockerignoreEntries()
+      .filter(entry => !GLOB_METACHARACTERS.test(entry))
+      .filter(entry => path.extname(entry) !== '')
+      .filter(entry => !OPTIONALLY_ABSENT_ENTRIES.includes(entry))
+      .filter(entry => !fs.existsSync(path.join(REPO_ROOT, entry)))
+      .sort();
+
+    expect(stale).toEqual([]);
+  });
+
+  it('excludes every test file in the repository', () => {
+    const testFiles = globRepo(TEST_FILE_PATTERNS);
+
+    // Without this the assertion below would pass by scanning nothing at all.
+    expect(testFiles.length).toBeGreaterThan(0);
+
+    // src/sw.test.js and vite.config.test.ts both walked past patterns that
+    // only named .ts/.tsx under src/. The build context is not the image —
+    // stage 1 exports dist/ and nothing else — but this file is the only thing
+    // standing between a test file and `COPY . .`, and the entry it should
+    // have matched is the same entry the image's own protection leans on.
+    expect(testFiles.filter(file => !isIgnored(file)).sort()).toEqual([]);
   });
 });
 

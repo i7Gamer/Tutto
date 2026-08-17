@@ -22,11 +22,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      # cache-dependency-path because this repository has two lockfiles and both
+      # jobs install from both. setup-node otherwise keys the cache on the one
+      # lockfile beside the working directory, so a server-only bump restores a
+      # cache keyed to a root lockfile that never changed — wrong, and invisible
+      # in a green run. server/workflows.test.ts enforces this.
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
 
       - name: Install dependencies
         run: npm ci
@@ -79,11 +85,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      # Same two-lockfile cache key as the ci job above.
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
 
       - name: Install dependencies
         run: npm ci
