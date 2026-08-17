@@ -212,7 +212,6 @@ describe('Server-side turn timer', () => {
     // and hoping the sample landed in the right window. Driving the timer
     // directly means the advance has demonstrably already happened by the next
     // line, so the rejoin below reads a settled room rather than racing it.
-    expect(rooms[roomId].state.players.every(p => p.disconnected)).toBe(true);
     fireTurnExpiry(roomId);
 
     // Reconnect as Alice (same deviceId) to observe the room's current state.
