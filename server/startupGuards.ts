@@ -24,8 +24,14 @@ export const validateApiTokenForStartup = (
   env: { NODE_ENV?: string; API_TOKEN?: string },
 ): string | null => {
   if (env.NODE_ENV !== 'production') return null;
-  if (!env.API_TOKEN) return '[SECURITY] API_TOKEN is not set. Refusing to start in production.';
-  if (PUBLISHED_API_TOKENS.includes(env.API_TOKEN)) {
+  // Trimmed for the COMPARISON only — api.ts still authenticates against the
+  // raw value, so what counts as a valid token on a running deployment is
+  // unchanged. A stray space in a .env line is the easiest typo there is, and
+  // it used to slip a published placeholder past this list by one character:
+  // the server then started on a secret that is public knowledge plus a space.
+  const token = env.API_TOKEN?.trim();
+  if (!token) return '[SECURITY] API_TOKEN is not set. Refusing to start in production.';
+  if (PUBLISHED_API_TOKENS.includes(token)) {
     return '[SECURITY] API_TOKEN is set to a placeholder published in this repository, so it is public knowledge. Refusing to start in production.';
   }
   return null;

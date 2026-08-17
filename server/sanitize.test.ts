@@ -79,6 +79,14 @@ describe('sanitizeStats', () => {
   });
 });
 
+// The line terminators this module has to treat like CR/LF, built from
+// char codes so the source stays pure ASCII: written as raw characters
+// they are invisible in a diff and an editor can silently normalise them
+// away, leaving every assertion below comparing a string to itself.
+const LS = String.fromCharCode(0x2028);
+const PS = String.fromCharCode(0x2029);
+const NEL = String.fromCharCode(0x0085);
+
 describe('sanitizeLogHeaderField', () => {
   it('strips CR/LF so a crafted field cannot forge extra log lines', () => {
     expect(sanitizeLogHeaderField('2026-01-01\n[client-error] forged entry')).toBe('2026-01-01 [client-error] forged entry');
@@ -94,6 +102,30 @@ describe('sanitizeLogHeaderField', () => {
     // blanks it, then writes its own text over the top.
     expect(sanitizeLogHeaderField('boom\x1b[1A\x1b[2Kforged entry')).toBe('boomforged entry');
     expect(sanitizeLogHeaderField('\x1b[31mred\x1b[0m')).toBe('red');
+  });
+
+  // The CR/LF rule above and the control-character sweep below leave a gap
+  // between them: U+0085 sits past the \x7f that class stops at, and U+2028/
+  // U+2029 are well beyond it. Log viewers and editors that treat those as
+  // line terminators render a crafted field as its own top-level entry.
+  //
+  // Written as \u escapes rather than literal characters: the raw ones are
+  // invisible in a diff and an editor can normalise them away, which would
+  // leave every assertion here comparing a plain string to itself.
+  it('strips the Unicode line separators as well as CR/LF', () => {
+    expect(sanitizeLogHeaderField(`2026-01-01${LS}[client-error] forged`)).toBe('2026-01-01 [client-error] forged');
+    expect(sanitizeLogHeaderField(`a${PS}b`)).toBe('a b');
+    expect(sanitizeLogHeaderField(`a${NEL}b`)).toBe('a b');
+    // Collapsed as a single run, exactly like a \r\n pair.
+    expect(sanitizeLogHeaderField(`a${LS}${PS}${NEL}\r\nb`)).toBe('a b');
+  });
+
+  it('indents continuation lines split by a Unicode separator too', () => {
+    // The stack-trace path keeps its newlines and indents them, so a forged
+    // "[client-error] ..." line cannot sit flush at the start of a line.
+    expect(indentLogContinuationLines(`at foo${LS}[client-error] forged`))
+      .toBe('at foo\n    [client-error] forged');
+    expect(indentLogContinuationLines(`at foo${NEL}at bar`)).toBe('at foo\n    at bar');
   });
 
   it('strips NUL and other control characters a log reader would act on', () => {

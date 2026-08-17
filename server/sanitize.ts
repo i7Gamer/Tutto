@@ -23,11 +23,22 @@ const LOG_CONTROL_CHARS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
 const stripLogControlChars = (value: string): string =>
   value.replace(ANSI_ESCAPE, '').replace(LOG_CONTROL_CHARS, '');
 
+// Everything a log reader may break a line on. CR/LF are the obvious pair;
+// U+0085 (NEL) sits just past the \x7f where LOG_CONTROL_CHARS above stops,
+// and U+2028/U+2029 are far beyond it — all three survive that sweep, and any
+// viewer or editor treating them as terminators shows a crafted field as its
+// own top-level entry, which is exactly what the two functions below exist to
+// prevent.
+const LINE_BREAK_CHARS = '\\r\\n\\u2028\\u2029\\u0085';
+const ANY_LINE_BREAK_RUN = new RegExp(`[${LINE_BREAK_CHARS}]+`, 'g');
+// CRLF first so the pair collapses into one indent rather than two.
+const ANY_LINE_BREAK = new RegExp(`\\r\\n|[${LINE_BREAK_CHARS}]`, 'g');
+
 // For client-supplied values interpolated into a log entry's HEADER line
-// (e.g. the crash report's timestamp/message): embedded CR/LF would let a
-// crafted value forge entirely fake log entries.
+// (e.g. the crash report's timestamp/message): an embedded line break would
+// let a crafted value forge entirely fake log entries.
 export const sanitizeLogHeaderField = (value: string): string =>
-  stripLogControlChars(value).replace(/[\r\n]+/g, ' ');
+  stripLogControlChars(value).replace(ANY_LINE_BREAK_RUN, ' ');
 
 // For legitimately multi-line log fields (stack traces): keeps the newlines
 // but indents every continuation line, so no embedded line can masquerade as
@@ -36,7 +47,7 @@ export const sanitizeLogHeaderField = (value: string): string =>
 // gets the same escape stripping — indenting a line does nothing about an
 // ANSI sequence inside it.
 export const indentLogContinuationLines = (value: string): string =>
-  stripLogControlChars(value).replace(/\r\n|\r|\n/g, `\n${LOG_CONTINUATION_INDENT}`);
+  stripLogControlChars(value).replace(ANY_LINE_BREAK, `\n${LOG_CONTINUATION_INDENT}`);
 
 // A turn count of 0 is meaningless for these two fields (a game always takes
 // at least 1 turn) — named here as the single source of truth for which

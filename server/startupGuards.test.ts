@@ -55,8 +55,31 @@ describe('validateApiTokenForStartup', () => {
     expect(accepted).toEqual([]);
   });
 
+  // A stray space in a .env line is the easiest typo there is, and it made a
+  // published token miss the list by one character — the deployment then ran
+  // on a secret that is public knowledge plus a space. Only the comparison
+  // trims; the token that actually authenticates is left byte-for-byte as
+  // configured, so this cannot change which credential works on a running
+  // deployment.
+  it('sees through surrounding whitespace on a published token', () => {
+    for (const token of PUBLISHED_API_TOKENS) {
+      expect(validateApiTokenForStartup({ NODE_ENV: 'production', API_TOKEN: `${token} ` }))
+        .toMatch(/published in this repository/);
+      expect(validateApiTokenForStartup({ NODE_ENV: 'production', API_TOKEN: `  ${token}\t` }))
+        .toMatch(/published in this repository/);
+    }
+  });
+
+  it('refuses a token that is nothing but whitespace', () => {
+    expect(validateApiTokenForStartup({ NODE_ENV: 'production', API_TOKEN: '   ' }))
+      .toMatch(/API_TOKEN is not set/);
+  });
+
   it('allows a real API_TOKEN in production', () => {
     expect(validateApiTokenForStartup({ NODE_ENV: 'production', API_TOKEN: 'a-strong-production-token' })).toBeNull();
+    // Whitespace inside a genuine token is not what the trim is about — the
+    // value still authenticates exactly as configured.
+    expect(validateApiTokenForStartup({ NODE_ENV: 'production', API_TOKEN: ' a-strong-production-token ' })).toBeNull();
   });
 });
 
