@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import OnlineLobby from './OnlineLobby';
 import { MAX_RECENT_ROOMS } from '../../utils/recentRooms';
+import { MAX_PLAYER_NAME_LENGTH, MAX_ROOM_ID_LENGTH } from '../../utils/configValidation';
 import { JOIN_TIMEOUT_MS } from '../../utils/uiTimings';
 import { TOUCH_FIRST_POINTER_QUERY } from '../../utils/shareSupport';
 import { useGameStore } from '../../store/useGameStore';
@@ -17,6 +18,20 @@ const stageStore = (partial: Partial<GameStore>) => {
     useGameStore.setState(partial);
   });
 };
+
+// Overrides the shared setup mock only to make i18n.language settable — `t`
+// keeps returning bare keys, which every assertion in this file relies on.
+// Needed because the recent-rooms timestamps are formatted against the UI
+// language, and that is only observable by changing it.
+const { i18nLanguage } = vi.hoisted(() => ({ i18nLanguage: { current: 'en' } }));
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string) => key,
+    i18n: { language: i18nLanguage.current, changeLanguage: () => new Promise(() => {}) },
+  }),
+  initReactI18next: { type: '3rdParty', init: () => {} },
+}));
 
 // The real one lazily imports an encoder; these tests are about the toggle and
 // what link reaches it, not about QR encoding (RoomQrCode.test.tsx covers that).
@@ -51,6 +66,63 @@ describe('OnlineLobby', () => {
     expect(screen.getByText('lobby.online.roomCode')).toBeInTheDocument();
     expect(screen.getByText('lobby.online.yourName')).toBeInTheDocument();
     expect(screen.getByText('lobby.online.joinCreateButton')).toBeInTheDocument();
+  });
+
+  // The server caps both (joinRoom rejects an over-long name outright), so
+  // without a maxLength the only feedback for typing past the limit was a
+  // failed join after a round trip.
+  it('caps both join inputs at the lengths the server accepts', () => {
+    render(<OnlineLobby />);
+
+    expect(screen.getByPlaceholderText('lobby.online.yourNamePlaceholder'))
+      .toHaveAttribute('maxLength', String(MAX_PLAYER_NAME_LENGTH));
+    expect(screen.getByPlaceholderText('lobby.online.roomCodePlaceholder'))
+      .toHaveAttribute('maxLength', String(MAX_ROOM_ID_LENGTH));
+  });
+
+  it('joins on Enter from either input', () => {
+    const joinRoom = vi.fn(() => new Promise<never>(() => {}));
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+    render(<OnlineLobby />);
+
+    const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder');
+    const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder');
+    fireEvent.change(roomInput, { target: { value: 'R1' } });
+    fireEvent.change(nameInput, { target: { value: 'Alice' } });
+
+    fireEvent.keyDown(nameInput, { key: 'Enter' });
+    expect(joinRoom).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(roomInput, { key: 'Enter' });
+    // Still one: the re-entrancy guard owns the second press, exactly as it
+    // owns a second button click.
+    expect(joinRoom).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not join on Enter with a field still empty', () => {
+    const joinRoom = vi.fn(() => new Promise<never>(() => {}));
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+    render(<OnlineLobby />);
+
+    const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder');
+    fireEvent.change(nameInput, { target: { value: 'Alice' } });
+    fireEvent.keyDown(nameInput, { key: 'Enter' });
+
+    expect(joinRoom).not.toHaveBeenCalled();
+    expect(screen.getByText('lobby.online.enterBoth')).toBeInTheDocument();
+  });
+
+  it('leaves other keys alone', () => {
+    const joinRoom = vi.fn(() => new Promise<never>(() => {}));
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+    render(<OnlineLobby />);
+
+    const nameInput = screen.getByPlaceholderText('lobby.online.yourNamePlaceholder');
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.roomCodePlaceholder'), { target: { value: 'R1' } });
+    fireEvent.change(nameInput, { target: { value: 'Alice' } });
+    fireEvent.keyDown(nameInput, { key: 'a' });
+
+    expect(joinRoom).not.toHaveBeenCalled();
   });
 
   it('renders room lobby if roomId is present', () => {
@@ -852,6 +924,42 @@ describe('OnlineLobby scanning a friend\'s QR code', () => {
 describe('OnlineLobby recent rooms history', () => {
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  afterEach(() => {
+    i18nLanguage.current = 'en';
+  });
+
+  // The date was formatted with an explicit `undefined` locale, i.e. the
+  // device's, so a German UI on an English-locale machine dated its own room
+  // list "Aug 17".
+  //
+  // BOTH directions are asserted deliberately. Checking only one passes for
+  // free on a runner whose system locale already matches the language under
+  // test — which is the case on at least one machine this suite runs on. With
+  // both, a component still reading the system locale must fail one of them,
+  // whatever that locale is.
+  it('dates recent rooms in the UI language, not the device locale', () => {
+    const timestamp = Date.UTC(2026, 7, 17, 12, 0, 0);
+    const dateOptions = { month: 'short', day: 'numeric' } as const;
+    const expected = {
+      de: new Date(timestamp).toLocaleDateString('de', dateOptions),
+      en: new Date(timestamp).toLocaleDateString('en', dateOptions),
+    };
+    expect(expected.de, 'the two renderings must differ or this proves nothing').not.toBe(expected.en);
+
+    localStorage.setItem(
+      'tutto_recent_rooms',
+      JSON.stringify([{ roomId: 'ROOM123', name: 'Bob', timestamp }])
+    );
+
+    for (const language of ['de', 'en'] as const) {
+      i18nLanguage.current = language;
+      const { unmount } = render(<OnlineLobby />);
+
+      expect(screen.getByText(expected[language]), `dated in ${language}`).toBeInTheDocument();
+      unmount();
+    }
   });
 
   it('renders recent rooms from localStorage if present', () => {

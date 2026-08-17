@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { Copy, Check, X, Share2, QrCode, ScanLine } from 'lucide-react';
@@ -9,7 +9,7 @@ import {
   RulesetSelector, RulesetBadge,
 } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
-import { MIN_ONLINE_PLAYERS } from '../../utils/configValidation';
+import { MIN_ONLINE_PLAYERS, MAX_PLAYER_NAME_LENGTH, MAX_ROOM_ID_LENGTH } from '../../utils/configValidation';
 import { JOIN_TIMEOUT_MS } from '../../utils/uiTimings';
 import { parseRecentRooms, MAX_RECENT_ROOMS, type RecentRoom } from '../../utils/recentRooms';
 import { buildRoomLink } from '../../utils/roomLink';
@@ -49,7 +49,7 @@ interface OnlineLobbyProps {
 }
 
 export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
 
@@ -191,6 +191,15 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     return attemptJoin(trimmedRoomCode, trimmedName);
   };
 
+  // Enter from either field does what the button does — the expected gesture
+  // in a two-field form, and on a phone it is the keyboard's own Go key.
+  // No separate guard needed: it routes through handleJoin, so the empty-field
+  // message and the re-entrancy ref both apply exactly as they do to a click.
+  const handleJoinKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    void handleJoin();
+  };
+
   // Takes both values as arguments rather than reading the inputs: a scan joins
   // with a room code the state it just set has not committed yet.
   const attemptJoin = async (trimmedRoomCode: string, trimmedName: string) => {
@@ -311,6 +320,8 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
                 type="text"
                 value={inputRoomCode}
                 onChange={(e) => setInputRoomCode(e.target.value)}
+                onKeyDown={handleJoinKeyDown}
+                maxLength={MAX_ROOM_ID_LENGTH}
                 placeholder={t('lobby.online.roomCodePlaceholder', 'e.g. 1234')}
                 className="flex-1 min-w-0 bg-white dark:bg-slate-800/60 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
               />
@@ -339,6 +350,8 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
               type="text"
               value={inputName}
               onChange={(e) => setInputName(e.target.value)}
+              onKeyDown={handleJoinKeyDown}
+              maxLength={MAX_PLAYER_NAME_LENGTH}
               placeholder={t('lobby.online.yourNamePlaceholder', 'e.g. Alice')}
               className="bg-white dark:bg-slate-800/60 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
             />
@@ -370,7 +383,10 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
                       className="flex-1 min-w-0 flex justify-between items-center gap-2 bg-gray-50 hover:bg-indigo-50/50 dark:bg-slate-800/30 dark:hover:bg-slate-700/40 border border-gray-200/80 dark:border-slate-700 rounded-lg px-3 py-2 text-sm transition-colors text-left font-medium text-gray-700 dark:text-gray-200 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
                     >
                       <span className="truncate">{room.roomId} <span className="text-gray-400 dark:text-gray-500 text-xs font-normal">({room.name})</span></span>
-                      <span className="shrink-0 text-[10px] text-gray-400 dark:text-gray-500 font-normal">{new Date(room.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                      {/* Dated in the UI language, not the device's: a German
+                          UI on an English-locale machine used to date its own
+                          room list "Aug 17". */}
+                      <span className="shrink-0 text-[10px] text-gray-400 dark:text-gray-500 font-normal">{new Date(room.timestamp).toLocaleDateString(i18n.language, { month: 'short', day: 'numeric' })}</span>
                     </button>
                     <button
                       onClick={() => handleForgetRecentRoom(room.roomId)}
