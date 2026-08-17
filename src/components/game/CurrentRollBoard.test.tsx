@@ -54,4 +54,26 @@ describe('CurrentRollBoard', () => {
     expect(screen.getByText('dice.bust_description')).toBeInTheDocument();
     expect(screen.queryByText('dice.invalid_selection')).toBeNull();
   });
+
+  // Losing the turn is the single most important thing that happens on this
+  // board, and it was announced by colour alone.
+  it('announces a bust assertively', () => {
+    render(<CurrentRollBoard {...baseProps} bustState />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('dice.bust_description');
+  });
+
+  // The live region is the always-mounted wrapper, not the message itself:
+  // the message toggles `invisible` (and so leaves the accessibility tree),
+  // and a region that appears at the same moment as its content is not
+  // reliably announced.
+  it('keeps a polite live region around the invalid-selection line', () => {
+    const { rerender } = render(<CurrentRollBoard {...baseProps} selectionValid selectedCount={1} />);
+
+    const region = screen.getByRole('status');
+    expect(region).toContainElement(screen.getByText('dice.invalid_selection'));
+
+    rerender(<CurrentRollBoard {...baseProps} selectionValid={false} selectedCount={1} />);
+    expect(screen.getByRole('status')).toBe(region);
+  });
 });

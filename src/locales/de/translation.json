@@ -12,6 +12,7 @@
   "dice.stop_and_score": "Stoppen & Punkten",
   "dice.roll_2nd_tutto": "Zweites Tutto würfeln",
   "dice.finish_card": "Karte beenden",
+  "dice.dieFace": "Würfel zeigt {{value}}",
   "dice.title": "Würfelspiel",
   "dice.success": "Erfolg!",
   "dice.bust": "Niete!",

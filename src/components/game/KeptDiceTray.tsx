@@ -20,7 +20,9 @@ export default function KeptDiceTray({ keptDice }: KeptDiceTrayProps) {
               display, and index keys would pin AnimatePresence's enter/
               exit animations to the wrong die after a reorder. */}
           {keptDice.map(d => (
-            <motion.div key={d.id} data-testid="die" initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} className="relative w-14 h-14 bg-indigo-600 text-white rounded-xl shadow-md flex items-center justify-center border-2 border-indigo-400">
+            // The face is pips — SVG circles carrying no text — so without a
+            // name of its own a banked die is invisible to a screen reader.
+            <motion.div key={d.id} data-testid="die" role="img" aria-label={t('dice.dieFace', 'Die showing {{value}}', { value: d.val })} initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} className="relative w-14 h-14 bg-indigo-600 text-white rounded-xl shadow-md flex items-center justify-center border-2 border-indigo-400">
               <DiePips val={d.val} isSelected={false} bustState={false} size="large" isIndigo />
             </motion.div>
           ))}

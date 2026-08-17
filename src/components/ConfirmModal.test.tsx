@@ -16,6 +16,37 @@ describe('ConfirmModal', () => {
     expect(screen.getByText('common.cancel')).toBeInTheDocument();
   });
 
+  // role="alertdialog" + aria-modal="true" with nothing naming it: a screen
+  // reader announces "dialog" and the question itself is never read, so the
+  // user is asked to confirm something they were not told. ModalShell has
+  // taken a labelledBy since it was written — this just never passed one.
+  it('names itself with its own message', () => {
+    render(<ConfirmModal open={true} message="Leave the room?" onConfirm={vi.fn()} onCancel={vi.fn()} />);
+
+    const dialog = screen.getByRole('alertdialog');
+    const labelId = dialog.getAttribute('aria-labelledby');
+    expect(labelId).toBeTruthy();
+    expect(document.getElementById(labelId as string)).toHaveTextContent('Leave the room?');
+    expect(dialog).toHaveAccessibleName('Leave the room?');
+  });
+
+  it('gives two open dialogs distinct label ids', () => {
+    // Hardcoding an id would collide the moment two dialogs are mounted at
+    // once (the end-game confirm over a lobby one), and both would then be
+    // announced with whichever message rendered first.
+    render(
+      <>
+        <ConfirmModal open={true} message="First question?" onConfirm={vi.fn()} onCancel={vi.fn()} />
+        <ConfirmModal open={true} message="Second question?" onConfirm={vi.fn()} onCancel={vi.fn()} />
+      </>
+    );
+
+    const [a, b] = screen.getAllByRole('alertdialog');
+    expect(a.getAttribute('aria-labelledby')).not.toBe(b.getAttribute('aria-labelledby'));
+    expect(a).toHaveAccessibleName('First question?');
+    expect(b).toHaveAccessibleName('Second question?');
+  });
+
   it('uses custom confirm/cancel labels when provided', () => {
     render(
       <ConfirmModal

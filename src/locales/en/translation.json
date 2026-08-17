@@ -12,6 +12,7 @@
   "dice.stop_and_score": "Stop & Score",
   "dice.roll_2nd_tutto": "Roll 2nd Tutto",
   "dice.finish_card": "Finish Card",
+  "dice.dieFace": "Die showing {{value}}",
   "dice.title": "Dice Game",
   "dice.success": "Success!",
   "dice.bust": "Bust!",

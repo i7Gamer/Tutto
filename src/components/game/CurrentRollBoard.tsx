@@ -47,12 +47,18 @@ export default function CurrentRollBoard({
         })}
       </div>
       {bustState && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="text-center text-red-500 text-2xl font-black mt-6 bg-red-50 py-3 rounded-xl border border-red-100">
+        // Losing the turn is the most consequential thing that happens on this
+        // board, and it was conveyed by colour alone.
+        <motion.div role="alert" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="text-center text-red-500 text-2xl font-black mt-6 bg-red-50 py-3 rounded-xl border border-red-100">
           {t('dice.bust_description', 'Bust! (Volltreffer/Niete)')}
         </motion.div>
       )}
       {!bustState && (
-        <div className="text-center mt-3 min-h-[24px]">
+        // The live region is this always-mounted wrapper rather than the
+        // message: the message toggles `invisible`, which takes it out of the
+        // accessibility tree, and a region announced into existence alongside
+        // its own content is not reliably read out.
+        <div role="status" aria-live="polite" className="text-center mt-3 min-h-[24px]">
           {/* Always mounted (visibility toggled, not presence) so
               this line's reserved space never pops in/out as the
               selection flips valid/invalid. */}

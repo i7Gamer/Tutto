@@ -39,4 +39,19 @@ describe('TurnScoreHeader', () => {
     rerender(<TurnScoreHeader {...baseProps} currentCard="x2" />);
     expect(screen.queryByText('dice.tuttos_count')).toBeNull();
   });
+
+  // The running total is the one number a player tracks through a turn, and it
+  // changed silently. The region has to be the stable wrapper, not the number
+  // itself: that element is keyed by turnScore and so remounts on every
+  // change, and a live region that appears with its content is not announced.
+  it('announces the running total politely from a stable region', () => {
+    const { rerender } = render(<TurnScoreHeader {...baseProps} turnScore={300} pendingSelectionScore={0} />);
+
+    const region = screen.getByRole('status');
+    expect(region).toHaveTextContent('300');
+
+    rerender(<TurnScoreHeader {...baseProps} turnScore={800} pendingSelectionScore={0} />);
+    expect(screen.getByRole('status'), 'the region must survive the score change').toBe(region);
+    expect(region).toHaveTextContent('800');
+  });
 });

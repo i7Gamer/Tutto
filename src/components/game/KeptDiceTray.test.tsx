@@ -13,6 +13,17 @@ describe('KeptDiceTray', () => {
     expect(screen.queryByText('5')).toBeNull();
   });
 
+  // The face is drawn as pips — SVG circles with no text — so a die carried
+  // no accessible name at all: a screen reader user could hear that a turn was
+  // scored but never which dice were banked to score it.
+  it('names each kept die for a screen reader', () => {
+    render(<KeptDiceTray keptDice={[{ id: 'a', val: 3 }, { id: 'b', val: 6 }]} />);
+
+    const named = screen.getAllByRole('img');
+    expect(named).toHaveLength(2);
+    named.forEach(die => expect(die).toHaveAttribute('aria-label'));
+  });
+
   it('shows the empty label when nothing is kept yet', () => {
     render(<KeptDiceTray keptDice={[]} />);
 

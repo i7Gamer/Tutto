@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useId, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import ModalShell from './ModalShell';
 
@@ -31,17 +31,24 @@ export default function ConfirmModal({
 }: ConfirmModalProps) {
   const { t } = useTranslation();
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  // The question IS the dialog's name — without it a screen reader announces
+  // a bare "alert dialog" and reads only the two buttons, asking the user to
+  // confirm something they were never told. useId rather than a constant
+  // because two of these can be mounted at once (an end-game confirm over a
+  // lobby one), and a shared id would name both after the first message.
+  const messageId = useId();
 
   return (
     <ModalShell
       open={open}
       onDismiss={onCancel}
       role="alertdialog"
+      labelledBy={messageId}
       // Cancel gets the initial focus, not Confirm — the safe default for a
       // destructive action if the user just presses Enter.
       initialFocusRef={cancelButtonRef}
     >
-      <p className="text-gray-800 dark:text-gray-100 text-lg font-medium mb-6">{message}</p>
+      <p id={messageId} className="text-gray-800 dark:text-gray-100 text-lg font-medium mb-6">{message}</p>
       <div className="flex flex-col sm:flex-row gap-3">
         <button
           ref={cancelButtonRef}

@@ -314,6 +314,61 @@ describe('ModalShell', () => {
     expect(notPrevented).toBe(false);
   });
 
+  // The sequel to "keeps focus on the panel when every control is disabled":
+  // the dice settle, the buttons come back, and focus is still on the panel
+  // because nothing moved it. The panel is neither `first` nor `last`, so
+  // neither wrap branch fired and the default was left in place — Tab walked
+  // forward into the panel (harmless), but Shift+Tab walked BACKWARDS out of
+  // it, to whatever sits behind the backdrop.
+  it('wraps Shift+Tab from the panel itself once its controls become enabled', () => {
+    const trigger = focusTriggerOutsideDialog();
+    const { rerender } = render(
+      <ModalShell open>
+        <button disabled>roll</button>
+        <button disabled>bank</button>
+      </ModalShell>
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveFocus();
+
+    rerender(
+      <ModalShell open>
+        <button>roll</button>
+        <button>bank</button>
+      </ModalShell>
+    );
+    expect(dialog, 'nothing re-focuses on re-render, so the panel still holds it').toHaveFocus();
+
+    const notPrevented = fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(notPrevented, 'Shift+Tab from the panel must be prevented, or focus leaves the dialog').toBe(false);
+    expect(screen.getByRole('button', { name: 'bank' })).toHaveFocus();
+    expect(trigger).not.toHaveFocus();
+  });
+
+  it('lets a plain Tab from the panel fall through to the first control', () => {
+    // The forward direction needs no interception: the browser's own order
+    // takes it from the panel to the first control inside it, which is where
+    // a wrap would put it anyway. Asserted so the fix above cannot quietly
+    // start swallowing forward Tabs as well.
+    const { rerender } = render(
+      <ModalShell open>
+        <button disabled>roll</button>
+        <button disabled>bank</button>
+      </ModalShell>
+    );
+    const dialog = screen.getByRole('dialog');
+    rerender(
+      <ModalShell open>
+        <button>roll</button>
+        <button>bank</button>
+      </ModalShell>
+    );
+    expect(dialog).toHaveFocus();
+
+    const notPrevented = fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(notPrevented, 'a forward Tab from the panel is left to the browser').toBe(true);
+  });
+
   it('still lets a non-Tab key through untouched', () => {
     // The early return must not become a blanket preventDefault: typing in a
     // dialog input has to keep working.

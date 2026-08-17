@@ -104,7 +104,15 @@ export default function ModalShell({
     }
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
+    // The panel holds focus itself whenever it opened with nothing focusable
+    // in it (see the fallback above) — and it keeps holding it once its
+    // controls come back, because nothing moves focus on a re-render. That is
+    // the dice panel every time the dice settle. The panel is neither `first`
+    // nor `last`, so without this it matched no branch: a forward Tab was
+    // harmless (the browser's own order goes into the panel) but Shift+Tab
+    // went BACKWARDS, out of the dialog and behind the backdrop.
+    const onPanelItself = document.activeElement === panelRef.current;
+    if (e.shiftKey && (document.activeElement === first || onPanelItself)) {
       e.preventDefault();
       last.focus();
     } else if (!e.shiftKey && document.activeElement === last) {
