@@ -34,6 +34,23 @@ import { rooms } from './rooms';
 describe('Server-side turn timer', () => {
   let server: InProcessServer;
 
+  /**
+   * Long enough that an armed expiry cannot reach its own deadline while a test
+   * is running.
+   *
+   * These tests RUN the timer rather than waiting for it, so a long duration is
+   * free — and a short one buys nothing but a race the manual fire can lose. At
+   * the 1s this file used to use, TEST_TIMER_SCALE puts the deadline 200ms out,
+   * and a worker that stalls past it gets the expiry for free: the turn
+   * advances and advanceTurnOnTimeout ARMS A FRESH TIMER, so fireTurnExpiry
+   * finds a perfectly valid handle to run — the next turn's. Tests that then
+   * assert on the first turn fail complaining about card values, saying nothing
+   * about a timer; worse, the two ending in expectNoTimerArmed pass outright,
+   * having cancelled a different turn's timer than the one they set up. At 30s
+   * the deadline is 6s away, two orders of magnitude past the work in between.
+   */
+  const TURN_DURATION_S = 30;
+
   beforeAll(async () => {
     server = await startInProcessServer();
   });
@@ -117,7 +134,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
-        currentPlayerIndex: 0, currentCard: '200', cards: ['300'], round: 1, turnDuration: 1,
+        currentPlayerIndex: 0, currentCard: '200', cards: ['300'], round: 1, turnDuration: TURN_DURATION_S,
       },
     });
     await waitForArmedTimer(roomId);
@@ -149,7 +166,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
-        currentPlayerIndex: 1, currentCard: 'Stop', cards: ['200'], round: 1, turnDuration: 1,
+        currentPlayerIndex: 1, currentCard: 'Stop', cards: ['200'], round: 1, turnDuration: TURN_DURATION_S,
       },
     });
     await waitForArmedTimer(roomId);
@@ -181,7 +198,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
-        currentPlayerIndex: 0, currentCard: '200', cards: ['300'], round: 1, turnDuration: 2,
+        currentPlayerIndex: 0, currentCard: '200', cards: ['300'], round: 1, turnDuration: TURN_DURATION_S,
       },
     });
     await waitForArmedTimer(roomId);
@@ -224,7 +241,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
-        currentPlayerIndex: 0, currentCard: 'Feuerwerk', cards: ['300'], round: 1, turnDuration: 1,
+        currentPlayerIndex: 0, currentCard: 'Feuerwerk', cards: ['300'], round: 1, turnDuration: TURN_DURATION_S,
       },
     });
 
@@ -233,7 +250,7 @@ describe('Server-side turn timer', () => {
     // getEffectiveTurnDuration — the very function the multiplier lives in — so
     // this pins 1 * 3 exactly, where the old pair of timing windows could only
     // bracket it between "later than 300ms" and "sooner than 1000ms".
-    expect((await armed).turnTimeRemaining).toBe(3);
+    expect((await armed).turnTimeRemaining).toBe(TURN_DURATION_S * 3);
     await waitForArmedTimer(roomId);
 
     const advanced = waitForState(hostSock, (s) => s.currentPlayerIndex === 1);
@@ -254,11 +271,11 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
-        currentPlayerIndex: 0, currentCard: 'Kleeblatt', cards: ['300'], round: 1, turnDuration: 1,
+        currentPlayerIndex: 0, currentCard: 'Kleeblatt', cards: ['300'], round: 1, turnDuration: TURN_DURATION_S,
       },
     });
 
-    expect((await armed).turnTimeRemaining).toBe(2); // 1 * 2
+    expect((await armed).turnTimeRemaining).toBe(TURN_DURATION_S * 2);
     await waitForArmedTimer(roomId);
 
     const advanced = waitForState(hostSock, (s) => s.currentPlayerIndex === 1);
@@ -302,7 +319,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
-        currentPlayerIndex: 1, currentCard: '300', cards: ['200'], round: 1, turnDuration: 1,
+        currentPlayerIndex: 1, currentCard: '300', cards: ['200'], round: 1, turnDuration: TURN_DURATION_S,
         chartValues: [[0], [0]], chartNames: ['Alice', 'Bob'], chartLabels: [],
       },
     });
@@ -333,7 +350,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players: [player], status: 'playing', currentPlayerIndex: 0, currentCard: '200',
-        cards: ['300'], round: 1, winningScore: 1000, turnDuration: 1,
+        cards: ['300'], round: 1, winningScore: 1000, turnDuration: TURN_DURATION_S,
       },
     });
     await waitForArmedTimer(roomId);
@@ -362,7 +379,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
-        currentPlayerIndex: 0, currentCard: '200', cards: ['300'], round: 1, turnDuration: 1,
+        currentPlayerIndex: 0, currentCard: '200', cards: ['300'], round: 1, turnDuration: TURN_DURATION_S,
       },
     });
     // The timer this test goes on to cancel — confirmed armed, not assumed.
@@ -381,7 +398,6 @@ describe('Server-side turn timer', () => {
 
   it('kicking the active player reschedules the underlying expiry timer, not just the displayed time', async () => {
     const roomId = 'timer-kick-reschedule';
-    const TURN_DURATION_S = 2;
     const { sock: hostSock } = await joinRoom(roomId, 'Alice');
     const { sock: bobSock, socketId: bobId } = await joinRoom(roomId, 'Bob');
     const { sock: carolSock } = await joinRoom(roomId, 'Carol');
@@ -448,7 +464,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players, status: 'playing', currentPlayerIndex: 2, currentCard: '200',
-        cards: ['300', '400'], round: 1, turnDuration: 30,
+        cards: ['300', '400'], round: 1, turnDuration: TURN_DURATION_S,
       },
     });
 
@@ -487,7 +503,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players, status: 'playing', currentPlayerIndex: 1, currentCard: '200',
-        cards: ['300', '400'], round: 1, turnDuration: 30, liveTurnState,
+        cards: ['300', '400'], round: 1, turnDuration: TURN_DURATION_S, liveTurnState,
       },
     });
     await setup;
@@ -515,7 +531,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players: [player], status: 'playing', currentPlayerIndex: 0, currentCard: '200',
-        cards: ['300'], round: 1, winningScore: 1000, turnDuration: 1,
+        cards: ['300'], round: 1, winningScore: 1000, turnDuration: TURN_DURATION_S,
       },
     });
     await waitForArmedTimer(roomId);
@@ -555,7 +571,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players, status: 'playing', currentPlayerIndex: 0, currentCard: 'Kleeblatt',
-        cards: ['300'], round: 1, turnDuration: 1,
+        cards: ['300'], round: 1, turnDuration: TURN_DURATION_S,
       },
     });
     // The turn whose pending expiry this test is about — confirmed, not assumed.

@@ -18,7 +18,7 @@ vi.mock('./database', () => ({
 import { getDeviceStats } from './database';
 import { startInProcessServer, emitJoin, waitFor, settle, type InProcessServer, type JoinAck } from './socketTestHarness';
 import { rooms, createRoom, deleteRoom, MAX_PLAYERS_PER_ROOM, MAX_ROOMS } from './rooms';
-import { MIN_ENABLED_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
+import { MAX_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
 import type { ServerPlayer } from './roomTypes';
 
 const mockedGetDeviceStats = vi.mocked(getDeviceStats);
@@ -237,11 +237,13 @@ describe('room membership (kick host migration, mid-game rename guard)', () => {
     // exists to delete — and the timer callback only checked for an EMPTY
     // roster, so the room survived with nothing left that could ever free it.
     const roomId = 'TIMER_DRAIN_GHOSTS';
-    // The smallest value the config accepts other than 0 (0 arms no timer at
-    // all, which is the case the kick-time guard already covers). Its deadline
-    // is never reached — see the manual fire below — so the value only has to
-    // be one the server will arm a timer for.
-    const RECONNECT_TIMEOUT_SECS = MIN_ENABLED_RECONNECT_TIMEOUT;
+    // The largest window the config allows, so the armed timer cannot reach its
+    // own deadline while the test runs. Its deadline is never waited for — the
+    // fire below is manual — which makes a long one free, and a short one
+    // nothing but a race: at the 10s minimum, TEST_TIMER_SCALE puts the
+    // deadline 2s out, and a worker that stalls past it frees the room on its
+    // own, leaving the handle lookup below to die on undefined.
+    const RECONNECT_TIMEOUT_SECS = MAX_RECONNECT_TIMEOUT;
     const TIMED_DEVICE_ID = 'dev-tdg-t';
 
     const host = await server.connectAndJoin(roomId, 'Host', 'dev-tdg-h');
