@@ -70,11 +70,14 @@ export const MAX_RECONNECT_TIMEOUT = 3600;
 export const isValidWinningScore = (v: unknown): v is number =>
   Number.isInteger(v) && (v as number) >= MIN_WINNING_SCORE && (v as number) <= MAX_WINNING_SCORE;
 
+// Whole seconds, like isValidWinningScore above: these two were the only
+// config validators settling for `typeof v === 'number'`, so a fractional
+// value passed and armed a server timer with a sub-second residual.
 export const isValidTurnDuration = (v: unknown): v is number =>
-  typeof v === 'number' && (v === 0 || (v >= MIN_ENABLED_TURN_DURATION && v <= MAX_TURN_DURATION));
+  Number.isInteger(v) && (v === 0 || ((v as number) >= MIN_ENABLED_TURN_DURATION && (v as number) <= MAX_TURN_DURATION));
 
 export const isValidReconnectTimeout = (v: unknown): v is number =>
-  typeof v === 'number' && (v === 0 || (v >= MIN_ENABLED_RECONNECT_TIMEOUT && v <= MAX_RECONNECT_TIMEOUT));
+  Number.isInteger(v) && (v === 0 || ((v as number) >= MIN_ENABLED_RECONNECT_TIMEOUT && (v as number) <= MAX_RECONNECT_TIMEOUT));
 
 // Lobby inputs let the user type any number, but the timers' valid range has a
 // hole (1..minEnabled-1 means neither "disabled" nor an accepted duration).

@@ -124,8 +124,14 @@ const LOCAL_GAME_VALIDATORS: Record<(typeof LOCAL_GAME_STATE_KEYS)[number], (v: 
   cards: isCardArray,
   round: v => Number.isInteger(v) && (v as number) >= 1,
   winningScore: isValidWinningScore,
+  // Every-entry-valid alone is satisfied vacuously by {} and outright by an
+  // all-zero deck, and both restore a game with no card to draw: currentCard
+  // stays null forever and the game cannot be played. Same rule the server's
+  // validateInitialCards has always enforced on the other side.
   initialCards: v => typeof v === 'object' && v !== null &&
-    Object.entries(v).every(([key, val]) => isValidCardEntry(key, val)),
+    Object.entries(v).length > 0 &&
+    Object.entries(v).every(([key, val]) => isValidCardEntry(key, val)) &&
+    Object.entries(v).some(([, val]) => (val as number) > 0),
   randomOrder: isBoolean,
   turnDuration: isValidTurnDuration,
   reconnectTimeout: isValidReconnectTimeout,

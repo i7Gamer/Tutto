@@ -115,6 +115,22 @@ describe('configValidation', () => {
       expect(isValidReconnectTimeout(MAX_RECONNECT_TIMEOUT)).toBe(true);
       expect(isValidReconnectTimeout(MAX_RECONNECT_TIMEOUT + 1)).toBe(false);
     });
+
+    // Both are whole seconds everywhere they are used — the lobby's number
+    // inputs, the server's setTimeout, the displayed countdown. These two were
+    // the only config validators checking `typeof v === 'number'` instead of
+    // Number.isInteger, so a fractional value passed and left a sub-second
+    // residual on the timer it armed.
+    it('the two timers take whole seconds only', () => {
+      expect(isValidTurnDuration(120.5)).toBe(false);
+      expect(isValidReconnectTimeout(60.5)).toBe(false);
+
+      expect(isValidTurnDuration(120)).toBe(true);
+      expect(isValidReconnectTimeout(60)).toBe(true);
+      // 0 stays the "disabled" value on both.
+      expect(isValidTurnDuration(0)).toBe(true);
+      expect(isValidReconnectTimeout(0)).toBe(true);
+    });
   });
 
   // ─── snapDisableableDuration ────────────────────────────────────────────────

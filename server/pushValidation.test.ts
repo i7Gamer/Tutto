@@ -586,6 +586,25 @@ describe('applyPushedState', () => {
       expect(state.chartValues).toEqual([[100], [200]]);
     });
 
+    // These were the last pushed numerics settling for finiteness alone —
+    // exactly what isBoundedNumber exists to stop a new field doing. The
+    // series rides every later broadcast and is what the end screen plots, so
+    // one 1e308 entry is re-sent to the whole room until the game ends.
+    it('chartValues: bounded like every other pushed score', () => {
+      const state = makeState();
+      applyPushedState(state, { chartValues: [[100], [200]] }, asActivePlayer);
+
+      applyPushedState(state, { chartValues: [[MAX_SCORE_MAGNITUDE + 1], [2]] }, asActivePlayer);
+      expect(state.chartValues).toEqual([[100], [200]]);
+      applyPushedState(state, { chartValues: [[-MAX_SCORE_MAGNITUDE - 1], [2]] }, asActivePlayer);
+      expect(state.chartValues).toEqual([[100], [200]]);
+
+      // The bound itself is still accepted, and so is a legitimately negative
+      // running total (modernized Plus/Minus deductions are unclamped).
+      applyPushedState(state, { chartValues: [[MAX_SCORE_MAGNITUDE], [-500]] }, asActivePlayer);
+      expect(state.chartValues).toEqual([[MAX_SCORE_MAGNITUDE], [-500]]);
+    });
+
     it('chartNames: one non-empty string per player, capped at name length', () => {
       const state = makeState();
       applyPushedState(state, { chartNames: ['Alice', 'Bob'] }, asActivePlayer);
@@ -608,6 +627,20 @@ describe('applyPushedState', () => {
       expect(state.chartLabels).toEqual([1, 2]);
       applyPushedState(state, { chartLabels: [1, 'x'] }, asActivePlayer);
       expect(state.chartLabels).toEqual([1, 2]);
+    });
+
+    // Labels are round numbers — there is no round 2.5, and no round 1e308.
+    it('chartLabels: whole round numbers, bounded like the values', () => {
+      const state = makeState();
+      applyPushedState(state, { chartLabels: [1, 2] }, asActivePlayer);
+
+      applyPushedState(state, { chartLabels: [1, 2.5] }, asActivePlayer);
+      expect(state.chartLabels).toEqual([1, 2]);
+      applyPushedState(state, { chartLabels: [1, MAX_SCORE_MAGNITUDE + 1] }, asActivePlayer);
+      expect(state.chartLabels).toEqual([1, 2]);
+
+      applyPushedState(state, { chartLabels: [1, 2, 3] }, asActivePlayer);
+      expect(state.chartLabels).toEqual([1, 2, 3]);
     });
 
     it('gameTimeInSeconds: non-negative capped number', () => {

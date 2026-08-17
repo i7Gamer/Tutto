@@ -513,7 +513,7 @@ export const applyPushedState = (
       const v = newState.chartValues;
       if (
         Array.isArray(v) && v.length === state.players.length &&
-        v.every(arr => Array.isArray(arr) && arr.length <= MAX_ROUNDS && arr.every(n => typeof n === 'number' && Number.isFinite(n)))
+        v.every(arr => Array.isArray(arr) && arr.length <= MAX_ROUNDS && arr.every(isBoundedNumber))
       ) {
         state.chartValues = v as number[][];
       }
@@ -531,7 +531,8 @@ export const applyPushedState = (
       }
     } else if (key === 'chartLabels') {
       const v = newState.chartLabels;
-      if (Array.isArray(v) && v.length <= MAX_ROUNDS && v.every(n => typeof n === 'number' && Number.isFinite(n))) {
+      // Round numbers: whole, and bounded like every other pushed numeric.
+      if (Array.isArray(v) && v.length <= MAX_ROUNDS && v.every(n => Number.isInteger(n) && isBoundedNumber(n))) {
         state.chartLabels = v as number[];
       }
     } else if (key === 'gameTimeInSeconds') {

@@ -34,6 +34,21 @@ describe('pickLocalGameState', () => {
     expect('randomJunkKey' in picked).toBe(false);
   });
 
+  // The shape check was every-entry-valid, which an empty object satisfies
+  // vacuously and an all-zero deck satisfies outright — so both survived the
+  // restore. Either leaves the deck with no cards to draw, currentCard
+  // permanently null and the game unplayable. The server has refused both
+  // since validateInitialCards was written; this side had not.
+  it('drops a restored deck that has no cards in it', () => {
+    expect(pickLocalGameState({ initialCards: {} })).toEqual({});
+    expect(pickLocalGameState({ initialCards: { Stop: 0, Kleeblatt: 0 } })).toEqual({});
+  });
+
+  it('keeps a deck as long as one card type is stocked', () => {
+    const sparse = { initialCards: { Stop: 0, Kleeblatt: 1 } };
+    expect(pickLocalGameState(sparse)).toEqual(sparse);
+  });
+
   it('omits absent fields rather than filling them with undefined', () => {
     const picked = pickLocalGameState({ round: 5 });
     expect(picked).toEqual({ round: 5 });
