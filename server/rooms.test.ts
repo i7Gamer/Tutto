@@ -542,6 +542,13 @@ describe('deleteRoom', () => {
  * once here rather than only where each caller happens to exercise them.
  */
 describe('isAbandonedRoom', () => {
+  // The pending-timer case below switches to fake timers; without this they
+  // stay switched on for every test after it in the file. Same pairing the
+  // three describes above already use.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const roomWith = (players: ServerPlayer[]): Room => {
     const room = createRoom('sock-host');
     room.state.players = players;
