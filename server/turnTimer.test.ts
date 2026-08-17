@@ -248,8 +248,9 @@ describe('Server-side turn timer', () => {
     // The multiplier read straight off the broadcast the turn starts with.
     // turnTimeRemaining is calculateRemainingTurnTime, which is derived from
     // getEffectiveTurnDuration — the very function the multiplier lives in — so
-    // this pins 1 * 3 exactly, where the old pair of timing windows could only
-    // bracket it between "later than 300ms" and "sooner than 1000ms".
+    // this pins the multiplied duration exactly, where the old pair of timing
+    // windows could only bracket it between "later than 300ms" and "sooner
+    // than 1000ms".
     expect((await armed).turnTimeRemaining).toBe(TURN_DURATION_S * 3);
     await waitForArmedTimer(roomId);
 
@@ -373,8 +374,10 @@ describe('Server-side turn timer', () => {
     const { sock: hostSock } = await joinRoom(roomId, 'Alice');
     const { sock: guestSock } = await joinRoom(roomId, 'Bob');
 
-    // Start a 1s turn (bypassing updateConfig's 10s floor via pushState, matching
-    // the existing test-speed convention used elsewhere in this suite).
+    // pushState rather than updateConfig to start the turn, so the arming and
+    // the cancelling below come from different paths — updateConfig is the one
+    // under test, and a turn it also started would not prove it clears an
+    // expiry it did not arm.
     hostSock.emit('pushState', {
       roomId,
       newState: {

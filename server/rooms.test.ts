@@ -1,16 +1,18 @@
 /**
  * @vitest-environment node
  *
- * In-process unit tests for the pure room-state helpers in rooms.ts. The E2E
- * socket suites (sockets.test.ts, turnTimer.test.ts) prove the same behavior
- * holds over the wire via kick/leave/disconnect-timeout; these pin the two
- * trickiest branches — turn-order bookkeeping on active-player removal, and
- * the turn-timer countdown formula — directly and cheaply, and show up in
- * coverage (the E2E suites run the real server as a spawned subprocess,
- * which coverage instrumentation can't see).
+ * In-process unit tests for the pure room-state helpers in rooms.ts. The socket
+ * suites prove the same behavior holds over the wire via
+ * kick/leave/disconnect-timeout; these pin the trickiest branches — turn-order
+ * bookkeeping on active-player removal, the turn-timer countdown formula, and
+ * the abandoned-room predicate — directly and cheaply.
+ *
+ * Coverage is part of the point for the ones that remain spawned: a subprocess
+ * is invisible to the instrumentation. That argument no longer covers
+ * turnTimer.test.ts, which now runs in-process itself.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { handleActivePlayerRemoved, calculateRemainingTurnTime, createRoom, deleteRoom, rooms } from './rooms';
+import { handleActivePlayerRemoved, calculateRemainingTurnTime, createRoom, deleteRoom, isAbandonedRoom, rooms } from './rooms';
 import type { Room, RoomState, ServerPlayer } from './roomTypes';
 
 const makePlayer = (name: string, overrides: Partial<ServerPlayer> = {}): ServerPlayer => ({
@@ -531,6 +533,57 @@ describe('deleteRoom', () => {
     vi.advanceTimersByTime(5000);
 
     expect(callback).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The predicate three separate paths delete a room on — an explicit leave, a
+ * kick, and a draining reconnect timer — so its branches are worth pinning
+ * once here rather than only where each caller happens to exercise them.
+ */
+describe('isAbandonedRoom', () => {
+  const roomWith = (players: ServerPlayer[]): Room => {
+    const room = createRoom('sock-host');
+    room.state.players = players;
+    return room;
+  };
+
+  it('is true when every remaining seat is disconnected and no timer is pending', () => {
+    // The case all three callers exist to catch: nothing left to disconnect and
+    // nothing scheduled to revisit the room, so it would survive until restart.
+    expect(isAbandonedRoom(roomWith([
+      makePlayer('Alice', { disconnected: true }),
+      makePlayer('Bob', { disconnected: true }),
+    ]))).toBe(true);
+  });
+
+  it('is false while any seat is still connected', () => {
+    expect(isAbandonedRoom(roomWith([
+      makePlayer('Alice', { disconnected: true }),
+      makePlayer('Bob', { disconnected: false }),
+    ]))).toBe(false);
+  });
+
+  it('is false while a reconnect timer is still pending', () => {
+    // Every seat is a ghost, but one of them is owed a reconnect window — the
+    // timer will revisit the room, so it is not abandoned yet. Dropping this
+    // half of the predicate would delete rooms out from under reconnecting
+    // players.
+    vi.useFakeTimers();
+    const room = roomWith([
+      makePlayer('Alice', { disconnected: true }),
+      makePlayer('Bob', { disconnected: true }),
+    ]);
+    room.disconnectTimers['dev-Alice'] = setTimeout(vi.fn(), 1000);
+
+    expect(isAbandonedRoom(room)).toBe(false);
+  });
+
+  it('is true for an empty roster', () => {
+    // Never observed through the callers, which all short-circuit on
+    // `players.length === 0` before reaching this — but the doc comment leans
+    // on the pairing, so the behaviour under it is worth stating.
+    expect(isAbandonedRoom(roomWith([]))).toBe(true);
   });
 });
 
