@@ -38,6 +38,36 @@ dotenv.config();
 const SCALE = process.env.TEST_TIMER_SCALE ? parseFloat(process.env.TEST_TIMER_SCALE) : 1;
 export const testDelay = (ms: number) => Math.max(20, Math.floor(ms * SCALE));
 
+/**
+ * Resolves once `sock` is connected, whether or not it already is.
+ *
+ * `sock.on('connect', ...)` alone is only safe for the FIRST socket a test
+ * awaits: connecting starts at construction, so by the time a later await
+ * attaches its listener that socket may already have fired, and the wait then
+ * never settles — the test hangs to its timeout, which reads as a dead server
+ * rather than as a race in the test.
+ */
+export const connected = (sock: ClientSocket): Promise<void> =>
+  sock.connected
+    ? Promise.resolve()
+    : new Promise(resolve => sock.once('connect', () => resolve()));
+
+// Every server spawned by startTestServer, so the exit hook below can reap
+// them. Windows does not kill a child when its parent dies, so a suite that
+// times out (or is killed with Ctrl-C) used to leave a server holding one of
+// the fixed testPorts.ts ports — and the next run then hung in beforeAll on a
+// port that could never be bound, for a reason nothing in the output named.
+const spawnedServers = new Set<ChildProcess>();
+
+process.on('exit', () => {
+  for (const child of spawnedServers) {
+    // SIGKILL-equivalent on Windows, which has no signal delivery: this hook
+    // runs on the way out, so there is no time for a graceful shutdown and
+    // nothing left to flush.
+    child.kill();
+  }
+});
+
 export interface StartTestServerOptions {
   /** Extra child env on top of the inherited process.env (e.g. API_TOKEN, CORS_ORIGIN, NODE_ENV). */
   env?: Record<string, string>;
@@ -70,6 +100,11 @@ export const startTestServer = (
         stdio: 'pipe',
       },
     );
+
+    spawnedServers.add(serverProcess);
+    // Dropped from the reap set as soon as it is gone on its own, so the exit
+    // hook never signals a recycled pid.
+    serverProcess.on('exit', () => { spawnedServers.delete(serverProcess); });
 
     let stdout = '';
     let dbReady = false;

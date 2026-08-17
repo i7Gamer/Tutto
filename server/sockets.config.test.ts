@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io } from 'socket.io-client';
-import { startTestServer, testDelay } from './socketTestHarness';
+import { startTestServer, testDelay, connected } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
@@ -571,32 +571,44 @@ describe('Server Socket E2E — configuration & player order', () => {
     const s1 = io(`http://127.0.0.1:${PORT}`);
     const s2 = io(`http://127.0.0.1:${PORT}`);
 
-    await new Promise<void>(resolve => s1.on('connect', () => resolve()));
-    await new Promise<void>(resolve => s2.on('connect', () => resolve()));
-    await new Promise<void>(resolve => s1.emit('joinRoom', { roomId: 'REORDER_HOSTILE', name: 'Alice', deviceId: 'dev-rh-a' }, () => resolve()));
-    await new Promise<void>(resolve => s2.emit('joinRoom', { roomId: 'REORDER_HOSTILE', name: 'Bob', deviceId: 'dev-rh-b' }, () => resolve()));
+    try {
+      // Both sockets start connecting at construction, but only s1's listener
+      // is attached before the first await yields. If s2 won the race its
+      // 'connect' fired into no listener at all, and the second wait below
+      // never settled — the test hung to its 15s timeout, which reads as the
+      // server having died rather than as a race in the test. Checking
+      // .connected first is what closes it; `once` keeps the listener from
+      // outliving the wait on a reconnect.
+      await connected(s1);
+      await connected(s2);
+      await new Promise<void>(resolve => s1.emit('joinRoom', { roomId: 'REORDER_HOSTILE', name: 'Alice', deviceId: 'dev-rh-a' }, () => resolve()));
+      await new Promise<void>(resolve => s2.emit('joinRoom', { roomId: 'REORDER_HOSTILE', name: 'Bob', deviceId: 'dev-rh-b' }, () => resolve()));
 
-    // Right length, right shape at the array level — garbage inside.
-    s1.emit('reorderPlayers', { roomId: 'REORDER_HOSTILE', newPlayers: [null, null] });
-    s1.emit('reorderPlayers', { roomId: 'REORDER_HOSTILE', newPlayers: [undefined, { name: 'Bob' }] });
-    s1.emit('reorderPlayers', { roomId: 'REORDER_HOSTILE', newPlayers: [42, 'Bob'] });
+      // Right length, right shape at the array level — garbage inside.
+      s1.emit('reorderPlayers', { roomId: 'REORDER_HOSTILE', newPlayers: [null, null] });
+      s1.emit('reorderPlayers', { roomId: 'REORDER_HOSTILE', newPlayers: [undefined, { name: 'Bob' }] });
+      s1.emit('reorderPlayers', { roomId: 'REORDER_HOSTILE', newPlayers: [42, 'Bob'] });
 
-    await new Promise(resolve => setTimeout(resolve, testDelay(1000)));
-    expect(serverProcess.exitCode).toBeNull();
+      await new Promise(resolve => setTimeout(resolve, testDelay(1000)));
+      expect(serverProcess.exitCode).toBeNull();
 
-    // Still serving: a legitimate reorder after the hostile ones still applies,
-    // and the roster the malformed pushes targeted is untouched.
-    const reordered = new Promise<string[]>((resolve) => {
-      s1.on('gameState', (state) => {
-        if (state.players?.length === 2 && state.players[0].name === 'Bob') {
-          resolve(state.players.map((p: { name: string }) => p.name));
-        }
+      // Still serving: a legitimate reorder after the hostile ones still applies,
+      // and the roster the malformed pushes targeted is untouched.
+      const reordered = new Promise<string[]>((resolve) => {
+        s1.on('gameState', (state) => {
+          if (state.players?.length === 2 && state.players[0].name === 'Bob') {
+            resolve(state.players.map((p: { name: string }) => p.name));
+          }
+        });
       });
-    });
-    s1.emit('reorderPlayers', { roomId: 'REORDER_HOSTILE', newPlayers: [{ name: 'Bob' }, { name: 'Alice' }] });
-    expect(await reordered).toEqual(['Bob', 'Alice']);
-
-    s1.disconnect();
-    s2.disconnect();
+      s1.emit('reorderPlayers', { roomId: 'REORDER_HOSTILE', newPlayers: [{ name: 'Bob' }, { name: 'Alice' }] });
+      expect(await reordered).toEqual(['Bob', 'Alice']);
+    } finally {
+      // In a finally so a failed assertion above still closes both sockets —
+      // a live client keeps the spawned server's event loop busy, and this is
+      // the last test in the file.
+      s1.disconnect();
+      s2.disconnect();
+    }
   }, 15000);
 });

@@ -53,11 +53,8 @@ describe('api routes in-process', () => {
   let previousApiToken: string | undefined;
 
   beforeAll(async () => {
-    // setupTests.tsx swaps global fetch for a jsdom stub; a node-environment
-    // suite talking to a real socket needs the native one back.
-    const stashed = (globalThis as { __nativeFetch?: typeof fetch }).__nativeFetch;
-    if (stashed) globalThis.fetch = stashed;
-
+    // No fetch restore needed: setupTests.tsx installs its stub only under
+    // jsdom, so a node-environment suite like this one keeps the real fetch.
     previousApiToken = process.env.API_TOKEN;
     process.env.API_TOKEN = API_TOKEN;
 

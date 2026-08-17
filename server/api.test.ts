@@ -26,9 +26,8 @@ describe('API Endpoints Token Protection', () => {
   const API_TOKEN = 'tutto-local-dev-token';
 
   beforeAll(async () => {
-    if (globalThis.__nativeFetch) {
-      globalThis.fetch = globalThis.__nativeFetch;
-    }
+    // No fetch restore needed: setupTests.tsx installs its stub only under
+    // jsdom, so a node-environment suite like this one keeps the real fetch.
 
     // The crash-log tests below intentionally make the child log
     // '[client-error]' entries — expected noise, quieted; anything else is real.

@@ -35,6 +35,29 @@ describe('i18n Translations completeness', () => {
     expect(missingInEn, `Keys missing in English translation: ${missingInEn.join(', ')}`).toEqual([]);
   });
 
+  // Key parity says the two files describe the same UI; this says they can
+  // both render it. i18next interpolates by NAME, so a placeholder dropped or
+  // misspelled in one language does not fall back or warn — it renders the
+  // literal "{{name}}" to the player, or silently omits the number the
+  // sentence was written around ("scored pts on Kniffel").
+  it('interpolates the same placeholders in both languages', () => {
+    const placeholdersIn = (value: string): string[] =>
+      [...value.matchAll(/\{\{\s*([\w.]+)\s*(?:,[^}]*)?\}\}/g)].map(m => m[1]).sort();
+
+    const mismatched = enKeys
+      .map(key => ({
+        key,
+        en: placeholdersIn(enTranslations[key] ?? ''),
+        de: placeholdersIn(deTranslations[key] ?? ''),
+      }))
+      .filter(({ en, de }) => en.join(',') !== de.join(','));
+
+    expect(
+      mismatched,
+      `Placeholder mismatch:\n${mismatched.map(m => `  ${m.key}: en={{${m.en}}} de={{${m.de}}}`).join('\n')}`,
+    ).toEqual([]);
+  });
+
   // Deliberately NOT repeated here: "every t('...') key exists in the locale
   // files". That check lives in translations.test.ts, which scans .ts/.tsx and
   // verifies BOTH locales. The version that used to sit here filtered for
