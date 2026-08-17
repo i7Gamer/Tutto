@@ -1,55 +1,61 @@
 /**
  * @vitest-environment node
+ *
+ * Covers the server-authoritative turn timer (turnTimers.ts: startServerTurnTimer /
+ * advanceTurnOnTimeout / clearServerTurnTimer). Before this feature, turn expiry was
+ * driven exclusively by the host's client-side setInterval, which stalled the game if
+ * the host disconnected, closed their tab, or the tab was backgrounded/throttled.
+ *
+ * In-process rather than a spawned server, and that is what makes the expiry
+ * deterministic: room.turnExpireTimer is a handle in THIS process, so a test can
+ * run it on demand instead of sleeping until its deadline. Every wait in here
+ * used to be a real one — scaled down by TEST_TIMER_SCALE and then bet against.
+ * "No advance within 300ms, an advance within 1000ms" asserts how fast the
+ * machine is at least as much as it asserts what the server does, and it spent
+ * ~6s per run doing it. Firing the handle replaces those windows with exact
+ * assertions about the timer itself, which is what the tests were reaching for.
+ *
+ * It also puts this code in reach of coverage, which cannot see into a subprocess.
+ *
+ * The database module is mocked, as in every other in-process suite: a join
+ * fetches both rulesets' streaks, and nothing here asserts on persistence.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { io } from 'socket.io-client';
-import { startTestServer } from './socketTestHarness';
-import { TEST_PORTS } from './testPorts';
-import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 
-// Covers the server-authoritative turn timer (server/index.ts: startServerTurnTimer /
-// advanceTurnOnTimeout / clearServerTurnTimer). Before this feature, turn expiry was
-// driven exclusively by the host's client-side setInterval, which stalled the game if
-// the host disconnected, closed their tab, or the tab was backgrounded/throttled.
+vi.mock('./database', () => ({
+  updateDeviceStats: vi.fn(),
+  updateGlobalStats: vi.fn(),
+  getDeviceStats: vi.fn().mockResolvedValue(null),
+}));
+
+import { startInProcessServer, emitJoin, waitFor, type InProcessServer } from './socketTestHarness';
+import { rooms } from './rooms';
+
 describe('Server-side turn timer', () => {
-  let serverProcess;
-  const PORT = TEST_PORTS.turnTimer;
+  let server: InProcessServer;
 
   beforeAll(async () => {
-    // The hand-rolled spawn this replaces resolved on "Server running on port"
-    // alone, so the first test could start against a database still migrating.
-    // startTestServer waits for both that and "Database migrated". Everything
-    // else it passed is already the harness default (FORCE_INIT_DB,
-    // TEST_TIMER_SCALE=0.2 — which every turnDuration below is written against)
-    // or inherited from the suite env (TEST_DB); only the token is ours.
-    serverProcess = await startTestServer(PORT, { env: { API_TOKEN: 'test-token' } });
-  }, SERVER_BOOT_TIMEOUT_MS);
-
-  afterAll(() => {
-    if (serverProcess) serverProcess.kill();
+    server = await startInProcessServer();
   });
 
-  const joinRoom = (roomId, name = 'Host') =>
-    new Promise((resolve, reject) => {
-      const sock = io(`http://127.0.0.1:${PORT}`, { transports: ['websocket'] });
-      sock.on('connect', () => {
-        sock.emit(
-          'joinRoom',
-          { roomId, name, deviceId: `dev-${roomId}-${name}`, color: '#ff0000' },
-          (res) => {
-            if (res.error) { sock.disconnect(); return reject(new Error(res.error)); }
-            sock.once('gameState', (state) => resolve({ sock, socketId: res.socketId, state }));
-          }
-        );
-      });
-      sock.on('connect_error', reject);
-    });
+  afterAll(async () => {
+    await server.close();
+  });
 
-  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+  const joinRoom = async (roomId: string, name = 'Host') => {
+    const sock = await server.connect();
+    // Registered before the join rather than inside its ack: joinRoom acks and
+    // then broadcasts, and a listener attached after the ack has already been
+    // awaited can miss the broadcast it is waiting for.
+    const firstState = new Promise(resolve => sock.once('gameState', resolve));
+    const res = await emitJoin(sock, roomId, name, `dev-${roomId}-${name}`);
+    if (!res.success) { sock.disconnect(); throw new Error(res.error); }
+    return { sock, socketId: res.socketId, state: await firstState as Record<string, unknown> };
+  };
 
   // Resolves with the first gameState matching predicate, or rejects on timeout.
   const waitForState = (sock, predicate, timeoutMs = 6000) =>
-    new Promise((resolve, reject) => {
+    new Promise<Record<string, unknown>>((resolve, reject) => {
       const timer = setTimeout(() => {
         sock.off('gameState', handler);
         reject(new Error('Timed out waiting for expected gameState'));
@@ -64,45 +70,65 @@ describe('Server-side turn timer', () => {
       sock.on('gameState', handler);
     });
 
-  // Opposite of waitForState: fails if predicate ever matches within the window.
-  const expectNoAdvanceWithin = (sock, predicate, ms) =>
-    new Promise((resolve, reject) => {
-      const handler = (state) => {
-        if (predicate(state)) {
-          sock.off('gameState', handler);
-          reject(new Error('Turn advanced earlier than expected'));
-        }
-      };
-      sock.on('gameState', handler);
-      setTimeout(() => {
-        sock.off('gameState', handler);
-        resolve();
-      }, ms);
-    });
+  /** Resolves once the server has armed the expiry the test is about to drive. */
+  const waitForArmedTimer = (roomId: string) =>
+    waitFor(() => rooms[roomId]?.turnExpireTimer != null);
+
+  /**
+   * Runs a room's pending turn expiry now instead of waiting out its deadline.
+   *
+   * The callback is captured before clearing, because Node nulls a handle's
+   * callback when it is cleared; clearing is what stops the real deadline
+   * running the same advance a second time later. What runs is the exact
+   * closure setTimeout was given — only the scheduling is skipped, and the
+   * scheduling is not what any of these tests is checking.
+   */
+  const fireTurnExpiry = (roomId: string) => {
+    const pending = rooms[roomId].turnExpireTimer;
+    expect(pending).not.toBeNull();
+    const run = (pending as unknown as { _onTimeout?: () => void })._onTimeout;
+    // Guards the reach-around itself: if a Node upgrade renames this, the suite
+    // must say so rather than quietly stop driving any expiry at all.
+    expect(typeof run).toBe('function');
+    clearTimeout(pending as ReturnType<typeof setTimeout>);
+    (run as () => void)();
+  };
+
+  /**
+   * Replaces the old expectNoAdvanceWithin(sock, predicate, ms), which watched
+   * for an advance over a fixed window and concluded from its absence that none
+   * was scheduled. That inferred the state of the timer from a silence long
+   * enough to be convincing; this reads the timer.
+   */
+  const expectNoTimerArmed = (roomId: string) =>
+    expect(rooms[roomId].turnExpireTimer).toBeNull();
+
+  const twoPlayers = (roomId: string, hostSock, guestSock) => [
+    { name: 'Alice', deviceId: `dev-${roomId}-Alice`, socketId: hostSock.id, disconnected: false, score: 0 },
+    { name: 'Bob', deviceId: `dev-${roomId}-Bob`, socketId: guestSock.id, disconnected: false, score: 0 },
+  ];
 
   it('server auto-advances the turn when it expires, without any client action', async () => {
     const roomId = 'timer-basic';
     const { sock: hostSock } = await joinRoom(roomId, 'Alice');
     const { sock: guestSock } = await joinRoom(roomId, 'Bob');
 
-    const players = [
-      { name: 'Alice', deviceId: `dev-${roomId}-Alice`, socketId: hostSock.id, disconnected: false, score: 0 },
-      { name: 'Bob', deviceId: `dev-${roomId}-Bob`, socketId: guestSock.id, disconnected: false, score: 0 },
-    ];
-
-    const advanced = waitForState(hostSock, (s) => s.currentPlayerIndex === 1, 5000);
     hostSock.emit('pushState', {
       roomId,
       newState: {
-        players, status: 'playing', currentPlayerIndex: 0, currentCard: '200',
-        cards: ['300'], round: 1, turnDuration: 1,
+        players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
+        currentPlayerIndex: 0, currentCard: '200', cards: ['300'], round: 1, turnDuration: 1,
       },
     });
+    await waitForArmedTimer(roomId);
+
+    const advanced = waitForState(hostSock, (s) => s.currentPlayerIndex === 1);
+    fireTurnExpiry(roomId);
 
     const state = await advanced;
     expect(state.previousCard).toBe('200');
     expect(state.previousScore).toBe(0);
-    const alice = state.players.find(p => p.name === 'Alice');
+    const alice = (state.players as { name: string; busts: number }[]).find(p => p.name === 'Alice');
     expect(alice.busts).toBe(1); // no manual action was taken → counts as a bust, like a real timeout
     expect(state.historyLog).toBeDefined();
     expect(state.historyLog.length).toBe(1);
@@ -112,215 +138,178 @@ describe('Server-side turn timer', () => {
 
     hostSock.disconnect();
     guestSock.disconnect();
-  }, 10000);
+  });
 
   it('turn still advances after the host disconnects mid-turn', async () => {
     const roomId = 'timer-host-gone';
     const { sock: hostSock } = await joinRoom(roomId, 'Alice');
     const { sock: guestSock } = await joinRoom(roomId, 'Bob');
 
-    const players = [
-      { name: 'Alice', deviceId: `dev-${roomId}-Alice`, socketId: hostSock.id, disconnected: false, score: 0 },
-      { name: 'Bob', deviceId: `dev-${roomId}-Bob`, socketId: guestSock.id, disconnected: false, score: 0 },
-    ];
-
-    const advanced = waitForState(guestSock, (s) => s.round === 2, 5000);
-
     hostSock.emit('pushState', {
       roomId,
       newState: {
-        players, status: 'playing', currentPlayerIndex: 1, currentCard: 'Stop',
-        cards: ['200'], round: 1, turnDuration: 1,
+        players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
+        currentPlayerIndex: 1, currentCard: 'Stop', cards: ['200'], round: 1, turnDuration: 1,
       },
     });
-    await delay(200);
+    await waitForArmedTimer(roomId);
+
+    const advanced = waitForState(guestSock, (s) => s.round === 2);
+
     hostSock.disconnect(); // host is gone entirely — no client left to "own" the turn
+    // The disconnect has to be PROCESSED before the expiry runs, or the test
+    // proves nothing about a hostless room. It also must not free the expiry:
+    // two seats remain (one disconnected), so no abort clears it.
+    await waitFor(() => rooms[roomId].state.players.some(p => p.name === 'Alice' && p.disconnected));
+    expect(rooms[roomId].turnExpireTimer).not.toBeNull();
+
+    fireTurnExpiry(roomId);
 
     const state = await advanced;
     expect(state.currentPlayerIndex).toBe(0);
     expect(state.status).toBe('playing');
 
     guestSock.disconnect();
-  }, 10000);
-
-  // The test below is the one place where the advance cannot be awaited as an
-  // event: it must happen with the room empty, so nothing is listening when it
-  // does and the state can only be SAMPLED, by rejoining afterwards. The window
-  // that sample has to land in is therefore widened at both ends: a 2s turn
-  // (400ms under TEST_TIMER_SCALE=0.2) leaves the expiry room to run late, and
-  // the wait below is half a turn again past that deadline. Landing outside it
-  // is survivable either way — too early is waited out, too late is covered by
-  // asserting only on state a further expiry cannot take back (see below).
-  const EMPTY_ROOM_TURN_DURATION_S = 2;
-  const EMPTY_ROOM_EXPIRY_WAIT_MS = 600;
+  });
 
   it('turn still advances even when every client has disconnected', async () => {
     const roomId = 'timer-empty-room';
     const { sock: hostSock } = await joinRoom(roomId, 'Alice');
     const { sock: guestSock } = await joinRoom(roomId, 'Bob');
 
-    const players = [
-      { name: 'Alice', deviceId: `dev-${roomId}-Alice`, socketId: hostSock.id, disconnected: false, score: 0 },
-      { name: 'Bob', deviceId: `dev-${roomId}-Bob`, socketId: guestSock.id, disconnected: false, score: 0 },
-    ];
-
     hostSock.emit('pushState', {
       roomId,
       newState: {
-        players, status: 'playing', currentPlayerIndex: 0, currentCard: '200',
-        // Bob draws a Feuerwerk, whose 3x multiplier (pinned by the test below)
-        // stretches the turn AFTER the sampled one to three turns long, so a
-        // slow rejoin has that much longer before a second expiry runs.
-        cards: ['Feuerwerk'], round: 1, turnDuration: EMPTY_ROOM_TURN_DURATION_S,
+        players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
+        currentPlayerIndex: 0, currentCard: '200', cards: ['300'], round: 1, turnDuration: 2,
       },
     });
-    // Waited for rather than slept past: this broadcast is the moment the timer
-    // is armed, and it is what the wait below is measured from. A fixed sleep
-    // here was really a bet that the server processes the push within it — on a
-    // loaded machine it doesn't, and the sample then lands before the turn it
-    // is meant to observe has even started.
-    await waitForState(hostSock, (s) => s.status === 'playing' && s.currentPlayerIndex === 0 && s.currentCard === '200');
+    await waitForArmedTimer(roomId);
 
     hostSock.disconnect();
     guestSock.disconnect();
+    await waitFor(() => rooms[roomId].state.players.every(p => p.disconnected));
 
-    // Give the server time to run advanceTurnOnTimeout with zero sockets attached.
-    await delay(EMPTY_ROOM_EXPIRY_WAIT_MS);
+    // The expiry now runs with nothing listening — which is the whole point of
+    // the test, and used to be why it could only SAMPLE the result by rejoining
+    // and hoping the sample landed in the right window. Driving the timer
+    // directly means the advance has demonstrably already happened by the next
+    // line, so the rejoin below reads a settled room rather than racing it.
+    expect(rooms[roomId].state.players.every(p => p.disconnected)).toBe(true);
+    fireTurnExpiry(roomId);
 
     // Reconnect as Alice (same deviceId) to observe the room's current state.
     const { sock: observerSock, state } = await joinRoom(roomId, 'Alice');
-    // If the expiry is still owed, wait for it now that there is a socket to
-    // hear it, instead of failing on a sample taken too early. Rejoining never
-    // re-arms the turn timer (joinRoom only cancels the disconnect timer), so
-    // this still waits on the timer that was armed while the room was empty.
-    //
-    // What is waited for — and asserted on — has to be CUMULATIVE, because the
-    // sample can land too LATE just as easily as too early: on a machine slow
-    // enough to rejoin after the following turn expired too, currentPlayerIndex
-    // is back at 0 and previousCard holds Bob's card, so an exact-index
-    // assertion fails for the opposite reason to the one this test guards. The
-    // history log only grows (turnTimers.ts appends one entry per expiry and
-    // never clears it), so "a turn expired with nobody connected" holds from
-    // the first expiry onwards however many follow it.
-    const someTurnTimedOut = (s) => (s.historyLog?.length ?? 0) > 0;
-    const advanced = someTurnTimedOut(state)
-      ? state
-      : await waitForState(observerSock, someTurnTimedOut);
 
-    // Beyond what the wait established (that SOME expiry ran): the first entry
-    // is the sampled turn, and it records what a timeout produces — Alice's
-    // '200' charged as a bust, the same way the connected-client case above
-    // pins it. Both are per-game totals, so a second expiry cannot undo them.
-    const [firstTimeout] = advanced.historyLog;
+    const [firstTimeout] = state.historyLog as { playerName: string; type: string; card: string }[];
     expect(firstTimeout.playerName).toBe('Alice');
     expect(firstTimeout.type).toBe('bust');
     expect(firstTimeout.card).toBe('200');
-    expect(advanced.players.find((p) => p.name === 'Alice').busts).toBeGreaterThanOrEqual(1);
+    expect((state.players as { name: string; busts: number }[]).find(p => p.name === 'Alice').busts).toBe(1);
+    // Exactly one expiry ran, so the turn sits with Bob — an assertion the
+    // sampled version could not make, because a second expiry could have
+    // wrapped it back to Alice before the sample was taken.
+    expect(state.currentPlayerIndex).toBe(1);
 
     observerSock.disconnect();
-  }, 10000);
+  });
 
   it('Feuerwerk applies a 3x turn duration multiplier', async () => {
     const roomId = 'timer-feuerwerk';
     const { sock: hostSock } = await joinRoom(roomId, 'Alice');
     const { sock: guestSock } = await joinRoom(roomId, 'Bob');
 
-    const players = [
-      { name: 'Alice', deviceId: `dev-${roomId}-Alice`, socketId: hostSock.id, disconnected: false, score: 0 },
-      { name: 'Bob', deviceId: `dev-${roomId}-Bob`, socketId: guestSock.id, disconnected: false, score: 0 },
-    ];
-
+    const armed = waitForState(hostSock, (s) => s.status === 'playing' && s.currentCard === 'Feuerwerk');
     hostSock.emit('pushState', {
       roomId,
       newState: {
-        players, status: 'playing', currentPlayerIndex: 0, currentCard: 'Feuerwerk',
-        cards: ['300'], round: 1, turnDuration: 1, // target = 1 * 3 = 3s
+        players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
+        currentPlayerIndex: 0, currentCard: 'Feuerwerk', cards: ['300'], round: 1, turnDuration: 1,
       },
     });
 
-    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 300);
-    const state = await waitForState(hostSock, (s) => s.currentPlayerIndex === 1, 1000);
-    expect(state.previousCard).toBe('Feuerwerk');
+    // The multiplier read straight off the broadcast the turn starts with.
+    // turnTimeRemaining is calculateRemainingTurnTime, which is derived from
+    // getEffectiveTurnDuration — the very function the multiplier lives in — so
+    // this pins 1 * 3 exactly, where the old pair of timing windows could only
+    // bracket it between "later than 300ms" and "sooner than 1000ms".
+    expect((await armed).turnTimeRemaining).toBe(3);
+    await waitForArmedTimer(roomId);
+
+    const advanced = waitForState(hostSock, (s) => s.currentPlayerIndex === 1);
+    fireTurnExpiry(roomId);
+    expect((await advanced).previousCard).toBe('Feuerwerk');
 
     hostSock.disconnect();
     guestSock.disconnect();
-  }, 10000);
+  });
 
   it('Kleeblatt applies a 2x turn duration multiplier', async () => {
     const roomId = 'timer-kleeblatt';
     const { sock: hostSock } = await joinRoom(roomId, 'Alice');
     const { sock: guestSock } = await joinRoom(roomId, 'Bob');
 
-    const players = [
-      { name: 'Alice', deviceId: `dev-${roomId}-Alice`, socketId: hostSock.id, disconnected: false, score: 0 },
-      { name: 'Bob', deviceId: `dev-${roomId}-Bob`, socketId: guestSock.id, disconnected: false, score: 0 },
-    ];
-
+    const armed = waitForState(hostSock, (s) => s.status === 'playing' && s.currentCard === 'Kleeblatt');
     hostSock.emit('pushState', {
       roomId,
       newState: {
-        players, status: 'playing', currentPlayerIndex: 0, currentCard: 'Kleeblatt',
-        cards: ['300'], round: 1, turnDuration: 1, // target = 1 * 2 = 2s
+        players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
+        currentPlayerIndex: 0, currentCard: 'Kleeblatt', cards: ['300'], round: 1, turnDuration: 1,
       },
     });
 
-    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 200);
-    const state = await waitForState(hostSock, (s) => s.currentPlayerIndex === 1, 800);
-    expect(state.previousCard).toBe('Kleeblatt');
+    expect((await armed).turnTimeRemaining).toBe(2); // 1 * 2
+    await waitForArmedTimer(roomId);
+
+    const advanced = waitForState(hostSock, (s) => s.currentPlayerIndex === 1);
+    fireTurnExpiry(roomId);
+    expect((await advanced).previousCard).toBe('Kleeblatt');
 
     hostSock.disconnect();
     guestSock.disconnect();
-  }, 10000);
+  });
 
   it('turnDuration=0 disables the server timer entirely', async () => {
     const roomId = 'timer-disabled';
     const { sock: hostSock } = await joinRoom(roomId, 'Alice');
     const { sock: guestSock } = await joinRoom(roomId, 'Bob');
 
-    const players = [
-      { name: 'Alice', deviceId: `dev-${roomId}-Alice`, socketId: hostSock.id, disconnected: false, score: 0 },
-      { name: 'Bob', deviceId: `dev-${roomId}-Bob`, socketId: guestSock.id, disconnected: false, score: 0 },
-    ];
-
     hostSock.emit('pushState', {
       roomId,
       newState: {
-        players, status: 'playing', currentPlayerIndex: 0, currentCard: '200',
-        cards: ['300'], round: 1, turnDuration: 0,
+        players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
+        currentPlayerIndex: 0, currentCard: '200', cards: ['300'], round: 1, turnDuration: 0,
       },
     });
 
-    // Confirm the setup actually landed before asserting that nothing happens.
-    // A rejected push would leave a room with no turn and no timer, where "the
-    // turn never advanced" holds for reasons that have nothing to do with
-    // turnDuration=0.
+    // Confirm the setup actually landed before asserting that nothing is armed.
+    // A rejected push would leave a room with no turn and no timer, where "no
+    // timer" holds for reasons that have nothing to do with turnDuration=0.
     await waitForState(hostSock, (s) => s.status === 'playing' && s.turnDuration === 0 && s.currentPlayerIndex === 0);
 
-    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 400);
+    expectNoTimerArmed(roomId);
 
     hostSock.disconnect();
     guestSock.disconnect();
-  }, 8000);
+  });
 
   it('round-end via timeout updates chartValues/chartLabels and wraps to the next round', async () => {
     const roomId = 'timer-round-end';
     const { sock: hostSock } = await joinRoom(roomId, 'Alice');
     const { sock: guestSock } = await joinRoom(roomId, 'Bob');
 
-    const players = [
-      { name: 'Alice', deviceId: `dev-${roomId}-Alice`, socketId: hostSock.id, disconnected: false, score: 0 },
-      { name: 'Bob', deviceId: `dev-${roomId}-Bob`, socketId: guestSock.id, disconnected: false, score: 0 },
-    ];
-
-    const advanced = waitForState(hostSock, (s) => s.round === 2, 5000);
     hostSock.emit('pushState', {
       roomId,
       newState: {
-        players, status: 'playing', currentPlayerIndex: 1, currentCard: '300',
-        cards: ['200'], round: 1, turnDuration: 1,
+        players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
+        currentPlayerIndex: 1, currentCard: '300', cards: ['200'], round: 1, turnDuration: 1,
         chartValues: [[0], [0]], chartNames: ['Alice', 'Bob'], chartLabels: [],
       },
     });
+    await waitForArmedTimer(roomId);
+
+    const advanced = waitForState(hostSock, (s) => s.round === 2);
+    fireTurnExpiry(roomId);
 
     const state = await advanced;
     expect(state.currentPlayerIndex).toBe(0);
@@ -330,7 +319,7 @@ describe('Server-side turn timer', () => {
 
     hostSock.disconnect();
     guestSock.disconnect();
-  }, 10000);
+  });
 
   it('game-over via timeout finishes the game and schedules no further timer', async () => {
     const roomId = 'timer-gameover';
@@ -340,7 +329,6 @@ describe('Server-side turn timer', () => {
     // (pushState is no longer a side door for smaller values).
     const player = { name: 'Solo', deviceId: `dev-${roomId}-Solo`, socketId: sock.id, disconnected: false, score: 1000 };
 
-    const finishedState = waitForState(sock, (s) => s.finished === true, 5000);
     sock.emit('pushState', {
       roomId,
       newState: {
@@ -348,54 +336,52 @@ describe('Server-side turn timer', () => {
         cards: ['300'], round: 1, winningScore: 1000, turnDuration: 1,
       },
     });
+    await waitForArmedTimer(roomId);
+
+    const finishedState = waitForState(sock, (s) => s.finished === true);
+    fireTurnExpiry(roomId);
 
     const state = await finishedState;
     expect(state.currentPlayerIndex).toBeNull();
     expect(state.currentCard).toBeNull();
 
-    // No further auto-advance should occur once the game is over.
-    await expectNoAdvanceWithin(sock, (s) => s.currentCard !== null || s.currentPlayerIndex !== null, 400);
+    // No further auto-advance once the game is over.
+    expectNoTimerArmed(roomId);
 
     sock.disconnect();
-  }, 10000);
+  });
 
   it('updateConfig turnDuration=0 mid-turn cancels a pending expiry', async () => {
     const roomId = 'timer-config-cancel';
     const { sock: hostSock } = await joinRoom(roomId, 'Alice');
     const { sock: guestSock } = await joinRoom(roomId, 'Bob');
 
-    const players = [
-      { name: 'Alice', deviceId: `dev-${roomId}-Alice`, socketId: hostSock.id, disconnected: false, score: 0 },
-      { name: 'Bob', deviceId: `dev-${roomId}-Bob`, socketId: guestSock.id, disconnected: false, score: 0 },
-    ];
-
     // Start a 1s turn (bypassing updateConfig's 10s floor via pushState, matching
     // the existing test-speed convention used elsewhere in this suite).
     hostSock.emit('pushState', {
       roomId,
       newState: {
-        players, status: 'playing', currentPlayerIndex: 0, currentCard: '200',
-        cards: ['300'], round: 1, turnDuration: 1,
+        players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
+        currentPlayerIndex: 0, currentCard: '200', cards: ['300'], round: 1, turnDuration: 1,
       },
     });
-    // Waited for rather than slept past: this is the state that arms the timer
-    // the test goes on to cancel, so nothing below means anything until the
-    // server confirms it.
-    await waitForState(hostSock, (s) => s.status === 'playing' && s.turnDuration === 1 && s.currentPlayerIndex === 0);
+    // The timer this test goes on to cancel — confirmed armed, not assumed.
+    await waitForArmedTimer(roomId);
 
-    // Disable the timer before the deadline. If updateConfig didn't resync
-    // (clear) the pending expiry, the original timeout would still fire ~150ms later.
     hostSock.emit('updateConfig', { roomId, turnDuration: 0 });
     await waitForState(hostSock, (s) => s.turnDuration === 0);
 
-    await expectNoAdvanceWithin(hostSock, (s) => s.currentPlayerIndex === 1, 400);
+    // If updateConfig didn't resync (clear) the pending expiry, the original
+    // timeout would still be sitting here waiting to fire.
+    expectNoTimerArmed(roomId);
 
     hostSock.disconnect();
     guestSock.disconnect();
-  }, 8000);
+  });
 
   it('kicking the active player reschedules the underlying expiry timer, not just the displayed time', async () => {
     const roomId = 'timer-kick-reschedule';
+    const TURN_DURATION_S = 2;
     const { sock: hostSock } = await joinRoom(roomId, 'Alice');
     const { sock: bobSock, socketId: bobId } = await joinRoom(roomId, 'Bob');
     const { sock: carolSock } = await joinRoom(roomId, 'Carol');
@@ -406,41 +392,44 @@ describe('Server-side turn timer', () => {
       { name: 'Carol', deviceId: `dev-${roomId}-Carol`, socketId: carolSock.id, disconnected: false, score: 0 },
     ];
 
-    // Bob (index 1) is the active player with a 2s turn.
+    // Bob (index 1) is the active player.
     hostSock.emit('pushState', {
       roomId,
       newState: {
         players, status: 'playing', currentPlayerIndex: 1, currentCard: '200',
-        cards: ['300', '400'], round: 1, turnDuration: 2,
+        cards: ['300', '400'], round: 1, turnDuration: TURN_DURATION_S,
       },
     });
-    await delay(200); // ~200ms of Bob's 400ms turn has elapsed
+    await waitForArmedTimer(roomId);
+    const timerBeforeKick = rooms[roomId].turnExpireTimer;
 
     // Host kicks Bob mid-turn. Bob wasn't last in turn order (Carol, at index 2,
     // hasn't gone yet this round) so the round must NOT bump — Carol simply
-    // inherits Bob's slot (shifted down to index 1) and gets a fresh 2s window.
-    // The server must reschedule the actual pending setTimeout to match that
-    // fresh window, not just the turnStartTime field.
-    const kickedState = waitForState(hostSock, (s) => s.players.length === 2 && s.currentPlayerIndex === 1, 3000);
+    // inherits Bob's slot (shifted down to index 1) and gets a fresh window.
+    const kickedState = waitForState(hostSock, (s) => s.players.length === 2 && s.currentPlayerIndex === 1);
     hostSock.emit('kickPlayer', bobId);
     bobSock.disconnect();
     const afterKick = await kickedState;
     expect(afterKick.round).toBe(1); // no round skip — Carol still owed a turn this round
     expect(afterKick.currentPlayerIndex).toBe(1); // Carol, shifted into Bob's old slot
 
-    // Carol is now last in turn order (2 players remain), so her forced timeout
-    // completes the round, wrapping to round 2. If the reschedule didn't happen,
-    // the STALE timer (armed at t=0 for the ORIGINAL 2s window, ~0.8s remaining
-    // at kick time) would fire ~800ms after the kick and force this prematurely.
-    await expectNoAdvanceWithin(hostSock, (s) => s.round === 2, 200);
+    // The actual point of the test, now stated directly rather than inferred
+    // from a stale timer failing to fire inside a 200ms window: the pending
+    // setTimeout was REPLACED, and the window it was replaced with is a full
+    // fresh turn rather than the remainder of Bob's.
+    expect(rooms[roomId].turnExpireTimer).not.toBeNull();
+    expect(rooms[roomId].turnExpireTimer).not.toBe(timerBeforeKick);
+    expect(afterKick.turnTimeRemaining).toBe(TURN_DURATION_S);
 
-    // ~400ms after the kick, Carol's rescheduled turn must have expired.
-    const state = await waitForState(hostSock, (s) => s.round === 2, 1000);
-    expect(state.players.length).toBe(2);
+    // Carol is now last in turn order (2 players remain), so her forced timeout
+    // completes the round, wrapping to round 2.
+    const wrapped = waitForState(hostSock, (s) => s.round === 2);
+    fireTurnExpiry(roomId);
+    expect((await wrapped).players.length).toBe(2);
 
     hostSock.disconnect();
     carolSock.disconnect();
-  }, 12000);
+  });
 
   it('kicking the active player who is last in turn order still bumps the round', async () => {
     const roomId = 'timer-kick-last-in-order';
@@ -465,7 +454,7 @@ describe('Server-side turn timer', () => {
 
     // Kicking her should complete the round immediately, unlike kicking a
     // mid-order player — nobody else was still owed a turn this round.
-    const kickedState = waitForState(hostSock, (s) => s.players.length === 2, 3000);
+    const kickedState = waitForState(hostSock, (s) => s.players.length === 2);
     hostSock.emit('kickPlayer', carolId);
     carolSock.disconnect();
     const afterKick = await kickedState;
@@ -474,7 +463,7 @@ describe('Server-side turn timer', () => {
 
     hostSock.disconnect();
     bobSock.disconnect();
-  }, 10000);
+  });
 
   it('kicking the active player clears their live dice snapshot from room state', async () => {
     const roomId = 'timer-kick-livestate';
@@ -493,7 +482,7 @@ describe('Server-side turn timer', () => {
       turnScore: 350, keptDice: [{ id: 'd1', val: 1 }], currentRoll: [],
       kniffelProgress: [], tuttosThisTurn: 0,
     };
-    const setup = waitForState(hostSock, (s) => s.liveTurnState?.turnScore === 350, 3000);
+    const setup = waitForState(hostSock, (s) => s.liveTurnState?.turnScore === 350);
     hostSock.emit('pushState', {
       roomId,
       newState: {
@@ -505,7 +494,7 @@ describe('Server-side turn timer', () => {
 
     // Kicking Bob must drop his snapshot — otherwise the remaining players keep
     // seeing Bob's dice attributed to Carol, who inherits his turn slot.
-    const kickedState = waitForState(hostSock, (s) => s.players.length === 2, 3000);
+    const kickedState = waitForState(hostSock, (s) => s.players.length === 2);
     hostSock.emit('kickPlayer', bobId);
     bobSock.disconnect();
     const afterKick = await kickedState;
@@ -514,7 +503,7 @@ describe('Server-side turn timer', () => {
 
     hostSock.disconnect();
     carolSock.disconnect();
-  }, 10000);
+  });
 
   it('deleting a room while a turn timer is pending does not crash the server', async () => {
     const roomId = 'timer-room-deleted';
@@ -529,30 +518,38 @@ describe('Server-side turn timer', () => {
         cards: ['300'], round: 1, winningScore: 1000, turnDuration: 1,
       },
     });
-    await delay(200);
+    await waitForArmedTimer(roomId);
 
-    // Player explicitly leaves — room.state.players becomes empty, room is deleted
-    // (advanceTurnOnTimeout's setTimeout for this room is still pending at this point).
+    // Captured while the room still exists: deleteRoom clears this handle, and a
+    // cleared handle has no callback left to run. Holding the closure is what
+    // lets the orphaned expiry below be run at all — the old version instead
+    // slept past the real deadline and inferred from the server still answering
+    // that it had fired.
+    const orphaned = (rooms[roomId].turnExpireTimer as unknown as { _onTimeout: () => void })._onTimeout;
+
+    // Player explicitly leaves — room.state.players becomes empty and the room
+    // is deleted with this expiry still pending.
     sock.emit('leaveRoom');
+    await waitFor(() => rooms[roomId] === undefined);
     sock.disconnect();
 
-    // Wait past the original deadline so the now-orphaned timeout fires.
-    await delay(250);
+    // The orphaned expiry now runs against a room that no longer exists. In the
+    // spawned version an uncaught throw here killed the server and the next
+    // join failed; in-process it would reject this call directly.
+    expect(() => orphaned()).not.toThrow();
 
-    // Prove the server process is still alive and responsive.
-    const { state } = await joinRoom('timer-room-deleted-followup', 'Fresh');
+    // ...and the server still seats new players afterwards.
+    const { state, sock: freshSock } = await joinRoom('timer-room-deleted-followup', 'Fresh');
     expect(state.status).toBe('lobby');
-  }, 8000);
+    freshSock.disconnect();
+  });
 
   it('explicitly finishing the game clears any pending turn-expiry timer', async () => {
     const roomId = 'timer-explicit-finish';
     const { sock: hostSock } = await joinRoom(roomId, 'Alice');
     const { sock: guestSock } = await joinRoom(roomId, 'Bob');
 
-    const players = [
-      { name: 'Alice', deviceId: `dev-${roomId}-Alice`, socketId: hostSock.id, disconnected: false, score: 0 },
-      { name: 'Bob', deviceId: `dev-${roomId}-Bob`, socketId: guestSock.id, disconnected: false, score: 0 },
-    ];
+    const players = twoPlayers(roomId, hostSock, guestSock);
 
     hostSock.emit('pushState', {
       roomId,
@@ -562,10 +559,10 @@ describe('Server-side turn timer', () => {
       },
     });
     // The turn whose pending expiry this test is about — confirmed, not assumed.
-    await waitForState(hostSock, (s) => s.status === 'playing' && s.currentCard === 'Kleeblatt');
+    await waitForArmedTimer(roomId);
 
     // Alice completes Kleeblatt for an instant win — client pushes finished:true
-    // well before the 1s turn timer (armed for the ORIGINAL Kleeblatt turn) expires.
+    // while the timer armed for the ORIGINAL Kleeblatt turn is still pending.
     hostSock.emit('pushState', {
       roomId,
       newState: {
@@ -579,11 +576,11 @@ describe('Server-side turn timer', () => {
 
     await waitForState(hostSock, (s) => s.finished === true);
 
-    // The pending 1s timer from the FIRST push must not fire and force a bogus
-    // "timeout advance" on top of the already-finished game.
-    await expectNoAdvanceWithin(hostSock, (s) => s.currentCard !== null, 400);
+    // That pending timer must be gone, not merely late — otherwise it fires and
+    // forces a bogus "timeout advance" on top of an already-finished game.
+    expectNoTimerArmed(roomId);
 
     hostSock.disconnect();
     guestSock.disconnect();
-  }, 8000);
+  });
 });

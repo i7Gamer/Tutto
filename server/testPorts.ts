@@ -33,7 +33,10 @@ const PORTS = {
   // Focused socket behaviour suites.
   socketConfigBounds: '3008',
   socketSecurityTimers: '3009',
-  turnTimer: '3010',
+  // 3010 was turnTimer's, freed when that suite moved in-process (it binds an
+  // OS-assigned ephemeral port now and needs no reservation). Left unassigned
+  // rather than reused, so an old checkout running alongside a new one does not
+  // collide with whichever suite inherited it.
   pushStateValidation: '3011',
 } as const;
 
