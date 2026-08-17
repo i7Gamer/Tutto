@@ -43,6 +43,22 @@ describe('crashLog', () => {
       expect(entry.message.length).toBe(2000);
       expect(entry.componentStack.length).toBe(2000);
     });
+
+    // This takes `unknown`, and the things actually thrown at it are not all
+    // Errors — an unhandled rejection carries whatever the code rejected with,
+    // and a DOM Event references its own target. JSON.stringify throws on those,
+    // and buildCrashEntry is called OUTSIDE both try blocks in recordCrash, so
+    // the throw escaped ErrorBoundary.componentDidCatch: the reporter took the
+    // app down at the one moment it exists to keep it up.
+    it('survives a circular non-Error value', () => {
+      const circular: Record<string, unknown> = { kind: 'event' };
+      circular.self = circular;
+
+      const entry = buildCrashEntry(circular);
+
+      expect(entry.message).toContain('event');
+      expect(entry.timestamp).toBeTruthy();
+    });
   });
 
   describe('readCrashLog', () => {
@@ -75,6 +91,19 @@ describe('crashLog', () => {
       expect(options.method).toBe('POST');
       expect(options.keepalive).toBe(true);
       expect(JSON.parse(options.body as string).message).toBe('boom');
+    });
+
+    // The failure mode buildCrashEntry's circular case describes, at the
+    // boundary that matters: recordCrash is what ErrorBoundary calls, and a
+    // throw here escapes componentDidCatch and unmounts the tree, so the
+    // recovery UI never renders.
+    it('records a circular crash value without throwing', () => {
+      const circular: Record<string, unknown> = { kind: 'event' };
+      circular.self = circular;
+
+      expect(() => recordCrash(circular, 'at Game')).not.toThrow();
+      expect(readCrashLog()).toHaveLength(1);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it('keeps only the 5 most recent entries', () => {

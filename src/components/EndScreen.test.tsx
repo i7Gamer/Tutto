@@ -621,6 +621,26 @@ describe('EndScreen Component', () => {
       expect(getByText('end.newRecordsTitle')).toBeInTheDocument();
     });
 
+    // "Fastest" is a count of turns taken, so a seat that never got one
+    // compares 0 against every stored record and wins. Reachable when the
+    // game ends before the round comes round — the player is told they set a
+    // personal best in a game they did not play a turn of.
+    it('claims no speed record for a player who never took a turn', () => {
+      useGameStore.setState({
+        isOnline: true,
+        myName: 'Carol',
+        players: [
+          { name: 'Alice', score: 10000, position: 1, totalTurns: 8, highestTurnScore: 1500 },
+          { name: 'Carol', score: 0, position: 2, totalTurns: 0, highestTurnScore: 0 },
+        ],
+        preGameStats: { highestTurnScore: 800, fastestWinTurns: 20, fastestLossTurns: 20 },
+      });
+      const { queryByText } = render(<EndScreen deviceId="d1" />);
+
+      expect(queryByText('end.newFastestLoss')).not.toBeInTheDocument();
+      expect(queryByText('end.newFastestWin')).not.toBeInTheDocument();
+    });
+
     it('shows a new fastest win only for the actual winner', () => {
       setupOnlineGame({
         preGameStats: { highestTurnScore: 1500, fastestWinTurns: 10, fastestLossTurns: null },

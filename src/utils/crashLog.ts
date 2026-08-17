@@ -21,12 +21,37 @@ export interface CrashLogEntry {
 
 const truncate = (value: unknown): string => String(value ?? '').slice(0, MAX_FIELD_LENGTH);
 
+// JSON.stringify throws on a circular structure, and the values reaching this
+// module are not all Errors: an unhandled rejection carries whatever the code
+// rejected with, and a DOM Event references its own target. That throw used to
+// escape recordCrash (buildCrashEntry is called outside both of its try
+// blocks) and therefore ErrorBoundary.componentDidCatch — the crash reporter
+// took the app down at the one moment it exists to keep it up. Dropping the
+// repeated reference keeps the rest of the object readable, which a bare
+// try/catch fallback to String(error) ("[object Object]") would not.
+const safeStringify = (value: object): string => {
+  const seen = new WeakSet<object>();
+  try {
+    return JSON.stringify(value, (_key, val: unknown) => {
+      if (typeof val !== 'object' || val === null) return val;
+      if (seen.has(val)) return '[Circular]';
+      seen.add(val);
+      return val;
+    }) ?? String(value);
+  } catch {
+    // Still reachable without a cycle: a BigInt throws, and a getter or a
+    // toJSON() on the thrown value runs arbitrary app code that can itself
+    // throw. Never let the reporter be the thing that fails.
+    return String(value);
+  }
+};
+
 export const buildCrashEntry = (error: unknown, componentStack?: string | null): CrashLogEntry => ({
   message: truncate(
     error instanceof Error
       ? error.message
       : typeof error === 'object' && error !== null
-      ? JSON.stringify(error)
+      ? safeStringify(error)
       : error
   ),
   stack: truncate(error instanceof Error ? error.stack : ''),

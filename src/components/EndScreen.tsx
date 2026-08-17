@@ -113,9 +113,13 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   const me = playerSnapshot.find(p => p.name === myName);
   const isWinner = !!me && getLeaders(playerSnapshot).some(l => l.name === me.name);
   const newHighScore = !!(preGameStats && me && me.highestTurnScore && me.highestTurnScore > (preGameStats.highestTurnScore ?? 0));
-  const newFastestWin = !!(preGameStats && me && isWinner
+  // totalTurns > 0 on both: these records count turns taken, so a seat that
+  // never got one (the game ended before the round came round) compares 0
+  // against every stored record and "beats" it — a personal best in a game
+  // the player took no part in.
+  const newFastestWin = !!(preGameStats && me && isWinner && me.totalTurns > 0
     && (preGameStats.fastestWinTurns == null || me.totalTurns < preGameStats.fastestWinTurns));
-  const newFastestLoss = !!(preGameStats && me && !isWinner
+  const newFastestLoss = !!(preGameStats && me && !isWinner && me.totalTurns > 0
     && (preGameStats.fastestLossTurns == null || me.totalTurns < preGameStats.fastestLossTurns));
   const newHighestFeuerwerk = !!(preGameStats && me?.highestFeuerwerkTurnScore
     && me.highestFeuerwerkTurnScore > (preGameStats.highestFeuerwerkTurnScore ?? 0));

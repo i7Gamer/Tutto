@@ -45,4 +45,13 @@ describe('formatTime', () => {
     expect(formatTime(127.5)).toBe('02:07');
     expect(formatTime(63.9)).toBe('01:03');
   });
+
+  // Math.max(0, NaN) is NaN, and padStart then renders it: the clock read
+  // "NaN:NaN". Nothing produces a non-finite value today (the store's
+  // validators reject them), so this is the guard rather than a live repro.
+  it('renders a zero clock for non-finite inputs instead of NaN', () => {
+    expect(formatTime(NaN)).toBe('00:00');
+    expect(formatTime(Infinity)).toBe('00:00');
+    expect(formatTime(-Infinity)).toBe('00:00');
+  });
 });
