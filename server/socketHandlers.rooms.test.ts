@@ -238,19 +238,14 @@ describe('room membership (kick host migration, mid-game rename guard)', () => {
     // roster, so the room survived with nothing left that could ever free it.
     const roomId = 'TIMER_DRAIN_GHOSTS';
     // The smallest value the config accepts other than 0 (0 arms no timer at
-    // all, which is the case the kick-time guard already covers). Scaled by
-    // TEST_TIMER_SCALE (0.2) the armed timer lands ~2s out: long enough that
-    // every step below runs while it is still pending, which is the whole
-    // premise, and short enough to wait on.
+    // all, which is the case the kick-time guard already covers). Its deadline
+    // is never reached — see the manual fire below — so the value only has to
+    // be one the server will arm a timer for.
     const RECONNECT_TIMEOUT_SECS = MIN_ENABLED_RECONNECT_TIMEOUT;
-    // Ample slack over the ~2s drain, and deliberately under this test's own
-    // timeout below — otherwise vitest reports "Test timed out" and the useful
-    // signal (which waitFor gave up, and therefore which invariant broke) is
-    // lost.
-    const DRAIN_BUDGET_MS = 5000;
+    const TIMED_DEVICE_ID = 'dev-tdg-t';
 
     const host = await server.connectAndJoin(roomId, 'Host', 'dev-tdg-h');
-    const timed = await server.connectAndJoin(roomId, 'Timed', 'dev-tdg-t');
+    const timed = await server.connectAndJoin(roomId, 'Timed', TIMED_DEVICE_ID);
     const ghost = await server.connectAndJoin(roomId, 'Ghost', 'dev-tdg-g');
 
     host.emit('updateConfig', { roomId, reconnectTimeout: RECONNECT_TIMEOUT_SECS });
@@ -267,7 +262,7 @@ describe('room membership (kick host migration, mid-game rename guard)', () => {
 
     ghost.disconnect();
     await waitFor(() => rooms[roomId]?.state.players.some(p => p.name === 'Ghost' && p.disconnected) === true);
-    expect(Object.keys(rooms[roomId].disconnectTimers)).toEqual(['dev-tdg-t']);
+    expect(Object.keys(rooms[roomId].disconnectTimers)).toEqual([TIMED_DEVICE_ID]);
 
     host.emit('kickPlayer', host.id);
 
@@ -275,9 +270,30 @@ describe('room membership (kick host migration, mid-game rename guard)', () => {
     await waitFor(() => rooms[roomId]?.state.players.length === 2);
     expect(rooms[roomId].state.players.map(p => p.name)).toEqual(['Timed', 'Ghost']);
 
-    // ...and once that window closes, nothing is left to wait for.
-    await waitFor(() => rooms[roomId] === undefined, DRAIN_BUDGET_MS);
-  }, 10000);
+    // Fire the pending timer on demand rather than sleeping out its deadline.
+    // Waiting for it real-time cost two seconds AND raced: every step above has
+    // to land while the timer is still pending, so the deadline was simply
+    // sized to be longer than they take — true until a loaded machine says
+    // otherwise. Reaching for the handle removes both problems. It runs the
+    // exact closure the runtime would have run; only the scheduling is skipped,
+    // and scheduling is not what is under test.
+    //
+    // Captured BEFORE clearing: Node nulls a handle's callback when it is
+    // cleared. Clearing at all is what stops the real deadline firing it a
+    // second time, later, against an already-deleted room.
+    const pending = rooms[roomId].disconnectTimers[TIMED_DEVICE_ID] as unknown as { _onTimeout?: () => void };
+    const fireTimerNow = pending._onTimeout;
+    // Guards the reach-around itself: if a Node upgrade renames this, the test
+    // must say so rather than quietly stop exercising the drain at all.
+    expect(typeof fireTimerNow).toBe('function');
+    clearTimeout(rooms[roomId].disconnectTimers[TIMED_DEVICE_ID]);
+
+    fireTimerNow?.();
+
+    // Synchronous — the callback runs to completion above, so there is nothing
+    // left to wait for.
+    expect(rooms[roomId]).toBeUndefined();
+  });
 
   it('kicking a non-host player leaves the host unchanged', async () => {
     const host = await server.connectAndJoin('NORMAL_KICK_ROOM', 'Host', 'dev-nk-h');
