@@ -93,8 +93,8 @@ export default function HistoryLog() {
       </h3>
       <div className="flex-1 flex flex-col min-h-0 bg-white dark:bg-slate-800/40 rounded-xl border border-gray-100 dark:border-slate-700 overflow-hidden">
         <div className="flex px-4 py-3 font-semibold text-gray-600 dark:text-gray-300 border-b border-gray-100 dark:border-slate-700 bg-black/5 dark:bg-white/5">
-          <div className="w-12 text-center">{t('game.pos', 'Rnd')}</div>
-          <div className="flex-1 px-2">{t('game.player', 'Event')}</div>
+          <div className="w-12 text-center">{t('history.colRound', 'Rnd')}</div>
+          <div className="flex-1 px-2">{t('history.colEvent', 'Event')}</div>
         </div>
         <div className="flex-1 overflow-y-auto max-h-[300px] scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-slate-700 p-1">
           <AnimatePresence initial={false}>

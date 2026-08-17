@@ -49,6 +49,22 @@ describe('HistoryLog', () => {
     expect(screen.getByText('history.empty')).toBeInTheDocument();
   });
 
+  // The columns are Round and Event, and they used to ask for them with
+  // t('game.pos', 'Rnd') / t('game.player', 'Event') — keys that exist
+  // (the scoreboard's "Pos"/"Player" headers), so i18next returned THOSE and
+  // the fallbacks here were dead. Asserting on the keys, not the rendered
+  // words, is what catches it: the mock echoes the key, so borrowing a
+  // scoreboard key again fails here rather than silently mislabelling the log.
+  it('heads its columns with its own round/event keys, not the scoreboard ones', () => {
+    useGameStore.setState({ historyLog: [] });
+    render(<HistoryLog />);
+
+    expect(screen.getByText('history.colRound')).toBeInTheDocument();
+    expect(screen.getByText('history.colEvent')).toBeInTheDocument();
+    expect(translate).not.toHaveBeenCalledWith('game.pos', expect.anything());
+    expect(translate).not.toHaveBeenCalledWith('game.player', expect.anything());
+  });
+
   it('renders a skip entry correctly', () => {
     const entry: HistoryEntry = {
       id: '1-Alice-1',

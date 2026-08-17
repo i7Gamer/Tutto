@@ -37,6 +37,19 @@
         var isScriptError = e.target && e.target.tagName === 'SCRIPT' && isAppScript && !isExcluded;
 
         if (isChunkError || isScriptError) {
+          // Offline is the one case where recovering is strictly worse than
+          // doing nothing: the recovery below deletes every cache and
+          // unregisters the worker, and with no network there is nothing to
+          // refill them from — a missing chunk becomes an app that cannot
+          // start at all until the device is back online. The throttle is no
+          // help here, because one pass is all the damage there is. Returning
+          // before the timestamp is written also leaves the single allowed
+          // attempt intact for when the connection is back.
+          if (navigator.onLine === false) {
+            console.warn('[Auto-reload skipped] Offline — keeping the precache and the worker');
+            return;
+          }
+
           var lastReload = localStorage.getItem('tutto_last_reload');
           var now = Date.now();
 
