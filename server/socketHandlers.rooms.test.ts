@@ -18,6 +18,7 @@ vi.mock('./database', () => ({
 import { getDeviceStats } from './database';
 import { startInProcessServer, emitJoin, waitFor, settle, type InProcessServer, type JoinAck } from './socketTestHarness';
 import { rooms, createRoom, deleteRoom, MAX_PLAYERS_PER_ROOM, MAX_ROOMS } from './rooms';
+import { MIN_ENABLED_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
 import type { ServerPlayer } from './roomTypes';
 
 const mockedGetDeviceStats = vi.mocked(getDeviceStats);
@@ -227,6 +228,56 @@ describe('room membership (kick host migration, mid-game rename guard)', () => {
 
     await waitFor(() => rooms[roomId] === undefined);
   });
+
+  it('deletes the room when a draining reconnect timer leaves only timerless ghosts behind', async () => {
+    // The kick-time guard above cannot see this coming: at the moment of the
+    // kick a reconnect timer is still pending, so the room is legitimately kept
+    // alive for the player it belongs to. When that timer later fires and takes
+    // the last timed seat with it, what remains is the very room the guard
+    // exists to delete — and the timer callback only checked for an EMPTY
+    // roster, so the room survived with nothing left that could ever free it.
+    const roomId = 'TIMER_DRAIN_GHOSTS';
+    // The smallest value the config accepts other than 0 (0 arms no timer at
+    // all, which is the case the kick-time guard already covers). Scaled by
+    // TEST_TIMER_SCALE (0.2) the armed timer lands ~2s out: long enough that
+    // every step below runs while it is still pending, which is the whole
+    // premise, and short enough to wait on.
+    const RECONNECT_TIMEOUT_SECS = MIN_ENABLED_RECONNECT_TIMEOUT;
+    // Ample slack over the ~2s drain, and deliberately under this test's own
+    // timeout below — otherwise vitest reports "Test timed out" and the useful
+    // signal (which waitFor gave up, and therefore which invariant broke) is
+    // lost.
+    const DRAIN_BUDGET_MS = 5000;
+
+    const host = await server.connectAndJoin(roomId, 'Host', 'dev-tdg-h');
+    const timed = await server.connectAndJoin(roomId, 'Timed', 'dev-tdg-t');
+    const ghost = await server.connectAndJoin(roomId, 'Ghost', 'dev-tdg-g');
+
+    host.emit('updateConfig', { roomId, reconnectTimeout: RECONNECT_TIMEOUT_SECS });
+    await waitFor(() => rooms[roomId]?.state.reconnectTimeout === RECONNECT_TIMEOUT_SECS);
+
+    // Drops with a timer armed — this is what defers the kick-time guard.
+    timed.disconnect();
+    await waitFor(() => Object.keys(rooms[roomId]?.disconnectTimers ?? {}).length === 1);
+
+    // Turning the timeout off does NOT retract the timer already armed above,
+    // so the room now holds one timed seat and one that will never be freed.
+    host.emit('updateConfig', { roomId, reconnectTimeout: 0 });
+    await waitFor(() => rooms[roomId]?.state.reconnectTimeout === 0);
+
+    ghost.disconnect();
+    await waitFor(() => rooms[roomId]?.state.players.some(p => p.name === 'Ghost' && p.disconnected) === true);
+    expect(Object.keys(rooms[roomId].disconnectTimers)).toEqual(['dev-tdg-t']);
+
+    host.emit('kickPlayer', host.id);
+
+    // Correctly kept: the timed seat still has a reconnect window to honour.
+    await waitFor(() => rooms[roomId]?.state.players.length === 2);
+    expect(rooms[roomId].state.players.map(p => p.name)).toEqual(['Timed', 'Ghost']);
+
+    // ...and once that window closes, nothing is left to wait for.
+    await waitFor(() => rooms[roomId] === undefined, DRAIN_BUDGET_MS);
+  }, 10000);
 
   it('kicking a non-host player leaves the host unchanged', async () => {
     const host = await server.connectAndJoin('NORMAL_KICK_ROOM', 'Host', 'dev-nk-h');

@@ -141,6 +141,23 @@ export const deleteRoom = (roomId: string): void => {
   delete rooms[roomId];
 };
 
+/**
+ * A room nothing can ever free again: every remaining seat is disconnected and
+ * no reconnect timer is pending to remove any of them (reconnectTimeout=0 arms
+ * none). No socket left to disconnect, no timer left to fire, and a host id
+ * pointing at a dead socket — it would survive until the process restarts, and
+ * spend one of MAX_ROOMS for good.
+ *
+ * Checked wherever a seat is given up, because a room can ENTER this state on
+ * any of those paths: the last connected player leaving, being kicked, or a
+ * draining reconnect timer taking the last TIMED seat and leaving timerless
+ * ghosts behind it. Callers pair it with an explicit empty-roster check, which
+ * still holds even if a stale timer were somehow left in the map.
+ */
+export const isAbandonedRoom = (room: Room): boolean =>
+  room.state.players.every(p => p.disconnected) &&
+  Object.keys(room.disconnectTimers).length === 0;
+
 export const drawNextCardForRoom = (state: RoomState): void => {
   if (state.cards && state.cards.length > 0) {
     state.currentCard = state.cards.shift() ?? null;

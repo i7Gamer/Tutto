@@ -1,4 +1,4 @@
-import { rooms, deleteRoom, handleActivePlayerRemoved, emitRoomState, roomChannel } from './rooms';
+import { rooms, deleteRoom, handleActivePlayerRemoved, emitRoomState, roomChannel, isAbandonedRoom } from './rooms';
 import { startServerTurnTimer, abortGameIfLowPlayers } from './turnTimers';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
@@ -95,17 +95,11 @@ export const registerRosterHandlers = ({ io, socket, session }: SocketContext): 
       }
     }
 
-    // A room whose every remaining seat is disconnected with no reconnect timer
-    // pending (reconnectTimeout=0 arms none) has nothing left that could ever
-    // free it: no socket to disconnect, no timer to fire, and a host id pointing
-    // at a dead socket. It would leak for the process's lifetime. Reachable when
-    // a (modified) host client self-kicks — handlePlayerLeave already guards the
-    // same case on the explicit-leave path.
-    const onlyTimerlessGhostsRemain =
-      room.state.players.every(p => p.disconnected) &&
-      Object.keys(room.disconnectTimers).length === 0;
-
-    if (room.state.players.length === 0 || onlyTimerlessGhostsRemain) {
+    // Reachable when a (modified) host client self-kicks out of a room whose
+    // every other seat is a timerless ghost — see isAbandonedRoom for why such
+    // a room can never be freed again. handlePlayerLeave guards the same case
+    // on the explicit-leave path, and the reconnect timer on its own.
+    if (room.state.players.length === 0 || isAbandonedRoom(room)) {
       deleteRoom(roomId);
     } else {
       // Only a (modified) host client can kick its own socket, but if it does,

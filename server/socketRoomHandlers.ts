@@ -7,7 +7,7 @@ import { startServerTurnTimer, abortGameIfLowPlayers } from './turnTimers';
 import type { ServerPlayer } from './roomTypes';
 import {
   rooms, createRoom, deleteRoom, handleActivePlayerRemoved, emitRoomState,
-  promoteHostAfterLoss, roomChannel, MAX_PLAYERS_PER_ROOM, MAX_ROOMS,
+  promoteHostAfterLoss, roomChannel, isAbandonedRoom, MAX_PLAYERS_PER_ROOM, MAX_ROOMS,
 } from './rooms';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
@@ -108,10 +108,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
           return;
         }
         room.host = nextHost.socketId;
-      } else if (
-        room.state.players.every(p => p.disconnected) &&
-        Object.keys(room.disconnectTimers).length === 0
-      ) {
+      } else if (isAbandonedRoom(room)) {
         // All remaining players are disconnected with no reconnect timers
         // (e.g. reconnectTimeout=0). The room would never be cleaned up otherwise.
         deleteRoom(currentRoom);
@@ -171,7 +168,14 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
           r.state.players.splice(removedIdx, 1);
           handleActivePlayerRemoved(r, removedIdx);
 
-          if (r.state.players.length === 0) {
+          // isAbandonedRoom as well as the empty check: this timer may have been
+          // the LAST one pending, and the seats it leaves behind can all be
+          // timerless ghosts (a reconnectTimeout lowered to 0 after this timer
+          // was armed does not retract it). Draining to that state is the one
+          // way into an unfreeable room that the leave and kick paths cannot
+          // see coming — at the moment they run, this timer is still pending
+          // and the room is legitimately being held open for it.
+          if (r.state.players.length === 0 || isAbandonedRoom(r)) {
             deleteRoom(roomIdSnapshot);
           } else {
             promoteHostAfterLoss(r, disconnectedSocketId);

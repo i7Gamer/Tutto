@@ -23,8 +23,20 @@ const WORKFLOWS_DIR = path.join(REPO_ROOT, '.github', 'workflows');
 const SETUP_NODE_ACTION = 'actions/setup-node';
 const NPM_CACHE = 'npm';
 
-// node_modules holds a lockfile per nested dependency; none of them is ours.
-const NOT_OUR_LOCKFILES = 'node_modules';
+// A dependency tree may ship a package-lock.json of its own inside a published
+// tarball; none of those is a lockfile this repository installs from.
+const NODE_MODULES = 'node_modules';
+
+const LOCKFILE_GLOB = '**/package-lock.json';
+
+/**
+ * Whether a repo-relative path lives inside a dependency tree.
+ *
+ * ANY segment, not just the first: this repository always has
+ * server/node_modules as well as the root one.
+ */
+const isInsideNodeModules = (candidate: string): boolean =>
+  candidate.split(/[\\/]/).includes(NODE_MODULES);
 
 interface WorkflowStep {
   uses?: string;
@@ -42,10 +54,13 @@ interface Workflow {
 const workflowFiles = (): string[] =>
   fs.readdirSync(WORKFLOWS_DIR).filter(file => file.endsWith('.yml') || file.endsWith('.yaml'));
 
+/** A workflow document, or an empty one when the file carries no YAML. */
+const parseWorkflow = (source: string): Workflow => (parse(source) as Workflow | null) ?? {};
+
 /** Every setup-node step that asks for npm caching, across every workflow. */
 const npmCachingSteps = (): { file: string; job: string; step: WorkflowStep }[] =>
   workflowFiles().flatMap(file => {
-    const workflow = parse(fs.readFileSync(path.join(WORKFLOWS_DIR, file), 'utf8')) as Workflow;
+    const workflow = parseWorkflow(fs.readFileSync(path.join(WORKFLOWS_DIR, file), 'utf8'));
     return Object.entries(workflow.jobs ?? {}).flatMap(([job, definition]) =>
       (definition.steps ?? [])
         .filter(step => step.uses?.startsWith(SETUP_NODE_ACTION) && step.with?.cache === NPM_CACHE)
@@ -53,15 +68,14 @@ const npmCachingSteps = (): { file: string; job: string; step: WorkflowStep }[] 
     );
   });
 
-/** Repo-relative paths of the lockfiles the workflows actually install from. */
-const ourLockfiles = (): string[] =>
+/** Repo-relative matches for a glob, dependency trees excluded. */
+const globRepo = (pattern: string): string[] =>
   fs
-    .globSync('**/package-lock.json', {
-      cwd: REPO_ROOT,
-      exclude: (entry: string) => entry.split(/[\\/]/)[0] === NOT_OUR_LOCKFILES,
-    })
-    .map(match => match.split(path.sep).join('/'))
-    .sort();
+    .globSync(pattern, { cwd: REPO_ROOT, exclude: isInsideNodeModules })
+    .map(match => match.split(path.sep).join('/'));
+
+/** Repo-relative paths of the lockfiles the workflows actually install from. */
+const ourLockfiles = (): string[] => globRepo(LOCKFILE_GLOB).sort();
 
 /** What a declared cache-dependency-path resolves to on this checkout. */
 const expandDependencyPath = (declared: string): string[] =>
@@ -69,14 +83,32 @@ const expandDependencyPath = (declared: string): string[] =>
     .split('\n')
     .map(line => line.trim())
     .filter(line => line.length > 0)
-    .flatMap(pattern =>
-      fs
-        .globSync(pattern, {
-          cwd: REPO_ROOT,
-          exclude: (entry: string) => entry.split(/[\\/]/)[0] === NOT_OUR_LOCKFILES,
-        })
-        .map(match => match.split(path.sep).join('/')),
-    );
+    .flatMap(globRepo);
+
+describe('the helpers these checks are built on', () => {
+  it('counts a vendored lockfile as the dependency tree\'s, not ours', () => {
+    // Checking only the FIRST path segment misses server/node_modules, which
+    // this repository always has. An explicit cache-dependency-path would then
+    // be reported as "missing" a lockfile shipped inside some dependency's
+    // published tarball, and the workflow told to key its cache on it.
+    expect(isInsideNodeModules('node_modules/foo/package-lock.json')).toBe(true);
+    expect(isInsideNodeModules('server/node_modules/foo/package-lock.json')).toBe(true);
+
+    expect(isInsideNodeModules('package-lock.json')).toBe(false);
+    expect(isInsideNodeModules('server/package-lock.json')).toBe(false);
+    // Segment-wise, not a substring: a directory merely NAMED like one is ours.
+    expect(isInsideNodeModules('server/node_modules_backup/package-lock.json')).toBe(false);
+  });
+
+  it('reads a workflow with no YAML content as having no jobs', () => {
+    // yaml's parse() answers null for an empty or comment-only document, and
+    // `?? {}` on .jobs cannot save a null document from being dereferenced —
+    // a placeholder file in .github/workflows/ would turn every assertion
+    // below into an unrelated TypeError.
+    expect(parseWorkflow('').jobs).toBeUndefined();
+    expect(parseWorkflow('# not written yet\n').jobs).toBeUndefined();
+  });
+});
 
 describe('workflow npm caches key on every lockfile', () => {
   it('finds the setup-node steps it is meant to be checking', () => {
