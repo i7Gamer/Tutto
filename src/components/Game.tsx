@@ -200,17 +200,6 @@ export default function Game() {
   }, [isOnline, isMyTurn, turnTimeRemaining]);
 
   useEffect(() => {
-    if (showDiceGame) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
-  }, [showDiceGame]);
-
-  useEffect(() => {
     if (!showDiceGame) return;
     const timer = setTimeout(() => setDiceGamePanelReady(true), DICE_PANEL_ENTRANCE_MS);
     return () => clearTimeout(timer);

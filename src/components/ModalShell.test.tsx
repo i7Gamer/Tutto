@@ -381,4 +381,73 @@ describe('ModalShell', () => {
     const notPrevented = fireEvent.keyDown(screen.getByRole('dialog'), { key: 'a' });
     expect(notPrevented).toBe(true);
   });
+
+  // The page behind a modal used to keep scrolling for every dialog except the
+  // dice panel, which held a lock of its own in Game.tsx. Moving it here makes
+  // it the shell's job, which is the only place that knows a dialog is up.
+  //
+  // NOTE this is the desktop/Android half. iOS Safari scrolls the page anyway
+  // under `overflow: hidden`; that needs a different mechanism and is not what
+  // these tests describe.
+  describe('background scroll lock', () => {
+    afterEach(() => {
+      document.body.style.overflow = '';
+    });
+
+    it('locks the page while a dialog is up and lets go when it closes', () => {
+      const { rerender } = render(<Dialog open={false} />);
+      expect(document.body.style.overflow).toBe('');
+
+      rerender(<Dialog open />);
+      expect(document.body.style.overflow).toBe('hidden');
+
+      rerender(<Dialog open={false} />);
+      expect(document.body.style.overflow).toBe('');
+    });
+
+    // Game.tsx renders the dice panel as `{showDiceGame && <ModalShell open>}`,
+    // so it never transitions to open={false} — it just disappears. A lock tied
+    // only to the prop would be left behind, with the page unscrollable and no
+    // dialog to explain why.
+    it('lets go when a dialog unmounts while still open', () => {
+      const { unmount } = render(<Dialog open />);
+      expect(document.body.style.overflow).toBe('hidden');
+
+      unmount();
+      expect(document.body.style.overflow).toBe('');
+    });
+
+    // A confirm stacked on the wiki, or a toast-triggered dialog over the dice
+    // panel: the first to close must not unlock the page under the one still up.
+    it('stays locked until the last of several dialogs closes', () => {
+      const { unmount: closeFirst } = render(<Dialog open />);
+      const { unmount: closeSecond } = render(<Dialog open />);
+      expect(document.body.style.overflow).toBe('hidden');
+
+      closeFirst();
+      expect(document.body.style.overflow, 'one dialog is still up').toBe('hidden');
+
+      closeSecond();
+      expect(document.body.style.overflow).toBe('');
+    });
+
+    it('gives back whatever overflow the page had before, not a hardcoded value', () => {
+      document.body.style.overflow = 'scroll';
+
+      const { unmount } = render(<Dialog open />);
+      expect(document.body.style.overflow).toBe('hidden');
+
+      unmount();
+      expect(document.body.style.overflow).toBe('scroll');
+    });
+
+    it('does not touch the page for a dialog that is only rendered closed', () => {
+      document.body.style.overflow = 'auto';
+      const { unmount } = render(<Dialog open={false} />);
+
+      expect(document.body.style.overflow).toBe('auto');
+      unmount();
+      expect(document.body.style.overflow).toBe('auto');
+    });
+  });
 });

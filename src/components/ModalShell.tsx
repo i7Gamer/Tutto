@@ -11,6 +11,34 @@ const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), '
   + 'textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])';
 
+/**
+ * Keeping the page behind a dialog still.
+ *
+ * Module state, not component state: the lock belongs to the page, not to any
+ * one dialog. A confirm stacked on the wiki closing first must not unlock the
+ * page under the wiki that is still up, so the dialogs share one counter and
+ * the last one out restores what was there before.
+ *
+ * `overflow: hidden` covers desktop and Android. It does NOT stop iOS Safari,
+ * which scrolls the page anyway — that needs `position: fixed` plus saving and
+ * restoring the scroll offset, which brings its own scroll-jump on close and
+ * is deliberately not attempted here.
+ */
+let openDialogCount = 0;
+let overflowBeforeLock = '';
+
+const lockBackgroundScroll = (): (() => void) => {
+  if (openDialogCount === 0) {
+    overflowBeforeLock = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+  }
+  openDialogCount += 1;
+  return () => {
+    openDialogCount = Math.max(0, openDialogCount - 1);
+    if (openDialogCount === 0) document.body.style.overflow = overflowBeforeLock;
+  };
+};
+
 interface ModalShellProps {
   open: boolean;
   children: ReactNode;
@@ -58,6 +86,16 @@ export default function ModalShell({
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const wasOpenRef = useRef(false);
+
+  // Cleanup covers both ways a dialog goes away: the prop flipping to false,
+  // and the whole shell unmounting while still open. Game.tsx renders the dice
+  // panel as `{showDiceGame && <ModalShell open>}`, which only ever does the
+  // latter — a lock tied to the prop alone would be left behind, with the page
+  // unscrollable and no dialog on screen to explain why.
+  useEffect(() => {
+    if (!open) return;
+    return lockBackgroundScroll();
+  }, [open]);
 
   useEffect(() => {
     if (open) {
