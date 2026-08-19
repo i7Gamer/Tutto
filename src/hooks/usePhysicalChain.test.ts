@@ -249,6 +249,20 @@ describe('usePhysicalChain', () => {
       expect(result.current.buildSummary('null', false).tuttoCount).toBe(1);
     });
 
+    it('counts no tutto for a completed Feuerwerk — that card completes ON a null', () => {
+      // Every other completion implies a tutto, which is what makes completed
+      // cards the floor. Feuerwerk is the exception: it is completed by
+      // banking, and banking happens on the null that ends it. Digital counts
+      // the clears it actually made (DiceGame's chain counter), so a floor
+      // that invented one here would out-count the same turn played digitally.
+      writeCache(validEntry({
+        cards: [{ card: '200', completed: true }, { card: 'Feuerwerk', completed: false }],
+      }));
+      const { result } = mount();
+
+      expect(result.current.buildSummary('banked', true).tuttoCount).toBe(1);
+    });
+
     it('carries a forfeited total for a turn that did not bank, and never for one that did', () => {
       const { result } = mount();
       expect(result.current.buildSummary('null', false, 700)).toMatchObject({ forfeitedScore: 700 });

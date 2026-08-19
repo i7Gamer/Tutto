@@ -43,6 +43,18 @@ type PhysicalChainCacheShape = Omit<PhysicalChainCache, 'scoreInput'> & { scoreI
 const isPlausibleScoreInput = (v: unknown): v is string =>
   typeof v === 'string' && v.length <= MAX_SCORE_INPUT_LENGTH && SCORE_INPUT_SHAPE.test(v);
 
+/**
+ * How many tuttos a card is known to have taken to complete, for the floor
+ * below. A Kleeblatt needs two; Feuerwerk needs none — that card is completed
+ * by BANKING, which happens on the null that ends it. Every other card
+ * completes on exactly one tutto and takes the default.
+ */
+const TUTTOS_PER_COMPLETION: Partial<Record<CardType, number>> = {
+  Kleeblatt: 2,
+  Feuerwerk: 0,
+};
+const DEFAULT_TUTTOS_PER_COMPLETION = 1;
+
 const isPlausibleCache = (v: unknown): v is PhysicalChainCacheShape => {
   if (typeof v !== 'object' || v === null) return false;
   const c = v as Record<string, unknown>;
@@ -233,14 +245,16 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
   // What this classic physical turn did, card by card — the digital
   // counterpart is built inside DiceGame. With real dice the tutto count is
   // unknowable; completed cards are its floor (each continuation implies one,
-  // a completed Kleeblatt implies two).
+  // a completed Kleeblatt implies two, a completed Feuerwerk implies none —
+  // see TUTTOS_PER_COMPLETION). Digital counts the tuttos it actually saw, so
+  // this is a floor under that number and never above it.
   const buildSummary = useCallback((ended: TurnEnd, lastCompleted: boolean, forfeitedScore = 0): TurnSummary => {
     const source = chainOrCurrentCard();
     const cards = source.cards.map((c, i) =>
       i === source.cards.length - 1 ? { ...c, completed: lastCompleted } : { ...c });
     return {
       cards,
-      tuttoCount: cards.reduce((n, c) => n + (c.completed ? (c.card === 'Kleeblatt' ? 2 : 1) : 0), 0),
+      tuttoCount: cards.reduce((n, c) => n + (c.completed ? (TUTTOS_PER_COMPLETION[c.card] ?? DEFAULT_TUTTOS_PER_COMPLETION) : 0), 0),
       plusMinusScores: [...source.plusMinusScores],
       ended,
       ...(ended !== 'banked' && forfeitedScore > 0 ? { forfeitedScore } : {}),

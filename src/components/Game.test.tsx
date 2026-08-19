@@ -606,11 +606,61 @@ describe('Game Component Integration', () => {
       fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '750' } });
       fireEvent.click(screen.getByText('game.controls.nextTurn'));
       expect(mockDraw).not.toHaveBeenCalled();
-      // Deliberately not asserting the card's `completed` flag: physical and
-      // digital disagree about it for a banked Feuerwerk, which is its own
-      // question and not this button's.
       expect(mockNextTurn).toHaveBeenCalledWith(750, true, expect.objectContaining({
-        cards: [expect.objectContaining({ card: 'Feuerwerk' })],
+        cards: [{ card: 'Feuerwerk', completed: true }],
+        ended: 'banked',
+      }));
+    });
+
+    // Feuerwerk completes by banking (see TurnCardPlayed), which is what
+    // digital records for the same turn — physical said `completed: false`
+    // because the flag it passes is the special cards' bank-or-draw choice,
+    // and Feuerwerk never opens one.
+    it('marks a banked Feuerwerk completed, without counting a tutto for it', () => {
+      useGameStore.setState({ currentCard: 'Feuerwerk' });
+      render(<Game />);
+
+      fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '750' } });
+      fireEvent.click(screen.getByText('game.controls.nextTurn'));
+
+      expect(mockNextTurn).toHaveBeenCalledWith(750, true, expect.objectContaining({
+        cards: [{ card: 'Feuerwerk', completed: true }],
+        tuttoCount: 0,
+        ended: 'banked',
+      }));
+    });
+
+    it('leaves a Feuerwerk that banked nothing uncompleted — it reached no goal', () => {
+      useGameStore.setState({ currentCard: 'Feuerwerk' });
+      render(<Game />);
+
+      fireEvent.click(screen.getByText('game.controls.nextTurn'));
+
+      expect(mockNextTurn).toHaveBeenCalledWith(0, false, expect.objectContaining({
+        cards: [{ card: 'Feuerwerk', completed: false }],
+        tuttoCount: 0,
+        ended: 'null',
+      }));
+    });
+
+    it('keeps a Feuerwerk drawn onto a chain out of the tutto count', () => {
+      const mockDraw = vi.fn(() => {
+        useGameStore.setState({ currentCard: 'Feuerwerk' });
+        return 'Feuerwerk' as const;
+      });
+      useGameStore.setState({ currentCard: '300', drawCardMidTurn: mockDraw });
+      render(<Game />);
+
+      fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '1300' } });
+      fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+      fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '1600' } });
+      fireEvent.click(screen.getByText('game.controls.nextTurn'));
+
+      // Only the 300's tutto is known to have happened: the Feuerwerk was
+      // completed by banking, not by clearing six dice.
+      expect(mockNextTurn).toHaveBeenCalledWith(1600, true, expect.objectContaining({
+        cards: [{ card: '300', completed: true }, { card: 'Feuerwerk', completed: true }],
+        tuttoCount: 1,
         ended: 'banked',
       }));
     });

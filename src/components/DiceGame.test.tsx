@@ -1482,6 +1482,42 @@ describe('DiceGame classic chains', () => {
     })));
   });
 
+  it('a classic Feuerwerk banked without a single clear counts no tutto', async () => {
+    // The null that ends a Feuerwerk banks the card — that is how this one
+    // completes — but a null is not a tutto, and nothing here ever cleared six
+    // dice. `completed` and the tutto count answer two different questions.
+    const onComplete = vi.fn();
+    queueRoll([1, 2, 3, 4, 6, 6]); // the forced keep takes the 1 — 100, no clear
+    render(<DiceGame currentCard="Feuerwerk" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
+
+    queueRoll([2, 3, 4, 6, 6]); // the five left roll a null → banks the 100
+    fireEvent.click(screen.getByText('dice.roll_again'));
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(100, true, expect.objectContaining({
+      cards: [{ card: 'Feuerwerk', completed: true }],
+      tuttoCount: 0,
+      ended: 'banked',
+    })));
+  });
+
+  it('counts the clears a classic Feuerwerk made before the null that banked it', async () => {
+    // Feuerwerk hands all six dice back on a clear, so the tuttos are real and
+    // counted — the physical side can only ever report its floor for the same
+    // turn (see usePhysicalChain.buildSummary).
+    const onComplete = vi.fn();
+    queueRoll([1, 1, 1, 5, 5, 5]); // all six score: a tutto worth 1500, six fresh dice
+    render(<DiceGame currentCard="Feuerwerk" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
+
+    queueRoll([2, 2, 3, 3, 4, 6]); // the fresh six roll a null → banks the 1500
+    fireEvent.click(screen.getByText('dice.roll_again'));
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(1500, true, expect.objectContaining({
+      cards: [{ card: 'Feuerwerk', completed: true }],
+      tuttoCount: 1,
+      ended: 'banked',
+    })));
+  });
+
   it('restores a snapshot with all six dice put aside into the banked summary', () => {
     // Six kept dice under classic is a completed tutto that was BANKED — the
     // draw was already declined in the button row, so restoring must not

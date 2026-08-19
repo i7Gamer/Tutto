@@ -401,7 +401,15 @@ export default function Game() {
       // helper is hidden for classic — mid-chain it would apply the wrong
       // card's arithmetic). A completed special card was already marked in
       // the chain when its Yes was answered.
-      nextTurn(parsedScore, parsedScore > 0, buildPhysicalSummary(parsedScore > 0 ? 'banked' : 'null', physicalAwaitingChoice));
+      const banked = parsedScore > 0;
+      // Feuerwerk is marked here instead: banking a total IS how that card is
+      // completed (see TurnCardPlayed), and it opens no bank-or-draw choice
+      // for the flag above to carry — digital has always recorded it that way
+      // (the Feuerwerk null in DiceGame). One that banks nothing reached no
+      // goal and stays uncompleted. It counts no tutto either way: the null it
+      // completes on is not one (see TUTTOS_PER_COMPLETION).
+      const feuerwerkBanked = currentCard === 'Feuerwerk' && banked;
+      nextTurn(parsedScore, banked, buildPhysicalSummary(banked ? 'banked' : 'null', physicalAwaitingChoice || feuerwerkBanked));
       clearChain();
     } else {
       nextTurn(parsedScore, parsedScore > 0);
