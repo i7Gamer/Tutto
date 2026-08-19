@@ -440,7 +440,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   const gAvgRoundsPerGame = g?.totalGamesPlayed ? Math.round((g.totalRoundsSum ?? 0) / g.totalGamesPlayed) : 0;
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-3xl flex flex-col items-center">
+    <div data-testid="statistics-page" className="container mx-auto px-4 py-8 pb-20 max-w-3xl flex flex-col items-center">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-2xl rounded-3xl p-8 relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-2 bg-linear-to-r from-indigo-500 via-purple-500 to-pink-500" />
         <div className="flex items-center mb-8 relative justify-center">

@@ -231,7 +231,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   if (!winner) return null;
 
   return (
-    <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8 max-w-3xl flex flex-col gap-4 sm:gap-8">
+    <div data-testid="end-screen-page" className="container mx-auto px-2 sm:px-4 py-4 sm:py-8 pb-20 max-w-3xl flex flex-col gap-4 sm:gap-8">
       <motion.div initial={{ opacity: 0, y: 20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-2xl rounded-3xl p-6 sm:p-10 text-center">
         <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10, stiffness: 100, delay: 0.2 }} className="flex justify-center mb-6">
           <div className="bg-amber-100 p-6 rounded-full shadow-lg border-4 border-amber-300">

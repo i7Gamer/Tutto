@@ -159,4 +159,26 @@ describe('DiceSummary', () => {
       expect(screen.queryByText('dice.bank_points')).toBeNull();
     });
   });
+
+  // The summary replaces the dice table, so every button that could have had
+  // focus — a die, Roll, Stop & Score — unmounts at that moment and focus falls
+  // to <body>. ModalShell's Tab trap is a handler ON THE PANEL, so from body it
+  // never sees a key: Tab then walked the page behind the backdrop, which is
+  // the escape 62c1f1b closed in the other direction. Continue is also what the
+  // panel's Space/Enter shortcut already does, so nothing new can be triggered
+  // by taking focus here.
+  describe('focus', () => {
+    it('takes focus onto Continue, so the dialog keeps the keyboard', () => {
+      render(<DiceSummary {...baseProps} />);
+
+      expect(screen.getByTestId('dice-summary-continue')).toHaveFocus();
+      expect(document.activeElement).not.toBe(document.body);
+    });
+
+    it('does the same for a bust, which is the same dead end', () => {
+      render(<DiceSummary {...baseProps} summaryData={{ won: false, score: 0, isTutto: false }} />);
+
+      expect(screen.getByTestId('dice-summary-continue')).toHaveFocus();
+    });
+  });
 });

@@ -241,6 +241,39 @@ test.describe('theme colours resolve', () => {
   });
 
   /**
+   * Two controls float over every screen: the help button (bottom-left) and
+   * the theme/language row (bottom-right). Game.tsx has always cleared them
+   * with `pb-20`; Statistics and the end screen had only their own `py-8`, so
+   * the last row of a table or a chart sat underneath them on a phone.
+   *
+   * Measured against the button's real box rather than asserting `80px`, so
+   * this stays true if the button is ever resized — and it is jsdom-proof only
+   * here: layout is the whole assertion.
+   */
+  test('the statistics page clears the floating controls at the bottom', async ({ page }) => {
+    await page.setViewportSize({ width: 380, height: 700 });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'View Statistics' }).click();
+
+    const container = page.getByTestId('statistics-page');
+    await expect(container).toBeVisible();
+
+    const help = page.getByTitle('Open Help / Wiki');
+    const helpBox = await help.boundingBox();
+    const viewport = page.viewportSize()!;
+    // How far up the screen the floating button reaches from the bottom edge.
+    const occupied = viewport.height - helpBox!.y;
+
+    const paddingBottom = await container.evaluate(node =>
+      parseFloat(getComputedStyle(node).paddingBottom));
+
+    // Guards the guard: a button that measured as taking no space at all would
+    // make the comparison below pass for any padding, including none.
+    expect(occupied).toBeGreaterThan(40);
+    expect(paddingBottom).toBeGreaterThanOrEqual(occupied);
+  });
+
+  /**
    * The other `@custom-variant`, and the other half of what the deleted JS
    * config used to hold. The scoreboard reflows into a row on a sideways phone
    * (Scoreboard.tsx); a width breakpoint alone would also catch a portrait one,

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -26,6 +27,18 @@ interface DiceSummaryProps {
 
 export default function DiceSummary({ summaryData, continueCountdown, finishGame, currentCard, banksChainTotal = false }: DiceSummaryProps) {
   const { t } = useTranslation();
+
+  // Focus has to be caught here or it is lost. This panel replaces the dice
+  // table, so whatever held focus — a die, Roll, Stop & Score — unmounts at
+  // this moment and focus falls to <body>. ModalShell's Tab trap is a handler
+  // ON THE PANEL, so from body it never sees a key and Tab walks the page
+  // behind the backdrop instead. Continue is also exactly what the panel's
+  // Space/Enter shortcut already triggers, so taking focus here cannot make a
+  // keypress do something it could not do a moment ago.
+  const continueRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    continueRef.current?.focus();
+  }, []);
 
   return (
     <motion.div
@@ -74,6 +87,8 @@ export default function DiceSummary({ summaryData, continueCountdown, finishGame
           />
         </div>
         <button
+          ref={continueRef}
+          data-testid="dice-summary-continue"
           className="mt-2 bg-indigo-600 hover:bg-indigo-700 text-white w-full py-3 rounded-xl text-lg font-bold flex justify-center items-center gap-2 shadow-lg shadow-indigo-500/30 transition-all"
           onClick={finishGame}
         >
