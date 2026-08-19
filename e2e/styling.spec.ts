@@ -148,6 +148,58 @@ test.describe('theme colours resolve', () => {
   });
 
   /**
+   * A player's name is drawn in their own colour, fitted per theme because most
+   * colours legible on the light card are illegible on the dark one and vice
+   * versa. React sets both fitted values as custom properties and `.player-name`
+   * in index.css picks between them, so the switch is pure CSS — which means the
+   * unit suite can only assert that the two properties are set, never that the
+   * right one wins. That half lives here.
+   */
+  test('a player name follows the theme through its two custom properties', async ({ page }) => {
+    await page.goto('/');
+
+    const read = (theme: string) => page.evaluate((theme) => {
+      document.documentElement.setAttribute('data-theme', theme);
+      const probe = document.createElement('div');
+      probe.className = 'player-name';
+      // Stand-ins for what readableNameVars emits, distinct enough that a rule
+      // reading the wrong one, or neither, is unmistakable.
+      probe.style.setProperty('--player-name-light', 'rgb(1, 2, 3)');
+      probe.style.setProperty('--player-name-dark', 'rgb(250, 251, 252)');
+      document.body.appendChild(probe);
+      const value = getComputedStyle(probe).color;
+      probe.remove();
+      return value;
+    }, theme);
+
+    expect(await read('light')).toBe('rgb(1, 2, 3)');
+    expect(await read('dark')).toBe('rgb(250, 251, 252)');
+  });
+
+  /**
+   * `.player-name` is unlayered, like every other class rule in index.css, so it
+   * has to outrank a text-* utility landing on the same element — otherwise a
+   * colour utility added to one of those four elements later would silently take
+   * the fitted colour away and put an unreadable one back.
+   */
+  test('a player name outranks a colour utility on the same element', async ({ page }) => {
+    await page.goto('/');
+
+    const color = await page.evaluate(() => {
+      document.documentElement.setAttribute('data-theme', 'light');
+      const probe = document.createElement('div');
+      probe.className = 'player-name text-red-500';
+      probe.style.setProperty('--player-name-light', 'rgb(1, 2, 3)');
+      document.body.appendChild(probe);
+      const value = getComputedStyle(probe).color;
+      probe.remove();
+      return value;
+    });
+
+    expect(color).toBe('rgb(1, 2, 3)');
+  });
+
+  /**
    * The other `@custom-variant`, and the other half of what the deleted JS
    * config used to hold. The scoreboard reflows into a row on a sideways phone
    * (Scoreboard.tsx); a width breakpoint alone would also catch a portrait one,

@@ -23,6 +23,7 @@ import { motion } from 'framer-motion';
 import { useGameStore } from '../store/useGameStore';
 import type { Player } from '../types';
 import './EndScreen.css';
+import { readableNameVars } from '../utils/contrastColor';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
@@ -394,7 +395,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
             <div className="flex border-b border-gray-200 dark:border-slate-600 bg-black/5 dark:bg-white/5">
               <div className="p-4 w-56 shrink-0 font-bold text-gray-600 dark:text-gray-300">{t('end.stat', 'Stat')}</div>
               {sortedPlayers.map(p => (
-                <div key={p.id ?? p.name} className="p-4 w-32 shrink-0 font-bold text-center" style={{ color: p.color || 'var(--text-color, #4f46e5)' }}>{p.name}</div>
+                <div key={p.id ?? p.name} className="player-name p-4 w-32 shrink-0 font-bold text-center" style={readableNameVars(p.color)}>{p.name}</div>
               ))}
             </div>
             <div className="flex flex-col">

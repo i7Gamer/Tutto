@@ -120,6 +120,28 @@
   }
 }
 
+/* A name drawn in its player's own colour.
+
+   The two custom properties are set inline per player by readableNameVars
+   (src/utils/contrastColor.ts): the same hue fitted to clear the contrast
+   target on each theme's card, because most colours legible on one are not
+   legible on the other. Picking between them here rather than in React keeps a
+   theme toggle a pure CSS switch — nothing re-renders, and no component has to
+   learn what the current theme is.
+
+   Unlayered, like every other class rule in this file: Tailwind 4 emits
+   utilities inside @layer utilities, which unlayered CSS outranks whatever its
+   specificity, so this beats any text-* utility on the same element. That is
+   the intent — but it also means a name carrying this class cannot be
+   recoloured by a utility, which is why it is only on the four elements that
+   want it. */
+.player-name {
+  color: var(--player-name-light);
+}
+[data-theme="dark"] .player-name {
+  color: var(--player-name-dark);
+}
+
 .theme-toggle {
   background: none;
   border: none;

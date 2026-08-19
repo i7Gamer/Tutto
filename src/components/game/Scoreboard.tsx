@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import type { GameStore } from '../../store/useGameStore';
+import { readableNameVars } from '../../utils/contrastColor';
 
 interface ScoreboardProps {
   game: Pick<GameStore, 'players' | 'currentPlayerIndex' | 'isOnline' | 'myName' | 'round' | 'winningScore' | 'turnTimeRemaining' | 'hostId'>;
@@ -40,7 +41,7 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
       <div className="flex gap-2 md:gap-4 w-full phone-landscape:contents">
         <motion.div layout className="relative flex-1 min-w-[100px] md:min-w-[120px] phone-landscape:min-w-[75px] bg-white dark:bg-slate-800/80 backdrop-blur-sm border border-white/40 rounded-xl md:rounded-2xl p-2 md:p-4 shadow-xs flex flex-col justify-center items-center">
           <div className="text-[10px] md:text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-0.5 md:mb-1">{t('game.currentPlayer', 'Current Player')}</div>
-          <div className="text-lg md:text-2xl font-extrabold truncate w-full text-center flex flex-col items-center gap-1" style={{ color: currentPlayer.color || '#4f46e5' }}>
+          <div className="player-name text-lg md:text-2xl font-extrabold truncate w-full text-center flex flex-col items-center gap-1" style={readableNameVars(currentPlayer.color)}>
             <span className="flex items-center justify-center gap-2">
               {isOnline && game.hostId === currentPlayer.socketId && <span title={t('game.host', 'Host')} className="text-xl leading-none">👑</span>}
               {isOnline && isMyTurn ? t('game.you', 'You ({{name}})', { name: currentPlayer.name }) : currentPlayer.name}

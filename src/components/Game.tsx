@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { formatTime } from '../utils/formatTime';
 import { buildTurnKey, parseSavedDiceState, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
 import { hasScoreInput, isSpecialCard } from '../utils/diceTurnControls';
+import { readableNameVars } from '../utils/contrastColor';
 import { parseJsonObject } from '../utils/parseJson';
 import { deviceStatsRequest, gameModeOf, isCustomGameMode } from '../utils/statsApi';
 import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, DICE_PANEL_ENTRANCE_MS } from '../utils/uiTimings';
@@ -588,7 +589,7 @@ export default function Game() {
                     className={`flex items-center px-4 py-3 border-b border-gray-50 dark:border-slate-700/50 last:border-0 transition-colors ${isCurrent ? 'bg-indigo-100 dark:bg-indigo-900/30' : 'hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
                   >
                     <div className="w-12 font-medium text-gray-600 dark:text-gray-300">{p.position}.</div>
-                    <div className="flex-1 font-bold flex items-center flex-wrap gap-2" style={{ color: p.color || 'var(--text-color, #1f2937)' }}>
+                    <div className="player-name flex-1 font-bold flex items-center flex-wrap gap-2" style={readableNameVars(p.color)}>
                       <span>{p.name}</span>
                       {isOnline && game.hostId === p.socketId && (
                         <span title={t('game.host', 'Host')} className="text-lg leading-none">

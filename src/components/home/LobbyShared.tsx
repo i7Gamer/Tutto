@@ -11,6 +11,7 @@ import {
 import type { Player, CardType, DiceMode, Ruleset } from '../../types';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../../store/useGameStore';
+import { readableNameVars } from '../../utils/contrastColor';
 import { supportsIOSSwitchHaptic } from '../../utils/iosSwitchHaptic';
 import { REORDER_PRESS_RELEASE_MS } from '../../utils/uiTimings';
 import './LobbyShared.css';
@@ -92,7 +93,7 @@ export function PlayerList({
                 exit={{ opacity: 0, x: -20 }}
                 className={`flex items-center justify-between p-3 border-b border-gray-100 dark:border-slate-700 last:border-0 hover:bg-white dark:bg-slate-800/50 transition-colors ${isOnline && isMe ? 'bg-indigo-50/50' : ''}`}
               >
-                <div className="font-semibold flex items-center gap-2" style={{ color: p.color || '#1f2937' }}>
+                <div className="player-name font-semibold flex items-center gap-2" style={readableNameVars(p.color)}>
                   {isMe ? (
                     <input
                       type="color"
