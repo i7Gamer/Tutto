@@ -698,7 +698,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         </div>
       )}
 
-      <div className="px-8 pt-6 pb-8 sm:p-8 w-full flex-1 overflow-y-auto">
+      <div className="px-8 pt-6 pb-8 sm:p-8 w-full flex-1 overflow-y-auto overscroll-contain">
         {revealedCard ? (
           <DrawnCardReveal
             card={revealedCard}

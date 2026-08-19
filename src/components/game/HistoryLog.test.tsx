@@ -343,4 +343,23 @@ describe('HistoryLog', () => {
       );
     });
   });
+
+  // A scroller that hits its end hands the remaining gesture to the page
+  // behind it (scroll chaining), so reaching the bottom of the history log scrolled
+  // the app underneath. `overscroll-contain` stops the handoff; it is
+  // supported on iOS Safari 16+, which is where this is worst.
+  //
+  // Asserted as an invariant over every scroller this component renders
+  // rather than one pinned element, so a scroller added later without it
+  // fails here. jsdom resolves no stylesheet, so that the utility actually
+  // computes to `contain` is pinned in e2e/styling.spec.ts.
+  it('contains overscroll on every scroller it renders', () => {
+    render(<HistoryLog />);
+    const scrollers = document.querySelectorAll('.overflow-y-auto');
+    expect(scrollers.length, 'no scroller found — the selector has gone stale').toBeGreaterThan(0);
+    scrollers.forEach(scroller => {
+      expect(scroller.className, scroller.className).toContain('overscroll-contain');
+    });
+  });
+
 });

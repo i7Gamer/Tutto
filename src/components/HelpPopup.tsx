@@ -203,7 +203,7 @@ export default function HelpPopup() {
               </div>
 
               {/* Content */}
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6 scroll-smooth">
+              <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 scroll-smooth">
                 {/* Table of Contents - Horizontal Pills for quick nav */}
                 {/* items-center, not the flex default: items stretch to their
                     own line's height, and the label below is taller than a

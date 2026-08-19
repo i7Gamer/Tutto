@@ -96,7 +96,7 @@ export default function HistoryLog() {
           <div className="w-12 text-center">{t('history.colRound', 'Rnd')}</div>
           <div className="flex-1 px-2">{t('history.colEvent', 'Event')}</div>
         </div>
-        <div className="flex-1 overflow-y-auto max-h-[300px] scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-slate-700 p-1">
+        <div className="flex-1 overflow-y-auto overscroll-contain max-h-[300px] scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-slate-700 p-1">
           <AnimatePresence initial={false}>
             {historyLog.length === 0 ? (
               <motion.div

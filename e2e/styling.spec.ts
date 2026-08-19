@@ -200,6 +200,47 @@ test.describe('theme colours resolve', () => {
   });
 
   /**
+   * A scroller that reaches its end hands the rest of the gesture to the page
+   * behind it — scroll chaining — so scrolling to the bottom of the wiki carried
+   * on into the app underneath. `overscroll-contain` stops the handoff.
+   *
+   * Asserted on the real element rather than an injected probe: the unit suites
+   * already pin that each scroller carries the class, and what is left to prove
+   * is the half jsdom cannot — that it resolves to `contain` in a browser rather
+   * than being dropped by the cascade.
+   *
+   * Playwright's WebKit is NOT Safari, and this property is where that shows:
+   * measured 2026-08-19, its `CSS.supports('overscroll-behavior-y','contain')`
+   * is false and an inline declaration does not even take, while real iOS
+   * Safari has supported it since 16.0 (caniuse) — which is the platform this
+   * change is aimed at. So the containment half is skipped there rather than
+   * passed vacuously, and the scroll-container half, which every engine can
+   * answer, is asserted first and unconditionally.
+   */
+  test("the wiki's scroller contains its overscroll instead of chaining to the page", async ({ page }) => {
+    await page.goto('/');
+    await page.getByTitle('Open Help / Wiki').click();
+
+    const scroller = page.locator('[role="dialog"] .overflow-y-auto').first();
+    await expect(scroller).toBeVisible();
+
+    const behaviour = await scroller.evaluate(node => ({
+      overflowY: getComputedStyle(node).overflowY,
+      containment: getComputedStyle(node).getPropertyValue('overscroll-behavior-y'),
+      supported: typeof CSS !== 'undefined' && !!CSS.supports
+        && CSS.supports('overscroll-behavior-y', 'contain'),
+    }));
+
+    // `overscroll-behavior` only applies to an actual scroll container, so a
+    // rule that lost its overflow would make the containment inert while still
+    // reading as set. Checked everywhere, before the skip below.
+    expect(behaviour.overflowY).toBe('auto');
+
+    test.skip(!behaviour.supported, 'this WebKit build does not implement overscroll-behavior; real iOS Safari 16+ does');
+    expect(behaviour.containment).toBe('contain');
+  });
+
+  /**
    * The other `@custom-variant`, and the other half of what the deleted JS
    * config used to hold. The scoreboard reflows into a row on a sideways phone
    * (Scoreboard.tsx); a width breakpoint alone would also catch a portrait one,
