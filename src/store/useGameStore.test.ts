@@ -3,6 +3,7 @@ import { useGameStore, _resetTimersForTests } from './useGameStore';
 import { disconnectSocket } from './socketRef';
 import { DEFAULT_INITIAL_CARDS } from '../utils/configValidation';
 import { blockStorage, failStorageMethods, restoreStorage } from '../testing/storageStubs';
+import { JOIN_TIMEOUT_MS } from '../utils/uiTimings';
 import type { Player } from '../types';
 
 let mockEmit = vi.fn();
@@ -1028,6 +1029,144 @@ describe('useGameStore', () => {
       mockOnHandlers['hostId']('other-socket');
       expect(useGameStore.getState().isHost).toBe(false);
       expect(useGameStore.getState().hostId).toBe('other-socket');
+    });
+
+    // The 'finished' edge is the only thing that submits global stats, and
+    // only the host may. If the host's socket is already dead when the winning
+    // push lands, nobody submits: every connected client sees the edge but is
+    // not host, and the promotion that follows used to only flip a flag. The
+    // game was then missing from global_statistics for good.
+    it('submits the global stats a dead host never sent when promotion lands on a finished game', () => {
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: false, hostId: 'departed-host', roomId: 'ROOM1', myName: 'Alice',
+        deviceId: 'dev-alice', finished: true,
+        players: [{ name: 'Alice', score: 6000 }, { name: 'Bob', score: 2000 }],
+      });
+      mockEmit.mockClear();
+
+      mockOnHandlers['hostId']('socket-123'); // this client's own socket id
+
+      expect(useGameStore.getState().isHost).toBe(true);
+      expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', expect.objectContaining({
+        roomId: 'ROOM1',
+      }));
+    });
+
+    it('does not resubmit global stats when an already-host client is re-told it is host', () => {
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: true, hostId: 'socket-123', roomId: 'ROOM1', myName: 'Alice',
+        deviceId: 'dev-alice', finished: true,
+        players: [{ name: 'Alice', score: 6000 }, { name: 'Bob', score: 2000 }],
+      });
+      mockEmit.mockClear();
+
+      // emitRoomState broadcasts hostId alongside every gameState, so this
+      // arrives repeatedly for the whole end screen.
+      mockOnHandlers['hostId']('socket-123');
+
+      expect(mockEmit).not.toHaveBeenCalledWith('submitGlobalStats', expect.anything());
+    });
+
+    it('does not submit global stats on promotion while the game is still running', () => {
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: false, hostId: 'departed-host', roomId: 'ROOM1', myName: 'Alice',
+        deviceId: 'dev-alice', finished: false,
+        players: [{ name: 'Alice', score: 100 }, { name: 'Bob', score: 200 }],
+      });
+      mockEmit.mockClear();
+
+      mockOnHandlers['hostId']('socket-123');
+
+      expect(useGameStore.getState().isHost).toBe(true);
+      expect(mockEmit).not.toHaveBeenCalledWith('submitGlobalStats', expect.anything());
+    });
+
+    // The lobby's join button and the reconnect popup's "Yes, Reconnect" both
+    // race joinRoom against JOIN_TIMEOUT_MS already. The automatic rejoin on
+    // 'connect' did not — and it is the one path with no user watching a
+    // button: safeOn (server/socketContext.ts) catches a throwing handler and
+    // logs it, so the ack simply never fires while the socket stays healthy.
+    // Nothing then retries, and the full-screen "attempting to reconnect"
+    // modal was up for good.
+    describe('the automatic rejoin on reconnect', () => {
+      const stageSeatedReconnect = () => {
+        useGameStore.getState().setMode('online');
+        useGameStore.setState({
+          roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
+          showReconnectPopup: true,
+        });
+      };
+
+      it('gives up and lowers the popup when the ack never comes', () => {
+        vi.useFakeTimers();
+        try {
+          stageSeatedReconnect();
+          mockEmit.mockClear();
+
+          mockOnHandlers['connect']();
+          expect(mockEmit).toHaveBeenCalledWith('joinRoom', expect.objectContaining({
+            roomId: 'ROOM1', name: 'Alice',
+          }), expect.any(Function));
+
+          // Still waiting: the deadline has not passed, so the popup stays up
+          // and nothing has been said to the player.
+          vi.advanceTimersByTime(JOIN_TIMEOUT_MS - 1);
+          expect(useGameStore.getState().showReconnectPopup).toBe(true);
+
+          vi.advanceTimersByTime(1);
+          expect(useGameStore.getState().showReconnectPopup).toBe(false);
+          expect(useGameStore.getState().toasts.length).toBeGreaterThan(0);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('does not fire once the ack has arrived', () => {
+        vi.useFakeTimers();
+        try {
+          stageSeatedReconnect();
+          mockEmit.mockImplementation((event, _payload, ack) => {
+            if (event === 'joinRoom') ack({ success: true, isHost: false, name: 'Alice' });
+          });
+
+          mockOnHandlers['connect']();
+          expect(useGameStore.getState().isHost).toBe(false);
+
+          // The popup is the gameState handler's to lower from here (it clears
+          // it on the sync that follows a successful rejoin) — the watchdog
+          // must not have armed a late toast behind it.
+          const toastsAfterAck = useGameStore.getState().toasts.length;
+          vi.advanceTimersByTime(JOIN_TIMEOUT_MS * 2);
+          expect(useGameStore.getState().toasts.length).toBe(toastsAfterAck);
+        } finally {
+          mockEmit.mockReset();
+          vi.useRealTimers();
+        }
+      });
+
+      it('arms no watchdog when there is no seat to rejoin', () => {
+        vi.useFakeTimers();
+        try {
+          useGameStore.getState().setMode('online');
+          useGameStore.setState({ roomId: null, myName: null, showReconnectPopup: true });
+          mockEmit.mockClear();
+
+          mockOnHandlers['connect']();
+
+          // Nothing to rejoin: the popup is stale and lowered immediately, and
+          // no join was ever sent for a watchdog to be waiting on.
+          expect(mockEmit).not.toHaveBeenCalledWith('joinRoom', expect.anything(), expect.anything());
+          expect(useGameStore.getState().showReconnectPopup).toBe(false);
+          const toasts = useGameStore.getState().toasts.length;
+          vi.advanceTimersByTime(JOIN_TIMEOUT_MS * 2);
+          expect(useGameStore.getState().toasts.length).toBe(toasts);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
     });
 
     it('playerDisconnected adds a toast with reconnectTimeout', () => {

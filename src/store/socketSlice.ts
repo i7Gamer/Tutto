@@ -11,6 +11,7 @@ import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from 
 import { makeToast } from './gameSlice';
 import { clearTurnCaches } from '../utils/diceTurnState';
 import { joinErrorMessage } from '../utils/joinErrors';
+import { JOIN_TIMEOUT_MS } from '../utils/uiTimings';
 
 type SocketSlice = Pick<GameStore,
   | 'connectSocket' | 'joinRoom' | 'leaveRoom' | 'kickPlayer'
@@ -88,6 +89,23 @@ let pendingCancelReconnectCleanup: (() => void) | null = null;
 
 type SocketSliceSet = Parameters<ImmerStateCreator<SocketSlice>>[0];
 type SocketSliceGet = Parameters<ImmerStateCreator<SocketSlice>>[1];
+
+// Global stats are submitted by the host over the socket, so no secret token
+// needs to be compiled into the client bundle: the server validates the sender
+// is the room host by socket identity.
+//
+// Safe to call more than once for the same game. The server refuses it unless
+// room.state.finished, and records it once per game (statsRecordedForGame.global,
+// reset when the next one starts) — which is what lets the host-promotion path
+// below fire it without having to know whether the departed host already did.
+const submitGlobalStats = (get: SocketSliceGet): void => {
+  const socket = getSocket();
+  if (!socket) return;
+  socket.emit('submitGlobalStats', {
+    roomId: get().roomId,
+    payload: get().buildGlobalStatsPayload(),
+  });
+};
 
 // Wires every server->client event for one socket connection. Extracted out of
 // connectSocket (which just creates the socket and delegates here) so the
@@ -215,7 +233,19 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
   });
 
   sock.on('hostId', (hostSocketId: string) => {
-    set({ isHost: hostSocketId === sock.id, hostId: hostSocketId });
+    const wasHost = get().isHost;
+    const isNowHost = hostSocketId === sock.id;
+    set({ isHost: isNowHost, hostId: hostSocketId });
+
+    // Only the host submits global stats, and only on the tick where
+    // `finished` flips (see the gameState handler). A host whose socket died
+    // before the winning push landed never saw that tick, and every client
+    // that did was not host — so the game went unrecorded. Being promoted onto
+    // an already-finished game is the one moment left to catch it. Narrow on
+    // purpose: emitRoomState broadcasts hostId with every gameState, so this
+    // arrives repeatedly through the whole end screen, and only the
+    // not-host -> host transition may act on it.
+    if (!wasHost && isNowHost && get().finished) submitGlobalStats(get);
   });
 
   // Dedicated low-frequency-cost path for live dice-roll updates (see
@@ -267,7 +297,22 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
       return;
     }
     const savedColor = localStore.read('tutto_color');
+
+    // The same deadline the lobby's join button and the reconnect popup's
+    // "Yes, Reconnect" already race their joins against — this path had none,
+    // and it is the one nobody is watching a button for. An ack can go missing
+    // on a socket that stays perfectly healthy: safeOn (server/socketContext)
+    // catches a throwing handler and logs it, so no ack is ever sent and no
+    // later 'connect' fires to retry. Without this the full-screen "attempting
+    // to reconnect" modal stayed up for good, with the menu button as the only
+    // way out.
+    const watchdog = setTimeout(() => {
+      get().addToast(i18n.t('lobby.online.joinTimeout', 'No response from the server. Please try again.'));
+      set({ showReconnectPopup: false });
+    }, JOIN_TIMEOUT_MS);
+
     sock.emit('joinRoom', { roomId, name: myName, deviceId, color: savedColor }, (res: JoinRoomResponse) => {
+      clearTimeout(watchdog);
       if (res.success) {
         set({ isHost: res.isHost ?? false, myName: res.name ?? myName });
         return;
@@ -491,14 +536,6 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       });
     }
 
-    // Global stats are submitted by the host via socket so no secret token
-    // needs to be compiled into the client bundle. The server validates the
-    // sender is the room host by socket identity.
-    if (s.isHost && socket) {
-      socket.emit('submitGlobalStats', {
-        roomId: s.roomId,
-        payload: get().buildGlobalStatsPayload(),
-      });
-    }
+    if (s.isHost) submitGlobalStats(get);
   },
 });
