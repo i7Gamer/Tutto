@@ -67,13 +67,15 @@ const RETAINED_CACHE_GENERATIONS = 2;
  * lands in a fresh cache and `activate` can drop the previous one wholesale.
  * Cheap string hash — this only has to change when the contents do.
  */
+const CACHE_PREFIX = 'tutto-precache-';
+
 const cacheName = () => {
   const fingerprint = MANIFEST.map(entry => `${entry.url}@${entry.revision ?? ''}`).join('|');
   let hash = 0;
   for (let i = 0; i < fingerprint.length; i += 1) {
     hash = (Math.imul(hash, 31) + fingerprint.charCodeAt(i)) | 0;
   }
-  return `tutto-precache-${(hash >>> 0).toString(36)}`;
+  return `${CACHE_PREFIX}${(hash >>> 0).toString(36)}`;
 };
 
 const PRECACHE = cacheName();
@@ -102,9 +104,14 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
-    // CacheStorage.keys() is ordered by creation, so the tail is the most
-    // recent — everything older than the retained window goes.
-    const names = await caches.keys();
+    // CacheStorage.keys() answers for the whole ORIGIN, so it can hand back
+    // caches this worker never created (an older naming scheme, another app on
+    // a shared host). Those are neither ours to delete nor eligible to fill a
+    // retained slot: counting one spent the slot on a cache whose contents
+    // this worker cannot serve and evicted the real previous build with it.
+    const names = (await caches.keys()).filter(name => name.startsWith(CACHE_PREFIX));
+    // Ordered by creation, so the tail is the most recent — everything older
+    // than the retained window goes.
     const previous = names.filter(name => name !== PRECACHE).slice(-(RETAINED_CACHE_GENERATIONS - 1));
     const keep = new Set([PRECACHE, ...previous]);
     await Promise.all(names.filter(name => !keep.has(name)).map(name => caches.delete(name)));

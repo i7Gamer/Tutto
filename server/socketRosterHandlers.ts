@@ -79,20 +79,25 @@ export const registerRosterHandlers = ({ io, socket, session }: SocketContext): 
     const room = rooms[roomId];
 
     const removedIdx = room.state.players.findIndex(p => p.socketId === targetSocketId);
-    if (removedIdx !== -1) {
-      // Only emit once the target is confirmed to be in the host's own room —
-      // otherwise a host could send a 'kicked' signal to any socket on the
-      // server, booting players out of unrelated rooms client-side.
-      io.to(targetSocketId).emit('kicked');
-      const removedPlayer = room.state.players[removedIdx];
-      room.state.players.splice(removedIdx, 1);
-      handleActivePlayerRemoved(room, removedIdx);
-      // A kicked player may be mid-reconnect-countdown; leaving that timer armed
-      // would later remove whoever rejoined the room on the same device.
-      if (room.disconnectTimers[removedPlayer.deviceId]) {
-        clearTimeout(room.disconnectTimers[removedPlayer.deviceId]);
-        delete room.disconnectTimers[removedPlayer.deviceId];
-      }
+    // A stale id is routine — the host's roster is only as fresh as its last
+    // broadcast, so it can name a seat that has since reconnected, left, or
+    // been kicked. Nothing below applies to a kick that removed nobody, and
+    // falling through ran all of it: the room-teardown check, the turn-timer
+    // re-arm, and a full emitRoomState to everyone in the room.
+    if (removedIdx === -1) return;
+
+    // Only emit once the target is confirmed to be in the host's own room —
+    // otherwise a host could send a 'kicked' signal to any socket on the
+    // server, booting players out of unrelated rooms client-side.
+    io.to(targetSocketId).emit('kicked');
+    const removedPlayer = room.state.players[removedIdx];
+    room.state.players.splice(removedIdx, 1);
+    handleActivePlayerRemoved(room, removedIdx);
+    // A kicked player may be mid-reconnect-countdown; leaving that timer armed
+    // would later remove whoever rejoined the room on the same device.
+    if (room.disconnectTimers[removedPlayer.deviceId]) {
+      clearTimeout(room.disconnectTimers[removedPlayer.deviceId]);
+      delete room.disconnectTimers[removedPlayer.deviceId];
     }
 
     // Reachable when a (modified) host client self-kicks out of a room whose

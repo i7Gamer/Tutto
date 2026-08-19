@@ -212,6 +212,31 @@ describe('service worker activate', () => {
     expect(self.clients.claim).toHaveBeenCalled();
   });
 
+  // caches.keys() answers for the whole ORIGIN, not just this worker. Anything
+  // else that ever opened a cache here — an earlier worker generation under a
+  // different naming scheme, a devtools experiment, another app on a shared
+  // host — used to count as a retained generation, spending the single
+  // retained slot on a cache whose contents this worker can never serve and
+  // evicting the real previous build in the process.
+  it('ignores caches that are not its own when picking what to retain', async () => {
+    await loadSw();
+    cacheStorage.stores.set('tutto-precache-previous', new Map([
+      [`${ORIGIN}/assets/index-old999.js`, makeResponse('old chunk')],
+    ]));
+    // Created last, so insertion order puts it where the retained slice looks.
+    cacheStorage.stores.set('some-other-apps-cache', new Map());
+    const current = await runInstall();
+
+    await runActivate();
+
+    const remaining = await cacheStorage.keys();
+    expect(remaining).toContain(current);
+    expect(remaining, 'the real previous generation must survive').toContain('tutto-precache-previous');
+    // A cache this worker did not create is not this worker's to delete
+    // either — it belongs to whatever else is on the origin.
+    expect(remaining).toContain('some-other-apps-cache');
+  });
+
   it('serves a previous build asset out of the retained cache', async () => {
     await loadSw();
     cacheStorage.stores.set('tutto-precache-previous', new Map([

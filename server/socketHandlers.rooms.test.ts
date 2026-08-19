@@ -309,6 +309,42 @@ describe('room membership (kick host migration, mid-game rename guard)', () => {
     expect(rooms['NORMAL_KICK_ROOM'].state.players.map(p => p.name)).toEqual(['Host']);
   });
 
+  // A stale socket id (the target reconnected, left, or was already kicked) is
+  // routine, not malformed — the host's roster is only as fresh as its last
+  // broadcast. It must be a no-op end to end: without the early return the
+  // handler fell through to the room-teardown check, the turn-timer re-arm and
+  // a full emitRoomState, so a host clicking a dead entry re-broadcast the
+  // whole room to everyone in it.
+  it('a kick aimed at a socket id nobody in the room holds changes and broadcasts nothing', async () => {
+    const host = await server.connectAndJoin('STALE_KICK_ROOM', 'Host', 'dev-stk-h');
+    const peer = await server.connectAndJoin('STALE_KICK_ROOM', 'Peer', 'dev-stk-p');
+
+    // connectAndJoin resolves on the ack, but each join's own emitRoomState is
+    // a separate broadcast that can still be in flight — let those land before
+    // the spies go on, or the count below is the joins' and not the kick's.
+    await settle(50);
+
+    const before = JSON.stringify(rooms['STALE_KICK_ROOM'].state);
+    const broadcast = vi.fn();
+    const peerKicked = vi.fn();
+    peer.on('gameState', broadcast);
+    peer.on('kicked', peerKicked);
+    host.on('gameState', broadcast);
+
+    host.emit('kickPlayer', 'a-socket-id-that-left-long-ago');
+    await settle(50);
+
+    expect(peerKicked).not.toHaveBeenCalled();
+    expect(broadcast).not.toHaveBeenCalled();
+    expect(JSON.stringify(rooms['STALE_KICK_ROOM'].state)).toBe(before);
+
+    // And the room is still live: a real kick right after still works.
+    const validKick = new Promise<void>(resolve => peer.on('kicked', () => resolve()));
+    host.emit('kickPlayer', peer.id);
+    await validKick;
+    expect(rooms['STALE_KICK_ROOM'].state.players.map(p => p.name)).toEqual(['Host']);
+  });
+
   it('ignores a kickPlayer payload that is not a string', async () => {
     const host = await server.connectAndJoin('MALFORMED_KICK_ROOM', 'Host', 'dev-mk-h');
     const peer = await server.connectAndJoin('MALFORMED_KICK_ROOM', 'Peer', 'dev-mk-p');

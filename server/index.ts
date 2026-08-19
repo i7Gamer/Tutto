@@ -12,6 +12,7 @@ import { registerSocketHandlers } from './socketHandlers';
 import { registerApiRoutes } from './api';
 import { initDb, closeDb } from './database';
 import { resolveCorsOrigin, validateCorsOriginForStartup, isProxyTrusted, warnIfProxyTrustUnset } from './startupGuards';
+import { applyResponseHardening } from './securityHeaders';
 import { resolveDbFilename } from './knexfile';
 import { createShutdownHandler, createServerClosers, SHUTDOWN_SIGNALS } from './shutdown';
 import { rooms } from './rooms';
@@ -38,6 +39,10 @@ if (corsOriginError) {
 const CORS_ORIGIN = resolveCorsOrigin(process.env);
 
 const app = express();
+
+// First, so it also covers the static files and the 404s express answers on
+// its own. See securityHeaders.ts for what is set and what is deliberately not.
+applyResponseHardening(app);
 
 // Rate limiting (server/rateLimit.ts) keys requests by req.ip. Behind a
 // reverse proxy that is meaningless unless Express is told to trust the
