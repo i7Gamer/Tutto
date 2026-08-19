@@ -211,6 +211,31 @@ describe('OnlineLobby join double-submit guard', () => {
     expect(screen.getByText('lobby.online.joinCreateButton')).toBeInTheDocument();
     vi.useRealTimers();
   });
+
+  // The join error appears above a button the user just pressed and nowhere
+  // near where focus is, so a screen reader user got no indication the attempt
+  // had failed at all — the form simply went quiet. assertive, not polite: it
+  // is the direct answer to an action taken a moment ago.
+  it('announces a failed join instead of only showing it', async () => {
+    vi.useFakeTimers();
+    const joinRoom = vi.fn(() => new Promise<{ error?: string }>(() => {}));
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+
+    render(<OnlineLobby />);
+    fillJoinForm();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('lobby.online.joinCreateButton'));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+
+    const error = screen.getByText('lobby.online.joinTimeout');
+    expect(error).toHaveAttribute('role', 'alert');
+    expect(error).toHaveAttribute('aria-live', 'assertive');
+    vi.useRealTimers();
+  });
 });
 
 // The server's refusals are English prose built server-side, so rendering

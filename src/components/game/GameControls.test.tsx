@@ -171,6 +171,25 @@ describe('GameControls spectator view (online, not my turn)', () => {
     expect(keptDiceOrder()).toEqual(['5', '1', '3']);
   });
 
+  // The spectator panel mirrors the active player's dice, and the faces are
+  // pips — SVG circles carrying no text. The dice INSIDE the roll panel were
+  // given names in 62c1f1b; this mirror was missed, so a spectator using a
+  // screen reader heard the running total but never the dice behind it.
+  it('names every mirrored die for a screen reader', () => {
+    renderSpectator({
+      turnScore: 300,
+      keptDice: [{ id: 'a', val: 5 }, { id: 'b', val: 1 }],
+      currentRoll: [{ id: 'c', val: 3, selected: false }, { id: 'd', val: 6, selected: true }],
+      kniffelProgress: [],
+      tuttosThisTurn: 0,
+    }, '200');
+
+    // Two kept plus two rolled — every one of the four, not just the tray.
+    const named = screen.getAllByRole('img');
+    expect(named).toHaveLength(4);
+    named.forEach(die => expect(die).toHaveAttribute('aria-label'));
+  });
+
   it('shows the live dice view to spectators whose OWN diceMode is physical', () => {
     // diceMode is a per-device input preference — it decides how the viewer
     // enters their own turns, not whether they may watch the active player's

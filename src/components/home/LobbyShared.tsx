@@ -97,6 +97,13 @@ export function PlayerList({
                   {isMe ? (
                     <input
                       type="color"
+                      /* The player name rides OUTSIDE t(): every one of these
+                         labels names a specific row, and an interpolated name
+                         collapses to one identical string under the unit i18n
+                         mock — the same reason the recent-rooms remove button
+                         builds its label this way. */
+                      aria-label={`${t('lobby.playerColorLabel', 'Colour for:')} ${p.name}`}
+                      title={`${t('lobby.playerColorLabel', 'Colour for:')} ${p.name}`}
                       value={p.color || '#ffffff'}
                       onChange={(e) => changeColor(p, e.target.value)}
                       className={`w-6 h-6 p-0 border-0 bg-transparent align-middle cursor-pointer ${!isOnline ? 'mr-1' : ''}`}
@@ -123,6 +130,8 @@ export function PlayerList({
                         <button
                           className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded-sm transition-colors ${idx === 0 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
                           onClick={(e) => { e.currentTarget.blur(); if (idx > 0) handleMoveUp(idx); }}
+                          aria-label={`${t('lobby.movePlayerUp', 'Move up:')} ${p.name}`}
+                          title={`${t('lobby.movePlayerUp', 'Move up:')} ${p.name}`}
                           aria-hidden={idx === 0}
                           disabled={idx === 0}
                         >
@@ -131,6 +140,8 @@ export function PlayerList({
                         <button
                           className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded-sm transition-colors ${idx === players.length - 1 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
                           onClick={(e) => { e.currentTarget.blur(); if (idx < players.length - 1) handleMoveDown(idx); }}
+                          aria-label={`${t('lobby.movePlayerDown', 'Move down:')} ${p.name}`}
+                          title={`${t('lobby.movePlayerDown', 'Move down:')} ${p.name}`}
                           aria-hidden={idx === players.length - 1}
                           disabled={idx === players.length - 1}
                         >
@@ -140,7 +151,12 @@ export function PlayerList({
                     )}
                     <div className="w-8 h-8 flex items-center justify-center ml-1">
                       {(!isOnline || (isHost && p.socketId !== hostId)) && (
-                        <button className="text-red-500 hover:bg-red-100 active:bg-red-200 dark:hover:bg-red-900/40 dark:active:bg-red-900/60 w-full h-full flex items-center justify-center rounded-sm transition-colors" onClick={() => onRemovePlayer(p)}>
+                        <button
+                          className="text-red-500 hover:bg-red-100 active:bg-red-200 dark:hover:bg-red-900/40 dark:active:bg-red-900/60 w-full h-full flex items-center justify-center rounded-sm transition-colors"
+                          aria-label={`${isOnline ? t('lobby.kickPlayer', 'Kick:') : t('lobby.removePlayer', 'Remove:')} ${p.name}`}
+                          title={`${isOnline ? t('lobby.kickPlayer', 'Kick:') : t('lobby.removePlayer', 'Remove:')} ${p.name}`}
+                          onClick={() => onRemovePlayer(p)}
+                        >
                           {isOnline ? <UserMinus size={18} /> : <Trash2 size={18} />}
                         </button>
                       )}
@@ -432,6 +448,14 @@ function BlurInput({ value, onValueChange, minVal = 0, maxVal = 99999, normalize
   return (
     <input
       {...props}
+      // The bounds are published on the element, not just enforced in commit
+      // above: without them the field is a bare number input — no native
+      // spinner limits, and nothing for a screen reader to announce the range
+      // from. commit() stays the authority (a pasted or typed value is clamped
+      // there regardless), so this only tells the browser and AT what it is.
+      // Spread AFTER {...props} so a caller cannot half-override the pair.
+      min={minVal}
+      max={maxVal}
       value={localValue}
       onChange={(e) => {
         setLocalValue(e.target.value);

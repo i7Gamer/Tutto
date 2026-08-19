@@ -277,7 +277,11 @@ export default function GameControls({
                       <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('game.controls.keptDice', 'Kept Dice')}</p>
                       <div className="flex gap-2 flex-wrap justify-center">
                         {sortKeptDiceForDisplay(activeTurnState.keptDice, currentCard, activeTurnState.kniffelProgress, ruleset).map((d) => (
-                          <div key={d.id} className="w-10 h-10 bg-indigo-600 text-transparent rounded-xl flex items-center justify-center text-xl font-bold border-2 border-indigo-400 relative">
+                          // Pips carry no text, and the digit beside them is
+                          // text-transparent — so without a name of its own a
+                          // mirrored die is silent. Same treatment the roll
+                          // panel's own dice got (KeptDiceTray/CurrentRollBoard).
+                          <div key={d.id} role="img" aria-label={t('dice.dieFace', 'Die showing {{value}}', { value: d.val })} className="w-10 h-10 bg-indigo-600 text-transparent rounded-xl flex items-center justify-center text-xl font-bold border-2 border-indigo-400 relative">
                             {d.val}
                             <DiePips val={d.val} isSelected={false} bustState={false} size="small" isIndigo={true} />
                           </div>
@@ -295,6 +299,8 @@ export default function GameControls({
                           return (
                             <motion.div
                               key={d.id}
+                              role="img"
+                              aria-label={t('dice.dieFace', 'Die showing {{value}}', { value: d.val })}
                               animate={{
                                 rotate: isRolling ? [0, 90, 180, 270, 360] : 0,
                                 y: isRolling ? [0, -15, 0] : 0,

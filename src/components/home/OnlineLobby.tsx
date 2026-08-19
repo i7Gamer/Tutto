@@ -356,7 +356,20 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
               className="bg-white dark:bg-slate-800/60 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-2 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-          {errorMsg && <div className="text-red-500 text-sm font-medium bg-red-50 p-2 rounded-sm">{errorMsg}</div>}
+          {/* assertive, not polite: this is the direct answer to a button the
+              user pressed a moment ago, and it appears well away from where
+              focus is — without it the form simply went quiet on a failure.
+              role and aria-live both, because Safari/VoiceOver has historically
+              honoured one without the other. */}
+          {errorMsg && (
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="text-red-500 dark:text-red-300 text-sm font-medium bg-red-50 dark:bg-red-900/30 p-2 rounded-sm"
+            >
+              {errorMsg}
+            </div>
+          )}
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}

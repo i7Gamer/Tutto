@@ -115,14 +115,94 @@ describe('PlayerList', () => {
 
     // Ensure there is no table element, only divs
     expect(container.querySelector('table')).toBeNull();
-    
+
     // Check that we have motion.div wrappers for the rows
     const rows = screen.getAllByText(/Alice|Bob|Charlie/);
     expect(rows.length).toBeGreaterThanOrEqual(3);
   });
+
+  // Every control in a row is an icon or a swatch — no text anywhere — so a
+  // screen reader announced the whole roster as unlabelled buttons. The player
+  // name is appended OUTSIDE t(): the unit i18n mock returns bare keys, so an
+  // interpolated name would collapse to one identical string for every row and
+  // the "which player" half could not be asserted at all.
+  describe('accessible names', () => {
+    const renderList = (isHost = true, isOnline = true) => render(
+      <PlayerList
+        players={mockPlayers}
+        reorderPlayers={() => {}}
+        isOnline={isOnline}
+        isHost={isHost}
+        hostId="host1"
+        changeColor={() => {}}
+        onRemovePlayer={() => {}}
+      />
+    );
+
+    it('names the colour picker for the player it belongs to', () => {
+      // Only the viewer's own row has one, and PlayerList has no myName prop —
+      // offline every row is editable, which is the case with a picker to find.
+      renderList(true, false);
+
+      const pickers = screen.getAllByLabelText(/lobby\.playerColorLabel/);
+      expect(pickers.length).toBe(mockPlayers.length);
+      pickers.forEach(picker => expect(picker).toHaveAttribute('type', 'color'));
+      expect(screen.getByLabelText('lobby.playerColorLabel Alice')).toBeInTheDocument();
+    });
+
+    it('names the move-up, move-down and remove buttons per player', () => {
+      const { container } = renderList();
+
+      const nameOf = (icon: string, i: number) =>
+        [...container.querySelectorAll(icon)].map(el => el.closest('button'))[i]?.getAttribute('aria-label');
+
+      expect(nameOf('.lucide-chevron-up', 1)).toBe('lobby.movePlayerUp Bob');
+      expect(nameOf('.lucide-chevron-down', 0)).toBe('lobby.movePlayerDown Alice');
+      // Alice holds hostId, so she has no kick button — index 0 is Bob.
+      expect(nameOf('.lucide-user-minus', 0)).toBe('lobby.kickPlayer Bob');
+    });
+
+    // The name is also the tooltip: these are 32px icon buttons whose meaning
+    // is not obvious to a sighted mouse user either.
+    it('gives the same text as a hover title', () => {
+      const { container } = renderList();
+
+      const up = [...container.querySelectorAll('.lucide-chevron-up')][1].closest('button');
+      expect(up).toHaveAttribute('title', up!.getAttribute('aria-label'));
+    });
+
+    // The invisible boundary buttons are aria-hidden and disabled already; a
+    // name on them would be pointless but not harmful — what matters is that
+    // labelling them did not accidentally take them back INTO the tab order.
+    it('leaves the boundary buttons out of the tab order', () => {
+      const { container } = renderList();
+
+      const up = [...container.querySelectorAll('.lucide-chevron-up')].map(i => i.closest('button'));
+      expect(up[0]).toBeDisabled();
+      expect(up[0]).toHaveAttribute('aria-hidden', 'true');
+    });
+  });
 });
 
 describe('AdvancedOptionsPanel', () => {
+  // BlurInput clamps to minVal/maxVal on commit, but consumed them itself and
+  // rendered a bare <input type="number">: no native bounds, no spinner limits,
+  // and nothing for a screen reader to announce the range from. The clamp is
+  // still the authority — this only publishes it.
+  it('publishes the range of every number input on the element itself', () => {
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={true} />);
+
+    const numbers = screen.getAllByRole('spinbutton');
+    expect(numbers.length).toBeGreaterThan(0);
+    numbers.forEach(input => {
+      expect(input, input.getAttribute('aria-label') ?? '').toHaveAttribute('min');
+      expect(input).toHaveAttribute('max');
+      // A range that reads backwards would make every value out of range.
+      expect(Number(input.getAttribute('min')))
+        .toBeLessThan(Number(input.getAttribute('max')));
+    });
+  });
+
   afterEach(() => {
     act(() => {
       useGameStore.setState(pristineStore, true);
