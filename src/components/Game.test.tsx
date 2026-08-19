@@ -588,6 +588,33 @@ describe('Game Component Integration', () => {
       }));
     });
 
+    // Feuerwerk ends the turn on its null, banking whatever was accumulated —
+    // there is no tutto to carry into another card, so drawing on is not a
+    // move the rules have. Digital mode has always refused it (see
+    // canDrawAfterTutto in DiceGame); physical offered the button anyway.
+    it('offers no draw on Feuerwerk — its null banks and ends the turn', () => {
+      const mockDraw = vi.fn();
+      useGameStore.setState({ currentCard: 'Feuerwerk', drawCardMidTurn: mockDraw });
+      render(<Game />);
+
+      // The rest of the card's controls are untouched: the total is still
+      // entered and banked here, only the draw is gone.
+      expect(screen.getByPlaceholderText('game.controls.scorePlaceholder')).toBeInTheDocument();
+      expect(screen.getByText('game.controls.nextTurn')).toBeInTheDocument();
+      expect(screen.queryByTestId('physical-draw-next-card')).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '750' } });
+      fireEvent.click(screen.getByText('game.controls.nextTurn'));
+      expect(mockDraw).not.toHaveBeenCalled();
+      // Deliberately not asserting the card's `completed` flag: physical and
+      // digital disagree about it for a banked Feuerwerk, which is its own
+      // question and not this button's.
+      expect(mockNextTurn).toHaveBeenCalledWith(750, true, expect.objectContaining({
+        cards: [expect.objectContaining({ card: 'Feuerwerk' })],
+        ended: 'banked',
+      }));
+    });
+
     it('a Stop card drawn mid-chain auto-forfeits the whole chain (online)', () => {
       const mockDraw = vi.fn(() => {
         useGameStore.setState({ currentCard: 'Stop' });

@@ -467,6 +467,15 @@ export default function Game() {
   const currentCardHasYesNo = isSpecialCard(currentCard);
   const isStopCard = currentCard === 'Stop';
 
+  // Feuerwerk is the one card a chain cannot be carried off: the turn ends on
+  // its null, banking whatever was accumulated, so there is never a tutto to
+  // draw on. Digital mode has always refused it (canDrawAfterTutto in
+  // DiceGame, which also excludes a completed Kleeblatt — that one has won the
+  // game outright); physical rendered the button for every card that takes a
+  // score, Feuerwerk included. Kleeblatt needs no mention here: isSpecialCard
+  // keeps it out of the score-input branch this button lives in.
+  const canDrawOnThisCard = classicPhysical && currentCard !== 'Feuerwerk';
+
   // Keyboard shortcuts: Space/Enter triggers whatever GameControls' primary
   // button is for the current turn state. There's no dice-roll modal dismiss
   // shortcut — once opened it auto-rolls immediately and can't be backed out
@@ -541,7 +550,7 @@ export default function Game() {
             setApplyBonus={setApplyBonus}
             handleNextTurn={handleNextTurn}
             handleYesNo={handleYesNo}
-            onDrawNextCard={classicPhysical ? handlePhysicalDrawNextCard : undefined}
+            onDrawNextCard={canDrawOnThisCard ? handlePhysicalDrawNextCard : undefined}
             awaitingChainChoice={physicalAwaitingChoice}
             undo={undo}
             canUndo={canUndo}
