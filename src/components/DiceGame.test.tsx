@@ -1813,3 +1813,160 @@ describe('DiceGame classic chains', () => {
   });
 });
 
+// A mutation sweep over diceTurnReducer (the review of 5c8a0ac) killed each
+// of the transitions below without any DOM test noticing — they were pinned
+// only by the reducer's own unit tests. Each test here asserts the
+// user-visible consequence through the real board. The sweep's remaining
+// arms (CHAIN_DRAWN's bust/showSummary/turnScore/tutto-reset/Stop-summary
+// handling, ROLL_STARTED's bust-clear, DRAW_ABANDONED's count) stay
+// unit-only on purpose: no real flow can reach them — a draw cannot happen
+// while busted, the drawn card's base always equals the already-committed
+// total — so a DOM test would have to fabricate impossible state.
+describe('machine transitions the DOM suite left to unit tests', () => {
+  const selectAllValid = () => fireEvent.click(screen.getByText('dice.select_all_valid'));
+
+  it('shows the banked running total after rolling on', () => {
+    queueRoll([1, 5, 2, 2, 3, 4]);
+    render(<DiceGame currentCard="300" onComplete={vi.fn()} />);
+
+    fireEvent.click(dieShowing(1, false));
+    fireEvent.click(dieShowing(5, false));
+    queueRoll([2, 3, 4, 1]); // four dice left; the 1 keeps the roll alive
+    fireEvent.click(screen.getByText('dice.roll_again'));
+
+    expect(screen.getByTestId('dice-current-score')).toHaveTextContent('150');
+  });
+
+  it('clears the kept tray for the second Kleeblatt tutto attempt', () => {
+    // The first tutto is built across TWO rolls, so the tray actually holds
+    // dice when it completes — a one-roll tutto keeps everything in the
+    // selection and would leave nothing for the clear to be seen clearing.
+    queueRoll([1, 1, 1, 2, 3, 4]);
+    render(<DiceGame currentCard="Kleeblatt" onComplete={vi.fn()} />);
+
+    selectAllValid(); // the three 1s go to the tray
+    queueRoll([5, 5, 5]);
+    fireEvent.click(screen.getByText('dice.roll_again'));
+    selectAllValid(); // the three 5s complete the first tutto
+    queueRoll([1, 2, 3, 4, 6, 6]); // the fresh six; the 1 keeps it alive
+    fireEvent.click(screen.getByText('dice.roll_2nd_tutto'));
+
+    // The first tutto is banked into the total; the tray must be EMPTY for
+    // the second attempt — six fresh dice on the board, none carried over.
+    // (Tray dice carry the interpolated dice.dieFace label, which the
+    // bare-key mock collapses — so the tray is asserted by count.)
+    expect(screen.queryAllByLabelText('dice.dieFace')).toHaveLength(0);
+    expect(screen.getAllByLabelText(/dice.die_showing/)).toHaveLength(6);
+  });
+
+  it('commits the completed Kniffel run into the live snapshot', async () => {
+    const onStateChange = vi.fn();
+    queueRoll([1, 2, 3, 2, 4, 6]);
+    render(<DiceGame currentCard="Kniffel" onComplete={vi.fn()} onStateChange={onStateChange} />);
+
+    selectAllValid(); // the 1-2-3-4 run
+    queueRoll([5, 6]);
+    fireEvent.click(screen.getByText('dice.roll_again'));
+    selectAllValid(); // 5 and 6 complete it
+    fireEvent.click(screen.getByText('dice.finish_card'));
+
+    // The decided turn's snapshot carries the finished run — it is what a
+    // spectator sorts the kept dice by, and what a reload restores from.
+    await waitFor(() => {
+      const last = onStateChange.mock.calls.at(-1)?.[0];
+      expect(last?.stopped).toBe(true);
+      expect(last?.kniffelProgress).toEqual([1, 2, 3, 4, 5, 6]);
+    });
+  });
+
+  it('counts the drawn card into the chain badge', () => {
+    const onDrawCard = vi.fn(() => '300' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />);
+
+    // Card 1 of the chain: no badge yet.
+    expect(screen.queryByText('dice.chain_card_count')).not.toBeInTheDocument();
+
+    selectAllValid();
+    queueRoll([1, 2, 3, 4, 6, 6]);
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+    // Drawing the SAME card type: currentCard never changes, so no rerender
+    // is needed — dismissing the reveal releases the deferred roll.
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
+
+    // Card 2: the badge appears. The count itself is interpolated inside
+    // t() (collapsed by the bare-key mock); presence at >1 is the assertable
+    // edge, and exactly what a dropped increment breaks.
+    expect(screen.getByText('dice.chain_card_count')).toBeInTheDocument();
+  });
+
+  it('starts a freshly drawn Kniffel with an empty run', () => {
+    const onDrawCard = vi.fn(() => 'Kniffel' as const);
+    queueRoll([1, 2, 3, 4, 5, 6]); // classic Kniffel: the whole straight at once
+    render(<DiceGame currentCard="Kniffel" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />);
+
+    selectAllValid();
+    queueRoll([1, 2, 2, 3, 3, 4]);
+    fireEvent.click(screen.getByTestId('draw-next-card'));
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
+
+    // The new Kniffel needs every number again, so a 1 must be selectable.
+    // With the finished run leaking across the draw, every number would read
+    // as already collected and no selection could ever be valid again.
+    fireEvent.click(dieShowing(1, false));
+    expect(screen.getByText('dice.roll_again').closest('button')).not.toBeDisabled();
+  });
+
+  it("puts the snapshot's kept dice back on the tray", () => {
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 150,
+      keptDice: [{ id: 'k1', val: 1 }, { id: 'k2', val: 5 }],
+      currentRoll: [2, 3, 4, 1].map((val, i) => ({ id: `c${i}`, val, selected: false })),
+      kniffelProgress: [], tuttosThisTurn: 0,
+    }));
+
+    render(<DiceGame currentCard="300" onComplete={vi.fn()} />);
+
+    expect(screen.getAllByLabelText('dice.dieFace')).toHaveLength(2);
+    expect(dieShowing(2, false)).toBeInTheDocument();
+  });
+
+  it('judges the first selection after a restore by the restored run', () => {
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 0,
+      keptDice: [{ id: 'k1', val: 1 }],
+      currentRoll: [6, 2, 3, 3, 4].map((val, i) => ({ id: `c${i}`, val, selected: false })),
+      kniffelProgress: [1], tuttosThisTurn: 0,
+    }));
+
+    render(<DiceGame currentCard="Kniffel" onComplete={vi.fn()} />);
+
+    // Same discriminator as the live roll-on test above: a 6 is only a valid
+    // pick when there is NO progress (a fresh descending start) — the
+    // restored [1] must refuse it and demand the 2.
+    fireEvent.click(dieShowing(6, false));
+    expect(screen.getByText('dice.roll_again').closest('button')).toBeDisabled();
+
+    fireEvent.click(dieShowing(6, true));
+    fireEvent.click(dieShowing(2, false));
+    expect(screen.getByText('dice.roll_again').closest('button')).not.toBeDisabled();
+  });
+
+  it('wins on the second tutto after restoring a mid-Kleeblatt turn', () => {
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 1300,
+      keptDice: [],
+      currentRoll: [1, 1, 1, 5, 5, 5].map((val, i) => ({ id: `c${i}`, val, selected: false })),
+      kniffelProgress: [], tuttosThisTurn: 1,
+    }));
+
+    render(<DiceGame currentCard="Kleeblatt" onComplete={vi.fn()} />);
+
+    selectAllValid();
+    // tuttosThisTurn = 1 restored: this selection is the SECOND tutto — the
+    // button must offer to finish the card, not to roll a "2nd" tutto again.
+    fireEvent.click(screen.getByText('dice.finish_card'));
+
+    expect(screen.getByText('dice.tutto')).toBeInTheDocument();
+  });
+});
