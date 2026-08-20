@@ -1825,6 +1825,13 @@ describe('DiceGame classic chains', () => {
 describe('machine transitions the DOM suite left to unit tests', () => {
   const selectAllValid = () => fireEvent.click(screen.getByText('dice.select_all_valid'));
 
+  // Same hygiene as every other describe here that touches the resume cache:
+  // the restore tests below seed tutto_dice_turn_state, and the live tests
+  // mount without a turnKey — which restores UNCONDITIONALLY, so a leftover
+  // seed from any earlier test would replace their fresh roll.
+  beforeEach(() => { localStorage.clear(); });
+  afterEach(() => { localStorage.clear(); });
+
   it('shows the banked running total after rolling on', () => {
     queueRoll([1, 5, 2, 2, 3, 4]);
     render(<DiceGame currentCard="300" onComplete={vi.fn()} />);
