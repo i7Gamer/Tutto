@@ -6,7 +6,8 @@ import { areInitialCardsEqual } from '../utils/configValidation';
 import { validateOnlineConfig } from './persistence';
 import { getSocket, setSocket } from './socketRef';
 import { REACTION_DISPLAY_MS } from '../utils/reactions';
-import type { Reaction, DiceSnapshot } from '../types';
+import { SYNCED_GAME_STATE_KEYS } from '../types';
+import type { Reaction, DiceSnapshot, AssertNever, SyncedGameStateKey } from '../types';
 import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from './storeTypes';
 import { makeToast } from './gameSlice';
 import { clearTurnCaches } from '../utils/diceTurnState';
@@ -23,21 +24,14 @@ type SocketSlice = Pick<GameStore,
 // ~12 room-identity/game fields can't drift out of sync between them the
 // way they were previously duplicated as separate hand-written literals.
 // Fields the server's 'gameState' broadcast is allowed to overwrite on the
-// client store — mirrors RoomState (server/roomTypes.ts), the authoritative
-// game state the server actually spreads into that payload. Without this
-// allowlist, Object.assign(prev, serverState) would apply every key a
-// (compromised or buggy) server sends, including store action functions like
+// client store — the canonical SYNCED_GAME_STATE_KEYS (src/types.ts), which
+// server/roomTypes.ts locks against RoomState, the authoritative game state
+// the server actually spreads into that payload. Without this allowlist,
+// Object.assign(prev, serverState) would apply every key a (compromised or
+// buggy) server sends, including store action functions like
 // startGame/sendOnlineStats, since serverState is typed as Partial<GameStore>.
-export const GAME_STATE_SYNC_KEYS = [
-  'players', 'status', 'initialCards', 'winningScore', 'randomOrder',
-  'turnDuration', 'reconnectTimeout', 'currentCard', 'cards', 'round',
-  'currentPlayerIndex', 'finished', 'chartValues', 'chartNames', 'chartLabels',
-  'gameTimeInSeconds', 'previousCard', 'previousScore', 'previousLeaders',
-  'previousWasBust', 'previousWasSuccess',
-  'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
-  'previousHighestX2TurnScore', 'previousPlayerName', 'previousTurnSummary', 'liveTurnState',
-  'enforcedDiceMode', 'ruleset', 'historyLog',
-] as const satisfies readonly (keyof GameStore)[];
+// The satisfies is the lock's client half: every synced key is a real store field.
+export const GAME_STATE_SYNC_KEYS = SYNCED_GAME_STATE_KEYS satisfies readonly (keyof GameStore)[];
 
 export const clearRoomState = (): Pick<GameStore,
   | 'players' | 'currentPlayerIndex' | 'currentCard' | 'cards' | 'round' | 'finished'
@@ -81,6 +75,33 @@ export const clearRoomState = (): Pick<GameStore,
   historyLog: [],
   ...noUndoableTurn(),
 });
+
+// The other half of clearRoomState's contract, enforced at compile time:
+// every synced game-state field must either be cleared above or be named here
+// as deliberately surviving a leave. A new field filed in neither refuses to
+// build instead of silently bleeding from an abandoned room into local play.
+type FieldKeptOnLeave =
+  // Room config: the next lobby deliberately reopens with the same settings.
+  | 'initialCards' | 'winningScore' | 'randomOrder' | 'turnDuration'
+  | 'reconnectTimeout' | 'ruleset'
+  // Every read is gated on isOnline (Game.tsx's effectiveDiceMode, the online
+  // lobbies), so a value left behind is inert until the next room's first
+  // sync replaces it.
+  | 'enforcedDiceMode'
+  // startGame resets it to 0 before anything can read it again — nothing
+  // renders it while status is 'lobby'.
+  | 'gameTimeInSeconds';
+
+// Exported only so noUnusedLocals sees a use; nothing imports it. Each tuple
+// element must be `never`, or the build fails naming the offending key.
+export type ClearRoomStateLock = [
+  // Every synced field is either cleared or deliberately kept.
+  AssertNever<Exclude<SyncedGameStateKey, keyof ReturnType<typeof clearRoomState> | FieldKeptOnLeave>>,
+  // No field is both kept and cleared.
+  AssertNever<Extract<keyof ReturnType<typeof clearRoomState>, FieldKeptOnLeave>>,
+  // The kept list holds only real synced fields (typo guard).
+  AssertNever<Exclude<FieldKeptOnLeave, SyncedGameStateKey>>,
+];
 
 // Tracks the in-flight cancelReconnect attempt (if any) so a second rapid
 // call cancels the first's throwaway socket instead of leaving it dangling

@@ -11,6 +11,7 @@ import {
   MAX_TURN_DURATION, MAX_RECONNECT_TIMEOUT,
 } from '../src/utils/configValidation';
 import { PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
+import type { SyncedGameStateKey, AssertNever } from '../src/types';
 import type { RoomState, ServerPlayer } from './roomTypes';
 
 // A fully-loaded deck has at most MAX_CARD_COUNT of each of the 11 card types.
@@ -231,13 +232,17 @@ const sanitizeHistoryEntry = (v: HistoryEntry): HistoryEntry => {
 };
 
 // Frozen so a later `.add()`/`.delete()` fails loudly (TypeError) instead of
-// silently expanding/shrinking what a push is allowed to touch.
-const HOST_ONLY_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>([
+// silently expanding/shrinking what a push is allowed to touch. The lists are
+// separate `as const` arrays so the compiler can hold them against the
+// canonical synced-field set (the satisfies here, and PushFieldLock below);
+// the Sets stay string-keyed for the arbitrary payload keys they are probed with.
+const HOST_ONLY_FIELD_LIST = [
   'status', 'winningScore', 'initialCards', 'randomOrder',
   'turnDuration', 'reconnectTimeout', 'enforcedDiceMode', 'ruleset',
-]));
+] as const satisfies readonly SyncedGameStateKey[];
+const HOST_ONLY_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>(HOST_ONLY_FIELD_LIST));
 
-const ACTIVE_PLAYER_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>([
+const ACTIVE_PLAYER_FIELD_LIST = [
   'currentCard', 'cards', 'currentPlayerIndex', 'round',
   'finished', 'previousCard', 'previousScore', 'previousLeaders',
   'previousWasBust', 'previousWasSuccess',
@@ -245,7 +250,19 @@ const ACTIVE_PLAYER_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>(
   'previousHighestX2TurnScore', 'previousPlayerName', 'previousTurnSummary',
   'chartValues', 'chartNames', 'chartLabels', 'gameTimeInSeconds',
   'players', 'liveTurnState', 'historyLog',
-]));
+] as const satisfies readonly SyncedGameStateKey[];
+const ACTIVE_PLAYER_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>(ACTIVE_PLAYER_FIELD_LIST));
+
+// The two lists must partition the synced game state: together they cover
+// every synced field, and no field sits in both. A field missing from both
+// was this codebase's most common defect — applyPushedState loops the
+// allowlist, not the payload, so the field was silently stripped from every
+// push with nothing failing. Now it refuses to build, naming the key.
+// Exported only so noUnusedLocals sees a use; nothing imports it.
+export type PushFieldLock = [
+  AssertNever<Exclude<SyncedGameStateKey, (typeof HOST_ONLY_FIELD_LIST)[number] | (typeof ACTIVE_PLAYER_FIELD_LIST)[number]>>,
+  AssertNever<Extract<(typeof HOST_ONLY_FIELD_LIST)[number], (typeof ACTIVE_PLAYER_FIELD_LIST)[number]>>,
+];
 
 // Same length cap joinRoom enforces on a player's name.
 const MAX_PLAYER_NAME_LENGTH = 30;

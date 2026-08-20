@@ -258,6 +258,39 @@ export interface CoreGameState {
   historyLog: HistoryEntry[];
 }
 
+// The canonical list of the fields that make up an online game's state — what
+// a server broadcast carries and what a client push may touch. Five other
+// hand-written lists describe subsets or splits of exactly these fields, and
+// a field added to one but missed in another was this codebase's most common
+// defect: silently stripped from every relayed push, or bleeding from an
+// online room into local play. Each of those lists is therefore locked to
+// this one at compile time — adding a field starts HERE, and tsc then walks
+// you through every list that must take a position:
+//
+//   server/roomTypes.ts       RoomState = these + the server-only fields
+//   src/store/socketSlice.ts  GAME_STATE_SYNC_KEYS (broadcast allowlist),
+//                             and clearRoomState's cleared-vs-kept split
+//   server/pushValidation.ts  HOST_ONLY_FIELDS / ACTIVE_PLAYER_FIELDS split
+//   src/store/persistence.ts  saved-locally vs never-saved split
+export const SYNCED_GAME_STATE_KEYS = [
+  'players', 'status', 'initialCards', 'winningScore', 'randomOrder',
+  'turnDuration', 'reconnectTimeout', 'currentCard', 'cards', 'round',
+  'currentPlayerIndex', 'finished', 'chartValues', 'chartNames', 'chartLabels',
+  'gameTimeInSeconds', 'previousCard', 'previousScore', 'previousLeaders',
+  'previousWasBust', 'previousWasSuccess',
+  'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
+  'previousHighestX2TurnScore', 'previousPlayerName', 'previousTurnSummary', 'liveTurnState',
+  'enforcedDiceMode', 'ruleset', 'historyLog',
+] as const;
+
+export type SyncedGameStateKey = (typeof SYNCED_GAME_STATE_KEYS)[number];
+
+// Instantiating this with anything but `never` is a compile error that names
+// the offending key ("Type '\"foo\"' does not satisfy the constraint 'never'").
+// The field-list locks are built on it: wrap Exclude<inventory, handled> in it
+// and an unhandled key refuses to build instead of silently falling through.
+export type AssertNever<T extends never> = T;
+
 export interface Toast {
   id: number;
   message: string;

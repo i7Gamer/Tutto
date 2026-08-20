@@ -6,7 +6,7 @@ import {
 } from '../utils/configValidation';
 import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS } from '../types';
 import { isChainCounter, isChainScoreList, isDeductedAmountList, isTurnCardList, isTurnEnd } from '../utils/turnShapes';
-import type { CardType, InitialCards } from '../types';
+import type { CardType, InitialCards, AssertNever, SyncedGameStateKey } from '../types';
 import type { GameStore, GameMode, GameStatus, ConfigKeys } from './storeTypes';
 
 // Fields that make up a saved local game (see attachPersistence's local
@@ -37,6 +37,30 @@ const STABLE_LOCAL_GAME_KEYS = [
 ] as const satisfies readonly (keyof GameStore)[];
 
 const LOCAL_GAME_STATE_KEYS = [...STABLE_LOCAL_GAME_KEYS, 'gameTimeInSeconds'] as const satisfies readonly (keyof GameStore)[];
+
+// The synced-online fields that deliberately do NOT go into a local save.
+// Together with LOCAL_GAME_STATE_KEYS this must account for every canonical
+// synced field (SYNCED_GAME_STATE_KEYS, src/types.ts) — a new game-state
+// field that is neither saved nor filed here refuses to build, instead of
+// silently vanishing from saved local games.
+type NeverSavedLocally =
+  // The online room's live-dice spectator feed; a local game's running turn
+  // persists through its own keys instead (utils/diceTurnState.ts).
+  | 'liveTurnState'
+  // Per-room host pin, meaningless offline — see the diceMode note above.
+  | 'enforcedDiceMode';
+
+// Exported only so noUnusedLocals sees a use; nothing imports it. Each tuple
+// element must be `never`, or the build fails naming the offending key.
+export type LocalSaveFieldLock = [
+  // Every synced field is either saved or deliberately not.
+  AssertNever<Exclude<SyncedGameStateKey, (typeof LOCAL_GAME_STATE_KEYS)[number] | NeverSavedLocally>>,
+  // Nothing is both.
+  AssertNever<Extract<(typeof LOCAL_GAME_STATE_KEYS)[number], NeverSavedLocally>>,
+  // And a save holds only game state — a client-only store key here (roomId,
+  // isHost, …) would write online-session identity into local saves.
+  AssertNever<Exclude<(typeof LOCAL_GAME_STATE_KEYS)[number], SyncedGameStateKey>>,
+];
 
 // A fully-loaded deck holds at most MAX_CARD_COUNT of each card type — same
 // bound the server enforces on pushed decks (see server/pushValidation.ts).

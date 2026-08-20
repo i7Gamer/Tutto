@@ -1,4 +1,4 @@
-import type { CardType, InitialCards, Player, DiceSnapshot, DiceMode, HistoryEntry, Ruleset, TurnSummary } from '../src/types';
+import type { CardType, InitialCards, Player, DiceSnapshot, DiceMode, HistoryEntry, Ruleset, TurnSummary, SyncedGameStateKey, AssertNever } from '../src/types';
 
 // CardType / InitialCards / Player are shared with the client (src/types.ts) to
 // keep the card set and player shape from drifting. The server requires the
@@ -55,6 +55,27 @@ export interface RoomState {
   ruleset: Ruleset;
   historyLog: HistoryEntry[];
 }
+
+// Fields that live only on the server: never broadcast to clients, never
+// legal in a push.
+type ServerOnlyRoomField = 'turnStartTime';
+
+// Compile-time lock between RoomState and the canonical synced-field list
+// (SYNCED_GAME_STATE_KEYS, src/types.ts). Exported only so noUnusedLocals
+// sees a use; nothing imports it. If either side gains a field the other
+// does not account for, the build fails naming the key — so adding a field
+// here forces a decision in every list the canonical one anchors (the
+// src/types.ts comment lists them all).
+export type RoomStateFieldLock = [
+  // Every RoomState field is either synced or declared server-only.
+  AssertNever<Exclude<keyof RoomState, SyncedGameStateKey | ServerOnlyRoomField>>,
+  // Every synced field actually exists on RoomState.
+  AssertNever<Exclude<SyncedGameStateKey, keyof RoomState>>,
+  // Server-only names are real RoomState fields (typo guard) …
+  AssertNever<Exclude<ServerOnlyRoomField, keyof RoomState>>,
+  // … and are not simultaneously synced.
+  AssertNever<Extract<ServerOnlyRoomField, SyncedGameStateKey>>,
+];
 
 export interface TurnTimerState {
   lastCard: CardType | null;
