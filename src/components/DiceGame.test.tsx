@@ -36,6 +36,13 @@ vi.mock('../utils/diceLogic', async (importOriginal) => {
 // the values are pushed twice.
 const queueRoll = (vals: number[]) => { rollQueue.push(...vals, ...vals); };
 
+// Every test starts from a drained queue: one that queues more values than its
+// rolls consume would otherwise feed the leftovers to whichever test happens
+// to run next — invisible in declaration order, real under --sequence.shuffle.
+beforeEach(() => {
+  rollQueue.length = 0;
+});
+
 // The die's accessible name is `${t('dice.die_showing')} ${val}` — under the
 // test i18n mock, `dice.die_showing ${val}` — and its selection state lives in
 // aria-pressed, not in the label. These two find dice the way the old
@@ -475,16 +482,11 @@ describe('DiceGame stale turn restoration (turnKey)', () => {
 describe('DiceGame interactive turn logic', () => {
   beforeEach(() => {
     localStorage.clear();
-    rollQueue.length = 0;
     vi.clearAllMocks();
   });
 
   afterEach(() => {
     localStorage.clear();
-    // The beforeEach above clears mocks before each test but not after the
-    // last one, and the next describe block counts playTone calls — so
-    // whichever test happens to run last here would bleed its rolls into it.
-    vi.mocked(playTone).mockClear();
   });
 
   const selectAllValid = () => fireEvent.click(screen.getByText('dice.select_all_valid'));
@@ -891,6 +893,12 @@ describe('DiceGame interactive turn logic', () => {
 describe('DiceGame pending timer cleanup on unmount', () => {
   beforeEach(() => {
     localStorage.clear();
+    // This suite asserts an ABSOLUTE playTone count, so it must own its own
+    // baseline. It used to inherit one from the preceding describe's
+    // afterEach — a coupling that held in declaration order and broke under
+    // --sequence.shuffle, where any tone-playing test could run directly
+    // before this one.
+    vi.mocked(playTone).mockClear();
     // Disable the test-env fast path so roll() actually schedules its
     // animation/finalize setTimeouts instead of running everything synchronously
     // — otherwise there would be nothing queued to verify cleanup against.
@@ -933,7 +941,6 @@ describe('DiceGame pending timer cleanup on unmount', () => {
 describe('DiceGame roll-again mid-animation button stability', () => {
   beforeEach(() => {
     localStorage.clear();
-    rollQueue.length = 0;
     // Disable the test-env fast path so isRolling actually stays true for a
     // stretch after Roll Again, instead of the roll resolving synchronously.
     isTestEnvMock.mockReturnValue(false);
@@ -993,7 +1000,6 @@ describe('DiceGame chain draw the server discards', () => {
   // every button disabled on a panel that cannot be dismissed.
   beforeEach(() => {
     localStorage.clear();
-    rollQueue.length = 0;
     vi.clearAllMocks();
     vi.useFakeTimers();
   });
@@ -1196,7 +1202,6 @@ describe('DiceGame chain draw the server discards', () => {
 describe('DiceGame dice settled before the roll finalizes', () => {
   beforeEach(() => {
     localStorage.clear();
-    rollQueue.length = 0;
     vi.clearAllMocks();
     // The real (test-env) fast path collapses the whole roll to one synchronous
     // step, which is exactly the window this is about.
@@ -1256,7 +1261,6 @@ describe('DiceGame dice settled before the roll finalizes', () => {
 describe('DiceGame Kleeblatt bust delay', () => {
   beforeEach(() => {
     localStorage.clear();
-    rollQueue.length = 0;
     isTestEnvMock.mockReturnValue(false);
     vi.useFakeTimers();
   });
@@ -1291,7 +1295,6 @@ describe('DiceGame Kleeblatt bust delay', () => {
 describe('DiceGame classic chains', () => {
   beforeEach(() => {
     localStorage.clear();
-    rollQueue.length = 0;
     vi.clearAllMocks();
   });
 
