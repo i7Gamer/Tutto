@@ -57,6 +57,12 @@ afterEach(() => {
   act(() => {
     useGameStore.setState(pristineStore, true);
   });
+  // Unconditionally, not only in the tests that install them: a test that
+  // throws before its own vi.useRealTimers() leaves the clock faked for every
+  // test after it. That is invisible until something needs a real one —
+  // framer-motion drives its exit animations off requestAnimationFrame, which
+  // a faked clock freezes, so a dialog that should unmount simply never does.
+  vi.useRealTimers();
 });
 
 describe('OnlineLobby', () => {
