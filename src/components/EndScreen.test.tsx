@@ -393,8 +393,16 @@ describe('EndScreen Component', () => {
   });
 
   describe('device stats fetching', () => {
+    // vi.restoreAllMocks() restores SPIES; the tests below assign global.fetch
+    // directly, which it cannot undo. Left alone, the last fetch a test
+    // assigned answers for every later test that forgets to assign its own —
+    // which passes, for the wrong reason. Putting the shared stub back
+    // (setupTests.tsx, which rejects anything it does not recognise) makes a
+    // forgotten assignment fail loudly instead.
+    const sharedFetchStub = globalThis.fetch;
     afterEach(() => {
       vi.restoreAllMocks();
+      globalThis.fetch = sharedFetchStub;
     });
 
     it('does not fetch device stats for local games', async () => {
@@ -415,6 +423,37 @@ describe('EndScreen Component', () => {
       });
 
       expect(global.fetch).not.toHaveBeenCalled();
+      vi.useRealTimers();
+    });
+
+    // The request lived past the component: unmounting set isMounted=false and
+    // cleared the pending timer, but an already in-flight fetch kept running to
+    // completion and its resolution then scheduled a fresh retry timer — whose
+    // callback returned immediately on the isMounted guard, so nothing broke,
+    // it was just work nobody would ever read. On a phone leaving the end
+    // screen mid-retry that is a request and a wakeup for nothing.
+    it('abandons an in-flight stats request when the end screen goes away', async () => {
+      vi.useFakeTimers();
+      const abortSignals: AbortSignal[] = [];
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(((_url: string, init?: { signal?: AbortSignal }) => {
+        if (init?.signal) abortSignals.push(init.signal);
+        // Never settles on its own — the abort is the only thing that can end it.
+        return new Promise(() => {});
+      }) as typeof fetch);
+      useGameStore.setState({ isOnline: true });
+
+      const { unmount } = render(<EndScreen deviceId="device-abort-1" />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STATS_FETCH_INITIAL_DELAY_MS);
+      });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(abortSignals[0], 'the request must be cancellable at all').toBeDefined();
+      expect(abortSignals[0].aborted).toBe(false);
+
+      unmount();
+
+      expect(abortSignals[0].aborted).toBe(true);
       vi.useRealTimers();
     });
 
@@ -447,7 +486,9 @@ describe('EndScreen Component', () => {
       // The id rides the header, never the URL — see deviceStatsRequest.
       expect(global.fetch).toHaveBeenCalledWith(
         '/api/stats/device?mode=normalized',
-        { headers: { 'x-tutto-device': 'device-online-1' } },
+        // objectContaining, not an exact match: the request also carries the
+        // AbortSignal that cancels it on unmount, which is not what this asserts.
+        expect.objectContaining({ headers: { 'x-tutto-device': 'device-online-1' } }),
       );
       vi.useRealTimers();
     });
@@ -470,7 +511,9 @@ describe('EndScreen Component', () => {
 
       expect(global.fetch).toHaveBeenCalledWith(
         '/api/stats/device?mode=custom',
-        { headers: { 'x-tutto-device': 'device-online-2' } },
+        // objectContaining, not an exact match: the request also carries the
+        // AbortSignal that cancels it on unmount, which is not what this asserts.
+        expect.objectContaining({ headers: { 'x-tutto-device': 'device-online-2' } }),
       );
       vi.useRealTimers();
     });

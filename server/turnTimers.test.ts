@@ -168,6 +168,34 @@ describe('turnTimers', () => {
       expect(rooms[roomId].turnExpireTimer).not.toBe(firstTimer);
     });
 
+    // Disabling the turn timer mid-game (updateConfig -> turnDuration 0) goes
+    // through this same re-arm — socketConfigHandlers calls it unconditionally
+    // and relies on the guards here. The "does not schedule when turnDuration
+    // is 0" test above only covers arming from nothing; this covers the case
+    // that actually happens, where a timer is already ticking on a live turn.
+    it('cancels a live turn timer when the duration is disabled mid-turn', () => {
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, turnDuration: 30, turnStartTime: Date.now(),
+        players: [makePlayer('Alice'), makePlayer('Bob')],
+        currentCard: '200', cards: ['300'],
+      });
+      const { io } = makeFakeIo();
+      startServerTurnTimer(io, roomId);
+      expect(rooms[roomId].turnExpireTimer, 'a timer must be running to cancel').toBeDefined();
+
+      rooms[roomId].state.turnDuration = 0;
+      startServerTurnTimer(io, roomId);
+
+      // null, not undefined: clearServerTurnTimer nulls the handle so the
+      // module's own "is a timer running" bookkeeping cannot lie.
+      expect(rooms[roomId].turnExpireTimer).toBeNull();
+      // And the turn it was armed for is not advanced by the cancellation —
+      // disabling the clock must not cost the current player their turn.
+      vi.advanceTimersByTime(60_000);
+      expect(rooms[roomId].state.currentPlayerIndex).toBe(0);
+    });
+
     it('advances immediately (synchronously) when the remaining time is already <= 0', () => {
       rooms[roomId] = createRoom('host-1');
       Object.assign(rooms[roomId].state, {

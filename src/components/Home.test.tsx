@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, act, cleanup, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Home from './Home';
 import { useGameStore } from '../store/useGameStore';
@@ -148,11 +148,13 @@ describe('Home handleClearCache', () => {
     vi.stubGlobal('caches', { keys: vi.fn().mockResolvedValue(['cache-a', 'cache-b']), delete: deleteMock });
 
     render(<Home onShowStats={() => {}} />);
-    await act(async () => {
-      fireEvent.click(screen.getByText('home.clearCache'));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    fireEvent.click(screen.getByText('home.clearCache'));
+
+    // Waited on the OUTCOME, not on a fixed number of microtask flushes. The
+    // clear runs caches.keys() -> delete-all -> unregister -> reload; two
+    // Promise.resolve()s happened to drain exactly that chain, and any await
+    // added to it later would have left these assertions running too early.
+    await waitFor(() => expect(reloadMock).toHaveBeenCalledTimes(1));
 
     expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
     expect(localStorage.getItem('tutto_local_game')).toBeNull();
@@ -160,7 +162,6 @@ describe('Home handleClearCache', () => {
     expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
     expect(deleteMock).toHaveBeenCalledWith('cache-a');
     expect(deleteMock).toHaveBeenCalledWith('cache-b');
-    expect(reloadMock).toHaveBeenCalledTimes(1);
   });
 
   it('unregisters the worker too, so the reload actually re-precaches', async () => {

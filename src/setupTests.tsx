@@ -6,7 +6,11 @@ import { vi } from 'vitest';
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => key,
-    i18n: { changeLanguage: () => new Promise(() => {}) },
+    // Resolves. A promise that never settles is the shape of a test that
+    // cannot fail: nothing awaits this today (LanguageSwitcher voids it), but
+    // the first `await i18n.changeLanguage(...)` to appear would hang its
+    // continuation silently and the assertions after it would never run.
+    i18n: { changeLanguage: () => Promise.resolve() },
   }),
   initReactI18next: { type: '3rdParty', init: () => {} },
 }));
@@ -27,6 +31,15 @@ if (typeof window !== 'undefined') {
   class MockAudioContext {
     state = 'suspended';
     resume() { this.state = 'running'; return Promise.resolve(); }
+    // Real AudioContexts close, and configSlice.setAudioEnabled(false) calls
+    // it through closeAudioContext. Without this, turning sound off in any
+    // test throws inside an async function nobody awaits — an unhandled
+    // rejection attributed to whichever test happened to be running.
+    close() { this.state = 'closed'; return Promise.resolve(); }
+    // Real AudioContexts close, and configSlice.setAudioEnabled(false) calls
+    // it through closeAudioContext. Without this, turning sound off in any
+    // test throws inside an async function nobody awaits — an unhandled
+    // rejection attributed to whichever test happened to be running.
     createOscillator() {
       return {
         type: 'sine' as const,
@@ -35,8 +48,10 @@ if (typeof window !== 'undefined') {
           setValueAtTime: vi.fn(),
         },
         connect: vi.fn(),
+        disconnect: vi.fn(),
         start: vi.fn(),
         stop: vi.fn(),
+        onended: null,
       };
     }
     createGain() {
@@ -47,6 +62,7 @@ if (typeof window !== 'undefined') {
           setValueAtTime: vi.fn(),
         },
         connect: vi.fn(),
+        disconnect: vi.fn(),
       };
     }
     get destination() { return {} as AudioDestinationNode; }

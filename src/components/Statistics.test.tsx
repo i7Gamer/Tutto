@@ -20,6 +20,18 @@ describe('Statistics Component', () => {
     vi.restoreAllMocks();
   });
 
+  // vi.restoreAllMocks() restores SPIES; these suites assign global.fetch
+  // directly, which it cannot undo. Left alone, the last fetch a test assigned
+  // answers for every later test that forgets to assign its own — which passes,
+  // for the wrong reason. Putting the shared stub back (setupTests.tsx, which
+  // rejects anything it does not recognise) makes a forgotten assignment fail
+  // loudly instead.
+  const sharedFetchStub = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = sharedFetchStub;
+  });
+
+
   it('renders loading state initially', () => {
     global.fetch = vi.fn(() => new Promise(() => {})); // Never resolves
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);

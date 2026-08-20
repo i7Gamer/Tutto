@@ -50,6 +50,14 @@ export const playTone = async (
 
     oscillator.connect(gainNode);
     gainNode.connect(ctx.destination);
+    // Released as soon as the tone is over. A stopped oscillator with nothing
+    // referencing it is reclaimable by the spec, so this leaks nothing today —
+    // but the graph is rebuilt per tone and a long game is thousands of them,
+    // and `onended` is the one moment the API offers to say "done with this".
+    oscillator.onended = () => {
+      oscillator.disconnect();
+      gainNode.disconnect();
+    };
     oscillator.start(startTime);
     oscillator.stop(startTime + duration);
   } catch (e) {

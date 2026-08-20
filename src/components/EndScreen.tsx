@@ -155,22 +155,30 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
 
     let isMounted = true;
     let timerId: ReturnType<typeof setTimeout> | undefined;
+    // isMounted alone only stopped this effect ACTING on a late response. The
+    // request itself ran to completion on a screen nobody is looking at, and
+    // its resolution then armed another retry timer whose callback did nothing
+    // — a request and a wakeup, on a phone, for a result that is discarded.
+    const inFlight = new AbortController();
 
     const fetchStats = async (retries = 0) => {
       if (!isMounted) return;
+      const [url, init] = deviceStatsRequest(deviceId, gameMode);
       try {
-        const res = await fetch(...deviceStatsRequest(deviceId, gameMode));
+        const res = await fetch(url, { ...init, signal: inFlight.signal });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await parseJsonObject<DeviceStats>(res);
 
         if ((!data || !data.gamesPlayed) && retries < STATS_FETCH_MAX_RETRIES) {
-          timerId = setTimeout(() => void fetchStats(retries + 1), STATS_FETCH_RETRY_DELAY_MS);
+          if (isMounted) timerId = setTimeout(() => void fetchStats(retries + 1), STATS_FETCH_RETRY_DELAY_MS);
           return;
         }
         if (isMounted) setDeviceStats(data);
       } catch (err) {
+        // An abort is this effect's own cleanup, not a failure worth logging.
+        if (!isMounted || (err instanceof DOMException && err.name === 'AbortError')) return;
         console.error('Could not fetch device stats', err);
-        if (retries < STATS_FETCH_MAX_RETRIES && isMounted) timerId = setTimeout(() => void fetchStats(retries + 1), STATS_FETCH_RETRY_DELAY_MS);
+        if (retries < STATS_FETCH_MAX_RETRIES) timerId = setTimeout(() => void fetchStats(retries + 1), STATS_FETCH_RETRY_DELAY_MS);
       }
     };
 
@@ -178,6 +186,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
 
     return () => {
       isMounted = false;
+      inFlight.abort();
       if (timerId) clearTimeout(timerId);
     };
   }, [deviceId, game.isOnline, gameMode]);

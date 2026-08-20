@@ -13,8 +13,10 @@ describe('soundEffects', () => {
     type: '',
     frequency: { setValueAtTime: vi.fn() },
     connect: vi.fn(),
+    disconnect: vi.fn(),
     start: vi.fn(),
-    stop: vi.fn()
+    stop: vi.fn(),
+    onended: null as null | (() => void),
   };
 
   const mockGainNode = {
@@ -22,7 +24,8 @@ describe('soundEffects', () => {
       setValueAtTime: vi.fn(),
       exponentialRampToValueAtTime: vi.fn()
     },
-    connect: vi.fn()
+    connect: vi.fn(),
+    disconnect: vi.fn(),
   };
 
   const mockAudioContext = {
@@ -59,16 +62,36 @@ describe('soundEffects', () => {
     expect(mockAudioContext.resume).toHaveBeenCalled();
   });
 
+  // Every tone builds a fresh oscillator and gain and wires them into the
+  // context. Once the oscillator has stopped, that little subgraph is finished
+  // — the spec lets a browser reclaim it, but nothing here said so, and a long
+  // game is thousands of tones. Releasing it on `onended` is the one moment
+  // the Web Audio API offers to do it.
+  it('releases the oscillator and gain once the tone has finished', async () => {
+    mockAudioContext.state = 'closed';
+    await playTone(440, 'sine', 1);
+
+    expect(mockOscillator.disconnect).not.toHaveBeenCalled();
+    expect(typeof mockOscillator.onended).toBe('function');
+
+    mockOscillator.onended!();
+
+    expect(mockOscillator.disconnect).toHaveBeenCalledTimes(1);
+    expect(mockGainNode.disconnect).toHaveBeenCalledTimes(1);
+  });
+
   it('playBuzzer plays two tones', async () => {
     playBuzzer();
-    await new Promise(r => setTimeout(r, 0));
-    expect(mockAudioContext.createOscillator).toHaveBeenCalledTimes(2);
+    // Waited on the count rather than on one macrotask tick: playTone awaits
+    // getAudioContext before it builds anything, and a tick that happens to
+    // drain that today would stop draining it the moment another await is
+    // added — silently, since the assertion would then read 0.
+    await vi.waitFor(() => expect(mockAudioContext.createOscillator).toHaveBeenCalledTimes(2));
   });
 
   it('playSuccess plays three tones', async () => {
     playSuccess();
-    await new Promise(r => setTimeout(r, 0));
-    expect(mockAudioContext.createOscillator).toHaveBeenCalledTimes(3);
+    await vi.waitFor(() => expect(mockAudioContext.createOscillator).toHaveBeenCalledTimes(3));
   });
 
   describe('closeAudioContext', () => {
