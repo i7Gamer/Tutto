@@ -7,6 +7,26 @@ import type { Room, ServerPlayer } from './roomTypes';
 import { rooms, calculateRemainingTurnTime, emitRoomState, idleTurnTimerState, rememberCurrentTurn, roomChannel } from './rooms';
 import { MAX_ROUNDS } from './pushValidation';
 
+// Milliseconds for a server timer armed from a duration in seconds — the turn
+// expiry below and socketRoomHandlers' seat reconnect timer both arm through
+// this. TEST_TIMER_SCALE (set by vite.config.ts for the suite and by
+// socketTestHarness.ts for spawned servers) compresses the wait so tests can
+// drive expiries without real-time sleeps. It is test infrastructure, not an
+// operator knob: production ignores it outright, so a stray value following a
+// deployer's shell into a real server cannot shrink every reconnect window
+// 5x. Junk values (non-numeric, zero, negative) run unscaled rather than
+// NaN-arming the timer or flooring every wait to 10ms, the same guard
+// SOCKET_CONN_LIMIT_MAX gets in socketHandlers.ts. The 10ms floor keeps a
+// heavily scaled short timer from firing effectively synchronously.
+export const scaledTimerMs = (
+  seconds: number,
+  env: { NODE_ENV?: string; TEST_TIMER_SCALE?: string } = process.env,
+): number => {
+  const parsed = Number(env.TEST_TIMER_SCALE);
+  const scale = env.NODE_ENV !== 'production' && Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  return Math.max(10, Math.floor(seconds * 1000 * scale));
+};
+
 export const clearServerTurnTimer = (roomId: string): void => {
   const room = rooms[roomId];
   if (!room || !room.turnExpireTimer) return;
@@ -242,8 +262,7 @@ export const startServerTurnTimer = (io: Server, roomId: string): void => {
     return;
   }
 
-  const timerScale = process.env.TEST_TIMER_SCALE ? parseFloat(process.env.TEST_TIMER_SCALE) : 1;
-  const timeoutMs = Math.max(10, Math.floor(remainingSeconds * 1000 * timerScale));
+  const timeoutMs = scaledTimerMs(remainingSeconds);
   room.turnExpireTimer = setTimeout(() => advanceTurnOnTimeout(io, roomId), timeoutMs);
 };
 

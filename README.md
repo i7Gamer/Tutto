@@ -146,6 +146,7 @@ All configuration is environment variables — the image contains no `.env` file
 | `CORS_ORIGIN` | no | same-origin only | Set only if the frontend is served from a *different* origin than the API. Leaving it unset is correct for a normal deployment, including behind a reverse proxy on one domain. Setting it to `*` in production is refused at startup. |
 | `PORT` | no | `3001` | Port inside the container. |
 | `TRUST_PROXY` | no | unset | Set to `1` **only** when the server sits behind exactly one reverse proxy: per-IP rate limiting then reads real client addresses from `X-Forwarded-For`. Leave unset for a directly exposed server (including LAN play) — trusting the header there would let clients forge their own rate-limit identities. A production start without it logs a one-line reminder. |
+| `SOCKET_CONN_LIMIT_MAX` | no | `30` | Per-IP cap on new WebSocket connections per 10-second window. Raise it only when one address legitimately stands for many players (e.g. a venue where everyone shares one NAT'd IP). |
 | `DB_PATH` | no | `/data/stats.db` | Location of the SQLite database. Change it only if you mount the volume elsewhere. |
 | `TZ` | no | `UTC` | Affects timestamps in the container logs. |
 

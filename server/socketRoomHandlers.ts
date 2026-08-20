@@ -3,7 +3,7 @@ import { getDeviceStats } from './database';
 import { DEFAULT_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
 import { zeroedPlayerStats } from '../src/utils/playerStats';
 import { applyValidatedConfig } from './pushValidation';
-import { startServerTurnTimer, abortGameIfLowPlayers } from './turnTimers';
+import { startServerTurnTimer, abortGameIfLowPlayers, scaledTimerMs } from './turnTimers';
 import type { ServerPlayer } from './roomTypes';
 import {
   rooms, createRoom, deleteRoom, handleActivePlayerRemoved, emitRoomState,
@@ -148,8 +148,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       const roomIdSnapshot = currentRoom;
       const disconnectedSocketId = socket.id;
 
-      const timerScale = process.env.TEST_TIMER_SCALE ? parseFloat(process.env.TEST_TIMER_SCALE) : 1;
-      const disconnectMs = Math.max(10, Math.floor(timeoutSecs * 1000 * timerScale));
+      const disconnectMs = scaledTimerMs(timeoutSecs);
       room.disconnectTimers[player.deviceId] = setTimeout(() => {
         // Same backstop advanceTurnOnTimeout carries, for the same reason:
         // this runs off a bare setTimeout with no caller to catch a throw, so

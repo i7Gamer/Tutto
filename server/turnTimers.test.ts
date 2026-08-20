@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Server } from 'socket.io';
 import { rooms, createRoom, roomChannel } from './rooms';
-import { clearServerTurnTimer, startServerTurnTimer, advanceTurnOnTimeout, abortGameIfLowPlayers } from './turnTimers';
+import { clearServerTurnTimer, startServerTurnTimer, advanceTurnOnTimeout, abortGameIfLowPlayers, scaledTimerMs } from './turnTimers';
 import type { ServerPlayer } from './roomTypes';
 
 const makePlayer = (name: string, overrides: Partial<ServerPlayer> = {}): ServerPlayer => ({
@@ -816,5 +816,38 @@ describe('turnTimers', () => {
       expect(room.turnTimerState).toEqual({ lastCard: null, lastPlayerIndex: null, lastDeckSize: null, restartsThisTurn: 0 });
       expect(room.turnExpireTimer).toBeNull();
     });
+  });
+});
+
+// Pure-function tests for the shared seconds->ms conversion both server timer
+// sites arm with (the turn-expiry timer above, and socketRoomHandlers' seat
+// reconnect timer). The local scaledTimeoutMs helper at the top of this file
+// deliberately stays an independent mirror rather than calling this: tests
+// that predict deadlines with the very function under test would drift in
+// lockstep with any bug in it.
+describe('scaledTimerMs', () => {
+  it('compresses by TEST_TIMER_SCALE outside production', () => {
+    expect(scaledTimerMs(60, { TEST_TIMER_SCALE: '0.2' })).toBe(12_000);
+  });
+
+  it('ignores the scale entirely in production', () => {
+    expect(scaledTimerMs(60, { NODE_ENV: 'production', TEST_TIMER_SCALE: '0.2' })).toBe(60_000);
+  });
+
+  it('is unscaled when the variable is unset', () => {
+    expect(scaledTimerMs(60, {})).toBe(60_000);
+    expect(scaledTimerMs(60, { NODE_ENV: 'production' })).toBe(60_000);
+  });
+
+  // parseFloat used to let these through: 'abc' NaN-armed the timer (node
+  // clamps that to ~1ms) and '0' floored every timer to 10ms — both worse
+  // failure modes than simply running unscaled.
+  it.each(['abc', '0', '-1', 'NaN', ''])('falls back to unscaled for junk value %j', (v) => {
+    expect(scaledTimerMs(60, { TEST_TIMER_SCALE: v })).toBe(60_000);
+  });
+
+  it('never arms below the 10ms floor', () => {
+    expect(scaledTimerMs(1, { TEST_TIMER_SCALE: '0.001' })).toBe(10);
+    expect(scaledTimerMs(0, {})).toBe(10);
   });
 });
