@@ -1,10 +1,11 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { StartGameButton, PlayerList, AdvancedOptionsPanel, HapticsSettingSelector, CustomGameBadge, RulesetSelector, RulesetBadge } from './LobbyShared';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { StartGameButton, PlayerList, AdvancedOptionsPanel, HapticsSettingSelector, CustomGameBadge, RulesetSelector, RulesetBadge, DiceModeSelector, DiceModeEnforcedBadge, AudioSettingSelector } from './LobbyShared';
 import { useGameStore } from '../../store/useGameStore';
 import type { GameStore } from '../../store/useGameStore';
 import { VALID_CARD_TYPES } from '../../utils/configValidation';
+import { REORDER_PRESS_RELEASE_MS } from '../../utils/uiTimings';
 import type { Player } from '../../types';
 
 // AdvancedOptionsPanel subscribes to the store itself (no more `game` prop),
@@ -681,5 +682,311 @@ describe('RulesetBadge', () => {
   it('renders the room rule set read-only', () => {
     render(<RulesetBadge ruleset="classic" />);
     expect(screen.getByText('lobby.rulesetBadge')).toBeInTheDocument();
+  });
+});
+
+describe('PlayerList reordering', () => {
+  const three = [
+    { name: 'Alice', color: '#ff0000', socketId: 'host1' },
+    { name: 'Bob', color: '#00ff00', socketId: 'client2' },
+    { name: 'Charlie', color: '#0000ff', socketId: 'client3' },
+  ];
+
+  const renderList = (reorderPlayers: (p: Player[]) => void) => render(
+    <PlayerList
+      players={three as Player[]}
+      reorderPlayers={reorderPlayers}
+      isOnline={false}
+      isHost={true}
+      changeColor={vi.fn()}
+      onRemovePlayer={vi.fn()}
+    />
+  );
+
+  const names = (spy: ReturnType<typeof vi.fn>) =>
+    (spy.mock.calls[0][0] as Player[]).map(p => p.name);
+
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('defers the swap by one press-release window, then applies it', () => {
+    const reorder = vi.fn();
+    renderList(reorder);
+
+    fireEvent.click(screen.getByRole('button', { name: 'lobby.movePlayerDown Alice' }));
+
+    // Not synchronous: the press must release (and its focus ring settle)
+    // before the rows move under the pointer.
+    expect(reorder).not.toHaveBeenCalled();
+    act(() => { vi.advanceTimersByTime(REORDER_PRESS_RELEASE_MS); });
+    expect(reorder).toHaveBeenCalledTimes(1);
+    expect(names(reorder)).toEqual(['Bob', 'Alice', 'Charlie']);
+  });
+
+  it('moves a player up past the one above', () => {
+    const reorder = vi.fn();
+    renderList(reorder);
+
+    fireEvent.click(screen.getByRole('button', { name: 'lobby.movePlayerUp Charlie' }));
+    act(() => { vi.advanceTimersByTime(REORDER_PRESS_RELEASE_MS); });
+
+    expect(names(reorder)).toEqual(['Alice', 'Charlie', 'Bob']);
+  });
+
+  it('applies only the last press inside the window — both were computed from the same roster', () => {
+    // The spy never feeds the swap back into props, mirroring the real race:
+    // the second press lands before the store has applied the first, so both
+    // handlers computed from the SAME pre-swap roster. Applying both would
+    // replay the earlier, stale one; last press wins instead.
+    const reorder = vi.fn();
+    renderList(reorder);
+
+    fireEvent.click(screen.getByRole('button', { name: 'lobby.movePlayerDown Alice' }));
+    act(() => { vi.advanceTimersByTime(10); });
+    fireEvent.click(screen.getByRole('button', { name: 'lobby.movePlayerDown Bob' }));
+    act(() => { vi.advanceTimersByTime(REORDER_PRESS_RELEASE_MS); });
+
+    expect(reorder).toHaveBeenCalledTimes(1);
+    expect(names(reorder)).toEqual(['Alice', 'Charlie', 'Bob']);
+  });
+
+  it('drops a reorder still pending when the list unmounts', () => {
+    const reorder = vi.fn();
+    const { unmount } = renderList(reorder);
+
+    fireEvent.click(screen.getByRole('button', { name: 'lobby.movePlayerDown Alice' }));
+    unmount();
+    act(() => { vi.advanceTimersByTime(REORDER_PRESS_RELEASE_MS * 2); });
+
+    expect(reorder).not.toHaveBeenCalled();
+  });
+});
+
+describe('PlayerList row actions', () => {
+  const three = [
+    { name: 'Alice', color: '#ff0000', socketId: 'host1' },
+    { name: 'Bob', color: '#00ff00', socketId: 'client2' },
+    { name: 'Charlie', color: '#0000ff', socketId: 'client3' },
+  ];
+
+  it('changes a player colour through their own picker, passing the player object', () => {
+    const changeColor = vi.fn();
+    render(
+      <PlayerList players={three as Player[]} reorderPlayers={vi.fn()} isOnline={false}
+        isHost={true} changeColor={changeColor} onRemovePlayer={vi.fn()} />
+    );
+
+    fireEvent.change(screen.getByLabelText('lobby.playerColorLabel Bob'), { target: { value: '#123456' } });
+
+    expect(changeColor).toHaveBeenCalledWith(expect.objectContaining({ name: 'Bob' }), '#123456');
+  });
+
+  it('shows white in the picker for a player with no colour yet', () => {
+    render(
+      <PlayerList players={[{ name: 'Nocolor' }] as Player[]} reorderPlayers={vi.fn()} isOnline={false}
+        isHost={true} changeColor={vi.fn()} onRemovePlayer={vi.fn()} />
+    );
+
+    expect(screen.getByLabelText('lobby.playerColorLabel Nocolor')).toHaveValue('#ffffff');
+  });
+
+  it('kicks online through the row button, passing the player object', () => {
+    const onRemovePlayer = vi.fn();
+    render(
+      <PlayerList players={three as Player[]} reorderPlayers={vi.fn()} isOnline={true}
+        isHost={true} hostId="host1" myName="Alice" changeColor={vi.fn()} onRemovePlayer={onRemovePlayer} />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'lobby.kickPlayer Bob' }));
+
+    expect(onRemovePlayer).toHaveBeenCalledWith(expect.objectContaining({ name: 'Bob' }));
+  });
+
+  it('removes offline through the trash button', () => {
+    const onRemovePlayer = vi.fn();
+    render(
+      <PlayerList players={three as Player[]} reorderPlayers={vi.fn()} isOnline={false}
+        isHost={true} changeColor={vi.fn()} onRemovePlayer={onRemovePlayer} />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'lobby.removePlayer Charlie' }));
+
+    expect(onRemovePlayer).toHaveBeenCalledWith(expect.objectContaining({ name: 'Charlie' }));
+  });
+
+  it('online, crowns the host row and offers a picker only on my own row', () => {
+    const { container } = render(
+      <PlayerList players={three as Player[]} reorderPlayers={vi.fn()} isOnline={true}
+        isHost={false} hostId="host1" myName="Bob" changeColor={vi.fn()} onRemovePlayer={vi.fn()} />
+    );
+
+    const pickers = screen.getAllByLabelText(/lobby\.playerColorLabel/);
+    expect(pickers).toHaveLength(1);
+    expect(pickers[0]).toHaveAccessibleName('lobby.playerColorLabel Bob');
+    expect(container.querySelectorAll('.lucide-crown')).toHaveLength(1);
+  });
+});
+
+describe('PlayerList streak bucket', () => {
+  afterEach(() => {
+    act(() => { useGameStore.setState(pristineStore, true); });
+  });
+
+  const renderWith = (player: Partial<Player>) => render(
+    <PlayerList players={[{ name: 'P1', color: '#ff0000', ...player }] as Player[]}
+      reorderPlayers={vi.fn()} isOnline={false} isHost={true}
+      changeColor={vi.fn()} onRemovePlayer={vi.fn()} />
+  );
+
+  it('shows the classic streak while the lobby is set to classic rules', () => {
+    // The badge must follow the RULES SELECTOR, not always the modernized
+    // bucket — flipping the selector flips which streak is on the line.
+    stageStore({ ruleset: 'classic' });
+    renderWith({ winStreak: 7, winStreakClassic: 4 });
+
+    expect(screen.getByText('🔥 4')).toBeInTheDocument();
+    expect(screen.queryByText('🔥 7')).not.toBeInTheDocument();
+  });
+
+  it('shows no badge when the selected bucket has no streak yet', () => {
+    stageStore({ ruleset: 'classic' });
+    renderWith({ winStreak: 5 });
+
+    expect(screen.queryByText(/🔥/)).not.toBeInTheDocument();
+  });
+});
+
+describe('DiceModeSelector', () => {
+  it('switches to the clicked mode in both directions', () => {
+    const setDiceMode = vi.fn();
+    const { rerender } = render(<DiceModeSelector diceMode="digital" setDiceMode={setDiceMode} nameSuffix="Test" />);
+    const radios = () => screen.getAllByRole('radio') as HTMLInputElement[];
+
+    expect(radios()[0].checked).toBe(true);
+    fireEvent.click(radios()[1]);
+    expect(setDiceMode).toHaveBeenCalledWith('physical');
+
+    rerender(<DiceModeSelector diceMode="physical" setDiceMode={setDiceMode} nameSuffix="Test" />);
+    fireEvent.click(radios()[0]);
+    expect(setDiceMode).toHaveBeenCalledWith('digital');
+  });
+});
+
+describe('AudioSettingSelector', () => {
+  it('switches between sound on and muted', () => {
+    const setAudioEnabled = vi.fn();
+    const { rerender } = render(<AudioSettingSelector audioEnabled={true} setAudioEnabled={setAudioEnabled} nameSuffix="Test" />);
+    const radios = () => screen.getAllByRole('radio') as HTMLInputElement[];
+
+    fireEvent.click(radios()[1]);
+    expect(setAudioEnabled).toHaveBeenCalledWith(false);
+
+    rerender(<AudioSettingSelector audioEnabled={false} setAudioEnabled={setAudioEnabled} nameSuffix="Test" />);
+    fireEvent.click(radios()[0]);
+    expect(setAudioEnabled).toHaveBeenCalledWith(true);
+  });
+});
+
+describe('HapticsSettingSelector toggling', () => {
+  afterEach(() => {
+    // @ts-expect-error test-only cleanup of a jsdom-absent API
+    delete navigator.vibrate;
+  });
+
+  it('switches between vibration on and off', () => {
+    Object.defineProperty(navigator, 'vibrate', { value: vi.fn(), configurable: true });
+    const setHapticsEnabled = vi.fn();
+    const { rerender } = render(<HapticsSettingSelector hapticsEnabled={true} setHapticsEnabled={setHapticsEnabled} nameSuffix="Test" />);
+    const radios = () => screen.getAllByRole('radio') as HTMLInputElement[];
+
+    fireEvent.click(radios()[1]);
+    expect(setHapticsEnabled).toHaveBeenCalledWith(false);
+
+    rerender(<HapticsSettingSelector hapticsEnabled={false} setHapticsEnabled={setHapticsEnabled} nameSuffix="Test" />);
+    fireEvent.click(radios()[0]);
+    expect(setHapticsEnabled).toHaveBeenCalledWith(true);
+  });
+});
+
+describe('RulesetSelector switching back', () => {
+  it('calls setRuleset with modernized from a classic lobby', () => {
+    const setRuleset = vi.fn();
+    render(<RulesetSelector ruleset="classic" setRuleset={setRuleset} nameSuffix="Test" />);
+
+    fireEvent.click((screen.getAllByRole('radio') as HTMLInputElement[])[0]);
+
+    expect(setRuleset).toHaveBeenCalledWith('modernized');
+  });
+});
+
+describe('DiceModeEnforcedBadge', () => {
+  // The mode label is interpolated INSIDE t(...), so the bare-key i18n mock
+  // collapses digital and physical to the same rendered string — which arm
+  // produced the label is only assertable with real i18n (the e2e suite).
+  // This is a render smoke over both arms, nothing more.
+  it('renders for both enforced modes', () => {
+    const { rerender } = render(<DiceModeEnforcedBadge enforcedDiceMode="physical" />);
+    expect(screen.getByText('lobby.diceModeEnforcedBadge')).toBeInTheDocument();
+
+    rerender(<DiceModeEnforcedBadge enforcedDiceMode="digital" />);
+    expect(screen.getByText('lobby.diceModeEnforcedBadge')).toBeInTheDocument();
+  });
+});
+
+describe('AdvancedOptionsPanel BlurInput edge commits', () => {
+  afterEach(() => {
+    act(() => { useGameStore.setState(pristineStore, true); });
+  });
+
+  it('falls back to the committed value when the typed text parses to nothing', () => {
+    const setWinningScore = vi.fn();
+    stageStore({ winningScore: 6000, setWinningScore, initialCards: {} });
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={false} />);
+
+    const input = screen.getByDisplayValue('6000');
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+
+    // parseInt('') is NaN — the field must revert, not commit NaN (which the
+    // clamp would pass through: Math.min/max propagate NaN).
+    expect(setWinningScore).not.toHaveBeenCalled();
+    expect(input).toHaveValue(6000);
+  });
+
+  it('commits on Enter without waiting for a pointer blur', () => {
+    const setWinningScore = vi.fn();
+    stageStore({ winningScore: 6000, setWinningScore, initialCards: {} });
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={false} />);
+
+    const input = screen.getByDisplayValue('6000');
+    act(() => { (input as HTMLInputElement).focus(); });
+    fireEvent.change(input, { target: { value: '7000' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(setWinningScore).toHaveBeenCalledWith(7000);
+  });
+});
+
+describe('AdvancedOptionsPanel read-only chips', () => {
+  afterEach(() => {
+    act(() => { useGameStore.setState(pristineStore, true); });
+  });
+
+  it('spells out disabled timers, a fixed order and the enforced dice mode', () => {
+    stageStore({
+      turnDuration: 0, reconnectTimeout: 0, randomOrder: false,
+      enforcedDiceMode: 'physical', initialCards: { Kleeblatt: 1 },
+    });
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={true} readOnly={true} />);
+
+    // Both zeroed timers read as disabled, not as "0s".
+    expect(screen.getAllByText('common.disabled')).toHaveLength(2);
+    expect(screen.getByText('game.controls.no')).toBeInTheDocument();
+    // Unlike the badge above, the chip's mode label sits OUTSIDE the
+    // interpolation, so the two arms stay distinguishable under the mock.
+    expect(screen.getByText('lobby.physicalDice')).toBeInTheDocument();
+
+    act(() => { useGameStore.setState({ enforcedDiceMode: 'digital' }); });
+    expect(screen.getByText('lobby.digitalDice')).toBeInTheDocument();
   });
 });
