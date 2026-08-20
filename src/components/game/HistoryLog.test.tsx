@@ -18,7 +18,7 @@ const { translate } = vi.hoisted(() => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: translate,
-    i18n: { changeLanguage: () => new Promise(() => {}) },
+    i18n: { changeLanguage: () => Promise.resolve() },
   }),
   initReactI18next: { type: '3rdParty', init: () => {} },
 }));
