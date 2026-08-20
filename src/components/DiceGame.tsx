@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useReducer, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { v4 as uuidv4 } from 'uuid';
 import { playBuzzer, playSuccess, playTone, vibrateBust, vibrateSuccess } from '../utils/soundEffects';
@@ -7,8 +7,9 @@ import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus, getMaxValidSel
 import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../utils/coreGameEngine';
 import { DEFAULT_RULESET } from '../utils/configValidation';
 import { buildDiceSnapshot } from '../utils/diceTurnState';
-import { deriveTurnControls, sortKeptDiceForDisplay, withForcedFeuerwerkSelection } from '../utils/diceTurnControls';
-import { readRestorableTurn, deriveRestoredTurn, type RestoredChain, type RestoredSummary } from '../utils/diceTurnRestore';
+import { deriveTurnControls, sortKeptDiceForDisplay } from '../utils/diceTurnControls';
+import { readRestorableTurn, deriveRestoredTurn, type RestoredChain } from '../utils/diceTurnRestore';
+import { diceTurnReducer, initialDiceTurnState } from '../utils/diceTurnReducer';
 import { getDisplayCardName } from '../utils/cardVisuals';
 import { useAutoContinueCountdown } from '../hooks/useAutoContinueCountdown';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
@@ -47,10 +48,6 @@ interface DiceGameProps {
   onDrawCard?: () => CardType | null;
 }
 
-// What DiceSummary shows. The restore module owns the shape — a reload
-// restores straight into one of these.
-type SummaryData = RestoredSummary;
-
 /**
  * The cards worth a fixed award for being completed rather than the dice they
  * were rolled with — Plus/Minus discards its dice outright, and a straight
@@ -83,32 +80,28 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // fresh object identity is harmless.
   const restore = deriveRestoredTurn({ restored, currentCard, ruleset });
 
-  const [keptDice, setKeptDice] = useState<DieType[]>(restored?.keptDice ?? []);
-  const [currentRoll, setCurrentRoll] = useState<DieType[]>(restore.currentRoll);
+  // The turn's semantic machine — every state a snapshot carries or a reload
+  // restores, committed one action at a time (diceTurnReducer.ts) instead of
+  // through blocks of five to eight setters that each had to remember every
+  // field. What stays as useState below is presentation: the tumble
+  // animation's display faces, settle set and in-flight flag, plus the
+  // drawn-card reveal modal.
+  const [machine, dispatch] = useReducer(diceTurnReducer, { restored, restore }, initialDiceTurnState);
+  const {
+    keptDice, currentRoll, turnScore, kniffelProgress, hasRolled, bustState,
+    stopped, showSummary, summaryData, tuttosThisTurn, chainCardCount,
+  } = machine;
   const [displayRoll, setDisplayRoll] = useState<DieType[]>(restored?.currentRoll ?? []);
   const [rollingDiceIndices, setRollingDiceIndices] = useState<Set<string>>(new Set());
-  const [turnScore, setTurnScore] = useState(restored?.turnScore ?? 0);
-  const [kniffelProgress, setKniffelProgress] = useState<number[]>(restored?.kniffelProgress ?? []);
   const [isRolling, setIsRolling] = useState(false);
-  const [hasRolled, setHasRolled] = useState(restore.hasRolled);
-  const [bustState, setBustState] = useState(restore.busted);
-  // A decided restore (bust, banked tutto, forfeit) opens on its summary.
-  const [showSummary, setShowSummary] = useState(restore.summary !== null);
-  const [summaryData, setSummaryData] = useState<SummaryData>(restore.summary ?? { won: false, score: 0, isTutto: false });
-  // Whether the turn is decided and banked (Stop & Score, a modernized
-  // turn-ending tutto, a completed Kleeblatt) — rides the snapshot so a
-  // reload restores into the banked summary above.
-  const [stopped, setStopped] = useState(restore.bankedDecision);
-  const [tuttosThisTurn, setTuttosThisTurn] = useState(restored?.tuttosThisTurn ?? 0);
 
   // The classic chain, held in a ref so summary/bust callbacks always read the
   // current value; the snapshot effect below re-reads it whenever one of its
   // state deps ticks.
   const [initialChain] = useState<RestoredChain>(() => restore.initialChain);
   const chainRef = useRef(initialChain);
-  // Render-safe mirror of chainRef.current.cards.length (refs must not be
-  // read during render); only a draw ever changes it.
-  const [chainCardCount, setChainCardCount] = useState(initialChain.cards.length);
+  // Its render-safe length mirror is machine.chainCardCount (refs must not be
+  // read during render); only CHAIN_DRAWN / DRAW_ABANDONED ever move it.
   // A draw was requested but the new card hasn't arrived through the
   // currentCard prop yet — roll() must not fire until it has, or its closure
   // would judge the fresh roll against the previous card's rules.
@@ -144,7 +137,6 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     pendingTimers.current.forEach(clearTimeout);
     pendingTimers.current = [];
     setIsRolling(true);
-    setBustState(false);
 
     playTone(600, 'sine', 0.1);
 
@@ -153,9 +145,8 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     // this would throw on every roll when playing over plain http:// on a LAN.
     const finalRolls: DieType[] = newRollVals.map((val) => ({ id: uuidv4(), val, selected: false }));
 
-    setCurrentRoll(finalRolls);
+    dispatch({ type: 'ROLL_STARTED', rolls: finalRolls });
     setDisplayRoll(finalRolls.map(r => ({ ...r, val: rollDie() })));
-    setHasRolled(true);
 
     const initialRolling = new Set(finalRolls.map(r => r.id));
     setRollingDiceIndices(initialRolling);
@@ -190,7 +181,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     const finalizeRoll = () => {
       setIsRolling(false);
       if (isBust(newRollVals, currentCard, kniffelArray || kniffelProgress, ruleset)) {
-        setBustState(true);
+        dispatch({ type: 'ROLL_BUSTED' });
         playBuzzer();
         vibrateBust();
         if (isClassic) {
@@ -216,16 +207,14 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         };
 
         if (isTest) {
-          setSummaryData(getSummary());
-          setShowSummary(true);
+          dispatch({ type: 'SUMMARY_SHOWN', summary: getSummary() });
         } else {
           pendingTimers.current.push(setTimeout(() => {
-            setSummaryData(getSummary());
-            setShowSummary(true);
+            dispatch({ type: 'SUMMARY_SHOWN', summary: getSummary() });
           }, BUST_SUMMARY_DELAY_MS));
         }
       } else if (isClassic && currentCard === 'Feuerwerk') {
-        setCurrentRoll(prev => withForcedFeuerwerkSelection(prev, ruleset));
+        dispatch({ type: 'FEUERWERK_SELECTION_FORCED', ruleset });
       }
     };
 
@@ -284,10 +273,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
 
       if (currentCard === 'Kleeblatt') {
         if (tuttosThisTurn === 0) {
-          setTuttosThisTurn(1);
-          setKeptDice([]);
-          setTurnScore(newTurnScore);
-          setKniffelProgress(newKniffelProgress);
+          dispatch({ type: 'KLEEBLATT_FIRST_TUTTO', turnScore: newTurnScore, kniffelProgress: newKniffelProgress });
           roll(6, newKniffelProgress, newTurnScore);
           return;
         } else {
@@ -296,18 +282,13 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
             if (chain.length > 0) chain[chain.length - 1].completed = true;
             chainRef.current.ended = 'banked';
           }
-          // Committed + marked stopped (like Stop & Score below) so the won
-          // game survives a reload: the snapshot otherwise still held the
+          // Committed + banked (like Stop & Score below) so the won game
+          // survives a reload: the snapshot otherwise still held the
           // pre-win table, and restoring handed back dice that could reroll
           // — and bust away — a game already won.
-          setTurnScore(newTurnScore);
-          setKeptDice(newKeptDice);
-          setCurrentRoll([]);
+          dispatch({ type: 'TABLE_COMMITTED', turnScore: newTurnScore, keptDice: newKeptDice, kniffelProgress: newKniffelProgress });
           setDisplayRoll([]);
-          setKniffelProgress(newKniffelProgress);
-          setStopped(true);
-          setSummaryData({ won: true, score: newTurnScore, isTutto: true });
-          setShowSummary(true);
+          dispatch({ type: 'TURN_BANKED', summary: { won: true, score: newTurnScore, isTutto: true } });
           return;
         }
       } else if (isClassic && currentCard !== 'Feuerwerk') {
@@ -328,18 +309,13 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         // Committed (not just carried in the summary data) so a reload
         // restores the decision, not the pre-tutto table it could be rolled
         // back into.
-        setTurnScore(newTurnScore);
-        setKeptDice(newKeptDice);
-        setCurrentRoll([]);
+        dispatch({ type: 'TABLE_COMMITTED', turnScore: newTurnScore, keptDice: newKeptDice, kniffelProgress: newKniffelProgress });
         setDisplayRoll([]);
-        setKniffelProgress(newKniffelProgress);
         // Bank or draw was decided by which button was pressed — the summary
         // no longer asks a second time (it used to, under a heading that said
         // the turn had stopped). A draw the store refuses banks instead.
         if (action === 'draw' && drawNextCard(newTurnScore)) return;
-        setStopped(true);
-        setSummaryData({ won: true, score: newTurnScore, isTutto: true });
-        setShowSummary(true);
+        dispatch({ type: 'TURN_BANKED', summary: { won: true, score: newTurnScore, isTutto: true } });
         return;
       } else if (currentCard !== 'Feuerwerk') {
         // Modernized turn-ending tutto: committed + marked stopped (like the
@@ -347,14 +323,9 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         // into this decided summary — not the pre-tutto table, where the
         // tutto could be rolled back and played on past the turn's end.
         // Spectators likewise see the banked total, not the stale board.
-        setTurnScore(newTurnScore);
-        setKeptDice(newKeptDice);
-        setCurrentRoll([]);
+        dispatch({ type: 'TABLE_COMMITTED', turnScore: newTurnScore, keptDice: newKeptDice, kniffelProgress: newKniffelProgress });
         setDisplayRoll([]);
-        setKniffelProgress(newKniffelProgress);
-        setStopped(true);
-        setSummaryData({ won: true, score: newTurnScore, isTutto: true });
-        setShowSummary(true);
+        dispatch({ type: 'TURN_BANKED', summary: { won: true, score: newTurnScore, isTutto: true } });
         return;
       }
     }
@@ -366,27 +337,18 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
       // table, and restoring handed the banked decision back — free to Roll
       // Again instead. Spectators also kept watching the pre-stop board
       // through the whole countdown.
-      setTurnScore(newTurnScore);
-      setKeptDice(newKeptDice);
-      setCurrentRoll([]);
+      dispatch({ type: 'TABLE_COMMITTED', turnScore: newTurnScore, keptDice: newKeptDice, kniffelProgress: newKniffelProgress });
       setDisplayRoll([]);
-      setKniffelProgress(newKniffelProgress);
-      setStopped(true);
-      setSummaryData({ won: true, score: newTurnScore, isTutto });
-      setShowSummary(true);
+      dispatch({ type: 'TURN_BANKED', summary: { won: true, score: newTurnScore, isTutto } });
       return;
     }
 
     if (action === 'roll') {
-      setTurnScore(newTurnScore);
-      setKniffelProgress(newKniffelProgress);
-      if (isTutto) {
-        setKeptDice([]);
-        roll(6, newKniffelProgress, newTurnScore);
-      } else {
-        setKeptDice(newKeptDice);
-        roll(6 - newKeptDice.length, newKniffelProgress, newTurnScore);
-      }
+      dispatch({
+        type: 'ROLL_ON_COMMITTED', turnScore: newTurnScore,
+        keptDice: isTutto ? [] : newKeptDice, kniffelProgress: newKniffelProgress,
+      });
+      roll(isTutto ? 6 : 6 - newKeptDice.length, newKniffelProgress, newTurnScore);
     }
   };
 
@@ -400,13 +362,13 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const toggleDie = (id: string) => {
     if (bustState || showSummary || isRolling) return;
     if (isSelectionLocked) return;
-    setCurrentRoll(prev => prev.map(d => d.id === id ? { ...d, selected: !d.selected } : d));
+    dispatch({ type: 'DIE_TOGGLED', id });
   };
 
   const selectAllValid = () => {
     if (bustState || showSummary || isRolling || !hasRolled) return;
     const validIndices = new Set(getMaxValidSelection(currentRoll.map(d => d.val), currentCard, kniffelProgress, ruleset));
-    setCurrentRoll(prev => prev.map((d, i) => ({ ...d, selected: validIndices.has(i) })));
+    dispatch({ type: 'SELECTION_SET', indices: validIndices });
   };
 
   // Classic: reveal the next card after a tutto and keep the accumulated total
@@ -423,22 +385,14 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     const newCard = onDrawCard();
     if (!newCard) return false;
     chainRef.current.cards.push({ card: newCard, completed: false });
-    setChainCardCount(c => c + 1);
-    setShowSummary(false);
-    setTurnScore(base);
-    setKeptDice([]);
-    setCurrentRoll([]);
+    dispatch({ type: 'CHAIN_DRAWN', card: newCard, base });
     setDisplayRoll([]);
-    setKniffelProgress([]);
-    setBustState(false);
-    if (newCard === 'Kleeblatt') setTuttosThisTurn(0);
     if (newCard === 'Stop') {
       chainRef.current.ended = 'stopCard';
       chainRef.current.forfeitedScore = base;
       playBuzzer();
       vibrateBust();
     } else {
-      setSummaryData({ won: false, score: 0, isTutto: false });
       // The fresh roll waits for BOTH the reveal to be dismissed and the new
       // card to arrive through the currentCard prop (see pendingChainRollRef
       // above and the effect below).
@@ -455,8 +409,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     const drawn = revealedCard;
     setRevealedCard(null);
     if (drawn === 'Stop') {
-      setSummaryData({ won: false, score: 0, isTutto: false, stoppedByCard: true });
-      setShowSummary(true);
+      dispatch({ type: 'SUMMARY_SHOWN', summary: { won: false, score: 0, isTutto: false, stoppedByCard: true } });
     }
   }, [revealedCard]);
 
@@ -491,12 +444,9 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     pendingChainRollRef.current = null;
     drawnCardWasCurrentRef.current = false;
     chainRef.current.cards.pop();
-    setChainCardCount(c => c - 1);
     chainRef.current.ended = 'banked';
     setRevealedCard(null);
-    setStopped(true);
-    setSummaryData({ won: true, score: base, isTutto: true });
-    setShowSummary(true);
+    dispatch({ type: 'DRAW_ABANDONED', summary: { won: true, score: base, isTutto: true } });
   }, []);
 
   // Declared after the release effect above so that, on the render where the
@@ -587,27 +537,32 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keptDice, currentRoll, turnScore, hasRolled, rollingDiceIndices, isRolling, bustState, kniffelProgress, tuttosThisTurn, stopped]);
 
-  // What a bust snapshot is made of, as of the most recent commit. Held in a
-  // ref, and updated by an effect declared ahead of the one that reads it so
-  // it is already current when that runs: the send below has to happen on the
-  // bust edge and nowhere else, and depending on these values directly would
-  // re-send the same final snapshot every time one of them settled afterwards.
-  const bustSnapshotRef = useRef({ turnScore, keptDice, currentRoll, kniffelProgress, tuttosThisTurn });
-  useEffect(() => {
-    bustSnapshotRef.current = { turnScore, keptDice, currentRoll, kniffelProgress, tuttosThisTurn };
-  });
+  // The machine as of the most recent commit. Held in a ref, and updated by
+  // an effect declared ahead of the ones that read it so it is already
+  // current when they run. It exists for the two edge-triggered readers
+  // below: the bust send has to happen on the bust edge and nowhere else
+  // (depending on the fields directly would re-send the same final snapshot
+  // every time one of them settled afterwards), and finishGame must stay a
+  // stable callback while reading the summary the machine holds NOW. Because
+  // the reducer commits every transition atomically, this one ref replaces
+  // the separate bust-snapshot and summary-data mirrors it used to take to
+  // read a consistent moment.
+  const machineRef = useRef(machine);
+  useEffect(() => { machineRef.current = machine; });
 
   useEffect(() => {
     if (!bustState || !onStateChangeRef.current || !hasRolled) return;
-    onStateChangeRef.current(buildDiceSnapshot({ ...bustSnapshotRef.current, busted: true, ...chainSnapshotFields() }));
+    const m = machineRef.current;
+    onStateChangeRef.current(buildDiceSnapshot({
+      turnScore: m.turnScore, keptDice: m.keptDice, currentRoll: m.currentRoll,
+      kniffelProgress: m.kniffelProgress, tuttosThisTurn: m.tuttosThisTurn,
+      busted: true, ...chainSnapshotFields(),
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bustState, hasRolled]);
 
-  const summaryDataRef = useRef(summaryData);
-  useEffect(() => { summaryDataRef.current = summaryData; }, [summaryData]);
-
   const finishGame = useCallback(() => {
-    const data = summaryDataRef.current;
+    const data = machineRef.current.summaryData;
     if (isClassic) {
       const chain = chainRef.current;
       onComplete(data.score || 0, data.won || false, {
