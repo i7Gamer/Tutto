@@ -239,6 +239,29 @@ describe('DiceGame restored-state bust rendering', () => {
     expect(screen.queryByText('dice.roll_again')).not.toBeInTheDocument();
   });
 
+  it('re-commits the stopped marker of a restored banked decision into the live snapshot', async () => {
+    // A reload-of-a-reload: the summary rendering alone comes from the cached
+    // summary, but the SECOND reload restores from the snapshot this mount
+    // emits — if the restored stopped marker does not ride out again, that
+    // reload lands on a rollable table and the decision rollback returns.
+    const onStateChange = vi.fn();
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 450,
+      keptDice: [{ id: 'k1', val: 1 }, { id: 'k2', val: 5 }],
+      currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+      stopped: true,
+    }));
+
+    render(<DiceGame currentCard="300" onComplete={vi.fn()} onStateChange={onStateChange} />);
+
+    await waitFor(() => {
+      const last = onStateChange.mock.calls.at(-1)?.[0];
+      expect(last?.stopped).toBe(true);
+      expect(last?.turnScore).toBe(450);
+      expect(last?.currentRoll).toEqual([]);
+    });
+  });
+
   it('restores a reload during a modernized tutto summary into that summary, not a rollable table', () => {
     // Without committing the tutto (all six put aside, stopped marker) the
     // snapshot still held the pre-tutto table: a reload inside the 3-second
@@ -768,6 +791,28 @@ describe('DiceGame interactive turn logic', () => {
     expect(screen.getByText('dice.tutto')).toBeInTheDocument();
     // Kniffel itself scores 0 — calculateNextTurn turns the success into 2000.
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, true));
+  });
+
+  it('Kniffel judges the next selection by the progress the roll-on committed', () => {
+    // The machine's kniffelProgress — not the roll's own bust parameter — is
+    // what validates the NEXT selection. If the roll-on commit lost it, a 6
+    // after a kept 1 would read as a fresh descending start and be accepted,
+    // quietly abandoning the run the player is mid-way through.
+    queueRoll([1, 3, 3, 4, 4, 2]);
+    render(<DiceGame currentCard="Kniffel" onComplete={vi.fn()} />);
+
+    fireEvent.click(dieShowing(1, false)); // start the ascending run
+    queueRoll([6, 2, 3, 3, 4]); // five dice: the needed 2, and the impostor 6
+    fireEvent.click(screen.getByText('dice.roll_again'));
+
+    // A 6 is only a valid pick when there is NO progress (fresh descending
+    // start). With [1] committed, the run needs a 2 — the 6 must not pass.
+    fireEvent.click(dieShowing(6, false));
+    expect(screen.getByText('dice.roll_again').closest('button')).toBeDisabled();
+
+    fireEvent.click(dieShowing(6, true)); // put the impostor back
+    fireEvent.click(dieShowing(2, false));
+    expect(screen.getByText('dice.roll_again').closest('button')).not.toBeDisabled();
   });
 
   it('does not roll automatically while the panel is still appearing (panelReady=false)', () => {
