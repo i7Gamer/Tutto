@@ -110,7 +110,10 @@ jobs:
         run: npm run test:e2e
 
       - name: Upload Playwright report
-        if: failure()
+        # always(), not failure(): a flaky-but-passed run is the only evidence
+        # a flake leaves behind (the on-first-retry trace rides the report),
+        # and failure() threw exactly that away on 2026-08-17 and 2026-08-21.
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: playwright-report

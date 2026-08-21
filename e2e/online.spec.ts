@@ -184,8 +184,8 @@ test.describe('Online classic chain', () => {
     await expect(pageB.getByText(/Rules: Classic \(set by host\)/)).toBeVisible({ timeout: 10000 });
 
     // Physical dice on both pages: diceMode is a per-client preference that
-    // never travels through pushState (see the digital-dice test above), and
-    // either player may be the one the shuffle gives the first turn to.
+    // never travels through pushState (see the digital-dice test above). The
+    // guest — seated first below — is the one who will hold the turn.
     await pageA.getByLabel(/Physical Dice/i).click();
     await pageB.getByLabel(/Physical Dice/i).click();
 
@@ -199,22 +199,26 @@ test.describe('Online classic chain', () => {
       await cardInput.press('Enter');
     }
 
-    await pageA.getByRole('button', { name: /Start Game!/i }).click();
-    await expect(pageA.getByText(/Current Player/i).first()).toBeVisible();
+    // Seat Bob first — reorderPlayers switches random order off as part of
+    // the same action — so the roles below are fixed instead of a coin flip
+    // to re-derive after start (same deflake as the push-state test above).
+    await pageA.getByRole('button', { name: 'Move up: BobGuest' }).click();
+    await expect(pageA.locator('.player-name').first()).toContainText('BobGuest');
 
-    // Turn order is random, so who the active player is has to be read, not
-    // assumed: the draw button renders for them alone, and the other page is
-    // the spectator. (Locators from two different pages can't be combined, so
-    // both are polled rather than or()'d.)
-    const drawOnHost = pageA.getByTestId('physical-draw-next-card');
-    const drawOnGuest = pageB.getByTestId('physical-draw-next-card');
-    await expect.poll(
-      async () => (await drawOnHost.isVisible()) || (await drawOnGuest.isVisible()),
-      { timeout: 20000, message: 'neither page ever offered the classic draw button' },
-    ).toBe(true);
-    const hostIsActive = await drawOnHost.isVisible();
-    const drawButton = hostIsActive ? drawOnHost : drawOnGuest;
-    const spectatorPage = hostIsActive ? pageB : pageA;
+    await pageA.getByRole('button', { name: /Start Game!/i }).click();
+    // BOTH pages must reach the game before anything times a countdown. The
+    // 2026-08-21 flake (run 32485161908) was 20 seconds of a spectator timer
+    // that never existed — indistinguishable, as written then, from a
+    // spectator page still sitting in the lobby.
+    await expect(pageA.getByText(/Current Player/i).first()).toBeVisible();
+    await expect(pageB.getByText(/Current Player/i).first()).toBeVisible({ timeout: 15000 });
+
+    // Fixed roles: the guest holds the turn and draws; the host spectates.
+    // (A NON-host pushing the deck change is also the stronger direction of
+    // this test's claim.)
+    const drawButton = pageB.getByTestId('physical-draw-next-card');
+    await expect(drawButton).toBeVisible({ timeout: 20000 });
+    const spectatorPage = pageA;
 
     // The spectator's own view of the active player's turn timer: the label and
     // its value are siblings in the Scoreboard tile.
@@ -231,6 +235,15 @@ test.describe('Online classic chain', () => {
         return NaN; // no timer tile on screen at this instant — poll again
       }
     };
+
+    // The tile must EXIST before its value is timed — a tile that never
+    // appears (turnTimeRemaining never synced to the spectator) and a
+    // countdown that never moves are different bugs, and the old NaN-for-20s
+    // poll reported both with the same message.
+    await expect(
+      spectatorPage.getByText('Turn Timer', { exact: true }),
+      "the spectator never rendered a turn-timer tile at all",
+    ).toBeVisible({ timeout: 15000 });
 
     await expect.poll(spectatorSeconds, {
       timeout: 20000,
