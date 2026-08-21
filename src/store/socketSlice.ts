@@ -508,7 +508,14 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore,
           previousPlayerName, previousTurnSummary, chartValues, chartNames, chartLabels, status,
           liveTurnState, enforcedDiceMode, ruleset, historyLog,
-        },
+          // The wire payload is the sixth hand-written copy of the synced
+          // field set (destructure above + literal here). satisfies makes it
+          // the compiler's problem: a canonical key missing here refuses to
+          // build, and the shorthand identifiers force the destructure to
+          // carry whatever the literal names — without this, a new synced
+          // field passed every other lock and still never reached the wire,
+          // where applyPushedState's allowlist loop silently dropped it.
+        } satisfies Record<SyncedGameStateKey, unknown>,
       });
     }
   },

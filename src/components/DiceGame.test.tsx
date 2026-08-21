@@ -266,7 +266,10 @@ describe('DiceGame restored-state bust rendering', () => {
       expect(last?.stopped).toBe(true);
       expect(last?.turnScore).toBe(450);
       expect(last?.currentRoll).toEqual([]);
-    });
+      // 5s, not waitFor's 1s default: the snapshot only exists after a REAL
+      // 300ms debounce (LIVE_SNAPSHOT_DEBOUNCE_MS), so the default left
+      // ~700ms of slack that a loaded CI worker can eat.
+    }, { timeout: 5000 });
   });
 
   it('restores a reload during a modernized tutto summary into that summary, not a rollable table', () => {
@@ -1691,7 +1694,8 @@ describe('DiceGame classic chains', () => {
       expect(last?.stopped).toBe(true);
       expect(last?.turnScore).toBe(1100);
       expect(last?.currentRoll).toEqual([]);
-    });
+      // 5s: the snapshot follows a real 300ms debounce (see the restore test).
+    }, { timeout: 5000 });
   });
 
   it('a modernized tutto commits the banked state into the live snapshot', async () => {
@@ -1712,7 +1716,7 @@ describe('DiceGame classic chains', () => {
       expect(last?.turnScore).toBe(1800); // 1500 dice + 300 card bonus
       expect(last?.keptDice).toHaveLength(6);
       expect(last?.currentRoll).toEqual([]);
-    });
+    }, { timeout: 5000 });
   });
 
   it('a completed Kleeblatt win commits the decided state into the live snapshot', async () => {
@@ -1732,7 +1736,7 @@ describe('DiceGame classic chains', () => {
       expect(last?.stopped).toBe(true);
       expect(last?.keptDice).toHaveLength(6);
       expect(last?.currentRoll).toEqual([]);
-    });
+    }, { timeout: 5000 });
   });
 
   it('restores a reload during the drawn-Stop summary into that summary, not a dice table', async () => {
@@ -1824,7 +1828,9 @@ describe('DiceGame classic chains', () => {
 // handling, ROLL_STARTED's bust-clear, DRAW_ABANDONED's count) stay
 // unit-only on purpose: no real flow can reach them — a draw cannot happen
 // while busted, the drawn card's base always equals the already-committed
-// total — so a DOM test would have to fabricate impossible state.
+// total — so a DOM test would have to fabricate impossible state. The init
+// mapping's bustState seed and DRAW_ABANDONED's stopped marker are likewise
+// pinned only by the reducer's unit tests.
 describe('machine transitions the DOM suite left to unit tests', () => {
   const selectAllValid = () => fireEvent.click(screen.getByText('dice.select_all_valid'));
 
@@ -1886,7 +1892,7 @@ describe('machine transitions the DOM suite left to unit tests', () => {
       const last = onStateChange.mock.calls.at(-1)?.[0];
       expect(last?.stopped).toBe(true);
       expect(last?.kniffelProgress).toEqual([1, 2, 3, 4, 5, 6]);
-    });
+    }, { timeout: 5000 });
   });
 
   it('counts the drawn card into the chain badge', () => {

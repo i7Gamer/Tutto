@@ -60,6 +60,9 @@ export type LocalSaveFieldLock = [
   // And a save holds only game state — a client-only store key here (roomId,
   // isHost, …) would write online-session identity into local saves.
   AssertNever<Exclude<(typeof LOCAL_GAME_STATE_KEYS)[number], SyncedGameStateKey>>,
+  // The never-saved list itself holds only real synced fields (typo guard —
+  // the same check every other exception list in these locks carries).
+  AssertNever<Exclude<NeverSavedLocally, SyncedGameStateKey>>,
 ];
 
 // A fully-loaded deck holds at most MAX_CARD_COUNT of each card type — same
@@ -304,6 +307,11 @@ export const attachPersistence = (store: Pick<StoreApi<GameStore>, 'subscribe'>)
       lastOnlinePersistKey = null;
       return;
     }
+    // satisfies: this literal is the write half of the saved online config,
+    // and it must enumerate exactly the ConfigKeys contract — the read half
+    // (validateOnlineConfig above) filters by the same keys, and no test
+    // observes this write, so a key dropped here was silently never saved
+    // (proven: deleting ruleset left tsc and all 2549 tests green).
     const stable = {
       winningScore: state.winningScore,
       initialCards: state.initialCards,
@@ -312,7 +320,7 @@ export const attachPersistence = (store: Pick<StoreApi<GameStore>, 'subscribe'>)
       reconnectTimeout: state.reconnectTimeout,
       enforcedDiceMode: state.enforcedDiceMode,
       ruleset: state.ruleset,
-    };
+    } satisfies Record<ConfigKeys, unknown>;
     const key = JSON.stringify(stable);
     if (key === lastOnlinePersistKey) return;
     lastOnlinePersistKey = key;

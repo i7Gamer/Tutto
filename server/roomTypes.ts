@@ -56,8 +56,10 @@ export interface RoomState {
   historyLog: HistoryEntry[];
 }
 
-// Fields that live only on the server: never broadcast to clients, never
-// legal in a push.
+// Fields only the server acts on. They DO ride the gameState broadcast —
+// emitRoomState spreads the whole room state — but every client drops them
+// on arrival (GAME_STATE_SYNC_KEYS is the applied-field allowlist), and a
+// push may never write them.
 type ServerOnlyRoomField = 'turnStartTime';
 
 // Compile-time lock between RoomState and the canonical synced-field list

@@ -7,7 +7,7 @@ import type { RestoredSummary, RestoredTurn } from './diceTurnRestore';
  *
  * These are the fields that must move TOGETHER when the turn changes shape —
  * the ones a live snapshot carries to spectators and a reload restores from.
- * As sixteen separate useStates they were committed through repeated blocks
+ * As eleven separate useStates they were committed through repeated blocks
  * of five to eight setter calls, and a transition that forgot one left the
  * machine torn (a banked turn whose snapshot still offered dice to reroll was
  * exactly that bug). Here every transition is one action, so a field cannot
@@ -70,7 +70,7 @@ const FRESH_SUMMARY: RestoredSummary = { won: false, score: 0, isTutto: false };
  * The state a DiceGame mount starts from. All judgment about WHAT to resume
  * (mid-tumble busts, forced keeps, banked decisions) already happened in
  * diceTurnRestore.ts — this only lays its verdict out as machine fields, the
- * same mapping the component's sixteen useState initializers used to spell
+ * same mapping the component's eleven useState initializers used to spell
  * out one by one.
  */
 export const initialDiceTurnState = ({ restored, restore }: {

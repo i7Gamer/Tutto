@@ -259,7 +259,7 @@ export interface CoreGameState {
 }
 
 // The canonical list of the fields that make up an online game's state — what
-// a server broadcast carries and what a client push may touch. Five other
+// a server broadcast carries and what a client push may touch. Six other
 // hand-written lists describe subsets or splits of exactly these fields, and
 // a field added to one but missed in another was this codebase's most common
 // defect: silently stripped from every relayed push, or bleeding from an
@@ -269,7 +269,8 @@ export interface CoreGameState {
 //
 //   server/roomTypes.ts       RoomState = these + the server-only fields
 //   src/store/socketSlice.ts  GAME_STATE_SYNC_KEYS (broadcast allowlist),
-//                             and clearRoomState's cleared-vs-kept split
+//                             clearRoomState's cleared-vs-kept split, and
+//                             pushState's wire payload (satisfies Record)
 //   server/pushValidation.ts  HOST_ONLY_FIELDS / ACTIVE_PLAYER_FIELDS split
 //   src/store/persistence.ts  saved-locally vs never-saved split
 export const SYNCED_GAME_STATE_KEYS = [
