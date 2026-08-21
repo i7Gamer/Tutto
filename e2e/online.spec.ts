@@ -78,31 +78,41 @@ test.describe('Tutto Online Ghost Lobbies', () => {
     await pageA.getByLabel(/Digital Dice/i).click();
     await pageB.getByLabel(/Digital Dice/i).click();
 
-    // 4. Make the game deterministic via the host's advanced options:
-    //    - a 10s turn timer, so if Alice is drawn as the first player her idle
-    //      turn expires server-side and play reaches Bob without simulating a
-    //      full dice turn for her;
+    // 4. Make the game deterministic via the host's lobby controls:
+    //    - Bob seated FIRST, so his turn begins with the game itself. The old
+    //      version left the order random and leaned on a real 10s server turn
+    //      timer to force Alice's idle first turn over — a wall-clock
+    //      dependency that flaked on a loaded CI worker (the 20s wait lost
+    //      the race on 2026-08-21, run 32460487606).
     //    - a bonus-cards-only deck (all special cards at 0), so no Stop card
-    //      can swallow Bob's turn and no Feuerwerk/Kleeblatt multiplier can
-    //      stretch the 10s window.
+    //      can swallow Bob's turn.
     await pageA.getByRole('button', { name: /Show Advanced Options/i }).click();
-    const turnTimerInput = pageA.getByLabel(/Turn Timer/i);
-    await turnTimerInput.fill('10');
-    await turnTimerInput.press('Enter');
     for (const card of ['Kleeblatt', 'Feuerwerk', 'Stop', 'Kniffel', 'Plus/Minus', 'x2']) {
       const cardInput = pageA.getByLabel(card, { exact: true });
       await cardInput.fill('0');
       await cardInput.press('Enter');
     }
 
+    // Seat Bob first. The reorder commits after a short press-release
+    // debounce, so wait for the host's roster to actually show the new order
+    // — the start push then carries that ordering and the server adopts it
+    // verbatim (pushValidation's startingGame branch).
+    await pageA.getByRole('button', { name: 'Move up: BobGuest' }).click();
+    await expect(pageA.locator('.player-name').first()).toContainText('BobGuest');
+    // The determinism above RESTS on reorderPlayers flipping randomOrder off
+    // (gameSlice.reorderPlayers) — if that coupling ever loosens, fail here
+    // with a readable reason instead of silently going back to a coin flip.
+    await expect(pageA.getByRole('switch', { name: /Random Order/i }))
+      .toHaveAttribute('aria-checked', 'false');
+
     // Start Game
     await pageA.getByRole('button', { name: /Start Game!/i }).click();
     await expect(pageA.getByText(/Current Player/i).first()).toBeVisible();
 
-    // 5. Wait until it is Bob's turn — his own Roll Dice button is the
-    //    authoritative signal. Turn order is random: either Bob is first
-    //    (immediate), or Alice is and the server's 10s timer forces her turn
-    //    over. 20s covers both with slack.
+    // 5. Bob is seated first with random order off, so his turn begins with
+    //    the game itself — his own Roll Dice button is the authoritative
+    //    signal, and only broadcast latency separates it from the start
+    //    click. The generous timeout is slack, not a timer dependency.
     const bobRollBtn = pageB.getByRole('button', { name: /Roll Dice/i });
     await expect(bobRollBtn).toBeVisible({ timeout: 20000 });
 
