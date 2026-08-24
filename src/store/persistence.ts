@@ -5,7 +5,8 @@ import {
   isValidEnforcedDiceMode, isValidRuleset, VALID_CARD_TYPES, MAX_CARD_COUNT,
 } from '../utils/configValidation';
 import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS } from '../types';
-import { isChainCounter, isChainScoreList, isDeductedAmountList, isTurnCardList, isTurnEnd } from '../utils/turnShapes';
+import { PLAYER_STAT_FIELDS } from '../utils/playerStats';
+import { isChainCard, isChainCounter, isChainScoreList, isDeductedAmountList, isTurnCardList, isTurnEnd } from '../utils/turnShapes';
 import type { CardType, InitialCards, AssertNever, SyncedGameStateKey } from '../types';
 import type { GameStore, GameMode, GameStatus, ConfigKeys } from './storeTypes';
 
@@ -87,6 +88,12 @@ const isPlausiblePlayer = (v: unknown): boolean => {
   const p = v as Record<string, unknown>;
   if (typeof p.name !== 'string' || p.name.length === 0) return false;
   if (!isFiniteNumber(p.score)) return false;
+  // A counter restored as a STRING passed the primitive check below and then
+  // met `(p.busts ?? 0) + 1` in the engine, which concatenates: the counter
+  // becomes '51' and grows from there, into the end screen and the submitted
+  // stats. Derived from the one list that creates these fields, so a counter
+  // added there is covered here without a second list to remember.
+  if (PLAYER_STAT_FIELDS.some(field => p[field] !== undefined && !isFiniteNumber(p[field]))) return false;
   return Object.entries(p).every(([key, val]) =>
     key === 'name' || val === undefined || val === null ||
     typeof val === 'string' || typeof val === 'boolean' || isFiniteNumber(val));
@@ -127,6 +134,19 @@ const isPlausibleHistoryEntry = (v: unknown): boolean => {
   // Same optional-but-checked rule as the turn summary's amounts above; this
   // is the entry the activity log renders the numbers from.
   if (entry.deductedAmounts !== undefined && !isDeductedAmountList(entry.deductedAmounts, entry.deductedPlayers)) return false;
+  // The two the log reads DIRECTLY and neither of the checks above covers:
+  // HistoryLog does `entry.cards.map(getCardName)` for a chain, and iterates
+  // deductedPlayers into the deduction summary — and deductedPlayers was only
+  // ever looked at as context for deductedAmounts, so an entry carrying it
+  // WITHOUT amounts was never validated at all.
+  if (entry.cards !== undefined) {
+    if (!Array.isArray(entry.cards) || entry.cards.length > MAX_CHAIN_CARDS) return false;
+    if (!entry.cards.every(isChainCard)) return false;
+  }
+  if (entry.deductedPlayers !== undefined) {
+    if (!Array.isArray(entry.deductedPlayers) || entry.deductedPlayers.length > MAX_CHAIN_CARDS) return false;
+    if (!entry.deductedPlayers.every(n => typeof n === 'string' && n.length > 0)) return false;
+  }
   return typeof entry.id === 'string' && typeof entry.playerName === 'string'
     && typeof entry.card === 'string' && typeof entry.type === 'string'
     && Number.isInteger(entry.round) && isFiniteNumber(entry.score);

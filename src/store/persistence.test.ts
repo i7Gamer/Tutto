@@ -93,6 +93,50 @@ describe('pickLocalGameState', () => {
     expect(pickLocalGameState({ players: [{ name: 'Alice' }] })).toEqual({});
   });
 
+  // The validator's own comment says an object or NaN in a counter "would flow
+  // into score math" — and so does a string. `busts: '5'` passed every check
+  // here, and the engine's `(p.busts ?? 0) + 1` then produced '51': the counter
+  // becomes a growing string, rides into the stats payload, and is submitted.
+  it('rejects a stat counter restored as a string, which would concatenate instead of add', () => {
+    expect(pickLocalGameState({ players: [{ name: 'Alice', score: 10, busts: '5' }] })).toEqual({});
+    expect(pickLocalGameState({ players: [{ name: 'Alice', score: 10, totalTurns: '0' }] })).toEqual({});
+  });
+
+  it('still accepts the fields that are legitimately strings', () => {
+    // color and name are strings by design; only the counters must be numbers.
+    const roster = [{ name: 'Alice', score: 10, color: '#ff0000', busts: 2 }];
+
+    expect(pickLocalGameState({ players: roster })).toEqual({ players: roster });
+  });
+
+  // isPlausibleHistoryEntry validated deductedAmounts but never `cards` or
+  // `deductedPlayers` themselves — and HistoryLog does `entry.cards.map(...)`
+  // and iterates deductedPlayers straight into the render. deductedPlayers was
+  // reachable unvalidated whenever deductedAmounts was absent.
+  it('rejects a history entry whose card list is not one', () => {
+    const entry = { id: '1-Alice-1', playerName: 'Alice', card: 'Stop', type: 'skip', round: 1, score: 0 };
+
+    expect(pickLocalGameState({ historyLog: [{ ...entry, cards: 'Stop' }] })).toEqual({});
+    expect(pickLocalGameState({ historyLog: [{ ...entry, cards: [{ card: 'Stop' }] }] })).toEqual({});
+  });
+
+  it('rejects a history entry whose deducted players are not names', () => {
+    const entry = { id: '1-Alice-1', playerName: 'Alice', card: 'Plus_Minus', type: 'success', round: 1, score: 0 };
+
+    expect(pickLocalGameState({ historyLog: [{ ...entry, deductedPlayers: 'Bob' }] })).toEqual({});
+    expect(pickLocalGameState({ historyLog: [{ ...entry, deductedPlayers: [{ name: 'Bob' }] }] })).toEqual({});
+    expect(pickLocalGameState({ historyLog: [{ ...entry, deductedPlayers: [''] }] })).toEqual({});
+  });
+
+  it('keeps a well-formed chain entry whole', () => {
+    const entry = {
+      id: '1-Alice-1', playerName: 'Alice', card: 'Plus_Minus', type: 'success', round: 1, score: 1000,
+      cards: ['300', 'Plus_Minus'], deductedPlayers: ['Bob'], deductedAmounts: [1000],
+    };
+
+    expect(pickLocalGameState({ historyLog: [entry] })).toEqual({ historyLog: [entry] });
+  });
+
   it('rejects the whole roster when it contains duplicate names (case-insensitive)', () => {
     // Duplicate names break every name-keyed lookup (Plus/Minus deduction,
     // undo, React keys) — the server and LocalLobby both refuse to create

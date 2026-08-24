@@ -247,7 +247,7 @@ Rooms live in the server's memory, so restarting ends every game in progress. Wi
 [activity] 1 finished game awaiting stats — DO NOT RESTART
 ```
 
-A restart is called unsafe while a game is being played, and while a finished game's statistics have not been submitted yet (they are sent by the host's client after the game ends and are lost if the server goes away first). `start-tutto-prod.bat` sets the variable for you.
+A restart is called unsafe while a game is being played, and while a finished game's statistics have not been submitted yet (they are sent by the host's client after the game ends and are lost if the server goes away first). Set the variable on the one command you watch — `TUTTO_STATUS_LINE=1 npm run start:prod`, or `set TUTTO_STATUS_LINE=1` before it on Windows — rather than in `.env`, which every other start reads too.
 
 On a terminal the line is rewritten in place, so it never scrolls; redirected to a file it prints one line per change instead. The variable is off by default, so Docker, CI and development servers log exactly as they otherwise would.
 

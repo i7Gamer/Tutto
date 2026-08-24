@@ -180,15 +180,23 @@ export const updateDeviceStats = async (
   // Mirrors updateGlobalStats' recordsGame gate below. A fresh row created
   // by a partial update gets the columns' schema default (0) instead.
   if ('wins' in stats) {
+    // `>= 1` in the CASE expressions below, matching this truthiness test.
+    // They used to require exactly 1, so the same payload meant different
+    // things depending on whether the row already existed: a device's FIRST
+    // game with wins: 2 started a streak of 1, and every later one reset the
+    // streak to 0. Only an out-of-band adjustment (the token-gated
+    // POST /api/stats/:deviceId) ever sends anything but 0 or 1, so this was a
+    // self-contradiction rather than a live miscount — but the two halves of
+    // one upsert must not disagree about what a win is.
     const wonThisGame = data.wins ? 1 : 0;
     data.currentWinStreak = wonThisGame;
     data.bestWinStreak = wonThisGame;
     mergeCols.currentWinStreak = knex.raw(`
-      CASE WHEN EXCLUDED.wins = 1 THEN device_statistics.currentWinStreak + 1 ELSE 0 END
+      CASE WHEN EXCLUDED.wins >= 1 THEN device_statistics.currentWinStreak + 1 ELSE 0 END
     `);
     mergeCols.bestWinStreak = knex.raw(`
       CASE
-        WHEN EXCLUDED.wins = 1 AND device_statistics.currentWinStreak + 1 > device_statistics.bestWinStreak
+        WHEN EXCLUDED.wins >= 1 AND device_statistics.currentWinStreak + 1 > device_statistics.bestWinStreak
           THEN device_statistics.currentWinStreak + 1
         ELSE device_statistics.bestWinStreak
       END

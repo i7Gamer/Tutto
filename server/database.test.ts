@@ -416,6 +416,28 @@ describe('Database Statistics Integration', () => {
     expect(stats.bestWinStreak).toBe(3);
   });
 
+  // The insert path read `wins` as truthy and the merge path required exactly
+  // 1, so the same payload meant different things depending on whether the row
+  // already existed: a device's FIRST game with wins: 2 started a streak of 1,
+  // and every later one reset the streak to 0. Only an out-of-band adjustment
+  // (the token-gated POST /api/stats/:deviceId) ever sends a value other than
+  // 0 or 1, so this is a self-contradiction rather than a live miscount — but
+  // the two halves must not disagree about what a win is.
+  it('agrees with itself about what counts as a win, on insert and on merge', async () => {
+    const deviceId = 'test-streak-agreement-' + Date.now();
+
+    // First write CREATES the row: the insert path decides the streak.
+    await database.updateDeviceStats(deviceId, { gamesPlayed: 1, wins: 2 });
+    const afterInsert = (await database.getDeviceStats(deviceId)).currentWinStreak;
+
+    // Second write MERGES into it: the CASE expression decides.
+    await database.updateDeviceStats(deviceId, { gamesPlayed: 1, wins: 2 });
+    const afterMerge = (await database.getDeviceStats(deviceId)).currentWinStreak;
+
+    expect(afterMerge, 'a second win continues the streak the first one started')
+      .toBe(afterInsert + 1);
+  });
+
   it('preserves the win streak on a partial update that records no game result', async () => {
     const mockDeviceId = 'partial-update-streak-device-' + Date.now();
 
