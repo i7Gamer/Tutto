@@ -1986,3 +1986,96 @@ describe('machine transitions the DOM suite left to unit tests', () => {
     expect(screen.getByText('dice.tutto')).toBeInTheDocument();
   });
 });
+
+describe('DiceGame restore verdict is a fact about the snapshot, not about the live card', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    rollQueue.length = 0;
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  // A reload during a drawn Stop restores straight into that card's forfeit
+  // summary (deriveRestoredTurn's stoppedByCard branch). If the server then
+  // discards the draw, currentCard reverts off 'Stop' and the panel converts
+  // the turn to the bank it had already committed.
+  //
+  // deriveRestoredTurn was re-run on every render, and its midDraw branch is
+  // card-dependent through exactly that stoppedByCard check: false while the
+  // prop said 'Stop', true the moment it moved off it. midDraw is a dependency
+  // of the opening-roll effect, whose only brake for a restored turn is
+  // `restored && !restore.midDraw` — so the revert flipped the dep, re-ran the
+  // effect and fired a fresh six-dice roll UNDERNEATH the summary the recovery
+  // had just opened. The effect consults neither showSummary nor stopped, so a
+  // busting roll would then take the whole banked chain and record a bust.
+  const stopDrawSnapshot = {
+    turnScore: 1800,
+    keptDice: [],
+    currentRoll: [],
+    kniffelProgress: [],
+    tuttosThisTurn: 1,
+    busted: false,
+    stopped: false,
+    // The drawn Stop is the chain's last card, exactly as the live forfeit
+    // path records it — the recovery pops it back off when the draw turns out
+    // to have been discarded.
+    cardsThisTurn: ['300', 'Stop'],
+    chainTuttoCount: 1,
+  };
+
+  it('does not re-arm the opening roll when a discarded Stop draw reverts the card', () => {
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify(stopDrawSnapshot));
+    // Exactly one roll's worth. The roll is probed through this queue rather
+    // than through the DOM: the summary covers the dice table, so the board a
+    // stray roll produces is not rendered — which is precisely why the bug
+    // survived. rollDie() drains the queue, so an untouched queue is the
+    // evidence that no roll ran.
+    queueRoll([2, 3, 4, 6, 6, 2]);
+    const UNCONSUMED = 12; // 6 real values + 6 display values
+    const onComplete = vi.fn();
+    // onDrawCard is what makes this a chain turn — banksChainTotal, and so the
+    // summary's "Bank N points" wording, is gated on it.
+    const props = { ruleset: 'classic' as const, onComplete, onDrawCard: vi.fn() };
+
+    const { rerender } = render(<DiceGame currentCard="Stop" {...props} />);
+    expect(screen.getByText('dice.stop_card_drawn')).toBeInTheDocument();
+    expect(rollQueue, 'restoring a decided turn rolls nothing').toHaveLength(UNCONSUMED);
+
+    // The discarded push's revert: the store moves back to the card the draw
+    // was made from.
+    rerender(<DiceGame currentCard="300" {...props} />);
+
+    // The defect: the flipped midDraw dep re-ran the opening-roll effect and
+    // rolled six fresh dice underneath the summary.
+    expect(rollQueue, 'the revert must not re-arm the opening roll').toHaveLength(UNCONSUMED);
+    // And the recovery's own outcome is intact — the forfeit gave way to the
+    // bank the turn had already committed.
+    expect(screen.queryByText('dice.stop_card_drawn')).not.toBeInTheDocument();
+    expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('dice.bank_points'));
+    expect(onComplete).toHaveBeenLastCalledWith(1800, true, expect.objectContaining({
+      cards: [{ card: '300', completed: true }],
+      tuttoCount: 1,
+      ended: 'banked',
+    }));
+  });
+
+  it('still auto-rolls a genuine mid-draw resume, which is what the brake exists for', () => {
+    // The other side of the same branch: an empty table that is NOT a decided
+    // summary was snapshotted between drawing a chain card and its first roll,
+    // and resuming it has to roll or the player gets a table with no dice and
+    // no button that would put any there.
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      ...stopDrawSnapshot,
+      cardsThisTurn: ['300', '500'],
+    }));
+    queueRoll([1, 2, 3, 4, 6, 6]);
+
+    render(<DiceGame currentCard="500" ruleset="classic" onComplete={vi.fn()} />);
+
+    expect(screen.getAllByLabelText(/dice.die_showing/)).toHaveLength(6);
+  });
+});

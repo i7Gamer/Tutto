@@ -75,10 +75,19 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const [restored] = useState(() => readRestorableTurn(turnKey));
   // What to resume into. Every branch of that judgment — re-deriving a
   // mid-tumble bust, Feuerwerk's forced keep, banked decisions, the chain —
-  // lives and is unit-tested in diceTurnRestore.ts. Recomputed per render,
-  // but only read for initial state and primitive effect deps below, so the
-  // fresh object identity is harmless.
-  const restore = deriveRestoredTurn({ restored, currentCard, ruleset });
+  // lives and is unit-tested in diceTurnRestore.ts.
+  //
+  // Frozen at mount, like `restored` above and `initialChain` below, because it
+  // is a reading of THAT snapshot and nothing later can change what the
+  // snapshot said. It used to be recomputed every render, which was not merely
+  // a wasted object: the verdict is card-dependent through the stoppedByCard
+  // branch, so `midDraw` was false while currentCard said 'Stop' and true the
+  // moment the prop moved off it. midDraw is a dependency of the opening-roll
+  // effect below, whose only brake for a restored turn is `!restore.midDraw` —
+  // so a discarded Stop draw reverting the card flipped the dep and fired a
+  // fresh six-dice roll underneath the summary the recovery had just opened,
+  // costing the player the whole banked chain on a busting roll.
+  const [restore] = useState(() => deriveRestoredTurn({ restored, currentCard, ruleset }));
 
   // The turn's semantic machine — every state a snapshot carries or a reload
   // restores, committed one action at a time (diceTurnReducer.ts) instead of
