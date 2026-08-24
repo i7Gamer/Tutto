@@ -1543,6 +1543,36 @@ describe('useGameStore', () => {
       expect(state.liveTurnState).toBeNull();
     });
 
+    it('surrenders the seat the same way when the same device takes it over elsewhere', () => {
+      // The server moves the seat to the new connection and drops this one
+      // from the channel. Silently, that left this window holding a full
+      // roster on a healthy socket whose every event the server ignores — the
+      // player could open the dice panel and commit turns into a void while
+      // the turn timer ran out on the seat they thought they had.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        roomId: 'TEST_ROOM', isHost: true, hostId: 'socket-123', myName: 'Alice',
+        players: [makeOnlinePlayer('Alice'), makeOnlinePlayer('Bob')],
+        status: 'playing', currentPlayerIndex: 0, round: 3,
+      });
+
+      expect(mockOnHandlers['seatTakenOver']).toBeTypeOf('function');
+      mockOnHandlers['seatTakenOver']();
+
+      const state = useGameStore.getState();
+      expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+      expect(state.roomId).toBeNull();
+      expect(state.myName).toBeNull();
+      expect(state.isHost).toBe(false);
+      expect(state.mode).toBe('local');
+      expect(state.players).toEqual([]);
+      expect(state.status).toBe('lobby');
+      // Its own wording — nobody kicked them.
+      expect(state.toasts.map(t => t.message))
+        .toEqual(['This device joined the room from somewhere else, so this window left it.']);
+    });
+
     it('clears pendingReconnectSession when clearPendingReconnect is called', () => {
       sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'TEST_ROOM', myName: 'Alice' }));
       useGameStore.setState({ pendingReconnectSession: { roomId: 'TEST_ROOM', myName: 'Alice' } });
@@ -1557,6 +1587,7 @@ describe('useGameStore', () => {
       useGameStore.setState({
         mode: 'online',
         isOnline: true,
+        roomId: 'R1',
         showReconnectPopup: true,
         status: 'playing',
         currentPlayerIndex: 1,
@@ -1585,6 +1616,7 @@ describe('useGameStore', () => {
       useGameStore.setState({
         mode: 'online',
         isOnline: true,
+        roomId: 'R1',
         showReconnectPopup: true,
         status: 'lobby',  // Game not started
         currentPlayerIndex: null,
@@ -1606,7 +1638,7 @@ describe('useGameStore', () => {
     it('timer sync uses server turnTimeRemaining even without liveTurnState (same ongoing turn)', () => {
       // Prime internal tracking so player=0/card=Kniffel is the "known" turn
       useGameStore.setState({
-        mode: 'online', isOnline: true, status: 'playing',
+        mode: 'online', isOnline: true, roomId: 'R1', status: 'playing',
         currentPlayerIndex: 0, currentCard: 'Kniffel',
         turnDuration: 60, gameTimeInSeconds: 20,
         liveTurnState: null, justReconnected: false,
@@ -1629,6 +1661,7 @@ describe('useGameStore', () => {
       useGameStore.setState({
         mode: 'online',
         isOnline: true,
+        roomId: 'R1',
         status: 'playing',
         currentPlayerIndex: 0,
         currentCard: 'Stop',
@@ -1650,6 +1683,7 @@ describe('useGameStore', () => {
       useGameStore.setState({
         mode: 'online',
         isOnline: true,
+        roomId: 'R1',
         showReconnectPopup: true,
         status: 'playing',
         currentPlayerIndex: 0,
@@ -1795,7 +1829,7 @@ describe('useGameStore', () => {
       // duration" heuristic, or the countdown shows a full turn mid-turn.
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.setState({
-        mode: 'online', isOnline: true, showReconnectPopup: true,
+        mode: 'online', isOnline: true, roomId: 'R1', showReconnectPopup: true,
         status: 'playing', turnDuration: 60,
       });
 
@@ -1818,7 +1852,7 @@ describe('useGameStore', () => {
       try {
         useGameStore.getState().connectSocket('http://localhost:3000');
         useGameStore.setState({
-          mode: 'online', isOnline: true, status: 'playing',
+          mode: 'online', isOnline: true, roomId: 'R1', status: 'playing',
           currentPlayerIndex: 0, currentCard: 'Kniffel', turnDuration: 60,
           showReconnectPopup: false, justReconnected: false,
         });
@@ -2680,6 +2714,38 @@ describe('useGameStore', () => {
       expect(state.round).toBe(1);
       expect(state.players).toEqual([]);
     });
+
+    it('ignores a broadcast for the room it just left, while still in online mode', () => {
+      // The mode check above cannot see this one. leaveRoom applies
+      // clearRoomState, which contains neither `mode` nor `isOnline` — four of
+      // its five call sites deliberately stay in online mode so the user lands
+      // back on the join form. The server only drops the socket from the
+      // channel when it processes the leave, so anything emitted during that
+      // round trip still arrives, and it restored players/finished/
+      // currentPlayerIndex — which is exactly what App.tsx routes off. The
+      // result was Game/EndScreen rendered over a roomId-less store where
+      // every action silently no-ops and the turn countdown restarts.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.setState({
+        mode: 'online', isOnline: true, roomId: 'R1', myName: 'Alice',
+        status: 'playing', players: namedPlayers('Alice', 'Bob'), round: 3,
+      });
+
+      useGameStore.getState().leaveRoom();
+      expect(useGameStore.getState().mode, 'the user stays on the online join form').toBe('online');
+
+      mockOnHandlers['gameState']({
+        status: 'playing', round: 5, currentPlayerIndex: 0, finished: true,
+        players: [makeOnlinePlayer('Stranger')],
+      });
+
+      const state = useGameStore.getState();
+      expect(state.roomId).toBeNull();
+      expect(state.players).toEqual([]);
+      expect(state.finished).toBe(false);
+      expect(state.currentPlayerIndex).toBeNull();
+      expect(state.status).toBe('lobby');
+    });
   });
 
   // clearRoomState's contract: once a room is abandoned, nothing of that game
@@ -2807,7 +2873,7 @@ describe('useGameStore', () => {
       // This device once hosted with a custom config; the joined room runs
       // defaults. The differences are the ROOM'S existing settings, not
       // changes anybody made.
-      useGameStore.setState({ status: 'lobby', winningScore: 10000, ruleset: 'classic', toasts: [], roomStateSynced: false });
+      useGameStore.setState({ roomId: 'R1', status: 'lobby', winningScore: 10000, ruleset: 'classic', toasts: [], roomStateSynced: false });
 
       mockOnHandlers['gameState']({ status: 'lobby', winningScore: 6000, ruleset: 'modernized', players: [] });
 
@@ -2834,7 +2900,7 @@ describe('useGameStore', () => {
     it('toasts when the host changes the winning score in the lobby', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
-      useGameStore.setState({ status: 'lobby', winningScore: 6000 });
+      useGameStore.setState({ roomId: 'R1', status: 'lobby', winningScore: 6000 });
 
       mockOnHandlers['gameState']({ status: 'lobby', winningScore: 8000, players: [] });
 
@@ -2845,7 +2911,7 @@ describe('useGameStore', () => {
     it('toasts when the host turns on dice mode enforcement in the lobby', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
-      useGameStore.setState({ status: 'lobby', enforcedDiceMode: null });
+      useGameStore.setState({ roomId: 'R1', status: 'lobby', enforcedDiceMode: null });
 
       mockOnHandlers['gameState']({ status: 'lobby', enforcedDiceMode: 'digital', players: [] });
 
@@ -2856,7 +2922,7 @@ describe('useGameStore', () => {
     it('toasts when the host turns off dice mode enforcement in the lobby', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
-      useGameStore.setState({ status: 'lobby', enforcedDiceMode: 'physical' });
+      useGameStore.setState({ roomId: 'R1', status: 'lobby', enforcedDiceMode: 'physical' });
 
       mockOnHandlers['gameState']({ status: 'lobby', enforcedDiceMode: null, players: [] });
 
@@ -2885,7 +2951,7 @@ describe('useGameStore', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
       const s = useGameStore.getState();
-      useGameStore.setState({ status: 'lobby', enforcedDiceMode: 'physical', toasts: [] });
+      useGameStore.setState({ roomId: 'R1', status: 'lobby', enforcedDiceMode: 'physical', toasts: [] });
 
       // Every other lobby-diffed field must also match the current state,
       // or its own toast fires and masks what this test is checking.
@@ -2901,7 +2967,7 @@ describe('useGameStore', () => {
     it('toasts when the host switches the ruleset in the lobby', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
-      useGameStore.setState({ status: 'lobby', ruleset: 'modernized', toasts: [] });
+      useGameStore.setState({ roomId: 'R1', status: 'lobby', ruleset: 'modernized', toasts: [] });
 
       mockOnHandlers['gameState']({ status: 'lobby', ruleset: 'classic', players: [] });
 
@@ -2914,7 +2980,7 @@ describe('useGameStore', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
       const s = useGameStore.getState();
-      useGameStore.setState({ status: 'lobby', ruleset: 'classic', toasts: [] });
+      useGameStore.setState({ roomId: 'R1', status: 'lobby', ruleset: 'classic', toasts: [] });
 
       mockOnHandlers['gameState']({
         status: 'lobby', ruleset: 'classic', players: [],
@@ -2931,6 +2997,8 @@ describe('useGameStore', () => {
     it('only applies known game-state fields from the server, ignoring anything else in the payload', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
+      // setMode spreads clearRoomState, so the seat has to come after it.
+      useGameStore.setState({ roomId: 'R1' });
       const originalStartGame = useGameStore.getState().startGame;
 
       // A compromised/buggy server sending an extra, unexpected key (here,

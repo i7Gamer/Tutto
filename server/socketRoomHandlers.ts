@@ -355,6 +355,15 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       // roomId is later deleted and reused by strangers, that tab would
       // silently stream THEIR room state too.
       if (existingPlayer.socketId && existingPlayer.socketId !== socket.id) {
+        // Tell it first. Leaving the channel silently left the orphan holding
+        // roomId, myName, isHost and a full roster on a socket that still
+        // looks healthy — so every event it sent hit a silent early return
+        // (isHost || isActivePlayer, the seat lookups, endGameStats). The user
+        // could open the dice panel, roll and commit turns into a void while
+        // the server's turn timer ran out on the seat they thought they were
+        // playing. Its own event rather than 'kicked': the teardown is the
+        // same, but nobody kicked them.
+        io.to(existingPlayer.socketId).emit('seatTakenOver');
         io.sockets.sockets.get(existingPlayer.socketId)?.leave(roomChannel(roomId));
       }
       if (room.host === existingPlayer.socketId) room.host = socket.id;

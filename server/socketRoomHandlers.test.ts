@@ -99,6 +99,36 @@ describe('joinRoom vs a disconnect during its stats await', () => {
     expect(oldSocket.leave).toHaveBeenCalledWith(roomChannel('TAKEOVER-ROOM'));
     expect(rooms['TAKEOVER-ROOM'].state.players[0].socketId).toBe('new-sock');
   });
+
+  it('tells the superseded socket it lost the seat, instead of dropping it in silence', async () => {
+    // Removing it from the channel is only half the job. The orphan keeps its
+    // roomId, myName, isHost and a full roster, and its socket stays healthy —
+    // so every event it sends now hits a silent early return (isHost ||
+    // isActivePlayer, the seat lookups, endGameStats). The user can open the
+    // dice panel, roll, and commit turns into a void while the server's turn
+    // timer runs out on the seat they think they are playing.
+    vi.mocked(getDeviceStats).mockResolvedValue(null);
+
+    const oldSocket = { leave: vi.fn() };
+    const { io, emit } = makeFakeIo({ 'old-sock': oldSocket });
+    const first = makeFakeSocket('old-sock');
+    registerRoomHandlers({ io, socket: first.socket, session: { roomId: null, username: null } });
+    const cb1 = vi.fn();
+    first.handlers['joinRoom']({ roomId: 'TAKEOVER-NOTIFY', name: 'Alice', deviceId: 'dev-same' }, cb1);
+    await vi.waitFor(() => expect(cb1).toHaveBeenCalled());
+
+    const second = makeFakeSocket('new-sock');
+    registerRoomHandlers({ io, socket: second.socket, session: { roomId: null, username: null } });
+    const cb2 = vi.fn();
+    second.handlers['joinRoom']({ roomId: 'TAKEOVER-NOTIFY', name: 'Alice', deviceId: 'dev-same' }, cb2);
+    await vi.waitFor(() => expect(cb2).toHaveBeenCalled());
+
+    // Addressed to the superseded socket specifically, and sent before it is
+    // removed from the channel — io.to(id) reaches it either way, but the
+    // ordering keeps the two halves of "you are out" together.
+    expect(io.to).toHaveBeenCalledWith('old-sock');
+    expect(emit).toHaveBeenCalledWith('seatTakenOver');
+  });
 });
 
 // Emits a join and resolves once its ack fires — a handler that never acks

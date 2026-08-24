@@ -106,6 +106,7 @@
   "game.playerDisconnected": "{{name}} hat die Verbindung verloren! {{seconds}} Sekunden Zeit zum Wiederverbinden.",
   "game.playerDisconnectedNoTimeout": "{{name}} hat die Verbindung verloren!",
   "game.kickedByHost": "Du wurdest vom Host entfernt",
+  "game.seatTakenOver": "Dieses Gerät ist dem Raum woanders beigetreten, deshalb hat dieses Fenster ihn verlassen.",
   "game.resumingDiceGame": "Dein Würfelspiel wird fortgesetzt...",
   "game.toastWinningScore": "Siegpunktzahl: {{value}}",
   "game.toastTurnTimer": "Zug-Timer: {{value}}",

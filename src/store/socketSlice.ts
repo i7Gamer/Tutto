@@ -140,7 +140,19 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     // local persistence subscriber would immediately write to disk. Every
     // teardown path upholds this invariant on its own; the guard makes it
     // structural instead of distributed.
-    if (get().mode !== 'online') return;
+    //
+    // roomId as well as mode, because the mode check alone cannot see a leave
+    // that stays online: clearRoomState contains neither `mode` nor
+    // `isOnline`, and four of leaveRoom's five call sites deliberately keep
+    // the user in online mode on the join form. The server only drops the
+    // socket from the channel when it processes the leave, so a broadcast
+    // emitted during that round trip still arrives — and restoring
+    // players/finished/currentPlayerIndex is enough for App.tsx to route back
+    // into Game/EndScreen over a store with no room, where every action
+    // silently no-ops and syncOnlineTimers restarts the countdown that was
+    // just stopped. roomId is set in the same tick as mode on the way in (the
+    // joinRoom ack), so this closes a window rather than opening one.
+    if (get().mode !== 'online' || !get().roomId) return;
     const wasFinished = get().finished;
     set((prev) => {
       const wasDisconnected = prev.showReconnectPopup;
@@ -278,17 +290,31 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     set({ liveTurnState: payload.liveTurnState });
   });
 
-  sock.on('kicked', () => {
-    get().addToast(i18n.t('game.kickedByHost', 'You were kicked by the host'));
+  // Losing the seat, whichever way it happened: say why, then tear the room
+  // down. Mirrors leaveRoom's reset (see its comment): setMode('local') below
+  // only overwrites the keys a saved local game happens to contain, so without
+  // clearing the online room's roster/game state here too, it bleeds into
+  // local mode whenever there's no local save to overwrite it.
+  const surrenderSeat = (message: string): void => {
+    get().addToast(message);
     get().stopOnlineTimers();
     sessionStore.remove('tutto_online_session');
     clearTurnCaches();
-    // Mirrors leaveRoom's reset (see its comment): setMode('local') below
-    // only overwrites the keys a saved local game happens to contain, so
-    // without clearing the online room's roster/game state here too, it
-    // bleeds into local mode whenever there's no local save to overwrite it.
     set(clearRoomState());
     get().setMode('local');
+  };
+
+  sock.on('kicked', () => {
+    surrenderSeat(i18n.t('game.kickedByHost', 'You were kicked by the host'));
+  });
+
+  // The same device joined again from somewhere else (a second tab, the app
+  // reopened) and the server moved the seat to that connection. Without this
+  // the superseded tab kept a full-looking room whose every action silently
+  // did nothing.
+  sock.on('seatTakenOver', () => {
+    surrenderSeat(i18n.t('game.seatTakenOver',
+      'This device joined the room from somewhere else, so this window left it.'));
   });
 
   sock.on('gameAborted', () => {

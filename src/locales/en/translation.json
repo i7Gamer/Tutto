@@ -106,6 +106,7 @@
   "game.playerDisconnected": "{{name}} disconnected! They have {{seconds}} seconds to reconnect.",
   "game.playerDisconnectedNoTimeout": "{{name}} disconnected!",
   "game.kickedByHost": "You were kicked by the host",
+  "game.seatTakenOver": "This device joined the room from somewhere else, so this window left it.",
   "game.resumingDiceGame": "Resuming your dice game...",
   "game.toastWinningScore": "Winning score: {{value}}",
   "game.toastTurnTimer": "Turn timer: {{value}}",
