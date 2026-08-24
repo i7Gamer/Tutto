@@ -279,6 +279,11 @@ export const makeFakeSocket = (id: string) => {
   const socket = {
     id,
     connected: true,
+    // socket.io always provides this, and handlers read it (getClientAddress,
+    // for the per-address room cap). Leaving it off made every handler that
+    // touched it throw inside safeOn, which logs and swallows — so the ack
+    // never fired and the test failed as a timeout, blaming the wrong thing.
+    handshake: { address: '127.0.0.1', headers: {} },
     join: vi.fn(),
     leave: vi.fn(),
     emit: vi.fn(),

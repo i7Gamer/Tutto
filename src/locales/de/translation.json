@@ -196,6 +196,7 @@
   "lobby.online.joinError.nameTaken": "Dieser Name ist in diesem Raum schon vergeben.",
   "lobby.online.joinError.gameRunning": "Das Spiel läuft bereits. Ein Beitritt mitten im Spiel ist nicht möglich.",
   "lobby.online.joinError.roomFull": "Dieser Raum ist voll.",
+  "lobby.online.joinError.tooManyRooms": "Von deiner Verbindung sind bereits zu viele Räume offen. Schließe einen, bevor du einen neuen erstellst.",
   "lobby.online.recentRooms": "Letzte Räume",
   "lobby.online.forgetRoom": "Aus der Liste entfernen",
   "lobby.online.room": "Raum: {{roomId}}",

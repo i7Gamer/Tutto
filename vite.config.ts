@@ -170,6 +170,11 @@ export default defineConfig(({ mode }) => {
         // processes too (they spread process.env). The limiter itself is
         // covered by dedicated tests that set a low limit explicitly.
         SOCKET_CONN_LIMIT_MAX: '1000000',
+        // Same reason, for the per-address room cap (rooms.ts): every room a
+        // suite creates is created from 127.0.0.1, so the 20-room default
+        // would refuse the 21st. socketRoomAddressCap.test.ts sets its own
+        // low value explicitly, which is where the cap is actually covered.
+        MAX_ROOMS_PER_ADDRESS: '1000000',
       }
     }
   }

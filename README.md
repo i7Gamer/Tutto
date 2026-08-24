@@ -147,6 +147,7 @@ All configuration is environment variables — the image contains no `.env` file
 | `PORT` | no | `3001` | Port inside the container. |
 | `TRUST_PROXY` | no | unset | Set to `1` **only** when the server sits behind exactly one reverse proxy: per-IP rate limiting then reads real client addresses from `X-Forwarded-For`. Leave unset for a directly exposed server (including LAN play) — trusting the header there would let clients forge their own rate-limit identities. A production start without it logs a one-line reminder. |
 | `SOCKET_CONN_LIMIT_MAX` | no | `30` | Per-IP cap on new WebSocket connections per 10-second window. Raise it only when one address legitimately stands for many players (e.g. a venue where everyone shares one NAT'd IP). |
+| `MAX_ROOMS_PER_ADDRESS` | no | `20` | Per-IP cap on rooms held open at once (the server holds 500 in total). Stops one client parking every slot with rooms whose players have "dropped", which would make the server refuse everyone else. Raise it in the same situations as `SOCKET_CONN_LIMIT_MAX`. |
 | `DB_PATH` | no | `/data/stats.db` | Location of the SQLite database. Change it only if you mount the volume elsewhere. |
 | `TZ` | no | `UTC` | Affects timestamps in the container logs. |
 

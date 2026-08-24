@@ -55,6 +55,47 @@ export const MAX_PLAYERS_PER_ROOM = 100;
 // without bound. Far above any realistic concurrent-game count.
 export const MAX_ROOMS = 500;
 
+// Upper bound on rooms one client address may hold open at once.
+//
+// MAX_ROOMS bounds the total but said nothing about how many of those 500 a
+// single client could take. The one-room-per-device rule in joinRoom is no
+// help: deviceId is chosen by the client, so a scripted one just picks a fresh
+// value per room. Create a room with reconnectTimeout at its 3600s maximum
+// (joinRoom applies the joiner's initialConfig to the room it has just
+// created), hard-disconnect, and the seat's reconnect timer holds the room for
+// an hour — isAbandonedRoom refuses to free a room with a pending timer, and
+// nothing sweeps. At the connection limiter's ~3/s that is every slot on the
+// server in under three minutes, and every real player gets `server_full`
+// until the timers drain.
+//
+// Deliberately generous: a whole office or school behind one NAT may run
+// several concurrent games, and a deployment behind a reverse proxy that has
+// not declared TRUST_PROXY=1 sees every client as the proxy's address. Env
+// tunable for both of those, and for the test suites, whose rooms all arrive
+// from 127.0.0.1 (see vite.config.ts test.env and playwright.config.ts).
+export const MAX_ROOMS_PER_ADDRESS = 20;
+
+const envMaxRoomsPerAddress = (): number => {
+  const fromEnv = Number(process.env.MAX_ROOMS_PER_ADDRESS);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : MAX_ROOMS_PER_ADDRESS;
+};
+
+/**
+ * How many live rooms this address created.
+ *
+ * Counted off `rooms` on demand, for the same reason the one-room-per-device
+ * check is: a separate tally would have to be decremented on every path that
+ * removes a room (deleteRoom, the abandonment checks, a draining reconnect
+ * timer), and the one that got missed would leak the cap shut. An empty
+ * address is "not attributed" — a room seeded directly by a test — and counts
+ * for nobody.
+ */
+export const countRoomsCreatedBy = (address: string): number =>
+  address === '' ? 0 : Object.values(rooms).filter(r => r.createdBy === address).length;
+
+export const isAtRoomAddressCap = (address: string): boolean =>
+  countRoomsCreatedBy(address) >= envMaxRoomsPerAddress();
+
 /**
  * "No turn seen yet" for the pushState turn-change tracking.
  *
@@ -85,8 +126,12 @@ export const rememberCurrentTurn = (room: Room): void => {
   };
 };
 
-export const createRoom = (hostSocketId: string): Room => ({
+// createdBy is the client address that created the room, for the per-address
+// cap above. Defaults to '' — "not attributed" — so a room seeded directly by
+// a test counts against nobody.
+export const createRoom = (hostSocketId: string, createdBy = ''): Room => ({
   host: hostSocketId,
+  createdBy,
   gameActualStartTime: null,
   turnTimerState: null,
   // Null-prototype for the same reason `rooms` is: the keys are client-supplied

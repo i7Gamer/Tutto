@@ -199,6 +199,7 @@
   "lobby.online.joinError.nameTaken": "That name is already taken in this room.",
   "lobby.online.joinError.gameRunning": "The game has already started. You cannot join mid-game.",
   "lobby.online.joinError.roomFull": "This room is full.",
+  "lobby.online.joinError.tooManyRooms": "Too many rooms are already open from your connection. Close one before creating another.",
   "lobby.online.recentRooms": "Recent Rooms",
   "lobby.online.forgetRoom": "Remove from list",
   "lobby.online.room": "Room: {{roomId}}",

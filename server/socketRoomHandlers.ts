@@ -7,10 +7,11 @@ import { startServerTurnTimer, abortGameIfLowPlayers, scaledTimerMs } from './tu
 import type { ServerPlayer } from './roomTypes';
 import {
   rooms, createRoom, deleteRoom, handleActivePlayerRemoved, emitRoomState,
-  promoteHostAfterLoss, roomChannel, isAbandonedRoom, MAX_PLAYERS_PER_ROOM, MAX_ROOMS,
+  promoteHostAfterLoss, roomChannel, isAbandonedRoom, isAtRoomAddressCap,
+  MAX_PLAYERS_PER_ROOM, MAX_ROOMS,
 } from './rooms';
 import { createSocketEventLimiter } from './rateLimit';
-import { safeOn, type SocketContext } from './socketContext';
+import { safeOn, getClientAddress, type SocketContext } from './socketContext';
 import { assignPlayerColor } from './playerColor';
 
 const JOIN_ROOM_LIMIT = { windowMs: 10_000, max: 10 };
@@ -48,6 +49,7 @@ export const JOIN_REFUSAL_CODES = [
   'name_taken',
   'game_running',
   'room_full',
+  'too_many_rooms',
 ] as const;
 
 type JoinRefusal = typeof JOIN_REFUSAL_CODES[number];
@@ -288,7 +290,15 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       if (Object.keys(rooms).length >= MAX_ROOMS) {
         return refuse(callback, 'server_full', 'Server is full. Try again later.');
       }
-      rooms[roomId] = createRoom(socket.id);
+      // ...and refuse to let ONE address take an unbounded share of that cap.
+      // The one-room-per-device rule above cannot do this: deviceId is chosen
+      // by the client. See MAX_ROOMS_PER_ADDRESS in rooms.ts for the hold that
+      // makes the difference matter.
+      const clientAddress = getClientAddress(socket);
+      if (isAtRoomAddressCap(clientAddress)) {
+        return refuse(callback, 'too_many_rooms', 'Too many rooms are already open from your connection. Close one before creating another.');
+      }
+      rooms[roomId] = createRoom(socket.id, clientAddress);
 
       if (initialConfig && typeof initialConfig === 'object') {
         applyValidatedConfig(rooms[roomId].state, initialConfig);

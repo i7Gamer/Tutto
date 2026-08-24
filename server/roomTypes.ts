@@ -106,6 +106,10 @@ export interface StatsRecordedForGame {
 
 export interface Room {
   host: string;
+  // The client address this room was created from, for the per-address
+  // creation cap (countRoomsCreatedBy). '' means it was not attributed to
+  // any client — a room seeded directly by a test.
+  createdBy: string;
   state: RoomState;
   gameActualStartTime: number | null;
   turnTimerState: TurnTimerState | null;

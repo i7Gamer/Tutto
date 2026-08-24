@@ -49,6 +49,9 @@ export default defineConfig({
       // Every browser reaches the server from 127.0.0.1, so the per-IP socket
       // connection limiter would count them all as one client (socketHandlers.ts).
       SOCKET_CONN_LIMIT_MAX: '1000000',
+      // And they all CREATE rooms from that one address, which the
+      // per-address room cap (rooms.ts) would refuse past its default.
+      MAX_ROOMS_PER_ADDRESS: '1000000',
     },
     // Never reuse: a server already on this port is not known to be serving a
     // fresh build, and testing yesterday's dist is worse than not testing.
