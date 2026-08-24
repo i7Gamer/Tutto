@@ -168,6 +168,16 @@ describe('HelpPopup', () => {
       expect(pills.filter(pill => pill.classList.contains('wiki-pill-active'))).toHaveLength(1);
     });
 
+    it('marks the selected pill as current, not by colour alone', () => {
+      // wiki-pill-active is a class: which chapter is showing was visible
+      // information only.
+      const pills = openWiki();
+
+      const current = pills.filter(pill => pill.getAttribute('aria-current') === 'true');
+      expect(current).toHaveLength(1);
+      expect(current[0]).toHaveClass('wiki-pill-active');
+    });
+
     it('does not let the row stretch its pills', () => {
       // The real assertion is the e2e one (e2e/wiki.spec.js) — jsdom has no
       // layout. This guards the cause: a wrapping flex row stretches items to
@@ -237,6 +247,43 @@ describe('HelpPopup', () => {
   // rather than one pinned element, so a scroller added later without it
   // fails here. jsdom resolves no stylesheet, so that the utility actually
   // computes to `contain` is pinned in e2e/styling.spec.ts.
+  // The header was a plain button whose only open/closed cue was a swapped
+  // icon with no accessible name — nothing announced the state, and nothing
+  // tied the header to the panel it controls. Nothing was unreachable; what
+  // was missing is state feedback (WCAG 4.1.2 Level A).
+  describe('section headers report whether they are open', () => {
+    const openWiki = () => {
+      render(<HelpPopup />);
+      fireEvent.click(screen.getByTitle('help.buttonTitle'));
+    };
+
+    const sectionHeaders = (): HTMLElement[] =>
+      screen.getAllByRole('button').filter(b => b.hasAttribute('aria-expanded'));
+
+    it('gives every section header an aria-expanded state', () => {
+      openWiki();
+
+      const headers = sectionHeaders();
+      expect(headers.length, 'no section headers found — the selector has gone stale').toBeGreaterThan(0);
+      for (const header of headers) {
+        expect(['true', 'false']).toContain(header.getAttribute('aria-expanded'));
+      }
+    });
+
+    it('flips the state and points at the panel it opened', () => {
+      openWiki();
+      const [header] = sectionHeaders();
+      const wasOpen = header.getAttribute('aria-expanded') === 'true';
+
+      fireEvent.click(header);
+
+      expect(header.getAttribute('aria-expanded')).toBe(String(!wasOpen));
+      const controls = header.getAttribute('aria-controls');
+      expect(controls).toBeTruthy();
+      if (!wasOpen) expect(document.getElementById(controls!)).toBeInTheDocument();
+    });
+  });
+
   it('contains overscroll on every scroller it renders', () => {
     render(<HelpPopup />);
     fireEvent.click(screen.getByTitle('help.buttonTitle'));

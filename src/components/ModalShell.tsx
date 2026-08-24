@@ -48,6 +48,11 @@ interface ModalShellProps {
   onDismiss?: () => void;
   role?: 'dialog' | 'alertdialog';
   labelledBy?: string;
+  // For a dialog whose heading is not always rendered — the dice panel swaps
+  // its header out for the summary and the drawn-card reveal, so there is no
+  // stable id to point at. Ignored when labelledBy is given: a referenced
+  // heading is the more specific of the two.
+  label?: string;
   // Which control should hold focus once the dialog is up. Defaults to the
   // first focusable one, which is rarely the right choice for a destructive
   // confirm — those pass their Cancel button.
@@ -77,6 +82,7 @@ export default function ModalShell({
   onDismiss,
   role = 'dialog',
   labelledBy,
+  label,
   initialFocusRef,
   returnFocusRef,
   panelClassName = 'modal-panel modal-panel-card',
@@ -171,6 +177,7 @@ export default function ModalShell({
             tabIndex={-1}
             aria-modal="true"
             aria-labelledby={labelledBy}
+            aria-label={labelledBy ? undefined : label}
             className={panelClassName}
             onClick={e => e.stopPropagation()}
             onKeyDown={handleKeyDown}

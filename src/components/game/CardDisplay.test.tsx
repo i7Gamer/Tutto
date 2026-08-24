@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import CardDisplay from './CardDisplay';
 
@@ -33,6 +33,28 @@ describe('CardDisplay', () => {
     ])('renders card type %s with correct class', (cardType) => {
       const { container } = render(<CardDisplay currentCard={cardType} cards={[]} />);
       expect(container.querySelector(`.tutto-card.c-${cardType}`)).toBeInTheDocument();
+    });
+  });
+
+  describe('announcing the card', () => {
+    // CardFace names the card, which makes it inspectable — but a
+    // screen-reader user with focus elsewhere has no reason to go and read it,
+    // and the card decides the scoring rule for the whole turn. The live
+    // region is what turns a flip into something they are told about.
+    it('is a polite live region, so a flip is announced and not merely readable', () => {
+      render(<CardDisplay currentCard="Stop" cards={[]} />);
+
+      const region = screen.getByRole('status');
+      expect(region).toHaveAttribute('aria-live', 'polite');
+      expect(within(region).getByRole('img')).toHaveAccessibleName('Stop');
+    });
+
+    it('keeps the region mounted with no card, so the first draw is announced too', () => {
+      // A region that appears at the same moment as its content is not
+      // reliably announced — it has to be there before the change.
+      render(<CardDisplay currentCard={null} cards={[]} />);
+
+      expect(screen.getByRole('status')).toBeInTheDocument();
     });
   });
 });

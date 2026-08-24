@@ -76,6 +76,45 @@ describe('RoomQrScanner', () => {
     expect(screen.getByText('lobby.online.scanNotAnInvite')).toBeInTheDocument();
   });
 
+  // Both async channels rendered into plain <p>s. The insecure/unsupported
+  // messages are computed at mount, so those were only a discoverability nit;
+  // the genuinely silent transitions are starting → denied/no-camera/error
+  // once getUserMedia settles (the video just disappears) and the rejection
+  // the decode loop sets. Focus is on the scan toggle at that moment, outside
+  // this subtree, and the join form's live region watches a different value.
+  describe('announcing what the camera is doing', () => {
+    it('reports the status through a polite live region', () => {
+      scanner.status = 'starting';
+
+      renderScanner();
+
+      const region = screen.getByRole('status');
+      expect(region).toHaveAttribute('aria-live', 'polite');
+      expect(region).toHaveTextContent('lobby.online.scanStarting');
+    });
+
+    it('keeps the region mounted so a LATER failure is announced', () => {
+      // A region announced into existence alongside its own content is not
+      // reliably read out — it has to be there before the text changes.
+      const { rerender } = render(<RoomQrScanner onRoomScanned={vi.fn()} onClose={vi.fn()} />);
+      const before = screen.getByRole('status');
+
+      scanner.status = 'denied';
+      rerender(<RoomQrScanner onRoomScanned={vi.fn()} onClose={vi.fn()} />);
+
+      expect(screen.getByRole('status')).toBe(before);
+      expect(screen.getByRole('status')).toHaveTextContent('lobby.online.scanDenied');
+    });
+
+    it('announces a rejected code through the same region', () => {
+      renderScanner();
+
+      scan('WIFI:S=coffee;;');
+
+      expect(screen.getByRole('status')).toHaveTextContent('lobby.online.scanNotAnInvite');
+    });
+  });
+
   it('clears a rejection once a good code is scanned', () => {
     const onRoomScanned = renderScanner();
 

@@ -1,4 +1,5 @@
 import { localStore } from '../utils/storage';
+import { getDisplayCardName } from '../utils/cardVisuals';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../store/useGameStore';
@@ -667,6 +668,11 @@ export default function Game() {
       {showDiceGame && (
         <ModalShell
           open
+          // A direct name, not labelledBy: the panel's own <h2> is swapped out
+          // for the summary and the drawn-card reveal, so there is no id that
+          // is always there to point at. Same wording as that header, and the
+          // card matters — it decides the turn's whole scoring rule.
+          label={`${t('dice.title', 'Dice Game')} - ${getDisplayCardName(currentCard)}`}
           backdropClassName="modal-backdrop modal-backdrop-under-hud"
           panelClassName="w-full max-w-4xl rounded-3xl"
           motionProps={{

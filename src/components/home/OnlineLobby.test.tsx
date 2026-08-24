@@ -74,6 +74,34 @@ describe('OnlineLobby', () => {
     expect(screen.getByText('lobby.online.joinCreateButton')).toBeInTheDocument();
   });
 
+  // Neither label carried htmlFor, neither input an id, and neither input was
+  // nested inside its label — so the only accessible name each had was its
+  // placeholder. Clicking the visible "Room Code" text did not focus the
+  // field, and voice control could not target it by the words on screen
+  // (WCAG 2.5.3 was not even satisfiable: the accessible name shared no word
+  // with the visible label). This branch renders on every visit to online
+  // mode, invite links included.
+  it('gives both join inputs the accessible name their visible label shows', () => {
+    render(<OnlineLobby />);
+
+    expect(screen.getByLabelText('lobby.online.roomCode'))
+      .toBe(screen.getByPlaceholderText('lobby.online.roomCodePlaceholder'));
+    expect(screen.getByLabelText('lobby.online.yourName'))
+      .toBe(screen.getByPlaceholderText('lobby.online.yourNamePlaceholder'));
+  });
+
+  it('does not label the recent-rooms heading as a form control', () => {
+    // <label> for something that is not a control: the list has no control to
+    // label, so it is a heading.
+    stageStore({});
+    render(<OnlineLobby />);
+
+    const headings = screen.queryAllByText('lobby.online.recentRooms');
+    for (const el of headings) {
+      expect(el.tagName).not.toBe('LABEL');
+    }
+  });
+
   // The server caps both (joinRoom rejects an over-long name outright), so
   // without a maxLength the only feedback for typing past the limit was a
   // failed join after a round trip.

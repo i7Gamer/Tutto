@@ -1395,6 +1395,18 @@ describe('Game Component Integration', () => {
       expect(dialog).toContainElement(screen.getByTestId('mock-dice-game'));
     });
 
+    it('names the dice panel after the card being played', () => {
+      // aria-modal with no name announces a bare "dialog". A direct label
+      // rather than a referenced heading, because the panel's own <h2> is
+      // swapped out for the summary and the drawn-card reveal — there is no id
+      // that is always there to point at.
+      useGameStore.setState({ diceMode: 'digital', currentCard: 'Plus_Minus' });
+      render(<Game />);
+      fireEvent.click(screen.getByText('game.controls.rollDice'));
+
+      expect(screen.getByRole('dialog')).toHaveAccessibleName('dice.title - Plus/Minus');
+    });
+
     it('escape does not dismiss the dice panel', () => {
       // Once opened it auto-rolls immediately; there is no backing out of a
       // turn already in progress (the backdrop click above is refused for the

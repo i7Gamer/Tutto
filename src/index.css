@@ -259,3 +259,28 @@
   outline-offset: max(2px, 0.15em);
 }
 
+
+/*
+ * Reduce Motion.
+ *
+ * <MotionConfig reducedMotion="user"> in App.tsx covers everything framer-motion
+ * animates. It cannot see CSS: the Tailwind animate-* utilities (the bouncing
+ * "Tutto!", the spinners), the transitions declared in this file, and the
+ * keyframes on the card faces all run regardless. This is the other half —
+ * animations collapse to a single final frame rather than being removed, so
+ * anything that reveals itself by animating still ends up visible.
+ *
+ * Not `animation: none`: an element whose only path to its final state is a
+ * keyframe would be stuck at frame zero. A near-zero duration runs the whole
+ * thing within one frame instead.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

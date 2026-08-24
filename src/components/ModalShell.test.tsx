@@ -47,6 +47,29 @@ describe('ModalShell', () => {
     expect(dialog).toHaveAttribute('aria-labelledby', 'dialog-heading');
   });
 
+  // For the one caller whose heading is conditionally rendered: the dice
+  // panel swaps its header out for the summary and the drawn-card reveal, so
+  // an id to point at is not always there. Without either, a screen reader
+  // announces a bare "dialog".
+  it('takes a direct name for a dialog whose heading is not always rendered', () => {
+    render(<Dialog label="Dice Game - Kleeblatt" />);
+
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('Dice Game - Kleeblatt');
+  });
+
+  it('lets a referenced heading win over a direct name', () => {
+    // Both would be unusual, but aria-labelledby is the more specific of the
+    // two and must not be silently dropped if a caller passes each.
+    render(
+      <>
+        <h2 id="dialog-heading">Heading</h2>
+        <Dialog labelledBy="dialog-heading" label="ignored" />
+      </>
+    );
+
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('Heading');
+  });
+
   it('can announce itself as an alert dialog instead', () => {
     render(<Dialog role="alertdialog" />);
 

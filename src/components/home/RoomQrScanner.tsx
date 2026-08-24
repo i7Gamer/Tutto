@@ -65,16 +65,26 @@ export default function RoomQrScanner({ onRoomScanned, onClose }: RoomQrScannerP
         />
       ) : null}
 
-      {message && (
-        <p className="text-xs text-center text-gray-600 dark:text-gray-300 max-w-xs">
-          {t(message.key, message.fallback)}
-        </p>
-      )}
-      {rejection && (
-        <p className="text-xs text-center text-amber-600 dark:text-amber-400 max-w-xs">
-          {t(rejection.key, rejection.fallback)}
-        </p>
-      )}
+      {/* One always-mounted live region around both, following
+          CurrentRollBoard. Two of these transitions are genuinely silent
+          otherwise: starting → denied/no-camera/error once getUserMedia
+          settles (the video simply disappears), and the rejection the decode
+          loop sets. Focus at that moment is on the scan toggle, outside this
+          subtree, and the join form's live region is wired to a different
+          value. A region that appears together with its content is not
+          reliably announced, so it stays mounted and empty. */}
+      <div role="status" aria-live="polite" className="contents">
+        {message && (
+          <p className="text-xs text-center text-gray-600 dark:text-gray-300 max-w-xs">
+            {t(message.key, message.fallback)}
+          </p>
+        )}
+        {rejection && (
+          <p className="text-xs text-center text-amber-600 dark:text-amber-400 max-w-xs">
+            {t(rejection.key, rejection.fallback)}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

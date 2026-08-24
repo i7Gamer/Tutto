@@ -1,4 +1,5 @@
 import './card.css';
+import { getDisplayCardName } from '../../../utils/cardVisuals';
 import React from 'react';
 import type { CardType } from '../../../types';
 
@@ -238,8 +239,15 @@ const CARD_COMPONENTS: Record<CardType, React.FC> = {
 export default function CardFace({ cardType }: { cardType: CardType }) {
   const Content = CARD_COMPONENTS[cardType];
   if (!Content) return null;
+  // Every face below is pure CSS art. Three of them render no text node at all
+  // (Stop, Kleeblatt, Feuerwerk) and the rest expose ambiguous digits, so
+  // without a name here the card was invisible to a screen reader — and the
+  // card decides the entire scoring rule for the turn. Its name lived only in
+  // the dice panel's header, which is mounted only in digital mode with the
+  // panel open, so physical-dice mode had no way to reach it at all.
+  // getDisplayCardName rather than a literal, so the two surfaces cannot drift.
   return (
-    <div className={`tutto-card c-${cardType}`}>
+    <div className={`tutto-card c-${cardType}`} role="img" aria-label={getDisplayCardName(cardType)}>
       <Content />
     </div>
   );

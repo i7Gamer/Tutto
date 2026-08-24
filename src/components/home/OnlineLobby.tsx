@@ -48,6 +48,11 @@ interface OnlineLobbyProps {
   initialRoomCode?: string;
 }
 
+// Stable ids so each visible label can point at its own control. Named here
+// rather than inline so the label and the input cannot drift apart.
+const ROOM_CODE_INPUT_ID = 'online-lobby-room-code';
+const NAME_INPUT_ID = 'online-lobby-player-name';
+
 export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
   const { t, i18n } = useTranslation();
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -314,9 +319,15 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
         <h3 className="text-xl font-bold mb-4 text-center">{t('lobby.online.joinOrCreateRoom', 'Join or Create Room')}</h3>
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-200">{t('lobby.online.roomCode', 'Room Code')}</label>
+            {/* htmlFor/id, not proximity: without the association the only
+                accessible name either field had was its placeholder ("e.g.
+                1234"), clicking the visible label did not focus it, and voice
+                control could not target it by the words on screen — on the one
+                screen every multiplayer session starts from. */}
+            <label htmlFor={ROOM_CODE_INPUT_ID} className="text-sm font-medium text-gray-700 dark:text-gray-200">{t('lobby.online.roomCode', 'Room Code')}</label>
             <div className="flex items-stretch gap-2">
               <input
+                id={ROOM_CODE_INPUT_ID}
                 type="text"
                 value={inputRoomCode}
                 onChange={(e) => setInputRoomCode(e.target.value)}
@@ -344,8 +355,9 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
             )}
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-200">{t('lobby.online.yourName', 'Your Name')}</label>
+            <label htmlFor={NAME_INPUT_ID} className="text-sm font-medium text-gray-700 dark:text-gray-200">{t('lobby.online.yourName', 'Your Name')}</label>
             <input
+              id={NAME_INPUT_ID}
               ref={nameInputRef}
               type="text"
               value={inputName}
@@ -384,7 +396,10 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
 
           {recentRooms.length > 0 && (
             <div className="flex flex-col gap-2 mt-4 border-t border-gray-200 dark:border-slate-700 pt-4">
-              <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('lobby.online.recentRooms', 'Recent Rooms')}</label>
+              {/* A heading, not a label: it names the list below it, and a
+                  <label> that labels no control is exactly what a screen
+                  reader cannot make sense of. */}
+              <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('lobby.online.recentRooms', 'Recent Rooms')}</h4>
               <div className="flex flex-col gap-1">
                 {/* The row is two sibling buttons, not one with the remove
                     control nested inside it: a button inside a button is

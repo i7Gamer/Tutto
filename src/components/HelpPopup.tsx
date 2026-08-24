@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode, type RefObject } from 'react';
+import { scrollBehavior } from '../utils/reducedMotion';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HelpCircle, X, ChevronRight, ChevronDown } from 'lucide-react';
@@ -23,14 +24,20 @@ function Section({ title, id, isOpen, onToggle, children }: SectionProps) {
   
   useEffect(() => {
     if (isOpen && contentRef.current) {
-      contentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      contentRef.current.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
     }
   }, [isOpen]);
 
   return (
     <div className="mb-3 sm:mb-4 bg-gray-50 dark:bg-slate-800 rounded-lg sm:rounded-xl overflow-hidden border border-gray-100 dark:border-slate-700">
+      {/* The only cue that a section is open was a swapped icon with no
+          accessible name, so nothing announced the state or the relationship
+          to the panel below. The scanner toggle in OnlineLobby already does
+          this; the wiki did not. */}
       <button
         onClick={() => onToggle(id)}
+        aria-expanded={isOpen}
+        aria-controls={`${id}-panel`}
         className="w-full flex items-center justify-between px-3 py-3 sm:px-4 sm:py-4 bg-white dark:bg-slate-700/50 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
       >
         <span className="text-base sm:text-lg leading-none font-bold text-gray-800 dark:text-gray-100 pt-0.5">{title}</span>
@@ -44,7 +51,7 @@ function Section({ title, id, isOpen, onToggle, children }: SectionProps) {
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden border-t border-gray-100 dark:border-slate-700"
           >
-            <div ref={contentRef} className="p-3 sm:p-4 text-sm sm:text-base text-gray-600 dark:text-gray-300 space-y-3">
+            <div id={`${id}-panel`} ref={contentRef} className="p-3 sm:p-4 text-sm sm:text-base text-gray-600 dark:text-gray-300 space-y-3">
               {children}
             </div>
           </motion.div>
@@ -106,7 +113,7 @@ export default function HelpPopup() {
   useEffect(() => {
     if (activeSection !== 'cards' || !currentCard) return;
     const timer = setTimeout(() => {
-      activeCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      activeCardRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
     }, HELP_SECTION_OPEN_ANIMATION_MS);
     return () => clearTimeout(timer);
   }, [activeSection, currentCard]);
@@ -218,6 +225,9 @@ export default function HelpPopup() {
                       key={section.id}
                       data-testid="help-toc-pill"
                       onClick={() => setActiveSection(section.id)}
+                      // Selection was carried by a class alone, so which
+                      // chapter is showing was visible information only.
+                      aria-current={activeSection === section.id ? 'true' : undefined}
                       className={`wiki-pill ${activeSection === section.id ? 'wiki-pill-active' : 'wiki-pill-idle'}`}
                     >
                       {section.label}

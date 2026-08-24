@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
-import { render } from '@testing-library/react';
+import { render, within } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import CardFace from './CardFace';
+import { getDisplayCardName } from '../../../utils/cardVisuals';
 
 const ALL_CARD_TYPES = [
   'Kniffel', 'Plus_Minus', 'x2',
@@ -30,6 +31,34 @@ describe('CardFace', () => {
         expect(container.querySelector(`.tutto-card.c-${cardType}`)).toBeInTheDocument();
       }
     );
+  });
+
+  // Every face is pure CSS art in a bare div: three of them (Stop, Kleeblatt,
+  // Feuerwerk) contain no text node at all, and the rest expose ambiguous
+  // digits ('2000', '1000') or self-describing values. Neither caller added a
+  // name, and the card's name existed only in the dice panel's header — which
+  // is mounted only in digital mode with the panel open. Since the card
+  // decides the whole scoring rule for the turn, the game was unplayable
+  // non-visually in physical-dice mode. WCAG 1.1.1 Level A.
+  describe('accessible name', () => {
+    it.each(ALL_CARD_TYPES)('%s is exposed as an image named after the card', (cardType) => {
+      const { getByRole } = render(<CardFace cardType={cardType} />);
+
+      expect(getByRole('img')).toHaveAccessibleName(getDisplayCardName(cardType));
+    });
+
+    // The raw ids are 'Plus_Minus' and a bare '300'; getDisplayCardName is the
+    // single place that decides how those read, so the card and the dice
+    // panel's header cannot drift apart. Scoped with `within`, because both
+    // renders share one document and each card is a role="img".
+    it.each([
+      ['Plus_Minus', 'Plus/Minus'],
+      ['300', '300 Bonus'],
+    ])('names %s the way the dice panel header does', (cardType, expected) => {
+      const { container } = render(<CardFace cardType={cardType} />);
+
+      expect(within(container).getByRole('img')).toHaveAccessibleName(expected);
+    });
   });
 
   describe('structural elements present on every card', () => {

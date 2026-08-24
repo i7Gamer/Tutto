@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sun, Moon } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, MotionConfig } from 'framer-motion';
 import { useGameStore } from './store/useGameStore';
 import { warnAboutRecentCrash } from './utils/crashLog';
 import { TOAST_LIFETIME_MS, JOIN_TIMEOUT_MS } from './utils/uiTimings';
@@ -67,6 +67,12 @@ function ToastMessage() {
   );
 }
 
+// Both popups announce themselves by their own heading. Without a name a
+// screen reader reads only "dialog" — and for the restore prompt, answering
+// "No" gives up the seat.
+const RECONNECT_TITLE_ID = 'reconnect-popup-title';
+const RESTORE_TITLE_ID = 'restore-session-popup-title';
+
 function ReconnectPopup() {
   const showReconnectPopup = useGameStore(state => state.showReconnectPopup);
   const cancelReconnect = useGameStore(state => state.cancelReconnect);
@@ -76,11 +82,11 @@ function ReconnectPopup() {
   // No onDismiss: this reports a state the player cannot walk away from, so
   // neither Escape nor a click outside may quietly close it.
   return (
-    <ModalShell open={showReconnectPopup}>
+    <ModalShell open={showReconnectPopup} labelledBy={RECONNECT_TITLE_ID}>
         <div className="text-amber-500 mb-4 flex justify-center">
           <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.578"/><path d="M22.016 11.664v-1.664h-1.664"/><path d="M2.383 14.156a10.742 10.742 0 0 1-1.074-6.49M2.08 7.666v1.665h1.665"/><path d="M7 16l-3.32-3.32"/><path d="M20.32 8.68L17 12"/><path d="m2 2 20 20"/></svg>
         </div>
-        <h3 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">{t('home.reconnect.title', 'Connection Lost')}</h3>
+        <h3 id={RECONNECT_TITLE_ID} className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">{t('home.reconnect.title', 'Connection Lost')}</h3>
         <p className="text-gray-600 dark:text-gray-400 mb-6">{t('home.reconnect.description', 'You have lost connection to the server. Attempting to automatically reconnect...')}</p>
         <div className="flex flex-col gap-3">
           <button
@@ -109,11 +115,11 @@ function RestoreSessionPopup() {
   if (!pendingReconnectSession) return null;
 
   return (
-    <ModalShell open>
+    <ModalShell open labelledBy={RESTORE_TITLE_ID}>
         <div className="text-indigo-500 mb-4 flex justify-center">
           <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m19 19-4-4m0-7A7 7 0 1 1 5.1 8a7 7 0 0 1 9.9 0z"/></svg>
         </div>
-        <h3 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">{t('home.restore.title', 'Ongoing Game Found')}</h3>
+        <h3 id={RESTORE_TITLE_ID} className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">{t('home.restore.title', 'Ongoing Game Found')}</h3>
         <p className="text-gray-600 dark:text-gray-400 mb-6">{t('home.restore.description', 'You were recently in an online room ({{roomId}}). Do you want to reconnect?', { roomId: pendingReconnectSession.roomId })}</p>
         <div className="flex flex-col gap-3">
           <button
@@ -203,8 +209,13 @@ export default function App() {
     setTheme(theme === 'light' ? 'dark' : 'light');
   };
 
+  // framer-motion's own default is reducedMotion: "never", so nothing in the
+  // app honoured the OS setting: six dice tumbling 360° on every roll, a
+  // bouncing "Tutto!", floating reaction emoji. "user" makes every motion
+  // component here respect it, and the stylesheet covers the CSS animations
+  // framer-motion never sees.
   return (
-    <>
+    <MotionConfig reducedMotion="user">
       <div style={{ position: 'fixed', bottom: '1rem', right: '1rem', zIndex: 100, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
         <LanguageSwitcher />
         <button className="theme-toggle" onClick={toggleTheme} aria-label={t('app.toggleTheme', 'Toggle theme')} style={{ background: 'var(--card-bg)', boxShadow: 'var(--shadow-md)' }}>
@@ -228,6 +239,6 @@ export default function App() {
       ) : (
         <Home onShowStats={() => setShowStats(true)} />
       )}
-    </>
+    </MotionConfig>
   );
 }
