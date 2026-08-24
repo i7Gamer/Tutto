@@ -353,16 +353,36 @@ export const validatePushedPlayers = (existing: ServerPlayer[], pushed: unknown[
   return pushed.every(p => typeof p === 'object' && p !== null && existingNames.has((p as { name?: string }).name ?? ''));
 };
 
+/**
+ * The only PLAYER_MUTABLE fields one player's push may change on ANOTHER seat.
+ *
+ * A seated player is authorized to push on their own turn, and the merge below
+ * used to apply every mutable field to every seat the push named — so one
+ * player could rewrite the whole table's counters and records, bounded only by
+ * MAX_SCORE_MAGNITUDE. The poison self-propagates, because the next honest
+ * player re-pushes the roster it just synced, and it is finally committed by
+ * each victim's OWN unmodified client at game end, which submits its own entry
+ * for its own deviceId and is therefore accepted.
+ *
+ * These two are the whole legitimate cross-seat surface: the classic and
+ * modernized Plus/Minus branches, and their undo, are the only places
+ * coreGameEngine writes to a player other than the one taking the turn.
+ */
+const PLAYER_CROSS_SEAT_MUTABLE: (keyof ServerPlayer)[] = ['score', 'times1000PointsDeducted'];
+
 const mergeMutable = (
   existing: ServerPlayer,
   p: Record<string, unknown> | undefined,
   // Only a game start may read an absent optional record as "cleared" — see
-  // PLAYER_OPTIONAL_RECORDS.
-  { clearAbsentRecords = false }: { clearAbsentRecords?: boolean } = {},
+  // PLAYER_OPTIONAL_RECORDS. ownSeat false narrows the writable set to
+  // PLAYER_CROSS_SEAT_MUTABLE; it defaults to true so the host path, which
+  // legitimately rebuilds the whole roster, keeps its existing behaviour.
+  { clearAbsentRecords = false, ownSeat = true }: { clearAbsentRecords?: boolean; ownSeat?: boolean } = {},
 ): ServerPlayer => {
   if (!p) return existing;
   const updated = { ...existing };
-  for (const f of PLAYER_MUTABLE) {
+  const writable = ownSeat ? PLAYER_MUTABLE : PLAYER_CROSS_SEAT_MUTABLE;
+  for (const f of writable) {
     if (!(f in p)) {
       if (clearAbsentRecords && PLAYER_OPTIONAL_RECORDS.includes(f)) {
         delete (updated as Record<string, unknown>)[f];
@@ -399,7 +419,24 @@ export const applyPushedState = (
   // (lobby, or the push that starts the game) — it must not be derived from
   // state.status inside the field loop below, because 'status' is the first
   // Set entry and has already been overwritten by the time later keys apply.
-  { isHost, startingGame, allowRulesetWrite = false }: { isHost: boolean; startingGame: boolean; allowRulesetWrite?: boolean },
+  {
+    isHost,
+    startingGame,
+    allowRulesetWrite = false,
+    pusherName,
+  }: {
+    isHost: boolean;
+    startingGame: boolean;
+    allowRulesetWrite?: boolean;
+    // The seat the sender occupies, read by the caller BEFORE this function
+    // mutates anything — currentPlayerIndex is itself a pushable field, so
+    // re-deriving it inside the loop below would read a value the same push
+    // had already moved. Required rather than optional: a non-host push may
+    // only write PLAYER_CROSS_SEAT_MUTABLE on other seats, and a defaulted
+    // value would fail open. null means "no seat", which is treated as
+    // strictly as a foreign one. The host path ignores it.
+    pusherName: string | null;
+  },
 ): boolean => {
   const allowedFields = isHost ? ALL_FIELDS : ACTIVE_PLAYER_FIELDS;
 
@@ -435,7 +472,9 @@ export const applyPushedState = (
         );
       } else {
         state.players = state.players.map(existing =>
-          mergeMutable(existing, pushed.find(q => q.name === existing.name)),
+          mergeMutable(existing, pushed.find(q => q.name === existing.name), {
+            ownSeat: isHost || existing.name === pusherName,
+          }),
         );
       }
     } else if (key === 'winningScore') {

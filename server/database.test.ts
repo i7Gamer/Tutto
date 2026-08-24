@@ -3,6 +3,7 @@ process.env.TEST_DB = 'true';
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import database, { RECORD_COLUMNS } from './database';
+import { sanitizeStats } from './sanitize';
 import { DB_INIT_TIMEOUT_MS } from './testTimeouts';
 
 describe('Database Statistics Integration', () => {
@@ -136,6 +137,27 @@ describe('Database Statistics Integration', () => {
     
     globalStats = await database.getGlobalStats();
     expect(globalStats.fastestWinTurns).toBe(currentFastestGlobal);
+  });
+
+  // The consequence H1 was actually worth fixing for: sqlite binds false as
+  // integer 0, and every record column merges through nullSafeExtreme — so a
+  // boolean that reached the database pinned a MIN record at 0 permanently.
+  // Driven through sanitizeStats, which is what both the socket and the HTTP
+  // routes put in front of these functions.
+  it('cannot pin a MIN record at zero with a boolean, in either scope', async () => {
+    const mockDeviceId = 'test-bool-min-device-' + Date.now();
+
+    await database.updateDeviceStats(mockDeviceId, sanitizeStats({ gamesPlayed: 1, fastestWinTurns: 7 }));
+    expect((await database.getDeviceStats(mockDeviceId)).fastestWinTurns).toBe(7);
+
+    await database.updateDeviceStats(mockDeviceId, sanitizeStats({ gamesPlayed: 1, fastestWinTurns: false }));
+    expect((await database.getDeviceStats(mockDeviceId)).fastestWinTurns).toBe(7);
+
+    await database.updateGlobalStats(sanitizeStats({ gamesPlayed: 1, fastestWinTurns: 4 }));
+    const globalBefore = (await database.getGlobalStats()).fastestWinTurns;
+
+    await database.updateGlobalStats(sanitizeStats({ gamesPlayed: 1, fastestWinTurns: false }));
+    expect((await database.getGlobalStats()).fastestWinTurns).toBe(globalBefore);
   });
 
   it('should not overwrite highestTurnScore with null in device stats', async () => {

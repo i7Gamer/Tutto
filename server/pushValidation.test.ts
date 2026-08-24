@@ -40,9 +40,12 @@ const makeState = (playerNames: string[] = ['Alice', 'Bob']): RoomState => {
   return state;
 };
 
-const asHost = { isHost: true, startingGame: false };
-const asActivePlayer = { isHost: false, startingGame: false };
-const asHostStarting = { isHost: true, startingGame: true };
+// pusherName is the seat the sender occupies. The host path ignores it (a host
+// already writes every field), so the two host fixtures pass null; the active
+// player is Alice throughout, which is what makes Bob a FOREIGN seat below.
+const asHost = { isHost: true, startingGame: false, pusherName: null };
+const asActivePlayer = { isHost: false, startingGame: false, pusherName: 'Alice' };
+const asHostStarting = { isHost: true, startingGame: true, pusherName: null };
 
 describe('applyPushedState', () => {
   it('accepts every stat a player accumulates', () => {
@@ -254,6 +257,10 @@ describe('applyPushedState', () => {
       expect(state.players[1].disconnected).toBe(false);
     });
 
+    // Driven on the host path so it tests the colour SHAPE check and nothing
+    // else: on the active-player path a foreign seat's colour is refused for
+    // being foreign, which would leave the malformed-value half of this
+    // assertion passing for a reason that has nothing to do with the regex.
     it('accepts a valid color and rejects a malformed one', () => {
       const state = makeState();
       applyPushedState(state, {
@@ -261,9 +268,107 @@ describe('applyPushedState', () => {
           { name: 'Alice', color: '#123abc' },
           { name: 'Bob', color: 'red' },
         ],
-      }, asActivePlayer);
+      }, asHost);
       expect(state.players[0].color).toBe('#123abc');
       expect(state.players[1].color).toBe('#ff0000');
+    });
+
+    // A seated player is authorized to push on their own turn, and the merge
+    // then applied every mutable field to EVERY seat they named — so one
+    // player could rewrite the whole table's counters and records. The poison
+    // self-propagates (the next honest push re-sends the roster it synced) and
+    // is finally committed by each victim's own unmodified client at game end,
+    // which submits its own entry for its own device. Only score and
+    // times1000PointsDeducted move across seats under the rules: the classic
+    // and modernized Plus/Minus branches, and their undo, are the sole places
+    // the engine writes to a player other than the one taking the turn.
+    describe('a non-host push may only touch its own seat', () => {
+      it('refuses another seat\'s counters, records and identity fields', () => {
+        const state = makeState();
+        Object.assign(state.players[1], { busts: 2, highestTurnScore: 400, position: 1 });
+
+        applyPushedState(state, {
+          players: [
+            { name: 'Alice', score: 100 },
+            {
+              name: 'Bob',
+              busts: 99,
+              totalTurns: 50,
+              timesKniffelCompleted: 12,
+              highestTurnScore: 1_000_000,
+              mostCardsInTurn: 9,
+              position: 0,
+              color: '#00ff00',
+            },
+          ],
+        }, asActivePlayer);
+
+        expect(state.players[1].busts).toBe(2);
+        expect(state.players[1].totalTurns).toBe(0);
+        expect(state.players[1].timesKniffelCompleted).toBe(0);
+        expect(state.players[1].highestTurnScore).toBe(400);
+        expect(state.players[1].mostCardsInTurn).toBeUndefined();
+        expect(state.players[1].position).toBe(1);
+        expect(state.players[1].color).toBe('#ff0000');
+        expect(state.players[0].score, 'the pusher\'s own push still lands').toBe(100);
+      });
+
+      it('still lets a Plus/Minus deduct another seat\'s score and deduction count', () => {
+        const state = makeState();
+        state.players[1].score = 3000;
+
+        applyPushedState(state, {
+          players: [
+            { name: 'Alice', score: 1000, timesPlusMinusCompleted: 1 },
+            { name: 'Bob', score: 2000, times1000PointsDeducted: 1 },
+          ],
+        }, asActivePlayer);
+
+        expect(state.players[1].score).toBe(2000);
+        expect(state.players[1].times1000PointsDeducted).toBe(1);
+      });
+
+      it('leaves every mutable field writable on the pusher\'s own seat', () => {
+        const state = makeState();
+        const accumulated = Object.fromEntries(PLAYER_STAT_FIELDS.map((field, i) => [field, i + 1]));
+
+        applyPushedState(state, {
+          players: [
+            { name: 'Alice', ...accumulated, highestTurnScore: 700, mostCardsInTurn: 4, color: '#123abc' },
+            { name: 'Bob' },
+          ],
+        }, asActivePlayer);
+
+        for (const [field, value] of Object.entries(accumulated)) {
+          expect(state.players[0][field as keyof ServerPlayer], field).toBe(value);
+        }
+        expect(state.players[0].highestTurnScore).toBe(700);
+        expect(state.players[0].mostCardsInTurn).toBe(4);
+        expect(state.players[0].color).toBe('#123abc');
+      });
+
+      it('treats every seat as foreign when the pusher has no seat', () => {
+        // Fails closed rather than open: an unnamed pusher gets the narrow
+        // allow-list everywhere, never the full one.
+        const state = makeState();
+        applyPushedState(state, {
+          players: [{ name: 'Alice', score: 100, busts: 9 }, { name: 'Bob' }],
+        }, { isHost: false, startingGame: false, pusherName: null });
+
+        expect(state.players[0].score).toBe(100);
+        expect(state.players[0].busts).toBe(0);
+      });
+
+      it('does not restrict the host, who already writes every field', () => {
+        const state = makeState();
+        applyPushedState(state, {
+          players: [{ name: 'Alice' }, { name: 'Bob', busts: 4, highestTurnScore: 800, position: 3 }],
+        }, asHost);
+
+        expect(state.players[1].busts).toBe(4);
+        expect(state.players[1].highestTurnScore).toBe(800);
+        expect(state.players[1].position).toBe(3);
+      });
     });
 
     it('adopts the pushed order when starting a game with a strict permutation', () => {

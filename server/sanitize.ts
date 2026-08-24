@@ -60,13 +60,29 @@ const MIN_ONE_STATS_FIELDS = new Set(['fastestWinTurns', 'fastestLossTurns']);
 // and average built on it. Counters and records stay non-negative.
 const NEGATIVE_ALLOWED_STATS_FIELDS = new Set(['totalScore']);
 
+// The only field on GlobalStatsPayload that is legitimately a boolean; every
+// other one is a number or null. A boolean anywhere else used to be waved
+// through UNCLAMPED, because that branch ran before the floors below —
+// node-sqlite3 then binds false as integer 0 and RECORD_COLUMNS merges it with
+// MIN, so `fastestWinTurns: false` pinned the best-ever turn count at 0 with no
+// path back short of editing the database. Dropped rather than coerced to 0/1,
+// on the same reasoning as the array case below: no legitimate client sends a
+// boolean for a counter, so one arriving is a malformed payload.
+const BOOLEAN_STATS_FIELDS = new Set(['isDefaultGame']);
+
 export type SanitizedStats = Record<string, number | boolean | null>;
 
 export const sanitizeStats = (raw: unknown): SanitizedStats => {
   if (!raw || typeof raw !== 'object') return {};
   const clean: SanitizedStats = {};
   for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof val === 'boolean' || val === null) {
+    if (typeof val === 'boolean') {
+      if (BOOLEAN_STATS_FIELDS.has(key)) clean[key] = val;
+      continue;
+    }
+    // Kept for every key: null is the record columns' "no record yet", and
+    // nullSafeExtreme is built to leave the stored value alone when it sees one.
+    if (val === null) {
       clean[key] = val;
       continue;
     }

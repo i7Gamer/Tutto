@@ -52,7 +52,14 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
     // still carry it (it mirrors the lobby config it was started from).
     const allowRulesetWrite = startingGame || room.state.status === 'lobby';
 
-    const applied = applyPushedState(room.state, newState, { isHost, startingGame, allowRulesetWrite });
+    // Resolved from the socket rather than from currentPlayerIndex at merge
+    // time: that index is itself a pushable field, so by the time the roster
+    // is merged this same push may already have advanced it to the next seat.
+    // Looked up over the whole roster, not just activePlayer, so it stays
+    // correct if the host ever loses its blanket roster authority.
+    const pusherName = room.state.players.find(p => p.socketId === socket.id)?.name ?? null;
+
+    const applied = applyPushedState(room.state, newState, { isHost, startingGame, allowRulesetWrite, pusherName });
 
     // Gated on the push having landed, and therefore only readable AFTER it:
     // applyPushedState discards a whole snapshot whose roster no longer

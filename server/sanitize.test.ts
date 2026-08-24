@@ -12,8 +12,33 @@ describe('sanitizeStats', () => {
     expect(sanitizeStats(42)).toEqual({});
   });
 
-  it('passes through booleans (e.g. isDefaultGame)', () => {
-    expect(sanitizeStats({ isDefaultGame: true, other: false })).toEqual({ isDefaultGame: true, other: false });
+  it('passes through isDefaultGame, the one field that is legitimately a boolean', () => {
+    expect(sanitizeStats({ isDefaultGame: true })).toEqual({ isDefaultGame: true });
+    expect(sanitizeStats({ isDefaultGame: false })).toEqual({ isDefaultGame: false });
+  });
+
+  // The boolean branch used to run BEFORE the clamp below, so a boolean on any
+  // key skipped it entirely. node-sqlite3 binds false as integer 0, and the
+  // record columns merge with MIN — so `fastestWinTurns: false` pinned the
+  // best-ever turn count at 0 with no path back short of editing the database.
+  // Booleans are dropped rather than coerced for the same reason arrays are:
+  // no legitimate client sends one for a counter (every other field on
+  // GlobalStatsPayload is number or null), so one arriving is a malformed
+  // payload, not a value to rescue.
+  it('drops a boolean on a numeric field instead of letting it bypass the clamp', () => {
+    expect(sanitizeStats({ fastestWinTurns: false })).toEqual({});
+    expect(sanitizeStats({ fastestLossTurns: false })).toEqual({});
+    expect(sanitizeStats({ fastestWinTurns: true })).toEqual({});
+  });
+
+  it('drops booleans on counter and record fields, keeping the rest of the payload', () => {
+    expect(sanitizeStats({ wins: true, busts: false, highestTurnScore: true, keep: 7 }))
+      .toEqual({ keep: 7 });
+  });
+
+  it('drops a boolean without disturbing isDefaultGame in the same payload', () => {
+    expect(sanitizeStats({ isDefaultGame: false, fastestWinTurns: false, gamesPlayed: 1 }))
+      .toEqual({ isDefaultGame: false, gamesPlayed: 1 });
   });
 
   it('preserves explicit nulls (e.g. fastestWinTurns)', () => {
