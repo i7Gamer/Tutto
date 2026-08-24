@@ -9,7 +9,7 @@
     "dev": "vite",
     "server": "tsx server/index.ts",
     "start": "concurrently \"npm run server\" \"npm run dev\"",
-    "start:prod": "npm run build && cross-env NODE_ENV=production tsx server/index.ts",
+    "start:prod": "npm run build && cross-env NODE_ENV=production node --import tsx server/index.ts",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",

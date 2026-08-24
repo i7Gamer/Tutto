@@ -576,4 +576,24 @@ describe('the image runs the server as PID 1', () => {
     // resolve for the `tsx` binary and fail for the import hook.
     expect(readDockerfile()).not.toMatch(/npm\s+install\s+-g\s+tsx/);
   });
+
+  // The Dockerfile was the only launcher this described. `start:prod` is the
+  // production-from-source route the README documents, and it kept the exact
+  // form the image was moved away from — including on Windows, where libuv
+  // maps the relayed kill to TerminateProcess with no grace at all, and where
+  // this project's own production instance runs from a .bat calling it.
+  it('starts the same way from source as it does in the image', () => {
+    const startProd = JSON.parse(
+      fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'),
+    ).scripts['start:prod'];
+
+    // The token before `tsx` is what separates the two launchers: as an
+    // --import hook the server stays the process it started as, and as a bare
+    // command the tsx CLI forks it and relays signals over IPC.
+    const launcher = /(\S+)\s+tsx\s+server\/index\.ts/.exec(startProd);
+    expect(launcher, `no server launch found in start:prod: ${startProd}`).not.toBeNull();
+    expect(launcher![1], 'the tsx CLI forks the server and relays signals to it')
+      .toBe('--import');
+    expect(startProd).toContain('node --import tsx server/index.ts');
+  });
 });

@@ -181,6 +181,8 @@ Available tags: `latest` (current release), a pinned version such as `1.1.3`, an
 
 Since `latest` and `nightly` both move, the running build names itself in the footer of the in-app wiki (the `?` button) — worth quoting in a bug report.
 
+**Rolling back is one-way past a migration.** The database is upgraded in place on first start, and the schema does not go backwards — 1.1.1, 1.3.0 and 1.4.0 each added one. Starting an older image against a `/data` volume a newer one has already migrated fails at startup and, with `restart: unless-stopped`, keeps retrying; the log says the database was migrated by a newer version. Re-pull the newer tag to get back up, or restore the backup taken before the upgrade (see [Data and backups](#data-and-backups)). Taking that backup before a version bump is the whole reason to have one.
+
 ### Health
 
 The container exposes a health check at `/api/health`, used by Docker's `HEALTHCHECK` and suitable for any external monitor. It performs no database work and is not rate limited.

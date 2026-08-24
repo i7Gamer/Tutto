@@ -10,12 +10,35 @@ const knex = knexLib(knexConfig);
 // mode) are responsible for awaiting this before the server accepts traffic
 // or a test touches the database — it is intentionally not run as an
 // import-time side effect so startup can't race ahead of migrations.
+/**
+ * knex's own wording when knex_migrations records a migration the running
+ * build does not ship. That is exactly what downgrading the image while
+ * keeping the /data volume produces, and `restart: unless-stopped` then loops
+ * the container on it forever — with "Failed to run database migrations" as
+ * the only clue.
+ */
+const MISSING_MIGRATIONS_MARKER = 'migration directory is corrupt';
+
+const DOWNGRADE_HINT = [
+  'The database has been migrated by a NEWER version of Tutto than this image.',
+  'Downgrading past a migration is not supported: the schema cannot be moved',
+  'back, so the old build cannot read it. Either re-pull the newer image tag,',
+  'or restore the backup taken before the upgrade (see "Data and backups" in',
+  'the README).',
+].join(' ');
+
 export const initDb = async (): Promise<void> => {
   try {
     await knex.migrate.latest();
     console.log('Database migrated to the latest version.');
   } catch (err) {
     console.error('Failed to run database migrations:', err);
+    // Matched on knex's message rather than an error code, which it does not
+    // set — so a knex rewording turns this back into the generic failure
+    // above rather than swallowing anything.
+    if (err instanceof Error && err.message.includes(MISSING_MIGRATIONS_MARKER)) {
+      console.error(DOWNGRADE_HINT);
+    }
     throw err;
   }
 };

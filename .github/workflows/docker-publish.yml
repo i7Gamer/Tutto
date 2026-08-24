@@ -132,11 +132,19 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      # --ignore-scripts because the root postinstall is
+      # `cd server && npm install`, and `npm install` REPAIRS a
+      # package.json/lockfile disagreement by rewriting the lockfile on
+      # the runner — destroying the very thing the server `npm ci` below
+      # exists to catch, and leaving the server audit reading a rewritten
+      # file. Dockerfile's builder stage already passes it. Pinned by
+      # server/workflows.test.ts.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
-      # Mirrors ci.yml: the root postinstall may resolve past the committed
-      # lockfile, so re-install the server workspace from its own.
+      # Mirrors ci.yml: with --ignore-scripts above, the root postinstall no
+      # longer installs (or rewrites) this workspace, so this step both
+      # installs it and fails on a lockfile that disagrees with its manifest.
       - name: Install server dependencies
         run: npm ci
         working-directory: server

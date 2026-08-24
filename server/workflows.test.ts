@@ -40,7 +40,9 @@ const isInsideNodeModules = (candidate: string): boolean =>
 
 interface WorkflowStep {
   uses?: string;
+  run?: string;
   with?: Record<string, unknown>;
+  'working-directory'?: string;
 }
 
 interface WorkflowJob {
@@ -143,5 +145,59 @@ describe('workflow npm caches key on every lockfile', () => {
       .map(({ file, job, missing }) => `${file}: ${job} misses ${missing.join(', ')}`);
 
     expect(uncovered).toEqual([]);
+  });
+});
+
+/**
+ * `npm ci` in the repository root runs the root postinstall, which is
+ * `cd server && npm install` — and `npm install` REPAIRS a package.json /
+ * lockfile disagreement by rewriting the lockfile on the runner.
+ *
+ * The step after it runs `npm ci` in server/, whose whole safety property is
+ * aborting on exactly that disagreement. Run second, it validates a lockfile
+ * the first step has already fixed, and the server `npm audit` then audits the
+ * rewritten file. Nothing wrong ships — the Dockerfile builder fails closed
+ * with EUSAGE, which it does by passing this same flag — so the cost is a
+ * release build breaking after a green CI.
+ */
+describe('a root install cannot quietly repair the server lockfile', () => {
+  /** Every `run:` step across every workflow, with where it runs. */
+  const runSteps = (): { file: string; job: string; step: WorkflowStep }[] =>
+    workflowFiles().flatMap(file => {
+      const workflow = parseWorkflow(fs.readFileSync(path.join(WORKFLOWS_DIR, file), 'utf8'));
+      return Object.entries(workflow.jobs ?? {}).flatMap(([job, definition]) =>
+        (definition.steps ?? []).filter(step => typeof step.run === 'string').map(step => ({ file, job, step })),
+      );
+    });
+
+  /** The `npm ci` steps that run in the repository root, where postinstall fires. */
+  const rootNpmCiSteps = () =>
+    runSteps().filter(({ step }) =>
+      /(?:^|\n)\s*npm ci\b/.test(step.run!) && !step['working-directory'],
+    );
+
+  it('finds the root npm ci steps it is meant to be checking', () => {
+    // Without this the suite would pass by finding nothing — the shape of a
+    // check that has quietly stopped checking.
+    expect(rootNpmCiSteps().length).toBeGreaterThan(0);
+  });
+
+  it('runs every root npm ci with --ignore-scripts', () => {
+    const unguarded = rootNpmCiSteps()
+      .filter(({ step }) => !step.run!.includes('--ignore-scripts'))
+      .map(({ file, job }) => `${file}:${job}`);
+
+    expect(unguarded).toEqual([]);
+  });
+
+  it('is guarding a postinstall that really does install into server/', () => {
+    // If the root postinstall ever stops touching server/, the flag above is
+    // pointless ceremony and this says so.
+    const postinstall = JSON.parse(
+      fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'),
+    ).scripts?.postinstall ?? '';
+
+    expect(postinstall).toMatch(/server/);
+    expect(postinstall).toMatch(/npm install/);
   });
 });

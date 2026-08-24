@@ -34,12 +34,21 @@ jobs:
           cache: 'npm'
           cache-dependency-path: '**/package-lock.json'
 
+      # --ignore-scripts because the root postinstall is
+      # `cd server && npm install`, and `npm install` REPAIRS a
+      # package.json/lockfile disagreement by rewriting the lockfile on
+      # the runner — destroying the very thing the server `npm ci` below
+      # exists to catch, and leaving the server audit reading a rewritten
+      # file. Dockerfile's builder stage already passes it. Pinned by
+      # server/workflows.test.ts.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
-      # The root postinstall runs "npm install" in server/, which may resolve
-      # past the committed lockfile. Re-install from it so the build and the
-      # server audit below reflect server/package-lock.json exactly.
+      # The only thing that installs server/ now: the root install above runs
+      # with --ignore-scripts, so its postinstall no longer resolves these
+      # past the committed lockfile behind this step's back. `npm ci` here
+      # therefore both installs them and fails the run if server/package.json
+      # and server/package-lock.json disagree.
       - name: Install server dependencies
         run: npm ci
         working-directory: server
@@ -93,8 +102,15 @@ jobs:
           cache: 'npm'
           cache-dependency-path: '**/package-lock.json'
 
+      # --ignore-scripts because the root postinstall is
+      # `cd server && npm install`, and `npm install` REPAIRS a
+      # package.json/lockfile disagreement by rewriting the lockfile on
+      # the runner — destroying the very thing the server `npm ci` below
+      # exists to catch, and leaving the server audit reading a rewritten
+      # file. Dockerfile's builder stage already passes it. Pinned by
+      # server/workflows.test.ts.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Install server dependencies
         run: npm ci
