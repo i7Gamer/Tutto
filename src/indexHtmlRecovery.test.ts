@@ -19,9 +19,8 @@ const EXPECTED_INLINE_SCRIPTS = 1;
 
 type ErrorHandler = (e: { message?: string; target?: unknown }) => void;
 
-/** The one inline <script> in index.html — the module tag carries a src. */
-const readInlineScript = (): string => {
-  const html = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf8');
+/** The one inline <script> in a page — index.html's module tag carries a src. */
+const parseInlineScript = (html: string): string => {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const inline = Array.from(doc.querySelectorAll('script')).filter(
     script => !script.hasAttribute('src')
@@ -33,6 +32,10 @@ const readInlineScript = (): string => {
   }
   return inline[0].textContent ?? '';
 };
+
+/** The real index.html on disk, run through the parser above. */
+const readInlineScript = (): string =>
+  parseInlineScript(fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf8'));
 
 const inlineScript = readInlineScript();
 
@@ -63,6 +66,39 @@ const setOnline = (online: boolean): void => {
 
 /** Lets the handler's caches → unregister → reload promise chain settle. */
 const settle = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0));
+
+// The regex this replaced matched only a bare, lower-case, attribute-free
+// <script> that preceded the module tag. Nothing in the suite noticed,
+// because index.html happens to satisfy all three. These pin the tolerance
+// down so a nonce, a re-case or a reorder in index.html cannot quietly break
+// every test in this file at import time.
+describe('inline script extraction', () => {
+  const INLINE = 'var recovered = true;';
+  const MODULE_TAG = '<script type="module" src="/src/main.tsx"></script>';
+  const page = (body: string): string => `<html><body>${body}</body></html>`;
+
+  it('finds the inline script whatever the tag case', () => {
+    expect(parseInlineScript(page(`<SCRIPT>${INLINE}</SCRIPT>`))).toBe(INLINE);
+  });
+
+  it('finds it through attributes on the tag', () => {
+    const tagged = `<script nonce="abc123" type="text/javascript">${INLINE}</script>`;
+    expect(parseInlineScript(page(tagged))).toBe(INLINE);
+  });
+
+  it('picks the inline script even when the module tag comes first', () => {
+    expect(parseInlineScript(page(`${MODULE_TAG}<script>${INLINE}</script>`))).toBe(INLINE);
+  });
+
+  it('throws when no inline script is left to extract', () => {
+    expect(() => parseInlineScript(page(MODULE_TAG))).toThrow(/found 0/);
+  });
+
+  it('throws rather than guess when a second inline script appears', () => {
+    const two = `<script>${INLINE}</script><script>var other = 1;</script>`;
+    expect(() => parseInlineScript(page(two))).toThrow(/found 2/);
+  });
+});
 
 describe('index.html stale-bundle recovery', () => {
   beforeEach(() => {
