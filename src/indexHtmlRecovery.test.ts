@@ -15,15 +15,23 @@ import path from 'path';
 
 const RELOAD_KEY = 'tutto_last_reload';
 const CHUNK_ERROR_MESSAGE = 'Failed to fetch dynamically imported module: /assets/index-abc123.js';
+const EXPECTED_INLINE_SCRIPTS = 1;
 
 type ErrorHandler = (e: { message?: string; target?: unknown }) => void;
 
 /** The one inline <script> in index.html — the module tag carries a src. */
 const readInlineScript = (): string => {
   const html = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf8');
-  const match = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!match) throw new Error('index.html no longer has an inline <script>');
-  return match[1];
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const inline = Array.from(doc.querySelectorAll('script')).filter(
+    script => !script.hasAttribute('src')
+  );
+  if (inline.length !== EXPECTED_INLINE_SCRIPTS) {
+    throw new Error(
+      `index.html should have ${EXPECTED_INLINE_SCRIPTS} inline <script>, found ${inline.length}`
+    );
+  }
+  return inline[0].textContent ?? '';
 };
 
 const inlineScript = readInlineScript();
