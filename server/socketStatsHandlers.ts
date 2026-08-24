@@ -29,7 +29,10 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // finished=true) BEFORE its stats (see gameSlice.nextTurn), and
     // socket.io preserves per-connection event order. The host-authoritative
     // state model means a determined host can still stage a fake finished
-    // game; this refuses the out-of-context and replayed cases.
+    // game — and so, to a lesser degree, can the active player, who may raise
+    // their OWN score to the winning one and then finish legitimately
+    // (applyPushedState's `finished` branch checks a real game-over, not who
+    // earned it). What this refuses is the out-of-context and replayed cases.
     if (!room.state.finished) return;
     // A reconnect/reload after the game already finished (but before anyone
     // leaves the room) makes the client think "finished just became true" again,

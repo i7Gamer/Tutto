@@ -11,6 +11,7 @@ import {
   MAX_TURN_DURATION, MAX_RECONNECT_TIMEOUT,
 } from '../src/utils/configValidation';
 import { PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
+import { getLeaders } from '../src/utils/coreGameEngine';
 import type { SyncedGameStateKey, AssertNever } from '../src/types';
 import type { RoomState, ServerPlayer } from './roomTypes';
 
@@ -244,12 +245,17 @@ const HOST_ONLY_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>(HOST
 
 const ACTIVE_PLAYER_FIELD_LIST = [
   'currentCard', 'cards', 'currentPlayerIndex', 'round',
-  'finished', 'previousCard', 'previousScore', 'previousLeaders',
+  'previousCard', 'previousScore', 'previousLeaders',
   'previousWasBust', 'previousWasSuccess',
   'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
   'previousHighestX2TurnScore', 'previousPlayerName', 'previousTurnSummary',
   'chartValues', 'chartNames', 'chartLabels', 'gameTimeInSeconds',
-  'players', 'liveTurnState', 'historyLog',
+  'players',
+  // AFTER 'players', deliberately: the winning push carries the score and the
+  // finish together, and the game-over check below has to see the merged
+  // roster. Ordered like 'status', which is first for the mirror-image reason.
+  'finished',
+  'liveTurnState', 'historyLog',
 ] as const satisfies readonly SyncedGameStateKey[];
 const ACTIVE_PLAYER_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>(ACTIVE_PLAYER_FIELD_LIST));
 
@@ -511,11 +517,37 @@ export const applyPushedState = (
       }
     } else if (key === 'round') {
       const v = newState.round;
-      if (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MAX_ROUNDS) {
+      // MAX_ROUNDS is an array-length safety cap (chartLabels, historyLog),
+      // not a bound on a legitimate round number — on its own it let an active
+      // player push round: 100000 on their own turn. The honest host then
+      // submits that as longestGameRounds, sanitizeStats' 1e9 cap waves it
+      // through, and the column is MAX-merged into the global row forever.
+      //
+      // A game only ever nudges this: +1 when a round ends, the same value on
+      // every other push, and -1 when a turn is undone across a round boundary.
+      // The host is exempt because a Play Again kickoff resets it to 1.
+      const withinReach = isHost || (v as number >= state.round - 1 && v as number <= state.round + 1);
+      if (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MAX_ROUNDS && withinReach) {
         state.round = v;
       }
     } else if (key === 'finished') {
-      if (typeof newState.finished === 'boolean') state.finished = newState.finished;
+      // Both stats handlers take state.finished as proof a real game ended,
+      // and their comments reason about the risk as host-only — but this is an
+      // ACTIVE-player field, and it had no check at all. Any seated player
+      // could end the table's game on their own turn; every honest client then
+      // submits, and each victim's device row takes gamesPlayed + 1 with
+      // wins: 0, which resets their win streak.
+      //
+      // The same condition calculateNextTurn and handleActivePlayerRemoved
+      // use, against the roster this push has already merged. A tie is not a
+      // win. Un-finishing is never gated — that is what Play Again does. The
+      // host is exempt for the same reason it is everywhere else here: it
+      // already writes every field via ALL_FIELDS.
+      if (typeof newState.finished === 'boolean') {
+        const leaders = getLeaders(state.players);
+        const gameIsOver = leaders.length === 1 && leaders[0].score >= state.winningScore;
+        if (!newState.finished || isHost || gameIsOver) state.finished = newState.finished;
+      }
     } else if (key === 'previousScore') {
       const v = newState.previousScore;
       if (v === null || (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= MAX_SCORE_MAGNITUDE)) {

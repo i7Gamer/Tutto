@@ -87,8 +87,15 @@ describe('applyPushedState', () => {
 
     it('lets the active player write game-progress fields', () => {
       const state = makeState();
-      applyPushedState(state, { round: 3, finished: true, currentPlayerIndex: 1 }, asActivePlayer);
-      expect(state.round).toBe(3);
+      // A real winner, because `finished` now needs one — see the
+      // "finished needs a game that is actually over" describe below. This
+      // test is about which fields the permission set admits, not about that
+      // rule, so it seats the win rather than working around it.
+      state.players[0].score = state.winningScore;
+
+      applyPushedState(state, { round: 2, finished: true, currentPlayerIndex: 1 }, asActivePlayer);
+
+      expect(state.round).toBe(2);
       expect(state.finished).toBe(true);
       expect(state.currentPlayerIndex).toBe(1);
     });
@@ -148,13 +155,13 @@ describe('applyPushedState', () => {
       expect(applyPushedState(state, {
         players: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Carol' }],
       }, asActivePlayer)).toBe(false);
-      expect(applyPushedState(state, { round: 4 }, asActivePlayer)).toBe(true);
+      expect(applyPushedState(state, { round: 2 }, asActivePlayer)).toBe(true);
     });
 
     it('still applies a push that carries no roster at all', () => {
       const state = makeState();
-      applyPushedState(state, { round: 7 }, asActivePlayer);
-      expect(state.round).toBe(7);
+      applyPushedState(state, { round: 2 }, asActivePlayer);
+      expect(state.round).toBe(2);
     });
 
     it('rejects a players array containing an unknown name', () => {
@@ -577,12 +584,131 @@ describe('applyPushedState', () => {
 
     it('round: integer within [1, cap]', () => {
       const state = makeState();
-      applyPushedState(state, { round: 5 }, asActivePlayer);
-      expect(state.round).toBe(5);
+      applyPushedState(state, { round: 2 }, asActivePlayer);
+      expect(state.round).toBe(2);
       for (const bad of [0, 100001, 2.5, 'x']) {
         applyPushedState(state, { round: bad }, asActivePlayer);
-        expect(state.round).toBe(5);
+        expect(state.round).toBe(2);
       }
+    });
+
+    // MAX_ROUNDS is an array-length safety cap, not a bound on a legitimate
+    // round number, and nothing related the pushed value to the current one.
+    // So an active player could push round: 100000 on their own turn; the
+    // HONEST host then submits it as longestGameRounds, sanitizeStats' 1e9 cap
+    // waves it through, and the column is MAX-merged into the global row
+    // forever. The game plays on normally, so nothing looks wrong until the
+    // end screen.
+    describe('round only moves as far as a game can move it', () => {
+      it('refuses a jump beyond the next round', () => {
+        const state = makeState();
+        state.round = 4;
+
+        applyPushedState(state, { round: 100000 }, asActivePlayer);
+        expect(state.round).toBe(4);
+
+        applyPushedState(state, { round: 6 }, asActivePlayer);
+        expect(state.round).toBe(4);
+      });
+
+      it('accepts the round ending, a resend, and a correction back', () => {
+        const state = makeState();
+        state.round = 4;
+
+        applyPushedState(state, { round: 5 }, asActivePlayer);
+        expect(state.round, 'the round ends').toBe(5);
+
+        applyPushedState(state, { round: 5 }, asActivePlayer);
+        expect(state.round, 'every other push resends the same value').toBe(5);
+
+        applyPushedState(state, { round: 4 }, asActivePlayer);
+        expect(state.round, 'an undo puts it back').toBe(4);
+      });
+
+      it('lets the host set it freely, since a Play Again resets it to 1', () => {
+        const state = makeState();
+        state.round = 9;
+
+        applyPushedState(state, { round: 1 }, asHost);
+
+        expect(state.round).toBe(1);
+      });
+    });
+
+    // Both stats handlers treat room.state.finished as proof a real game
+    // ended, and reason about the risk as host-only. But `finished` is an
+    // ACTIVE-player field with no game-over check, so any seated player could
+    // end the table's game on their own turn: every honest client's listener
+    // then fires sendOnlineStats, and each victim's device row takes
+    // gamesPlayed + 1 with wins: 0 — which resets their win streak.
+    describe('finished needs a game that is actually over', () => {
+      const winning = (state: RoomState, name: string): void => {
+        const p = state.players.find(q => q.name === name)!;
+        p.score = state.winningScore;
+      };
+
+      it('refuses to end a game nobody has won', () => {
+        const state = makeState();
+        state.status = 'playing';
+
+        applyPushedState(state, { finished: true }, asActivePlayer);
+
+        expect(state.finished).toBe(false);
+      });
+
+      it('refuses when the leaders are tied on the winning score', () => {
+        // The same rule calculateNextTurn and handleActivePlayerRemoved use:
+        // a tie is not a win, it is another round.
+        const state = makeState();
+        winning(state, 'Alice');
+        winning(state, 'Bob');
+
+        applyPushedState(state, { finished: true }, asActivePlayer);
+
+        expect(state.finished).toBe(false);
+      });
+
+      it('accepts the winner ending their own game', () => {
+        const state = makeState();
+
+        applyPushedState(state, {
+          players: [{ name: 'Alice', score: state.winningScore }, { name: 'Bob', score: 100 }],
+          finished: true,
+        }, asActivePlayer);
+
+        expect(state.finished).toBe(true);
+      });
+
+      it('reads the roster the same push carries, not the one before it', () => {
+        // finished used to be evaluated before players in the field loop, so
+        // the winning score arrived after the decision that needed it.
+        const state = makeState();
+        expect(state.players[0].score).toBe(0);
+
+        applyPushedState(state, {
+          finished: true,
+          players: [{ name: 'Alice', score: state.winningScore }, { name: 'Bob' }],
+        }, asActivePlayer);
+
+        expect(state.finished).toBe(true);
+      });
+
+      it('always lets a game be un-finished again, which is what Play Again does', () => {
+        const state = makeState();
+        state.finished = true;
+
+        applyPushedState(state, { finished: false }, asActivePlayer);
+
+        expect(state.finished).toBe(false);
+      });
+
+      it('does not gate the host, who owns the room state anyway', () => {
+        const state = makeState();
+
+        applyPushedState(state, { finished: true }, asHost);
+
+        expect(state.finished).toBe(true);
+      });
     });
 
     it('finished: boolean only', () => {
