@@ -228,6 +228,78 @@ describe('pickLocalGameState', () => {
       expect(pickLocalGameState({ historyLog: [historyEntry] })).toEqual({ historyLog: [historyEntry] });
     });
 
+    // Only deductedAmounts had negative tests. Every other branch of
+    // isPlausibleTurnSummary — the card list, the counters, the ended kind and
+    // the two per-turn record restores — could be deleted and the suite stayed
+    // green, while calculateUndo consumes all of them after a restore.
+    describe('the turn-summary branches with no test of their own', () => {
+      const good = {
+        cards: [{ card: '300', completed: true }],
+        tuttoCount: 1,
+        plusMinusScores: [0],
+        ended: 'banked',
+      };
+
+      const rejects = (overrides: Record<string, unknown>): boolean =>
+        Object.keys(pickLocalGameState({ previousTurnSummary: { ...good, ...overrides } })).length === 0;
+
+      it('accepts the known-good summary, so the cases below fail for their field', () => {
+        expect(rejects({})).toBe(false);
+      });
+
+      it('accepts an explicit null, which is how a turn with no summary restores', () => {
+        expect(pickLocalGameState({ previousTurnSummary: null })).toEqual({ previousTurnSummary: null });
+      });
+
+      it.each([
+        ['a card list that is not an array', { cards: '300' }],
+        ['a card entry that is not a played card', { cards: ['300'] }],
+        ['a card entry naming a card that does not exist', { cards: [{ card: 'NotACard', completed: true }] }],
+        ['a card entry with no completion flag', { cards: [{ card: '300' }] }],
+      ])('rejects %s', (_name, override) => {
+        expect(rejects(override)).toBe(true);
+      });
+
+      it.each([
+        ['a tutto count that is not a number', { tuttoCount: '1' }],
+        ['a negative tutto count', { tuttoCount: -1 }],
+        ['a fractional tutto count', { tuttoCount: 1.5 }],
+      ])('rejects %s', (_name, override) => {
+        expect(rejects(override)).toBe(true);
+      });
+
+      it.each([
+        ['plusMinusScores that is not an array', { plusMinusScores: 0 }],
+        ['a plusMinusScores entry that is not finite', { plusMinusScores: [NaN] }],
+        ['a plusMinusScores entry that is not a number', { plusMinusScores: ['0'] }],
+      ])('rejects %s', (_name, override) => {
+        expect(rejects(override)).toBe(true);
+      });
+
+      it.each([
+        ['an ended kind the engine does not know', { ended: 'exploded' }],
+        ['an ended kind that is not a string', { ended: 1 }],
+      ])('rejects %s', (_name, override) => {
+        expect(rejects(override)).toBe(true);
+      });
+
+      it.each([
+        ['a forfeited score that is negative', { forfeitedScore: -1 }],
+        ['a forfeited score that is not a number', { forfeitedScore: '1800' }],
+        ['a prevMostCardsInTurn that is negative', { prevMostCardsInTurn: -1 }],
+        ['a prevHighestForfeitedTurnScore that is not a number', { prevHighestForfeitedTurnScore: 'x' }],
+      ])('rejects %s', (_name, override) => {
+        expect(rejects(override)).toBe(true);
+      });
+
+      it('keeps the record restores, including a null meaning "there was none"', () => {
+        // undefined means the save said nothing; null means restore it to
+        // nothing. calculateUndo reads the difference.
+        expect(rejects({ prevMostCardsInTurn: null, prevHighestForfeitedTurnScore: null })).toBe(false);
+        expect(rejects({ prevMostCardsInTurn: 4, prevHighestForfeitedTurnScore: 2500 })).toBe(false);
+      });
+    });
+
     it('keeps well-formed amounts on a turn summary and drops corrupted ones', () => {
       const bareSummary = {
         cards: [{ card: 'Plus_Minus', completed: true }],

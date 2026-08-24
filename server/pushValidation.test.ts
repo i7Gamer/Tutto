@@ -1345,6 +1345,70 @@ describe('classic chain fields (snapshot / history / turn summary)', () => {
     expect(state.previousTurnSummary).toEqual(clearing);
   });
 
+  // The log is rendered straight into JSX for every client in the room, and
+  // four of isValidHistoryEntry's guards had no test at all: id, round,
+  // playerColor and deductedPlayers. Deleting any of them shipped green.
+  // Driven one field at a time off a known-good entry, so each case fails for
+  // its own reason.
+  describe('history entry fields with no test of their own', () => {
+    const good = {
+      id: '1-Alice-1', round: 2, playerName: 'Alice', card: '300',
+      type: 'success', score: 300,
+    };
+
+    const rejects = (overrides: Record<string, unknown>): boolean => {
+      const state = makeState();
+      state.historyLog = [];
+      applyPushedState(state, { historyLog: [{ ...good, ...overrides }] }, asActivePlayer);
+      return state.historyLog.length === 0;
+    };
+
+    it('accepts the known-good entry, so the cases below fail for their field', () => {
+      expect(rejects({})).toBe(false);
+    });
+
+    it.each([
+      ['id missing', { id: undefined }],
+      ['id empty', { id: '' }],
+      ['id absurdly long', { id: 'x'.repeat(101) }],
+      ['id not a string', { id: 7 }],
+    ])('rejects an entry whose %s', (_name, override) => {
+      expect(rejects(override)).toBe(true);
+    });
+
+    it.each([
+      ['round zero', { round: 0 }],
+      ['round fractional', { round: 2.5 }],
+      ['round past the cap', { round: 100001 }],
+      ['round not a number', { round: '2' }],
+    ])('rejects an entry with %s', (_name, override) => {
+      expect(rejects(override)).toBe(true);
+    });
+
+    it.each([
+      ['a colour that is not a hex triplet', { playerColor: 'red' }],
+      ['a short hex colour', { playerColor: '#fff' }],
+      ['a colour that is not a string', { playerColor: 0xff0000 }],
+    ])('rejects %s', (_name, override) => {
+      expect(rejects(override)).toBe(true);
+    });
+
+    it('accepts a well-formed player colour, and an absent one', () => {
+      expect(rejects({ playerColor: '#12ab34' })).toBe(false);
+      expect(rejects({ playerColor: undefined })).toBe(false);
+    });
+
+    it.each([
+      ['deductedPlayers not an array', { deductedPlayers: 'Bob' }],
+      ['a deducted name that is empty', { deductedPlayers: [''] }],
+      ['a deducted name that is not a string', { deductedPlayers: [{ name: 'Bob' }] }],
+      ['a deducted name past the length cap', { deductedPlayers: ['x'.repeat(31)] }],
+      ['more deducted names than a table can hold', { deductedPlayers: Array.from({ length: 101 }, (_, i) => `P${i}`) }],
+    ])('rejects %s', (_name, override) => {
+      expect(rejects(override)).toBe(true);
+    });
+  });
+
   it('accepts a history entry carrying a chain card list, and strips a bad one', () => {
     const state = makeState();
     const entry = {

@@ -19,6 +19,7 @@ import { getDeviceStats } from './database';
 import { startInProcessServer, emitJoin, waitFor, settle, type InProcessServer, type JoinAck } from './socketTestHarness';
 import { rooms, createRoom, deleteRoom, MAX_PLAYERS_PER_ROOM, MAX_ROOMS } from './rooms';
 import { MAX_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
+import { scaledTimerMs } from './turnTimers';
 import type { ServerPlayer } from './roomTypes';
 
 const mockedGetDeviceStats = vi.mocked(getDeviceStats);
@@ -544,6 +545,13 @@ describe('room deletion clears pending disconnect timers', () => {
     await server.close();
   });
 
+  // Deliberately generous: scaledTimerMs compresses this by TEST_TIMER_SCALE
+  // (0.2 under vitest), while the settle() calls below are unscaled real time.
+  // 1.5s becomes a ~300ms timer against ~110ms of setup, so the deadline
+  // genuinely falls after the room has been recreated.
+  const STALE_TIMER_SECONDS = 1.5;
+  const staleTimerDeadlineMs = scaledTimerMs(STALE_TIMER_SECONDS);
+
   it('a stale reconnect-timeout timer must not evict a player from a same-id room created after the original room died', async () => {
     const roomId = 'STALE_TIMER_ROOM';
 
@@ -554,10 +562,19 @@ describe('room deletion clears pending disconnect timers', () => {
     // bypasses the client-facing updateConfig/joinRoom validation (which only
     // guards those entry points), mutating server state directly the same way
     // other tests in this file seed rooms (e.g. `disconnected = true` above).
-    rooms[roomId].state.reconnectTimeout = 0.3; // 300ms
+    //
+    // Long enough to outlast the setup below. It used to be 0.3s, which
+    // scaledTimerMs compresses to ~60ms — and the two settle() calls between
+    // arming it and Bob's rejoin are 100ms of REAL time, unscaled. So the
+    // stale timer always fired while the room was already deleted, found
+    // nothing, and no-op'd; the assertions then passed against a room it had
+    // never had the chance to touch. Proven vacuous: with deleteRoom's
+    // clearTimeout removed, the test still passed.
+    rooms[roomId].state.reconnectTimeout = STALE_TIMER_SECONDS;
 
     bob.disconnect();
     await settle(50); // let the server mark Bob disconnected and arm his removal timer
+    const armedAt = Date.now();
 
     // Alice (host) explicitly leaves. Bob (the only one left) is disconnected,
     // so there is no connected player to hand the host role to — the room is
@@ -572,10 +589,18 @@ describe('room deletion clears pending disconnect timers', () => {
     expect(bob2Res.success).toBe(true);
     expect(bob2Res.isHost).toBe(true);
 
-    // Wait past the ORIGINAL timer's deadline: reconnectTimeout=0.3s is scaled
-    // by TEST_TIMER_SCALE (0.2 in tests) to a ~60ms real timer, armed ~100ms
-    // before bob2's join — 150ms is a comfortable margin past that.
-    await settle(150);
+    // The precondition the whole test rests on, asserted rather than assumed:
+    // the stale timer must still be PENDING now, or it fires into the gap
+    // where no room exists and this proves nothing. A machine slow enough to
+    // miss this fails loudly instead of passing for the wrong reason.
+    expect(
+      Date.now() - armedAt,
+      'the stale timer fired before the room was recreated — this test proves nothing',
+    ).toBeLessThan(staleTimerDeadlineMs);
+
+    // Now wait past that deadline, so the stale timer gets its chance to fire
+    // against the NEW room.
+    await settle(staleTimerDeadlineMs);
 
     // If deleteRoom hadn't cancelled the stale timer, it would fire now
     // against the NEW room (same roomId), remove Bob (the only player) from

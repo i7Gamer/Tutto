@@ -17,4 +17,21 @@ describe('ModeSelector Component', () => {
     expect(screen.getByText('home.onlinePlay')).toBeInTheDocument();
     expect(screen.getByText('home.viewStats')).toBeInTheDocument();
   });
+
+  // The active mode was carried by the indigo fill alone: to anyone not
+  // reading colour, the two buttons were indistinguishable. WCAG 1.4.1.
+  it('says which mode is active, rather than only colouring it', () => {
+    render(<ModeSelector mode="online" onModeChange={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: /home.localPlay/ })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: /home.onlinePlay/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('moves the pressed state with the mode', () => {
+    const { rerender } = render(<ModeSelector mode="online" onModeChange={vi.fn()} />);
+    rerender(<ModeSelector mode="local" onModeChange={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: /home.localPlay/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /home.onlinePlay/ })).toHaveAttribute('aria-pressed', 'false');
+  });
 });

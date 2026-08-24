@@ -25,7 +25,11 @@ export default function ModeSelector({ mode, onModeChange, onShowStats, hasActiv
           behavior (own max-w-xs) unchanged there. */}
       <div className="inline-grid gap-4 sm:contents">
         <div className="flex gap-2 sm:gap-4 sm:mb-4">
+          {/* aria-pressed, because which mode is active was carried by the
+              indigo fill alone — visible information only, and the two buttons
+              are otherwise identical in the accessibility tree. */}
           <motion.button
+            aria-pressed={mode === 'local'}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             className={`flex items-center gap-2 px-4 sm:px-6 py-2 sm:py-3 rounded-xl font-semibold transition-all ${mode === 'local' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-white dark:bg-slate-800/50 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 border border-gray-200 dark:border-slate-600'}`}
@@ -34,6 +38,7 @@ export default function ModeSelector({ mode, onModeChange, onShowStats, hasActiv
             <User size={20} /> {t('home.localPlay', 'Local Play')}
           </motion.button>
           <motion.button
+            aria-pressed={mode === 'online'}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             className={`flex items-center gap-2 px-4 sm:px-6 py-2 sm:py-3 rounded-xl font-semibold transition-all ${mode === 'online' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-white dark:bg-slate-800/50 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800 border border-gray-200 dark:border-slate-600'}`}

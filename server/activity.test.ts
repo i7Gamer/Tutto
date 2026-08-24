@@ -18,9 +18,13 @@ import {
 import { createRoom } from './rooms';
 import type { Room, ServerPlayer } from './roomTypes';
 
-// summarizeActivity reads exactly one field off a player, so the fixtures
-// carry exactly that field rather than the full 20-field ServerPlayer shape.
-const player = (disconnected: boolean): ServerPlayer => ({ disconnected }) as ServerPlayer;
+// summarizeActivity reads two fields off a player — whether it is connected,
+// and its deviceId, which decides whether that player's statistics have been
+// recorded yet. The fixtures carry exactly those rather than the full
+// 20-field ServerPlayer shape.
+let deviceSeq = 0;
+const player = (disconnected: boolean): ServerPlayer =>
+  ({ disconnected, deviceId: `dev-${deviceSeq += 1}` }) as ServerPlayer;
 
 interface RoomFixture {
   status?: 'lobby' | 'playing';
@@ -45,6 +49,13 @@ const roomWith = ({
     ...Array.from({ length: connected }, () => player(false)),
     ...Array.from({ length: disconnected }, () => player(true)),
   ];
+  // "Recorded" means recorded — the global row AND every seated device's own.
+  // The fixture used to set only the global flag, which is not a state the
+  // server reaches: each client submits its own row on the same `finished`
+  // edge the host submits the global one on.
+  if (statsRecorded) {
+    room.state.players.forEach(p => room.statsRecordedForGame.devices.add(p.deviceId));
+  }
   return room;
 };
 
@@ -85,6 +96,32 @@ describe('summarizeActivity', () => {
 
   // A finished game KEEPS status 'playing' (see socketGameStateHandlers), so
   // `finished` — not the status — is what tells a live game from an end screen.
+  // The host submits the global row and every client submits its own on the
+  // same `finished` edge, so the host's can land first. Reading only the
+  // global flag dropped this room out of EVERY category — so the line said the
+  // server was safe to restart while per-device rows, which a restart destroys,
+  // were still in flight.
+  it('still counts a finished game whose per-device statistics have not all landed', () => {
+    const room = roomWith({ status: 'playing', finished: true, connected: 2 });
+    room.statsRecordedForGame.global = true;
+    // Only the first of the two players has submitted.
+    room.statsRecordedForGame.devices.add(room.state.players[0].deviceId);
+
+    const snapshot = summarizeActivity(registry(room));
+
+    expect(snapshot.awaitingStats).toBe(1);
+    expect(snapshot.activeGames).toBe(0);
+    expect(snapshot.lobbies).toBe(0);
+  });
+
+  it('counts a finished game as awaiting while only the device rows are in', () => {
+    // The mirror image: the global row is the one still missing.
+    const room = roomWith({ status: 'playing', finished: true, connected: 1 });
+    room.state.players.forEach(p => room.statsRecordedForGame.devices.add(p.deviceId));
+
+    expect(summarizeActivity(registry(room)).awaitingStats).toBe(1);
+  });
+
   it('does not count a finished game as active once its statistics are recorded', () => {
     const snapshot = summarizeActivity(registry(
       roomWith({ status: 'playing', finished: true, statsRecorded: true, connected: 4 }),

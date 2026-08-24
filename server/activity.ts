@@ -27,6 +27,24 @@ export const VERDICT_UNSAFE = 'DO NOT RESTART';
 
 const PART_SEPARATOR = ' · ';
 
+/**
+ * Whether a finished game has been recorded in full.
+ *
+ * Both halves, not just the global one. Every client submits its OWN device row
+ * on the `finished` edge, and the host submits the global row on that same edge
+ * — so the host's can land first and leave a slower client's still in flight.
+ * Reading `global` alone then dropped the room out of every category, and the
+ * line reported the server safe to restart while per-device rows were exactly
+ * what a restart would destroy.
+ *
+ * A seated player who never returns holds this until their reconnect timer
+ * drains and the seat is spliced, which is the honest answer: their statistics
+ * really are still pending until then.
+ */
+const statsFullyRecorded = (room: Room): boolean =>
+  room.statsRecordedForGame.global
+  && room.state.players.every(p => room.statsRecordedForGame.devices.has(p.deviceId));
+
 export const summarizeActivity = (rooms: Record<string, Room>): ActivitySnapshot => {
   const snapshot: ActivitySnapshot = {
     rooms: 0,
@@ -47,7 +65,7 @@ export const summarizeActivity = (rooms: Record<string, Room>): ActivitySnapshot
     // in, because they are the thing a restart actually destroys.
     if (room.state.status === 'playing' && !room.state.finished) {
       snapshot.activeGames += 1;
-    } else if (room.state.finished && !room.statsRecordedForGame.global) {
+    } else if (room.state.finished && !statsFullyRecorded(room)) {
       snapshot.awaitingStats += 1;
     } else if (room.state.status === 'lobby') {
       snapshot.lobbies += 1;
