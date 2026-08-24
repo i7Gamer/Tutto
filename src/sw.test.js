@@ -143,7 +143,44 @@ describe('service worker install', () => {
       SHELL,
       `${ORIGIN}/manifest.webmanifest`,
     ]);
-    expect(self.skipWaiting).toHaveBeenCalled();
+    // NOT skipWaiting: installing must not take control. See the message
+    // handler's own tests below.
+    expect(self.skipWaiting).not.toHaveBeenCalled();
+  });
+
+  // The worker used to call skipWaiting() unconditionally in install, so a new
+  // build took over the instant it finished installing — every open tab
+  // reloaded at a moment nobody chose, mid-turn included, and a second reload
+  // followed whenever the edge briefly served the previous sw.js again. The
+  // page owns the decision now (src/utils/swUpdate.ts applies it only when a
+  // reload would interrupt nothing).
+  describe('taking over only when the page asks', () => {
+    it('skips waiting when the page sends SKIP_WAITING', async () => {
+      await loadSw();
+
+      listeners.message({ data: { type: 'SKIP_WAITING' } });
+
+      expect(self.skipWaiting).toHaveBeenCalled();
+    });
+
+    it('ignores any other message, and one with no data at all', async () => {
+      await loadSw();
+
+      listeners.message({ data: { type: 'SOMETHING_ELSE' } });
+      listeners.message({ data: null });
+      listeners.message({});
+
+      expect(self.skipWaiting).not.toHaveBeenCalled();
+    });
+
+    it('keeps serving the running build until then', async () => {
+      // The whole point: a worker that has installed but not been asked to
+      // take over leaves the page it is running under alone.
+      await loadSw();
+      await runInstall();
+
+      expect(self.skipWaiting).not.toHaveBeenCalled();
+    });
   });
 
   it('fetches a URL the manifest lists twice only once', async () => {

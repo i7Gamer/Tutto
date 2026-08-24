@@ -65,7 +65,16 @@ export default defineConfig(({ mode }) => {
         strategies: 'injectManifest',
         srcDir: 'src',
         filename: 'sw.js',
-        registerType: 'autoUpdate',
+        // 'prompt', not 'autoUpdate'. In auto mode the plugin's own register
+        // template reloads the page on every worker activation where
+        // `isUpdate || isExternal` — so one tab updating yanked every other
+        // open tab and PWA window, the browser's periodic sw.js re-check could
+        // reload a tab with no deploy behind it at all, and nothing guarded a
+        // second reload when the edge briefly served the previous sw.js again.
+        // In prompt mode onNeedRefresh becomes live and src/main.tsx decides
+        // WHEN (see src/utils/swUpdate.ts) — which is what main.tsx's comment
+        // always claimed.
+        registerType: 'prompt',
         injectManifest: {
           // index.html is precached here, unlike before: it is what an offline
           // start serves. Staleness is not a risk because src/sw.js tries the

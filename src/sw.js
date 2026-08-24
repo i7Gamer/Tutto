@@ -55,10 +55,12 @@ const isBuildAsset = url => ASSET_PREFIXES.some(prefix => url.pathname.startsWit
 
 /**
  * How many cache generations survive an activate: this worker's own, plus the
- * one before it. skipWaiting/clients.claim below hand this worker control of
- * tabs still running the PREVIOUS build, whose lazy chunks are not in this
- * manifest — deleting their generation left those imports to a network that no
- * longer serves those hashed filenames.
+ * one before it. clients.claim below hands this worker control of tabs still
+ * running the PREVIOUS build, whose lazy chunks are not in this manifest —
+ * deleting their generation left those imports to a network that no longer
+ * serves those hashed filenames. Still true now that activation waits for the
+ * page's SKIP_WAITING: the tab that asks reloads onto this build, but any
+ * OTHER open tab is claimed where it stands, still running the old one.
  */
 const RETAINED_CACHE_GENERATIONS = 2;
 
@@ -85,7 +87,10 @@ const PRECACHE = cacheName();
 // misses its event, and Chrome decides a worker with no fetch listener at
 // evaluation time cannot handle fetches at all.
 self.addEventListener('install', event => {
-  self.skipWaiting();
+  // NO skipWaiting() here. It used to be unconditional, which meant a new
+  // worker took control the instant it finished installing — reloading every
+  // open tab at a moment nobody chose, mid-turn included. The page decides
+  // now, via the SKIP_WAITING message below.
   event.waitUntil((async () => {
     const cache = await caches.open(PRECACHE);
     // Individually rather than addAll, which rejects the whole install if any
@@ -100,6 +105,19 @@ self.addEventListener('install', event => {
       }
     }));
   })());
+});
+
+/**
+ * The page asking this worker to take over.
+ *
+ * Sent by workbox-window's messageSkipWaiting() when the app decides a reload
+ * would interrupt nothing (src/utils/swUpdate.ts). Until it arrives, a newly
+ * installed worker sits in `waiting` and the running build keeps serving —
+ * and if the message never comes, the browser activates it on the next start
+ * with no client to reload at all.
+ */
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
