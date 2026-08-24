@@ -28,13 +28,14 @@ vi.mock('socket.io-client', () => {
 const namedPlayers = (...names: string[]): Player[] =>
   names.map(name => ({ name }) as unknown as Player);
 
-const makeOnlinePlayer = (name) => ({
+const makeOnlinePlayer = (name, overrides = {}) => ({
   name, socketId: `sock-${name}`, deviceId: `dev-${name}`, score: 0,
   times1000PointsDeducted: 0, timesKniffelCompleted: 0, timesPlusMinusCompleted: 0,
   timesKniffelFailed: 0, timesKleeblattFailed: 0, timesKleeblattCompleted: 0,
   timesPlusMinusFailed: 0, timesFeuerwerkReceived: 0, timesSkipped: 0,
   timesx2Received: 0, totalTurns: 0, busts: 0, feuerwerkBusts: 0, x2Busts: 0,
   feuerwerkPointsScored: 0, x2PointsScored: 0,
+  ...overrides,
 });
 
 describe('useGameStore', () => {
@@ -1051,6 +1052,51 @@ describe('useGameStore', () => {
       expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', expect.objectContaining({
         roomId: 'ROOM1',
       }));
+    });
+
+    // With the default non-zero reconnectTimeout the promotion only happens
+    // when the disconnect timer drains — and that server callback splices the
+    // seat FIRST, then broadcasts gameState before hostId. So the promoted
+    // client's payload was built over a roster the departed player, usually
+    // the winner, is no longer in: every counter summed over the survivors,
+    // totalPlayersSum short, and fastestWinTurns derived from getLeaders over
+    // what is left — which in a mid-round finish writes a value lower than any
+    // genuine win into a MIN-merged column.
+    it('submits the roster the game FINISHED with, not the one the promotion left behind', () => {
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: false, hostId: 'departed-host', roomId: 'ROOM1', myName: 'Bob',
+        deviceId: 'dev-bob', finished: false, round: 7,
+        players: namedPlayers('Alice', 'Bob', 'Carol'),
+      });
+
+      // The winning push: three seats at the table when the game ended.
+      mockOnHandlers['gameState']({
+        status: 'playing', finished: true, round: 7,
+        players: [
+          makeOnlinePlayer('Alice', { score: 6000, totalTurns: 9 }),
+          makeOnlinePlayer('Bob', { score: 2000, totalTurns: 9 }),
+          makeOnlinePlayer('Carol', { score: 1500, totalTurns: 9 }),
+        ],
+      });
+
+      // …then Alice's reconnect timer drains: the server splices her seat and
+      // broadcasts the shrunken roster before handing this client the room.
+      mockOnHandlers['gameState']({
+        status: 'playing', finished: true, round: 7,
+        players: [
+          makeOnlinePlayer('Bob', { score: 2000, totalTurns: 9 }),
+          makeOnlinePlayer('Carol', { score: 1500, totalTurns: 9 }),
+        ],
+      });
+      mockEmit.mockClear();
+
+      mockOnHandlers['hostId']('socket-123');
+
+      const submitted = mockEmit.mock.calls.find(([event]) => event === 'submitGlobalStats');
+      expect(submitted, 'the promoted client still submits').toBeDefined();
+      expect(submitted![1].payload.totalPlayersSum, 'three players finished this game').toBe(3);
+      expect(submitted![1].payload.mostPlayersInGame).toBe(3);
     });
 
     it('does not resubmit global stats when an already-host client is re-told it is host', () => {

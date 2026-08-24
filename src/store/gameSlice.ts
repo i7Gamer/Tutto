@@ -331,9 +331,16 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
 
   buildGlobalStatsPayload: () => {
     const s = get();
+    // The game as it FINISHED, when that is known: a roster change after the
+    // finish (a draining reconnect timer splicing a seat, which is exactly what
+    // precedes a host promotion) must not change what gets recorded. Falls back
+    // to live state for a caller with no finish behind it.
+    const game = s.finishedGameSnapshot ?? s;
+    // isNormalizedConfig reads the room CONFIG, which cannot change mid-game,
+    // so it stays on live state.
     // Advisory only: the server recomputes this from the room state it froze at
     // kickoff and overrides whatever arrives here (see socketStatsHandlers.ts).
-    return buildGlobalStatsPayload(s.players, s.gameTimeInSeconds, isNormalizedConfig(s), s.round);
+    return buildGlobalStatsPayload(game.players, game.gameTimeInSeconds, isNormalizedConfig(s), game.round);
   },
 
   setPreGameStats: (stats) => set({ preGameStats: stats }),

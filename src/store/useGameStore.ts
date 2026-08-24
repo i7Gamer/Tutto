@@ -8,7 +8,7 @@ import {
   DEFAULT_DICE_MODE, DEFAULT_RULESET, isValidDiceMode,
 } from '../utils/configValidation';
 import type { CoreGameState, DiceSnapshot, DiceMode, Ruleset } from '../types';
-import type { GameStore, GameStatus, ReconnectSession, PreGameStats } from './storeTypes';
+import type { GameStore, GameStatus, ReconnectSession, PreGameStats, FinishedGameSnapshot } from './storeTypes';
 import { validateOnlineConfig, reanchorLocalClock, attachPersistence, pickLocalGameState } from './persistence';
 import { createTimerSlice } from './timers';
 import { createConfigSlice } from './configSlice';
@@ -42,6 +42,7 @@ const createInitialLocalState = (): Omit<CoreGameState, never> & {
   liveTurnState: DiceSnapshot | null;
   justReconnected: boolean;
   preGameStats: PreGameStats | null;
+  finishedGameSnapshot: FinishedGameSnapshot | null;
 } => ({
   players: [],
   currentPlayerIndex: null,
@@ -84,6 +85,7 @@ const createInitialLocalState = (): Omit<CoreGameState, never> & {
   liveTurnState: null,
   justReconnected: false,
   preGameStats: null,
+  finishedGameSnapshot: null,
   historyLog: [],
 });
 

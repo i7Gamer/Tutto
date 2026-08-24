@@ -16,6 +16,13 @@ import type {
 export type GameMode = 'local' | 'online';
 export type GameStatus = 'lobby' | 'playing';
 
+/** What buildGlobalStatsPayload needs, frozen at the moment the game ended. */
+export interface FinishedGameSnapshot {
+  players: Player[];
+  round: number;
+  gameTimeInSeconds: number;
+}
+
 export interface ReconnectSession {
   roomId: string;
   myName: string;
@@ -86,6 +93,14 @@ export interface GameStore extends CoreGameState {
   // land. EndScreen diffs the post-game deviceStats against this to tell a
   // genuinely new personal record apart from merely tying an older one.
   preGameStats: PreGameStats | null;
+  // The game as it stood the moment `finished` first went true, kept so the
+  // global-stats payload cannot be built over a roster that changed
+  // afterwards. It can: with a non-zero reconnectTimeout the host promotion
+  // that submits on a dead host's behalf only fires when the disconnect timer
+  // drains, and that server callback splices the seat BEFORE it broadcasts —
+  // so the promoted client would otherwise sum every counter over the
+  // survivors of the game rather than its players.
+  finishedGameSnapshot: FinishedGameSnapshot | null;
 
   reset: () => void;
   clearPendingReconnect: () => void;

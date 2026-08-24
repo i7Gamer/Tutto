@@ -41,7 +41,7 @@ export const clearRoomState = (): Pick<GameStore,
   | 'previousCard' | 'previousScore' | 'previousLeaders' | 'previousWasBust'
   | 'previousWasSuccess' | 'previousHighestTurnScore'
   | 'previousHighestFeuerwerkTurnScore' | 'previousHighestX2TurnScore'
-  | 'previousPlayerName' | 'previousTurnSummary'
+  | 'previousPlayerName' | 'previousTurnSummary' | 'finishedGameSnapshot'
 > => ({
   players: [],
   currentPlayerIndex: null,
@@ -73,6 +73,8 @@ export const clearRoomState = (): Pick<GameStore,
   chartNames: [],
   chartLabels: [],
   historyLog: [],
+  // The finished game goes with the room it was played in.
+  finishedGameSnapshot: null,
   ...noUndoableTurn(),
 });
 
@@ -229,6 +231,13 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     get().syncOnlineTimers(serverState.turnTimeRemaining);
 
     if (!wasFinished && get().finished) {
+      // Frozen BEFORE the submission, and kept for the promotion path that may
+      // submit much later: a host promotion on a dead host only fires when the
+      // disconnect timer drains, and the server splices that seat before it
+      // broadcasts — so by then the roster is missing the player who left, very
+      // often the winner.
+      const s = get();
+      set({ finishedGameSnapshot: { players: s.players, round: s.round, gameTimeInSeconds: s.gameTimeInSeconds } });
       get().sendOnlineStats();
     }
   });
