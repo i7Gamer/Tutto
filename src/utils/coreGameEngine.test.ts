@@ -2135,6 +2135,69 @@ describe('coreGameEngine', () => {
         const undo = calculateUndo(stateAfter(busted));
         expect(undo.players[0].busts).toBe(0);
       });
+
+      // The four chains above all end on a completed card or a bonus, so the
+      // failed-card arms of the two summary switches were at coverage count 0
+      // in BOTH directions: the increments in calculateNextTurn and the
+      // decrements in calculateUndo. These are the numbers Statistics renders
+      // as lifetime records, and deleting any of them shipped green.
+      //
+      // Only the LAST card of a chain can fail — the chain ends there — so the
+      // failing card is the parameter, played after a Feuerwerk and an x2 whose
+      // own counters have no completed/failed split and so ride along for free.
+      describe.each([
+        ['Kniffel', 'timesKniffelFailed'],
+        ['Plus_Minus', 'timesPlusMinusFailed'],
+        ['Kleeblatt', 'timesKleeblattFailed'],
+      ])('a chain that fails on %s', (card, counter) => {
+        const playFailedChain = () => calculateNextTurn(
+          makeState({ currentCard: card }),
+          0, false,
+          summary({
+            cards: [
+              { card: 'Feuerwerk', completed: true },
+              { card: 'x2', completed: true },
+              { card, completed: false },
+            ],
+            tuttoCount: 2,
+            ended: 'null',
+          }),
+        );
+
+        it(`counts it as ${counter}, not as a completion`, () => {
+          const alice = playFailedChain().players[0];
+
+          expect(alice[counter]).toBe(1);
+          expect(alice.timesFeuerwerkReceived).toBe(1);
+          expect(alice.timesx2Received).toBe(1);
+        });
+
+        it('undoing puts every counter the chain touched back', () => {
+          const played = playFailedChain();
+          expect(played.players[0][counter]).toBe(1);
+
+          const undo = calculateUndo(stateAfter(played));
+
+          const alice = undo.players[0];
+          expect(alice[counter], counter).toBe(0);
+          expect(alice.timesFeuerwerkReceived).toBe(0);
+          expect(alice.timesx2Received).toBe(0);
+          expect(alice.busts, 'the forfeit itself is reversed too').toBe(0);
+        });
+      });
+
+      it('a completed Kleeblatt is counted once, by the instant-win branch alone', () => {
+        // The summary switch deliberately skips a completed Kleeblatt because
+        // the win branch owns it. Without that skip it is counted twice.
+        const won = calculateNextTurn(
+          makeState({ currentCard: 'Kleeblatt' }),
+          0, true,
+          summary({ cards: [{ card: 'Kleeblatt', completed: true }], tuttoCount: 1 }),
+        );
+
+        expect(won.players[0].timesKleeblattCompleted).toBe(1);
+        expect(won.players[0].timesKleeblattFailed).toBe(0);
+      });
     });
   });
 });

@@ -764,6 +764,20 @@ describe('applyPushedState', () => {
       expect(state.previousLeaders).toEqual([{ name: 'Alice', score: 100 }]);
     });
 
+    // grep found this key in no server test at all, while socketSlice puts it
+    // in every real push. Deleting the branch ships green and every remote
+    // client silently falls back to the score comparison the source itself
+    // flags as wrong.
+    it('previousWasSuccess: boolean only', () => {
+      const state = makeState();
+      applyPushedState(state, { previousWasSuccess: true }, asActivePlayer);
+      expect(state.previousWasSuccess).toBe(true);
+      applyPushedState(state, { previousWasSuccess: 1 }, asActivePlayer);
+      expect(state.previousWasSuccess).toBe(true);
+      applyPushedState(state, { previousWasSuccess: false }, asActivePlayer);
+      expect(state.previousWasSuccess).toBe(false);
+    });
+
     it('previousWasBust: boolean only', () => {
       const state = makeState();
       applyPushedState(state, { previousWasBust: true }, asActivePlayer);
@@ -1295,6 +1309,40 @@ describe('classic chain fields (snapshot / history / turn summary)', () => {
     expect(state.previousTurnSummary).toBeNull();
     applyPushedState(state, { previousTurnSummary: { ...validSummary, ended: 'bogus' } }, asActivePlayer);
     expect(state.previousTurnSummary).toBeNull(); // invalid → ignored
+  });
+
+  // sanitizeTurnSummary rebuilds the summary field by field, and these two
+  // copies were at coverage count 0: the only tests naming them were
+  // isValidTurnSummary bound checks, which never reach applyPushedState.
+  // Deleting either ships green — and then an undone classic online turn
+  // leaves the record inflated for good, because calculateUndo's restore is
+  // keyed on the field being present at all.
+  it('carries the per-turn record restores through a real push, not just past the validator', () => {
+    const state = makeState();
+    const withRestores = {
+      ...validSummary,
+      forfeitedScore: 1800,
+      prevMostCardsInTurn: 4,
+      prevHighestForfeitedTurnScore: 2500,
+    };
+
+    applyPushedState(state, { previousTurnSummary: withRestores }, asActivePlayer);
+
+    // toEqual, not toMatchObject: a dropped field is exactly the defect, and
+    // toMatchObject would not see it.
+    expect(state.previousTurnSummary).toEqual(withRestores);
+  });
+
+  it('keeps a null record restore, which means "there was no record"', () => {
+    // undefined means "the client said nothing"; null means "restore it to
+    // nothing". Collapsing the two would make an undo re-instate a record the
+    // turn had actually set from scratch.
+    const state = makeState();
+    const clearing = { ...validSummary, prevMostCardsInTurn: null, prevHighestForfeitedTurnScore: null };
+
+    applyPushedState(state, { previousTurnSummary: clearing }, asActivePlayer);
+
+    expect(state.previousTurnSummary).toEqual(clearing);
   });
 
   it('accepts a history entry carrying a chain card list, and strips a bad one', () => {
