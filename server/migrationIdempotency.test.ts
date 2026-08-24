@@ -5,6 +5,10 @@ import type { Knex } from 'knex';
 import addAdvancedStats from './migrations/20260622084400_add_advanced_stats';
 import addWinStreak from './migrations/20260704000000_add_win_streak';
 import addGameStats from './migrations/20260707000000_add_game_stats';
+import addDeviceStatsMode from './migrations/20260809000000_add_device_stats_mode';
+import ensureGlobalStatsRow from './migrations/20260625000000_ensure_global_stats_row';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * Re-running a migration must not throw.
@@ -101,6 +105,67 @@ describe('migration re-runnability', () => {
     await expect(addWinStreak.up(db)).resolves.not.toThrow();
 
     expect(await db.schema.hasColumn('device_statistics', 'bestWinStreak')).toBe(true);
+  });
+
+  // The two migrations that rebuild a table rather than add columns to one.
+  // Neither could be covered by the pre-migration fixture above — they need
+  // the real schema as of their own point in history — so these drive the
+  // actual chain and then replay one migration against its finished output,
+  // which is exactly what a `knex migrate:down` (every `down` here drops
+  // nothing) leaves behind for the next `migrate:latest`.
+  describe('the table-rebuilding migrations', () => {
+    const MIGRATIONS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations');
+
+    const migrateAll = async (): Promise<Knex> => {
+      knex = knexLib({ client: 'sqlite3', connection: { filename: ':memory:' }, useNullAsDefault: true });
+      await knex.migrate.latest({ directory: MIGRATIONS_DIR });
+      return knex;
+    };
+
+    it('add_device_stats_mode leaves the custom buckets and the later columns alone on a replay', async () => {
+      // Unguarded, its `up` rebuilds device_statistics from its own frozen
+      // column list and copies SELECT 'normalized' into every row. Two things
+      // follow: every custom and classic bucket is re-stamped as the row the
+      // app shows as the player's real record, promoting its numbers into
+      // them; and the three columns 20260810 added are not in that list, so
+      // they are dropped (that migration's own guard then re-adds them empty).
+      const db = await migrateAll();
+      await db('device_statistics').insert([
+        { deviceId: 'd1', mode: 'normalized', gamesPlayed: 2, highestTurnScore: 500, totalTuttos: 0 },
+        { deviceId: 'd1', mode: 'custom', gamesPlayed: 9, highestTurnScore: 9000, totalTuttos: 7 },
+      ]);
+
+      await expect(addDeviceStatsMode.up(db)).resolves.not.toThrow();
+
+      const rows = await db('device_statistics').where({ deviceId: 'd1' }).orderBy('mode');
+      expect(rows.map(r => r.mode), 'the custom bucket is still custom').toEqual(['custom', 'normalized']);
+      expect(rows.find(r => r.mode === 'custom').highestTurnScore).toBe(9000);
+      expect(rows.find(r => r.mode === 'normalized').highestTurnScore).toBe(500);
+      expect(await db.schema.hasColumn('device_statistics', 'totalTuttos')).toBe(true);
+      expect(rows.find(r => r.mode === 'custom').totalTuttos, 'and its value survived').toBe(7);
+    });
+
+    it('ensure_global_stats_row does not throw on a replay', async () => {
+      // It queries `where({ id: 1 })`, and 20260810 rebuilt global_statistics
+      // keyed by `ruleset` — dropping `id` entirely. Replaying it threw
+      // SQLITE_ERROR: no such column: id straight out of initDb, before
+      // server.listen, on every subsequent start.
+      const db = await migrateAll();
+
+      await expect(ensureGlobalStatsRow.up(db)).resolves.not.toThrow();
+
+      const rows = await db('global_statistics');
+      expect(rows.map(r => r.ruleset).sort()).toEqual(['classic', 'modernized']);
+    });
+
+    it('the whole chain replays cleanly from a finished database', async () => {
+      // What a full `migrate:latest` after a rollback actually does. Fails on
+      // the FIRST unguarded migration, so it stays honest as more are added.
+      const db = await migrateAll();
+      await db('knex_migrations').del();
+
+      await expect(db.migrate.latest({ directory: MIGRATIONS_DIR })).resolves.not.toThrow();
+    });
   });
 
   // The backfill is an UPDATE over every row, so replaying it must not double

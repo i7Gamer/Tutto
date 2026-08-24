@@ -35,6 +35,18 @@ const DEFAULT_MODE = 'normalized';
 const TEMP_TABLE = 'device_statistics_new';
 
 exports.up = async function(knex) {
+  // Already split — nothing to do. Every `down` in this directory drops
+  // nothing on purpose ("to prevent data loss"), so a `knex migrate:down`
+  // removes the knex_migrations row and leaves the schema intact; the next
+  // `migrate:latest` then replays this against its own output. Unguarded,
+  // that rebuild copies SELECT 'normalized' into every row — re-stamping the
+  // custom and classic buckets as the one the app shows as the player's real
+  // record — and drops the three columns 20260810 added, since they are not
+  // in the frozen list below. A device holding rows in two modes does not even
+  // get that far: the composite primary key rejects the copy and the whole
+  // migration throws, out of initDb, before server.listen.
+  if (await knex.schema.hasColumn('device_statistics', 'mode')) return;
+
   await knex.transaction(async trx => {
     await trx.schema.createTable(TEMP_TABLE, table => {
       table.string('deviceId');
