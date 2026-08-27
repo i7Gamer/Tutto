@@ -1,0 +1,24 @@
+# Keeps the pins in .github/workflows/docker-publish.yml from rotting.
+#
+# That workflow holds registry credentials and pushes the image the world
+# pulls, so its actions are pinned to commit SHAs rather than mutable major
+# tags — the code running with those credentials should change only after
+# review here, not when an action's owner moves v5. The cost of pinning is
+# staleness: a security fix in an action would otherwise never arrive. This is
+# the other half of that trade, and the two belong in the same change.
+#
+# Grouped so a routine week is one pull request rather than seven, and kept
+# monthly because these actions move slowly and a weekly cadence would train
+# everyone to merge them unread.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: 'chore(actions)'

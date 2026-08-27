@@ -6,7 +6,7 @@
  *   npm install --no-save sharp
  *   node scripts/generate-icons.mjs
  *
- * Outputs, referenced by the manifest in vite.config.js:
+ * Outputs, referenced by the manifest in vite.config.ts:
  *   public/assets/icon-192.png           192x192, purpose "any"
  *   public/assets/icon-512.png           512x512, purpose "any"
  *   public/assets/icon-512-maskable.png  512x512, purpose "maskable"

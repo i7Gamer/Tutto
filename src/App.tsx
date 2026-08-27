@@ -1,5 +1,5 @@
 import { localStore } from './utils/storage';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sun, Moon } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
@@ -9,8 +9,14 @@ import { warnAboutRecentCrash } from './utils/crashLog';
 import { TOAST_LIFETIME_MS, JOIN_TIMEOUT_MS } from './utils/uiTimings';
 import Home from './components/Home';
 import Game from './components/Game';
-import EndScreen from './components/EndScreen';
-import Statistics from './components/Statistics';
+// Lazy, and the ONLY two lazy routes: between them they own the entire
+// charts chunk (chart.js + react-chartjs-2, ~172 kB raw / 60 kB gzipped).
+// vite.config.ts has always carved that chunk out, but a static import here
+// put it in the entry's modulepreload set, so every player downloaded the
+// charting library before the home screen painted — for two screens most
+// sessions reach once, at the end, if at all.
+const EndScreen = lazy(() => import('./components/EndScreen'));
+const Statistics = lazy(() => import('./components/Statistics'));
 import LanguageSwitcher from './components/LanguageSwitcher';
 import HelpPopup from './components/HelpPopup';
 import ModalShell from './components/ModalShell';
@@ -169,6 +175,19 @@ function RestoreSessionPopup() {
   );
 }
 
+/**
+ * Held for the one network round trip a lazy route costs on first visit.
+ *
+ * Deliberately anonymous — no title, no explanation. Naming the screen that is
+ * loading would flash a heading that the screen itself then renders again, and
+ * on a warm cache this is on screen for a frame or not at all.
+ */
+const RouteSpinner = () => (
+  <div className="flex justify-center items-center py-20" role="status" aria-live="polite">
+    <div className="w-8 h-8 border-4 border-indigo-200 dark:border-slate-600 border-t-indigo-600 rounded-full animate-spin" />
+  </div>
+);
+
 export default function App() {
   const { t } = useTranslation();
   const [theme, setTheme] = useState(() => localStore.read('tutto-theme') || 'light');
@@ -231,9 +250,13 @@ export default function App() {
       <IOSHapticProxy />
 
       {showStats ? (
-        <Statistics deviceId={deviceId} onBack={() => setShowStats(false)} />
+        <Suspense fallback={<RouteSpinner />}>
+          <Statistics deviceId={deviceId} onBack={() => setShowStats(false)} />
+        </Suspense>
       ) : hasWinner ? (
-        <EndScreen theme={theme} deviceId={deviceId} />
+        <Suspense fallback={<RouteSpinner />}>
+          <EndScreen theme={theme} deviceId={deviceId} />
+        </Suspense>
       ) : isPlaying ? (
         <Game />
       ) : (

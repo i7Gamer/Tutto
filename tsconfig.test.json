@@ -1,0 +1,57 @@
+{
+  /* The suites themselves, which nothing type-checks.
+     tsconfig.app.json and tsconfig.server.json both EXCLUDE every test file,
+     vitest transpiles without checking, and the ESLint block for tests sets no
+     parserOptions.project — so a signature change leaves its callers in the
+     tests wrong and the whole pipeline stays green until something happens to
+     assert on the value at runtime.
+
+     NOT YET A GATE, and deliberately not referenced from tsconfig.json: as of
+     writing this reports 1447 errors across 48 files. Almost all of them are
+     one idiom — a partial object literal standing in for a full interface (a
+     two-field object as a Player, a ten-field one as a CoreGameState) — and
+     three files account for 589 of them. The fix is typed
+     fixture factories per shape, which collapses errors by the hundred but
+     touches nearly every suite, so it is its own piece of work rather than a
+     footnote to someone else's. Run it with `npm run type-check:test`, and
+     fold it into `type-check` (and so into CI) once it is clean.
+
+     Left at full `strict` on purpose: relaxing it to make the number smaller
+     buys nothing while neither number is green, and quietly moves the
+     destination. */
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    /* `preserve` for the same reason tsconfig.server.json uses it: these files
+       span both halves of the repo, and the server half is loaded by tsx. */
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "jsx": "react-jsx",
+    "moduleDetection": "force",
+
+    "strict": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": [
+    /* The ambient declarations the app config picks up from "include": ["src"]
+       -- import.meta.env and window.__TEST_MODE__ live here, and without them
+       the count below would be inflated by config artefacts. */
+    "src/vite-env.d.ts",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.integration.test.tsx",
+    "server/**/*.test.ts",
+    "server/**/*.integration.test.ts",
+    "e2e/**/*.ts",
+    "vite.config.ts",
+    "vite.config.test.ts",
+    "playwright.config.ts"
+  ],
+  "exclude": ["server/node_modules"]
+}

@@ -160,6 +160,60 @@ describe('workflow npm caches key on every lockfile', () => {
  * with EUSAGE, which it does by passing this same flag — so the cost is a
  * release build breaking after a green CI.
  */
+describe('the credentialed publish workflow pins its actions by commit', () => {
+  // docker-publish.yml is the only workflow that holds registry credentials
+  // and pushes an image the world then pulls. A mutable major tag means the
+  // code it runs with those credentials is whatever the action's owner most
+  // recently moved v5 to -- a decision taken in someone else's repository,
+  // after review here, with no signal that anything changed.
+  //
+  // Pinning alone would trade a supply-chain risk for a staleness one, so it
+  // arrives with .github/dependabot.yml watching the github-actions ecosystem:
+  // updates then land as reviewable pull requests instead of silently.
+  //
+  // Deliberately scoped to this one workflow. ci.yml and audit.yml run on the
+  // same commits but hold nothing, and pinning every workflow would multiply
+  // the dependabot noise for no reduction in blast radius.
+  const CREDENTIALED_WORKFLOW = 'docker-publish.yml';
+  const COMMIT_PINNED = /@[0-9a-f]{40}$/;
+  // A workflow calling another workflow in THIS repository — already pinned by
+  // definition, since it is the very commit under test.
+  const LOCAL_REUSABLE = './';
+
+  const usesInCredentialedWorkflow = (): { job: string; uses: string }[] => {
+    const source = fs.readFileSync(path.join(WORKFLOWS_DIR, CREDENTIALED_WORKFLOW), 'utf8');
+    return Object.entries(parseWorkflow(source).jobs ?? {}).flatMap(([job, definition]) =>
+      (definition.steps ?? [])
+        .map(step => step.uses)
+        .filter((uses): uses is string => !!uses && !uses.startsWith(LOCAL_REUSABLE))
+        .map(uses => ({ job, uses })),
+    );
+  };
+
+  it('finds the third-party actions it is meant to be checking', () => {
+    // The self-oracle: matching nothing must not read as everything passing.
+    expect(usesInCredentialedWorkflow().length).toBeGreaterThan(0);
+  });
+
+  it('uses no mutable tag for any third-party action', () => {
+    const mutable = usesInCredentialedWorkflow()
+      .filter(({ uses }) => !COMMIT_PINNED.test(uses))
+      .map(({ job, uses }) => `${job}: ${uses}`);
+
+    expect(mutable, 'these run with registry credentials at whatever their owner last moved the tag to').toEqual([]);
+  });
+
+  it('keeps dependabot watching the actions it just froze', () => {
+    // Without this the pins rot: a security fix in an action would never
+    // reach the one workflow that most needs it.
+    const config = parseWorkflow(fs.readFileSync(path.join(REPO_ROOT, '.github', 'dependabot.yml'), 'utf8')) as
+      unknown as { updates?: { 'package-ecosystem'?: string }[] };
+    const ecosystems = (config.updates ?? []).map(entry => entry['package-ecosystem']);
+
+    expect(ecosystems).toContain('github-actions');
+  });
+});
+
 describe('every job that runs the suite has built first', () => {
   // src/utils/serviceWorkerConfig.test.ts is `describe.skipIf(!existsSync(
   // 'dist/sw.js'))`, and it is the ONLY guard on the shipped service worker —

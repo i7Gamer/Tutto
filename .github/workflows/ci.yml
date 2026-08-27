@@ -119,9 +119,11 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
 
-      # playwright.config.ts starts the app itself via "npm start" and, because
-      # CI is set, never reuses an existing server, runs single-worker with two
-      # retries, and points the API server at an in-memory database (TEST_DB).
+      # playwright.config.ts starts the app itself with "npm run build && npm
+      # run server" — the built artifact, rebuilt every run, not the dev
+      # server — and, because CI is set, never reuses an existing server, runs
+      # single-worker with two retries, and points the API server at an
+      # in-memory database (TEST_DB).
       - name: Run End-to-End Tests
         run: npm run test:e2e
 

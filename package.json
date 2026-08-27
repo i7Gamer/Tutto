@@ -17,7 +17,8 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:publish-cleanup": "bash scripts/test-publish-cleanup/run.sh",
-    "type-check": "tsc --build"
+    "type-check": "tsc --build",
+    "type-check:test": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",

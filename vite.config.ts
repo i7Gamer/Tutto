@@ -17,7 +17,7 @@ const { version: appVersion } = JSON.parse(
 
 // Packages reached only through a dynamic import. Kept out of the manual chunk
 // assignment below so the split actually happens — see the note there.
-const LAZY_PACKAGES = ['qrcode-generator', 'jsqr']
+const LAZY_PACKAGES = ['qrcode-generator', 'jsqr', 'chart.js', 'react-chartjs-2']
 
 // Coverage gate for `npm run test:coverage` (which CI runs): a floor well
 // under the suite's actual level (~92% statements / ~88% branches as of
@@ -139,7 +139,6 @@ export default defineConfig(({ mode }) => {
             if (LAZY_PACKAGES.some(pkg => id.includes(`node_modules/${pkg}/`))) return
             if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) return 'react'
             if (id.includes('node_modules/zustand/')) return 'zustand'
-            if (id.includes('node_modules/chart.js/') || id.includes('node_modules/react-chartjs-2/')) return 'charts'
             if (id.includes('node_modules/i18next/') || id.includes('node_modules/react-i18next/')) return 'i18n'
             if (id.includes('node_modules/socket.io-client/')) return 'socket'
             if (id.includes('node_modules')) return 'vendor'
