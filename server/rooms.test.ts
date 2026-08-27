@@ -13,6 +13,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { handleActivePlayerRemoved, calculateRemainingTurnTime, createRoom, deleteRoom, isAbandonedRoom, rooms } from './rooms';
+import { MAX_ROUNDS } from './pushValidation';
 import type { Room, RoomState, ServerPlayer } from './roomTypes';
 
 const makePlayer = (name: string, overrides: Partial<ServerPlayer> = {}): ServerPlayer => ({
@@ -264,6 +265,33 @@ describe('handleActivePlayerRemoved', () => {
       // chart silently comes up one round short.
       expect(room.state.chartLabels).toEqual([7]);
       expect(room.state.chartValues).toEqual([[100, 250], [100, 175]]);
+    });
+
+    it('stops appending chart datapoints once the MAX_ROUNDS cap is reached', () => {
+      // The same bound turnTimers.advanceTurnOnTimeout respects on its own
+      // round-end append. Not an abuse story here — it takes a real seat
+      // removal per datapoint — but the cap is what pushValidation ENFORCES on
+      // the way in: a chartLabels longer than MAX_ROUNDS is refused wholesale,
+      // so a server array that grew past it is one no client can ever push
+      // back, and the two copies silently diverge from there.
+      const fullSeries = () => Array(MAX_ROUNDS).fill(0);
+      const room = makeRoom(['Alice', 'Bob'], {
+        currentPlayerIndex: 2,
+        round: 7,
+        cards: ['Stop'],
+        currentCard: 'x2',
+        chartValues: [fullSeries(), fullSeries(), fullSeries()],
+        chartNames: ['Alice', 'Bob', 'Carol'],
+        chartLabels: fullSeries(),
+      });
+
+      handleActivePlayerRemoved(room, 2);
+
+      expect(room.state.chartLabels).toHaveLength(MAX_ROUNDS);
+      expect(room.state.chartValues[0]).toHaveLength(MAX_ROUNDS);
+      // The turn bookkeeping itself still runs — only the chart append stops.
+      expect(room.state.currentPlayerIndex).toBe(0);
+      expect(room.state.round).toBe(8);
     });
 
     it('last in order AND a sole leader already reached winningScore: ends the game instead of drawing a new round', () => {

@@ -5,6 +5,7 @@ import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
   DEFAULT_RULESET,
 } from '../src/utils/configValidation';
+import { MAX_ROUNDS } from './pushValidation';
 import type { Room, RoomState, ServerPlayer, TurnTimerState } from './roomTypes';
 
 // Null-prototype, not `{}`: every key here is a client-supplied roomId, and
@@ -248,7 +249,14 @@ export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void 
       // gameSlice.nextTurn / advanceTurnOnTimeout) — without it, the round this
       // removal forces past never gets a chart data point, and the end-screen
       // score-per-round chart silently comes up one round short.
-      if (state.chartValues.length === state.players.length && state.chartNames.length === state.players.length) {
+      // Capped like advanceTurnOnTimeout's twin append, and for a sharper
+      // reason than unbounded growth: MAX_ROUNDS is what pushValidation
+      // ENFORCES on an incoming chartLabels, refusing a longer one wholesale.
+      // A server array grown past the bound is one no client can ever push
+      // back, so the server's copy and every client's would diverge from the
+      // first append past it onward.
+      if (state.chartValues.length === state.players.length && state.chartNames.length === state.players.length
+          && state.chartLabels.length < MAX_ROUNDS) {
         state.chartValues.forEach((vals, i) => vals.push(state.players[i].score));
         state.chartLabels.push(state.round);
       }
