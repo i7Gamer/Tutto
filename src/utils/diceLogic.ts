@@ -1,7 +1,8 @@
 import type { CardType, Ruleset } from '../types';
 import { BONUS_CARDS, DEFAULT_RULESET } from './configValidation';
+import { DIE_FACES } from './turnShapes';
 
-export const rollDie = (): number => Math.floor(Math.random() * 6) + 1;
+export const rollDie = (): number => Math.floor(Math.random() * DIE_FACES) + 1;
 
 export const isBust = (rolledVals: number[], card: CardType | null, kniffelProgress: number[], ruleset: Ruleset = DEFAULT_RULESET): boolean => {
   if (card === 'Kniffel') {

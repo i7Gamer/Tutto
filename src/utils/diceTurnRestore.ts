@@ -2,6 +2,7 @@ import { localStore } from './storage';
 import { isBust } from './diceLogic';
 import { withForcedFeuerwerkSelection } from './diceTurnControls';
 import { parseSavedDiceState, DICE_TURN_STATE_KEY } from './diceTurnState';
+import { TOTAL_DICE } from './turnShapes';
 import type { CardType, DiceSnapshot, Die, Ruleset, TurnCardPlayed, TurnEnd } from '../types';
 
 /**
@@ -109,7 +110,7 @@ export const deriveRestoredTurn = ({ restored, currentCard, ruleset }: {
   // was banked — restore into its summary, not into a dice table with nothing
   // left to select. (Banking marks `stopped` too, so this mostly catches
   // caches written before it did.)
-  const tutto: RestoredSummary | null = !bust && isClassic && restored && restored.keptDice.length === 6
+  const tutto: RestoredSummary | null = !bust && isClassic && restored && restored.keptDice.length === TOTAL_DICE
     ? { won: true, score: restored.turnScore, isTutto: true }
     : null;
 
@@ -127,7 +128,7 @@ export const deriveRestoredTurn = ({ restored, currentCard, ruleset }: {
   // Again. All six dice put aside is what a tutto IS, so the kept-dice count
   // recovers the "Tutto!" headline.
   const banked: RestoredSummary | null = !bust && !tutto && !stoppedByCard && restored?.stopped
-    ? { won: true, score: restored.turnScore, isTutto: restored.keptDice.length === 6 }
+    ? { won: true, score: restored.turnScore, isTutto: restored.keptDice.length === TOTAL_DICE }
     : null;
 
   // See RestoredTurn.midDraw above: an empty table that is neither busted nor

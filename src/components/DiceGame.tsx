@@ -25,6 +25,7 @@ import KeptDiceTray from './game/KeptDiceTray';
 import CurrentRollBoard from './game/CurrentRollBoard';
 import TurnActionBar from './game/TurnActionBar';
 import { MAX_CHAIN_CARDS } from '../types';
+import { DIE_FACES, TOTAL_DICE } from '../utils/turnShapes';
 import type { CardType, Die as DieType, DiceSnapshot, Ruleset, TurnSummary } from '../types';
 
 interface DiceGameProps {
@@ -247,7 +248,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // chain total it must bank on a Feuerwerk null.
   useEffect(() => {
     if (!panelReady || (restored && !restore.midDraw)) return;
-    rollRef.current(6, null, restored?.turnScore ?? 0);
+    rollRef.current(TOTAL_DICE, null, restored?.turnScore ?? 0);
   }, [panelReady, restored, restore.midDraw]);
 
   useEffect(() => {
@@ -258,7 +259,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         const isDieRolling = rollingDiceIndices.has(d.id);
         const correctVal = currentRoll.find(cr => cr.id === d.id)?.val;
         const isSettled = correctVal !== undefined && d.val === correctVal;
-        return isDieRolling && !isSettled ? { ...d, val: Math.floor(Math.random() * 6) + 1 } : d;
+        return isDieRolling && !isSettled ? { ...d, val: Math.floor(Math.random() * DIE_FACES) + 1 } : d;
       }));
     }, DIE_FACE_SHUFFLE_MS);
     return () => clearInterval(interval);
@@ -271,7 +272,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     const newKniffelProgress = validation.newKniffelProgress;
     let newKeptDice = [...keptDice, ...selectedRolls];
 
-    const isTutto = newKeptDice.length === 6;
+    const isTutto = newKeptDice.length === TOTAL_DICE;
 
     if (isTutto) {
       newTurnScore = applyTuttoBonus(newTurnScore, currentCard);
@@ -283,7 +284,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
       if (currentCard === 'Kleeblatt') {
         if (tuttosThisTurn === 0) {
           dispatch({ type: 'KLEEBLATT_FIRST_TUTTO', turnScore: newTurnScore, kniffelProgress: newKniffelProgress });
-          roll(6, newKniffelProgress, newTurnScore);
+          roll(TOTAL_DICE, newKniffelProgress, newTurnScore);
           return;
         } else {
           if (isClassic) {
@@ -357,7 +358,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         type: 'ROLL_ON_COMMITTED', turnScore: newTurnScore,
         keptDice: isTutto ? [] : newKeptDice, kniffelProgress: newKniffelProgress,
       });
-      roll(isTutto ? 6 : 6 - newKeptDice.length, newKniffelProgress, newTurnScore);
+      roll(isTutto ? TOTAL_DICE : TOTAL_DICE - newKeptDice.length, newKniffelProgress, newTurnScore);
     }
   };
 
@@ -436,7 +437,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     if (revealedCard) return;
     pendingChainRollRef.current = null;
     drawnCardWasCurrentRef.current = false;
-    rollRef.current(6, [], pending.base);
+    rollRef.current(TOTAL_DICE, [], pending.base);
   }, [currentCard, revealedCard]);
 
   // The drawn card is not coming (see DISCARDED_DRAW_RECOVERY_MS): the store
@@ -603,7 +604,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     onElapsed: finishGame,
   });
 
-  const isMakingTutto = keptDice.length + selectedRolls.length === 6;
+  const isMakingTutto = keptDice.length + selectedRolls.length === TOTAL_DICE;
 
   // What the selection on the table would add to the running total: its dice,
   // or — for a card whose value is a fixed award — that award, once the

@@ -30,7 +30,20 @@ export const MAX_DICE_ID_LENGTH = 64;
 const asRecord = (v: unknown): Record<string, unknown> | null =>
   typeof v === 'object' && v !== null && !Array.isArray(v) ? v as Record<string, unknown> : null;
 
-const isFaceValue = (v: unknown): boolean => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 6;
+/**
+ * How many faces one die has — the range every die value is drawn from and
+ * validated against.
+ *
+ * Deliberately its own constant even though it holds the same number as
+ * TOTAL_DICE below. They are different facts about the game that happen to
+ * coincide at six, and the turn code reads both: `roll(TOTAL_DICE)` rolls six
+ * DICE, `Math.random() * DIE_FACES` picks one of six FACES. While both were
+ * spelled `6` the two were indistinguishable at every call site, so naming
+ * only one of them would have made a wrong substitution easier, not harder.
+ */
+export const DIE_FACES = 6;
+
+const isFaceValue = (v: unknown): boolean => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= DIE_FACES;
 
 export const isSnapshotDie = (v: unknown): v is SnapshotDie => {
   const d = asRecord(v);
