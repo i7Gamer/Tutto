@@ -8,6 +8,8 @@
  *
  *  - `isExternal` fires for a worker THIS tab did not register, so one tab
  *    updating reloaded every other open tab and PWA window along with it.
+ *    Prompt mode does not close this on its own — see reloadOnceForUpdate,
+ *    which stands down in any tab that did not apply the update itself.
  *  - `isUpdate` is true for any activation with a previous controller —
  *    including the browser's own periodic sw.js re-check, with no deploy
  *    behind it.
@@ -103,15 +105,31 @@ export const applyUpdateWhenIdle = <S extends UpdateIdleState>(
 };
 
 /**
- * Reloads onto the new worker, once and only once.
+ * Reloads onto the new worker, once, and only in the tab that asked for it.
  *
  * Passed to registerSW as `onNeedReload`, replacing the template's unguarded
  * `window.location.reload()`. In prompt mode the template adds a `controlling`
  * listener each time a worker enters `waiting`, so more than one can be live
  * at a time — and each would reload a page that is already on its way out.
+ * That is what `reloading` covers.
+ *
+ * `updateApplied` covers the other half, which prompt mode did NOT fix and the
+ * comment at the top of this file wrongly claimed it had. The template adds
+ * that listener in EVERY tab that sees a worker reach `waiting` — including
+ * one installed because of a different tab — and workbox dispatches
+ * `controlling` unconditionally with `isUpdate: true` for any tab that is not
+ * a first-ever visit. It passes `isExternal` alongside; the template ignores
+ * it. So one tab applying an update reloaded every other open tab and PWA
+ * window, mid-game included: a visible flash plus a reconnect round trip for
+ * everyone at that table.
+ *
+ * Standing down is not a compromise. `clients.claim()` hands the new worker
+ * tabs still running the PREVIOUS build, and RETAINED_CACHE_GENERATIONS
+ * (src/sw.js) exists precisely so their hashed chunks keep resolving — those
+ * tabs update on their own next idle moment, or the next cold start.
  */
 export const reloadOnceForUpdate = (): void => {
-  if (reloading) return;
+  if (!updateApplied || reloading) return;
   reloading = true;
   window.location.reload();
 };

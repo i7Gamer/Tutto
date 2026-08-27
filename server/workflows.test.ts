@@ -160,6 +160,63 @@ describe('workflow npm caches key on every lockfile', () => {
  * with EUSAGE, which it does by passing this same flag — so the cost is a
  * release build breaking after a green CI.
  */
+describe('every job that runs the suite has built first', () => {
+  // src/utils/serviceWorkerConfig.test.ts is `describe.skipIf(!existsSync(
+  // 'dist/sw.js'))`, and it is the ONLY guard on the shipped service worker —
+  // the file whose own header documents at length how badly a bundled worker
+  // can fail. ci.yml builds before it tests, so the guard runs there; the
+  // workflow that actually PUBLISHES did not, so the whole suite skipped and
+  // the release was gated by a green check that had inspected nothing.
+  //
+  // Keyed off which scripts actually run vitest, read from package.json rather
+  // than hard-coded: `test:e2e` also starts with "npm run test" but is a
+  // different suite that builds inside playwright.config.ts's own webServer,
+  // and `test:publish-cleanup` is a shell harness. Derived, so a renamed or
+  // added vitest script is covered without editing this list.
+  const BUILD_SCRIPT = 'npm run build';
+
+  const vitestScripts = (): string[] => {
+    const { scripts } = JSON.parse(
+      fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'),
+    ) as { scripts: Record<string, string> };
+    return Object.entries(scripts)
+      .filter(([, command]) => command.includes('vitest'))
+      .map(([name]) => `npm run ${name}`);
+  };
+
+  const runsVitest = (step: WorkflowStep): boolean => {
+    const command = step.run?.trim() ?? '';
+    return vitestScripts().some(script => command === script || command.startsWith(`${script} `));
+  };
+
+  const suiteJobs = (): { file: string; job: string; steps: WorkflowStep[] }[] =>
+    workflowFiles().flatMap(file => {
+      const workflow = parseWorkflow(fs.readFileSync(path.join(WORKFLOWS_DIR, file), 'utf8'));
+      return Object.entries(workflow.jobs ?? {})
+        .filter(([, definition]) => (definition.steps ?? []).some(runsVitest))
+        .map(([job, definition]) => ({ file, job, steps: definition.steps ?? [] }));
+    });
+
+  it('finds the suite-running jobs it is meant to be checking', () => {
+    // The self-oracle every check in this file carries: matching nothing must
+    // not read as everything passing.
+    expect(vitestScripts().length).toBeGreaterThan(0);
+    expect(suiteJobs().length).toBeGreaterThan(0);
+  });
+
+  it('builds before running the suite, so the service-worker guard is not skipped', () => {
+    const unbuilt = suiteJobs()
+      .filter(({ steps }) => {
+        const buildAt = steps.findIndex(step => step.run?.trim().startsWith(BUILD_SCRIPT));
+        const testAt = steps.findIndex(runsVitest);
+        return buildAt === -1 || buildAt > testAt;
+      })
+      .map(({ file, job }) => `${file}:${job}`);
+
+    expect(unbuilt, 'these jobs run the suite without dist/, so the service-worker tests silently skip').toEqual([]);
+  });
+});
+
 describe('a root install cannot quietly repair the server lockfile', () => {
   /** Every `run:` step across every workflow, with where it runs. */
   const runSteps = (): { file: string; job: string; step: WorkflowStep }[] =>

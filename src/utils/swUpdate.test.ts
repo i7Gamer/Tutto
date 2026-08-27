@@ -171,12 +171,41 @@ describe('reloadOnceForUpdate', () => {
     return reload;
   };
 
-  it('reloads the page', () => {
+  /** Puts this tab in the state of having handed the worker its go-ahead. */
+  const applyHere = () => applyUpdateWhenIdle({
+    apply: () => {},
+    getState: () => idle,
+    subscribe: () => () => {},
+  });
+
+  it('reloads the page once this tab has applied the update', () => {
     const reload = stubReload();
+    applyHere();
 
     reloadOnceForUpdate();
 
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reload a tab that did not apply the update itself', () => {
+    // The reported "one tab updating reloads every other tab", which the move
+    // to prompt mode was supposed to end and did not. The register template
+    // adds a `controlling` listener in EVERY tab that sees a worker reach
+    // `waiting` — including one installed because of another tab — and workbox
+    // dispatches `controlling` unconditionally with isUpdate true for any tab
+    // that is not a first-ever visit. isExternal is passed and the template
+    // ignores it. So a tab that never chose to update was reloaded anyway,
+    // mid-game included: a visible flash plus a reconnect round trip for
+    // everyone at that table.
+    //
+    // Not reloading is not a compromise: clients.claim hands the new worker
+    // tabs still running the PREVIOUS build, and RETAINED_CACHE_GENERATIONS
+    // exists precisely so their chunks keep resolving.
+    const reload = stubReload();
+
+    reloadOnceForUpdate();
+
+    expect(reload, 'only the tab that decided to update may reload').not.toHaveBeenCalled();
   });
 
   it('reloads only once, however often it is called', () => {
@@ -184,6 +213,7 @@ describe('reloadOnceForUpdate', () => {
     // `controlling` listener every time a worker enters `waiting`, so more
     // than one can be live, each reloading a page already on its way out.
     const reload = stubReload();
+    applyHere();
 
     reloadOnceForUpdate();
     reloadOnceForUpdate();

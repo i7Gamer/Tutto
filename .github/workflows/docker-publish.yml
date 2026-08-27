@@ -155,6 +155,15 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Before the suite, not after: src/utils/serviceWorkerConfig.test.ts is
+      # `describe.skipIf(!existsSync('dist/sw.js'))` and it is the only guard on
+      # the shipped service worker. Without dist/ the whole file skipped, so the
+      # release was gated by a green check that had inspected nothing. ci.yml has
+      # always built first; the workflow that actually publishes did not.
+      # Pinned by server/workflows.test.ts.
+      - name: Build Application
+        run: npm run build
+
       - name: Run Unit & Integration Tests
         run: npm run test
 
