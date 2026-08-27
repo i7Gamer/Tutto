@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 /**
  * Tailwind v4 emits its utilities inside a real `@layer utilities`. Unlayered
@@ -18,7 +18,31 @@ import { test, expect } from '@playwright/test';
 test.describe('stylesheet cascade', () => {
   // Probes are injected rather than looked for in the UI: this is about which
   // rule wins, and a real element would confound that with its own classes.
-  const PROBES = [
+  //
+  // `contest` is the self-oracle for a "X still wins over U" claim, and it is
+  // not optional pedantry: the gap probe below used to name `gap-8`, which
+  // Tailwind never generated — @source covers src/, not e2e/, and the app's
+  // only use of it is the responsive `sm:gap-8`. So the probe was reading
+  // `.stat-grid-2` against NOTHING and passing on the strength of one rule
+  // applying. `contest` measures the utility on its own first, which fails
+  // loudly if it is absent from the stylesheet.
+  //
+  // `open` names a screen that has to be visited first. Statistics and the end
+  // screen are lazy routes (App.tsx), so their CSS ships as its own stylesheet
+  // and is injected only when the chunk loads. That makes the stat-grid probe
+  // the more interesting one of the pair now: it proves an unlayered rule
+  // still outranks `@layer utilities` when its stylesheet arrives LATE, which
+  // is the cascade situation the lazy split introduced.
+  interface Probe {
+    html: string;
+    property: string;
+    expected: string;
+    what: string;
+    contest?: { html: string; expected: string };
+    open?: 'statistics';
+  }
+
+  const PROBES: Probe[] = [
     { html: '<div class="p-4"></div>', property: 'paddingTop', expected: '16px',
       what: 'a p-4 utility outranks the * reset' },
     { html: '<div class="mb-8"></div>', property: 'marginBottom', expected: '32px',
@@ -30,28 +54,48 @@ test.describe('stylesheet cascade', () => {
     { html: '<div class="modal-panel p-4"></div>', property: 'paddingTop', expected: '16px',
       what: 'a p-4 utility applies where the component class sets no padding' },
     { html: '<button class="theme-toggle p-4"></button>', property: 'paddingTop', expected: '8px',
+      contest: { html: '<button class="p-4"></button>', expected: '16px' },
       what: '.theme-toggle padding still wins over p-4, as it did in v3' },
-    { html: '<div class="stat-grid-2 gap-8"></div>', property: 'gap', expected: '16px',
-      what: '.stat-grid-2 gap still wins over gap-8, as it did in v3' },
+    // gap-6 rather than gap-8: it is one the app actually uses, so Tailwind
+    // emits it. .stat-grid-2 is gap-4 (16px), so the two genuinely disagree.
+    { html: '<div class="stat-grid-2 gap-6"></div>', property: 'gap', expected: '16px',
+      contest: { html: '<div class="gap-6"></div>', expected: '24px' },
+      open: 'statistics',
+      what: '.stat-grid-2 gap still wins over a gap utility, as it did in v3' },
   ];
 
-  for (const { html, property, expected, what } of PROBES) {
+  const computed = (page: Page, html: string, property: string) =>
+    page.evaluate(({ html, property }) => {
+      const host = document.createElement('div');
+      host.innerHTML = html;
+      document.body.appendChild(host);
+      // Indexed by the camelCase JS name, exactly as the untyped version
+      // did — getPropertyValue would want the kebab-case CSS name instead.
+      const styles = getComputedStyle(host.firstElementChild as Element) as unknown as Record<string, string>;
+      const value = styles[property];
+      host.remove();
+      return value;
+    }, { html, property });
+
+  for (const { html, property, expected, what, contest, open } of PROBES) {
     test(what, async ({ page }) => {
       await page.goto('/');
+      if (open === 'statistics') {
+        await page.getByRole('button', { name: 'View Statistics' }).click();
+        // Waited for, not assumed: the chunk's stylesheet is injected as part
+        // of loading it, so probing before the screen is up would measure a
+        // document that legitimately has no such rule yet.
+        await expect(page.getByTestId('statistics-page')).toBeVisible();
+      }
 
-      const actual = await page.evaluate(({ html, property }) => {
-        const host = document.createElement('div');
-        host.innerHTML = html;
-        document.body.appendChild(host);
-        // Indexed by the camelCase JS name, exactly as the untyped version
-        // did — getPropertyValue would want the kebab-case CSS name instead.
-        const styles = getComputedStyle(host.firstElementChild as Element) as unknown as Record<string, string>;
-        const value = styles[property];
-        host.remove();
-        return value;
-      }, { html, property });
+      if (contest) {
+        expect(
+          await computed(page, contest.html, property),
+          'the utility this claims to outrank is not in the stylesheet at all',
+        ).toBe(contest.expected);
+      }
 
-      expect(actual).toBe(expected);
+      expect(await computed(page, html, property)).toBe(expected);
     });
   }
 });
