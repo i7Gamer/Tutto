@@ -81,6 +81,7 @@
   "game.controls.scorePlaceholder": "Score",
   "game.controls.applyBonus": "Apply bonus",
   "game.controls.nextTurn": "Next Turn",
+  "game.controls.bust": "Bust — lose the chain",
   "game.controls.didYouSucceed": "Did you succeed?",
   "game.controls.yes": "Yes",
   "game.controls.no": "No",

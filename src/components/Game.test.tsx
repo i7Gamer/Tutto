@@ -536,6 +536,45 @@ describe('Game Component Integration', () => {
       }));
     });
 
+    it('a bust forfeits the chain and records what it cost', () => {
+      // Physical mode had no way to SAY "I rolled a null". The only exit from
+      // a scoring card was Next Turn, which reads banked-or-not from whether
+      // the typed total is above zero — so a bust meant clearing the box by
+      // hand, and forgetting to banked a chain the player had just lost.
+      // Zeroing it also destroyed the number, which is why physical could
+      // never record highestForfeitedTurnScore the way digital does.
+      useGameStore.setState({ currentCard: '300' });
+      render(<Game />);
+
+      const scoreInput = screen.getByPlaceholderText('game.controls.scorePlaceholder');
+      fireEvent.change(scoreInput, { target: { value: '1500' } });
+      fireEvent.click(screen.getByText('game.controls.bust'));
+
+      expect(mockNextTurn).toHaveBeenCalledWith(0, false, expect.objectContaining({
+        ended: 'null',
+        forfeitedScore: 1500,
+      }));
+    });
+
+    it('offers no bust button on Feuerwerk, whose null banks instead', () => {
+      // The official classic rule: a Feuerwerk null BANKS the accumulated
+      // total and ends the turn. Next Turn with the total typed in is that
+      // move; a forfeit button beside it would offer the opposite.
+      useGameStore.setState({ currentCard: 'Feuerwerk' });
+      render(<Game />);
+
+      expect(screen.queryByText('game.controls.bust')).not.toBeInTheDocument();
+    });
+
+    it('offers no bust button while a special card awaits its yes or no', () => {
+      // Nothing to bust on yet: the card is answered with Yes/No, and a No
+      // already forfeits the chain with the typed total (handleYesNo).
+      useGameStore.setState({ currentCard: 'Kniffel' });
+      render(<Game />);
+
+      expect(screen.queryByText('game.controls.bust')).not.toBeInTheDocument();
+    });
+
     it('relays the chain to the room, so a timeout is not read as a modernized turn', () => {
       // Game wires DiceGame's onStateChange for DIGITAL only, so a physical
       // turn streamed nothing and the server saw liveTurnState: null.

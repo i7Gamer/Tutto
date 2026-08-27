@@ -81,6 +81,7 @@
   "game.controls.scorePlaceholder": "Punkte",
   "game.controls.applyBonus": "Bonus anwenden",
   "game.controls.nextTurn": "Nächster Zug",
+  "game.controls.bust": "Fehlwurf — Kette verloren",
   "game.controls.didYouSucceed": "Erfolgreich?",
   "game.controls.yes": "Ja",
   "game.controls.no": "Nein",

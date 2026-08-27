@@ -470,6 +470,18 @@ export default function Game() {
     recordDraw(drawn);
   }, [currentCard, canDrawAnotherCard, drawCardMidTurn, recordDraw]);
 
+  // Classic physical: the player rolled a null. Said outright instead of being
+  // inferred from a cleared score box — which was both the only way to express
+  // it and the thing that destroyed the number, so physical could never record
+  // highestForfeitedTurnScore the way digital does. Forgetting to clear the
+  // box banked a chain that had just been lost. Same call handleYesNo's No
+  // already makes for a special card.
+  const handlePhysicalBust = useCallback(() => {
+    nextTurn(0, false, buildPhysicalSummary('null', false, Math.max(0, parseInt(scoreInput, 10) || 0)));
+    clearChain();
+    setScoreInput('');
+  }, [nextTurn, buildPhysicalSummary, clearChain, scoreInput]);
+
   const handleDiceComplete = useCallback((score: number, isSuccess: boolean, turnSummary?: TurnSummary) => {
     setShowDiceGame(false);
     nextTurn(score, isSuccess, turnSummary);
@@ -487,6 +499,11 @@ export default function Game() {
   // score, Feuerwerk included. Kleeblatt needs no mention here: isSpecialCard
   // keeps it out of the score-input branch this button lives in.
   const canDrawOnThisCard = classicPhysical && currentCard !== 'Feuerwerk';
+  // Only while a SCORING card is on the table. A special card is answered with
+  // Yes/No — its No already forfeits the chain with the typed total — and
+  // Feuerwerk is excluded for the same reason it cannot be drawn on: its null
+  // banks the accumulated total rather than losing it.
+  const canBustOnThisCard = classicPhysical && currentCardHasInput && currentCard !== 'Feuerwerk';
 
   // Keyboard shortcuts: Space/Enter triggers whatever GameControls' primary
   // button is for the current turn state. There's no dice-roll modal dismiss
@@ -569,6 +586,7 @@ export default function Game() {
             handleNextTurn={handleNextTurn}
             handleYesNo={handleYesNo}
             onDrawNextCard={canDrawOnThisCard ? handlePhysicalDrawNextCard : undefined}
+            onBust={canBustOnThisCard ? handlePhysicalBust : undefined}
             awaitingChainChoice={physicalAwaitingChoice}
             undo={undo}
             canUndo={canUndo}

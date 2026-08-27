@@ -31,6 +31,10 @@ interface GameControlsProps {
   // Classic physical chains: reveals the next card mid-turn. Rendered only
   // when provided (Game passes it for classic + physical dice).
   onDrawNextCard?: () => void;
+  // Classic physical chains: says outright "I rolled a null", which physical
+  // mode had no way to express. Rendered only when provided — Game withholds
+  // it for Feuerwerk, whose null banks rather than forfeits.
+  onBust?: () => void;
   // A special card's Yes was answered under classic — the yes/no buttons
   // give way to the bank-total input plus the draw button.
   awaitingChainChoice?: boolean;
@@ -65,6 +69,7 @@ export default function GameControls({
   handleNextTurn,
   handleYesNo,
   onDrawNextCard,
+  onBust,
   awaitingChainChoice = false,
   undo,
   canUndo,
@@ -205,6 +210,18 @@ export default function GameControls({
                   >
                     {t('game.controls.nextTurn', 'Next Turn')} <ChevronRight className="w-5 h-5 md:w-6 md:h-6" />
                   </motion.button>
+
+                  {onBust && (
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      data-testid="physical-bust"
+                      className="mt-3 bg-red-500 hover:bg-red-600 text-white w-full max-w-sm py-3 md:py-4 rounded-xl md:rounded-2xl text-lg md:text-xl font-bold flex justify-center items-center gap-2 md:gap-3 shadow-lg shadow-red-500/30 transition-colors"
+                      onClick={onBust}
+                    >
+                      <X className="w-5 h-5 md:w-6 md:h-6" /> {t('game.controls.bust', 'Bust — lose the chain')}
+                    </motion.button>
+                  )}
 
                   {onDrawNextCard && (
                     <motion.button
