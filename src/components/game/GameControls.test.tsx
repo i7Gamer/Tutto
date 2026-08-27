@@ -1,103 +1,112 @@
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ComponentProps } from 'react';
 import GameControls from './GameControls';
 import type { CardType, DiceSnapshot, Player } from '../../types';
+import { CARD_FLIP_MS } from '../../utils/uiTimings';
 
-describe('GameControls Animation State Pattern', () => {
-  it('demonstrates synchronous state detection pattern', () => {
-    let prevCard = null;
-    let isFlipping = false;
+// The card-flip state is suppressed under isTestEnv (see GameControls), so
+// reaching it at all means saying this file is not a test environment for the
+// length of one describe. Everything outside it keeps the real value, which is
+// what stops a card change hiding the controls out from under the other tests.
+const { testEnv } = vi.hoisted(() => ({ testEnv: { current: true } }));
+vi.mock('../../utils/env', () => ({ isTestEnv: () => testEnv.current }));
 
-    // Simulate component render with prop change
-    const currentCard = 'x2';
-    
-    // This happens synchronously during render (not in useEffect)
-    if (currentCard !== prevCard) {
-      prevCard = currentCard;
-      isFlipping = true; // Set immediately, before paint
-    }
-
-    // Verify state is set synchronously
-    expect(isFlipping).toBe(true);
-    expect(prevCard).toBe('x2');
+describe('GameControls card-flip state', () => {
+  // Replaces six tests that imported GameControls, never rendered it, and
+  // asserted on local variables they had just assigned -- deleting
+  // GameControls.tsx would not have failed one of them. What they were
+  // gesturing at is real and is below: the flip is derived DURING render, not
+  // in an effect, so the new card and the hidden controls land on the same
+  // frame instead of the old content painting once first.
+  //
+  // Real timers throughout: the controls sit inside an AnimatePresence, so
+  // their disappearance is one exit animation away and fake timers do not
+  // drive it. Every wait below is bounded by the flip's own deadline rather
+  // than by a guess, so none of them can pass merely by being slow.
+  const flipProps = (overrides = {}) => ({
+    currentCard: '200' as CardType,
+    cardsLength: 5,
+    isMyTurn: true,
+    diceMode: 'physical' as const,
+    setShowDiceGame: vi.fn(),
+    scoreInput: '',
+    setScoreInput: vi.fn(),
+    applyBonus: false,
+    setApplyBonus: vi.fn(),
+    handleNextTurn: vi.fn(),
+    handleYesNo: vi.fn(),
+    undo: vi.fn(),
+    canUndo: true,
+    endGame: vi.fn(),
+    isOnline: false,
+    isHost: true,
+    leaveRoom: vi.fn(),
+    activeTurnState: null,
+    currentPlayer: { name: 'Alice' } as Player,
+    ...overrides,
   });
 
-  it('resets isFlipping when card becomes null', () => {
-    let isFlipping = true;
-    let currentCard = null;
+  const scoreInputShown = () => screen.queryByPlaceholderText('game.controls.scorePlaceholder') !== null;
+  // Comfortably past the only clock in play, so "still hidden" cannot mean
+  // "the timer had not got round to it yet".
+  const PAST_THE_FLIP_MS = CARD_FLIP_MS * 2;
+  const settle = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-    // Synchronous render-time logic
-    if (currentCard === null && isFlipping) {
-      isFlipping = false;
-    }
+  beforeEach(() => { testEnv.current = false; });
+  afterEach(() => { testEnv.current = true; });
 
-    expect(isFlipping).toBe(false);
+  it('hides the turn controls for exactly one flip when the card changes', async () => {
+    const { rerender } = render(<GameControls {...flipProps({ currentCard: '200' })} />);
+    expect(scoreInputShown(), 'the first render has nothing to flip from').toBe(true);
+
+    rerender(<GameControls {...flipProps({ currentCard: 'x2' })} />);
+    await waitFor(() => {
+      expect(scoreInputShown(), 'the old card\'s controls stayed up over the new card').toBe(false);
+    });
+
+    await waitFor(() => {
+      expect(scoreInputShown(), 'the controls never came back').toBe(true);
+    }, { timeout: PAST_THE_FLIP_MS });
   });
 
-  it('tracks prev values to detect changes', () => {
-    let prevCardsLength = 10;
-    const cardsLength = 9;
-    let hasChanged = false;
+  it('flips on a deck-size change too, not only on a new card', async () => {
+    // The other half of the trigger condition. A classic mid-turn draw moves
+    // both at once, but the deck can also shrink on its own (a reshuffle),
+    // and the controls have to be covered for that too -- the card face
+    // behind them is about to be replaced either way.
+    //
+    // Asserted as the transition, never as "still visible after a wait":
+    // written that way this test passed while the flip WAS happening, because
+    // the settle it used outlasted the flip it was denying.
+    const { rerender } = render(<GameControls {...flipProps({ currentCard: 'x2', cardsLength: 5 })} />);
+    expect(scoreInputShown()).toBe(true);
 
-    // Change detection pattern
-    if (cardsLength !== prevCardsLength) {
-      prevCardsLength = cardsLength;
-      hasChanged = true;
-    }
+    rerender(<GameControls {...flipProps({ currentCard: 'x2', cardsLength: 4 })} />);
 
-    expect(hasChanged).toBe(true);
-    expect(prevCardsLength).toBe(9);
+    await waitFor(() => {
+      expect(scoreInputShown(), 'a deck-size change alone left the old controls up').toBe(false);
+    });
+    await waitFor(() => expect(scoreInputShown()).toBe(true), { timeout: PAST_THE_FLIP_MS });
   });
 
-  it('handles rapid prop changes without state loss', () => {
-    const changes = [];
-    let prevCard = 'x2';
+  it('clears a flip left standing when there is no card on either side of the change', async () => {
+    // Going card -> null starts a flip whose timer never arms (the effect
+    // needs a currentCard), so the reset branch is the only thing that can
+    // end it. Without that branch the controls stay hidden for good.
+    const { rerender } = render(<GameControls {...flipProps({ currentCard: '200' })} />);
 
-    // Simulate 3 rapid renders with different props
-    const newCards = ['Kniffel', 'Stop', 'Plus_Minus'];
+    rerender(<GameControls {...flipProps({ currentCard: null })} />);
+    await waitFor(() => expect(scoreInputShown()).toBe(false));
 
-    for (const card of newCards) {
-      if (card !== prevCard) {
-        changes.push({ from: prevCard, to: card });
-        prevCard = card;
-      }
-    }
+    await settle(PAST_THE_FLIP_MS);
+    expect(scoreInputShown(), 'no card means no timer, so the flip is still standing').toBe(false);
 
-    expect(changes).toHaveLength(3);
-    expect(prevCard).toBe('Plus_Minus');
-    expect(changes[0]).toEqual({ from: 'x2', to: 'Kniffel' });
-  });
+    rerender(<GameControls {...flipProps({ currentCard: null, cardsLength: 4 })} />);
 
-  it('prevents animation state if change detected in effect (anti-pattern)', () => {
-    // This demonstrates what NOT to do
-    let isFlipping = false;
-    const prevCard = 'x2';
-    const currentCard = 'Kniffel';
-
-    // BAD: detecting change in effect means one frame of unwanted content is visible
-    if (currentCard !== prevCard) {
-      // This runs AFTER render, so content paints before isFlipping is true
-      isFlipping = true;
-    }
-
-    // The test shows the delay happens - in real React this causes a flash
-    expect(isFlipping).toBe(true); // But it's too late - content already painted
-  });
-
-  it('corrects anti-pattern with synchronous detection', () => {
-    let isFlipping = false;
-    let prevCard = 'x2';
-    const currentCard = 'Kniffel';
-
-    // GOOD: detect change synchronously during render
-    if (currentCard !== prevCard) {
-      prevCard = currentCard;
-      isFlipping = true; // Set BEFORE React paints - no flash
-    }
-
-    expect(isFlipping).toBe(true);
-    expect(prevCard).toBe('Kniffel');
+    await waitFor(() => {
+      expect(scoreInputShown(), 'the reset branch never ran, so the controls are gone for good').toBe(true);
+    });
   });
 });
 

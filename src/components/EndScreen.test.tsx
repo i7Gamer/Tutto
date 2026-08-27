@@ -142,10 +142,17 @@ describe('EndScreen Component', () => {
   });
 
   it('does not render chart section when chartLabels is empty', () => {
+    // Asserted against the mock, not against the DOM: react-chartjs-2 is
+    // mocked to render null at the top of this file, so `querySelector(
+    // 'canvas')` was null in every state the component can be in — including
+    // the one where the chart IS rendered. chartCapture is only written when
+    // <Line> is actually mounted, which is the thing being tested.
+    chartCapture.data = null;
     useGameStore.setState({ chartLabels: [] });
-    const { container } = render(<EndScreen />);
-    // Since we don't have a specific test ID, we can check if a canvas element exists (the chart uses canvas)
-    expect(container.querySelector('canvas')).toBeNull();
+
+    render(<EndScreen />);
+
+    expect(chartCapture.data, 'the chart rendered with no rounds to plot').toBeNull();
   });
 
   it('keeps a departed player\'s chart line, frozen with the roster snapshot', () => {

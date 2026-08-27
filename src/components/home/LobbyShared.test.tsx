@@ -541,8 +541,12 @@ describe('AdvancedOptionsPanel', () => {
 
     render(<AdvancedOptionsPanel showAdvanced={true} isOnline={false} />);
 
-    expect(screen.queryByTitle('Reset general settings to defaults')).toBeNull();
-    expect(screen.queryByTitle('Reset cards to default values')).toBeNull();
+    // The keys, not the English: `t` is mocked to return the key it is given
+    // (see the setup), so neither English string could ever appear and both
+    // assertions passed in every state — including one where the buttons are
+    // rendered. The sibling test above already queries by key.
+    expect(screen.queryByTitle('lobby.resetGeneralSettings')).toBeNull();
+    expect(screen.queryByTitle('lobby.resetCardsInDeck')).toBeNull();
   });
 });
 

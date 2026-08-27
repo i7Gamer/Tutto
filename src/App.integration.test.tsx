@@ -4,6 +4,7 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import App from './App';
 import * as diceLogic from './utils/diceLogic';
 import { useGameStore, _resetTimersForTests } from './store/useGameStore';
+import { disconnectSocket } from './store/socketRef';
 import { DICE_PANEL_ENTRANCE_MS, TOAST_LIFETIME_MS, JOIN_TIMEOUT_MS } from './utils/uiTimings';
 
 // Mock confetti
@@ -727,104 +728,102 @@ describe('App Integration (End-to-End)', () => {
     mockSocketInstance = null;
   });
 
-  it('Reconnect without liveTurnState during active game sets justReconnected for timer sync', async () => {
-    // Set up: player in active game, other player's turn, no dice game
+  // Both reconnect tests below used to build their own "simulate what the
+  // actual gameState handler does" function inside the test and then assert on
+  // the store fields that local function had just written -- socketSlice's real
+  // handler never ran, and its `wasDisconnected && status === 'playing'` rule
+  // could have been anything. These drive the registered handler instead.
+  const withCapturedHandlers = (): Record<string, (...args: unknown[]) => void> => {
+    const handlers: Record<string, (...args: unknown[]) => void> = {};
+    mockSocketInstance = {
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => { handlers[event] = handler; }),
+      emit: vi.fn(),
+      off: vi.fn(),
+      disconnect: vi.fn(),
+      id: 'socket-reconnect',
+    };
+    // connectSocket is a no-op while a socket already exists (socketRef), and
+    // earlier tests in this file leave one behind — without this the handlers
+    // map stays empty and every call below is a TypeError.
+    disconnectSocket();
+    act(() => { useGameStore.getState().connectSocket(); });
+    return handlers;
+  };
+
+  const PLAYING_ROOM = {
+    status: 'playing',
+    currentPlayerIndex: 1,
+    currentCard: 'Kniffel',
+    turnDuration: 60,
+    liveTurnState: null,
+    finished: false,
+  };
+
+  it('sets justReconnected on a reconnect into a running game with no dice panel open', () => {
+    // The rule is the STATUS, not liveTurnState: a player who reconnects while
+    // someone else is mid-turn on physical dice has no live dice state to
+    // recognise, and still needs the timer resynced.
+    const handlers = withCapturedHandlers();
     act(() => {
       useGameStore.setState({
-        mode: 'online',
-        isOnline: true,
-        status: 'playing',
-        currentPlayerIndex: 1,  // Other player's turn
-        currentCard: 'Kniffel',
-        turnDuration: 60,
-        gameTimeInSeconds: 25,
-        turnTimeRemaining: 35,
-        liveTurnState: null,  // No dice game in progress
-        justReconnected: false,
+        mode: 'online', isOnline: true, roomId: 'RECONNECT_ROOM',
+        status: 'playing', currentPlayerIndex: 1, liveTurnState: null,
+        justReconnected: false, showReconnectPopup: true,
       });
     });
 
-    // Simulate disconnect then reconnect
-    act(() => {
-      useGameStore.setState({ showReconnectPopup: true });
-    });
+    act(() => { handlers.gameState({ ...PLAYING_ROOM }); });
 
-    // Simulate server sending gameState after reconnect
-    const gameState = {
-      status: 'playing',
-      currentPlayerIndex: 1,
-      currentCard: 'Kniffel',
-      turnDuration: 60,
-      gameTimeInSeconds: 30,
-      turnTimeRemaining: 30,  // Server calculated remaining time
-      liveTurnState: null,  // Still no dice game
-      finished: false,
-    };
-
-    // Manually trigger the socket handler
-    const gameStateHandler = vi.fn((state) => {
-      // Simulate what the actual gameState handler does
-      useGameStore.setState((prev) => {
-        const wasDisconnected = prev.showReconnectPopup;
-        Object.assign(prev, state);
-
-        // This is the key change - should set justReconnected based on status, not liveTurnState
-        if (wasDisconnected && state.status === 'playing') {
-          prev.justReconnected = true;
-        }
-        prev.showReconnectPopup = false;
-        return prev;
-      });
-    });
-
-    gameStateHandler(gameState);
-
-    // justReconnected should be set despite no liveTurnState
     expect(useGameStore.getState().justReconnected).toBe(true);
     expect(useGameStore.getState().liveTurnState).toBeNull();
+    expect(useGameStore.getState().showReconnectPopup, 'the popup outlived the reconnect').toBe(false);
 
-    // Timers should be set to server values
-    expect(useGameStore.getState().turnTimeRemaining).toBe(30);
-    expect(useGameStore.getState().gameTimeInSeconds).toBe(30);
+    mockSocketInstance = null;
   });
 
-  it('Reconnect during lobby does not set justReconnected', () => {
+  it('does not set justReconnected when the reconnect lands in the lobby', () => {
+    const handlers = withCapturedHandlers();
     act(() => {
       useGameStore.setState({
-        mode: 'online',
-        isOnline: true,
-        status: 'lobby',  // Game not started
-        currentPlayerIndex: null,
-        showReconnectPopup: true,
+        mode: 'online', isOnline: true, roomId: 'RECONNECT_LOBBY',
+        status: 'lobby', currentPlayerIndex: null,
+        justReconnected: false, showReconnectPopup: true,
       });
     });
 
-    // Simulate gameState from server
-    const gameState = {
-      status: 'lobby',
-      currentPlayerIndex: null,
-      players: [],
-      liveTurnState: null,
-      finished: false,
-    };
-
-    const gameStateHandler = vi.fn((state) => {
-      useGameStore.setState((prev) => {
-        const wasDisconnected = prev.showReconnectPopup;
-        Object.assign(prev, state);
-
-        if (wasDisconnected && state.status === 'playing') {
-          prev.justReconnected = true;
-        }
-        prev.showReconnectPopup = false;
-        return prev;
-      });
+    act(() => {
+      handlers.gameState({ status: 'lobby', currentPlayerIndex: null, players: [], liveTurnState: null, finished: false });
     });
 
-    gameStateHandler(gameState);
-
-    // justReconnected should NOT be set when status is not 'playing'
     expect(useGameStore.getState().justReconnected).toBe(false);
+    expect(useGameStore.getState().showReconnectPopup).toBe(false);
+
+    mockSocketInstance = null;
+  });
+
+  it('clears justReconnected on the very next broadcast, mounted component or not', () => {
+    // Self-clearing is the half no test covered, and the half that goes wrong
+    // silently: nothing guarantees a component was mounted to consume the
+    // flag, so without the reset here it stays true and resurfaces on a later,
+    // unrelated turn (reconnecting as a spectator, or on physical dice).
+    const handlers = withCapturedHandlers();
+    act(() => {
+      useGameStore.setState({
+        mode: 'online', isOnline: true, roomId: 'RECONNECT_ROOM',
+        status: 'playing', currentPlayerIndex: 1, liveTurnState: null,
+        justReconnected: false, showReconnectPopup: true,
+      });
+    });
+
+    act(() => { handlers.gameState({ ...PLAYING_ROOM }); });
+    expect(useGameStore.getState().justReconnected).toBe(true);
+
+    // An ordinary turn broadcast, with no reconnect behind it.
+    act(() => { handlers.gameState({ ...PLAYING_ROOM, currentPlayerIndex: 0 }); });
+
+    expect(useGameStore.getState().justReconnected, 'the flag is stuck on for the rest of the game').toBe(false);
+
+    mockSocketInstance = null;
   });
 
   it('DiceGame does not auto-open on reconnect without liveTurnState', async () => {

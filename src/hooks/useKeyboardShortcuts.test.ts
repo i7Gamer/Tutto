@@ -69,8 +69,13 @@ describe('useKeyboardShortcuts', () => {
   it('treats an undefined handler as "not available right now"', () => {
     // How a caller expresses a disabled action — the same way its button is
     // disabled — rather than binding a handler that has to re-check.
-    const event = press('r');
+    //
+    // Order matters and used to be wrong: the press came BEFORE renderHook,
+    // so no listener existed yet and defaultPrevented was false however the
+    // hook behaved.
     renderHook(() => useKeyboardShortcuts({ r: undefined }));
+
+    const event = press('r');
 
     expect(event.defaultPrevented).toBe(false);
   });

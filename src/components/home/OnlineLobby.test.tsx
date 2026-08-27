@@ -93,13 +93,18 @@ describe('OnlineLobby', () => {
   it('does not label the recent-rooms heading as a form control', () => {
     // <label> for something that is not a control: the list has no control to
     // label, so it is a heading.
+    //
+    // The heading only renders when there ARE recent rooms, and this used to
+    // stage none and loop over the empty result — zero assertions, green
+    // whatever the markup said. getByText now fails if the heading is missing,
+    // so the check cannot evaporate again.
+    localStorage.setItem('tutto_recent_rooms', JSON.stringify(
+      [{ roomId: 'ABCD', name: 'Bob', timestamp: 1 }],
+    ));
     stageStore({});
     render(<OnlineLobby />);
 
-    const headings = screen.queryAllByText('lobby.online.recentRooms');
-    for (const el of headings) {
-      expect(el.tagName).not.toBe('LABEL');
-    }
+    expect(screen.getByText('lobby.online.recentRooms').tagName).not.toBe('LABEL');
   });
 
   // The server caps both (joinRoom rejects an over-long name outright), so

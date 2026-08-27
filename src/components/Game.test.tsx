@@ -19,8 +19,21 @@ vi.mock('canvas-confetti', () => ({
   default: vi.fn()
 }));
 
+// The mock stands in for the whole dice panel, but it must still be able to
+// DO the one thing the panel exists to do -- report a finished turn through
+// onComplete. Without that, a test could only call a handler it wrote itself.
+const diceComplete = vi.hoisted(() => (
+  { score: 0, isSuccess: true, summary: undefined as unknown }
+));
 vi.mock('./DiceGame', () => ({
-  default: () => <div data-testid="mock-dice-game">Dice Game</div>,
+  default: ({ onComplete }: { onComplete: (s: number, ok: boolean, summary?: unknown) => void }) => (
+    <div data-testid="mock-dice-game">
+      Dice Game
+      <button onClick={() => onComplete(diceComplete.score, diceComplete.isSuccess, diceComplete.summary)}>
+        finish-dice-turn
+      </button>
+    </div>
+  ),
 }));
 
 describe('Game Component Integration', () => {
@@ -453,24 +466,45 @@ describe('Game Component Integration', () => {
     });
 
     it('calls nextTurn when DiceGame completes with success on Plus_Minus', () => {
+      // This used to define its own handleDiceComplete inside the test and
+      // assert that it had called its own mock -- Game.tsx's real handler
+      // never ran, and deleting it would not have failed anything. The mock
+      // panel now calls the onComplete it was actually given.
       useGameStore.setState({
         diceMode: 'digital',
         currentCard: 'Plus_Minus',
       });
+      diceComplete.score = 0;
+      diceComplete.isSuccess = true;
+      diceComplete.summary = undefined;
 
       render(<Game />);
+      fireEvent.click(screen.getByRole('button', { name: /game.controls.rollDice/i }));
+      fireEvent.click(screen.getByText('finish-dice-turn'));
 
-      // Simulate DiceGame completion with success
-      act(() => {
-        const handleDiceComplete = (score, isSuccess) => {
-          useGameStore.setState({ currentCard: 'Plus_Minus' });
-          mockNextTurn(score, isSuccess);
-        };
-        // Manually call handleDiceComplete since we can't interact with mock
-        handleDiceComplete(0, true);
+      expect(mockNextTurn).toHaveBeenCalledWith(0, true, undefined);
+      expect(screen.queryByTestId('mock-dice-game'), 'the panel stayed open over the next turn').toBeNull();
+    });
+
+    it('passes a bust through to nextTurn as a failure', () => {
+      // The other edge of the same handler, and the one that decides whether
+      // the turn banks anything at all.
+      useGameStore.setState({
+        diceMode: 'digital',
+        currentCard: 'Plus_Minus',
       });
+      // The summary rides along verbatim: it is what records the chain, and
+      // handleDiceComplete's whole job is to forward all three unchanged.
+      const summary = { cards: [], ended: 'null', forfeitedScore: 750 };
+      diceComplete.score = 750;
+      diceComplete.isSuccess = false;
+      diceComplete.summary = summary;
 
-      expect(mockNextTurn).toHaveBeenCalledWith(0, true);
+      render(<Game />);
+      fireEvent.click(screen.getByRole('button', { name: /game.controls.rollDice/i }));
+      fireEvent.click(screen.getByText('finish-dice-turn'));
+
+      expect(mockNextTurn).toHaveBeenCalledWith(750, false, summary);
     });
   });
 
