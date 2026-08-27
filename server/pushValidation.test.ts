@@ -67,7 +67,14 @@ describe('applyPushedState', () => {
   describe('permission sets', () => {
     it('lets the host write host-only fields', () => {
       const state = makeState();
-      applyPushedState(state, { status: 'playing', winningScore: 7777, randomOrder: false }, asHost);
+      // Carries whose turn it is, because a push may no longer leave a running
+      // game with nobody to act (applyPushedState's coherence guard; the
+      // behaviour is pinned in socketGameStateHandlers.test.ts). Same
+      // adjustment the active-player test below needed when `finished` gained
+      // its game-over rule:
+      // this test is about which fields the permission set admits, not about
+      // that invariant, so it satisfies it rather than working around it.
+      applyPushedState(state, { status: 'playing', currentPlayerIndex: 0, winningScore: 7777, randomOrder: false }, asHost);
       expect(state.status).toBe('playing');
       expect(state.winningScore).toBe(7777);
       expect(state.randomOrder).toBe(false);

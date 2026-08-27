@@ -446,6 +446,14 @@ export const applyPushedState = (
 ): boolean => {
   const allowedFields = isHost ? ALL_FIELDS : ACTIVE_PLAYER_FIELDS;
 
+  // Kept for the coherence check after the loop. Both, not just the index:
+  // the incoherent combination can be reached by moving EITHER field, so a
+  // push that supplies no index to go back to must give up its status change
+  // instead. The pre-push state is coherent by induction, so restoring the
+  // pair always lands somewhere valid.
+  const statusBeforePush = state.status;
+  const playerIndexBeforePush = state.currentPlayerIndex;
+
   // A push is one snapshot of one moment, and its roster is what dates it: a
   // seat spliced out (a leave, a kick, a reconnect timeout) between the client
   // composing this and the server receiving it makes the WHOLE snapshot
@@ -651,6 +659,28 @@ export const applyPushedState = (
         state.historyLog = v.map(sanitizeHistoryEntry);
       }
     }
+  }
+
+  // A running game must always have someone to act. `null` is a legal value —
+  // it is what the winning push carries — but only alongside the finish that
+  // explains it. On its own it strands the room for good: pushState's
+  // timer-restart branch requires a non-null index and its teardown branch
+  // requires finished-or-lobby, so the server arms no new expiry AND clears
+  // none, and the pending one returns early on every later fire. The room then
+  // reads as a lobby to every client while the server still counts it as a
+  // game in progress — and the host's next Start satisfies neither
+  // `startingGame` disjunct (the status is already 'playing' and finished is
+  // already false), so the stats dedup is never reset and the normalizedGame /
+  // ruleset freeze never re-runs for the new game.
+  //
+  // Checked after the loop rather than in the `currentPlayerIndex` branch,
+  // because the three fields it spans are applied at three different points
+  // in it: 'status' is first, 'currentPlayerIndex' third, 'finished'
+  // twentieth. No legitimate push produces this combination — a game ending
+  // sets `finished`, and one being torn down sets status 'lobby'.
+  if (state.status === 'playing' && !state.finished && state.currentPlayerIndex === null) {
+    state.currentPlayerIndex = playerIndexBeforePush;
+    if (state.currentPlayerIndex === null) state.status = statusBeforePush;
   }
 
   return true;

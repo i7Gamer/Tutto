@@ -91,6 +91,73 @@ describe('pushState turn-timer restarts', () => {
   });
 });
 
+describe('pushState may not leave a running game with nobody to act', () => {
+  const roomId = 'STALL-ROOM';
+  let pushState: Handler;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    rooms[roomId] = createRoom('host-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: false, currentPlayerIndex: 0, currentCard: '300',
+      cards: ['200'], round: 1, turnDuration: 60, turnStartTime: Date.now(),
+      winningScore: 6000,
+      players: [makePlayer('Alice', 'active-sock'), makePlayer('Bob', 'host-sock')],
+    });
+    const fake = makeFakeSocket('active-sock');
+    registerGameStateHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Alice' } });
+    pushState = fake.handlers['pushState'];
+  });
+
+  afterEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.useRealTimers();
+  });
+
+  it('refuses a bare currentPlayerIndex: null from the active player', () => {
+    // `null` is legal — it is what the WINNING push carries — but only
+    // alongside the finish. On its own it strands the room: the timer-restart
+    // branch needs a non-null index and the teardown branch needs
+    // finished/lobby, so the server arms no timer AND clears none, and the
+    // pending expiry returns early forever after. Nothing short of a host push
+    // recovers it, and turnTimers' own header promises the opposite ("a
+    // backgrounded/throttled client tab can never stall the game").
+    pushState({ roomId, newState: { currentPlayerIndex: null } });
+
+    const state = rooms[roomId].state;
+    expect(state.currentPlayerIndex, 'a running game keeps an active player').toBe(0);
+    expect(state.status).toBe('playing');
+    expect(state.finished).toBe(false);
+  });
+
+  it('still accepts currentPlayerIndex: null when it rides the winning push', () => {
+    // The control for the guard above: the legitimate use of `null` must keep
+    // working, or the refusal is indistinguishable from breaking game-over.
+    rooms[roomId].state.players[0].score = 6000;
+
+    pushState({ roomId, newState: { currentPlayerIndex: null, finished: true } });
+
+    const state = rooms[roomId].state;
+    expect(state.finished, 'a real game-over is still accepted').toBe(true);
+    expect(state.currentPlayerIndex).toBeNull();
+  });
+
+  it('refuses a host push that starts a game without saying whose turn it is', () => {
+    // The same incoherence from the other side: status alone, no index. The
+    // guard must restore BOTH fields, or a room that had no index to go back
+    // to is stranded exactly as above.
+    rooms[roomId].state.status = 'lobby';
+    rooms[roomId].state.currentPlayerIndex = null;
+    const hostFake = makeFakeSocket('host-sock');
+    registerGameStateHandlers({ io: makeFakeIo().io, socket: hostFake.socket, session: { roomId, username: 'Bob' } });
+
+    hostFake.handlers['pushState']({ roomId, newState: { status: 'playing' } });
+
+    expect(rooms[roomId].state.status, 'a game cannot start with nobody to act').toBe('lobby');
+  });
+});
+
 describe('pushState against an already-finished game', () => {
   const roomId = 'FINISHED-CLOCK-ROOM';
   const GAME_START = 500_000;
