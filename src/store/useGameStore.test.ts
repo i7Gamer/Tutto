@@ -1099,6 +1099,110 @@ describe('useGameStore', () => {
       expect(submitted![1].payload.mostPlayersInGame).toBe(3);
     });
 
+    // The mirror image of the test above, for the one client the finish edge
+    // never fires for: the player who ENDED the game. nextTurn sets finished
+    // locally before the push goes out, so by the time the server echoes it
+    // back `wasFinished` is already true and no snapshot is taken. If that
+    // same client is then promoted (it is connected, so promoteHostAfterLoss
+    // prefers it), submitGlobalStats has nothing frozen to read.
+    it('submits the roster the game finished with even when this client is the one that ended it', () => {
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: false, hostId: 'departed-host', roomId: 'ROOM1', myName: 'Bob',
+        deviceId: 'dev-bob', round: 7,
+        // Bob is last in the turn order, so his turn closes the round — which
+        // is the only boundary calculateNextTurn ends a game on.
+        status: 'playing', finished: false, currentPlayerIndex: 2,
+        winningScore: 6000, currentCard: 'Feuerwerk', cards: ['Stop'],
+        chartValues: [], chartNames: [], chartLabels: [],
+        players: [
+          makeOnlinePlayer('Alice', { score: 1000, totalTurns: 9 }),
+          makeOnlinePlayer('Carol', { score: 1500, totalTurns: 9 }),
+          makeOnlinePlayer('Bob', { score: 6000, totalTurns: 9 }),
+        ] as unknown as Player[],
+      });
+
+      // Bob takes the winning turn himself: nextTurn flips `finished` locally.
+      useGameStore.getState().nextTurn(0, false);
+      expect(useGameStore.getState().finished, 'the turn ended the game').toBe(true);
+
+      // The server echoes that same finished state back — `wasFinished` is
+      // already true here, so the finish edge does not fire for this client.
+      mockOnHandlers['gameState']({
+        status: 'playing', finished: true, round: 7,
+        players: [
+          makeOnlinePlayer('Alice', { score: 1000, totalTurns: 9 }),
+          makeOnlinePlayer('Carol', { score: 1500, totalTurns: 9 }),
+          makeOnlinePlayer('Bob', { score: 6000, totalTurns: 10 }),
+        ],
+      });
+
+      // …then the dead host's reconnect timer drains: the seat is spliced and
+      // the shrunken roster is broadcast before this client is handed the room.
+      mockOnHandlers['gameState']({
+        status: 'playing', finished: true, round: 7,
+        players: [
+          makeOnlinePlayer('Carol', { score: 1500, totalTurns: 9 }),
+          makeOnlinePlayer('Bob', { score: 6000, totalTurns: 10 }),
+        ],
+      });
+      mockEmit.mockClear();
+
+      mockOnHandlers['hostId']('socket-123');
+
+      const submitted = mockEmit.mock.calls.find(([event]) => event === 'submitGlobalStats');
+      expect(submitted, 'the promoted client still submits').toBeDefined();
+      expect(submitted![1].payload.totalPlayersSum, 'three players finished this game').toBe(3);
+      expect(submitted![1].payload.mostPlayersInGame).toBe(3);
+    });
+
+    // The snapshot is written on the finish edge but nothing clears it when a
+    // new game starts, and buildGlobalStatsPayload prefers it over live state.
+    // A host who takes the winning turn HIMSELF never re-arms it (nextTurn sets
+    // finished locally, so the echo is not an edge), so the rematch's payload
+    // is built from the game before it.
+    it('records the rematch, not the game before it, when the host ends the rematch himself', () => {
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: true, hostId: 'socket-123', roomId: 'ROOM1', myName: 'Alice',
+        deviceId: 'dev-alice', round: 4, finished: false,
+        players: namedPlayers('Alice', 'Bob', 'Carol'),
+      });
+
+      // Game 1 ends with Bob's winning push: this client sees the finish edge
+      // and freezes three seats, then submits.
+      mockOnHandlers['gameState']({
+        status: 'playing', finished: true, round: 4,
+        players: [
+          makeOnlinePlayer('Alice', { score: 2000, totalTurns: 5 }),
+          makeOnlinePlayer('Bob', { score: 6000, totalTurns: 5 }),
+          makeOnlinePlayer('Carol', { score: 1000, totalTurns: 5 }),
+        ],
+      });
+      expect(useGameStore.getState().finishedGameSnapshot?.round).toBe(4);
+
+      // Play Again, now as a two-player rematch that Alice wins on her own
+      // last turn — nine rounds in, so the payload is unmistakably this game's.
+      useGameStore.setState({
+        status: 'playing', finished: false, round: 9, currentPlayerIndex: 1,
+        winningScore: 6000, currentCard: 'Feuerwerk', cards: ['Stop'],
+        chartValues: [], chartNames: [], chartLabels: [],
+        players: [
+          makeOnlinePlayer('Bob', { score: 1500, totalTurns: 12 }),
+          makeOnlinePlayer('Alice', { score: 6000, totalTurns: 12 }),
+        ] as unknown as Player[],
+      });
+      mockEmit.mockClear();
+
+      useGameStore.getState().nextTurn(0, false);
+      expect(useGameStore.getState().finished, 'the rematch ended').toBe(true);
+
+      const submitted = mockEmit.mock.calls.find(([event]) => event === 'submitGlobalStats');
+      expect(submitted, 'the host submits the rematch').toBeDefined();
+      expect(submitted![1].payload.totalRoundsSum, "the rematch's round count").toBe(9);
+      expect(submitted![1].payload.totalPlayersSum, 'two players played the rematch').toBe(2);
+    });
+
     it('does not resubmit global stats when an already-host client is re-told it is host', () => {
       useGameStore.getState().setMode('online');
       useGameStore.setState({
@@ -3224,6 +3328,25 @@ describe('useGameStore', () => {
       expect(state.chartValues).toEqual([]);
       expect(state.chartNames).toEqual([]);
       expect(state.chartLabels).toEqual([]);
+    });
+
+    // buildGlobalStatsPayload PREFERS this snapshot over live state, so one
+    // left behind by the previous game is not stale-but-harmless — it is what
+    // the next submission would report. Both game-start paths drop it.
+    it.each([
+      ['startGame', () => { useGameStore.getState().startGame(); }],
+      ['endGame', () => { useGameStore.getState().endGame(); }],
+    ])("%s drops the previous game's finished-game snapshot", (_name, act) => {
+      useGameStore.setState({
+        players: namedPlayers('Alice', 'Bob'),
+        finishedGameSnapshot: {
+          players: namedPlayers('Zoe'), round: 12, gameTimeInSeconds: 900,
+        },
+      });
+
+      act();
+
+      expect(useGameStore.getState().finishedGameSnapshot).toBeNull();
     });
   });
 

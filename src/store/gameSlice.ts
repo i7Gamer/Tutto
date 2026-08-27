@@ -15,7 +15,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Player, CoreGameState, Toast, CardType } from '../types';
 import { MAX_HISTORY_LOG_SIZE } from '../types';
 import { getSocket } from './socketRef';
-import type { GameStore, ImmerStateCreator } from './storeTypes';
+import type { FinishedGameSnapshot, GameStore, ImmerStateCreator } from './storeTypes';
 
 export const PLAYER_COLORS: string[] = playerColorsData.PLAYER_COLORS;
 
@@ -42,6 +42,23 @@ type GameSlice = Pick<GameStore,
 // stays a plain pure helper, not a store action, so both call sites can use
 // it without that hazard.
 export const makeToast = (message: string): Toast => ({ id: Date.now() + Math.random(), message });
+
+/**
+ * The game as it FINISHED — the three fields buildGlobalStatsPayload must not
+ * re-read from live state once a roster change has landed on top of them.
+ *
+ * One helper because there are two places a client can learn a game ended and
+ * they must record the same thing: the `finished` edge in a broadcast (every
+ * client that watches the finish) and nextTurn (the client that CAUSED it,
+ * which sets `finished` locally and therefore never sees that edge).
+ */
+export const finishedGameSnapshotOf = (
+  game: Pick<GameStore, 'players' | 'round' | 'gameTimeInSeconds'>,
+): FinishedGameSnapshot => ({
+  players: game.players,
+  round: game.round,
+  gameTimeInSeconds: game.gameTimeInSeconds,
+});
 
 export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
   addToast: (message) => set((state) => {
@@ -166,6 +183,12 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.currentPlayerIndex = 0;
       state.liveTurnState = null;
       state.historyLog = [];
+      // The previous game's frozen roster must not outlive it: nothing else
+      // clears this, and buildGlobalStatsPayload PREFERS it over live state —
+      // so a host who ends the rematch himself (and therefore never sees the
+      // `finished` edge that re-arms it) would submit the game before this one
+      // all over again, and this one not at all.
+      state.finishedGameSnapshot = null;
     });
     clearTurnCaches();
 
@@ -195,6 +218,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       chartNames: [],
       chartLabels: [],
       historyLog: [],
+      // Same reason as startGame's: the game it describes is over and gone.
+      finishedGameSnapshot: null,
     });
     clearTurnCaches();
     if (get().isOnline) get().pushState();
@@ -267,6 +292,12 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
         if (state.gameStartTime) {
           state.gameTimeInSeconds = Math.floor((Date.now() - state.gameStartTime) / 1000);
         }
+        // Frozen here as well as on the broadcast edge (socketSlice), because
+        // this client never sees that edge: `finished` is already true by the
+        // time the server echoes this push back. Without it the promotion path
+        // — which fires long after, on a roster the drained reconnect timer has
+        // shrunk — had nothing frozen to read.
+        state.finishedGameSnapshot = finishedGameSnapshotOf(state);
       } else {
         state.currentPlayerIndex = result.nextIndex;
         state.round = result.nextRound;

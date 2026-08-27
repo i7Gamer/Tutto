@@ -9,7 +9,7 @@ import { REACTION_DISPLAY_MS } from '../utils/reactions';
 import { SYNCED_GAME_STATE_KEYS } from '../types';
 import type { Reaction, DiceSnapshot, AssertNever, SyncedGameStateKey } from '../types';
 import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from './storeTypes';
-import { makeToast } from './gameSlice';
+import { finishedGameSnapshotOf, makeToast } from './gameSlice';
 import { clearTurnCaches } from '../utils/diceTurnState';
 import { joinErrorMessage } from '../utils/joinErrors';
 import { JOIN_TIMEOUT_MS } from '../utils/uiTimings';
@@ -236,8 +236,11 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
       // disconnect timer drains, and the server splices that seat before it
       // broadcasts — so by then the roster is missing the player who left, very
       // often the winner.
-      const s = get();
-      set({ finishedGameSnapshot: { players: s.players, round: s.round, gameTimeInSeconds: s.gameTimeInSeconds } });
+      //
+      // This edge covers every client that WATCHES the finish. The one that
+      // caused it sets `finished` locally first, so the echo is no edge at all
+      // — gameSlice.nextTurn freezes it there, through the same helper.
+      set({ finishedGameSnapshot: finishedGameSnapshotOf(get()) });
       get().sendOnlineStats();
     }
   });
