@@ -146,6 +146,7 @@ export const createRoom = (hostSocketId: string, createdBy = ''): Room => ({
   // starts, so this only covers a room that somehow submits without one.
   normalizedGame: true,
   ruleset: DEFAULT_RULESET,
+  finishedGame: null,
   state: {
     players: [],
     status: 'lobby',
@@ -339,9 +340,35 @@ export const sanitizePlayerForBroadcast = (p: ServerPlayer): Omit<ServerPlayer, 
   return rest as Omit<ServerPlayer, 'deviceId'>;
 };
 
+/**
+ * Freezes who won, the first moment the room reports the game over.
+ *
+ * Called from emitRoomState because that is the one place EVERY path to
+ * `finished` passes through on its way out — the winning pushState, the turn
+ * timer's game-over, and an active player's removal all broadcast, and none of
+ * them can reach a client without doing so. Freezing at each of those three
+ * sites instead would work until the fourth one was added without it.
+ *
+ * Idempotent by `??=`, so the later broadcasts of the same finished game (a
+ * seat leaving, the end screen's traffic) keep the roster the game actually
+ * ended with rather than whatever is left. Self-clearing, so the next game
+ * starts with no verdict rather than the previous one's.
+ */
+const rememberFinishedGame = (room: Room): void => {
+  if (!room.state.finished) {
+    room.finishedGame = null;
+    return;
+  }
+  room.finishedGame ??= {
+    winners: getLeaders(room.state.players).map(p => p.name),
+    playerCount: room.state.players.length,
+  };
+};
+
 export const emitRoomState = (io: Server, roomId: string): void => {
   const room = rooms[roomId];
   if (!room) return;
+  rememberFinishedGame(room);
   const gameState = {
     ...room.state,
     players: room.state.players.map(sanitizePlayerForBroadcast),

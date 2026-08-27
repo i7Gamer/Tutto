@@ -104,6 +104,23 @@ export interface StatsRecordedForGame {
   global: boolean;
 }
 
+/**
+ * The result of a finished game, as the room saw it at the moment it ended.
+ *
+ * A client decides "did I win" with getLeaders() over its own roster — which
+ * is wrong for any client whose first sight of the finish arrives after a seat
+ * has left, because the last player standing then looks like the leader. The
+ * damage is permanent (fastestWinTurns is a MIN column, the win streak only
+ * rises), so the verdict is the server's, taken while the winner was still
+ * seated — the same reasoning that makes isDefaultGame the server's call.
+ */
+export interface FinishedGame {
+  /** Every tied leader, by name. A tie is not a win — see getLeaders. */
+  winners: string[];
+  /** Seats at the table when the game ended, for the players-per-game totals. */
+  playerCount: number;
+}
+
 export interface Room {
   host: string;
   // The client address this room was created from, for the per-address
@@ -126,4 +143,9 @@ export interface Room {
   // submitting client's claim). state.ruleset can't change mid-game either,
   // but the freeze makes the stats decision independent of that guard.
   ruleset: Ruleset;
+  // Who actually won the CURRENT game, and how many were at the table when it
+  // ended — frozen the first moment the room reports it over, and the value
+  // endGameStats trusts instead of the verdict the submitting client computed.
+  // null while no game is finished. See rememberFinishedGame in rooms.ts.
+  finishedGame: FinishedGame | null;
 }

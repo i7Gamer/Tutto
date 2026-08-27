@@ -85,11 +85,40 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     const mode = room.ruleset === 'classic'
       ? (room.normalizedGame ? 'classic' : 'classic_custom')
       : (room.normalizedGame ? 'normalized' : 'custom');
+    const clean = sanitizeStats(stats);
+
+    // Whether this device WON is the server's call, for the same reason
+    // isDefaultGame is: the client computes it with getLeaders() over its own
+    // roster, and that roster is wrong for anyone whose first sight of the
+    // finish arrives after a seat has left — the last player standing then
+    // looks like the leader and submits a win it never earned. The room froze
+    // the real verdict while the winner was still seated (see
+    // rememberFinishedGame). Permanent damage if it gets through:
+    // fastestWinTurns is MIN-merged and the streak only ever rises.
+    //
+    // Only the verdict-derived fields are overridden. Everything else in the
+    // payload is this seat's own accumulated counters, which no roster change
+    // can falsify — the correction is not a reason to drop them.
+    const finishedGame = room.finishedGame;
+    if (finishedGame) {
+      const won = finishedGame.winners.includes(player.name);
+      const turns = typeof clean.totalTurns === 'number' ? clean.totalTurns : 0;
+      clean.wins = won ? 1 : 0;
+      // null, not 0, when there is no record to set: sanitize floors these two
+      // at 1 and the columns are MIN-merged, so a 0 would pin them at 1
+      // forever. A game can end before a seat's turn came round, hence the
+      // turns check on BOTH sides.
+      clean.fastestWinTurns = won && turns > 0 ? turns : null;
+      clean.fastestLossTurns = !won && turns > 0 ? turns : null;
+      clean.totalPlayersSum = finishedGame.playerCount;
+      clean.mostPlayersInGame = finishedGame.playerCount;
+    }
+
     // Scoped to the write alone: it is the only step whose failure means
     // nothing was committed, and so the only one the dedup may be reopened
     // for. The refresh below has its own catch for exactly that reason.
     try {
-      await updateDeviceStats(deviceId, sanitizeStats(stats), mode);
+      await updateDeviceStats(deviceId, clean, mode);
     } catch (err) {
       room.statsRecordedForGame.devices.delete(deviceId);
       console.error('[endGameStats] error:', err);

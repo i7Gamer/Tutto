@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Server } from 'socket.io';
 import { registerStatsHandlers } from './socketStatsHandlers';
 import { makeFakeSocket } from './socketTestHarness';
-import { rooms, createRoom, deleteRoom } from './rooms';
+import { rooms, createRoom, deleteRoom, emitRoomState } from './rooms';
 import { zeroedPlayerStats } from '../src/utils/playerStats';
 import type { ServerPlayer } from './roomTypes';
 
@@ -67,6 +67,97 @@ describe('endGameStats win-streak refresh', () => {
     await vi.waitFor(() => expect(getDeviceStats).toHaveBeenCalled());
     await vi.waitFor(() =>
       expect(rooms[roomId].state.players[0].winStreak).toBe(5));
+  });
+});
+
+describe("who won is the server's call, not the submitting client's", () => {
+  const roomId = 'WINNER-ROOM';
+
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.mocked(getDeviceStats).mockReset().mockResolvedValue(null);
+    vi.mocked(updateDeviceStats).mockReset().mockResolvedValue(true);
+  });
+
+  afterEach(() => { for (const id of Object.keys(rooms)) deleteRoom(id); });
+
+  const seatBobAlone = () => {
+    // Alice won on 10000; Bob lost on 4000. The room broadcasts the finish —
+    // which is where the winner is frozen — and only THEN does Alice's seat go
+    // (an explicit leave, or her reconnect timer draining; either splices the
+    // seat, and abortGameIfLowPlayers deliberately skips a finished game).
+    rooms[roomId] = createRoom('alice-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null, winningScore: 6000,
+      players: [
+        { ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: 10000, totalTurns: 20 },
+        { ...makePlayer('Bob', 'bob-sock', 'dev-bob'), score: 4000, totalTurns: 19 },
+      ],
+    });
+    emitRoomState(makeFakeIo().io, roomId);
+    rooms[roomId].state.players.splice(0, 1);
+    // The leave broadcasts too, and that later broadcast must NOT re-freeze
+    // the verdict over the roster it just shrank — otherwise Bob becomes the
+    // leader of a table of one and the correction hands back the same wrong
+    // answer it was added to prevent.
+    emitRoomState(makeFakeIo().io, roomId);
+
+    const fake = makeFakeSocket('bob-sock');
+    registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Bob' } });
+    return fake.handlers['endGameStats'];
+  };
+
+  it('refuses the win a last-player-standing client computes for itself', async () => {
+    // Bob was disconnected at the final turn, so his client's `finished` is
+    // still false; auto-reconnect lands him back in the room and the incoming
+    // gameState is his FIRST sight of the finish. sendOnlineStats then runs
+    // getLeaders() over a roster Alice already left — so the last player
+    // standing looks like the leader, and Bob's own honest client submits a
+    // win. fastestWinTurns is a MIN column and the streak only ever rises, so
+    // both are unremovable without editing the database.
+    const endGameStats = seatBobAlone();
+
+    await endGameStats({ deviceId: 'dev-bob', stats: {
+      gamesPlayed: 1, wins: 1, totalTurns: 19,
+      fastestWinTurns: 19, fastestLossTurns: null,
+      totalPlayersSum: 1, mostPlayersInGame: 1,
+    } });
+
+    const written = vi.mocked(updateDeviceStats).mock.calls[0]?.[1];
+    expect(written, 'the submission is still recorded — only the verdict is corrected').toBeDefined();
+    expect(written!.wins, 'Bob did not win').toBe(0);
+    expect(written!.fastestWinTurns, 'a loss sets no fastest-win record').toBeNull();
+    expect(written!.fastestLossTurns, 'it was a loss, in 19 turns').toBe(19);
+    expect(written!.totalPlayersSum, 'two players finished this game').toBe(2);
+    expect(written!.mostPlayersInGame).toBe(2);
+  });
+
+  it('still credits the real winner, and keeps their own counters', async () => {
+    // The control: the same frozen verdict must confirm a genuine win, or the
+    // correction above is indistinguishable from never recording one.
+    rooms[roomId] = createRoom('alice-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null, winningScore: 6000,
+      players: [
+        { ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: 10000, totalTurns: 20 },
+        { ...makePlayer('Bob', 'bob-sock', 'dev-bob'), score: 4000, totalTurns: 19 },
+      ],
+    });
+    emitRoomState(makeFakeIo().io, roomId);
+
+    const fake = makeFakeSocket('alice-sock');
+    registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Alice' } });
+
+    await fake.handlers['endGameStats']({ deviceId: 'dev-alice', stats: {
+      gamesPlayed: 1, wins: 1, totalTurns: 20, busts: 3,
+      fastestWinTurns: 20, fastestLossTurns: null, totalPlayersSum: 2, mostPlayersInGame: 2,
+    } });
+
+    const written = vi.mocked(updateDeviceStats).mock.calls[0]?.[1];
+    expect(written!.wins).toBe(1);
+    expect(written!.fastestWinTurns).toBe(20);
+    expect(written!.fastestLossTurns).toBeNull();
+    expect(written!.busts, "the player's own counters are untouched").toBe(3);
   });
 });
 
