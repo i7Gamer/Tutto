@@ -8,11 +8,11 @@ import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
   isValidEnforcedDiceMode, isValidRuleset,
   MAX_CARD_COUNT, VALID_CARD_TYPES,
-  MAX_TURN_DURATION, MAX_RECONNECT_TIMEOUT,
+  MAX_TURN_DURATION,
 } from '../src/utils/configValidation';
 import { PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
 import { getLeaders } from '../src/utils/coreGameEngine';
-import type { SyncedGameStateKey, AssertNever } from '../src/types';
+import type { SyncedGameStateKey, AssertNever, ConfigKeys } from '../src/types';
 import type { RoomState, ServerPlayer } from './roomTypes';
 
 // A fully-loaded deck has at most MAX_CARD_COUNT of each of the 11 card types.
@@ -299,10 +299,32 @@ const ALL_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>([...HOST_O
 // use case, so it should enforce exactly the same rule as updateConfig; a
 // looser check here would make pushState a side door for a winning score
 // updateConfig had just rejected.
-const PUSHED_NUMERIC_FIELD_BOUNDS: Record<string, { min: number; max: number }> = {
-  turnDuration: { min: 0, max: MAX_TURN_DURATION },
-  reconnectTimeout: { min: 0, max: MAX_RECONNECT_TIMEOUT },
-};
+// The config a running game must not have changed underneath it — the same set
+// updateConfig refuses mid-game (socketConfigHandlers.ts), enforced here too
+// because pushState reaches every one of these fields. Only `ruleset` used to
+// carry the check, so the guard was one config path wide.
+const LOBBY_ONLY_CONFIG_FIELD_LIST = [
+  'winningScore', 'initialCards', 'randomOrder',
+  'enforcedDiceMode', 'reconnectTimeout', 'ruleset',
+] as const satisfies readonly SyncedGameStateKey[];
+const LOBBY_ONLY_CONFIG_FIELDS: ReadonlySet<string> =
+  Object.freeze(new Set<string>(LOBBY_ONLY_CONFIG_FIELD_LIST));
+
+// The one config field a running game MAY still change, on this path and in
+// updateConfig alike: the host shortens the turn to 0 mid-turn to cancel a
+// pending expiry. No UI exposes it; the server supports it intentionally (see
+// turnTimer.test.ts's "turnDuration=0 mid-turn cancels a pending expiry").
+const MID_GAME_CONFIG_FIELD = 'turnDuration';
+
+// Locks the split above to the config surface itself: a new config key must be
+// named on one side or the other, or this fails to build. Without it the
+// default is silence — an unlisted key is simply writable at any time, which
+// is the state every field except `ruleset` was in.
+// Exported only so noUnusedLocals sees a use; nothing imports it.
+export type LobbyOnlyConfigLock = [
+  AssertNever<Exclude<ConfigKeys, (typeof LOBBY_ONLY_CONFIG_FIELD_LIST)[number] | typeof MID_GAME_CONFIG_FIELD>>,
+  AssertNever<Extract<(typeof LOBBY_ONLY_CONFIG_FIELD_LIST)[number], typeof MID_GAME_CONFIG_FIELD>>,
+];
 
 // 'disconnected' is deliberately excluded: it is server-owned (set in
 // socketHandlers.handlePlayerLeave/joinRoom from actual socket connectivity,
@@ -433,19 +455,13 @@ const mergeMutable = (
 export const applyPushedState = (
   state: RoomState,
   newState: Record<string, unknown>,
-  // allowRulesetWrite is computed by the caller from the PRE-push status
-  // (lobby, or the push that starts the game) — it must not be derived from
-  // state.status inside the field loop below, because 'status' is the first
-  // Set entry and has already been overwritten by the time later keys apply.
   {
     isHost,
     startingGame,
-    allowRulesetWrite = false,
     pusherName,
   }: {
     isHost: boolean;
     startingGame: boolean;
-    allowRulesetWrite?: boolean;
     // The seat the sender occupies, read by the caller BEFORE this function
     // mutates anything — currentPlayerIndex is itself a pushable field, so
     // re-deriving it inside the loop below would read a value the same push
@@ -466,6 +482,13 @@ export const applyPushedState = (
   const statusBeforePush = state.status;
   const playerIndexBeforePush = state.currentPlayerIndex;
 
+  // Read from the PRE-push status, never from state.status inside the loop:
+  // 'status' is the first Set entry and has already been overwritten by the
+  // time later keys apply. Play Again is why `startingGame` is the other half
+  // — it never passes through the lobby, so the room is still 'playing' with
+  // finished=true when the host pushes the next game's opening config.
+  const allowConfigWrite = startingGame || statusBeforePush === 'lobby';
+
   // A push is one snapshot of one moment, and its roster is what dates it: a
   // seat spliced out (a leave, a kick, a reconnect timeout) between the client
   // composing this and the server receiving it makes the WHOLE snapshot
@@ -480,6 +503,9 @@ export const applyPushedState = (
 
   for (const key of allowedFields) {
     if (!(key in newState)) continue;
+    // One check for the whole config set rather than a condition repeated in
+    // six branches, which is how five of them came to be missing it.
+    if (!allowConfigWrite && LOBBY_ONLY_CONFIG_FIELDS.has(key)) continue;
     if (key === 'players') {
       const pushed = newState.players as Record<string, unknown>[];
 
@@ -505,14 +531,23 @@ export const applyPushedState = (
       }
     } else if (key === 'winningScore') {
       if (isValidWinningScore(newState.winningScore)) state.winningScore = newState.winningScore;
-    } else if (key in PUSHED_NUMERIC_FIELD_BOUNDS) {
-      const v = newState[key];
-      const { min, max } = PUSHED_NUMERIC_FIELD_BOUNDS[key];
+    } else if (key === MID_GAME_CONFIG_FIELD) {
+      const v = newState.turnDuration;
       // Integers only: the loose >= 0 floor stays (integration tests push 1-2s
       // turns), but a SUB-SECOND duration would arm the 10ms-floor server
-      // timer as a self-advancing loop that never ends the game.
-      if (typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max) {
-        (state as unknown as Record<string, unknown>)[key] = v;
+      // timer as a self-advancing loop that never ends the game. This is the
+      // one place the push path is deliberately looser than isValidTurnDuration
+      // — every other config field now shares updateConfig's exact validator.
+      if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= MAX_TURN_DURATION) {
+        state.turnDuration = v;
+      }
+    } else if (key === 'reconnectTimeout') {
+      // updateConfig's own validator, not merely the outer numeric bounds:
+      // 1..9 is the hole in the range (neither "disabled" nor an accepted
+      // duration), the lobby snaps a typed value up out of it, and a pushed 3
+      // used to land and arm a 3-second kick timer no UI can produce.
+      if (isValidReconnectTimeout(newState.reconnectTimeout)) {
+        state.reconnectTimeout = newState.reconnectTimeout;
       }
     } else if (key === 'initialCards') {
       if (validateInitialCards(newState.initialCards)) state.initialCards = newState.initialCards;
@@ -659,12 +694,12 @@ export const applyPushedState = (
       const v = newState.enforcedDiceMode;
       if (isValidEnforcedDiceMode(v)) state.enforcedDiceMode = v;
     } else if (key === 'ruleset') {
-      // Unlike the other host-only config fields, a mid-game write is refused
-      // outright: flipping the rule set under an active game would change the
-      // turn logic on every client mid-turn. The normalizedGame-style sticky
-      // downgrade can't help here — it only protects the stats label, not
-      // gameplay. Lobby pushes and the game-starting push itself still pass.
-      if (allowRulesetWrite && isValidRuleset(newState.ruleset)) state.ruleset = newState.ruleset;
+      // The mid-game refusal lives in LOBBY_ONLY_CONFIG_FIELDS now, with the
+      // rest of the config. It matters most here: flipping the rule set under
+      // an active game changes the turn logic on every client mid-turn, and
+      // the normalizedGame-style sticky downgrade cannot help — it protects
+      // the stats label, not gameplay.
+      if (isValidRuleset(newState.ruleset)) state.ruleset = newState.ruleset;
     } else if (key === 'historyLog') {
       const v = newState.historyLog;
       if (Array.isArray(v) && v.length <= MAX_HISTORY_LOG_SIZE && v.every(isValidHistoryEntry)) {

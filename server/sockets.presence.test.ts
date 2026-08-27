@@ -9,7 +9,19 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io } from 'socket.io-client';
 import { startTestServer, testDelay, asserting } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
+import { MIN_ENABLED_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+
+// The shortest kick timer a lobby can actually produce. These tests used to
+// push 1s and 5s, values updateConfig refuses and snapDisableableDuration
+// snaps out of existence — the push path's numeric bounds were simply wider
+// than its own config validator, and three tests were written against the gap.
+// TEST_TIMER_SCALE is the supported way to make a server timer fast, so the
+// legal 10s arms in 2s here and nothing else changes.
+const MS_PER_SECOND = 1000;
+const RECONNECT_TIMER_UNSCALED_MS = MIN_ENABLED_RECONNECT_TIMEOUT * MS_PER_SECOND;
+// Enough past the armed timer that a stale one would have fired by now.
+const PAST_RECONNECT_TIMER_UNSCALED_MS = RECONNECT_TIMER_UNSCALED_MS + 2000;
 
 describe('Server Socket E2E — presence, kicks & host promotion', () => {
   let serverProcess;
@@ -61,7 +73,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
                 players: mockPlayers,
                 status: 'playing',
                 currentPlayerIndex: 0,
-                reconnectTimeout: 1 // Kick timer 1 second for fast testing
+                reconnectTimeout: MIN_ENABLED_RECONNECT_TIMEOUT // 2s under TEST_TIMER_SCALE
               }
             });
             
@@ -327,7 +339,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
             ];
             s1.emit('pushState', {
               roomId: 'ABORT_TIMEOUT_ROOM',
-              newState: { players, status: 'playing', currentPlayerIndex: 0, reconnectTimeout: 1 },
+              newState: { players, status: 'playing', currentPlayerIndex: 0, reconnectTimeout: MIN_ENABLED_RECONNECT_TIMEOUT },
             });
             setTimeout(() => s2.disconnect(), testDelay(200));
           });
@@ -732,22 +744,24 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
         const bob = state.players?.find((p) => p.name === 'Bob');
         if (bob?.disconnected && !kicked) {
           kicked = true;
-          // Host kicks the disconnected Bob while his 1s reconnect timer is armed.
+          // Host kicks the disconnected Bob while his reconnect timer is armed.
           s1.emit('kickPlayer', bob.socketId);
           setTimeout(() => {
             // Bob rejoins fresh (room is in lobby) with the SAME deviceId.
             s3 = io(`http://127.0.0.1:${PORT}`);
             s3.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-kr-b', color: '#00ff00' }, (res) => {
               expect(res.success).toBe(true);
-              // Wait past the 200ms reconnect timer (1s * 0.2 scale): the stale timer must
-              // NOT remove the rejoined Bob.
+              // Wait past the armed reconnect timer: the stale one must NOT
+              // remove the rejoined Bob. Expressed in server-seconds and
+              // scaled the same way the server scales its own timer, so the
+              // two can never drift apart into a vacuous pass.
               setTimeout(() => {
                 expect(latestState.players.map((p) => p.name).sort()).toEqual(['Alice', 'Bob']);
                 expect(latestState.players.find((p) => p.name === 'Bob')?.disconnected).toBe(false);
                 clearTimeout(timeoutId);
                 cleanup();
                 resolve(undefined);
-              }, 350);
+              }, testDelay(PAST_RECONNECT_TIMER_UNSCALED_MS));
             });
           }, 200);
         }
@@ -756,8 +770,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-kr-a', color: '#ff0000' }, () => {
           s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-kr-b', color: '#00ff00' }, () => {
-            // 1s reconnect timer (pushState bounds allow 1; updateConfig would not).
-            s1.emit('pushState', { roomId, newState: { reconnectTimeout: 1 } });
+            s1.emit('pushState', { roomId, newState: { reconnectTimeout: MIN_ENABLED_RECONNECT_TIMEOUT } });
             setTimeout(() => s2.disconnect(), testDelay(200));
           });
         });
@@ -786,9 +799,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
       // disconnected — one round trip after her, whatever the machine is
       // doing — and the timer is five times longer, so the window it has to
       // land in is ~1s rather than 50ms.
-      //
-      // 5s (pushState's bounds allow it; updateConfig would not) = 1s scaled.
-      const RECONNECT_SECONDS = 5;
+      const RECONNECT_SECONDS = MIN_ENABLED_RECONNECT_TIMEOUT;
       let aliceDropped = false;
       let bobDropped = false;
       let sawAliceRemoved = false;

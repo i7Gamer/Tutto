@@ -296,6 +296,14 @@ export const SYNCED_GAME_STATE_KEYS = [
 
 export type SyncedGameStateKey = (typeof SYNCED_GAME_STATE_KEYS)[number];
 
+// The room configuration the host owns, as opposed to the game state a turn
+// produces. Here rather than in the store because the server shares it:
+// server/pushValidation.ts locks its lobby-only/mid-game split against this
+// union, so a new config field cannot be added without deciding whether a
+// running game may still have it changed. Re-exported from storeTypes.ts,
+// which is where the client has always imported it from.
+export type ConfigKeys = 'winningScore' | 'initialCards' | 'randomOrder' | 'turnDuration' | 'reconnectTimeout' | 'enforcedDiceMode' | 'ruleset';
+
 // Instantiating this with anything but `never` is a compile error that names
 // the offending key ("Type '\"foo\"' does not satisfy the constraint 'never'").
 // The field-list locks are built on it: wrap Exclude<inventory, handled> in it

@@ -252,31 +252,62 @@ describe('the game mode a finished game is recorded under', () => {
     client.disconnect();
   });
 
-  it('keeps a custom game custom when the default config is pushed back before the end', async () => {
+  it('keeps a custom game custom when the config goes back to the default before the end', async () => {
     const roomId = 'MODE_RESTORED';
     client = await hostAGame(roomId);
+    // The opening push carries the custom score, which is the only way a
+    // config reaches a running game now.
     push(client, roomId, { winningScore: 1000 });
     await waitFor(() => rooms[roomId].state.winningScore === 1000);
+    expect(rooms[roomId].normalizedGame).toBe(false);
 
-    push(client, roomId, { winningScore: DEFAULT_WINNING_SCORE });
-    await waitFor(() => rooms[roomId].state.winningScore === DEFAULT_WINNING_SCORE);
+    // The config comes back to the default by some route other than a config
+    // push, which the server refuses outright (see the test below). The label
+    // must not follow it back up: `&&=` is what makes the downgrade one-way,
+    // and a plain `=` would pass every other case in this file.
+    rooms[roomId].state.winningScore = DEFAULT_WINNING_SCORE;
+    push(client, roomId, { round: 2 });
+    await waitFor(() => rooms[roomId].state.round === 2);
 
     expect(await submitAndReadMode(client, roomId)).toBe(false);
     client.disconnect();
   });
 
-  it('downgrades a normalized game to custom when the config is changed mid-game', async () => {
-    // Start honest, shorten the winning score once the game is running, win in
-    // two turns. Freezing only at kickoff would still call this normalized.
+  it('downgrades a normalized game to custom if the config ever stops being the default', async () => {
+    // Start honest, then have the running game's config differ from the
+    // default by the time the statistics are submitted. Freezing the label at
+    // kickoff alone would still call this normalized.
     const roomId = 'MODE_MIDGAME';
     client = await hostAGame(roomId);
     push(client, roomId, { winningScore: DEFAULT_WINNING_SCORE });
     await waitFor(() => rooms[roomId].state.status === 'playing');
+    expect(rooms[roomId].normalizedGame).toBe(true);
 
-    push(client, roomId, { winningScore: 1000 });
-    await waitFor(() => rooms[roomId].state.winningScore === 1000);
+    rooms[roomId].state.winningScore = 1000;
+    push(client, roomId, { round: 2 });
+    await waitFor(() => rooms[roomId].state.round === 2);
 
     expect(await submitAndReadMode(client, roomId)).toBe(false);
+    client.disconnect();
+  });
+
+  it('refuses a mid-game config push, which is what makes the downgrade a backstop', async () => {
+    // updateConfig has refused this since it was written; pushState reaches
+    // the same fields and enforced it for `ruleset` alone. Driven through the
+    // real socket handler rather than applyPushedState directly, because the
+    // half that was missing was the CALLER deciding when a config write is
+    // allowed at all.
+    const roomId = 'MODE_MIDGAME_REFUSED';
+    client = await hostAGame(roomId);
+    push(client, roomId, { winningScore: DEFAULT_WINNING_SCORE });
+    await waitFor(() => rooms[roomId].state.status === 'playing');
+
+    // `round` rides the same payload as proof the push itself landed —
+    // without it, an entirely dropped push would read as a refused field.
+    push(client, roomId, { winningScore: 1000, round: 2 });
+    await waitFor(() => rooms[roomId].state.round === 2);
+
+    expect(rooms[roomId].state.winningScore, 'the win condition moved under a running game').toBe(DEFAULT_WINNING_SCORE);
     client.disconnect();
   });
 

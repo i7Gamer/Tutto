@@ -20,6 +20,7 @@ import {
   MAX_SCORE_MAGNITUDE,
 } from './pushValidation';
 import { createRoom } from './rooms';
+import { MIN_ENABLED_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
 import { zeroedPlayerStats, PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
 import type { RoomState, ServerPlayer } from './roomTypes';
 
@@ -528,31 +529,111 @@ describe('applyPushedState', () => {
 
     it('ruleset: accepts both rule sets from the host while the write is allowed', () => {
       const state = makeState();
-      applyPushedState(state, { ruleset: 'classic' }, { ...asHost, allowRulesetWrite: true });
+      applyPushedState(state, { ruleset: 'classic' }, asHost);
       expect(state.ruleset).toBe('classic');
-      applyPushedState(state, { ruleset: 'modernized' }, { ...asHost, allowRulesetWrite: true });
+      applyPushedState(state, { ruleset: 'modernized' }, asHost);
       expect(state.ruleset).toBe('modernized');
     });
 
     it('ruleset: rejects junk even while the write is allowed', () => {
       const state = makeState();
-      applyPushedState(state, { ruleset: 'official' }, { ...asHost, allowRulesetWrite: true });
+      applyPushedState(state, { ruleset: 'official' }, asHost);
       expect(state.ruleset).toBe('modernized');
     });
 
-    it('ruleset: refuses a write when allowRulesetWrite is absent (the mid-game case)', () => {
-      // The caller passes allowRulesetWrite only for lobby / game-starting
-      // pushes — a mid-game host push must not be able to flip the rules
-      // under an active game.
+    it('ruleset: refuses a mid-game write', () => {
+      // A mid-game host push must not be able to flip the rules under an
+      // active game. Written as the SCENARIO: this used to pass a lobby state
+      // and simply omit the (then-explicit) allow flag, so it proved the
+      // parameter was read and nothing about the case it is named for.
       const state = makeState();
+      state.status = 'playing';
+      state.currentPlayerIndex = 0;
       applyPushedState(state, { ruleset: 'classic' }, asHost);
       expect(state.ruleset).toBe('modernized');
     });
 
     it('ruleset: never accepted from the active player, allowed or not', () => {
       const state = makeState();
-      applyPushedState(state, { ruleset: 'classic' }, { ...asActivePlayer, allowRulesetWrite: true });
+      applyPushedState(state, { ruleset: 'classic' }, asActivePlayer);
       expect(state.ruleset).toBe('modernized');
+    });
+
+    it('refuses every lobby-only config field mid-game, the set updateConfig refuses', () => {
+      // updateConfig has enforced this since it was written, and says so at
+      // length: a stray or malicious mid-game event must not flip the win
+      // condition or rebuild the deck under an active game. pushState reaches
+      // every one of those same fields and enforced it for `ruleset` alone --
+      // so the guard was one config path wide, and the other five were a
+      // rename away from a running game changing its own rules.
+      const state = makeState();
+      state.status = 'playing';
+      state.currentPlayerIndex = 0;
+
+      applyPushedState(state, {
+        winningScore: 7777,
+        initialCards: { Stop: 1 },
+        randomOrder: false,
+        enforcedDiceMode: 'digital',
+        reconnectTimeout: 30,
+        ruleset: 'classic',
+      }, asHost);
+
+      expect(state.winningScore, 'the win condition moved under a running game').toBe(6000);
+      expect(state.initialCards.Stop, 'the deck was rebuilt under a running game').toBe(10);
+      expect(state.randomOrder).toBe(true);
+      expect(state.enforcedDiceMode).toBeNull();
+      expect(state.reconnectTimeout).toBe(60);
+      expect(state.ruleset).toBe('modernized');
+    });
+
+    it('still lets the host cancel a pending expiry mid-game with turnDuration', () => {
+      // The one deliberate exception, on this path and in updateConfig alike:
+      // shortening the turn to 0 mid-turn cancels a pending expiry. No UI
+      // exposes it; the server supports it intentionally (turnTimer.test.ts).
+      const state = makeState();
+      state.status = 'playing';
+      state.currentPlayerIndex = 0;
+
+      applyPushedState(state, { turnDuration: 0 }, asHost);
+
+      expect(state.turnDuration).toBe(0);
+    });
+
+    it('still lets the game-starting push carry the config it was started with', () => {
+      // Play Again never passes through the lobby: the room is still 'playing'
+      // with finished=true when the host pushes the next game's opening state,
+      // and that push carries its own config. Refusing it here would silently
+      // start the new game on the previous one's settings.
+      const state = makeState();
+      state.status = 'playing';
+      state.finished = true;
+
+      applyPushedState(state, {
+        status: 'playing', finished: false, currentPlayerIndex: 0,
+        winningScore: 7777, ruleset: 'classic',
+      }, { ...asHost, startingGame: true });
+
+      expect(state.winningScore).toBe(7777);
+      expect(state.ruleset).toBe('classic');
+    });
+
+    it('reconnectTimeout: holds the push path to the range updateConfig accepts', () => {
+      // 1..9 is the hole in the range: neither "disabled" (0) nor an accepted
+      // duration (>= MIN_ENABLED_RECONNECT_TIMEOUT). The lobby snaps a typed
+      // value up out of it (snapDisableableDuration) and updateConfig refuses
+      // it outright -- but the push path measured only the outer numeric
+      // bounds, so a 3 landed and armed a 3-second kick timer no UI can make.
+      const state = makeState();
+
+      applyPushedState(state, { reconnectTimeout: 3 }, asHost);
+      expect(state.reconnectTimeout, 'a duration inside the disabled/enabled hole').toBe(60);
+
+      applyPushedState(state, { reconnectTimeout: 0 }, asHost);
+      expect(state.reconnectTimeout, 'disabled is a supported lobby option').toBe(0);
+
+      applyPushedState(state, { reconnectTimeout: MIN_ENABLED_RECONNECT_TIMEOUT }, asHost);
+      expect(state.reconnectTimeout).toBe(MIN_ENABLED_RECONNECT_TIMEOUT);
     });
 
     it('currentCard/previousCard: accepts null and valid cards, rejects junk', () => {

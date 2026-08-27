@@ -46,12 +46,6 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
     const startingGame = isHost && newState.status === 'playing' &&
       (room.state.status === 'lobby' || (room.state.finished && newState.finished === false));
 
-    // Decided from the PRE-push status: once a game is running, a pushed
-    // ruleset is refused (see applyPushedState) — a rules flip mid-game would
-    // desync every client's turn logic. The game-starting push itself may
-    // still carry it (it mirrors the lobby config it was started from).
-    const allowRulesetWrite = startingGame || room.state.status === 'lobby';
-
     // Resolved from the socket rather than from currentPlayerIndex at merge
     // time: that index is itself a pushable field, so by the time the roster
     // is merged this same push may already have advanced it to the next seat.
@@ -59,7 +53,7 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
     // correct if the host ever loses its blanket roster authority.
     const pusherName = room.state.players.find(p => p.socketId === socket.id)?.name ?? null;
 
-    const applied = applyPushedState(room.state, newState, { isHost, startingGame, allowRulesetWrite, pusherName });
+    const applied = applyPushedState(room.state, newState, { isHost, startingGame, pusherName });
 
     // Gated on the push having landed, and therefore only readable AFTER it:
     // applyPushedState discards a whole snapshot whose roster no longer
@@ -74,11 +68,15 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
     // and initialCards itself, so reading the pre-push state would see only the
     // lobby's config and miss a custom one smuggled in with the kickoff.
     //
-    // Kickoff alone is not enough either. A host may push these two fields at
-    // any time, mid-game included, so "start on the default config, shorten the
-    // winning score once running, win in two turns" would otherwise be recorded
-    // as a normal game. Hence the downgrade below — and it only ever goes one
-    // way: pushing the defaults back before the end must not relabel the game.
+    // Kickoff alone was not enough either: the push path used to accept
+    // winningScore and initialCards at any time, so "start on the default
+    // config, shorten the winning score once running, win in two turns" would
+    // have been recorded as a normal game. Both paths now refuse a mid-game
+    // config write (LOBBY_ONLY_CONFIG_FIELDS), so the downgrade below is a
+    // backstop rather than the rule — kept because it costs one `&&=` and
+    // because relabelling a game's statistics bucket is not recoverable. It
+    // only ever goes one way: restoring the defaults before the end must not
+    // relabel a game that ran custom.
     //
     // Gated on `applied` for the same reason as the dedup reset above: a
     // discarded push started no game, so re-deriving the label here would read

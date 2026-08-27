@@ -1,4 +1,5 @@
 import type { StateCreator } from 'zustand';
+import type { ConfigKeys } from '../types';
 import type {
   InitialCards,
   Player,
@@ -43,7 +44,7 @@ export interface JoinRoomResponse {
   name?: string;
 }
 
-export type ConfigKeys = 'winningScore' | 'initialCards' | 'randomOrder' | 'turnDuration' | 'reconnectTimeout' | 'enforcedDiceMode' | 'ruleset';
+export type { ConfigKeys };
 
 /**
  * The device bucket as it stood when this game STARTED, so the end screen can
