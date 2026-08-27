@@ -536,6 +536,46 @@ describe('Game Component Integration', () => {
       }));
     });
 
+    it('relays the chain to the room, so a timeout is not read as a modernized turn', () => {
+      // Game wires DiceGame's onStateChange for DIGITAL only, so a physical
+      // turn streamed nothing and the server saw liveTurnState: null.
+      // advanceTurnOnTimeout decides "was this classic?" by whether the live
+      // snapshot carries a chain — so an AFK classic physical turn was
+      // committed through the modernized path: a bust it never rolled, every
+      // earlier card's counter thrown away, the classic records lost, and no
+      // summary for undo to put the cards back with.
+      const mockPush = vi.fn();
+      useGameStore.setState({ currentCard: 'Kniffel', pushLiveTurnState: mockPush });
+      render(<Game />);
+
+      fireEvent.click(screen.getByRole('button', { name: /game.controls.yes/i }));
+
+      expect(mockPush).toHaveBeenCalledWith(expect.objectContaining({
+        cardsThisTurn: ['Kniffel'],
+        // The bank-or-draw choice is open, which is the state an AFK physical
+        // player parks in — and the one no dice count can express.
+        lastCardCompleted: true,
+        keptDice: [],
+        currentRoll: [],
+      }));
+    });
+
+    it('relays nothing while watching someone else take their turn', () => {
+      // The server accepts a liveTurnState only from the host or the seat
+      // whose turn it is, so a spectator's relay would be a silent no-op at
+      // best — and this client's chain is not the one being played.
+      const mockPush = vi.fn();
+      useGameStore.setState({
+        currentCard: 'Kniffel',
+        pushLiveTurnState: mockPush,
+        myName: 'Bob',
+        currentPlayer: { name: 'Alice', socketId: 'socket1', score: 0, position: 1 },
+      });
+      render(<Game />);
+
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
     it('a Plus/Minus Yes pre-fills 1000 and the banked summary carries the success', () => {
       useGameStore.setState({ currentCard: 'Plus_Minus' });
       render(<Game />);

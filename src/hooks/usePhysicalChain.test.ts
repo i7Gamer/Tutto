@@ -238,6 +238,66 @@ describe('usePhysicalChain', () => {
     });
   });
 
+  describe('telling the server what the chain is doing', () => {
+    // With real dice the app streams no live snapshot at all (Game wires
+    // onStateChange for digital only), so the server saw `liveTurnState:
+    // null` for every physical turn — and advanceTurnOnTimeout, which decides
+    // "was this classic?" by whether the snapshot carries a chain, committed
+    // an AFK classic physical turn through the modernized path: a bust it
+    // never rolled, every earlier card's counter thrown away, all three
+    // classic records lost, and no summary for undo to put the cards back.
+    it('emits the chain, dice-less, as the turn progresses', () => {
+      const seen = [];
+      const { result } = mount({ onSnapshot: (s) => seen.push(s), scoreInput: '2000' });
+
+      act(() => { result.current.completeCurrentCard(false); });
+
+      const snapshot = seen[seen.length - 1];
+      expect(snapshot.cardsThisTurn, 'the chain so far').toEqual(['200']);
+      expect(snapshot.turnScore, 'the typed running total is what a timeout forfeits').toBe(2000);
+      expect(snapshot.lastCardCompleted, 'they answered Yes; the choice is open').toBe(true);
+      // No dice to report — the whole point of physical mode. The spectator
+      // panel gates both dice rows on length, so it shows the total instead.
+      expect(snapshot.keptDice).toEqual([]);
+      expect(snapshot.currentRoll).toEqual([]);
+    });
+
+    it('carries every card once the chain grows', () => {
+      const seen = [];
+      const { result } = mount({ onSnapshot: (s) => seen.push(s), scoreInput: '2000' });
+
+      act(() => { result.current.completeCurrentCard(false); });
+      act(() => { result.current.recordDraw('400'); });
+
+      const snapshot = seen[seen.length - 1];
+      expect(snapshot.cardsThisTurn).toEqual(['200', '400']);
+      expect(snapshot.lastCardCompleted, 'the new card has not been played yet').toBe(false);
+    });
+
+    it('clears the server-side snapshot when the turn commits', () => {
+      const seen = [];
+      const onSnapshot = (s) => seen.push(s);
+      const { result, rerender } = mount({ onSnapshot, scoreInput: '2000' });
+      act(() => { result.current.completeCurrentCard(false); });
+
+      // Exactly how Game commits: clearChain, then the typed total is reset
+      // (handleNextTurn / handleYesNo both do the pair).
+      act(() => { result.current.clearChain(); });
+      rerender({ ...defaultArgs, onSnapshot, scoreInput: '' });
+
+      expect(seen[seen.length - 1], 'a committed turn leaves nothing live').toBeNull();
+    });
+
+    it('stays silent when this is not a classic physical turn', () => {
+      const seen = [];
+      const { result } = mount({ onSnapshot: (s) => seen.push(s), enabled: false, scoreInput: '2000' });
+
+      act(() => { result.current.completeCurrentCard(false); });
+
+      expect(seen, 'digital streams its own snapshot from DiceGame').toEqual([]);
+    });
+  });
+
   describe('buildSummary', () => {
     it('counts a completed Kleeblatt as two tuttos and an unresolved card as none', () => {
       writeCache(validEntry({

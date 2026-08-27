@@ -133,7 +133,10 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       const stoppedBanked = !snapshot.busted && !!snapshot.stopped;
       const atDrawWindow = !snapshot.busted && !snapshot.stopped
         && snapshot.keptDice.length === 0 && snapshot.currentRoll.length === 0;
-      const lastCompleted = atBankChoice || feuerwerkBanked;
+      // The physical branch of the same question. With no dice in the
+      // snapshot neither asideCount nor `busted` can answer it, so a classic
+      // physical turn says so outright (see DiceSnapshot.lastCardCompleted).
+      const lastCompleted = atBankChoice || feuerwerkBanked || !!snapshot.lastCardCompleted;
       timeoutSummary = {
         // Every card before the last was completed (the chain only continues
         // on a completion).

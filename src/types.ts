@@ -76,6 +76,16 @@ export interface DiceSnapshot {
   cardsThisTurn?: CardType[];
   plusMinusScores?: number[];
   chainTuttoCount?: number;
+  /**
+   * Classic PHYSICAL only: whether the chain's last card has been completed.
+   *
+   * The digital path reads that off the dice — six put aside IS a completed
+   * card — but a physical snapshot carries no dice, so the one state an AFK
+   * physical player parks in (answered Yes, bank-or-draw choice open) was
+   * indistinguishable from an unresolved one and the server's timeout
+   * reconstruction booked the completed card as a failure.
+   */
+  lastCardCompleted?: boolean;
 }
 
 // Sanity cap for classic-chain card lists (snapshot, history, turn summary) —

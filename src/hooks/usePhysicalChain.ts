@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildTurnKey, PHYSICAL_TURN_STATE_KEY } from '../utils/diceTurnState';
 import { MAX_CHAIN_CARDS } from '../types';
 import { isChainScoreList, isTurnCardList } from '../utils/turnShapes';
-import type { CardType, Ruleset, TurnCardPlayed, TurnEnd, TurnSummary } from '../types';
+import type { CardType, DiceSnapshot, Ruleset, TurnCardPlayed, TurnEnd, TurnSummary } from '../types';
 
 /*
  * The PHYSICAL_TURN_STATE_KEY cache — the counterpart of DICE_TURN_STATE_KEY
@@ -107,6 +107,19 @@ interface UsePhysicalChainArgs {
   ruleset: Ruleset;
   // Persisted alongside the chain so the typed running total survives too.
   scoreInput: string;
+  /**
+   * Relays the chain to the room, the way DiceGame's onStateChange relays the
+   * dice (Game wires that one for digital only, which is why a physical turn
+   * used to stream nothing at all).
+   *
+   * It matters because the server decides whether a timed-out turn was CLASSIC
+   * by whether the live snapshot carries a chain. With none, an AFK classic
+   * physical turn was committed through the modernized path: charged a bust it
+   * never rolled, every earlier card's counter discarded, all three classic
+   * records lost, and previousTurnSummary left null so undo handed back the
+   * wrong card and never returned the rest to the deck.
+   */
+  onSnapshot?: (snapshot: DiceSnapshot | null) => void;
 }
 
 /**
@@ -118,7 +131,7 @@ interface UsePhysicalChainArgs {
  * current turn key, so a reload or reconnect resumes the turn exactly where
  * it stood instead of forgetting everything but the current card.
  */
-export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, currentCard, ruleset, scoreInput }: UsePhysicalChainArgs) => {
+export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, currentCard, ruleset, scoreInput, onSnapshot }: UsePhysicalChainArgs) => {
   const currentTurnKey = buildTurnKey(roomId, round, currentPlayerIndex, currentCard, ruleset);
 
   // Read once, during the first render — the same mount-time restore pattern
@@ -156,6 +169,9 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
   const enabledRef = useRef(enabled);
   useEffect(() => { enabledRef.current = enabled; });
 
+  const onSnapshotRef = useRef(onSnapshot);
+  useEffect(() => { onSnapshotRef.current = onSnapshot; });
+
   const currentCardRef = useRef(currentCard);
   useEffect(() => { currentCardRef.current = currentCard; });
 
@@ -182,6 +198,31 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
       scoreInput: scoreInputRef.current,
     };
     localStore.write(PHYSICAL_TURN_STATE_KEY, JSON.stringify(cache));
+
+    // Emitted from here rather than from each mutator: writeCache is the one
+    // funnel every chain change already goes through — the two mutators call
+    // it directly (a draw of the same card type moves neither state nor key,
+    // so no effect would run) and the write-through effect covers the rest.
+    // A second emit site is a site that can be forgotten.
+    //
+    // Dice-less by construction: with real dice the app owns only the draws
+    // and the typed total. The spectator panel gates both dice rows on
+    // length, so it renders the running total and the chain position instead
+    // of an empty board.
+    onSnapshotRef.current?.({
+      turnScore: Math.max(0, parseInt(scoreInputRef.current, 10) || 0),
+      keptDice: [],
+      currentRoll: [],
+      kniffelProgress: [],
+      tuttosThisTurn: 0,
+      cardsThisTurn: chain.cards.map(c => c.card),
+      plusMinusScores: [...chain.plusMinusScores],
+      chainTuttoCount: chain.cards.reduce(
+        (n, c) => n + (c.completed ? (TUTTOS_PER_COMPLETION[c.card] ?? DEFAULT_TUTTOS_PER_COMPLETION) : 0), 0),
+      // The bank-or-draw choice, which no dice count can express — see
+      // DiceSnapshot.lastCardCompleted.
+      lastCardCompleted: awaiting,
+    });
   }, [chainOrCurrentCard]);
 
   // Keeps the cached entry in step with what the player types between the
@@ -194,6 +235,11 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
     // synthetic single-card entry behind.
     if (!chainRef.current && scoreInput === '') {
       localStore.remove(PHYSICAL_TURN_STATE_KEY);
+      // Symmetry with the cache: nothing worth resuming is nothing worth
+      // broadcasting either. This is the state a committed turn lands in
+      // (clearChain, then Game resets the input), so it is also the belt to
+      // clearChain's braces.
+      onSnapshotRef.current?.(null);
       return;
     }
     writeCache(currentTurnKey, awaitingChoice);
@@ -267,6 +313,9 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
     chainRef.current = null;
     setAwaitingChoice(false);
     localStore.remove(PHYSICAL_TURN_STATE_KEY);
+    // The turn is committed, so nothing about it is live any more — the same
+    // null every other commit path hands the store (see gameSlice.nextTurn).
+    if (enabledRef.current) onSnapshotRef.current?.(null);
   }, []);
 
   return useMemo(() => ({

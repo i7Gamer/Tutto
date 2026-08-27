@@ -613,7 +613,11 @@ describe('turnTimers', () => {
       ]);
     });
 
-    it('keeps the legacy timeout behavior when the snapshot carries no chain (modernized / physical)', () => {
+    it('keeps the legacy timeout behavior for a MODERNIZED turn, whose snapshot carries no chain', () => {
+      // Modernized only. A classic PHYSICAL turn also carries no dice, but it
+      // does carry its chain (see the two cases below) — reading its absence
+      // as "modernized" is what used to charge a physical chain a bust it
+      // never rolled and throw its per-card counters away.
       rooms[roomId] = createRoom('host-1');
       Object.assign(rooms[roomId].state, {
         status: 'playing', currentPlayerIndex: 0, currentCard: '200', cards: ['300'],
@@ -630,6 +634,65 @@ describe('turnTimers', () => {
       const lastEntry = state.historyLog[state.historyLog.length - 1];
       expect(lastEntry.type).toBe('bust');
       expect(lastEntry.cards).toBeUndefined();
+    });
+
+    it('reconstructs a classic PHYSICAL chain from its dice-less snapshot', () => {
+      // With real dice the app owns only the card draws and the typed total,
+      // so the snapshot carries the chain and no dice at all. Read as
+      // "modernized" it invented a bust (types.ts states the contract: a
+      // timeout forfeits, but no null was rolled), lost every earlier card's
+      // counter, lost all three classic records, and left previousTurnSummary
+      // null — so undo handed back the LAST chain card and never returned the
+      // earlier ones to the deck.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: '400', cards: ['300'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 2400, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+          cardsThisTurn: ['Kniffel', '400'], plusMinusScores: [], chainTuttoCount: 1,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const alice = rooms[roomId].state.players[0];
+      expect(alice.busts, 'a timeout forfeits, but no die was ever nulled').toBe(0);
+      expect(alice.timesKniffelCompleted, 'the straight the chain continued FROM was completed').toBe(1);
+      expect(alice.totalTuttos).toBe(1);
+      expect(alice.mostCardsInTurn).toBe(2);
+      expect(alice.highestForfeitedTurnScore).toBe(2400);
+
+      const state = rooms[roomId].state;
+      expect(state.previousTurnSummary?.ended).toBe('timeout');
+      expect(state.previousTurnSummary?.cards, 'undo needs every card to put back').toEqual([
+        { card: 'Kniffel', completed: true },
+        { card: '400', completed: false },
+      ]);
+    });
+
+    it('does not charge a failure for the card completed at the bank-or-draw choice', () => {
+      // The state an AFK physical player actually parks in: they answered Yes,
+      // the card is completed and the bank-or-draw choice is open. With no
+      // dice to count, nothing in the snapshot says so — the digital path
+      // reads it off six dice put aside, which physical can never produce — so
+      // the completed card was booked as a failure.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: 'Kniffel', cards: ['300'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 2000, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+          cardsThisTurn: ['Kniffel'], plusMinusScores: [], chainTuttoCount: 1,
+          lastCardCompleted: true,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const alice = rooms[roomId].state.players[0];
+      expect(alice.timesKniffelCompleted, 'they made the straight').toBe(1);
+      expect(alice.timesKniffelFailed).toBe(0);
+      expect(alice.busts).toBe(0);
+      expect(rooms[roomId].state.previousTurnSummary?.cards).toEqual([{ card: 'Kniffel', completed: true }]);
     });
 
     it('does not invent a bust when a MODERNIZED turn times out on a decided Stop & Score', () => {

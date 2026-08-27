@@ -20,7 +20,7 @@ import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, DICE_PANEL_ENTRANCE_MS } from
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import type { PreGameStats } from '../store/storeTypes';
-import type { TurnSummary } from '../types';
+import type { DiceSnapshot, TurnSummary } from '../types';
 import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../utils/coreGameEngine';
 import { usePhysicalChain, readPhysicalChainCache } from '../hooks/usePhysicalChain';
 
@@ -54,6 +54,7 @@ const useGameSlice = () => useGameStore(useShallow(state => ({
   gameTimeInSeconds: state.gameTimeInSeconds,
   liveTurnState: state.liveTurnState,
   setLiveTurnState: state.setLiveTurnState,
+  pushLiveTurnState: state.pushLiveTurnState,
   diceMode: state.diceMode,
   enforcedDiceMode: state.enforcedDiceMode,
   ruleset: state.ruleset,
@@ -131,6 +132,17 @@ export default function Game() {
   const [scoreInput, setScoreInput] = useState(() => (classicPhysical ? readPhysicalChainCache(physicalTurnKey)?.scoreInput : null) ?? '');
   const [applyBonus, setApplyBonus] = useState(false);
   const [showDiceGame, setShowDiceGame] = useState(false);
+  // The physical counterpart of the digital panel's onStateChange (wired at
+  // the bottom of this file). Straight to pushLiveTurnState rather than
+  // setLiveTurnState: that one also writes the DIGITAL resume cache, and a
+  // physical turn resumes from its own key instead (usePhysicalChain). Gated
+  // on being the active player because the server accepts a liveTurnState
+  // only from the host or the seat whose turn it is.
+  const { pushLiveTurnState } = game;
+  const relayPhysicalChain = useCallback((snapshot: DiceSnapshot | null) => {
+    if (!isOnline || !isMyTurn) return;
+    pushLiveTurnState(snapshot);
+  }, [isOnline, isMyTurn, pushLiveTurnState]);
   const {
     awaitingChoice: physicalAwaitingChoice,
     hasChain: hasPhysicalChain,
@@ -143,6 +155,7 @@ export default function Game() {
     enabled: classicPhysical,
     roomId, round, currentPlayerIndex, currentCard, ruleset: game.ruleset,
     scoreInput,
+    onSnapshot: relayPhysicalChain,
   });
   // An externally advanced turn (undo, the online Stop auto-continue, a
   // server timeout) never passes through the commit handlers that reset the

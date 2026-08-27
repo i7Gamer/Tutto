@@ -121,6 +121,7 @@ export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
   }
   if (s.plusMinusScores !== undefined && !isPlusMinusScoreList(s.plusMinusScores)) return false;
   if (s.chainTuttoCount !== undefined && !isChainCounter(s.chainTuttoCount)) return false;
+  if (s.lastCardCompleted !== undefined && typeof s.lastCardCompleted !== 'boolean') return false;
   return true;
 };
 
@@ -142,6 +143,7 @@ export const sanitizeDiceSnapshot = (v: DiceSnapshot): DiceSnapshot => {
   if (v.cardsThisTurn) clean.cardsThisTurn = [...v.cardsThisTurn];
   if (v.plusMinusScores !== undefined) clean.plusMinusScores = [...v.plusMinusScores];
   if (v.chainTuttoCount !== undefined) clean.chainTuttoCount = v.chainTuttoCount;
+  if (v.lastCardCompleted) clean.lastCardCompleted = true;
   return clean;
 };
 
