@@ -27,6 +27,17 @@ import { fileURLToPath } from 'node:url';
  * Not placed under server/migrations/ for the reason gameStatsMigration.test.ts
  * gives: knex's loader would try to require() it as a real migration.
  */
+/**
+ * One connection, like the production knexfile's own pool.
+ *
+ * Every `:memory:` connection is a SEPARATE database. Without this, knex opens
+ * its default pool (min 2) and a query can land on a connection that never ran
+ * the migrations — so these tests passed in isolation and failed
+ * intermittently under a loaded full-suite run, which reads as a broken
+ * migration rather than as a pool that handed out the wrong database.
+ */
+const SINGLE_CONNECTION = { min: 1, max: 1 };
+
 describe('migration re-runnability', () => {
   let knex: Knex;
 
@@ -36,7 +47,7 @@ describe('migration re-runnability', () => {
 
   /** The pre-migration schema all three of these alter. */
   const setupPreMigrationDb = async (): Promise<Knex> => {
-    knex = knexLib({ client: 'sqlite3', connection: { filename: ':memory:' }, useNullAsDefault: true });
+    knex = knexLib({ client: 'sqlite3', connection: { filename: ':memory:' }, useNullAsDefault: true, pool: SINGLE_CONNECTION });
     await knex.schema.createTable('device_statistics', table => {
       table.string('deviceId').primary();
       table.integer('gamesPlayed').defaultTo(0);
@@ -117,7 +128,7 @@ describe('migration re-runnability', () => {
     const MIGRATIONS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations');
 
     const migrateAll = async (): Promise<Knex> => {
-      knex = knexLib({ client: 'sqlite3', connection: { filename: ':memory:' }, useNullAsDefault: true });
+      knex = knexLib({ client: 'sqlite3', connection: { filename: ':memory:' }, useNullAsDefault: true, pool: SINGLE_CONNECTION });
       await knex.migrate.latest({ directory: MIGRATIONS_DIR });
       return knex;
     };
