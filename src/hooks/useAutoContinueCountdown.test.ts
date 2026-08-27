@@ -27,6 +27,49 @@ describe('useAutoContinueCountdown', () => {
     expect(onElapsed).not.toHaveBeenCalled();
   });
 
+  it('restarts when the summary underneath it is replaced', () => {
+    // A classic chain whose drawn card is discarded swaps the summary while it
+    // is already showing: the forfeit screen becomes "Tutto! Bank N points"
+    // (DRAW_ABANDONED). shouldStart never goes false→true across that, so the
+    // old countdown kept running and the new summary inherited whatever was
+    // left of it — possibly under a second before it auto-continued.
+    const onElapsed = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ key }) => useAutoContinueCountdown({ shouldStart: true, onElapsed, restartKey: key }),
+      { initialProps: { key: 'forfeit' } },
+    );
+
+    // One second per act(), like the countdown test above: each tick schedules
+    // the next only after its own state update, so a single 2000ms advance
+    // lands just one of them.
+    act(() => vi.advanceTimersByTime(1000));
+    act(() => vi.advanceTimersByTime(1000));
+    expect(result.current, 'two of the three seconds are gone').toBe(1);
+
+    rerender({ key: 'banked' });
+
+    expect(result.current, 'the new summary gets the full countdown').toBe(3);
+    expect(onElapsed).not.toHaveBeenCalled();
+  });
+
+  it('does not restart while the same summary stays up', () => {
+    // The control: an unrelated re-render must not keep the countdown alive
+    // forever.
+    const onElapsed = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ key }) => useAutoContinueCountdown({ shouldStart: true, onElapsed, restartKey: key }),
+      { initialProps: { key: 'forfeit' } },
+    );
+
+    act(() => vi.advanceTimersByTime(1000));
+    act(() => vi.advanceTimersByTime(1000));
+    rerender({ key: 'forfeit' });
+
+    expect(result.current).toBe(1);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(onElapsed).toHaveBeenCalledTimes(1);
+  });
+
   it('counts down 3 → 2 → 1 → 0, showing 0 before calling onElapsed', () => {
     const onElapsed = vi.fn();
     const { result } = renderHook(() => useAutoContinueCountdown({ shouldStart: true, onElapsed }));

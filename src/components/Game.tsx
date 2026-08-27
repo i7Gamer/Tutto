@@ -537,6 +537,12 @@ export default function Game() {
   // previous player while the panel keeps rolling for the current one, and its
   // score then commits onto whoever undo just made current.
   const canUndo = hasUndoableTurn && canActOnUndo && !showDiceGame;
+  // Which turn that is, for the confirm dialog to hold on to. Player, card and
+  // round together: a gameState broadcast rewrites all three as one set (see
+  // noUndoableTurn), so any turn change moves this string.
+  const undoTurnId = hasUndoableTurn
+    ? `${game.previousPlayerName}:${game.previousCard}:${round}`
+    : null;
 
   return (
     <div className="container mx-auto px-2 md:px-4 pt-2 md:pt-4 pb-20 max-w-3xl flex flex-col gap-2 md:gap-4">
@@ -566,6 +572,7 @@ export default function Game() {
             awaitingChainChoice={physicalAwaitingChoice}
             undo={undo}
             canUndo={canUndo}
+            undoTurnId={undoTurnId}
             endGame={endGame}
             isOnline={isOnline}
             isHost={isHost}

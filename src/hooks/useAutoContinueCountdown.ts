@@ -5,20 +5,38 @@ import { AUTO_CONTINUE_SECONDS } from '../utils/uiTimings';
 interface UseAutoContinueCountdownOptions {
   shouldStart: boolean;
   onElapsed: () => void;
+  /**
+   * Identifies WHAT is being counted down. A new value restarts the countdown
+   * even though `shouldStart` never went false.
+   *
+   * The countdown used to latch on the first start, which was right for the
+   * only transition it knew about — a summary opening. But a classic chain
+   * whose drawn card is discarded REPLACES the summary while it is already
+   * showing (DRAW_ABANDONED): the forfeit screen becomes "Tutto! Bank N
+   * points", and the new summary inherited whatever was left of the old
+   * countdown — possibly under a second before it auto-continued the turn.
+   *
+   * Left undefined the latch behaves exactly as before: the value never
+   * changes, so it never restarts.
+   */
+  restartKey?: unknown;
 }
 
-export function useAutoContinueCountdown({ shouldStart, onElapsed }: UseAutoContinueCountdownOptions): number | null {
+/** No start has happened yet — distinct from any restartKey a caller may pass. */
+const NOT_STARTED = Symbol('not-started');
+
+export function useAutoContinueCountdown({ shouldStart, onElapsed, restartKey }: UseAutoContinueCountdownOptions): number | null {
   const [countdown, setCountdown] = useState<number | null>(null);
-  const startedRef = useRef(false);
+  const startedForRef = useRef<unknown>(NOT_STARTED);
 
   const onElapsedRef = useRef(onElapsed);
   useEffect(() => { onElapsedRef.current = onElapsed; }, [onElapsed]);
 
   useEffect(() => {
-    if (!shouldStart || startedRef.current) return;
-    startedRef.current = true;
+    if (!shouldStart || startedForRef.current === restartKey) return;
+    startedForRef.current = restartKey;
     setCountdown(isTestEnv() ? 0 : AUTO_CONTINUE_SECONDS);
-  }, [shouldStart]);
+  }, [shouldStart, restartKey]);
 
   // The countdown reaching 0 is the single source of truth for "time's up" —
   // there used to be a second, independent 3s timer that called onElapsed on

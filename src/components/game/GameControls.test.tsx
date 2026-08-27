@@ -431,6 +431,43 @@ describe('GameControls end/leave game confirmation dialogs', () => {
     expect(undo).toHaveBeenCalledTimes(1);
   });
 
+  it('undo: refuses once the turn it was opened for is no longer the last one', () => {
+    // pendingAction is plain state and nothing re-read the turn behind it, so
+    // the dialog acted on whatever the previous-turn fields held at CONFIRM
+    // time. A host opens Undo for Bob's turn; before answering, Carol's turn
+    // resolves (or the server timer advances it) and the previous-turn fields
+    // are rewritten by the broadcast; Confirm then rewound CAROL's turn — and
+    // pushState propagated it to the whole room.
+    const undo = vi.fn();
+    const { rerender } = render(<GameControls {...baseProps({ undo, undoTurnId: 'Bob:200:4' })} />);
+
+    fireEvent.click(screen.getByText('game.controls.undo'));
+    expect(screen.getByText('game.controls.undoConfirm')).toBeInTheDocument();
+
+    // The turn moves on underneath the open dialog.
+    rerender(<GameControls {...baseProps({ undo, undoTurnId: 'Carol:Kniffel:4' })} />);
+
+    expect(
+      screen.queryByText('game.controls.undoConfirm'),
+      'the dialog must not keep asking about a turn that is gone',
+    ).not.toBeInTheDocument();
+    expect(undo, 'a different turn must never be undone in its place').not.toHaveBeenCalled();
+  });
+
+  it('undo: still undoes the turn it was opened for', () => {
+    // The control: the guard above must not simply stop undo working.
+    const undo = vi.fn();
+    const { rerender } = render(<GameControls {...baseProps({ undo, undoTurnId: 'Bob:200:4' })} />);
+
+    fireEvent.click(screen.getByText('game.controls.undo'));
+    // An unrelated re-render — a score tick, another player's colour change —
+    // leaves the turn identity alone and must not cancel anything.
+    rerender(<GameControls {...baseProps({ undo, undoTurnId: 'Bob:200:4' })} />);
+    fireEvent.click(screen.getByText('common.confirm'));
+
+    expect(undo).toHaveBeenCalledTimes(1);
+  });
+
   it('undo: is disabled when canUndo is false', () => {
     const undo = vi.fn();
     render(<GameControls {...baseProps({ undo, canUndo: false })} />);

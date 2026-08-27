@@ -602,6 +602,10 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const continueCountdown = useAutoContinueCountdown({
     shouldStart: showSummary,
     onElapsed: finishGame,
+    // The reducer replaces this object whenever the summary's CONTENTS change,
+    // which a discarded draw does without ever closing the summary — see
+    // restartKey. Identity is the signal; nothing reads the value here.
+    restartKey: summaryData,
   });
 
   const isMakingTutto = keptDice.length + selectedRolls.length === TOTAL_DICE;

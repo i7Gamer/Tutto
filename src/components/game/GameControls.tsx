@@ -36,6 +36,12 @@ interface GameControlsProps {
   awaitingChainChoice?: boolean;
   undo: () => void;
   canUndo: boolean;
+  /**
+   * Identifies the turn Undo would reverse, so the confirm dialog can tell
+   * whether it is still being asked about the same one. null when there is
+   * nothing to undo. Opaque here — Game owns what goes into it.
+   */
+  undoTurnId?: string | null;
   endGame: () => void;
   isOnline: boolean;
   isHost: boolean;
@@ -62,6 +68,7 @@ export default function GameControls({
   awaitingChainChoice = false,
   undo,
   canUndo,
+  undoTurnId = null,
   endGame,
   isOnline,
   isHost,
@@ -81,6 +88,22 @@ export default function GameControls({
   // ConfirmModal — replaces the blocking window.confirm() every one of them
   // used to call directly.
   const [pendingAction, setPendingAction] = useState<'end' | 'leave' | 'undo' | null>(null);
+  // The turn Undo was opened FOR. `pendingAction` alone said only that a
+  // dialog is up, so confirming acted on whatever the previous-turn fields
+  // held at that moment — and those are rewritten by every gameState
+  // broadcast. A host who opened Undo for one player's turn and answered after
+  // the next turn resolved rewound the WRONG turn, and pushState carried it to
+  // the whole room. `!showDiceGame` on canUndo only guards the moment the
+  // button is pressed, not the seconds the dialog is open.
+  const [pendingUndoTurn, setPendingUndoTurn] = useState<string | null>(null);
+
+  // Render-time correction, the same pattern the flip state above uses: the
+  // turn moved on, so the question the dialog is asking no longer has an
+  // answer. Closing beats leaving it up over a turn that is gone.
+  if (pendingAction === 'undo' && pendingUndoTurn !== null && undoTurnId !== pendingUndoTurn) {
+    setPendingAction(null);
+    setPendingUndoTurn(null);
+  }
 
   // Synchronous render-time derived state: must run before paint so isFlipping
   // is true on the same frame the new card arrives, preventing a visible flash.
@@ -355,7 +378,7 @@ export default function GameControls({
         )}
         <button
           className="flex items-center gap-2 text-gray-500 dark:text-gray-400 hover:bg-black/5 dark:hover:bg-white/5 hover:text-gray-800 dark:hover:text-gray-100 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:pointer-events-none"
-          onClick={() => setPendingAction('undo')}
+          onClick={() => { setPendingUndoTurn(undoTurnId); setPendingAction('undo'); }}
           disabled={!canUndo}
         >
           <Undo2 size={18} /> {t('game.controls.undo', 'Undo')}
@@ -372,12 +395,15 @@ export default function GameControls({
               ? t('game.controls.leaveGameConfirm', 'Do you really want to leave the game?')
               : t('game.controls.undoConfirm', 'Undo the last turn?')
         }
-        onCancel={() => setPendingAction(null)}
+        onCancel={() => { setPendingAction(null); setPendingUndoTurn(null); }}
         onConfirm={() => {
           if (pendingAction === 'end') endGame();
           else if (pendingAction === 'leave') leaveRoom();
-          else if (pendingAction === 'undo') undo();
+          // Belt to the render-time close above: whatever raced the click,
+          // the turn confirmed must be the turn asked about.
+          else if (pendingAction === 'undo' && undoTurnId === pendingUndoTurn) undo();
           setPendingAction(null);
+          setPendingUndoTurn(null);
         }}
       />
     </div>
