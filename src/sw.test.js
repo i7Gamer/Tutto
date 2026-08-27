@@ -52,12 +52,18 @@ const BAD_GATEWAY_STATUS = 502;
 /** What a 30x looks like to a worker: redirect mode 'manual' opacifies it. */
 const OPAQUE_REDIRECT = { type: 'opaqueredirect', status: 0 };
 
-const makeResponse = (body, { ok = true, status = ok ? OK_STATUS : BAD_GATEWAY_STATUS, type = 'basic' } = {}) => ({
+const HTML_CONTENT_TYPE = 'text/html; charset=utf-8';
+
+// contentType defaults to the app shell's: every response these tests build
+// stands in for a document unless it says otherwise, which is what the
+// pre-existing navigation cases have always meant.
+const makeResponse = (body, { ok = true, status = ok ? OK_STATUS : BAD_GATEWAY_STATUS, type = 'basic', contentType = HTML_CONTENT_TYPE } = {}) => ({
   ok,
   status,
   type,
   body,
-  clone() { return makeResponse(body, { ok, status, type }); },
+  headers: { get: (name) => (String(name).toLowerCase() === 'content-type' ? contentType : null) },
+  clone() { return makeResponse(body, { ok, status, type, contentType }); },
 });
 
 /** The browser follows this itself — the worker only has to hand it back. */
@@ -432,6 +438,47 @@ describe('service worker fetch', () => {
     expect(response.body).toBe('fresh shell');
     // Stored under the shell URL regardless of the query it was asked for.
     expect(cacheStorage.stores.get(cacheName).get(SHELL).body).toBe('fresh shell');
+  });
+
+  it('does not overwrite the app shell with a same-origin response that is not a document', async () => {
+    // Every mode:'navigate' request reaches handleNavigation before the
+    // origin/asset filtering below it, and the shell is whatever came back.
+    // So opening /api/health — the endpoint the README documents — in the
+    // browser that has Tutto installed replaced the cached shell with JSON,
+    // and the next offline start rendered it. Same for /manifest.webmanifest,
+    // /favicon.svg, or any /assets/... URL opened in a tab.
+    await loadSw();
+    const cacheName = await runInstall();
+    fetchMock.mockResolvedValueOnce(makeResponse('{"status":"ok"}', { contentType: 'application/json' }));
+
+    const { response } = await runFetch(
+      makeRequest(`${ORIGIN}/api/health`, { mode: 'navigate' }),
+    );
+
+    expect(response.body, 'the caller still gets what it asked for').toBe('{"status":"ok"}');
+    expect(cacheStorage.stores.get(cacheName).get(SHELL).body, 'the shell is untouched').toBe('network:https://tutto.example/index.html');
+  });
+
+  it('still delivers the fresh shell when the cache write fails', async () => {
+    // The asset branch was hardened against exactly this; the navigation
+    // branch was not. Awaiting the put inside the try means a rejecting write
+    // — QuotaExceededError on a full device — falls through to the cached
+    // shell, so a phone with no storage left serves the OLD build on every
+    // start while perfectly online, and never self-heals.
+    await loadSw();
+    await runInstall();
+    fetchMock.mockResolvedValueOnce(makeResponse('newer build'));
+    const openSpy = vi.spyOn(cacheStorage, 'open').mockImplementation(async () => ({
+      put: async () => { throw new Error('QuotaExceededError'); },
+      match: async () => makeResponse('older build'),
+    }));
+
+    const { response } = await runFetch(
+      makeRequest(`${ORIGIN}/`, { mode: 'navigate' }),
+    );
+
+    expect(response.body, 'a failed cache write must not cost the fresh shell').toBe('newer build');
+    openSpy.mockRestore();
   });
 
   it('falls back to the cached shell when the network fails', async () => {

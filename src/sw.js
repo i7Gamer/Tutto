@@ -187,6 +187,21 @@ const OPAQUE_REDIRECT_TYPE = 'opaqueredirect';
 const isOpaqueRedirect = response => response.type === OPAQUE_REDIRECT_TYPE;
 
 /**
+ * Whether a response is a document, and so a candidate for the app shell.
+ *
+ * Every mode 'navigate' request lands in handleNavigation — the origin and
+ * asset filtering in the fetch handler sits BELOW that branch and never sees
+ * one. So the shell used to be whatever a navigation last returned: opening
+ * /api/health (the endpoint the README documents), /manifest.webmanifest,
+ * /favicon.svg or a direct /assets/... URL in the browser that has Tutto
+ * installed replaced the cached shell with that, and the next offline start —
+ * or the 502-during-restart fallback this whole function exists for — rendered
+ * it instead of the app.
+ */
+const isDocument = response =>
+  (response.headers?.get('content-type') ?? '').toLowerCase().includes('text/html');
+
+/**
  * Network first, so a new deploy reaches a client on its next launch instead of
  * being shadowed by a stale shell. The cached copy is what makes an offline
  * start — including one from an invite link — possible at all.
@@ -194,13 +209,27 @@ const isOpaqueRedirect = response => response.type === OPAQUE_REDIRECT_TYPE;
  * Every navigation stores under the same SHELL_URL regardless of its query, so
  * `/?room=ABC` is served by the shell cached for `/`.
  */
-const handleNavigation = async request => {
+const handleNavigation = async (event, request) => {
   let response;
   try {
     response = await fetchWithTimeout(request, NAVIGATION_NETWORK_TIMEOUT_MS);
     if (response && response.ok) {
-      const cache = await caches.open(PRECACHE);
-      await cache.put(SHELL_URL, response.clone());
+      // Through waitUntil and swallowing its own failure, for the same reason
+      // the asset branch below does it: awaiting the put here means a
+      // rejecting write — QuotaExceededError on a device out of storage —
+      // leaves the try, and the fallback then serves the CACHED shell over the
+      // fresher one already in hand. A full phone would sit on an old build
+      // every start while perfectly online, and never self-heal, because the
+      // next generation's cache is created empty and the old shell keeps
+      // matching. waitUntil still keeps the worker alive until the write lands.
+      if (isDocument(response)) {
+        const copy = response.clone();
+        event.waitUntil(
+          caches.open(PRECACHE)
+            .then(cache => cache.put(SHELL_URL, copy))
+            .catch(() => {}),
+        );
+      }
       return response;
     }
     // Not ok, but not ours to second-guess: a redirect the browser has to
@@ -226,7 +255,7 @@ self.addEventListener('fetch', event => {
   if (request.method !== 'GET') return;
 
   if (request.mode === 'navigate') {
-    event.respondWith(handleNavigation(request));
+    event.respondWith(handleNavigation(event, request));
     return;
   }
 
