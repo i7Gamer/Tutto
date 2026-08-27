@@ -90,6 +90,15 @@ export const registerRosterHandlers = ({ io, socket, session }: SocketContext): 
     // otherwise a host could send a 'kicked' signal to any socket on the
     // server, booting players out of unrelated rooms client-side.
     io.to(targetSocketId).emit('kicked');
+    // Out of the channel in the same breath, BEFORE the room is torn down
+    // around them. This used to be the last line of the handler, so the kicked
+    // socket stayed subscribed through handleActivePlayerRemoved, the host
+    // reassignment, abortGameIfLowPlayers and a full emitRoomState — and took
+    // all of it: a spurious "game aborted" toast on top of "you were kicked",
+    // plus hostId and gameState writes into what is by then LOCAL state. Only
+    // 'gameState' carries a late-broadcast guard client-side, and adding one
+    // per event is the wrong shape when leaving first closes the whole class.
+    io.sockets.sockets.get(targetSocketId)?.leave(roomChannel(roomId));
     const removedPlayer = room.state.players[removedIdx];
     room.state.players.splice(removedIdx, 1);
     handleActivePlayerRemoved(room, removedIdx);
@@ -120,8 +129,5 @@ export const registerRosterHandlers = ({ io, socket, session }: SocketContext): 
       if (!aborted) startServerTurnTimer(io, roomId);
       emitRoomState(io, roomId);
     }
-
-    const targetSocket = io.sockets.sockets.get(targetSocketId);
-    if (targetSocket) targetSocket.leave(roomChannel(roomId));
   });
 };

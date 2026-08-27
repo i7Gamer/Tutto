@@ -5,7 +5,7 @@
 // can answer — which is why this is rendered into the server's own console
 // (statusLine.ts) rather than looked up at restart time, by which point the
 // games it describes are already gone.
-import type { Room } from './roomTypes';
+import type { Room, ServerPlayer } from './roomTypes';
 
 /** Every count the "may I restart?" decision rests on. Categories are disjoint. */
 export interface ActivitySnapshot {
@@ -40,10 +40,22 @@ const PART_SEPARATOR = ' · ';
  * A seated player who never returns holds this until their reconnect timer
  * drains and the seat is spliced, which is the honest answer: their statistics
  * really are still pending until then.
+ *
+ * Unless there is no timer to drain. reconnectTimeout: 0 is a supported lobby
+ * option and arms nothing at all — on that path a seat is removed only if
+ * EVERY player is disconnected, which deletes the room outright. So a player
+ * who closes their tab on the end screen before their device row lands used to
+ * hold the room in `awaiting` for the life of the process, and the status line
+ * read DO NOT RESTART for a game nothing would ever finish recording. Such a
+ * seat is not pending, it is gone.
  */
+const canStillSubmit = (room: Room, player: ServerPlayer): boolean =>
+  !player.disconnected || player.deviceId in room.disconnectTimers;
+
 const statsFullyRecorded = (room: Room): boolean =>
   room.statsRecordedForGame.global
-  && room.state.players.every(p => room.statsRecordedForGame.devices.has(p.deviceId));
+  && room.state.players.every(p =>
+    room.statsRecordedForGame.devices.has(p.deviceId) || !canStillSubmit(room, p));
 
 export const summarizeActivity = (rooms: Record<string, Room>): ActivitySnapshot => {
   const snapshot: ActivitySnapshot = {

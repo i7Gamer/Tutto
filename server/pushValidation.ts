@@ -27,6 +27,24 @@ export const MAX_ROUNDS = 100000;
 export const MAX_SCORE_MAGNITUDE = 1_000_000;
 const MAX_GAME_SECONDS = 10_000_000;
 
+/**
+ * The chain's terminal `else`, and the other half of the field locks.
+ *
+ * PushFieldLock proves the two allowlists partition SyncedGameStateKey — but
+ * said nothing about the `if / else if` chain that acts on them, which had no
+ * `else` at all. A field added to the canonical list AND to an allowlist but
+ * given no branch fell straight through, was silently dropped from every push,
+ * and the build stayed green: the exact defect class the lock is there to make
+ * impossible. `key: never` closes it, naming the offending key.
+ *
+ * Unreachable at runtime by construction (the sets are built from the same
+ * tuples the union comes from); the throw is what makes it a total function
+ * rather than a silent fallthrough if that ever stops being true.
+ */
+const assertHandled = (key: never): never => {
+  throw new Error(`applyPushedState has no branch for the synced field '${String(key)}'`);
+};
+
 // The bound every numeric in a client-pushed payload must clear: finite AND
 // within the sanity cap. Named once so a new field cannot accidentally settle
 // for finiteness alone (which is how turnScore came to be uncapped).
@@ -253,7 +271,8 @@ const HOST_ONLY_FIELD_LIST = [
   'status', 'winningScore', 'initialCards', 'randomOrder',
   'turnDuration', 'reconnectTimeout', 'enforcedDiceMode', 'ruleset',
 ] as const satisfies readonly SyncedGameStateKey[];
-const HOST_ONLY_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>(HOST_ONLY_FIELD_LIST));
+const HOST_ONLY_FIELDS: ReadonlySet<SyncedGameStateKey> =
+  Object.freeze(new Set<SyncedGameStateKey>(HOST_ONLY_FIELD_LIST));
 
 const ACTIVE_PLAYER_FIELD_LIST = [
   'currentCard', 'cards', 'currentPlayerIndex', 'round',
@@ -269,13 +288,19 @@ const ACTIVE_PLAYER_FIELD_LIST = [
   'finished',
   'liveTurnState', 'historyLog',
 ] as const satisfies readonly SyncedGameStateKey[];
-const ACTIVE_PLAYER_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>(ACTIVE_PLAYER_FIELD_LIST));
+const ACTIVE_PLAYER_FIELDS: ReadonlySet<SyncedGameStateKey> =
+  Object.freeze(new Set<SyncedGameStateKey>(ACTIVE_PLAYER_FIELD_LIST));
 
 // The two lists must partition the synced game state: together they cover
 // every synced field, and no field sits in both. A field missing from both
 // was this codebase's most common defect — applyPushedState loops the
 // allowlist, not the payload, so the field was silently stripped from every
 // push with nothing failing. Now it refuses to build, naming the key.
+//
+// Membership is only half of it, and this lock used to be described as if it
+// were the whole: a key can sit in an allowlist and still have no branch in
+// the dispatch chain below, which drops it just as silently. That half is
+// covered by the chain's terminal `else` (assertHandled), not here.
 // Exported only so noUnusedLocals sees a use; nothing imports it.
 export type PushFieldLock = [
   AssertNever<Exclude<SyncedGameStateKey, (typeof HOST_ONLY_FIELD_LIST)[number] | (typeof ACTIVE_PLAYER_FIELD_LIST)[number]>>,
@@ -285,7 +310,8 @@ export type PushFieldLock = [
 // Same length cap joinRoom enforces on a player's name.
 const MAX_PLAYER_NAME_LENGTH = 30;
 
-const ALL_FIELDS: ReadonlySet<string> = Object.freeze(new Set<string>([...HOST_ONLY_FIELDS, ...ACTIVE_PLAYER_FIELDS]));
+const ALL_FIELDS: ReadonlySet<SyncedGameStateKey> =
+  Object.freeze(new Set<SyncedGameStateKey>([...HOST_ONLY_FIELDS, ...ACTIVE_PLAYER_FIELDS]));
 
 // Sanity-guard bounds for the two timers arriving via pushState — not a UX
 // rule (pushState mirrors state the client already ran through updateConfig,
@@ -705,6 +731,8 @@ export const applyPushedState = (
       if (Array.isArray(v) && v.length <= MAX_HISTORY_LOG_SIZE && v.every(isValidHistoryEntry)) {
         state.historyLog = v.map(sanitizeHistoryEntry);
       }
+    } else {
+      assertHandled(key);
     }
   }
 

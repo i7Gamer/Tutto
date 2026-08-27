@@ -399,6 +399,61 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
     });
   }, 10000);
 
+  it('a kicked player receives nothing the room is told after they are kicked', () => {
+    // kickPlayer emitted 'kicked' first but left the Socket.IO channel LAST,
+    // after handleActivePlayerRemoved, the host reassignment,
+    // abortGameIfLowPlayers and a full emitRoomState. So the kicked socket sat
+    // in the channel for all of it and took the room's own teardown traffic:
+    // a spurious "game aborted" toast on top of "you were kicked", plus stray
+    // hostId and gameState writes into what is by then LOCAL state. Only
+    // 'gameState' carries a late-broadcast guard client-side; 'gameAborted'
+    // and 'hostId' do not, and the fix belongs on the server anyway -- one
+    // reordered line closes the whole class rather than a guard per event.
+    return new Promise((resolve, reject) => {
+      const roomId = 'KICK_SILENCE_ROOM';
+      const s1 = io(`http://127.0.0.1:${PORT}`);
+      const s2 = io(`http://127.0.0.1:${PORT}`);
+      const cleanup = () => { s1.disconnect(); s2.disconnect(); };
+      const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 9000);
+
+      const afterKick = [];
+      let kicked = false;
+
+      // Everything the room is told once Bob is out. Recorded rather than
+      // asserted on arrival, so the failure names what leaked.
+      s2.on('kicked', () => { kicked = true; });
+      s2.on('gameAborted', () => { if (kicked) afterKick.push('gameAborted'); });
+      s2.on('hostId', () => { if (kicked) afterKick.push('hostId'); });
+      s2.on('gameState', () => { if (kicked) afterKick.push('gameState'); });
+
+      // Alice's own view of the abort is the settling point: by the time she
+      // has seen the room collapse to one player, every broadcast the kick
+      // produced has been sent, so anything Bob was going to receive he has.
+      s1.on('gameState', asserting(reject, (state) => {
+        if (!kicked || state.players?.length !== 1) return;
+        setTimeout(() => {
+          expect(afterKick, 'these reached a socket that had just been kicked out').toEqual([]);
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve(undefined);
+        }, testDelay(300));
+      }));
+
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-ks-a', color: '#ff0000' }, () => {
+          s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-ks-b', color: '#00ff00' }, () => {
+            const players = [
+              { name: 'Alice', deviceId: 'dev-ks-a', socketId: s1.id, disconnected: false, score: 0 },
+              { name: 'Bob', deviceId: 'dev-ks-b', socketId: s2.id, disconnected: false, score: 0 },
+            ];
+            s1.emit('pushState', { roomId, newState: { players, status: 'playing', currentPlayerIndex: 0 } });
+            setTimeout(() => s1.emit('kickPlayer', s2.id), testDelay(200));
+          });
+        });
+      });
+    });
+  }, 10000);
+
   // 'gameTimeInSeconds is server-calculated and increases monotonically
   // across pushState calls' moved to socketHandlers.test.ts's in-process
   // 'game clock' suite, which backdates the server's gameActualStartTime

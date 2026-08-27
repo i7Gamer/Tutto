@@ -66,6 +66,9 @@ const registry = (...entries: Room[]): Record<string, Room> => {
   return map;
 };
 
+// Long enough that it cannot fire during the test; cleared in a finally.
+const TIMER_NEVER_FIRES_MS = 60_000;
+
 const emptySnapshot: ActivitySnapshot = {
   rooms: 0,
   activeGames: 0,
@@ -118,6 +121,53 @@ describe('summarizeActivity', () => {
     // The mirror image: the global row is the one still missing.
     const room = roomWith({ status: 'playing', finished: true, connected: 1 });
     room.state.players.forEach(p => room.statsRecordedForGame.devices.add(p.deviceId));
+
+    expect(summarizeActivity(registry(room)).awaitingStats).toBe(1);
+  });
+
+  it('stops waiting on a seat that has no reconnect timer and can never submit', () => {
+    // reconnectTimeout: 0 is a supported lobby option, and on that path no
+    // timer is armed at all -- the seat is removed only if EVERY player is
+    // disconnected, which then deletes the room. So a player who closes their
+    // tab on the end screen before their device row lands holds this room in
+    // `awaiting` for as long as the process lives, and the operator's status
+    // line reads DO NOT RESTART for a game nothing will ever finish
+    // recording. The comment justified the wait as "until their reconnect
+    // timer drains"; with the kick timer off, it never does.
+    const room = roomWith({ status: 'playing', finished: true, connected: 1, disconnected: 1 });
+    room.statsRecordedForGame.global = true;
+    room.statsRecordedForGame.devices.add(room.state.players[0].deviceId);
+
+    const snapshot = summarizeActivity(registry(room));
+
+    expect(snapshot.awaitingStats, 'nothing will ever change this room').toBe(0);
+    expect(snapshot.connectedPlayers).toBe(1);
+  });
+
+  it('keeps waiting on a disconnected seat whose reconnect timer is still armed', () => {
+    // The control, and the case the original comment describes: this seat is
+    // still on its way out, so the room resolves on its own when the timer
+    // fires and the seat is spliced. Their statistics really are pending.
+    const room = roomWith({ status: 'playing', finished: true, connected: 1, disconnected: 1 });
+    room.statsRecordedForGame.global = true;
+    room.statsRecordedForGame.devices.add(room.state.players[0].deviceId);
+    const armed = setTimeout(() => {}, TIMER_NEVER_FIRES_MS);
+    room.disconnectTimers[room.state.players[1].deviceId] = armed;
+
+    try {
+      expect(summarizeActivity(registry(room)).awaitingStats).toBe(1);
+    } finally {
+      clearTimeout(armed);
+    }
+  });
+
+  it('keeps waiting on a CONNECTED seat that has not submitted, timer or not', () => {
+    // The other control: "no armed timer" must not be read as "gone". A
+    // connected player with no row in yet is exactly the in-flight case
+    // statsFullyRecorded was widened to cover in the first place.
+    const room = roomWith({ status: 'playing', finished: true, connected: 2 });
+    room.statsRecordedForGame.global = true;
+    room.statsRecordedForGame.devices.add(room.state.players[0].deviceId);
 
     expect(summarizeActivity(registry(room)).awaitingStats).toBe(1);
   });
