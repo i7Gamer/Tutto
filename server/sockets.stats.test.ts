@@ -394,9 +394,31 @@ describe('Server Socket E2E — statistics persistence', () => {
             await pollGlobalTotalScore(before + 100);
 
             // Duplicate for the same game — must be ignored, not added again.
+            // A refusal is a non-event, so nothing about it can be waited on
+            // directly, and the fixed testDelay(300) that used to stand here
+            // was 60ms: under load the duplicate had not reached the handler
+            // yet and the read passed without the double count ever having had
+            // a chance to appear. Paced by signals instead, like the
+            // endGameStats dedup test below.
             s1.emit('submitGlobalStats', { roomId, payload: { totalScore: 99999 } });
-            await new Promise(r => setTimeout(r, testDelay(300)));
+
+            // Signal one: the round trip. Same connection, so socket.io
+            // preserves the order — once this restart comes back as a
+            // broadcast, the duplicate has already been through the handler,
+            // which decides synchronously.
+            const restarted = new Promise(r => { s1.once('gameState', r); });
+            s1.emit('pushState', { roomId, newState: { status: 'playing', finished: false } });
+            await restarted;
             expect(await getGlobalTotalScore()).toBe(before + 100);
+
+            // Signal two, the decisive one: the restart above cleared the
+            // dedup, so this second game's stats are a write that CAN be
+            // waited for. Landing on exactly +150 proves the duplicate
+            // contributed nothing — had the dedup regressed, the total would
+            // be on its way to +100+99999+50 and this poll could never see it.
+            s1.emit('pushState', { roomId, newState: { finished: true } });
+            s1.emit('submitGlobalStats', { roomId, payload: { totalScore: 50 } });
+            await pollGlobalTotalScore(before + 150);
 
             clearTimeout(timeoutId);
             s1.disconnect();
@@ -426,11 +448,23 @@ describe('Server Socket E2E — statistics persistence', () => {
           // Attempt to write stats for a device this socket does not own — must be ignored.
           s1.emit('endGameStats', { deviceId: foreignDevice, stats: { gamesPlayed: 99, totalScore: 999999 } });
 
-          // Give the server time to (not) process it, then confirm no row exists.
-          setTimeout(async () => {
+          // A refusal is a non-event. The fixed 200ms sleep that used to
+          // stand here made "the row is still empty" trivially true for any
+          // write slower than that, so the assertion is now fenced by a write
+          // that CAN be waited for: this socket's OWN row, submitted after
+          // the foreign one on the same connection. socket.io preserves that
+          // order and the handler decides synchronously, so once the own row
+          // has landed the foreign write has definitely been refused rather
+          // than merely delayed.
+          void (async () => {
             try {
+              s1.emit('endGameStats', { deviceId: ownDevice, stats: { gamesPlayed: 1, totalScore: 100 } });
+              await pollDeviceStats(ownDevice, DEFAULT_GAME_MODE,
+                b => b?.totalScore === 100, 'the socket\'s own row landed');
+
               const body = await readDeviceStats(foreignDevice);
-              expect(body.gamesPlayed === undefined || body.gamesPlayed === null).toBe(true);
+              expect(body.gamesPlayed === undefined || body.gamesPlayed === null,
+                'a row was written for a device this socket does not own').toBe(true);
               clearTimeout(timeoutId);
               s1.disconnect();
               resolve();
@@ -439,7 +473,7 @@ describe('Server Socket E2E — statistics persistence', () => {
               s1.disconnect();
               reject(e);
             }
-          }, 200);
+          })();
         });
       });
     });

@@ -4,6 +4,7 @@ import type {
   Player,
   CoreGameState,
   GlobalStatsPayload,
+  DeviceStatsPayload,
   NextTurnResult,
   UndoResult,
   HistoryEntry,
@@ -154,6 +155,60 @@ export const getLeaders = (players: Player[]): Player[] => {
   if (!sorted.length) return [];
   const topScore = sorted[0].score;
   return sorted.filter(p => p.score === topScore);
+};
+
+/**
+ * One device's own row for a finished game, from that game's final state.
+ *
+ * Pulled out of sendOnlineStats so the integration suite can assert against
+ * the payload the app actually sends. Its hand-copied duplicate had already
+ * drifted: it was missing totalTuttos and both classic records, and still used
+ * the superseded fastestLossTurns rule — the one without the `totalTurns > 0`
+ * guard, which records a 0-turn "fastest loss" for a seat the game ended
+ * before, and MIN-merges it into a record with no way back.
+ *
+ * Returns null when this device holds no seat, which is sendOnlineStats' own
+ * guard: there is nothing to record.
+ */
+export const buildDeviceStatsPayload = (
+  finalPlayers: Player[],
+  myName: string | null,
+  finalTime: number,
+  finalRound: number,
+): DeviceStatsPayload | null => {
+  const me = finalPlayers.find(p => p.name === myName);
+  if (!me) return null;
+  const didIWin = getLeaders(finalPlayers).some(l => l.name === me.name) ? 1 : 0;
+
+  return {
+    gamesPlayed: 1, wins: didIWin, totalPlaytime: finalTime || 0,
+    pointsDeducted: me.times1000PointsDeducted || 0, plusMinusCompleted: me.timesPlusMinusCompleted || 0,
+    plusMinusFailed: me.timesPlusMinusFailed || 0, kniffelCompleted: me.timesKniffelCompleted || 0,
+    kniffelFailed: me.timesKniffelFailed || 0, skipped: me.timesSkipped || 0,
+    feuerwerkReceived: me.timesFeuerwerkReceived || 0, kleeblattFailed: me.timesKleeblattFailed || 0,
+    kleeblattCompleted: me.timesKleeblattCompleted || 0, x2Received: me.timesx2Received || 0,
+    totalTurns: me.totalTurns || 0, busts: me.busts || 0,
+    feuerwerkBusts: me.feuerwerkBusts || 0, x2Busts: me.x2Busts || 0,
+    feuerwerkPointsScored: me.feuerwerkPointsScored || 0, x2PointsScored: me.x2PointsScored || 0,
+    totalTuttos: me.totalTuttos || 0,
+    highestTurnScore: me.highestTurnScore || 0, totalScore: me.score || 0,
+    fastestWinTurns: didIWin ? (me.totalTurns || 0) : null,
+    // null, not 0, when this device never got a turn — a game can end
+    // mid-round (a completed Kleeblatt wins instantly), so a player later in
+    // the turn order can finish on 0. sanitize.ts clamps a 0 up to 1 and the
+    // DB merges this column with MIN, which would pin the record at 1
+    // permanently. See buildGlobalStatsPayload for the same rule globally.
+    fastestLossTurns: !didIWin && (me.totalTurns || 0) > 0 ? me.totalTurns : null,
+    totalPlayersSum: finalPlayers.length, mostPlayersInGame: finalPlayers.length,
+    totalRoundsSum: finalRound || 0, longestGameRounds: finalRound || 0,
+    highestFeuerwerkTurnScore: me.highestFeuerwerkTurnScore || 0,
+    highestX2TurnScore: me.highestX2TurnScore || 0,
+    // Classic-only records: OMITTED (not sent as 0) when unset —
+    // updateDeviceStats writes the incoming value on row insert, and a 0 would
+    // permanently stamp itself where NULL ("no record yet") belongs.
+    ...(me.mostCardsInTurn !== undefined ? { mostCardsInTurn: me.mostCardsInTurn } : {}),
+    ...(me.highestForfeitedTurnScore !== undefined ? { highestForfeitedTurnScore: me.highestForfeitedTurnScore } : {}),
+  };
 };
 
 export const buildGlobalStatsPayload = (

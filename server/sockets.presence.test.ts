@@ -511,10 +511,12 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
     });
   }, 10000);
 
-  it('does not auto-kick a disconnected player when reconnectTimeout is 0 (disabled)', () => {
-    // reconnectTimeout=0 means "never kick automatically"; the buggy `|| 60` fallback would
-    // treat 0 as 60 seconds instead. We verify no kick fires within a window that exceeds
-    // the 1-second timer used in other kick tests.
+  it('keeps a disconnected player seated when reconnectTimeout is 0 (disabled)', () => {
+    // The seat-retention half. The "no timer was armed" half -- the one that
+    // actually catches a `|| 60` fallback reading 0 as the default minute --
+    // is asserted directly in socketRoomHandlers.test.ts, because no wall
+    // clock here can distinguish "no timer" from "a timer 12 seconds out"
+    // without a 12-second test.
     return new Promise((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const s2 = io(`http://127.0.0.1:${PORT}`);
@@ -548,16 +550,15 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
         const bob = state.players?.find(p => p.name === 'Bob');
         if (bob?.disconnected && !bobDisconnectSeen) {
           bobDisconnectSeen = true;
-          // reconnectTimeout: 0 means the server never arms a kick timer, so Bob stays
-          // disconnected indefinitely. testDelay(350) gives the server time to process the
-          // disconnect event and emit the updated gameState — no kick can fire anyway.
-          setTimeout(() => {
-            expect(latestState.players.length).toBe(2);
-            expect(latestState.players.find(p => p.name === 'Bob')?.disconnected).toBe(true);
-            clearTimeout(timeoutId);
-            s1.disconnect();
-            resolve();
-          }, testDelay(350));
+          // Asserted on the broadcast that reported the disconnect, not after
+          // a sleep: this is the state the server settled on, and the sleep
+          // that used to sit here was 70ms against a regression that fires
+          // 12 seconds later.
+          expect(latestState.players.length).toBe(2);
+          expect(latestState.players.find(p => p.name === 'Bob')?.disconnected).toBe(true);
+          clearTimeout(timeoutId);
+          s1.disconnect();
+          resolve();
         }
       });
     });

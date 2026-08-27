@@ -323,6 +323,64 @@ describe('joinRoom with ids that name Object.prototype members', () => {
     expect(rooms['__proto__'].state.players.map(p => p.name)).toEqual(['Alice']);
   });
 
+  it('cancels the pending removal when the player reconnects in time', async () => {
+    // Without this clearTimeout the original timer keeps running against a
+    // seat that is occupied again, and fires: the player is removed a minute
+    // after successfully reconnecting, mid-turn, for no reason they can see.
+    // The seat is reused by deviceId, so the timer's key is still live.
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('reconnect-sock');
+    registerRoomHandlers({ io, socket, session: { roomId: null, username: null } });
+
+    await joinAndWait(handlers, { roomId: 'RECONNECT-CANCEL-ROOM', name: 'Alice', deviceId: 'dev-rc-a' });
+    const peer = makeFakeSocket('peer-rc-sock');
+    registerRoomHandlers({ io, socket: peer.socket, session: { roomId: null, username: null } });
+    await joinAndWait(peer.handlers, { roomId: 'RECONNECT-CANCEL-ROOM', name: 'Bob', deviceId: 'dev-rc-b' });
+
+    handlers['disconnect']();
+    expect(Object.keys(rooms['RECONNECT-CANCEL-ROOM'].disconnectTimers)).toEqual(['dev-rc-a']);
+
+    // Same deviceId from a new connection: the reconnect path.
+    const again = makeFakeSocket('reconnect-sock-2');
+    registerRoomHandlers({ io, socket: again.socket, session: { roomId: null, username: null } });
+    await joinAndWait(again.handlers, { roomId: 'RECONNECT-CANCEL-ROOM', name: 'Alice', deviceId: 'dev-rc-a' });
+
+    const room = rooms['RECONNECT-CANCEL-ROOM'];
+    expect(Object.keys(room.disconnectTimers), 'the removal timer is still armed against a seat that came back').toEqual([]);
+    expect(room.state.players.find(p => p.name === 'Alice')?.disconnected).toBe(false);
+    deleteRoom('RECONNECT-CANCEL-ROOM');
+  });
+
+  it('arms no timer at all when the kick timer is disabled', async () => {
+    // reconnectTimeout: 0 means "never kick automatically". The regression it
+    // guards against is a `|| 60` fallback reading 0 as the default minute.
+    //
+    // Asserted on the armed timer rather than on a player surviving a wait:
+    // the e2e version of this waits 70ms (testDelay(350)) for a kick that,
+    // with the bug, would fire 12 SECONDS later -- so it passed either way.
+    // There is nothing to wait for here; either the timer exists or it does
+    // not.
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('no-timer-sock');
+    registerRoomHandlers({ io, socket, session: { roomId: null, username: null } });
+
+    await joinAndWait(handlers, { roomId: 'NO-KICK-TIMER-ROOM', name: 'Alice', deviceId: 'dev-nk-a' });
+    // A second seat keeps the room alive, so the disconnect takes the
+    // arm-a-timer path rather than tearing the room down.
+    const peer = makeFakeSocket('peer-nk-sock');
+    registerRoomHandlers({ io, socket: peer.socket, session: { roomId: null, username: null } });
+    await joinAndWait(peer.handlers, { roomId: 'NO-KICK-TIMER-ROOM', name: 'Bob', deviceId: 'dev-nk-b' });
+
+    rooms['NO-KICK-TIMER-ROOM'].state.reconnectTimeout = 0;
+    handlers['disconnect']();
+
+    const room = rooms['NO-KICK-TIMER-ROOM'];
+    expect(Object.keys(room.disconnectTimers), 'a kick timer was armed for a room that disabled them').toEqual([]);
+    expect(room.state.players, 'the seat must be kept, not removed').toHaveLength(2);
+    expect(room.state.players.find(p => p.name === 'Alice')?.disconnected).toBe(true);
+    deleteRoom('NO-KICK-TIMER-ROOM');
+  });
+
   it('arms a cancellable reconnect timer for a deviceId that is one', async () => {
     // The timer is stored under the deviceId. Assigned to a plain object under
     // '__proto__' it became the object's prototype: invisible to the

@@ -72,6 +72,42 @@ describe('stats dedup rollback on DB failure', () => {
     client.disconnect();
   });
 
+  it('endGameStats sanitizes a hostile payload before it reaches the database', async () => {
+    // sanitizeStats has thorough unit tests and an HTTP-route test; the SOCKET
+    // route -- the one every real client uses -- had none, so deleting the
+    // call here left the suite green. The values below are the three shapes
+    // that do permanent damage if they land: fastestWinTurns is MIN-merged
+    // (so a 0 or a `false` binding to 0 pins the best-ever count with no way
+    // back), and a record merged with MAX keeps whatever junk it was given.
+    mockedUpdateDeviceStats.mockResolvedValue(true);
+
+    client = await server.connectAndJoin('STATS_HOSTILE_DEV', 'Alice', 'dev-hostile-1');
+    rooms['STATS_HOSTILE_DEV'].state.finished = true;
+
+    client.emit('endGameStats', {
+      deviceId: 'dev-hostile-1',
+      stats: {
+        gamesPlayed: 1,
+        fastestWinTurns: 0,
+        fastestLossTurns: false,
+        highestTurnScore: 'NaN',
+        busts: -5,
+      },
+    });
+    await waitFor(() => mockedUpdateDeviceStats.mock.calls.length === 1);
+
+    const written = mockedUpdateDeviceStats.mock.calls[0][1] as Record<string, unknown>;
+    expect(written.fastestWinTurns, 'a 0-turn best would be MIN-merged and permanent').toBe(1);
+    expect(written, 'a boolean binds to 0 and pins the record just the same').not.toHaveProperty('fastestLossTurns');
+    expect(written, 'a non-numeric record must not reach a MAX merge').not.toHaveProperty('highestTurnScore');
+    expect(written.busts, 'counters are floored at 0').toBe(0);
+    // Unknown columns are not this layer's problem: updateDeviceStats writes
+    // only the columns on its own hardcoded list, so an extra key never
+    // reaches SQL. Values are what sanitizeStats is here for.
+
+    client.disconnect();
+  });
+
   it('submitGlobalStats: a failed DB write rolls back the dedup flag so a retry lands, then dedups for real', async () => {
     mockedUpdateGlobalStats.mockRejectedValueOnce(new Error('db down'));
     mockedUpdateGlobalStats.mockResolvedValue(1);

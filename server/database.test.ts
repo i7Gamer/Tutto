@@ -384,6 +384,21 @@ describe('Database Statistics Integration', () => {
 
       await database.knex('global_statistics').insert({ ruleset: 'modernized' });
     });
+
+    it('the normal path itself refuses to succeed against a missing row', async () => {
+      // The test above is named for this one and never exercised it: it only
+      // ever took the custom-game early return. The full update path ends in
+      // `changes === 0` — an UPDATE that matched nothing, which knex reports
+      // as success — and a server whose migrations never ran would otherwise
+      // accept and discard every game it was ever sent.
+      await database.knex('global_statistics').where({ ruleset: 'modernized' }).del();
+
+      await expect(database.updateGlobalStats({
+        gamesPlayed: 1, totalScore: 500, highestTurnScore: 1500, isDefaultGame: true,
+      })).rejects.toThrow('global_statistics row missing');
+
+      await database.knex('global_statistics').insert({ ruleset: 'modernized' });
+    });
   });
 
   it('should track currentWinStreak/bestWinStreak across consecutive wins, a loss reset, and a longer streak', async () => {

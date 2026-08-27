@@ -12,7 +12,8 @@
  * turnTimer.test.ts, which now runs in-process itself.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { handleActivePlayerRemoved, calculateRemainingTurnTime, createRoom, deleteRoom, isAbandonedRoom, rooms } from './rooms';
+import { handleActivePlayerRemoved, calculateRemainingTurnTime, createRoom, deleteRoom, emitRoomState, isAbandonedRoom, rooms } from './rooms';
+import type { Server } from 'socket.io';
 import { MAX_ROUNDS } from './pushValidation';
 import type { Room, RoomState, ServerPlayer } from './roomTypes';
 
@@ -545,6 +546,66 @@ describe('deleteRoom', () => {
   });
 
   // Both registries are keyed by client-supplied strings (joinRoom validates
+describe('emitRoomState scrubs reconnect credentials', () => {
+  // deviceId is a reconnect credential: possession of one is enough to take
+  // over that player's seat (see joinRoom). It must never leave the server
+  // except back to its own owner, and previousLeaders is the easy one to
+  // forget -- it is a snapshot of FULL player objects, taken before the turn
+  // that moved the lead, and it rides every broadcast until the next turn
+  // overwrites it.
+  //
+  // The scrub is applied (this is not a live leak); what it did not have was
+  // anything that fails if it is deleted.
+  const captureBroadcast = () => {
+    const emit = vi.fn();
+    const io = { to: vi.fn(() => ({ emit })) } as unknown as Server;
+    return { io, emit };
+  };
+
+  const stateOf = (emit: ReturnType<typeof vi.fn>): Record<string, unknown> => {
+    const call = emit.mock.calls.find(([event]) => event === 'gameState');
+    expect(call, 'no gameState was broadcast at all').toBeDefined();
+    return call![1] as Record<string, unknown>;
+  };
+
+  afterEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+  });
+
+  it('strips deviceId from the roster and from previousLeaders alike', () => {
+    const room = createRoom('sock-host');
+    rooms['SCRUB_ROOM'] = room;
+    room.state.players = [makePlayer('Alice'), makePlayer('Bob')];
+    room.state.previousLeaders = [makePlayer('Alice')];
+
+    const { io, emit } = captureBroadcast();
+    emitRoomState(io, 'SCRUB_ROOM');
+
+    const state = stateOf(emit);
+    const players = state.players as Record<string, unknown>[];
+    const leaders = state.previousLeaders as Record<string, unknown>[];
+
+    expect(players.map(p => p.name)).toEqual(['Alice', 'Bob']);
+    expect(players.every(p => !('deviceId' in p)), 'a roster deviceId went out over the wire').toBe(true);
+    expect(leaders.map(p => p.name)).toEqual(['Alice']);
+    expect(leaders.every(p => !('deviceId' in p)), 'a previousLeaders deviceId went out over the wire').toBe(true);
+  });
+
+  it('leaves a null previousLeaders alone rather than mapping over it', () => {
+    // The common case by far -- every broadcast before the first lead change
+    // -- and `null.map` would take the whole room down.
+    const room = createRoom('sock-host');
+    rooms['SCRUB_NULL_ROOM'] = room;
+    room.state.players = [makePlayer('Alice')];
+    room.state.previousLeaders = null;
+
+    const { io, emit } = captureBroadcast();
+    emitRoomState(io, 'SCRUB_NULL_ROOM');
+
+    expect(stateOf(emit).previousLeaders).toBeNull();
+  });
+});
+
   // roomId and deviceId only as non-empty strings within a length bound), so
   // an id naming an Object.prototype member must not resolve to an inherited
   // value: '__proto__' as a deviceId used to be swallowed by the prototype

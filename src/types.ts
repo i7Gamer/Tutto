@@ -322,6 +322,49 @@ export interface Reaction {
   senderColor?: string | null;
 }
 
+/**
+ * One device's own row for a finished game.
+ *
+ * Every field is optional on the wire (server/sanitize.ts drops what it does
+ * not recognise and updateDeviceStats writes only the columns it knows), but
+ * the builder fills all of them except the two classic records, which are
+ * OMITTED rather than zeroed when unset — see buildDeviceStatsPayload.
+ */
+export interface DeviceStatsPayload {
+  gamesPlayed: number;
+  wins: number;
+  totalPlaytime: number;
+  pointsDeducted: number;
+  plusMinusCompleted: number;
+  plusMinusFailed: number;
+  kniffelCompleted: number;
+  kniffelFailed: number;
+  skipped: number;
+  feuerwerkReceived: number;
+  kleeblattFailed: number;
+  kleeblattCompleted: number;
+  x2Received: number;
+  totalTurns: number;
+  busts: number;
+  feuerwerkBusts: number;
+  x2Busts: number;
+  feuerwerkPointsScored: number;
+  x2PointsScored: number;
+  totalTuttos: number;
+  highestTurnScore: number;
+  totalScore: number;
+  fastestWinTurns: number | null;
+  fastestLossTurns: number | null;
+  totalPlayersSum: number;
+  mostPlayersInGame: number;
+  totalRoundsSum: number;
+  longestGameRounds: number;
+  highestFeuerwerkTurnScore: number;
+  highestX2TurnScore: number;
+  mostCardsInTurn?: number;
+  highestForfeitedTurnScore?: number;
+}
+
 export interface GlobalStatsPayload {
   gamesPlayed: number;
   totalPlaytime: number;

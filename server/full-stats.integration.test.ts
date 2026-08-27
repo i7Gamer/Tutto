@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import database from './database';
 import { useGameStore } from '../src/store/useGameStore';
+import { buildDeviceStatsPayload } from '../src/utils/coreGameEngine';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
 // Force the test DB
@@ -87,39 +88,21 @@ describe('End-to-End Statistics Integration', () => {
     const payload1 = useGameStore.getState().buildGlobalStatsPayload();
     await database.updateGlobalStats(payload1);
 
-    const me1 = useGameStore.getState().players[0]; // Alice
-    const didAliceWin1 = 1;
-    await database.updateDeviceStats(mockDeviceId, {
-      gamesPlayed: 1,
-      wins: didAliceWin1,
-      totalPlaytime: 50,
-      pointsDeducted: me1.times1000PointsDeducted || 0,
-      plusMinusCompleted: me1.timesPlusMinusCompleted || 0,
-      plusMinusFailed: me1.timesPlusMinusFailed || 0,
-      kniffelCompleted: me1.timesKniffelCompleted || 0,
-      kniffelFailed: me1.timesKniffelFailed || 0,
-      skipped: me1.timesSkipped || 0,
-      feuerwerkReceived: me1.timesFeuerwerkReceived || 0,
-      kleeblattFailed: me1.timesKleeblattFailed || 0,
-      kleeblattCompleted: me1.timesKleeblattCompleted || 0,
-      x2Received: me1.timesx2Received || 0,
-      totalTurns: me1.totalTurns || 0,
-      busts: me1.busts || 0,
-      feuerwerkBusts: me1.feuerwerkBusts || 0,
-      x2Busts: me1.x2Busts || 0,
-      feuerwerkPointsScored: me1.feuerwerkPointsScored || 0,
-      x2PointsScored: me1.x2PointsScored || 0,
-      totalScore: me1.score || 0,
-      highestTurnScore: me1.highestTurnScore || 0,
-      fastestWinTurns: didAliceWin1 ? (me1.totalTurns || 0) : null,
-      fastestLossTurns: !didAliceWin1 ? (me1.totalTurns || 0) : null,
-      totalPlayersSum: playerCount1,
-      mostPlayersInGame: playerCount1,
-      totalRoundsSum: round1,
-      longestGameRounds: round1,
-      highestFeuerwerkTurnScore: me1.highestFeuerwerkTurnScore || 0,
-      highestX2TurnScore: me1.highestX2TurnScore || 0,
-    });
+    // The payload the app actually builds, not a copy of it. The copy that
+    // used to stand here had drifted: no totalTuttos, neither classic record,
+    // and the superseded fastestLossTurns rule -- the one without the
+    // `totalTurns > 0` guard, which records a 0-turn "fastest loss" for a seat
+    // the game ended before and MIN-merges it into a record with no way back.
+    // An integration test that hand-copies the thing it is integrating stops
+    // being one the first time the original changes.
+    const payloadFor = (playtime: number) => {
+      const { players, myName, round } = useGameStore.getState();
+      const stats = buildDeviceStatsPayload(players, myName ?? players[0].name, playtime, round);
+      expect(stats, 'no seat for this device, so nothing would be recorded').not.toBeNull();
+      return stats!;
+    };
+
+    await database.updateDeviceStats(mockDeviceId, payloadFor(50));
 
     // ==========================================
     // GAME 2
@@ -153,39 +136,7 @@ describe('End-to-End Statistics Integration', () => {
     const payload2 = useGameStore.getState().buildGlobalStatsPayload();
     await database.updateGlobalStats(payload2);
 
-    const me2 = useGameStore.getState().players[0]; // Alice
-    const didAliceWin2 = 1;
-    await database.updateDeviceStats(mockDeviceId, {
-      gamesPlayed: 1,
-      wins: didAliceWin2,
-      totalPlaytime: 120,
-      pointsDeducted: me2.times1000PointsDeducted || 0,
-      plusMinusCompleted: me2.timesPlusMinusCompleted || 0,
-      plusMinusFailed: me2.timesPlusMinusFailed || 0,
-      kniffelCompleted: me2.timesKniffelCompleted || 0,
-      kniffelFailed: me2.timesKniffelFailed || 0,
-      skipped: me2.timesSkipped || 0,
-      feuerwerkReceived: me2.timesFeuerwerkReceived || 0,
-      kleeblattFailed: me2.timesKleeblattFailed || 0,
-      kleeblattCompleted: me2.timesKleeblattCompleted || 0,
-      x2Received: me2.timesx2Received || 0,
-      totalTurns: me2.totalTurns || 0,
-      busts: me2.busts || 0,
-      feuerwerkBusts: me2.feuerwerkBusts || 0,
-      x2Busts: me2.x2Busts || 0,
-      feuerwerkPointsScored: me2.feuerwerkPointsScored || 0,
-      x2PointsScored: me2.x2PointsScored || 0,
-      totalScore: me2.score || 0,
-      highestTurnScore: me2.highestTurnScore || 0,
-      fastestWinTurns: didAliceWin2 ? (me2.totalTurns || 0) : null,
-      fastestLossTurns: !didAliceWin2 ? (me2.totalTurns || 0) : null,
-      totalPlayersSum: playerCount2,
-      mostPlayersInGame: playerCount2,
-      totalRoundsSum: round2,
-      longestGameRounds: round2,
-      highestFeuerwerkTurnScore: me2.highestFeuerwerkTurnScore || 0,
-      highestX2TurnScore: me2.highestX2TurnScore || 0,
-    });
+    await database.updateDeviceStats(mockDeviceId, payloadFor(120));
 
     // ==========================================
     // ASSERTIONS

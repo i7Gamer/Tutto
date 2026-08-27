@@ -193,4 +193,52 @@ describe('game clock (gameTimeInSeconds / gameActualStartTime)', () => {
     expect(second.gameTimeInSeconds).toBeLessThan(5);
     expect(second.gameTimeInSeconds).toBeGreaterThan(firstGameTime);
   });
+
+  it('returning to the lobby banks the elapsed time and starts the next game from zero', async () => {
+    // The two halves of the lobby reset -- banking the elapsed time and
+    // dropping the anchor -- were removable TOGETHER with the suite still
+    // green: every existing clock test either never leaves 'playing' or never
+    // starts a second game, so nothing could tell a cleared anchor from a
+    // kept one. Keeping it would carry the first game's whole duration into
+    // the second, and every player's totalPlaytime with it.
+    const roomId = 'GAME_TIME_LOBBY_RESET';
+    const s1 = await server.connectAndJoin(roomId, 'Alice', 'dev-gtl-a');
+    const players = [{ name: 'Alice', deviceId: 'dev-gtl-a', score: 0 }];
+    const playing = {
+      status: 'playing', currentCard: '200', cards: [], currentPlayerIndex: 0, round: 1,
+      finished: false, gameTimeInSeconds: 0, players,
+    };
+
+    const firstPlaying = new Promise<{ status: string }>(resolve => {
+      s1.on('gameState', (state) => { if (state.status === 'playing') resolve(state); });
+    });
+    s1.emit('pushState', { roomId, newState: { ...playing } });
+    await firstPlaying;
+
+    const ELAPSED_MS = 4000;
+    const ELAPSED_SECONDS = ELAPSED_MS / 1000;
+    backdateClock(roomId, ELAPSED_MS);
+
+    // endGame: back to the lobby, roster untouched.
+    const lobby = new Promise<{ gameTimeInSeconds: number }>(resolve => {
+      s1.once('gameState', resolve);
+    });
+    s1.emit('pushState', {
+      roomId,
+      newState: { status: 'lobby', finished: false, currentPlayerIndex: null, players },
+    });
+    const banked = await lobby;
+
+    expect(banked.gameTimeInSeconds, 'the finished game\'s duration was not banked').toBe(ELAPSED_SECONDS);
+    expect(rooms[roomId].gameActualStartTime, 'the anchor outlived the game it was anchoring').toBeNull();
+
+    // Play Again from that lobby: the clock must start over, not resume.
+    const secondPlaying = new Promise<{ gameTimeInSeconds: number }>(resolve => {
+      s1.once('gameState', resolve);
+    });
+    s1.emit('pushState', { roomId, newState: { ...playing, gameTimeInSeconds: 999 } });
+    const second = await secondPlaying;
+
+    expect(second.gameTimeInSeconds, 'the new game inherited the old one\'s duration').toBe(0);
+  });
 });

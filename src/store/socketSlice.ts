@@ -1,6 +1,6 @@
 import { localStore, sessionStore } from '../utils/storage';
 import { io, type Socket } from 'socket.io-client';
-import { getLeaders, noUndoableTurn } from '../utils/coreGameEngine';
+import { buildDeviceStatsPayload, noUndoableTurn } from '../utils/coreGameEngine';
 import i18n from '../i18n';
 import { areInitialCardsEqual } from '../utils/configValidation';
 import { validateOnlineConfig } from './persistence';
@@ -561,45 +561,12 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
   sendOnlineStats: () => {
     const s = get();
     const socket = getSocket();
-    const me = s.players.find(p => p.name === s.myName);
-    if (me && socket) {
-      const leaders = getLeaders(s.players);
-      const didIWin = leaders.find(l => l.name === me.name) ? 1 : 0;
-      socket.emit('endGameStats', {
-        roomId: s.roomId,
-        deviceId: s.deviceId,
-        stats: {
-          gamesPlayed: 1, wins: didIWin, totalPlaytime: s.gameTimeInSeconds || 0,
-          pointsDeducted: me.times1000PointsDeducted || 0, plusMinusCompleted: me.timesPlusMinusCompleted || 0,
-          plusMinusFailed: me.timesPlusMinusFailed || 0, kniffelCompleted: me.timesKniffelCompleted || 0,
-          kniffelFailed: me.timesKniffelFailed || 0, skipped: me.timesSkipped || 0,
-          feuerwerkReceived: me.timesFeuerwerkReceived || 0, kleeblattFailed: me.timesKleeblattFailed || 0,
-          kleeblattCompleted: me.timesKleeblattCompleted || 0, x2Received: me.timesx2Received || 0,
-          totalTurns: me.totalTurns || 0, busts: me.busts || 0,
-          feuerwerkBusts: me.feuerwerkBusts || 0, x2Busts: me.x2Busts || 0,
-          feuerwerkPointsScored: me.feuerwerkPointsScored || 0, x2PointsScored: me.x2PointsScored || 0,
-          totalTuttos: me.totalTuttos || 0,
-          highestTurnScore: me.highestTurnScore || 0, totalScore: me.score || 0,
-          fastestWinTurns: didIWin ? (me.totalTurns || 0) : null,
-          // null, not 0, when this device never got a turn — a game can end
-          // mid-round (a completed Kleeblatt wins instantly), so a player
-          // later in the turn order can finish on 0. sanitize.ts clamps a 0
-          // up to 1 and the DB merges this column with MIN, which would pin
-          // the record at 1 permanently. See buildGlobalStatsPayload for the
-          // same rule on the global side.
-          fastestLossTurns: !didIWin && (me.totalTurns || 0) > 0 ? me.totalTurns : null,
-          totalPlayersSum: s.players.length, mostPlayersInGame: s.players.length,
-          totalRoundsSum: s.round || 0, longestGameRounds: s.round || 0,
-          highestFeuerwerkTurnScore: me.highestFeuerwerkTurnScore || 0,
-          highestX2TurnScore: me.highestX2TurnScore || 0,
-          // Classic-only records: OMITTED (not sent as 0) when unset —
-          // updateDeviceStats writes the incoming value on row insert, and a
-          // 0 would permanently stamp itself where NULL ("no record yet")
-          // belongs.
-          ...(me.mostCardsInTurn !== undefined ? { mostCardsInTurn: me.mostCardsInTurn } : {}),
-          ...(me.highestForfeitedTurnScore !== undefined ? { highestForfeitedTurnScore: me.highestForfeitedTurnScore } : {}),
-        },
-      });
+    // The payload itself lives in coreGameEngine beside its global
+    // counterpart, so the integration suite can build the very same one
+    // instead of keeping a copy that drifts.
+    const stats = buildDeviceStatsPayload(s.players, s.myName, s.gameTimeInSeconds, s.round);
+    if (stats && socket) {
+      socket.emit('endGameStats', { roomId: s.roomId, deviceId: s.deviceId, stats });
     }
 
     if (s.isHost) submitGlobalStats(get);
