@@ -254,6 +254,8 @@ export default function Game() {
           fastestLossTurns: data.fastestLossTurns ?? null,
           highestFeuerwerkTurnScore: data.highestFeuerwerkTurnScore ?? null,
           highestX2TurnScore: data.highestX2TurnScore ?? null,
+          mostCardsInTurn: data.mostCardsInTurn ?? null,
+          highestForfeitedTurnScore: data.highestForfeitedTurnScore ?? null,
         });
       } catch (err) {
         console.error('Could not fetch pre-game device stats', err);

@@ -737,6 +737,64 @@ describe('EndScreen Component', () => {
       expect(getByText('end.newHighestX2')).toBeInTheDocument();
     });
 
+    it('celebrates the two classic records the snapshot never used to carry', () => {
+      useGameStore.setState({
+        isOnline: true,
+        myName: 'Alice',
+        players: [
+          { name: 'Alice', score: 10000, position: 1, totalTurns: 8, highestTurnScore: 1500, mostCardsInTurn: 6, highestForfeitedTurnScore: 2200 },
+          { name: 'Bob', score: 5000, position: 2, totalTurns: 12, highestTurnScore: 800 },
+        ],
+        preGameStats: {
+          highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null,
+          mostCardsInTurn: 4, highestForfeitedTurnScore: 1900,
+        },
+      });
+      const { getByText } = render(<EndScreen deviceId="d1" />);
+      expect(getByText('end.newMostCardsInTurn')).toBeInTheDocument();
+      expect(getByText('end.newHighestForfeitedTurn')).toBeInTheDocument();
+    });
+
+    it('does not flag a classic record this game merely tied', () => {
+      useGameStore.setState({
+        isOnline: true,
+        myName: 'Alice',
+        players: [
+          { name: 'Alice', score: 10000, position: 1, totalTurns: 8, highestTurnScore: 1500, mostCardsInTurn: 4, highestForfeitedTurnScore: 1900 },
+          { name: 'Bob', score: 5000, position: 2, totalTurns: 12, highestTurnScore: 800 },
+        ],
+        preGameStats: {
+          highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null,
+          mostCardsInTurn: 4, highestForfeitedTurnScore: 1900,
+        },
+      });
+      const { queryByText } = render(<EndScreen deviceId="d1" />);
+      expect(queryByText('end.newMostCardsInTurn')).not.toBeInTheDocument();
+      expect(queryByText('end.newHighestForfeitedTurn')).not.toBeInTheDocument();
+      expect(queryByText('end.newRecordsTitle'), 'a tie is not a record').not.toBeInTheDocument();
+    });
+
+    it('does not flag a classic record in a modernized game, whose turns are one card', () => {
+      // One card per turn: mostCardsInTurn is never written at all (the engine
+      // only keeps it on the classic branch), so an absent value must not read
+      // as "beat the stored 4".
+      useGameStore.setState({
+        isOnline: true,
+        myName: 'Alice',
+        players: [
+          { name: 'Alice', score: 10000, position: 1, totalTurns: 8, highestTurnScore: 1500 },
+          { name: 'Bob', score: 5000, position: 2, totalTurns: 12, highestTurnScore: 800 },
+        ],
+        preGameStats: {
+          highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null,
+          mostCardsInTurn: 4, highestForfeitedTurnScore: 1900,
+        },
+      });
+      const { queryByText } = render(<EndScreen deviceId="d1" />);
+      expect(queryByText('end.newMostCardsInTurn')).not.toBeInTheDocument();
+      expect(queryByText('end.newHighestForfeitedTurn')).not.toBeInTheDocument();
+    });
+
     it('does not flag a new Feuerwerk/x2 record when this game merely ties the pre-game snapshot', () => {
       useGameStore.setState({
         isOnline: true,

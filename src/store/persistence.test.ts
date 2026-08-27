@@ -102,6 +102,23 @@ describe('pickLocalGameState', () => {
     expect(pickLocalGameState({ players: [{ name: 'Alice', score: 10, totalTurns: '0' }] })).toEqual({});
   });
 
+  it('rejects a per-turn RECORD restored as a string, which can then never be beaten', () => {
+    // PLAYER_STAT_FIELDS drives the numeric check above, and by design it
+    // holds only the counters a player STARTS a game on — the five per-turn
+    // records are absent from it ("no value yet" is undefined, not zero). The
+    // generic fallback below it permits any string, so these five walked
+    // straight through. A string record is never beaten (5000 > "99999" is
+    // false, so calculateNextTurn leaves it) and renders verbatim on the end
+    // screen.
+    for (const field of ['highestTurnScore', 'highestFeuerwerkTurnScore', 'highestX2TurnScore',
+      'mostCardsInTurn', 'highestForfeitedTurnScore']) {
+      expect(
+        pickLocalGameState({ players: [{ name: 'Alice', score: 10, [field]: '99999' }] }),
+        `${field} restored as a string must drop the save`,
+      ).toEqual({});
+    }
+  });
+
   it('still accepts the fields that are legitimately strings', () => {
     // color and name are strings by design; only the counters must be numbers.
     const roster = [{ name: 'Alice', score: 10, color: '#ff0000', busts: 2 }];

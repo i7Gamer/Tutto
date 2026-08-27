@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import Statistics from './Statistics';
 
@@ -427,6 +427,49 @@ describe('Statistics Component', () => {
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
 
     expect(screen.getAllByText(/statistics\.globalRecord/)).toHaveLength(5);
+  });
+
+  it('badges the fastest loss when it ties the global record, like every other record tile', async () => {
+    // fastestLossTurns is a RECORD_COLUMNS entry on the server (MIN), with its
+    // own global column and its own migration -- the number IS collected and
+    // IS compared across every device. The client's GlobalStats interface just
+    // never declared it, so `g?.fastestLossTurns` was unreachable, the tile was
+    // the one record-eligible stat rendered with no way to know it held the
+    // record, and the global panel had no counterpart tile at all.
+    const mockPersonalStats = { gamesPlayed: 1, wins: 0, fastestLossTurns: 4 };
+    const mockGlobalStats = { totalGamesPlayed: 5, totalPlaytime: 500, fastestLossTurns: 4 };
+
+    global.fetch = vi.fn((url) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : mockPersonalStats),
+    }));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+    const tile = screen.getByText('statistics.fastestLossTurns').parentElement;
+    expect(within(tile).queryByText(/statistics\.globalRecord/)).toBeInTheDocument();
+  });
+
+  it('shows the global fastest loss beside the global fastest win', async () => {
+    const mockGlobalStats = {
+      totalGamesPlayed: 5, totalPlaytime: 500, fastestWinTurns: 6, fastestLossTurns: 4,
+    };
+
+    global.fetch = vi.fn((url) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : { gamesPlayed: 1 }),
+    }));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+    fireEvent.click(screen.getByRole('tab', { name: /statistics\.globalCommunity/i }));
+
+    // Retried: the personal panel is still mid-exit for a tick after the click.
+    await waitFor(() => {
+      const tile = screen.getByText('statistics.fastestLossTurns').parentElement;
+      expect(within(tile).queryByText('4'), 'the global minimum loss length has no tile').toBeInTheDocument();
+    });
   });
 
   it('shows a green "better than global avg" badge when personal bust rate is lower than global', async () => {

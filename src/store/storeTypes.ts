@@ -45,12 +45,23 @@ export interface JoinRoomResponse {
 
 export type ConfigKeys = 'winningScore' | 'initialCards' | 'randomOrder' | 'turnDuration' | 'reconnectTimeout' | 'enforcedDiceMode' | 'ruleset';
 
+/**
+ * The device bucket as it stood when this game STARTED, so the end screen can
+ * tell a genuine new record from one this very game merely tied.
+ *
+ * Covers every RECORD_COLUMNS entry the end screen can attribute to one seat.
+ * (mostPlayersInGame and longestGameRounds are properties of the game, not of
+ * a player, and are already on screen as themselves.)
+ */
 export interface PreGameStats {
   highestTurnScore: number | null;
   fastestWinTurns: number | null;
   fastestLossTurns: number | null;
   highestFeuerwerkTurnScore: number | null;
   highestX2TurnScore: number | null;
+  /** Classic only: a modernized turn is one card and forfeits nothing. */
+  mostCardsInTurn: number | null;
+  highestForfeitedTurnScore: number | null;
 }
 
 export interface GameStore extends CoreGameState {

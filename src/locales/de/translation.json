@@ -61,6 +61,8 @@
   "end.newFastestLoss": "Neue schnellste Niederlage (Züge) — autsch!",
   "end.newHighestFeuerwerk": "Neuer persönlicher Rekord: Feuerwerk-Zug!",
   "end.newHighestX2": "Neuer persönlicher Rekord: x2-Zug!",
+  "end.newMostCardsInTurn": "Neue längste Kette (Karten)!",
+  "end.newHighestForfeitedTurn": "Größter jemals weggeworfener Zug — autsch!",
   "end.customGameNotice": "Angepasstes Spiel — zählt in deiner Statistik unter „Angepasst“, nicht zu deinem normalen Rekord.",
   "end.gameStats": "Spielstatistiken",
   "end.stat": "Statistik",

@@ -33,6 +33,16 @@ const MAX_GAME_SECONDS = 10_000_000;
 const isBoundedNumber = (v: unknown): v is number =>
   typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= MAX_SCORE_MAGNITUDE;
 
+// chartValues and chartNames carry one entry per seat, so they are tied to the
+// roster length -- EXCEPT when empty, which is the cleared chart. endGame
+// pushes the whole trio empty at once and leaves the roster alone, so a strict
+// tie refused two thirds of that clear and the room kept the finished game's
+// series under an empty set of round labels. Wiping a chart is also strictly
+// less than a push may already do to it (replace every entry), so allowing it
+// opens nothing.
+const isPerPlayerOrCleared = (v: unknown[], players: readonly unknown[]): boolean =>
+  v.length === 0 || v.length === players.length;
+
 // The chain's Plus/Minus running totals: shape from turnShapes, magnitude the
 // network's own rule — the engine adds each one to a player's score, so an
 // unbounded entry off the wire is an unbounded score.
@@ -610,7 +620,7 @@ export const applyPushedState = (
     } else if (key === 'chartValues') {
       const v = newState.chartValues;
       if (
-        Array.isArray(v) && v.length === state.players.length &&
+        Array.isArray(v) && isPerPlayerOrCleared(v, state.players) &&
         v.every(arr => Array.isArray(arr) && arr.length <= MAX_ROUNDS && arr.every(isBoundedNumber))
       ) {
         state.chartValues = v as number[][];
@@ -622,7 +632,7 @@ export const applyPushedState = (
       // was the one client-pushed string stored unbounded — and rebroadcast
       // to every client on each subsequent emitRoomState.
       if (
-        Array.isArray(v) && v.length === state.players.length &&
+        Array.isArray(v) && isPerPlayerOrCleared(v, state.players) &&
         v.every(n => typeof n === 'string' && n.length > 0 && n.length <= MAX_PLAYER_NAME_LENGTH)
       ) {
         state.chartNames = v as string[];

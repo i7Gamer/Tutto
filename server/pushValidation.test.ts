@@ -873,6 +873,28 @@ describe('applyPushedState', () => {
       expect(state.chartNames).toEqual(['Alice', 'x'.repeat(30)]);
     });
 
+    it('clears the whole chart trio when the host ends the game', () => {
+      // endGame pushes the trio empty together, with the roster untouched.
+      // chartValues/chartNames are length-tied to that roster, so [] was
+      // refused for both while chartLabels: [] sailed through -- leaving the
+      // room holding the finished game's series under no round labels at all,
+      // re-broadcast on every emitRoomState (which overwrites the host's own
+      // cleared copy) and inherited by the next game started from that lobby.
+      const state = makeState();
+      applyPushedState(state, {
+        chartValues: [[100], [200]], chartNames: ['Alice', 'Bob'], chartLabels: [1],
+      }, asActivePlayer);
+
+      applyPushedState(state, {
+        status: 'lobby', finished: false, currentPlayerIndex: null,
+        chartValues: [], chartNames: [], chartLabels: [],
+      }, asHost);
+
+      expect(state.chartLabels).toEqual([]);
+      expect(state.chartValues, "the finished game's series outlived its labels").toEqual([]);
+      expect(state.chartNames, "the finished game's names outlived its labels").toEqual([]);
+    });
+
     it('chartLabels: finite numbers within the rounds cap', () => {
       const state = makeState();
       applyPushedState(state, { chartLabels: [1, 2] }, asActivePlayer);

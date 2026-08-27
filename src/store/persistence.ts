@@ -5,7 +5,7 @@ import {
   isValidEnforcedDiceMode, isValidRuleset, VALID_CARD_TYPES, MAX_CARD_COUNT,
 } from '../utils/configValidation';
 import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS } from '../types';
-import { PLAYER_STAT_FIELDS } from '../utils/playerStats';
+import { PLAYER_NUMERIC_FIELDS } from '../utils/playerStats';
 import { isChainCard, isChainCounter, isChainScoreList, isDeductedAmountList, isTurnCardList, isTurnEnd } from '../utils/turnShapes';
 import type { CardType, InitialCards, AssertNever, SyncedGameStateKey } from '../types';
 import type { GameStore, GameMode, GameStatus, ConfigKeys } from './storeTypes';
@@ -91,9 +91,13 @@ const isPlausiblePlayer = (v: unknown): boolean => {
   // A counter restored as a STRING passed the primitive check below and then
   // met `(p.busts ?? 0) + 1` in the engine, which concatenates: the counter
   // becomes '51' and grows from there, into the end screen and the submitted
-  // stats. Derived from the one list that creates these fields, so a counter
-  // added there is covered here without a second list to remember.
-  if (PLAYER_STAT_FIELDS.some(field => p[field] !== undefined && !isFiniteNumber(p[field]))) return false;
+  // stats. The per-turn RECORDS fail differently and worse -- they are kept
+  // with `x > best` and '99999' > 1500 is a STRING comparison, so a corrupt
+  // save pins the record where nothing can ever beat it, and MAX merges it
+  // into the device bucket and the global row, where it is permanent.
+  // Derived from the two lists that create these fields, so a counter or a
+  // record added there is covered here without a third list to remember.
+  if (PLAYER_NUMERIC_FIELDS.some(field => p[field] !== undefined && !isFiniteNumber(p[field]))) return false;
   return Object.entries(p).every(([key, val]) =>
     key === 'name' || val === undefined || val === null ||
     typeof val === 'string' || typeof val === 'boolean' || isFiniteNumber(val));

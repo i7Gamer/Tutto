@@ -1627,7 +1627,31 @@ describe('Game Component Integration', () => {
       expect(setPreGameStats).toHaveBeenCalledWith({
         highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null,
         highestFeuerwerkTurnScore: null, highestX2TurnScore: null,
+        mostCardsInTurn: null, highestForfeitedTurnScore: null,
       });
+    });
+
+    it('carries the two classic records into the snapshot', async () => {
+      // The device bucket keeps 9 records (RECORD_COLUMNS); PreGameStats
+      // declared 5, and the four it dropped included BOTH of the classic-only
+      // ones -- mostCardsInTurn and highestForfeitedTurnScore, the records
+      // only a chained turn can set. They are fetched, merged and displayed
+      // everywhere else; the end screen alone had nothing to compare against,
+      // so a classic player's best chain was never announced.
+      const setPreGameStats = vi.fn();
+      global.fetch = vi.fn(() => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ mostCardsInTurn: 4, highestForfeitedTurnScore: 1900 }),
+      })) as unknown as typeof fetch;
+
+      useGameStore.setState({ isOnline: true, deviceId: 'device-1', setPreGameStats });
+      render(<Game />);
+
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+      expect(setPreGameStats).toHaveBeenCalledWith(expect.objectContaining({
+        mostCardsInTurn: 4, highestForfeitedTurnScore: 1900,
+      }));
     });
 
     it('skips the snapshot for a custom game, and clears any left over from an earlier one', async () => {
@@ -1671,6 +1695,7 @@ describe('Game Component Integration', () => {
       expect(setPreGameStats).toHaveBeenCalledWith({
         highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null,
         highestFeuerwerkTurnScore: 700, highestX2TurnScore: 900,
+        mostCardsInTurn: null, highestForfeitedTurnScore: null,
       });
     });
 

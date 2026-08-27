@@ -70,6 +70,7 @@ interface GlobalStats {
   totalx2Points?: number;
   highestTurnScore?: number;
   fastestWinTurns?: number | null;
+  fastestLossTurns?: number | null;
   mostPlayersInGame?: number;
   totalPlayersSum?: number;
   longestGameRounds?: number;
@@ -572,7 +573,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                     <StatTile icon={<Zap size={32} className="text-yellow-400" />} value={p.highestTurnScore || 0} label={t('statistics.highestTurn', 'Highest Turn')} tone="yellow" badge={holdsRecord(p.highestTurnScore, g?.highestTurnScore) && <RecordBadge />} />
                     <StatTile icon={<TrendingUp size={32} className="text-indigo-400" />} value={p.totalTurns ? Math.round((p.totalScore || 0) / p.totalTurns) : 0} label={t('statistics.avgPointsPerTurn', 'Avg Points/Turn')} badge={<ComparisonBadge comparison={avgPtsPerTurnComparison} />} />
                     <StatTile icon={<FastForward size={32} className="text-green-400" />} value={p.fastestWinTurns || '-'} label={t('statistics.fastestWinTurns', 'Fastest Win (Turns)')} tone="green" badge={holdsRecord(p.fastestWinTurns, g?.fastestWinTurns) && <RecordBadge />} />
-                    <StatTile icon={<Skull size={32} className="text-red-400" />} value={p.fastestLossTurns || '-'} label={t('statistics.fastestLossTurns', 'Fastest Loss (Turns)')} tone="red" />
+                    <StatTile icon={<Skull size={32} className="text-red-400" />} value={p.fastestLossTurns || '-'} label={t('statistics.fastestLossTurns', 'Fastest Loss (Turns)')} tone="red" badge={holdsRecord(p.fastestLossTurns, g?.fastestLossTurns) && <RecordBadge />} />
                   </div>
                   <div className="stat-grid-4 mb-4">
                     <StatTile icon={<Hash size={32} className="text-sky-400" />} value={p.mostPlayersInGame || 0} label={t('statistics.mostPlayersInGame', 'Most Players in a Game')} tone="sky" />
@@ -631,10 +632,11 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                     <StatTile icon={<Zap size={32} className="text-indigo-400" />} value={g.totalScore || 0} label={t('statistics.totalPointsScored', 'Total Points Scored')} />
                     <StatTile icon={<Repeat size={32} className="text-gray-400" />} value={g.totalTurns || 0} label={t('statistics.totalTurnsPlayed', 'Total Turns Played')} tone="neutral" />
                   </div>
-                  <div className="stat-grid-3 mb-4">
+                  <div className="stat-grid-4 mb-4">
                     <StatTile icon={<Zap size={32} className="text-yellow-400" />} value={g.highestTurnScore || 0} label={t('statistics.highestTurnGlobal', 'Highest Turn (Global)')} tone="yellow" />
                     <StatTile icon={<TrendingUp size={32} className="text-indigo-400" />} value={g.totalTurns ? Math.round((g.totalScore || 0) / g.totalTurns) : 0} label={t('statistics.avgPointsPerTurn', 'Avg Points/Turn')} />
                     <StatTile icon={<FastForward size={32} className="text-green-400" />} value={g.fastestWinTurns || '-'} label={t('statistics.fastestWinTurns', 'Fastest Win (Turns)')} tone="green" />
+                    <StatTile icon={<Skull size={32} className="text-red-400" />} value={g.fastestLossTurns || '-'} label={t('statistics.fastestLossTurns', 'Fastest Loss (Turns)')} tone="red" />
                   </div>
                   <div className="stat-grid-4 mb-4">
                     <StatTile icon={<Hash size={32} className="text-sky-400" />} value={g.mostPlayersInGame || 0} label={t('statistics.mostPlayersInGame', 'Most Players in a Game')} tone="sky" />

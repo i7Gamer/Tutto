@@ -13,7 +13,7 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
-import { Trophy, RotateCcw, Settings, Award, Zap, TrendingDown } from 'lucide-react';
+import { Trophy, RotateCcw, Settings, Award, Zap, TrendingDown, Layers, Skull } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
 import { parseJsonObject } from '../utils/parseJson';
 import { deviceStatsRequest, gameModeOf, isCustomGameMode } from '../utils/statsApi';
@@ -126,11 +126,19 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
     && me.highestFeuerwerkTurnScore > (preGameStats.highestFeuerwerkTurnScore ?? 0));
   const newHighestX2 = !!(preGameStats && me?.highestX2TurnScore
     && me.highestX2TurnScore > (preGameStats.highestX2TurnScore ?? 0));
+  // The classic pair. The engine writes them on the classic branch only, so
+  // in a modernized game they are undefined and the leading truthiness check
+  // is what keeps an absent value from "beating" a stored one.
+  const newMostCards = !!(preGameStats && me?.mostCardsInTurn
+    && me.mostCardsInTurn > (preGameStats.mostCardsInTurn ?? 0));
+  const newHighestForfeited = !!(preGameStats && me?.highestForfeitedTurnScore
+    && me.highestForfeitedTurnScore > (preGameStats.highestForfeitedTurnScore ?? 0));
   // A custom game cannot set a personal best: it is recorded in its own bucket,
   // and the snapshot these compare against is never even fetched for one (see
   // Game.tsx) — so celebrating here would announce a record against nothing.
   const hasNewRecord = !isCustomGame &&
-    (newHighScore || newFastestWin || newFastestLoss || newHighestFeuerwerk || newHighestX2);
+    (newHighScore || newFastestWin || newFastestLoss || newHighestFeuerwerk || newHighestX2
+      || newMostCards || newHighestForfeited);
 
   // Same rule as the lobby's StartGameButton: don't let the host restart while
   // someone is disconnected — their turns would just burn down via the server
@@ -343,6 +351,24 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                 <div>
                   <div className="text-2xl font-black text-pink-600 dark:text-pink-400">{me?.highestX2TurnScore}</div>
                   <div className="end-record-label">{t('end.newHighestX2', 'New Personal Best x2 Turn!')}</div>
+                </div>
+              </div>
+            )}
+            {newMostCards && (
+              <div className="flex items-center gap-4 bg-orange-50 dark:bg-orange-900/20 rounded-2xl p-4 border border-orange-100 dark:border-orange-800">
+                <Layers size={36} className="text-orange-500 shrink-0" />
+                <div>
+                  <div className="text-2xl font-black text-orange-600 dark:text-orange-400">{me?.mostCardsInTurn}</div>
+                  <div className="end-record-label">{t('end.newMostCardsInTurn', 'New Longest Chain (cards)!')}</div>
+                </div>
+              </div>
+            )}
+            {newHighestForfeited && (
+              <div className="flex items-center gap-4 bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border border-red-100 dark:border-red-800">
+                <Skull size={36} className="text-red-500 shrink-0" />
+                <div>
+                  <div className="text-2xl font-black text-red-600 dark:text-red-400">{me?.highestForfeitedTurnScore}</div>
+                  <div className="end-record-label">{t('end.newHighestForfeitedTurn', 'Biggest Turn Ever Thrown Away — ouch!')}</div>
                 </div>
               </div>
             )}

@@ -61,6 +61,8 @@
   "end.newFastestLoss": "New Fastest Loss (turns) — ouch!",
   "end.newHighestFeuerwerk": "New Personal Best Feuerwerk Turn!",
   "end.newHighestX2": "New Personal Best x2 Turn!",
+  "end.newMostCardsInTurn": "New Longest Chain (cards)!",
+  "end.newHighestForfeitedTurn": "Biggest Turn Ever Thrown Away — ouch!",
   "end.customGameNotice": "Custom game — counted under Custom in your statistics, not toward your normal record.",
   "end.gameStats": "Game Statistics",
   "end.stat": "Stat",
