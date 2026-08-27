@@ -275,6 +275,58 @@ describe('joinRoom refusals carry a machine code', () => {
 
     const badName = await joinAndWait(handlers, { roomId: 'BAD-ROOM', name: 'x'.repeat(31), deviceId: 'dev-bad' });
     expect(badName).toHaveBeenCalledWith(expect.objectContaining({ code: 'invalid_name' }));
+
+    // The upper caps, not just the empty case. Both ids are stored, echoed
+    // and (for roomId) used as a channel name, so an unbounded one is memory
+    // a single unauthenticated payload can claim.
+    const longRoom = await joinAndWait(handlers, { roomId: 'x'.repeat(101), name: 'Alice', deviceId: 'dev-bad' });
+    expect(longRoom).toHaveBeenCalledWith(expect.objectContaining({ code: 'invalid_room' }));
+
+    const longDevice = await joinAndWait(handlers, { roomId: 'BAD-ROOM', name: 'Alice', deviceId: 'x'.repeat(201) });
+    expect(longDevice).toHaveBeenCalledWith(expect.objectContaining({ code: 'invalid_device' }));
+
+    // The name is trimmed BEFORE it is measured, so whitespace is not a name
+    // -- without that, a seat could be taken by a blank label no one can
+    // read, refer to or kick.
+    const blankName = await joinAndWait(handlers, { roomId: 'BAD-ROOM', name: '   ', deviceId: 'dev-bad' });
+    expect(blankName).toHaveBeenCalledWith(expect.objectContaining({ code: 'invalid_name' }));
+  });
+
+  it('seats a padded name under its trimmed form', async () => {
+    // The other half of the same trim: it must not merely reject, it has to
+    // be what gets stored -- the name is the key every later lookup uses
+    // (name_taken, kickPlayer, the roster merge in applyPushedState).
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('padded-name-sock');
+    registerRoomHandlers({ io, socket, session: { roomId: null, username: null } });
+
+    await joinAndWait(handlers, { roomId: 'PADDED-NAME-ROOM', name: '  Alice  ', deviceId: 'dev-padded' });
+
+    expect(rooms['PADDED-NAME-ROOM'].state.players.map(p => p.name)).toEqual(['Alice']);
+    deleteRoom('PADDED-NAME-ROOM');
+  });
+
+  it('refuses a fresh seat once the game has started', async () => {
+    // A room in progress has a fixed roster: a new seat mid-game would take a
+    // turn out of an order every client has already computed, and arrive with
+    // no score in a race someone is trying to win. Reconnecting to an
+    // EXISTING seat is a different path and still allowed.
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('game-running-host');
+    registerRoomHandlers({ io, socket, session: { roomId: null, username: null } });
+
+    await joinAndWait(handlers, { roomId: 'GAME-RUNNING-ROOM', name: 'Alice', deviceId: 'dev-gr-a' });
+    rooms['GAME-RUNNING-ROOM'].state.status = 'playing';
+
+    const latecomer = makeFakeSocket('game-running-latecomer');
+    registerRoomHandlers({ io, socket: latecomer.socket, session: { roomId: null, username: null } });
+    const refused = await joinAndWait(latecomer.handlers, {
+      roomId: 'GAME-RUNNING-ROOM', name: 'Bob', deviceId: 'dev-gr-b',
+    });
+
+    expect(refused).toHaveBeenCalledWith(expect.objectContaining({ success: false, code: 'game_running' }));
+    expect(rooms['GAME-RUNNING-ROOM'].state.players).toHaveLength(1);
+    deleteRoom('GAME-RUNNING-ROOM');
   });
 
   it('names the reason a second seat in the same room was refused', async () => {

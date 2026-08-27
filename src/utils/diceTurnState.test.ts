@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parseSavedDiceState, buildDiceSnapshot, buildTurnKey, DICE_TURN_STATE_KEY, PHYSICAL_TURN_STATE_KEY } from './diceTurnState';
+import { MAX_CHAIN_CARDS } from '../types';
 
 describe('the cached-turn storage keys', () => {
   // Deliberately the raw strings and not the constants: this is the one place
@@ -221,6 +222,76 @@ describe('diceTurnState', () => {
       expect(rolling(['x'.repeat(65)])).toBeUndefined();
       expect(rolling(Array(7).fill('r1'))).toBeUndefined();
       expect(rolling(['r1', 'r2', 'r3', 'r4', 'r5', 'r6'])).toEqual(['r1', 'r2', 'r3', 'r4', 'r5', 'r6']);
+    });
+
+    describe('the classic-chain fields', () => {
+      // Absent for every modernized turn and for any cache written before
+      // chains existed, so "missing" has to stay a valid state -- but a
+      // present-but-corrupt value is restored straight into the engine, which
+      // reads cardsThisTurn as the turn's card list and chainTuttoCount as its
+      // tutto tally. All-or-nothing per field, matching the arrays above.
+      const chained = (overrides: Record<string, unknown>) =>
+        parseSavedDiceState(JSON.stringify({ turnScore: 0, ...overrides }));
+
+      it('keeps a valid chain', () => {
+        const snapshot = chained({
+          cardsThisTurn: ['200', 'x2', 'Feuerwerk'],
+          plusMinusScores: [500, 0, 1200],
+          chainTuttoCount: 2,
+        });
+        expect(snapshot?.cardsThisTurn).toEqual(['200', 'x2', 'Feuerwerk']);
+        expect(snapshot?.plusMinusScores).toEqual([500, 0, 1200]);
+        expect(snapshot?.chainTuttoCount).toBe(2);
+      });
+
+      it('leaves all three absent when the cache predates chains', () => {
+        const snapshot = chained({});
+        expect(snapshot).not.toBeNull();
+        expect(snapshot?.cardsThisTurn).toBeUndefined();
+        expect(snapshot?.plusMinusScores).toBeUndefined();
+        expect(snapshot?.chainTuttoCount).toBeUndefined();
+      });
+
+      it.each([
+        ['not an array', 'x2'],
+        ['an unknown card', ['200', 'Joker']],
+        ['a non-string entry', ['200', 7]],
+        ['longer than a chain can be', Array(MAX_CHAIN_CARDS + 1).fill('200')],
+      ])('drops cardsThisTurn when it is %s', (_label, cardsThisTurn) => {
+        expect(chained({ cardsThisTurn })?.cardsThisTurn).toBeUndefined();
+      });
+
+      it('accepts a chain exactly at the cap', () => {
+        // The bound itself, so the cap cannot quietly become off-by-one.
+        expect(chained({ cardsThisTurn: Array(MAX_CHAIN_CARDS).fill('200') })?.cardsThisTurn)
+          .toHaveLength(MAX_CHAIN_CARDS);
+      });
+
+      it.each([
+        ['not an array', 500],
+        ['negative', [500, -1]],
+        ['non-finite', [500, Infinity]],
+        ['not a number', [500, '600']],
+        ['longer than a chain can be', Array(MAX_CHAIN_CARDS + 1).fill(0)],
+      ])('drops plusMinusScores when it is %s', (_label, plusMinusScores) => {
+        expect(chained({ plusMinusScores })?.plusMinusScores).toBeUndefined();
+      });
+
+      it.each([
+        ['fractional', 1.5],
+        ['negative', -1],
+        ['above the chain cap', MAX_CHAIN_CARDS + 1],
+        ['a string', '2'],
+        ['a boolean', true],
+      ])('drops chainTuttoCount when it is %s', (_label, chainTuttoCount) => {
+        expect(chained({ chainTuttoCount })?.chainTuttoCount).toBeUndefined();
+      });
+
+      it('accepts a zero tutto count as a real value, not as missing', () => {
+        // A chain that never scored a tutto is the common case, and `0` is
+        // the falsy trap every one of these guards has to survive.
+        expect(chained({ chainTuttoCount: 0 })?.chainTuttoCount).toBe(0);
+      });
     });
   });
 

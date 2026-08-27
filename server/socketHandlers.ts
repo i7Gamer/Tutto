@@ -1,5 +1,6 @@
 import { Server, Socket } from 'socket.io';
 import { createKeyedEventLimiter } from './rateLimit';
+import { envLimitOr } from './envLimits';
 import { getClientAddress, type ConnectionSession, type SocketContext } from './socketContext';
 import { registerRoomHandlers } from './socketRoomHandlers';
 import { registerConfigHandlers } from './socketConfigHandlers';
@@ -36,10 +37,9 @@ const REGISTRARS = [
 ];
 
 export const registerSocketHandlers = (io: Server): void => {
-  const envConnLimitMax = Number(process.env.SOCKET_CONN_LIMIT_MAX);
   const connectionLimiter = createKeyedEventLimiter({
     windowMs: CONNECTION_LIMIT.windowMs,
-    max: Number.isFinite(envConnLimitMax) && envConnLimitMax > 0 ? envConnLimitMax : CONNECTION_LIMIT.max,
+    max: envLimitOr(process.env.SOCKET_CONN_LIMIT_MAX, CONNECTION_LIMIT.max),
   });
 
   io.use((socket, next) => {

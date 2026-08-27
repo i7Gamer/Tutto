@@ -6,6 +6,7 @@ import {
   DEFAULT_RULESET,
 } from '../src/utils/configValidation';
 import { MAX_ROUNDS } from './pushValidation';
+import { envLimitOr } from './envLimits';
 import type { Room, RoomState, ServerPlayer, TurnTimerState } from './roomTypes';
 
 // Null-prototype, not `{}`: every key here is a client-supplied roomId, and
@@ -76,10 +77,8 @@ export const MAX_ROOMS = 500;
 // from 127.0.0.1 (see vite.config.ts test.env and playwright.config.ts).
 export const MAX_ROOMS_PER_ADDRESS = 20;
 
-const envMaxRoomsPerAddress = (): number => {
-  const fromEnv = Number(process.env.MAX_ROOMS_PER_ADDRESS);
-  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : MAX_ROOMS_PER_ADDRESS;
-};
+const envMaxRoomsPerAddress = (): number =>
+  envLimitOr(process.env.MAX_ROOMS_PER_ADDRESS, MAX_ROOMS_PER_ADDRESS);
 
 /**
  * How many live rooms this address created.
