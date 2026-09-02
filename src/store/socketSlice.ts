@@ -6,6 +6,7 @@ import { areInitialCardsEqual } from '../utils/configValidation';
 import { validateOnlineConfig } from './persistence';
 import { getSocket, setSocket } from './socketRef';
 import { REACTION_DISPLAY_MS } from '../utils/reactions';
+import { roomPhase } from '../utils/roomPhase';
 import { SYNCED_GAME_STATE_KEYS } from '../types';
 import type { Reaction, DiceSnapshot, AssertNever, SyncedGameStateKey, PushStateAck } from '../types';
 import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from './storeTypes';
@@ -347,7 +348,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
           prev.toasts.push(makeToast(i18n.t('game.toastRuleset', { defaultValue: 'Rules: {{value}}', value })));
         }
       }
-      if (prev.mode === 'online' && prev.status === 'playing' && serverState.status === 'lobby' && !prev.finished && (serverState.players?.length ?? 0) >= 2) {
+      if (prev.mode === 'online' && roomPhase(prev) === 'playing' && serverState.status === 'lobby' && (serverState.players?.length ?? 0) >= 2) {
         prev.toasts.push(makeToast(i18n.t('game.toastHostEndedEarly', 'Host ended game early')));
       }
       for (const key of GAME_STATE_SYNC_KEYS) {

@@ -1,4 +1,5 @@
 import { getEffectiveTurnDuration } from '../utils/turnDuration';
+import { roomPhase } from '../utils/roomPhase';
 import type { GameStore, ImmerStateCreator } from './storeTypes';
 
 // Module-local until the shared constant lands elsewhere (per A3's brief) —
@@ -113,7 +114,7 @@ export const createTimerSlice: ImmerStateCreator<TimerSlice> = (set, get) => {
       if (gameTimerInterval) clearInterval(gameTimerInterval);
       gameTimerInterval = null;
 
-      if (state.mode === 'online' && !state.finished && state.status === 'playing' && state.currentPlayerIndex !== null) {
+      if (state.mode === 'online' && roomPhase(state) === 'playing' && state.currentPlayerIndex !== null) {
         if (state.gameTimeInSeconds !== null && state.gameTimeInSeconds >= 0) {
           const localElapsed = state.gameStartTime
             ? Math.floor((Date.now() - state.gameStartTime) / MS_PER_SECOND)

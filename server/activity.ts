@@ -5,6 +5,7 @@
 // can answer — which is why this is rendered into the server's own console
 // (statusLine.ts) rather than looked up at restart time, by which point the
 // games it describes are already gone.
+import { roomPhase } from '../src/utils/roomPhase';
 import type { Room, ServerPlayer } from './roomTypes';
 
 /** Every count the "may I restart?" decision rests on. Categories are disjoint. */
@@ -71,15 +72,16 @@ export const summarizeActivity = (rooms: Record<string, Room>): ActivitySnapshot
     snapshot.connectedPlayers += room.state.players.filter(p => !p.disconnected).length;
 
     // One category per room, so the counts never overlap and a leftover room
-    // can be derived by subtraction. A finished game keeps status 'playing'
-    // (see socketGameStateHandlers), so `finished` decides before the status
-    // does — and unsubmitted statistics outrank the lobby a room may be back
-    // in, because they are the thing a restart actually destroys.
-    if (room.state.status === 'playing' && !room.state.finished) {
+    // can be derived by subtraction. roomPhase already puts 'finished' ahead
+    // of 'lobby'/'playing' for exactly this reason — and unsubmitted
+    // statistics outrank the lobby a room may be back in, because they are
+    // the thing a restart actually destroys.
+    const phase = roomPhase(room.state);
+    if (phase === 'playing') {
       snapshot.activeGames += 1;
-    } else if (room.state.finished && !statsFullyRecorded(room)) {
+    } else if (phase === 'finished' && !statsFullyRecorded(room)) {
       snapshot.awaitingStats += 1;
-    } else if (room.state.status === 'lobby') {
+    } else if (phase === 'lobby') {
       snapshot.lobbies += 1;
     }
   }

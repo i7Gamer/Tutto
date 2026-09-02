@@ -3,6 +3,7 @@ import { MAX_HISTORY_LOG_SIZE, type CoreGameState, type TurnSummary } from '../s
 import { TOTAL_DICE } from '../src/utils/turnShapes';
 import { calculateNextTurn } from '../src/utils/coreGameEngine';
 import { hasScoreInput } from '../src/utils/diceTurnControls';
+import { roomPhase } from '../src/utils/roomPhase';
 import type { Room, ServerPlayer } from './roomTypes';
 import { rooms, calculateRemainingTurnTime, emitRoomState, idleTurnTimerState, rememberCurrentTurn, roomChannel } from './rooms';
 import { MAX_ROUNDS } from './pushValidation';
@@ -43,7 +44,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
   if (!room) return;
   room.turnExpireTimer = null;
 
-  if (room.state.finished || room.state.status !== 'playing' || room.state.currentPlayerIndex === null) {
+  if (roomPhase(room.state) !== 'playing' || room.state.currentPlayerIndex === null) {
     return;
   }
 
@@ -252,7 +253,7 @@ export const startServerTurnTimer = (io: Server, roomId: string): void => {
   clearServerTurnTimer(roomId);
   const room = rooms[roomId];
   if (!room) return;
-  if (room.state.status !== 'playing' || room.state.finished || room.state.currentPlayerIndex === null) return;
+  if (roomPhase(room.state) !== 'playing' || room.state.currentPlayerIndex === null) return;
   if (!room.state.turnDuration || !room.state.turnStartTime) return;
 
   const remainingSeconds = calculateRemainingTurnTime(room);
@@ -270,12 +271,12 @@ export const startServerTurnTimer = (io: Server, roomId: string): void => {
 };
 
 export const abortGameIfLowPlayers = (io: Server, room: Room, roomId: string): boolean => {
-  // A finished game stays status 'playing' (with finished=true) all the way
-  // through the end screen — see pushState's startingGame comment — so without
-  // the finished check, the last remaining player leaving/kicking a peer from
-  // there would silently wipe their end screen (finished reset to false) and
-  // show a misleading "game aborted" toast for a game that already ended normally.
-  if (room.state.status === 'playing' && !room.state.finished && room.state.players.length < 2) {
+  // roomPhase, not status alone — a finished game reads as status 'playing'
+  // all the way through the end screen (see roomPhase), so without excluding
+  // it here, the last remaining player leaving/kicking a peer from there
+  // would silently wipe their end screen (finished reset to false) and show a
+  // misleading "game aborted" toast for a game that already ended normally.
+  if (roomPhase(room.state) === 'playing' && room.state.players.length < 2) {
     clearServerTurnTimer(roomId);
     io.to(roomChannel(roomId)).emit('gameAborted');
     room.state.status = 'lobby';

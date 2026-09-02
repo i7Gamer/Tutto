@@ -7,6 +7,7 @@ import {
 import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS } from '../types';
 import { PLAYER_NUMERIC_FIELDS } from '../utils/playerStats';
 import { isChainCard, isChainCounter, isChainScoreList, isDeductedAmountList, isTurnCardList, isTurnEnd } from '../utils/turnShapes';
+import { roomPhase } from '../utils/roomPhase';
 import type { CardType, InitialCards, AssertNever, SyncedGameStateKey } from '../types';
 import type { GameStore, GameMode, GameStatus, ConfigKeys } from './storeTypes';
 
@@ -294,7 +295,7 @@ export const reanchorLocalClock = (state: {
   gameTimeInSeconds: number;
   gameStartTime: number | null;
 }): void => {
-  if (state.mode === 'local' && state.status === 'playing' && !state.finished && state.currentPlayerIndex !== null) {
+  if (state.mode === 'local' && roomPhase(state) === 'playing' && state.currentPlayerIndex !== null) {
     state.gameStartTime = Date.now() - (state.gameTimeInSeconds || 0) * 1000;
   }
 };

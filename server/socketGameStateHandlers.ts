@@ -1,6 +1,7 @@
 import { rooms, emitRoomState, emitRoomStateTo, idleTurnTimerState, rememberCurrentTurn, roomChannel } from './rooms';
 import { applyPushedState, isValidDiceSnapshot, sanitizeDiceSnapshot } from './pushValidation';
 import { isNormalizedConfig } from '../src/utils/configValidation';
+import { roomPhase } from '../src/utils/roomPhase';
 import { clearServerTurnTimer, startServerTurnTimer } from './turnTimers';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
@@ -72,10 +73,11 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     // the moment the game starts. Outside that transition the server keeps its own
     // authoritative order so a stray push can never scramble the roster mid-game.
     // A game starts either from the lobby, or from the end screen's "Play Again",
-    // which never passes through the lobby: the room is still status 'playing'
-    // with finished=true when the host pushes the next game's opening state.
+    // which never passes through the lobby — see roomPhase for why that leaves
+    // the room reading as 'finished' rather than 'lobby' right up to this push.
+    const currentPhase = roomPhase(room.state);
     const startingGame = isHost && newState.status === 'playing' &&
-      (room.state.status === 'lobby' || (room.state.finished && newState.finished === false));
+      (currentPhase === 'lobby' || (currentPhase === 'finished' && newState.finished === false));
 
     // Resolved from the socket rather than from currentPlayerIndex at merge
     // time: that index is itself a pushable field, so by the time the roster
@@ -134,17 +136,17 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
       room.normalizedGame &&= isNormalizedConfig(room.state);
     }
 
-    // `!finished` matters as much as the status: a finished game KEEPS status
-    // 'playing' all the way through the end screen, and its finishing push
-    // already nulled gameActualStartTime after banking the elapsed time. So
-    // without this, any later push against the finished room re-armed the
-    // clock to now — and the finished branch below then recomputed
-    // gameTimeInSeconds as now-minus-now = 0 and broadcast it, repainting
-    // every end screen to 00:00. It also happens for a push that was
-    // DISCARDED (a stale roster bails out of applyPushedState, but this
-    // bookkeeping runs regardless), and a player who rejoins after that
-    // broadcast then submits totalPlaytime: 0 to the stats.
-    if (room.state.status === 'playing' && !room.state.finished && !room.gameActualStartTime) {
+    // roomPhase, not the status field alone: a finished game's finishing push
+    // already nulled gameActualStartTime after banking the elapsed time, so
+    // without excluding 'finished' here, any later push against the finished
+    // room (still status 'playing' — see roomPhase) re-armed the clock to now
+    // — and the finished branch below then recomputed gameTimeInSeconds as
+    // now-minus-now = 0 and broadcast it, repainting every end screen to
+    // 00:00. It also happens for a push that was DISCARDED (a stale roster
+    // bails out of applyPushedState, but this bookkeeping runs regardless),
+    // and a player who rejoins after that broadcast then submits
+    // totalPlaytime: 0 to the stats.
+    if (roomPhase(room.state) === 'playing' && !room.gameActualStartTime) {
       room.gameActualStartTime = Date.now();
     }
 
@@ -173,7 +175,7 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
       startServerTurnTimer(io, roomId);
     }
 
-    if (room.state.finished || room.state.status === 'lobby') {
+    if (roomPhase(room.state) !== 'playing') {
       clearServerTurnTimer(roomId);
       room.state.turnStartTime = null;
       if (room.gameActualStartTime) {

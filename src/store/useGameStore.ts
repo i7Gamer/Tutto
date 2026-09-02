@@ -7,6 +7,7 @@ import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
   DEFAULT_DICE_MODE, DEFAULT_RULESET, isValidDiceMode,
 } from '../utils/configValidation';
+import { roomPhase } from '../utils/roomPhase';
 import type { CoreGameState, DiceSnapshot, DiceMode, Ruleset } from '../types';
 import type { GameStore, GameStatus, ReconnectSession, PreGameStats, FinishedGameSnapshot } from './storeTypes';
 import { validateOnlineConfig, reanchorLocalClock, attachPersistence, pickLocalGameState } from './persistence';
@@ -165,7 +166,7 @@ export const useGameStore = create<GameStore>()(
       // displayed clock stays frozen at the saved value, every save persists
       // that stale number, and the NEXT reload re-anchors gameStartTime from
       // it — silently discarding all playtime since this one.
-      if (get().mode === 'local' && get().status === 'playing' && !get().finished && get().currentPlayerIndex !== null) {
+      if (get().mode === 'local' && roomPhase(get()) === 'playing' && get().currentPlayerIndex !== null) {
         get().startLocalTimers();
       }
 

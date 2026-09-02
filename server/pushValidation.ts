@@ -12,6 +12,7 @@ import {
 } from '../src/utils/configValidation';
 import { PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
 import { getLeaders } from '../src/utils/coreGameEngine';
+import { roomPhase } from '../src/utils/roomPhase';
 import type { SyncedGameStateKey, AssertNever, ConfigKeys } from '../src/types';
 import type { RoomState, ServerPlayer } from './roomTypes';
 
@@ -834,8 +835,10 @@ export const applyPushedState = (
   // because the three fields it spans are applied at three different points
   // in it: 'status' is first, 'currentPlayerIndex' third, 'finished'
   // twentieth. No legitimate push produces this combination — a game ending
-  // sets `finished`, and one being torn down sets status 'lobby'.
-  if (state.status === 'playing' && !state.finished && state.currentPlayerIndex === null) {
+  // sets `finished`, and one being torn down sets status 'lobby'. (roomPhase
+  // reads status+finished together here; the repair below still WRITES both
+  // fields directly, same as ever.)
+  if (roomPhase(state) === 'playing' && state.currentPlayerIndex === null) {
     state.currentPlayerIndex = playerIndexBeforePush;
     if (state.currentPlayerIndex === null) state.status = statusBeforePush;
   }
