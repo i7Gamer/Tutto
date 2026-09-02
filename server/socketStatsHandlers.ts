@@ -8,6 +8,9 @@ import { safeOn, type SocketContext } from './socketContext';
 const SUBMIT_GLOBAL_STATS_LIMIT = { windowMs: 10_000, max: 5 };
 const END_GAME_STATS_LIMIT = { windowMs: 10_000, max: 5 };
 
+// One finish, one game — see the `gamesPlayed` override in endGameStats.
+const GAMES_PER_FINISH = 1;
+
 // Spelled out: what a merge adds to a running sum the server's verdict-only
 // row has already counted.
 const ALREADY_COUNTED_BY_VERDICT_ROW = 0;
@@ -153,6 +156,14 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
       const won = finishedGame.winners.includes(player.name);
       const turns = typeof clean.totalTurns === 'number' ? clean.totalTurns : 0;
       clean.wins = won ? 1 : 0;
+      // How many games this row records is the server's call for the same
+      // reason `wins` is, and it must be decided in the same place: an empty
+      // or wholly invalid payload sanitizes to {}, so the override above used
+      // to write a win — and a win streak — for a game whose gamesPlayed
+      // stayed 0. A finish is exactly one game, whatever the payload claims,
+      // which is also the honest minimum the server's own departed-seat row
+      // records (gamesPlayed 1 + the verdict's wins).
+      clean.gamesPlayed = GAMES_PER_FINISH;
       // null, not 0, when there is no record to set: sanitize floors these two
       // at 1 and the columns are MIN-merged, so a 0 would pin them at 1
       // forever. A game can end before a seat's turn came round, hence the

@@ -692,3 +692,90 @@ describe("a returning client merges into the server's verdict-only row", () => {
     errorSpy.mockRestore();
   });
 });
+
+describe('a submission carrying no usable game data still records the verdict', () => {
+  // Item W7-2: an empty (or entirely invalid) payload sanitizes to {}, and the
+  // server's verdict override then filled it with `wins` and the record
+  // fields — but nothing ever put a `gamesPlayed` in it. The row that landed
+  // said the device had WON a game it had never played: wins 1 against
+  // gamesPlayed 0, plus a win streak. The honest minimum for a finished game
+  // the server holds a verdict for is the same row it writes for a departed
+  // seat — the game, and its outcome.
+  const roomId = 'EMPTY-PAYLOAD-ROOM';
+  const ALICE_WON = 10000;
+  const BOB_LOST = 4000;
+  const WINNING_SCORE = 6000;
+
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.mocked(getDeviceStats).mockReset().mockResolvedValue(null);
+    vi.mocked(updateDeviceStats).mockReset().mockResolvedValue(true);
+  });
+
+  afterEach(() => { for (const id of Object.keys(rooms)) deleteRoom(id); });
+
+  /** Alice won, Bob lost, both still seated — so neither has a server row yet. */
+  const stageFinishedGame = () => {
+    rooms[roomId] = createRoom('alice-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null, winningScore: WINNING_SCORE,
+      players: [
+        { ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: ALICE_WON },
+        { ...makePlayer('Bob', 'bob-sock', 'dev-bob'), score: BOB_LOST },
+      ],
+    });
+    emitRoomState(makeFakeIo().io, roomId);
+  };
+
+  const submit = async (name: string, socketId: string, deviceId: string, stats: unknown) => {
+    const fake = makeFakeSocket(socketId);
+    registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: name } });
+    await fake.handlers['endGameStats']({ deviceId, stats });
+    return vi.mocked(updateDeviceStats).mock.calls[0][1];
+  };
+
+  it('counts the game an empty payload came with, rather than a win without one', async () => {
+    stageFinishedGame();
+
+    const written = await submit('Alice', 'alice-sock', 'dev-alice', {});
+
+    expect(written.gamesPlayed, 'the game was played').toBe(1);
+    expect(written.wins, 'and the frozen verdict says she won it').toBe(1);
+    expect(Number(written.wins), 'a win is never recorded without the game')
+      .toBeLessThanOrEqual(Number(written.gamesPlayed));
+  });
+
+  it('treats a payload of nothing but garbage keys the same way', async () => {
+    stageFinishedGame();
+
+    const written = await submit('Alice', 'alice-sock', 'dev-alice',
+      { nonsense: 'x', junk: {}, worse: [1], gamesPlayed: 'not a number' });
+
+    expect(written.gamesPlayed).toBe(1);
+    expect(written.wins).toBe(1);
+  });
+
+  it('records a played, lost game for a loser who submits nothing', async () => {
+    stageFinishedGame();
+
+    const written = await submit('Bob', 'bob-sock', 'dev-bob', {});
+
+    expect(written.gamesPlayed).toBe(1);
+    expect(written.wins, 'Bob lost').toBe(0);
+  });
+
+  it('leaves a room that froze no verdict with nothing to write', async () => {
+    // No broadcast, so no finishedGame — there is no outcome to record and an
+    // empty payload adds nothing. updateDeviceStats no-ops on {} anyway; what
+    // matters is that no gamesPlayed is invented out of a bare `finished`.
+    rooms[roomId] = createRoom('alice-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null,
+      players: [makePlayer('Alice', 'alice-sock', 'dev-alice')],
+    });
+
+    const written = await submit('Alice', 'alice-sock', 'dev-alice', {});
+
+    expect(written).toEqual({});
+  });
+});
