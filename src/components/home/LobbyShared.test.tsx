@@ -315,6 +315,25 @@ describe('AdvancedOptionsPanel', () => {
     expect(chips).toContain('Stop: 10');
   });
 
+  it('shows the turn/kick timer chip value with the unit stated once, not doubled with the "(s)" label', () => {
+    // The translation key behind the label already reads "Turn Timer (s)" /
+    // "Kick Timer (s)" — the unit-suffixed test mock hides that here, but the
+    // chip used to ALSO append a literal "s" to the value in JS
+    // (`${turnDuration}s`), which is visible regardless of the mock and is
+    // exactly the doubling this guards against.
+    stageStore({ turnDuration: 120, reconnectTimeout: 60, initialCards: {} });
+
+    const { container } = render(
+      <AdvancedOptionsPanel showAdvanced={true} isOnline={true} readOnly={true} />
+    );
+
+    const chips = Array.from(container.querySelectorAll('span')).map(s => s.textContent);
+    expect(chips.some(c => c?.includes('120s'))).toBe(false);
+    expect(chips.some(c => c?.includes(': 120'))).toBe(true);
+    expect(chips.some(c => c?.includes('60s'))).toBe(false);
+    expect(chips.some(c => c?.includes(': 60'))).toBe(true);
+  });
+
   it('reverts the displayed count when the store refuses the edit', () => {
     // Zeroing the LAST non-zero card type makes the deck unplayable, so
     // validateOnlineConfig drops initialCards entirely and the store keeps its

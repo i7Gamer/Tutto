@@ -547,11 +547,15 @@ export function AdvancedOptionsPanel({
                 </span>
                 {isOnline && (
                   <>
+                    {/* The label itself already reads "Turn Timer (s)" / "Kick
+                        Timer (s)" (same key the editable input uses below) —
+                        the value must not also append a literal "s", or the
+                        unit is stated twice ("Turn Timer (s): 120s"). */}
                     <span className="lobby-chip">
-                      {t('lobby.turnTimer', 'Turn Timer')}: <strong>{turnDuration > 0 ? `${turnDuration}s` : t('common.disabled', 'Disabled')}</strong>
+                      {t('lobby.turnTimer', 'Turn Timer (s)')}: <strong>{turnDuration > 0 ? turnDuration : t('common.disabled', 'Disabled')}</strong>
                     </span>
                     <span className="lobby-chip">
-                      {t('lobby.kickTimer', 'Kick Timer')}: <strong>{reconnectTimeout > 0 ? `${reconnectTimeout}s` : t('common.disabled', 'Disabled')}</strong>
+                      {t('lobby.kickTimer', 'Kick Timer (s)')}: <strong>{reconnectTimeout > 0 ? reconnectTimeout : t('common.disabled', 'Disabled')}</strong>
                     </span>
                   </>
                 )}
