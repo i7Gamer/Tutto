@@ -356,6 +356,67 @@ describe('joinRoom refusals carry a machine code', () => {
   });
 });
 
+// A10: a reconnect must never CREATE the room it is trying to rejoin. Rooms
+// live only in memory, so a server restart empties `rooms` while clients
+// still hold a stale roomId — before this, their automatic rejoin (isReconnect)
+// silently created a brand-new, empty lobby under that old code and seated the
+// rejoiner as its host, and the next arriving player joined this fresh lobby
+// as a normal (non-reconnect) join, which then broadcast a lobby-status
+// gameState over their still-"playing" client and fired a false "Host ended
+// game early" toast (src/store/socketSlice.ts). Refusing the reconnect
+// outright — rather than creating anything — is what starves that false
+// toast of the broadcast it needs.
+describe('joinRoom: a reconnect must not create the room it targets', () => {
+  beforeEach(resetRooms);
+
+  it('refuses a reconnect into a room that no longer exists, and creates nothing', async () => {
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('reconnect-sock');
+    registerRoomHandlers({ io, socket, session: { roomId: null, username: null } });
+
+    const ack = await joinAndWait(handlers, {
+      roomId: 'RESTARTED-ROOM', name: 'Alice', deviceId: 'dev-reconnect', isReconnect: true,
+    });
+
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: false, code: 'room-gone' }));
+    expect(rooms['RESTARTED-ROOM']).toBeUndefined();
+  });
+
+  it('still creates the room for a normal (non-reconnect) join into a missing room', async () => {
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('fresh-sock');
+    registerRoomHandlers({ io, socket, session: { roomId: null, username: null } });
+
+    const ack = await joinAndWait(handlers, {
+      roomId: 'FRESH-ROOM', name: 'Alice', deviceId: 'dev-fresh',
+    });
+
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+    expect(rooms['FRESH-ROOM']).toBeDefined();
+    expect(rooms['FRESH-ROOM'].state.players).toHaveLength(1);
+  });
+
+  it('leaves a reconnect into an EXISTING room unaffected', async () => {
+    const { io } = makeFakeIo();
+    const host = makeFakeSocket('existing-room-host');
+    registerRoomHandlers({ io, socket: host.socket, session: { roomId: null, username: null } });
+    await joinAndWait(host.handlers, { roomId: 'STILL-HERE-ROOM', name: 'Alice', deviceId: 'dev-existing' });
+
+    // A new socket standing in for the same device reconnecting (e.g. after a
+    // page reload) — the rejoin-by-deviceId path, unaffected by the new guard
+    // since the room is still there.
+    const rejoin = makeFakeSocket('existing-room-rejoin');
+    registerRoomHandlers({ io, socket: rejoin.socket, session: { roomId: null, username: null } });
+    const ack = await joinAndWait(rejoin.handlers, {
+      roomId: 'STILL-HERE-ROOM', name: 'Alice', deviceId: 'dev-existing', isReconnect: true,
+    });
+
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+    expect(rooms['STILL-HERE-ROOM'].state.players).toHaveLength(1);
+    expect(rooms['STILL-HERE-ROOM'].state.players[0].socketId).toBe('existing-room-rejoin');
+  });
+});
+
 describe('joinRoom with ids that name Object.prototype members', () => {
   beforeEach(resetRooms);
 

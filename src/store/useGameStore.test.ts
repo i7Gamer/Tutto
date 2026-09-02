@@ -1448,6 +1448,65 @@ describe('useGameStore', () => {
         .toContain('Refused for a reason this client predates');
     });
 
+    it('marks the automatic rejoin as a reconnect on the wire', () => {
+      // The server (server/socketRoomHandlers.ts, item A10) only refuses to
+      // CREATE a missing room for a join carrying isReconnect — an automatic
+      // rejoin that omitted it would silently fall back to being treated as a
+      // fresh join and recreate the room the client is trying to get back into.
+      useGameStore.setState({ roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice' });
+      mockEmit.mockClear();
+
+      mockOnHandlers['connect']();
+
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(joinRoomCall).toBeTruthy();
+      expect(joinRoomCall[1]).toMatchObject({ isReconnect: true });
+    });
+
+    it('a room-gone auto-rejoin refusal lands back on local Home, not the online join form', () => {
+      // Item A10: before the server refused to recreate a missing room, this
+      // exact shape (mode 'online', status still 'playing' from before the
+      // drop, an existing roster) is what let a rejoin silently succeed into
+      // a brand-new empty lobby and made the FOLLOWING gameState broadcast
+      // (status 'playing' -> 'lobby' with >=2 players still seated) read as
+      // the host ending the game early (see the gameState handler above).
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.setState({
+        mode: 'online', isOnline: true,
+        roomId: 'RESTARTED_ROOM', myName: 'Alice', deviceId: 'dev-alice',
+        isHost: true, hostId: 'socket-123',
+        status: 'playing', currentPlayerIndex: 0,
+        players: namedPlayers('Alice', 'Bob'),
+        showReconnectPopup: true,
+        pendingReconnectSession: { roomId: 'RESTARTED_ROOM', myName: 'Alice' },
+      });
+      sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'RESTARTED_ROOM', myName: 'Alice' }));
+      mockEmit.mockClear();
+
+      mockOnHandlers['connect']();
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(joinRoomCall).toBeTruthy();
+      joinRoomCall[2]({ success: false, code: 'room-gone', error: 'This game no longer exists on the server.' });
+
+      const s = useGameStore.getState();
+      expect(s.mode).toBe('local');
+      expect(s.roomId).toBeNull();
+      expect(s.pendingReconnectSession).toBeNull();
+      expect(s.showReconnectPopup).toBe(false);
+      expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+      expect(s.toasts.map(t => t.message)).toContain('That game is no longer on the server.');
+
+      // Even a late, racing gameState broadcast for the old room (a lobby
+      // status with the roster that used to trip the false toast) is now
+      // discarded outright — mode/roomId no longer describe an online seat.
+      mockOnHandlers['gameState']({
+        status: 'lobby',
+        players: namedPlayers('Alice', 'Bob'),
+      });
+      const messages = useGameStore.getState().toasts.map(t => t.message);
+      expect(messages.some(m => m.includes('Host ended game early'))).toBe(false);
+    });
+
     it('a successful auto-rejoin keeps the room state and only refreshes isHost', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.setState({

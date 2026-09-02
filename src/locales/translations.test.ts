@@ -90,7 +90,7 @@ describe('Join refusal translation keys', () => {
   });
 
   // The test above only guarantees that what the map DOES list is translated.
-  // A thirteenth refusal added server-side would still ship untranslated (the
+  // A fifteenth refusal added server-side would still ship untranslated (the
   // lobby falls back to the server's English sentence for a code it does not
   // know), and nothing would say so — hence the equality against the server's
   // own list rather than a subset check in either direction. Sorted copies: the

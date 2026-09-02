@@ -382,7 +382,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
       set({ showReconnectPopup: false });
     }, JOIN_TIMEOUT_MS);
 
-    sock.emit('joinRoom', { roomId, name: myName, deviceId, color: savedColor }, (res: JoinRoomResponse) => {
+    sock.emit('joinRoom', { roomId, name: myName, deviceId, color: savedColor, isReconnect: true }, (res: JoinRoomResponse) => {
       clearTimeout(watchdog);
       if (res.success) {
         set({ isHost: res.isHost ?? false, myName: res.name ?? myName });
@@ -398,6 +398,15 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
       );
       get().leaveRoom();
       set({ showReconnectPopup: false, hostId: null });
+      // room-gone specifically (see server/socketRoomHandlers.ts, item A10):
+      // the room itself is gone, not just this seat, so there is nothing left
+      // to show an "online join form" for — land back on local Home instead
+      // (leaveRoom above already dropped tutto_online_session), and drop any
+      // stale restore prompt this device might also be holding.
+      if (res.code === 'room-gone') {
+        set({ pendingReconnectSession: null });
+        get().setMode('local');
+      }
     });
   });
 };
@@ -491,7 +500,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         resolve({ success: false, error: 'Socket not connected' });
         return;
       }
-      socket.emit('joinRoom', { roomId: room, name, deviceId: get().deviceId, color: savedColor, initialConfig }, (res: JoinRoomResponse) => {
+      socket.emit('joinRoom', { roomId: room, name, deviceId: get().deviceId, color: savedColor, initialConfig, isReconnect }, (res: JoinRoomResponse) => {
         if (res.success) {
           // Adopt the name the server seated us under — a mid-game rejoin with
           // a different name keeps the seat's original name (see JoinRoomResponse).

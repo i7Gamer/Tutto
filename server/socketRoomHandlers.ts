@@ -31,7 +31,7 @@ const JOIN_ROOM_LIMIT = { windowMs: 10_000, max: 10 };
  *
  * A runtime array with the union derived from it, rather than a bare type: a
  * type alone is erased at build time, so nothing could check that the client's
- * key table still covers every code — a thirteenth refusal added here
+ * key table still covers every code — a fifteenth refusal added here
  * would ship untranslated in silence. `as const` keeps the union exactly as
  * narrow as the hand-written one was; the equality is asserted in
  * src/locales/translations.test.ts.
@@ -50,6 +50,7 @@ export const JOIN_REFUSAL_CODES = [
   'game_running',
   'room_full',
   'too_many_rooms',
+  'room-gone',
 ] as const;
 
 type JoinRefusal = typeof JOIN_REFUSAL_CODES[number];
@@ -192,7 +193,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
   };
 
   safeOn(socket, 'joinRoom', async (
-    payload: { roomId?: string; name?: string; deviceId?: string; color?: string; initialConfig?: Record<string, unknown> } | null | undefined,
+    payload: { roomId?: string; name?: string; deviceId?: string; color?: string; initialConfig?: Record<string, unknown>; isReconnect?: boolean } | null | undefined,
     callback: (result: { success: boolean; isHost?: boolean; socketId?: string; error?: string; code?: JoinRefusal; name?: string }) => void
   ) => {
     // Reject malformed payloads before any field is used. Without these guards a
@@ -203,7 +204,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
     if (!payload || typeof payload !== 'object') {
       return refuse(callback, 'invalid_payload', 'Invalid payload');
     }
-    const { roomId, name: rawName, deviceId, color, initialConfig } = payload;
+    const { roomId, name: rawName, deviceId, color, initialConfig, isReconnect } = payload;
     if (typeof roomId !== 'string' || roomId.length === 0 || roomId.length > 100) {
       return refuse(callback, 'invalid_room', 'Invalid room');
     }
@@ -281,6 +282,20 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
     );
     if (otherRoomId) {
       return refuse(callback, 'device_in_other_room', 'This device is already in another room. Leave it before joining a new one.');
+    }
+
+    if (!rooms[roomId] && isReconnect === true) {
+      // Rooms live only in memory (rooms.ts) — a server restart empties the
+      // registry while clients still hold a stale roomId from before it. A
+      // RECONNECT into that gone room must never create a fresh one in its
+      // place: doing so used to seat the rejoiner as host of a brand-new,
+      // empty lobby under the old code, and the next client to auto-rejoin
+      // that same code then joined it as an ordinary (non-reconnect) join —
+      // whose gameState broadcast landed on a client still showing
+      // status 'playing', firing a false "Host ended game early" toast
+      // (src/store/socketSlice.ts). A normal, non-reconnect join into a
+      // missing room is unaffected and still creates it below.
+      return refuse(callback, 'room-gone', 'This game no longer exists on the server.');
     }
 
     if (!rooms[roomId]) {

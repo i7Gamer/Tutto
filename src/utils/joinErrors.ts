@@ -6,7 +6,7 @@
 // handler — plus the drift test in src/locales/translations.test.ts.
 //
 // Keys mirror the server's JOIN_REFUSAL_CODES (server/socketRoomHandlers.ts),
-// which that test pins: a thirteenth refusal added there without an entry here
+// which that test pins: a fifteenth refusal added there without an entry here
 // falls back to the server's English prose instead of failing quietly.
 export const JOIN_ERROR_KEYS = new Map<string, string>([
   ['rate_limited', 'lobby.online.joinError.rateLimited'],
@@ -22,6 +22,7 @@ export const JOIN_ERROR_KEYS = new Map<string, string>([
   ['game_running', 'lobby.online.joinError.gameRunning'],
   ['room_full', 'lobby.online.joinError.roomFull'],
   ['too_many_rooms', 'lobby.online.joinError.tooManyRooms'],
+  ['room-gone', 'lobby.online.joinError.roomGone'],
 ]);
 
 /** The parts of a refused joinRoom ack this module needs. */
