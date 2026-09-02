@@ -5,7 +5,7 @@ import { parseJsonObject } from '../utils/parseJson';
 import { CARD_EMOJIS } from '../utils/cardVisuals';
 import { STAT_TONES, DEFAULT_STAT_TONE, type StatTone } from '../utils/statTones';
 import { percentageOf } from '../utils/percentage';
-import { deviceStatsRequest } from '../utils/statsApi';
+import { useDeviceStats, type DeviceStatsStatus } from '../hooks/useDeviceStats';
 import {
   DEFAULT_GAME_MODE, type CardType, type GameMode, type Ruleset,
   type DeviceStatsRow, type GlobalStatsRow,
@@ -298,59 +298,64 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   // Which ruleset's buckets are on screen — classic games play by different
   // rules (card chains), so their numbers and records live apart.
   const [statsRuleset, setStatsRuleset] = useState<Ruleset>('modernized');
-  const [personalStats, setPersonalStats] = useState<PersonalStats | null>(null);
+  // The personal bucket: deviceId + the selected ruleset/mode pair, via the
+  // shared device-stats hook (Game.tsx's pre-game snapshot and EndScreen's
+  // lifetime stats fetch the same shape the same way).
+  const { stats: personalStats, status: personalStatus } = useDeviceStats<PersonalStats>(
+    deviceId, bucketMode(statsRuleset, mode),
+  );
+
+  // The matching global row — not a device-stats fetch (no deviceId, a
+  // different endpoint and shape entirely), so it keeps its own small
+  // fetch/parse/cancel effect rather than going through the hook above.
   const [globalStats, setGlobalStats] = useState<GlobalStats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [globalStatus, setGlobalStatus] = useState<DeviceStatsStatus>('idle');
+
+  useEffect(() => {
+    let cancelled = false;
+    // Announces the fetch about to be kicked off below, same as
+    // useDeviceStats's own idle/loading transitions — there is no
+    // render-time expression of "a request just started".
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setGlobalStatus('loading');
+
+    void (async () => {
+      try {
+        const res = await fetch(`/api/stats/global?ruleset=${statsRuleset}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await parseJsonObject<GlobalStats>(res);
+        if (cancelled) return;
+        setGlobalStats(data);
+        setGlobalStatus('ready');
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Failed to load statistics:', err);
+        setGlobalStats(null);
+        setGlobalStatus('error');
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [statsRuleset]);
+
+  const isSettled = (status: DeviceStatsStatus) => status === 'ready' || status === 'error';
   // A failed re-fetch (tab switch during a server hiccup) must not leave the
   // PREVIOUS bucket's numbers on screen under the new tab's label — that
   // reads as data. The failed view shows an error instead.
-  const [fetchFailed, setFetchFailed] = useState(false);
+  const fetchFailed = personalStatus === 'error' || globalStatus === 'error';
 
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
-    let isMounted = true;
-
-    const fetchStats = async () => {
-      try {
-        // Deliberately no setLoading(true) here. The first render already
-        // starts in the loading state, and re-entering it when the mode
-        // switches would replace the whole page — the tabs that were just
-        // clicked included — with the spinner. The previous bucket's numbers
-        // stay put for the moment the new ones take to arrive.
-        const [personalRes, globalRes] = await Promise.all([
-          fetch(...deviceStatsRequest(deviceId, bucketMode(statsRuleset, mode))),
-          fetch(`/api/stats/global?ruleset=${statsRuleset}`),
-        ]);
-        // Parsed into locals FIRST, then one guard before any setter. Reading
-        // the guard before an `await` that sits inside the setter's own
-        // argument checked staleness at the wrong moment: a superseded fetch
-        // still ran setPersonalStats, and the next guard then aborted before
-        // setGlobalStats — pairing one bucket's personal numbers with another
-        // bucket's global ones (which also skews holdsRecord between them).
-        // EndScreen.tsx and Game.tsx re-check after their parse for the same
-        // reason.
-        const personal = personalRes.ok ? await parseJsonObject<PersonalStats>(personalRes) : null;
-        const community = globalRes.ok ? await parseJsonObject<GlobalStats>(globalRes) : null;
-        if (!isMounted) return;
-        setPersonalStats(personal);
-        setGlobalStats(community);
-        setFetchFailed(!personalRes.ok || !globalRes.ok);
-      } catch (err) {
-        console.error('Failed to load statistics:', err);
-        if (isMounted) {
-          setPersonalStats(null);
-          setGlobalStats(null);
-          setFetchFailed(true);
-        }
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
-    void fetchStats();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [deviceId, mode, statsRuleset]);
+    // Deliberately not reset to true on a later mode/ruleset switch — the
+    // first render already starts in the loading state, and re-entering it
+    // would replace the whole page — the tabs that were just clicked included
+    // — with the spinner. The previous bucket's numbers stay put for the
+    // moment the new ones take to arrive (or the error panel, if they don't).
+    if (isSettled(personalStatus) && isSettled(globalStatus)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- see above
+      setLoading(false);
+    }
+  }, [personalStatus, globalStatus]);
 
   const p = personalStats;
   const g = globalStats;

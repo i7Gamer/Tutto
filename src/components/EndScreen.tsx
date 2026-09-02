@@ -15,8 +15,7 @@ import {
 } from 'chart.js';
 import { Trophy, RotateCcw, Settings, Award, Zap, TrendingDown, Layers, Skull } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
-import { parseJsonObject } from '../utils/parseJson';
-import { deviceStatsRequest, gameModeOf, isCustomGameMode } from '../utils/statsApi';
+import { gameModeOf, isCustomGameMode } from '../utils/statsApi';
 import { MIN_ONLINE_PLAYERS } from '../utils/configValidation';
 import { computeRankedPlayers, getLeaders } from '../utils/coreGameEngine';
 import { motion } from 'framer-motion';
@@ -24,6 +23,11 @@ import { useGameStore } from '../store/useGameStore';
 import type { Player, DeviceStatsRow } from '../types';
 import './EndScreen.css';
 import { readableNameVars } from '../utils/contrastColor';
+import {
+  useDeviceStats,
+  STATS_FETCH_MAX_RETRIES, STATS_FETCH_RETRY_DELAY_MS, STATS_FETCH_INITIAL_DELAY_MS,
+  type DeviceStatsRetryOptions,
+} from '../hooks/useDeviceStats';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
@@ -32,17 +36,26 @@ const colors = [
   '#FFD700', '#FF33A1', '#8D33FF', '#33FF8D', '#FF8D33',
 ];
 
-// The lifetime-stats fetch races the server-side stats write triggered by the
-// same game finish, so it retries until gamesPlayed shows up (or gives up).
-// Exported for the retry-lifecycle tests.
-export const STATS_FETCH_MAX_RETRIES = 5;
-export const STATS_FETCH_RETRY_DELAY_MS = 1000;
-export const STATS_FETCH_INITIAL_DELAY_MS = 500;
+// Re-exported so this screen's existing retry-lifecycle tests keep importing
+// them from here — the constants themselves now live next to the hook.
+export { STATS_FETCH_MAX_RETRIES, STATS_FETCH_RETRY_DELAY_MS, STATS_FETCH_INITIAL_DELAY_MS };
 
 // The subset of this device's DeviceStatsRow the end screen reads.
 type DeviceStats =
   & Pick<DeviceStatsRow, 'gamesPlayed' | 'wins' | 'pointsDeducted' | 'kniffelCompleted'>
   & Partial<Pick<DeviceStatsRow, 'busts' | 'currentWinStreak' | 'bestWinStreak'>>;
+
+// The lifetime-stats fetch races the server-side stats write triggered by the
+// same game finish, so it retries until gamesPlayed shows up (or gives up).
+// A module-level constant, not built inline in the component: it sits in
+// useDeviceStats's effect dependency array, so a fresh object every render
+// would restart the fetch every render.
+const LIFETIME_STATS_RETRY: DeviceStatsRetryOptions<DeviceStats> = {
+  maxRetries: STATS_FETCH_MAX_RETRIES,
+  retryDelayMs: STATS_FETCH_RETRY_DELAY_MS,
+  initialDelayMs: STATS_FETCH_INITIAL_DELAY_MS,
+  shouldRetry: (data) => !data?.gamesPlayed,
+};
 
 interface EndScreenProps {
   theme: string;
@@ -148,51 +161,13 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   const tooFewForRematch = game.isOnline && players.length < MIN_ONLINE_PLAYERS;
   const playAgainBlocked = waitingForReconnect || tooFewForRematch;
 
-  const [deviceStats, setDeviceStats] = useState<DeviceStats | null>(null);
-
-  useEffect(() => {
-    // Local games never submit stats (by design — see useGameStore.nextTurn),
-    // so the retry loop below would always exhaust its 5 attempts waiting for
-    // gamesPlayed > 0, wasting 5 requests and 5 seconds for nothing.
-    if (!game.isOnline) return;
-
-    let isMounted = true;
-    let timerId: ReturnType<typeof setTimeout> | undefined;
-    // isMounted alone only stopped this effect ACTING on a late response. The
-    // request itself ran to completion on a screen nobody is looking at, and
-    // its resolution then armed another retry timer whose callback did nothing
-    // — a request and a wakeup, on a phone, for a result that is discarded.
-    const inFlight = new AbortController();
-
-    const fetchStats = async (retries = 0) => {
-      if (!isMounted) return;
-      const [url, init] = deviceStatsRequest(deviceId, gameMode);
-      try {
-        const res = await fetch(url, { ...init, signal: inFlight.signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await parseJsonObject<DeviceStats>(res);
-
-        if ((!data || !data.gamesPlayed) && retries < STATS_FETCH_MAX_RETRIES) {
-          if (isMounted) timerId = setTimeout(() => void fetchStats(retries + 1), STATS_FETCH_RETRY_DELAY_MS);
-          return;
-        }
-        if (isMounted) setDeviceStats(data);
-      } catch (err) {
-        // An abort is this effect's own cleanup, not a failure worth logging.
-        if (!isMounted || (err instanceof DOMException && err.name === 'AbortError')) return;
-        console.error('Could not fetch device stats', err);
-        if (retries < STATS_FETCH_MAX_RETRIES) timerId = setTimeout(() => void fetchStats(retries + 1), STATS_FETCH_RETRY_DELAY_MS);
-      }
-    };
-
-    if (deviceId) timerId = setTimeout(() => void fetchStats(0), STATS_FETCH_INITIAL_DELAY_MS);
-
-    return () => {
-      isMounted = false;
-      inFlight.abort();
-      if (timerId) clearTimeout(timerId);
-    };
-  }, [deviceId, game.isOnline, gameMode]);
+  // Local games never submit stats (by design — see useGameStore.nextTurn),
+  // so the retry loop would always exhaust its attempts waiting for
+  // gamesPlayed > 0, wasting requests and time for nothing.
+  const { stats: deviceStats } = useDeviceStats<DeviceStats>(
+    deviceId, gameMode,
+    { enabled: game.isOnline, retry: LIFETIME_STATS_RETRY },
+  );
 
   // Fires once per mount (EndScreen only mounts when a game just finished —
   // see App.tsx's finished/status-gated rendering), so this can't double-fire
