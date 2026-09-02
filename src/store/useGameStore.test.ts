@@ -1594,6 +1594,24 @@ describe('useGameStore', () => {
         expect(useGameStore.getState().round).toBe(1);
       });
 
+      it('drops the floor on an explicit joinRoom too, not only on the automatic rejoin', async () => {
+        // Defence in depth, and the same reason: the room behind this id may
+        // have been recreated since this store last applied a broadcast, and
+        // a fresh room's versions start at 1 — under a carried-over floor of
+        // 50 every one of them is dropped as stale and the client renders a
+        // room it never syncs.
+        stageSeatedGame();
+        mockOnHandlers['gameState']({ round: 10, stateVersion: 50 });
+        expect(useGameStore.getState().lastAppliedStateVersion).toBe(50);
+
+        const joining = useGameStore.getState().joinRoom('ROOM1', 'Alice', false);
+        const join = nonNull(mockEmit.mock.calls.find(([event]) => event === 'joinRoom'));
+        join[2]({ success: true, isHost: true, name: 'Alice' });
+        await joining;
+
+        expect(useGameStore.getState().lastAppliedStateVersion).toBeNull();
+      });
+
       it('leaveRoom clears both the floor and the parked push', () => {
         stageSeatedGame();
         mockOnHandlers['gameState']({ round: 10, stateVersion: 50 });

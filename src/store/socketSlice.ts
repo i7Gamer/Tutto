@@ -667,7 +667,15 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           // Adopt the name the server seated us under — a mid-game rejoin with
           // a different name keeps the seat's original name (see JoinRoomResponse).
           const seatedName = res.name ?? name;
-          set({ roomId: room, isHost: res.isHost ?? false, myName: seatedName, mode: 'online', isOnline: true });
+          // The floor goes with the join, exactly as it does on the automatic
+          // rejoin above: the room behind this id may have been recreated
+          // since this store last applied a broadcast, and a fresh room's
+          // versions start at 1 — every one of them below a carried-over
+          // floor, and so dropped as stale.
+          set({
+            roomId: room, isHost: res.isHost ?? false, myName: seatedName,
+            mode: 'online', isOnline: true, lastAppliedStateVersion: null,
+          });
           sessionStore.write('tutto_online_session', JSON.stringify({ roomId: room, myName: seatedName }));
 
           if (res.isHost && !isReconnect && initialConfig) {
