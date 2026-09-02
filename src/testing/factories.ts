@@ -12,6 +12,7 @@
  */
 import type { CoreGameState, Player } from '../types';
 import { zeroedPlayerStats } from '../utils/playerStats';
+import type { PreGameStats } from '../store/storeTypes';
 
 /**
  * A full `Player`, every counter zeroed (see `zeroedPlayerStats`). Pass
@@ -89,6 +90,23 @@ export const mockFetchJson = (body: unknown, init: { ok?: boolean; status?: numb
   const status = init.status ?? (init.ok === false ? 500 : 200);
   return new Response(JSON.stringify(body), { status });
 };
+
+/**
+ * A full `PreGameStats` (the device's personal-best snapshot EndScreen shows
+ * next to a fresh record), every field `null` — the same "no record yet"
+ * default the real column reads before a device has ever played. Pass
+ * `{ highestTurnScore: 1500, ... }` to override just what the test needs.
+ */
+export const makePreGameStats = (overrides: Partial<PreGameStats> = {}): PreGameStats => ({
+  highestTurnScore: null,
+  fastestWinTurns: null,
+  fastestLossTurns: null,
+  highestFeuerwerkTurnScore: null,
+  highestX2TurnScore: null,
+  mostCardsInTurn: null,
+  highestForfeitedTurnScore: null,
+  ...overrides,
+});
 
 /**
  * Asserts a value that a function typed `T | null | undefined` produced is

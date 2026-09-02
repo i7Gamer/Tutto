@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { CoreGameState, Player } from '../types';
-import { makePlayer, makeGameState, mockFetchJson, nonNull } from './factories';
+import type { PreGameStats } from '../store/storeTypes';
+import { makePlayer, makeGameState, makePreGameStats, mockFetchJson, nonNull } from './factories';
 
 describe('makePlayer', () => {
   it('returns a full Player with every counter zeroed', () => {
@@ -72,6 +73,30 @@ describe('makeGameState', () => {
     const b = makeGameState();
     expect(a.historyLog).not.toBe(b.historyLog);
     expect(a.cards).not.toBe(b.cards);
+  });
+});
+
+describe('makePreGameStats', () => {
+  it('returns a full PreGameStats with every field null', () => {
+    const stats = makePreGameStats() satisfies PreGameStats;
+    expect(stats).toEqual({
+      highestTurnScore: null,
+      fastestWinTurns: null,
+      fastestLossTurns: null,
+      highestFeuerwerkTurnScore: null,
+      highestX2TurnScore: null,
+      mostCardsInTurn: null,
+      highestForfeitedTurnScore: null,
+    });
+  });
+
+  it('applies overrides on top of the null defaults', () => {
+    const stats = makePreGameStats({ highestTurnScore: 1500, fastestWinTurns: 8 });
+    expect(stats.highestTurnScore).toBe(1500);
+    expect(stats.fastestWinTurns).toBe(8);
+    // Untouched fields stay at their null default.
+    expect(stats.fastestLossTurns).toBeNull();
+    expect(stats.mostCardsInTurn).toBeNull();
   });
 });
 
