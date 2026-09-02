@@ -16,11 +16,10 @@ vi.mock('./database', () => ({
 }));
 
 import { getDeviceStats } from './database';
-import { startInProcessServer, emitJoin, waitFor, settle, type InProcessServer, type JoinAck } from './socketTestHarness';
+import { startInProcessServer, emitJoin, waitFor, settle, makeServerPlayer, type InProcessServer, type JoinAck } from './socketTestHarness';
 import { rooms, createRoom, deleteRoom, MAX_PLAYERS_PER_ROOM, MAX_ROOMS } from './rooms';
 import { MAX_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
 import { scaledTimerMs } from './turnTimers';
-import type { ServerPlayer } from './roomTypes';
 
 const mockedGetDeviceStats = vi.mocked(getDeviceStats);
 
@@ -427,14 +426,11 @@ describe('room capacity cap', () => {
   // reusing plain 'dev-filler-N' ids across the two tests in this block would
   // make the second test's reconnecting device look like it's still seated in
   // the first test's room and get rejected.
-  const makeFillerPlayer = (roomPrefix: string, i: number): ServerPlayer => ({
-    name: `Filler${i}`, deviceId: `dev-filler-${roomPrefix}-${i}`, socketId: `sock-filler-${roomPrefix}-${i}`,
-    score: 0, times1000PointsDeducted: 0, timesKniffelCompleted: 0, timesPlusMinusCompleted: 0,
-    timesKniffelFailed: 0, timesKleeblattFailed: 0, timesKleeblattCompleted: 0, timesPlusMinusFailed: 0,
-    timesFeuerwerkReceived: 0, timesSkipped: 0, timesx2Received: 0, totalTurns: 0, busts: 0,
-    feuerwerkBusts: 0, x2Busts: 0, feuerwerkPointsScored: 0, x2PointsScored: 0, position: 0,
-    color: '#ff0000', disconnected: false,
-  });
+  const makeFillerPlayer = (roomPrefix: string, i: number) =>
+    makeServerPlayer(`Filler${i}`, {
+      deviceId: `dev-filler-${roomPrefix}-${i}`,
+      socketId: `sock-filler-${roomPrefix}-${i}`,
+    });
 
   beforeAll(async () => {
     server = await startInProcessServer();

@@ -21,19 +21,9 @@ import {
 } from './pushValidation';
 import { createRoom } from './rooms';
 import { MIN_ENABLED_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
-import { zeroedPlayerStats, PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
+import { PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
 import type { RoomState, ServerPlayer } from './roomTypes';
-
-const makePlayer = (name: string, overrides: Partial<ServerPlayer> = {}): ServerPlayer => ({
-  name,
-  deviceId: `dev-${name}`,
-  socketId: `sock-${name}`,
-  ...zeroedPlayerStats(),
-  position: 0,
-  color: '#ff0000',
-  disconnected: false,
-  ...overrides,
-});
+import { makeServerPlayer as makePlayer } from './socketTestHarness';
 
 const makeState = (playerNames: string[] = ['Alice', 'Bob']): RoomState => {
   const state = createRoom('sock-Alice').state;

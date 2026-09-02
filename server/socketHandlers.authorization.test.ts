@@ -21,10 +21,8 @@ import type { Server } from 'socket.io';
 import { registerConfigHandlers } from './socketConfigHandlers';
 import { registerRosterHandlers } from './socketRosterHandlers';
 import { registerStatsHandlers } from './socketStatsHandlers';
-import { makeFakeSocket, type Handler } from './socketTestHarness';
+import { makeFakeSocket, makeServerPlayer, type Handler } from './socketTestHarness';
 import { rooms, createRoom, deleteRoom } from './rooms';
-import { zeroedPlayerStats } from '../src/utils/playerStats';
-import type { ServerPlayer } from './roomTypes';
 
 vi.mock('./database', () => ({
   getDeviceStats: vi.fn(async () => null),
@@ -44,11 +42,6 @@ const makeFakeIo = () => {
     emit,
   };
 };
-
-const makePlayer = (name: string, socketId: string): ServerPlayer => ({
-  name, deviceId: `dev-${name}`, socketId, position: 0, disconnected: false,
-  ...zeroedPlayerStats(),
-});
 
 /** Registers every host-gated handler for one socket and returns them by name. */
 const handlersFor = (socketId: string): Record<string, Handler> => {
@@ -71,7 +64,10 @@ describe('host-gated socket events refuse a non-host', () => {
     rooms[roomId] = createRoom(HOST_SOCKET);
     Object.assign(rooms[roomId].state, {
       status: 'lobby',
-      players: [makePlayer('Alice', HOST_SOCKET), makePlayer('Bob', GUEST_SOCKET)],
+      players: [
+        makeServerPlayer('Alice', { socketId: HOST_SOCKET }),
+        makeServerPlayer('Bob', { socketId: GUEST_SOCKET }),
+      ],
       winningScore: 6000,
       randomOrder: true,
     });

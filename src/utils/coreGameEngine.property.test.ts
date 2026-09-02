@@ -21,7 +21,7 @@ import {
   KNIFFEL_SCORE,
 } from './coreGameEngine';
 import { isSpecialCard } from './diceTurnControls';
-import { zeroedPlayerStats } from './playerStats';
+import { makePlayer } from '../testing/factories';
 
 // ── PRNG ─────────────────────────────────────────────────────────────────
 // mulberry32: small, fast, deterministic. The seed is fixed so a failure is
@@ -99,12 +99,6 @@ const normalizeForUndoComparison = (player: Record<string, unknown>) => {
   }
   return normalized;
 };
-
-const makePlayer = (name: string) => ({
-  name,
-  ...zeroedPlayerStats(),
-  position: 0,
-});
 
 const numericValue = (card: string, rng: ReturnType<typeof makeRng>): number => {
   if (card === 'x2' || card === 'Feuerwerk') return SPECIAL_VALUE_MIN + rng.nextInt(SPECIAL_VALUE_RANGE);
@@ -217,7 +211,7 @@ interface RunTotals {
 }
 
 const runGame = (ruleset: 'classic' | 'modernized', rng: ReturnType<typeof makeRng>, numPlayers: number, totals: RunTotals) => {
-  let players = Array.from({ length: numPlayers }, (_, i) => makePlayer(`P${i + 1}`));
+  let players = Array.from({ length: numPlayers }, (_, i) => makePlayer({ name: `P${i + 1}` }));
   let cards = buildDeck(INITIAL_CARDS);
   let currentCard = cards.shift() as string;
   let currentPlayerIndex = 0;

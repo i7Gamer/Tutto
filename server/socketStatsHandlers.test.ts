@@ -1,11 +1,8 @@
 /** @vitest-environment node */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Server } from 'socket.io';
 import { registerStatsHandlers } from './socketStatsHandlers';
-import { makeFakeSocket } from './socketTestHarness';
+import { makeFakeSocket, makeFakeIo, makeServerPlayer } from './socketTestHarness';
 import { rooms, createRoom, deleteRoom, emitRoomState } from './rooms';
-import { zeroedPlayerStats } from '../src/utils/playerStats';
-import type { ServerPlayer } from './roomTypes';
 
 vi.mock('./database', () => ({
   getDeviceStats: vi.fn(),
@@ -14,21 +11,11 @@ vi.mock('./database', () => ({
 }));
 import { getDeviceStats, updateDeviceStats } from './database';
 
-const makeFakeIo = () => {
-  const emit = vi.fn();
-  const to = vi.fn(() => ({ emit }));
-  return { io: { to } as unknown as Server, emit };
-};
-
-const makePlayer = (name: string, socketId: string, deviceId: string): ServerPlayer => ({
-  name,
-  deviceId,
-  socketId,
-  score: 0,
-  position: 1,
-  disconnected: false,
-  ...zeroedPlayerStats(),
-});
+// This file's players default to position: 1 (rather than makeServerPlayer's
+// own default of 0) — kept as an explicit override below so converting to
+// the shared factory doesn't change what these fixtures build.
+const makePlayer = (name: string, socketId: string, deviceId: string) =>
+  makeServerPlayer(name, { socketId, deviceId, position: 1 });
 
 describe('endGameStats win-streak refresh', () => {
   const roomId = 'STREAK-ROOM';

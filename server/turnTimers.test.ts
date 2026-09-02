@@ -11,43 +11,9 @@
  * unreachable in production (the try/catch backstop in advanceTurnOnTimeout).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import type { Server } from 'socket.io';
 import { rooms, createRoom, roomChannel } from './rooms';
 import { clearServerTurnTimer, startServerTurnTimer, advanceTurnOnTimeout, abortGameIfLowPlayers, scaledTimerMs } from './turnTimers';
-import type { ServerPlayer } from './roomTypes';
-
-const makePlayer = (name: string, overrides: Partial<ServerPlayer> = {}): ServerPlayer => ({
-  name,
-  deviceId: `dev-${name}`,
-  socketId: `sock-${name}`,
-  score: 0,
-  times1000PointsDeducted: 0,
-  timesKniffelCompleted: 0,
-  timesPlusMinusCompleted: 0,
-  timesKniffelFailed: 0,
-  timesKleeblattFailed: 0,
-  timesKleeblattCompleted: 0,
-  timesPlusMinusFailed: 0,
-  timesFeuerwerkReceived: 0,
-  timesSkipped: 0,
-  timesx2Received: 0,
-  totalTurns: 0,
-  busts: 0,
-  feuerwerkBusts: 0,
-  x2Busts: 0,
-  feuerwerkPointsScored: 0,
-  x2PointsScored: 0,
-  position: 0,
-  color: '#ff0000',
-  disconnected: false,
-  ...overrides,
-});
-
-const makeFakeIo = () => {
-  const emit = vi.fn();
-  const to = vi.fn(() => ({ emit }));
-  return { io: { to } as unknown as Server, emit, to };
-};
+import { makeServerPlayer as makePlayer, makeFakeIo } from './socketTestHarness';
 
 const roomId = 'timer-unit-room';
 

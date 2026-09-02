@@ -16,33 +16,7 @@ import { handleActivePlayerRemoved, calculateRemainingTurnTime, createRoom, dele
 import type { Server } from 'socket.io';
 import { MAX_ROUNDS } from './pushValidation';
 import type { Room, RoomState, ServerPlayer } from './roomTypes';
-
-const makePlayer = (name: string, overrides: Partial<ServerPlayer> = {}): ServerPlayer => ({
-  name,
-  deviceId: `dev-${name}`,
-  socketId: `sock-${name}`,
-  score: 0,
-  times1000PointsDeducted: 0,
-  timesKniffelCompleted: 0,
-  timesPlusMinusCompleted: 0,
-  timesKniffelFailed: 0,
-  timesKleeblattFailed: 0,
-  timesKleeblattCompleted: 0,
-  timesPlusMinusFailed: 0,
-  timesFeuerwerkReceived: 0,
-  timesSkipped: 0,
-  timesx2Received: 0,
-  totalTurns: 0,
-  busts: 0,
-  feuerwerkBusts: 0,
-  x2Busts: 0,
-  feuerwerkPointsScored: 0,
-  x2PointsScored: 0,
-  position: 0,
-  color: '#ff0000',
-  disconnected: false,
-  ...overrides,
-});
+import { makeServerPlayer as makePlayer } from './socketTestHarness';
 
 // handleActivePlayerRemoved is always called AFTER the caller has already
 // spliced the removed player out of state.players — `players` here is the

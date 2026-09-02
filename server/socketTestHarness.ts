@@ -28,6 +28,8 @@ import type { AddressInfo } from 'net';
 import { Server, type Socket } from 'socket.io';
 import { io as clientIo, type Socket as ClientSocket, type ManagerOptions, type SocketOptions } from 'socket.io-client';
 import { vi } from 'vitest';
+import { zeroedPlayerStats } from '../src/utils/playerStats';
+import type { ServerPlayer } from './roomTypes';
 import { registerSocketHandlers } from './socketHandlers';
 
 // No dotenv.config() here on purpose (it used to sit above this comment). A
@@ -352,4 +354,34 @@ export const makeFakeSocket = (id: string) => {
     on: (event: string, fn: Handler) => { handlers[event] = fn; },
   } as unknown as Socket;
   return { socket, handlers };
+};
+
+/**
+ * A full `ServerPlayer`, every counter zeroed (see `zeroedPlayerStats`), with
+ * the server-only fields (deviceId/socketId/color/disconnected — required on
+ * ServerPlayer, optional on the client's Player) filled in with test-only
+ * defaults. Pass `{ socketId: 'active-sock', position: 1, ... }` to override
+ * just what the test needs, the same shape as `makePlayer` in
+ * src/testing/factories.ts.
+ */
+export const makeServerPlayer = (name: string, overrides: Partial<ServerPlayer> = {}): ServerPlayer => ({
+  name,
+  deviceId: `dev-${name}`,
+  socketId: `sock-${name}`,
+  ...zeroedPlayerStats(),
+  position: 0,
+  color: '#ff0000',
+  disconnected: false,
+  ...overrides,
+});
+
+/**
+ * A minimal `io` double for a handler that only ever addresses one room via
+ * `io.to(roomId).emit(...)` — captures every such emit on one shared spy
+ * regardless of which room it was sent to.
+ */
+export const makeFakeIo = () => {
+  const emit = vi.fn();
+  const to = vi.fn(() => ({ emit }));
+  return { io: { to } as unknown as Server, emit, to };
 };
