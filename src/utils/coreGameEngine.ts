@@ -3,15 +3,21 @@ import type {
   InitialCards,
   Player,
   CoreGameState,
-  GlobalStatsPayload,
-  DeviceStatsPayload,
   NextTurnResult,
   UndoResult,
   HistoryEntry,
   HistoryEventType,
   TurnSummary,
+  TurnCardPlayed,
 } from '../types';
 import { isSpecialCard } from './diceTurnControls';
+// Re-exported below: buildGlobalStatsPayload/buildDeviceStatsPayload live in
+// statsPayloads.ts (pure stats aggregation, no turn logic) but every existing
+// caller imports them from here, so the public surface of this module is
+// unchanged.
+import { buildDeviceStatsPayload, buildGlobalStatsPayload } from './statsPayloads';
+
+export { buildDeviceStatsPayload, buildGlobalStatsPayload };
 
 // Awarded turn score for successfully completing these Yes/No cards — not
 // incremental dice points, a fixed value the card itself defines. Exported
@@ -157,156 +163,324 @@ export const getLeaders = (players: Player[]): Player[] => {
   return sorted.filter(p => p.score === topScore);
 };
 
-/**
- * One device's own row for a finished game, from that game's final state.
- *
- * Pulled out of sendOnlineStats so the integration suite can assert against
- * the payload the app actually sends. Its hand-copied duplicate had already
- * drifted: it was missing totalTuttos and both classic records, and still used
- * the superseded fastestLossTurns rule — the one without the `totalTurns > 0`
- * guard, which records a 0-turn "fastest loss" for a seat the game ended
- * before, and MIN-merges it into a record with no way back.
- *
- * Returns null when this device holds no seat, which is sendOnlineStats' own
- * guard: there is nothing to record.
- */
-export const buildDeviceStatsPayload = (
-  finalPlayers: Player[],
-  myName: string | null,
-  finalTime: number,
-  finalRound: number,
-): DeviceStatsPayload | null => {
-  const me = finalPlayers.find(p => p.name === myName);
-  if (!me) return null;
-  const didIWin = getLeaders(finalPlayers).some(l => l.name === me.name) ? 1 : 0;
+// One row per playable card naming the single counter a card played in a
+// classic chain bumps, and — for the four cards whose counter depends on the
+// outcome — which side of `completed` it is. applySummaryCounters and
+// revertSummaryCounters both walk this table (with delta +1 / -1) instead of
+// each hand-rolling its own `switch (played.card)`, which is what let the two
+// drift from each other before.
+//
+// Kleeblatt only ever contributes a FAILURE entry here: a completed Kleeblatt
+// is the instant win, handled entirely by the caller's separate branch, so
+// counting it here too would double it.
+const CARD_COUNTER_DELTAS: Partial<Record<CardType, (played: TurnCardPlayed) => keyof Player | null>> = {
+  Feuerwerk: () => 'timesFeuerwerkReceived',
+  x2: () => 'timesx2Received',
+  Stop: () => 'timesSkipped',
+  Kniffel: played => (played.completed ? 'timesKniffelCompleted' : 'timesKniffelFailed'),
+  Plus_Minus: played => (played.completed ? 'timesPlusMinusCompleted' : 'timesPlusMinusFailed'),
+  Kleeblatt: played => (played.completed ? null : 'timesKleeblattFailed'),
+};
+
+// Applies (delta > 0) or reverses (delta < 0) one card's counter bump.
+// Reversal clamps at 0 the same way every hand-written `Math.max(0, ...)` in
+// this file already did — a counter can be replayed onto a roster that
+// changed since (leave/kick/reconnect), so it must never go negative.
+const bumpCardCounter = (player: Player, played: TurnCardPlayed, delta: number): void => {
+  const field = CARD_COUNTER_DELTAS[played.card]?.(played);
+  if (!field) return;
+  const current = (player[field] as number | undefined) ?? 0;
+  (player[field] as number) = delta < 0 ? Math.max(0, current + delta) : current + delta;
+};
+
+// The classic chain's per-turn counters: the bust flag, the two classic
+// records (mostCardsInTurn / highestForfeitedTurnScore, their pre-turn values
+// stashed on the summary for revertSummaryCounters to restore), and every
+// per-card counter from turnSummary.cards. Mutates currentPlayer and
+// summaryForState in place; returns whether the turn was a (dice) bust.
+//
+// Deliberately does NOT touch feuerwerkBusts/x2Busts or any per-card
+// point/turn-score attribution: "which card the chain died on" has no
+// counterpart in the modernized stats, and the classic buckets never display
+// them.
+const applySummaryCounters = (currentPlayer: Player, summaryForState: TurnSummary, isSuccess: boolean): boolean => {
+  const wasBust = summaryForState.ended === 'null';
+  if (wasBust) currentPlayer.busts = (currentPlayer.busts ?? 0) + 1;
+
+  // Pre-turn values ride the stored summary so revertSummaryCounters can
+  // restore them without another round of previous* plumbing on CoreGameState.
+  summaryForState.prevMostCardsInTurn = currentPlayer.mostCardsInTurn ?? null;
+  summaryForState.prevHighestForfeitedTurnScore = currentPlayer.highestForfeitedTurnScore ?? null;
+  currentPlayer.totalTuttos = (currentPlayer.totalTuttos ?? 0) + summaryForState.tuttoCount;
+  if (summaryForState.cards.length > (currentPlayer.mostCardsInTurn ?? 0)) {
+    currentPlayer.mostCardsInTurn = summaryForState.cards.length;
+  }
+  if (!isSuccess && (summaryForState.forfeitedScore ?? 0) > (currentPlayer.highestForfeitedTurnScore ?? 0)) {
+    currentPlayer.highestForfeitedTurnScore = summaryForState.forfeitedScore;
+  }
+
+  for (const played of summaryForState.cards) bumpCardCounter(currentPlayer, played, 1);
+
+  return wasBust;
+};
+
+// The exact reversal of applySummaryCounters, mirrored card-for-card via the
+// same CARD_COUNTER_DELTAS table (delta -1). Does not touch score or the
+// Plus/Minus deduction records (previousLeaders / deductedPlayers) — those
+// span every player, not just this one, and stay inline in calculateUndo
+// beside applyClassicPlusMinus's forward counterpart.
+const revertSummaryCounters = (p: Player, previousTurnSummary: TurnSummary): void => {
+  if (previousTurnSummary.ended === 'null') p.busts = Math.max(0, (p.busts ?? 0) - 1);
+
+  for (const played of previousTurnSummary.cards) bumpCardCounter(p, played, -1);
+
+  p.totalTuttos = Math.max(0, (p.totalTuttos ?? 0) - previousTurnSummary.tuttoCount);
+  if (previousTurnSummary.prevMostCardsInTurn !== undefined) {
+    p.mostCardsInTurn = previousTurnSummary.prevMostCardsInTurn ?? undefined;
+  }
+  if (previousTurnSummary.prevHighestForfeitedTurnScore !== undefined) {
+    p.highestForfeitedTurnScore = previousTurnSummary.prevHighestForfeitedTurnScore ?? undefined;
+  }
+};
+
+// Atomic Plus/Minus: the ±1000s resolve only when the turn actually banks —
+// a later null/Stop forfeits them along with everything else. Replayed card
+// by card in the order the chain played them: at each one the current player
+// counts as holding everything the chain had earned by that point
+// (plusMinusScores), and the leaders are recomputed from the deductions
+// already applied. Comparing against the bare pre-turn score instead kept
+// deducting after the chain had already overtaken the leader.
+//
+// EVERY tied leader loses 1000 — the roller among them for deciding WHO
+// leads, but excluded from paying: "If more than one player is leading with
+// the same number of points, each of them has 1,000 points deducted… If it
+// is the leading player who reveals this card, naturally they don't have to
+// deduct any points from their score" (ABACUSSPIELE 2024). So the roller is
+// filtered out of the victims rather than cancelling the whole deduction,
+// which is what lets a CO-leader's 1000 land; a sole leader filters down to
+// nobody, the same rule falling out of it. The modernized path (inline in
+// calculateNextTurn) deliberately keeps its older all-or-nothing reading.
+//
+// Mutates newPlayers' scores/times1000PointsDeducted in place; returns null
+// when nobody was actually deducted (nothing to snapshot or record).
+const applyClassicPlusMinus = (
+  newPlayers: Player[],
+  currentPlayer: Player,
+  turnSummary: TurnSummary,
+): { snapshotLeaders: Player[]; deductedPlayers: string[]; deductedAmounts: number[] } | null => {
+  const preScores = new Map<string, Player>();
+  const deducted: string[] = [];
+  // Parallel to `deducted`: what each hit really took off. Recorded here
+  // because it cannot be recomputed later — once the scores have moved,
+  // nothing left in the entry says whether the floor swallowed part of it.
+  const deductedAmounts: number[] = [];
+
+  for (const scoreBeforeCard of turnSummary.plusMinusScores) {
+    const asOfThisCard = newPlayers.map(p => (
+      p.name === currentPlayer.name ? { ...p, score: p.score + scoreBeforeCard } : p
+    ));
+    const victims = getLeaders(asOfThisCard).filter(l => l.name !== currentPlayer.name);
+    victims.forEach(l => {
+      const p = newPlayers.find(np => np.name === l.name);
+      if (!p) return;
+      // Official rule: "a player can never have less than 0 points" —
+      // clamped here (classic) only; the modernized path keeps its
+      // long-standing negative-scores behavior.
+      const clamped = Math.max(0, p.score - PLUS_MINUS_SCORE);
+      // A leader already sitting on 0 loses nothing, and an untouched score
+      // is not a deduction to record, display or undo. This is not
+      // hypothetical: before anyone has scored, EVERY player is tied on 0,
+      // so the game's first Plus/Minus would otherwise report the whole
+      // table as deducted while changing nobody's score.
+      if (clamped === p.score) return;
+      // First touch snapshots the true pre-commit score, so undo can restore
+      // absolutely however many deductions follow.
+      if (!preScores.has(p.name)) preScores.set(p.name, { ...p });
+      p.times1000PointsDeducted = (p.times1000PointsDeducted ?? 0) + 1;
+      deductedAmounts.push(p.score - clamped);
+      p.score = clamped;
+      deducted.push(p.name);
+    });
+  }
+
+  if (deducted.length === 0) return null;
+  return { snapshotLeaders: [...preScores.values()], deductedPlayers: deducted, deductedAmounts };
+};
+
+// Builds the log line for one turn: the base fields every turn carries, plus
+// the classic chain's card list / per-deduction amounts when present, falling
+// back to the modernized path's plain deductedPlayers-by-name when a bare
+// Plus/Minus (no turnSummary) triggered a deduction.
+const buildHistoryEntry = (
+  round: number,
+  currentPlayer: Player,
+  historyCard: CardType,
+  historyType: HistoryEventType,
+  currentCard: CardType | null,
+  isSuccess: boolean,
+  turnScore: number,
+  turnSummary: TurnSummary | undefined,
+  summaryForState: TurnSummary | null,
+  snapshotLeaders: Player[] | null,
+): HistoryEntry => {
+  const historyEntry: HistoryEntry = {
+    // round-player-totalTurns is already a unique triple (totalTurns strictly
+    // increments per player each turn) — no random suffix needed.
+    id: `${round}-${currentPlayer.name}-${currentPlayer.totalTurns}`,
+    round,
+    playerName: currentPlayer.name,
+    playerColor: currentPlayer.color,
+    card: historyCard,
+    type: historyType,
+    score: currentCard === 'Kleeblatt' && isSuccess ? 0 : turnScore,
+  };
+
+  if (summaryForState && summaryForState.cards.length > 1) {
+    historyEntry.cards = summaryForState.cards.map(c => c.card);
+  }
+  if (summaryForState?.deductedPlayers?.length) {
+    historyEntry.deductedPlayers = [...summaryForState.deductedPlayers];
+    // Both lists or neither: the log reads them by index. The modernized
+    // branch carries no amounts — it never clamps, so the flat
+    // PLUS_MINUS_SCORE summarizeDeductions falls back to is the true one.
+    if (summaryForState.deductedAmounts) historyEntry.deductedAmounts = [...summaryForState.deductedAmounts];
+  } else if (!turnSummary && currentCard === 'Plus_Minus' && isSuccess && snapshotLeaders) {
+    historyEntry.deductedPlayers = snapshotLeaders.map(l => l.name);
+  }
+
+  return historyEntry;
+};
+
+interface HighestTurnScoreSnapshot {
+  previousHighestTurnScore: number;
+  previousHighestFeuerwerkTurnScore: number;
+  previousHighestX2TurnScore: number;
+}
+
+// Card-agnostic and per-card ("a Feuerwerk turn", "an x2 turn") turn-score
+// maxima. The per-card records are a modernized-only concept — in a classic
+// chain the turn spans several cards, so "a Feuerwerk turn's score" is
+// ill-defined — hence the `!turnSummary` gates. Neither record is gated on
+// wasBust: a busted turn's score still counts toward it, the same way the
+// card-agnostic one already did (pinned down explicitly by a unit test).
+// Returns the PRE-turn values, which the caller hands back as
+// NextTurnResult.previousHighest*TurnScore for calculateUndo to restore.
+const applyHighestTurnScoreRecords = (
+  currentPlayer: Player,
+  turnScore: number,
+  currentCard: CardType | null,
+  turnSummary: TurnSummary | undefined,
+): HighestTurnScoreSnapshot => {
+  const previousHighestTurnScore = currentPlayer.highestTurnScore ?? 0;
+  const previousHighestFeuerwerkTurnScore = currentPlayer.highestFeuerwerkTurnScore ?? 0;
+  const previousHighestX2TurnScore = currentPlayer.highestX2TurnScore ?? 0;
+
+  if (turnScore > previousHighestTurnScore) currentPlayer.highestTurnScore = turnScore;
+  if (!turnSummary && currentCard === 'Feuerwerk' && turnScore > previousHighestFeuerwerkTurnScore) {
+    currentPlayer.highestFeuerwerkTurnScore = turnScore;
+  }
+  if (!turnSummary && currentCard === 'x2' && turnScore > previousHighestX2TurnScore) {
+    currentPlayer.highestX2TurnScore = turnScore;
+  }
+
+  return { previousHighestTurnScore, previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore };
+};
+
+// A completed Kleeblatt is a binary instant win, not a scored turn — the dice
+// rolled to complete it (turnScore/scoreInput) are never added to the score,
+// matching the physical-dice rules (no separate scoring for it). The score
+// just needs to (a) clear winningScore and (b) strictly exceed every other
+// player's, so this player is the sole leader — a synthetic "999999" sentinel
+// score used to do this by discarding the real score entirely, which
+// corrupted average-score stats (totalScore, dashboards) whenever a Kleeblatt
+// game was included.
+//
+// Returns the short-circuit NextTurnResult calculateNextTurn returns
+// immediately on a win, or null when this turn isn't one (the caller falls
+// through to the ordinary scoring/advance path).
+const resolveKleeblattWin = (
+  newPlayers: Player[],
+  currentPlayer: Player,
+  currentCard: CardType | null,
+  isSuccess: boolean,
+  winningScore: number,
+  turnScore: number,
+  wasBust: boolean,
+  snapshotLeaders: Player[] | null,
+  summaryForState: TurnSummary | null,
+  cards: CardType[],
+  round: number,
+  historyEntry: HistoryEntry,
+): NextTurnResult | null => {
+  if (currentCard !== 'Kleeblatt' || !isSuccess) return null;
+
+  currentPlayer.timesKleeblattCompleted = (currentPlayer.timesKleeblattCompleted ?? 0) + 1;
+  const otherScores = newPlayers.filter(p => p.name !== currentPlayer.name).map(p => p.score);
+  const highestOtherScore = otherScores.length > 0 ? Math.max(...otherScores) : -Infinity;
+  currentPlayer.score = Math.max(winningScore, currentPlayer.score, highestOtherScore + 1);
 
   return {
-    gamesPlayed: 1, wins: didIWin, totalPlaytime: finalTime || 0,
-    pointsDeducted: me.times1000PointsDeducted || 0, plusMinusCompleted: me.timesPlusMinusCompleted || 0,
-    plusMinusFailed: me.timesPlusMinusFailed || 0, kniffelCompleted: me.timesKniffelCompleted || 0,
-    kniffelFailed: me.timesKniffelFailed || 0, skipped: me.timesSkipped || 0,
-    feuerwerkReceived: me.timesFeuerwerkReceived || 0, kleeblattFailed: me.timesKleeblattFailed || 0,
-    kleeblattCompleted: me.timesKleeblattCompleted || 0, x2Received: me.timesx2Received || 0,
-    totalTurns: me.totalTurns || 0, busts: me.busts || 0,
-    feuerwerkBusts: me.feuerwerkBusts || 0, x2Busts: me.x2Busts || 0,
-    feuerwerkPointsScored: me.feuerwerkPointsScored || 0, x2PointsScored: me.x2PointsScored || 0,
-    totalTuttos: me.totalTuttos || 0,
-    highestTurnScore: me.highestTurnScore || 0, totalScore: me.score || 0,
-    fastestWinTurns: didIWin ? (me.totalTurns || 0) : null,
-    // null, not 0, when this device never got a turn — a game can end
-    // mid-round (a completed Kleeblatt wins instantly), so a player later in
-    // the turn order can finish on 0. sanitize.ts clamps a 0 up to 1 and the
-    // DB merges this column with MIN, which would pin the record at 1
-    // permanently. See buildGlobalStatsPayload for the same rule globally.
-    fastestLossTurns: !didIWin && (me.totalTurns || 0) > 0 ? me.totalTurns : null,
-    totalPlayersSum: finalPlayers.length, mostPlayersInGame: finalPlayers.length,
-    totalRoundsSum: finalRound || 0, longestGameRounds: finalRound || 0,
-    highestFeuerwerkTurnScore: me.highestFeuerwerkTurnScore || 0,
-    highestX2TurnScore: me.highestX2TurnScore || 0,
-    // Classic-only records: OMITTED (not sent as 0) when unset —
-    // updateDeviceStats writes the incoming value on row insert, and a 0 would
-    // permanently stamp itself where NULL ("no record yet") belongs.
-    ...(me.mostCardsInTurn !== undefined ? { mostCardsInTurn: me.mostCardsInTurn } : {}),
-    ...(me.highestForfeitedTurnScore !== undefined ? { highestForfeitedTurnScore: me.highestForfeitedTurnScore } : {}),
+    players: newPlayers, isGameOver: true, isRoundEnd: true,
+    nextIndex: null, nextRound: round,
+    previousCard: currentCard, previousScore: turnScore,
+    previousLeaders: snapshotLeaders, previousWasBust: wasBust,
+    previousWasSuccess: isSuccess,
+    previousHighestTurnScore: currentPlayer.highestTurnScore ?? 0,
+    previousHighestFeuerwerkTurnScore: currentPlayer.highestFeuerwerkTurnScore ?? 0,
+    previousHighestX2TurnScore: currentPlayer.highestX2TurnScore ?? 0,
+    previousPlayerName: currentPlayer.name,
+    previousTurnSummary: summaryForState,
+    newDeck: cards, drawnCard: null,
+    historyEntry,
   };
 };
 
-export const buildGlobalStatsPayload = (
-  finalPlayers: Player[],
-  finalTime: number,
-  isDefaultGame: boolean,
-  finalRound: number,
-): GlobalStatsPayload => {
-  let totalPlusMinus = 0;
-  let totalKniffel = 0;
-  let totalStop = 0;
-  let totalFeuerwerk = 0;
-  let totalKleeblatt = 0;
-  let totalKleeblattCompleted = 0;
-  let totalx2 = 0;
-  let totalTurns = 0;
-  let totalScore = 0;
-  let totalPlusMinusCompleted = 0;
-  let totalKniffelCompleted = 0;
-  let totalFeuerwerkPoints = 0;
-  let totalx2Points = 0;
-  let totalFeuerwerkBusts = 0;
-  let totalx2Busts = 0;
-  let totalBusts = 0;
-  let totalTuttos = 0;
-  let highestTurnScore = 0;
-  let highestFeuerwerkTurnScore = 0;
-  let highestX2TurnScore = 0;
-  let mostCardsInTurn: number | null = null;
-  let highestForfeitedTurnScore: number | null = null;
-  let fastestWinTurns: number | null = null;
-  let fastestLossTurns: number | null = null;
+interface TurnOrderAdvance {
+  isGameOver: boolean;
+  isRoundEnd: boolean;
+  nextIndex: number | null;
+  nextRound: number;
+  newDeck: CardType[];
+  drawnCard: CardType | null;
+}
 
-  const leaders = getLeaders(finalPlayers);
-  const isWinner = (p: Player) => leaders.some(l => l.name === p.name);
+// Moves to the next seat (wrapping into the next round at the end of one),
+// decides whether that wrap also ends the game, and draws the next card —
+// rebuilding the deck first if it's empty. Returns `nextIndex: null` exactly
+// when the game just ended, matching calculateNextTurn's own contract.
+const advanceTurnOrder = (
+  newPlayers: Player[],
+  currentPlayerIndex: number,
+  round: number,
+  winningScore: number,
+  cards: CardType[],
+  initialCards: InitialCards,
+): TurnOrderAdvance => {
+  let isGameOver = false;
+  let nextIndex: number | null = currentPlayerIndex + 1;
+  let nextRound = round;
+  let isRoundEnd = false;
 
-  finalPlayers.forEach(p => {
-    totalPlusMinus += ((p.timesPlusMinusCompleted ?? 0) + (p.timesPlusMinusFailed ?? 0));
-    totalKniffel += ((p.timesKniffelCompleted ?? 0) + (p.timesKniffelFailed ?? 0));
-    totalStop += (p.timesSkipped ?? 0);
-    totalFeuerwerk += (p.timesFeuerwerkReceived ?? 0);
-    totalKleeblatt += ((p.timesKleeblattFailed ?? 0) + (p.timesKleeblattCompleted ?? 0));
-    totalKleeblattCompleted += (p.timesKleeblattCompleted ?? 0);
-    totalx2 += (p.timesx2Received ?? 0);
-    totalTurns += (p.totalTurns ?? 0);
-    totalScore += (p.score ?? 0);
-    totalPlusMinusCompleted += (p.timesPlusMinusCompleted ?? 0);
-    totalKniffelCompleted += (p.timesKniffelCompleted ?? 0);
-    totalFeuerwerkPoints += (p.feuerwerkPointsScored ?? 0);
-    totalx2Points += (p.x2PointsScored ?? 0);
-    totalFeuerwerkBusts += (p.feuerwerkBusts ?? 0);
-    totalx2Busts += (p.x2Busts ?? 0);
-    totalBusts += (p.busts ?? 0);
-    totalTuttos += (p.totalTuttos ?? 0);
-    if (p.mostCardsInTurn !== undefined && (mostCardsInTurn === null || p.mostCardsInTurn > mostCardsInTurn)) {
-      mostCardsInTurn = p.mostCardsInTurn;
+  if (nextIndex >= newPlayers.length) {
+    isRoundEnd = true;
+    const currentLeaders = getLeaders(newPlayers);
+    if (currentLeaders[0].score >= winningScore && currentLeaders.length === 1) {
+      isGameOver = true;
     }
-    if (p.highestForfeitedTurnScore !== undefined && (highestForfeitedTurnScore === null || p.highestForfeitedTurnScore > highestForfeitedTurnScore)) {
-      highestForfeitedTurnScore = p.highestForfeitedTurnScore;
-    }
-    if ((p.highestTurnScore ?? 0) > highestTurnScore) {
-      highestTurnScore = p.highestTurnScore ?? 0;
-    }
-    if ((p.highestFeuerwerkTurnScore ?? 0) > highestFeuerwerkTurnScore) {
-      highestFeuerwerkTurnScore = p.highestFeuerwerkTurnScore ?? 0;
-    }
-    if ((p.highestX2TurnScore ?? 0) > highestX2TurnScore) {
-      highestX2TurnScore = p.highestX2TurnScore ?? 0;
-    }
-    if (isWinner(p)) {
-      if (fastestWinTurns === null || p.totalTurns < fastestWinTurns) {
-        fastestWinTurns = p.totalTurns;
-      }
-    } else if (p.totalTurns > 0) {
-      // Zero turns is not a fast loss, it is no game played: a completed
-      // Kleeblatt wins instantly and can end the game mid-round, leaving
-      // players later in the turn order on 0. Reporting that as a record is
-      // permanent damage — sanitize.ts clamps it up to 1 and the DB merges
-      // fastestLossTurns with MIN, so the bucket sticks at 1 forever and the
-      // "new record" celebration can never fire for it again.
-      if (fastestLossTurns === null || p.totalTurns < fastestLossTurns) {
-        fastestLossTurns = p.totalTurns;
-      }
-    }
-  });
+    if (!isGameOver) { nextIndex = 0; nextRound++; }
+  }
 
-  return {
-    gamesPlayed: 1, totalPlaytime: finalTime,
-    totalPlusMinus, totalKniffel, totalStop, totalFeuerwerk,
-    totalKleeblatt, totalKleeblattCompleted, totalx2,
-    totalTurns, totalScore, totalPlusMinusCompleted, totalKniffelCompleted,
-    totalFeuerwerkPoints, totalx2Points, totalFeuerwerkBusts, totalx2Busts, totalBusts,
-    highestTurnScore, fastestWinTurns, fastestLossTurns, isDefaultGame,
-    totalPlayersSum: finalPlayers.length, mostPlayersInGame: finalPlayers.length,
-    totalRoundsSum: finalRound, longestGameRounds: finalRound,
-    highestFeuerwerkTurnScore, highestX2TurnScore,
-    totalTuttos, mostCardsInTurn, highestForfeitedTurnScore,
-  };
+  let newDeck = [...cards];
+  let drawnCard: CardType | null = null;
+
+  if (!isGameOver) {
+    if (newDeck.length === 0) newDeck = buildDeck(initialCards);
+    drawnCard = newDeck.shift() ?? null;
+  } else {
+    nextIndex = null;
+  }
+
+  return { isGameOver, isRoundEnd, nextIndex, nextRound, newDeck, drawnCard };
 };
 
 export const calculateNextTurn = (
@@ -335,101 +509,14 @@ export const calculateNextTurn = (
     // Plus/Minus +1000 per success, bonus added, x2 doubling applied).
     summaryForState = { ...turnSummary, cards: turnSummary.cards.map(c => ({ ...c })) };
 
-    wasBust = turnSummary.ended === 'null';
-    if (wasBust) currentPlayer.busts = (currentPlayer.busts ?? 0) + 1;
-    // Deliberately NO feuerwerkBusts/x2Busts and no per-card point/turn-score
-    // attribution here: "which card the chain died on" has no counterpart in
-    // the modernized stats, and the classic buckets do not display them.
+    wasBust = applySummaryCounters(currentPlayer, summaryForState, isSuccess);
 
-    // The classic records. Their pre-turn values ride the stored summary so
-    // undo can restore them (see calculateUndo).
-    summaryForState.prevMostCardsInTurn = currentPlayer.mostCardsInTurn ?? null;
-    summaryForState.prevHighestForfeitedTurnScore = currentPlayer.highestForfeitedTurnScore ?? null;
-    currentPlayer.totalTuttos = (currentPlayer.totalTuttos ?? 0) + turnSummary.tuttoCount;
-    if (turnSummary.cards.length > (currentPlayer.mostCardsInTurn ?? 0)) {
-      currentPlayer.mostCardsInTurn = turnSummary.cards.length;
-    }
-    if (!isSuccess && (turnSummary.forfeitedScore ?? 0) > (currentPlayer.highestForfeitedTurnScore ?? 0)) {
-      currentPlayer.highestForfeitedTurnScore = turnSummary.forfeitedScore;
-    }
-
-    for (const played of turnSummary.cards) {
-      switch (played.card) {
-        case 'Feuerwerk': currentPlayer.timesFeuerwerkReceived = (currentPlayer.timesFeuerwerkReceived ?? 0) + 1; break;
-        case 'x2': currentPlayer.timesx2Received = (currentPlayer.timesx2Received ?? 0) + 1; break;
-        case 'Stop': currentPlayer.timesSkipped = (currentPlayer.timesSkipped ?? 0) + 1; break;
-        case 'Kniffel':
-          if (played.completed) currentPlayer.timesKniffelCompleted = (currentPlayer.timesKniffelCompleted ?? 0) + 1;
-          else currentPlayer.timesKniffelFailed = (currentPlayer.timesKniffelFailed ?? 0) + 1;
-          break;
-        case 'Plus_Minus':
-          if (played.completed) currentPlayer.timesPlusMinusCompleted = (currentPlayer.timesPlusMinusCompleted ?? 0) + 1;
-          else currentPlayer.timesPlusMinusFailed = (currentPlayer.timesPlusMinusFailed ?? 0) + 1;
-          break;
-        case 'Kleeblatt':
-          // A completed Kleeblatt is the instant win, owned by the branch
-          // further down — counting it here too would double it.
-          if (!played.completed) currentPlayer.timesKleeblattFailed = (currentPlayer.timesKleeblattFailed ?? 0) + 1;
-          break;
-        default: break; // bonus cards have no counters
-      }
-    }
-
-    // Atomic Plus/Minus: the ±1000s resolve only when the turn actually
-    // banks — a later null/Stop forfeits them along with everything else.
-    // Replayed card by card in the order the chain played them: at each one
-    // the current player counts as holding everything the chain had earned by
-    // that point (plusMinusScores), and the leaders are recomputed from the
-    // deductions already applied. Comparing against the bare pre-turn score
-    // instead kept deducting after the chain had already overtaken the leader.
-    //
-    // EVERY tied leader loses 1000 — the roller among them for deciding WHO
-    // leads, but excluded from paying: "If more than one player is leading
-    // with the same number of points, each of them has 1,000 points deducted…
-    // If it is the leading player who reveals this card, naturally they don't
-    // have to deduct any points from their score" (ABACUSSPIELE 2024). So the
-    // roller is filtered out of the victims rather than cancelling the whole
-    // deduction, which is what lets a CO-leader's 1000 land; a sole leader
-    // filters down to nobody, the same rule falling out of it. The modernized
-    // path below deliberately keeps its older all-or-nothing reading.
     if (isSuccess && turnSummary.plusMinusScores.length > 0) {
-      const preScores = new Map<string, Player>();
-      const deducted: string[] = [];
-      // Parallel to `deducted`: what each hit really took off. Recorded here
-      // because it cannot be recomputed later — once the scores have moved,
-      // nothing left in the entry says whether the floor swallowed part of it.
-      const deductedAmounts: number[] = [];
-      for (const scoreBeforeCard of turnSummary.plusMinusScores) {
-        const asOfThisCard = newPlayers.map(p => (
-          p.name === currentPlayer.name ? { ...p, score: p.score + scoreBeforeCard } : p
-        ));
-        const victims = getLeaders(asOfThisCard).filter(l => l.name !== currentPlayer.name);
-        victims.forEach(l => {
-          const p = newPlayers.find(np => np.name === l.name);
-          if (!p) return;
-          // Official rule: "a player can never have less than 0 points" —
-          // clamped here (classic) only; the modernized path keeps its
-          // long-standing negative-scores behavior.
-          const clamped = Math.max(0, p.score - PLUS_MINUS_SCORE);
-          // A leader already sitting on 0 loses nothing, and an untouched
-          // score is not a deduction to record, display or undo. This is not
-          // hypothetical: before anyone has scored, EVERY player is tied on 0,
-          // so the game's first Plus/Minus would otherwise report the whole
-          // table as deducted while changing nobody's score.
-          if (clamped === p.score) return;
-          // First touch snapshots the true pre-commit score, so undo can
-          // restore absolutely however many deductions follow.
-          if (!preScores.has(p.name)) preScores.set(p.name, { ...p });
-          p.times1000PointsDeducted = (p.times1000PointsDeducted ?? 0) + 1;
-          deductedAmounts.push(p.score - clamped);
-          p.score = clamped;
-          deducted.push(p.name);
-        });
-      }
-      if (deducted.length > 0) {
-        snapshotLeaders = [...preScores.values()];
-        summaryForState.deductedPlayers = deducted;
-        summaryForState.deductedAmounts = deductedAmounts;
+      const deduction = applyClassicPlusMinus(newPlayers, currentPlayer, turnSummary);
+      if (deduction) {
+        snapshotLeaders = deduction.snapshotLeaders;
+        summaryForState.deductedPlayers = deduction.deductedPlayers;
+        summaryForState.deductedAmounts = deduction.deductedAmounts;
       }
     }
 
@@ -493,114 +580,94 @@ export const calculateNextTurn = (
     historyCard = currentCard ?? 'Stop';
   }
 
-  const historyEntry: HistoryEntry = {
-    // round-player-totalTurns is already a unique triple (totalTurns strictly
-    // increments per player each turn) — no random suffix needed.
-    id: `${round}-${currentPlayer.name}-${currentPlayer.totalTurns}`,
-    round,
-    playerName: currentPlayer.name,
-    playerColor: currentPlayer.color,
-    card: historyCard,
-    type: historyType,
-    score: currentCard === 'Kleeblatt' && isSuccess ? 0 : turnScore,
-  };
+  const historyEntry = buildHistoryEntry(
+    round, currentPlayer, historyCard, historyType, currentCard, isSuccess,
+    turnScore, turnSummary, summaryForState, snapshotLeaders,
+  );
 
-  if (summaryForState && summaryForState.cards.length > 1) {
-    historyEntry.cards = summaryForState.cards.map(c => c.card);
-  }
-  if (summaryForState?.deductedPlayers?.length) {
-    historyEntry.deductedPlayers = [...summaryForState.deductedPlayers];
-    // Both lists or neither: the log reads them by index. The modernized
-    // branch below carries no amounts — it never clamps, so the flat
-    // PLUS_MINUS_SCORE summarizeDeductions falls back to is the true one.
-    if (summaryForState.deductedAmounts) historyEntry.deductedAmounts = [...summaryForState.deductedAmounts];
-  } else if (!turnSummary && currentCard === 'Plus_Minus' && isSuccess && snapshotLeaders) {
-    historyEntry.deductedPlayers = snapshotLeaders.map(l => l.name);
-  }
-
-  if (currentCard === 'Kleeblatt' && isSuccess) {
-    currentPlayer.timesKleeblattCompleted = (currentPlayer.timesKleeblattCompleted ?? 0) + 1;
-    // Kleeblatt is a binary instant-win, not a scored turn — the dice rolled to
-    // complete it (turnScore/scoreInput) are never added to the score, matching
-    // the physical-dice rules (no separate scoring for it). The score just needs
-    // to (a) clear winningScore and (b) strictly exceed every other player's, so
-    // this player is the sole leader — a synthetic "999999" sentinel score used
-    // to do this by discarding the real score entirely, which corrupted average-
-    // score stats (totalScore, dashboards) whenever a Kleeblatt game was included.
-    const otherScores = newPlayers.filter(p => p.name !== currentPlayer.name).map(p => p.score);
-    const highestOtherScore = otherScores.length > 0 ? Math.max(...otherScores) : -Infinity;
-    currentPlayer.score = Math.max(winningScore, currentPlayer.score, highestOtherScore + 1);
-    return {
-      players: newPlayers, isGameOver: true, isRoundEnd: true,
-      nextIndex: null, nextRound: round,
-      previousCard: currentCard, previousScore: turnScore,
-      previousLeaders: snapshotLeaders, previousWasBust: wasBust,
-      previousWasSuccess: isSuccess,
-      previousHighestTurnScore: currentPlayer.highestTurnScore ?? 0,
-      previousHighestFeuerwerkTurnScore: currentPlayer.highestFeuerwerkTurnScore ?? 0,
-      previousHighestX2TurnScore: currentPlayer.highestX2TurnScore ?? 0,
-      previousPlayerName: currentPlayer.name,
-      previousTurnSummary: summaryForState,
-      newDeck: cards, drawnCard: null,
-      historyEntry,
-    };
-  } else if (currentCard === 'Kleeblatt' && !turnSummary) {
+  const kleeblattWin = resolveKleeblattWin(
+    newPlayers, currentPlayer, currentCard, isSuccess, winningScore, turnScore,
+    wasBust, snapshotLeaders, summaryForState, cards, round, historyEntry,
+  );
+  if (kleeblattWin) return kleeblattWin;
+  if (currentCard === 'Kleeblatt' && !turnSummary) {
     // Summary path already counted the failure from summary.cards.
     currentPlayer.timesKleeblattFailed = (currentPlayer.timesKleeblattFailed ?? 0) + 1;
   }
 
-  const previousHighestTurnScore = currentPlayer.highestTurnScore ?? 0;
-  const previousHighestFeuerwerkTurnScore = currentPlayer.highestFeuerwerkTurnScore ?? 0;
-  const previousHighestX2TurnScore = currentPlayer.highestX2TurnScore ?? 0;
-  if (turnScore > (currentPlayer.highestTurnScore ?? 0)) {
-    currentPlayer.highestTurnScore = turnScore;
-  }
-  // Per-card turn records are a modernized concept — in a classic chain the
-  // turn spans several cards, so "a Feuerwerk turn's score" is ill-defined.
-  if (!turnSummary && currentCard === 'Feuerwerk' && turnScore > previousHighestFeuerwerkTurnScore) {
-    currentPlayer.highestFeuerwerkTurnScore = turnScore;
-  }
-  if (!turnSummary && currentCard === 'x2' && turnScore > previousHighestX2TurnScore) {
-    currentPlayer.highestX2TurnScore = turnScore;
-  }
+  const { previousHighestTurnScore, previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore } =
+    applyHighestTurnScoreRecords(currentPlayer, turnScore, currentCard, turnSummary);
   currentPlayer.score += turnScore;
 
-  let isGameOver = false;
-  let nextIndex: number | null = currentPlayerIndex + 1;
-  let nextRound = round;
-  let isRoundEnd = false;
-
-  if (nextIndex >= newPlayers.length) {
-    isRoundEnd = true;
-    const currentLeaders = getLeaders(newPlayers);
-    if (currentLeaders[0].score >= winningScore && currentLeaders.length === 1) {
-      isGameOver = true;
-    }
-    if (!isGameOver) { nextIndex = 0; nextRound++; }
-  }
-
-  let newDeck = [...cards];
-  let drawnCard: CardType | null = null;
-
-  if (!isGameOver) {
-    if (newDeck.length === 0) newDeck = buildDeck(initialCards);
-    drawnCard = newDeck.shift() ?? null;
-  } else {
-    nextIndex = null;
-  }
+  const advance = advanceTurnOrder(newPlayers, currentPlayerIndex, round, winningScore, cards, initialCards);
 
   return {
-    players: newPlayers, isGameOver, isRoundEnd,
-    nextIndex,
-    nextRound, previousCard: currentCard, previousScore: turnScore,
+    players: newPlayers, isGameOver: advance.isGameOver, isRoundEnd: advance.isRoundEnd,
+    nextIndex: advance.nextIndex,
+    nextRound: advance.nextRound, previousCard: currentCard, previousScore: turnScore,
     previousLeaders: snapshotLeaders, previousWasBust: wasBust,
     previousWasSuccess: isSuccess,
     previousHighestTurnScore, previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore,
     previousPlayerName: currentPlayer.name,
     previousTurnSummary: summaryForState,
-    newDeck, drawnCard,
+    newDeck: advance.newDeck, drawnCard: advance.drawnCard,
     historyEntry,
   };
+};
+
+// The exact reversal of the modernized branch of calculateNextTurn.
+// previousLeaders/deductedPlayers span every player a Plus/Minus success
+// deducted from, not just the one whose turn is being undone, so this takes
+// the whole roster rather than a single Player (mirroring why
+// applyClassicPlusMinus's classic counterpart does the same).
+const revertModernizedCounters = (
+  newPlayers: Player[],
+  p: Player,
+  previousCard: CardType,
+  previousScore: number | null,
+  previousWasBust: boolean,
+  previousLeaders: Player[] | null,
+  wasCompleted: (fixedScore: number) => boolean,
+): void => {
+  if (previousCard === 'Feuerwerk') p.timesFeuerwerkReceived = Math.max(0, (p.timesFeuerwerkReceived ?? 0) - 1);
+
+  if (previousWasBust && !isSpecialCard(previousCard)) {
+    p.busts = Math.max(0, (p.busts ?? 0) - 1);
+    if (previousCard === 'Feuerwerk') p.feuerwerkBusts = Math.max(0, (p.feuerwerkBusts ?? 0) - 1);
+    if (previousCard === 'x2') p.x2Busts = Math.max(0, (p.x2Busts ?? 0) - 1);
+  }
+
+  if (previousCard === 'Feuerwerk') p.feuerwerkPointsScored = Math.max(0, (p.feuerwerkPointsScored ?? 0) - (previousScore ?? 0));
+  if (previousCard === 'x2') p.x2PointsScored = Math.max(0, (p.x2PointsScored ?? 0) - (previousScore ?? 0));
+
+  if (previousCard === 'Plus_Minus' && previousLeaders) {
+    previousLeaders.forEach(pl => {
+      const actual = newPlayers.find(np => np.name === pl.name);
+      if (actual) {
+        actual.score = pl.score;
+        actual.times1000PointsDeducted = Math.max(0, (actual.times1000PointsDeducted ?? 0) - 1);
+      }
+    });
+  }
+
+  if (previousCard === 'Plus_Minus') {
+    if (wasCompleted(PLUS_MINUS_SCORE)) p.timesPlusMinusCompleted = Math.max(0, (p.timesPlusMinusCompleted ?? 0) - 1);
+    else p.timesPlusMinusFailed = Math.max(0, (p.timesPlusMinusFailed ?? 0) - 1);
+  }
+
+  if (previousCard === 'x2') p.timesx2Received = Math.max(0, (p.timesx2Received ?? 0) - 1);
+
+  if (previousCard === 'Kniffel') {
+    if (wasCompleted(KNIFFEL_SCORE)) p.timesKniffelCompleted = Math.max(0, (p.timesKniffelCompleted ?? 0) - 1);
+    else p.timesKniffelFailed = Math.max(0, (p.timesKniffelFailed ?? 0) - 1);
+  }
+
+  // A Kleeblatt completion instantly wins the game, which makes it un-undoable
+  // (the finished/currentPlayerIndex guards in calculateUndo return null
+  // first) — so a reachable Kleeblatt undo always reverses a failure.
+  if (previousCard === 'Kleeblatt') {
+    p.timesKleeblattFailed = Math.max(0, (p.timesKleeblattFailed ?? 0) - 1);
+  }
 };
 
 export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
@@ -652,33 +719,11 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
   p.totalTurns = Math.max(0, (p.totalTurns ?? 0) - 1);
 
   if (previousTurnSummary) {
-    // ── Classic chain reversal: mirror the summary path of calculateNextTurn
-    // exactly — per-card counters from the card list, busts only for a dice
-    // null, deduction counters per occurrence, absolute score restore from
-    // the pre-commit leader snapshot.
-    if (previousTurnSummary.ended === 'null') p.busts = Math.max(0, (p.busts ?? 0) - 1);
-
-    for (const played of previousTurnSummary.cards) {
-      switch (played.card) {
-        case 'Feuerwerk': p.timesFeuerwerkReceived = Math.max(0, (p.timesFeuerwerkReceived ?? 0) - 1); break;
-        case 'x2': p.timesx2Received = Math.max(0, (p.timesx2Received ?? 0) - 1); break;
-        case 'Stop': p.timesSkipped = Math.max(0, (p.timesSkipped ?? 0) - 1); break;
-        case 'Kniffel':
-          if (played.completed) p.timesKniffelCompleted = Math.max(0, (p.timesKniffelCompleted ?? 0) - 1);
-          else p.timesKniffelFailed = Math.max(0, (p.timesKniffelFailed ?? 0) - 1);
-          break;
-        case 'Plus_Minus':
-          if (played.completed) p.timesPlusMinusCompleted = Math.max(0, (p.timesPlusMinusCompleted ?? 0) - 1);
-          else p.timesPlusMinusFailed = Math.max(0, (p.timesPlusMinusFailed ?? 0) - 1);
-          break;
-        case 'Kleeblatt':
-          // A completed Kleeblatt wins instantly and is un-undoable (the
-          // finished guard above) — a reachable one is always a failure.
-          if (!played.completed) p.timesKleeblattFailed = Math.max(0, (p.timesKleeblattFailed ?? 0) - 1);
-          break;
-        default: break;
-      }
-    }
+    // ── Classic chain reversal: mirror applySummaryCounters exactly via the
+    // same per-card delta table. The Plus/Minus deduction reversal
+    // (previousLeaders/deductedPlayers) spans every player, not just this
+    // one, so it stays here rather than inside revertSummaryCounters.
+    revertSummaryCounters(p, previousTurnSummary);
 
     if (previousLeaders) {
       previousLeaders.forEach(pl => {
@@ -690,55 +735,8 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
       const actual = newPlayers.find(np => np.name === name);
       if (actual) actual.times1000PointsDeducted = Math.max(0, (actual.times1000PointsDeducted ?? 0) - 1);
     }
-
-    p.totalTuttos = Math.max(0, (p.totalTuttos ?? 0) - previousTurnSummary.tuttoCount);
-    if (previousTurnSummary.prevMostCardsInTurn !== undefined) {
-      p.mostCardsInTurn = previousTurnSummary.prevMostCardsInTurn ?? undefined;
-    }
-    if (previousTurnSummary.prevHighestForfeitedTurnScore !== undefined) {
-      p.highestForfeitedTurnScore = previousTurnSummary.prevHighestForfeitedTurnScore ?? undefined;
-    }
   } else {
-    // ── Modernized reversal — unchanged.
-    if (previousCard === 'Feuerwerk') p.timesFeuerwerkReceived = Math.max(0, (p.timesFeuerwerkReceived ?? 0) - 1);
-
-    if (previousWasBust && !isSpecialCard(previousCard)) {
-      p.busts = Math.max(0, (p.busts ?? 0) - 1);
-      if (previousCard === 'Feuerwerk') p.feuerwerkBusts = Math.max(0, (p.feuerwerkBusts ?? 0) - 1);
-      if (previousCard === 'x2') p.x2Busts = Math.max(0, (p.x2Busts ?? 0) - 1);
-    }
-
-    if (previousCard === 'Feuerwerk') p.feuerwerkPointsScored = Math.max(0, (p.feuerwerkPointsScored ?? 0) - (previousScore ?? 0));
-    if (previousCard === 'x2') p.x2PointsScored = Math.max(0, (p.x2PointsScored ?? 0) - (previousScore ?? 0));
-
-    if (previousCard === 'Plus_Minus' && previousLeaders) {
-      previousLeaders.forEach(pl => {
-        const actual = newPlayers.find(np => np.name === pl.name);
-        if (actual) {
-          actual.score = pl.score;
-          actual.times1000PointsDeducted = Math.max(0, (actual.times1000PointsDeducted ?? 0) - 1);
-        }
-      });
-    }
-
-    if (previousCard === 'Plus_Minus') {
-      if (wasCompleted(PLUS_MINUS_SCORE)) p.timesPlusMinusCompleted = Math.max(0, (p.timesPlusMinusCompleted ?? 0) - 1);
-      else p.timesPlusMinusFailed = Math.max(0, (p.timesPlusMinusFailed ?? 0) - 1);
-    }
-
-    if (previousCard === 'x2') p.timesx2Received = Math.max(0, (p.timesx2Received ?? 0) - 1);
-
-    if (previousCard === 'Kniffel') {
-      if (wasCompleted(KNIFFEL_SCORE)) p.timesKniffelCompleted = Math.max(0, (p.timesKniffelCompleted ?? 0) - 1);
-      else p.timesKniffelFailed = Math.max(0, (p.timesKniffelFailed ?? 0) - 1);
-    }
-
-    // A Kleeblatt completion instantly wins the game, which makes it un-undoable
-    // (the finished/currentPlayerIndex guards above return null first) — so a
-    // reachable Kleeblatt undo always reverses a failure.
-    if (previousCard === 'Kleeblatt') {
-      p.timesKleeblattFailed = Math.max(0, (p.timesKleeblattFailed ?? 0) - 1);
-    }
+    revertModernizedCounters(newPlayers, p, previousCard, previousScore, previousWasBust, previousLeaders, wasCompleted);
   }
 
   if (previousHighestTurnScore !== undefined) p.highestTurnScore = previousHighestTurnScore;

@@ -315,17 +315,33 @@ const runGame = (ruleset: 'classic' | 'modernized', rng: ReturnType<typeof makeR
   }
 };
 
+// buildDeck (called both by this file's deck top-ups and internally by
+// calculateNextTurn/advanceTurnOrder on a reshuffle) draws from the real
+// Math.random, not this file's seeded rng — left alone, that would make the
+// exact turn sequence non-deterministic between runs even with PRNG_SEED
+// fixed, defeating the point of seeding (a red run must be reproducible from
+// this file alone). Pinned to its own mulberry32 stream for the test's
+// duration and restored in `finally` so no other suite in the same process
+// inherits a mocked Math.random.
+const MATH_RANDOM_SEED = 0xdec0_5eed;
+
 describe('coreGameEngine property test: calculateUndo(calculateNextTurn(state)) === state', () => {
   it(`restores every undoable turn across ${RULESETS.length * GAMES_PER_RULESET * TURNS_PER_GAME} generated turns (both rulesets, 2-4 players)`, () => {
     const rng = makeRng(PRNG_SEED);
     const totals: RunTotals = { turnsRun: 0, turnsUndoVerified: 0, turnsBareStopSkipped: 0 };
+    const originalMathRandom = Math.random;
+    Math.random = mulberry32(MATH_RANDOM_SEED);
     const start = performance.now();
 
-    for (const ruleset of RULESETS) {
-      for (let game = 0; game < GAMES_PER_RULESET; game++) {
-        const numPlayers = MIN_PLAYERS + rng.nextInt(MAX_PLAYERS - MIN_PLAYERS + 1);
-        runGame(ruleset, rng, numPlayers, totals);
+    try {
+      for (const ruleset of RULESETS) {
+        for (let game = 0; game < GAMES_PER_RULESET; game++) {
+          const numPlayers = MIN_PLAYERS + rng.nextInt(MAX_PLAYERS - MIN_PLAYERS + 1);
+          runGame(ruleset, rng, numPlayers, totals);
+        }
       }
+    } finally {
+      Math.random = originalMathRandom;
     }
 
     const durationMs = performance.now() - start;
