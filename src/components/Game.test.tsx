@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Game from './Game';
 import { useGameStore, _resetTimersForTests } from '../store/useGameStore';
 import { MAX_CHAIN_CARDS } from '../types';
-import { STOP_CARD_AUTO_CONTINUE_MS } from '../utils/uiTimings';
+import { STOP_CARD_AUTO_CONTINUE_MS, CARD_FLIP_MS } from '../utils/uiTimings';
 import { vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
 
 vi.mock('../utils/soundEffects', () => ({
@@ -173,17 +173,22 @@ describe('Game Component Integration', () => {
     expect(screen.queryByLabelText('game.controls.applyBonus')).not.toBeInTheDocument();
   });
 
-  it('automatically advances turn after 5 seconds on Stop card in online game', () => {
+  it('automatically advances turn after the flip plus 5 seconds on Stop card in online game', () => {
     useGameStore.setState({ currentCard: 'Stop' });
     render(<Game />);
 
     expect(mockNextTurn).not.toHaveBeenCalled();
 
-    // Fast-forward 5 seconds
+    // The buzzer waits for the card flip to finish, and the auto-continue
+    // waits STOP_CARD_AUTO_CONTINUE_MS beyond that (see Game.tsx).
     act(() => {
-      vi.advanceTimersByTime(5000);
+      vi.advanceTimersByTime(CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS - 1);
     });
+    expect(mockNextTurn, 'not yet — one tick short of the real deadline').not.toHaveBeenCalled();
 
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     expect(mockNextTurn).toHaveBeenCalledWith(0, false);
   });
 
@@ -325,47 +330,54 @@ describe('Game Component Integration', () => {
     });
   });
 
-  it('plays buzzer sound when Stop card is drawn locally or online', async () => {
+  it('plays buzzer sound when Stop card is drawn locally or online, once the flip finishes', async () => {
     act(() => {
       useGameStore.setState({ currentCard: 'Stop' });
     });
     render(<Game />);
-    
+
+    expect(await import('../utils/soundEffects').then(m => m.playBuzzer), 'not yet — the flip is still playing').not.toHaveBeenCalled();
+    act(() => { vi.advanceTimersByTime(CARD_FLIP_MS); });
     expect(await import('../utils/soundEffects').then(m => m.playBuzzer)).toHaveBeenCalled();
-    
+
     vi.clearAllMocks();
 
     act(() => {
       useGameStore.setState({ currentCard: 'Stop', isOnline: false });
     });
     render(<Game />);
+    act(() => { vi.advanceTimersByTime(CARD_FLIP_MS); });
 
     expect(await import('../utils/soundEffects').then(m => m.playBuzzer)).toHaveBeenCalled();
   });
 
-  it('triggers animation and sound on consecutive Feuerwerk draws', async () => {
+  it('triggers animation and sound on consecutive Feuerwerk draws, once the flip finishes', async () => {
     const playSuccess = await import('../utils/soundEffects').then(m => m.playSuccess);
     const confetti = await import('canvas-confetti').then(m => m.default);
 
     act(() => {
       useGameStore.setState({ currentCard: 'Feuerwerk', cards: ['Feuerwerk', 'Stop'] });
     });
-    
+
     const { rerender } = render(<Game />);
-    
+
+    expect(playSuccess, 'not yet — the flip is still playing').not.toHaveBeenCalled();
+    act(() => { vi.advanceTimersByTime(CARD_FLIP_MS); });
+
     // First draw
     expect(playSuccess).toHaveBeenCalledTimes(1);
     expect(confetti).toHaveBeenCalledTimes(1);
-    
+
     vi.clearAllMocks();
 
     // Consecutive draw of Feuerwerk: currentCard stays 'Feuerwerk', cards array length decreases
     act(() => {
       useGameStore.setState({ currentCard: 'Feuerwerk', cards: ['Stop'] });
     });
-    
+
     rerender(<Game />);
-    
+    act(() => { vi.advanceTimersByTime(CARD_FLIP_MS); });
+
     expect(playSuccess).toHaveBeenCalledTimes(1);
     expect(confetti).toHaveBeenCalledTimes(1);
   });
@@ -738,6 +750,11 @@ describe('Game Component Integration', () => {
       // The running total stays in the input across the draw.
       expect((screen.getByPlaceholderText('game.controls.scorePlaceholder') as HTMLInputElement).value).toBe('350');
 
+      // The card-flip animation GameControls plays on the '300'->'400' change
+      // above has to finish (its exit/enter swap otherwise leaves the score
+      // input mid-transition, where a change event no longer reaches live state)
+      // before the running total can be edited again.
+      act(() => { vi.advanceTimersByTime(CARD_FLIP_MS); });
       fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '1150' } });
       fireEvent.click(screen.getByText('game.controls.nextTurn'));
       expect(mockNextTurn).toHaveBeenCalledWith(1150, true, expect.objectContaining({
@@ -812,6 +829,9 @@ describe('Game Component Integration', () => {
 
       fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '1300' } });
       fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+      // Let the card-flip GameControls plays on the card change finish before
+      // editing the score input again (see the matching comment above).
+      act(() => { vi.advanceTimersByTime(CARD_FLIP_MS); });
       fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '1600' } });
       fireEvent.click(screen.getByText('game.controls.nextTurn'));
 
@@ -833,8 +853,9 @@ describe('Game Component Integration', () => {
       render(<Game />);
 
       fireEvent.click(screen.getByTestId('physical-draw-next-card'));
-      // The online Stop auto-continue commits the chain forfeit.
-      act(() => { vi.advanceTimersByTime(6000); });
+      // The online Stop auto-continue commits the chain forfeit, once the
+      // buzzer's own card-flip wait plus the auto-continue delay both elapse.
+      act(() => { vi.advanceTimersByTime(CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS); });
 
       expect(mockNextTurn).toHaveBeenCalledWith(0, false, expect.objectContaining({
         cards: [{ card: '300', completed: true }, { card: 'Stop', completed: false }],

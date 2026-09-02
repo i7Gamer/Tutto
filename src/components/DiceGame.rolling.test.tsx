@@ -2,10 +2,6 @@ import { render, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// The real-timer animation path: isTestEnv normally short-circuits every
-// tumble timer to zero, which makes the mid-animation window unobservable —
-// this file mocks it false so roll() schedules the real per-die settles.
-vi.mock('../utils/env', () => ({ isTestEnv: () => false }));
 vi.mock('canvas-confetti', () => ({ default: vi.fn() }));
 vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(), playSuccess: vi.fn(), playTone: vi.fn(),

@@ -7,6 +7,5 @@
 declare const __APP_VERSION__: string;
 
 interface Window {
-  __TEST_MODE__?: boolean;
   webkitAudioContext?: typeof AudioContext;
 }

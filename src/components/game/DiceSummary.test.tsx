@@ -1,6 +1,30 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { PropsWithChildren, HTMLAttributes } from 'react';
 import DiceSummary from './DiceSummary';
+import { AUTO_CONTINUE_SECONDS } from '../../utils/uiTimings';
+
+// The shrinking progress bar's transition.duration used to collapse to 0
+// under isTestEnv — now it is unconditionally AUTO_CONTINUE_SECONDS. Real
+// framer-motion consumes `transition` internally rather than exposing it as
+// a DOM attribute, so this surfaces it as one for the assertion below.
+vi.mock('framer-motion', () => ({
+  motion: {
+    div: ({ children, transition, initial, animate, className, ...rest }: PropsWithChildren<HTMLAttributes<HTMLDivElement> & {
+      transition?: { duration?: number; ease?: string };
+      initial?: unknown;
+      animate?: unknown;
+    }>) => (
+      <div
+        className={className}
+        data-transition-duration={transition?.duration}
+        {...rest}
+      >
+        {children}
+      </div>
+    ),
+  },
+}));
 
 describe('DiceSummary', () => {
   const baseProps = {
@@ -121,6 +145,15 @@ describe('DiceSummary', () => {
       render(<DiceSummary {...baseProps} finishGame={finishGame} />);
       fireEvent.click(screen.getByText('dice.continue'));
       expect(finishGame).toHaveBeenCalledOnce();
+    });
+
+    it('shrinks the progress bar over the real AUTO_CONTINUE_SECONDS, not instantly', () => {
+      // There used to be an isTestEnv() branch collapsing this to a 0s
+      // transition; the real timed path is now the only one.
+      render(<DiceSummary {...baseProps} continueCountdown={3} />);
+      const bar = document.querySelector('[data-transition-duration]');
+      expect(bar).not.toBeNull();
+      expect(bar).toHaveAttribute('data-transition-duration', String(AUTO_CONTINUE_SECONDS));
     });
   });
 

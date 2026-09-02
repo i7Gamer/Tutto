@@ -2,15 +2,9 @@ import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useAutoContinueCountdown } from './useAutoContinueCountdown';
 
-// Control isTestEnv so we can exercise both the instant (test) path and the
-// real 3-2-1 countdown path.
-const isTestEnv = vi.fn();
-vi.mock('../utils/env', () => ({ isTestEnv: () => isTestEnv() }));
-
 describe('useAutoContinueCountdown', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    isTestEnv.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -132,15 +126,5 @@ describe('useAutoContinueCountdown', () => {
 
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
-  });
-
-  it('in test mode collapses to 0 and fires immediately', () => {
-    isTestEnv.mockReturnValue(true);
-    const onElapsed = vi.fn();
-    const { result } = renderHook(() => useAutoContinueCountdown({ shouldStart: true, onElapsed }));
-
-    expect(result.current).toBe(0);
-    act(() => vi.advanceTimersByTime(0));
-    expect(onElapsed).toHaveBeenCalledTimes(1);
   });
 });

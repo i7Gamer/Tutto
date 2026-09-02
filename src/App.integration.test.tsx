@@ -5,7 +5,30 @@ import App from './App';
 import * as diceLogic from './utils/diceLogic';
 import { useGameStore, _resetTimersForTests } from './store/useGameStore';
 import { disconnectSocket } from './store/socketRef';
-import { DICE_PANEL_ENTRANCE_MS, TOAST_LIFETIME_MS, JOIN_TIMEOUT_MS } from './utils/uiTimings';
+import {
+  DICE_PANEL_ENTRANCE_MS, TOAST_LIFETIME_MS, JOIN_TIMEOUT_MS,
+  DIE_TUMBLE_MS, DIE_STAGGER_MS, ROLL_SETTLE_BUFFER_MS, AUTO_CONTINUE_SECONDS,
+} from './utils/uiTimings';
+import { TOTAL_DICE } from './utils/turnShapes';
+
+// Every die in the opening roll tumbles for DIE_TUMBLE_MS, then the dice
+// settle one after another DIE_STAGGER_MS apart, and the roll finalizes
+// ROLL_SETTLE_BUFFER_MS after the last one settles (see DiceGame.tsx's roll()).
+// This file never mocks uiTimings, so — unlike DiceGame's own unit tests —
+// these are real setTimeouts that only fire once real wall-clock time passes.
+// Game.tsx's own DICE_PANEL_ENTRANCE_MS timeout has to elapse first (it is
+// what flips panelReady, which is what starts the roll), so the wait below
+// covers both in sequence. A small margin on top keeps it past the deadline
+// rather than exactly on it.
+const ROLL_ANIMATION_MARGIN_MS = 250;
+const FULL_ROLL_ANIMATION_MS =
+  DICE_PANEL_ENTRANCE_MS + DIE_TUMBLE_MS + (TOTAL_DICE - 1) * DIE_STAGGER_MS + ROLL_SETTLE_BUFFER_MS + ROLL_ANIMATION_MARGIN_MS;
+
+// The dice summary auto-continues to the next player only after a real
+// AUTO_CONTINUE_SECONDS countdown (useAutoContinueCountdown) — no test-env
+// shortcut collapses it anymore, so a wait for that transition needs a
+// timeout comfortably past the countdown's real wall-clock length.
+const AUTO_CONTINUE_WAIT_MS = AUTO_CONTINUE_SECONDS * 1000 + 2000;
 
 // Mock confetti
 vi.mock('canvas-confetti', () => ({
@@ -111,21 +134,18 @@ describe('App Integration (End-to-End)', () => {
     await screen.findByRole('heading', { name: /dice.title/i });
 
     // The dice auto-roll once the panel's entrance delay elapses — there's no
-    // manual roll button anymore. isTestEnv() is true here, so DiceGame's
-    // roll() finalizes synchronously (see DiceGame.tsx) — only Game.tsx's
-    // real DICE_PANEL_ENTRANCE_MS setTimeout needs to elapse; no separate
-    // wait for the rolling animation is needed once it does.
-    vi.useFakeTimers();
-    act(() => { vi.advanceTimersByTime(DICE_PANEL_ENTRANCE_MS + 50); });
-    vi.useRealTimers();
-
+    // manual roll button anymore. Game.tsx's DICE_PANEL_ENTRANCE_MS timeout
+    // starts the roll, and DiceGame's own tumble/settle timers then have to
+    // run to completion before a die actually accepts a click (Die.tsx
+    // disables it until the roll finalizes) — both are real timers here, so
+    // this waits for real elapsed time rather than advancing a fake clock.
     await waitFor(() => {
-      const dice = screen.getAllByText('1');
+      const dice = screen.getAllByTestId('die');
       expect(dice.length).toBeGreaterThanOrEqual(6);
-    });
+      dice.forEach(die => expect(die).not.toBeDisabled());
+    }, { timeout: FULL_ROLL_ANIMATION_MS });
 
-    const diceElements = screen.getAllByText('1');
-    const actualDice = diceElements.filter(el => el.dataset.testid === 'die');
+    const actualDice = screen.getAllByTestId('die');
     actualDice.forEach(die => fireEvent.click(die));
 
     // After 1 Tutto on a 200 card, score should be 2200 points!
@@ -135,10 +155,15 @@ describe('App Integration (End-to-End)', () => {
     fireEvent.click(stopButton);
 
     // Auto-advance to Bob's turn; Alice's 2200 is recorded on the leaderboard.
+    // Waiting on visible text alone is a false-positive trap here: "2200" can
+    // show up transiently inside Alice's OWN still-open summary, and "Bob" is
+    // always in the leaderboard regardless of whose turn it is — neither
+    // implies the turn actually advanced. currentPlayerIndex flipping to 1
+    // is the one fact that does.
     await waitFor(() => {
-      expect(screen.getAllByText(/2200/).length).toBeGreaterThan(0);
-      expect(screen.getAllByText(/Bob/i).length).toBeGreaterThan(0);
-    });
+      expect(useGameStore.getState().currentPlayerIndex).toBe(1);
+    }, { timeout: AUTO_CONTINUE_WAIT_MS });
+    expect(screen.getAllByText(/2200/).length).toBeGreaterThan(0);
 
     // Bob's card is automatically drawn due to nextTurn logic.
     // It should be '200'.
@@ -150,19 +175,15 @@ describe('App Integration (End-to-End)', () => {
     await screen.findByRole('heading', { name: /dice.title/i });
 
     // The dice auto-roll once the panel's entrance delay elapses (see the
-    // matching comment on Alice's turn above for why no separate wait for
-    // the rolling animation is needed).
-    vi.useFakeTimers();
-    act(() => { vi.advanceTimersByTime(DICE_PANEL_ENTRANCE_MS + 50); });
-    vi.useRealTimers();
+    // matching comment on Alice's turn above).
+    await waitFor(() => {
+      const dice = screen.getAllByTestId('die');
+      expect(dice.length).toBeGreaterThanOrEqual(6);
+      dice.forEach(die => expect(die).not.toBeDisabled());
+    }, { timeout: FULL_ROLL_ANIMATION_MS });
 
     // We make Bob score just 100 points and stop
-    await waitFor(() => {
-      const dice = screen.getAllByText('1');
-      expect(dice.length).toBeGreaterThanOrEqual(6);
-    });
-
-    const bobDice = screen.getAllByText('1').filter(el => el.dataset.testid === 'die');
+    const bobDice = screen.getAllByTestId('die');
     fireEvent.click(bobDice[0]); // Select one '1'
 
     const stopBob = await screen.findByText(/dice.stop_and_score/i);
@@ -173,10 +194,10 @@ describe('App Integration (End-to-End)', () => {
     await waitFor(() => {
       expect(screen.getByText(/end.winner Alice/i)).toBeTruthy();
       expect(screen.getAllByText(/2200/).length).toBeGreaterThan(0);
-    });
+    }, { timeout: AUTO_CONTINUE_WAIT_MS });
 
     Math.random = originalRandom;
-  }, 15000);
+  }, 20000);
 
 
   it('renders ToastMessage and ReconnectPopup overlays based on store state', () => {

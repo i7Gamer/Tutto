@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Undo2, ChevronRight, Check, X, Dices, Layers } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-import { isTestEnv } from '../../utils/env';
 import { sortKeptDiceForDisplay, hasScoreInput, isSpecialCard } from '../../utils/diceTurnControls';
 import { CARD_FLIP_MS } from '../../utils/uiTimings';
 import { BONUS_CARDS, DEFAULT_RULESET } from '../../utils/configValidation';
@@ -119,7 +118,7 @@ export default function GameControls({
   if (cardsLength !== prevCardsLength || currentCard !== prevCard) {
     setPrevCardsLength(cardsLength);
     setPrevCard(currentCard);
-    if (!isTestEnv() && (currentCard || prevCard)) {
+    if (currentCard || prevCard) {
       setIsFlipping(true);
     } else if (!currentCard) {
       setIsFlipping(false);

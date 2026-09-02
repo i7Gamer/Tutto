@@ -1,16 +1,9 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { ComponentProps } from 'react';
 import GameControls from './GameControls';
 import type { CardType, DiceSnapshot, Player } from '../../types';
 import { CARD_FLIP_MS } from '../../utils/uiTimings';
-
-// The card-flip state is suppressed under isTestEnv (see GameControls), so
-// reaching it at all means saying this file is not a test environment for the
-// length of one describe. Everything outside it keeps the real value, which is
-// what stops a card change hiding the controls out from under the other tests.
-const { testEnv } = vi.hoisted(() => ({ testEnv: { current: true } }));
-vi.mock('../../utils/env', () => ({ isTestEnv: () => testEnv.current }));
 
 describe('GameControls card-flip state', () => {
   // Replaces six tests that imported GameControls, never rendered it, and
@@ -52,9 +45,6 @@ describe('GameControls card-flip state', () => {
   // "the timer had not got round to it yet".
   const PAST_THE_FLIP_MS = CARD_FLIP_MS * 2;
   const settle = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-  beforeEach(() => { testEnv.current = false; });
-  afterEach(() => { testEnv.current = true; });
 
   it('hides the turn controls for exactly one flip when the card changes', async () => {
     const { rerender } = render(<GameControls {...flipProps({ currentCard: '200' })} />);

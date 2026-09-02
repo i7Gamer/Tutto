@@ -5,7 +5,6 @@ import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../store/useGameStore';
 import confetti from 'canvas-confetti';
 import { playBuzzer, playSuccess, vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
-import { isTestEnv } from '../utils/env';
 import { computeRankedPlayers } from '../utils/coreGameEngine';
 import { applyTuttoBonus } from '../utils/diceLogic';
 import { motion } from 'framer-motion';
@@ -349,16 +348,9 @@ export default function Game() {
           nextTurn(0, false);
         }
       };
-      if (isTestEnv()) {
-        playBuzzer();
-        if (isOnline && isMyTurn) {
-          turnTimeout = setTimeout(commitStop, STOP_CARD_AUTO_CONTINUE_MS);
-        }
-      } else {
-        soundTimeout = setTimeout(() => playBuzzer(), CARD_FLIP_MS);
-        if (isOnline && isMyTurn) {
-          turnTimeout = setTimeout(commitStop, CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS);
-        }
+      soundTimeout = setTimeout(() => playBuzzer(), CARD_FLIP_MS);
+      if (isOnline && isMyTurn) {
+        turnTimeout = setTimeout(commitStop, CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS);
       }
     }
 
@@ -378,19 +370,13 @@ export default function Game() {
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     if (currentCard === 'Feuerwerk' && !confettiFiredRef.current) {
-      if (isTestEnv()) {
-        confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
-        playSuccess();
-        confettiFiredRef.current = true;
-      } else {
-        timeout = setTimeout(() => {
-          if (!confettiFiredRef.current) {
-            confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
-            playSuccess();
-            confettiFiredRef.current = true;
-          }
-        }, CARD_FLIP_MS);
-      }
+      timeout = setTimeout(() => {
+        if (!confettiFiredRef.current) {
+          confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+          playSuccess();
+          confettiFiredRef.current = true;
+        }
+      }, CARD_FLIP_MS);
     }
     return () => clearTimeout(timeout);
   }, [currentCard, cards?.length]);

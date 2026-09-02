@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { isTestEnv } from '../utils/env';
 import { AUTO_CONTINUE_SECONDS } from '../utils/uiTimings';
 import { MS_PER_SECOND } from '../utils/time';
 
@@ -36,7 +35,7 @@ export function useAutoContinueCountdown({ shouldStart, onElapsed, restartKey }:
   useEffect(() => {
     if (!shouldStart || startedForRef.current === restartKey) return;
     startedForRef.current = restartKey;
-    setCountdown(isTestEnv() ? 0 : AUTO_CONTINUE_SECONDS);
+    setCountdown(AUTO_CONTINUE_SECONDS);
   }, [shouldStart, restartKey]);
 
   // The countdown reaching 0 is the single source of truth for "time's up" —

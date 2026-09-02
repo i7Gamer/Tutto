@@ -17,7 +17,6 @@ import {
   DIE_TUMBLE_MS, DIE_STAGGER_MS, DIE_FACE_SHUFFLE_MS, ROLL_SETTLE_BUFFER_MS,
   BUST_SUMMARY_DELAY_MS, LIVE_SNAPSHOT_DEBOUNCE_MS, DISCARDED_DRAW_RECOVERY_MS,
 } from '../utils/uiTimings';
-import { isTestEnv } from '../utils/env';
 import DiceSummary from './game/DiceSummary';
 import DrawnCardReveal from './game/DrawnCardReveal';
 import TurnScoreHeader from './game/TurnScoreHeader';
@@ -161,32 +160,19 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     const initialRolling = new Set(finalRolls.map(r => r.id));
     setRollingDiceIndices(initialRolling);
 
-    const isTest = isTestEnv();
-    const baseTumbleTime = isTest ? 0 : DIE_TUMBLE_MS;
-    const staggerDelay = isTest ? 0 : DIE_STAGGER_MS;
-
     finalRolls.forEach((r, idx) => {
-      if (isTest) {
+      pendingTimers.current.push(setTimeout(() => {
         setRollingDiceIndices(prev => {
           const next = new Set(prev);
           next.delete(r.id);
           return next;
         });
         setDisplayRoll(prev => prev.map(d => d.id === r.id ? { ...d, val: r.val } : d));
-      } else {
-        pendingTimers.current.push(setTimeout(() => {
-          setRollingDiceIndices(prev => {
-            const next = new Set(prev);
-            next.delete(r.id);
-            return next;
-          });
-          setDisplayRoll(prev => prev.map(d => d.id === r.id ? { ...d, val: r.val } : d));
-          playTone(400 + (idx * 50), 'sine', 0.05);
-        }, baseTumbleTime + (idx * staggerDelay)));
-      }
+        playTone(400 + (idx * 50), 'sine', 0.05);
+      }, DIE_TUMBLE_MS + (idx * DIE_STAGGER_MS)));
     });
 
-    const totalAnimationTime = baseTumbleTime + ((finalRolls.length - 1) * staggerDelay);
+    const totalAnimationTime = DIE_TUMBLE_MS + ((finalRolls.length - 1) * DIE_STAGGER_MS);
 
     const finalizeRoll = () => {
       setIsRolling(false);
@@ -216,23 +202,15 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
           }
         };
 
-        if (isTest) {
+        pendingTimers.current.push(setTimeout(() => {
           dispatch({ type: 'SUMMARY_SHOWN', summary: getSummary() });
-        } else {
-          pendingTimers.current.push(setTimeout(() => {
-            dispatch({ type: 'SUMMARY_SHOWN', summary: getSummary() });
-          }, BUST_SUMMARY_DELAY_MS));
-        }
+        }, BUST_SUMMARY_DELAY_MS));
       } else if (isClassic && currentCard === 'Feuerwerk') {
         dispatch({ type: 'FEUERWERK_SELECTION_FORCED', ruleset });
       }
     };
 
-    if (isTest) {
-      finalizeRoll();
-    } else {
-      pendingTimers.current.push(setTimeout(finalizeRoll, totalAnimationTime + ROLL_SETTLE_BUFFER_MS));
-    }
+    pendingTimers.current.push(setTimeout(finalizeRoll, totalAnimationTime + ROLL_SETTLE_BUFFER_MS));
   }, [currentCard, kniffelProgress, ruleset, isClassic]);
 
   // roll is rebuilt whenever kniffelProgress changes, which happens on every
@@ -253,7 +231,6 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
 
   useEffect(() => {
     if (rollingDiceIndices.size === 0) return;
-    if (isTestEnv()) return;
     const interval = setInterval(() => {
       setDisplayRoll(prev => prev.map(d => {
         const isDieRolling = rollingDiceIndices.has(d.id);

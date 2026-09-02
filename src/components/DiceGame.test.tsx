@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Profiler } from 'react';
 import { render, screen, fireEvent, act, waitFor, cleanup } from '@testing-library/react';
 import { parseSavedDiceState } from '../utils/diceTurnState';
-import { DIE_TUMBLE_MS, DIE_STAGGER_MS, ROLL_SETTLE_BUFFER_MS } from '../utils/uiTimings';
 import { MAX_CHAIN_CARDS } from '../types';
 import DiceGame from './DiceGame';
 import { playTone } from '../utils/soundEffects';
@@ -61,13 +60,60 @@ const dieShowing = (val: number, selected: boolean): HTMLElement => {
 const selectedDice = (): HTMLElement[] =>
   screen.queryAllByLabelText(/dice.die_showing/).filter(el => el.getAttribute('aria-pressed') === 'true');
 
-// Real isTestEnv() collapses all of DiceGame's roll/bust animation timers to 0
-// (they fire synchronously), which is convenient elsewhere but means there'd
-// be nothing to verify cleanup against for the unmount test below. Default to
-// the real (true) behavior for every other test; only the cleanup test flips
-// this to false to exercise the actual setTimeout-scheduling code paths.
-const isTestEnvMock = vi.fn(() => true);
-vi.mock('../utils/env', () => ({ isTestEnv: () => isTestEnvMock() }));
+// DiceGame no longer has a test-env fast path: roll() always schedules its
+// animation/finalize timers for real. Most tests here don't care how long
+// that takes, so this mock defaults every one of those durations to 0 —
+// same net effect the old isTestEnv() collapse had — while a handful of
+// describes below (the ones actually testing the timed behavior) restore the
+// real values via `realTiming`.
+const { timing, realTiming, ZERO_TIMING } = vi.hoisted(() => {
+  const zero = { DIE_TUMBLE_MS: 0, DIE_STAGGER_MS: 0, ROLL_SETTLE_BUFFER_MS: 0, BUST_SUMMARY_DELAY_MS: 0, AUTO_CONTINUE_SECONDS: 0 };
+  return {
+    timing: { ...zero },
+    realTiming: {} as Record<'DIE_TUMBLE_MS' | 'DIE_STAGGER_MS' | 'ROLL_SETTLE_BUFFER_MS' | 'BUST_SUMMARY_DELAY_MS' | 'AUTO_CONTINUE_SECONDS', number>,
+    ZERO_TIMING: zero,
+  };
+});
+
+vi.mock('../utils/uiTimings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/uiTimings')>();
+  Object.assign(realTiming, {
+    DIE_TUMBLE_MS: actual.DIE_TUMBLE_MS,
+    DIE_STAGGER_MS: actual.DIE_STAGGER_MS,
+    ROLL_SETTLE_BUFFER_MS: actual.ROLL_SETTLE_BUFFER_MS,
+    BUST_SUMMARY_DELAY_MS: actual.BUST_SUMMARY_DELAY_MS,
+    AUTO_CONTINUE_SECONDS: actual.AUTO_CONTINUE_SECONDS,
+  });
+  return {
+    ...actual,
+    get DIE_TUMBLE_MS() { return timing.DIE_TUMBLE_MS; },
+    get DIE_STAGGER_MS() { return timing.DIE_STAGGER_MS; },
+    get ROLL_SETTLE_BUFFER_MS() { return timing.ROLL_SETTLE_BUFFER_MS; },
+    get BUST_SUMMARY_DELAY_MS() { return timing.BUST_SUMMARY_DELAY_MS; },
+    get AUTO_CONTINUE_SECONDS() { return timing.AUTO_CONTINUE_SECONDS; },
+  };
+});
+
+// Most describes below run on ambient REAL timers (never fake), so a debounce
+// like LIVE_SNAPSHOT_DEBOUNCE_MS can still be awaited for real further down in
+// the same test. With every duration above mocked to 0, roll()'s
+// setTimeout(fn, 0) calls fire on the very next real macrotask instead of
+// after a genuine delay — flushRoll drains those. finalizeRoll's own
+// zero-delay timer is registered alongside the six die-settle ones, so one
+// flush drains all seven; a bust then schedules ANOTHER zero-delay timer for
+// its summary from inside that first callback, one macrotask later — hence
+// two flushes, not one.
+const flushRoll = async () => {
+  await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 0)); });
+  await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 0)); });
+};
+
+// A handful of describes below use FAKE timers instead (they need to control
+// a later, unrelated deadline deterministically). For those, the same
+// zero-mocked roll settles on a small fake-timer advance rather than a real
+// macrotask flush — see the cascading-timer note on FAKE_FLUSH_MS's usage.
+const FAKE_FLUSH_MS = 5;
+const flushRollFake = () => act(() => { vi.advanceTimersByTime(FAKE_FLUSH_MS); });
 
 describe('DiceGame State Restoration Logic', () => {
   beforeEach(() => {
@@ -502,6 +548,7 @@ describe('DiceGame interactive turn logic', () => {
     const onComplete = vi.fn();
     queueRoll([1, 5, 2, 2, 3, 4]);
     render(<DiceGame currentCard="200" onComplete={onComplete} />);
+    await flushRoll();
 
     clickDie(1);
     clickDie(5);
@@ -512,13 +559,15 @@ describe('DiceGame interactive turn logic', () => {
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(150, true));
   });
 
-  it('renders kept dice as pip faces, not raw digits, matching the current-roll dice style', () => {
+  it('renders kept dice as pip faces, not raw digits, matching the current-roll dice style', async () => {
     queueRoll([1, 5, 2, 2, 3, 4]); // first (auto) roll
     queueRoll([5, 2, 3, 4, 6]); // reroll of the 5 dice not kept — includes a 5 so it isn't a bust
     render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+    await flushRoll();
 
     clickDie(1);
     fireEvent.click(screen.getByText('dice.roll_again'));
+    await flushRoll();
 
     const keptDiceBox = screen.getByText('dice.kept_dice').nextElementSibling as HTMLElement;
     // A pip face is a 3x3 grid of dot divs (see DiePips), not the bare "1".
@@ -526,9 +575,10 @@ describe('DiceGame interactive turn logic', () => {
     expect(keptDiceBox).not.toHaveTextContent('1');
   });
 
-  it('marks a non-scoring selection invalid and disables both action buttons', () => {
+  it('marks a non-scoring selection invalid and disables both action buttons', async () => {
     queueRoll([1, 2, 3, 4, 6, 6]);
     render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+    await flushRoll();
 
     clickDie(2); // a lone 2 can never score
 
@@ -539,9 +589,10 @@ describe('DiceGame interactive turn logic', () => {
     expect(screen.getByText('dice.stop_and_score').closest('button')).toBeDisabled();
   });
 
-  it('keeps Stop & Score mounted in place when selection validity toggles, instead of unmounting it', () => {
+  it('keeps Stop & Score mounted in place when selection validity toggles, instead of unmounting it', async () => {
     queueRoll([1, 2, 3, 4, 6, 6]);
     render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+    await flushRoll();
 
     clickDie(1); // a lone 1 scores: valid
     const stopButtonWhenValid = screen.getByText('dice.stop_and_score').closest('button');
@@ -556,9 +607,10 @@ describe('DiceGame interactive turn logic', () => {
     expect(stopButtonWhenInvalid).toBeDisabled();
   });
 
-  it('keeps the invalid-selection indicator mounted and only toggles its visibility', () => {
+  it('keeps the invalid-selection indicator mounted and only toggles its visibility', async () => {
     queueRoll([1, 2, 3, 4, 6, 6]);
     render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+    await flushRoll();
 
     clickDie(1); // valid: indicator hidden
     const indicatorWhenValid = screen.getByText('dice.invalid_selection');
@@ -572,9 +624,10 @@ describe('DiceGame interactive turn logic', () => {
     expect(indicatorWhenInvalid).toBe(indicatorWhenValid);
   });
 
-  it('does not remount the score display when only selection validity changes', () => {
+  it('does not remount the score display when only selection validity changes', async () => {
     queueRoll([1, 2, 3, 4, 6, 6]);
     render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+    await flushRoll();
 
     clickDie(1); // valid
     const scoreNodeWhenValid = screen.getByTestId('dice-current-score');
@@ -591,7 +644,7 @@ describe('DiceGame interactive turn logic', () => {
   describe('keyboard shortcuts', () => {
     const pressKey = (key: string) => fireEvent.keyDown(window, { key });
 
-    it('still fires while rendered inside an aria-modal panel', () => {
+    it('still fires while rendered inside an aria-modal panel', async () => {
       // Game renders this panel inside a ModalShell, so an aria-modal element
       // is always present around it while a turn is being rolled — the
       // shortcut hook blocks on modals it is NOT inside of, not on all of them.
@@ -601,6 +654,7 @@ describe('DiceGame interactive turn logic', () => {
           <DiceGame currentCard="200" onComplete={vi.fn()} />
         </div>
       );
+      await flushRoll();
       expect(container.querySelector('[aria-modal="true"]')).not.toBeNull();
 
       pressKey('a');
@@ -609,7 +663,7 @@ describe('DiceGame interactive turn logic', () => {
       expect(selectedDice()).toHaveLength(2);
     });
 
-    it('goes quiet while a second modal is open over the panel', () => {
+    it('goes quiet while a second modal is open over the panel', async () => {
       queueRoll([1, 5, 2, 2, 3, 4]);
       render(
         <>
@@ -619,6 +673,7 @@ describe('DiceGame interactive turn logic', () => {
           <div role="dialog" aria-modal="true" data-testid="confirm-on-top" />
         </>
       );
+      await flushRoll();
 
       pressKey('a');
 
@@ -629,6 +684,7 @@ describe('DiceGame interactive turn logic', () => {
       const onComplete = vi.fn();
       queueRoll([1, 5, 2, 2, 3, 4]);
       render(<DiceGame currentCard="200" onComplete={onComplete} />);
+      await flushRoll();
 
       clickDie(1);
       clickDie(5);
@@ -638,21 +694,24 @@ describe('DiceGame interactive turn logic', () => {
       await waitFor(() => expect(onComplete).toHaveBeenCalledWith(150, true));
     });
 
-    it('banks the selection and rerolls on R, the same as Roll Again', () => {
+    it('banks the selection and rerolls on R, the same as Roll Again', async () => {
       queueRoll([1, 5, 2, 2, 3, 4]);
       queueRoll([5, 2, 3, 4, 6]); // includes a 5, so the reroll is not a bust
       render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+      await flushRoll();
 
       clickDie(1);
       pressKey('r');
+      await flushRoll();
 
       const keptDiceBox = screen.getByText('dice.kept_dice').nextElementSibling as HTMLElement;
       expect(keptDiceBox.querySelector('.grid-cols-3')).not.toBeNull();
     });
 
-    it('selects every valid die on A', () => {
+    it('selects every valid die on A', async () => {
       queueRoll([1, 5, 2, 2, 3, 4]);
       render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+      await flushRoll();
 
       pressKey('a');
 
@@ -660,10 +719,11 @@ describe('DiceGame interactive turn logic', () => {
       expect(screen.getByTestId('dice-current-score')).toHaveTextContent('150');
     });
 
-    it('ignores R and S while the selection is invalid, matching the disabled buttons', () => {
+    it('ignores R and S while the selection is invalid, matching the disabled buttons', async () => {
       const onComplete = vi.fn();
       queueRoll([1, 2, 3, 4, 6, 6]);
       render(<DiceGame currentCard="200" onComplete={onComplete} />);
+      await flushRoll();
 
       clickDie(2); // a lone 2 can never score
       pressKey('r');
@@ -674,10 +734,11 @@ describe('DiceGame interactive turn logic', () => {
       expect(onComplete).not.toHaveBeenCalled();
     });
 
-    it('ignores shortcuts once the turn has busted', () => {
+    it('ignores shortcuts once the turn has busted', async () => {
       const onComplete = vi.fn();
       queueRoll([2, 2, 3, 4, 6, 6]); // no 1, no 5, no triple: an immediate bust
       render(<DiceGame currentCard="200" onComplete={onComplete} />);
+      await flushRoll();
 
       expect(screen.getByText('dice.bust')).toBeInTheDocument();
       pressKey('a');
@@ -692,7 +753,7 @@ describe('DiceGame interactive turn logic', () => {
     const onComplete = vi.fn();
     queueRoll([2, 2, 3, 3, 4, 6]); // no 1/5 and no triplet → bust
     render(<DiceGame currentCard="300" onComplete={onComplete} />);
-
+    await flushRoll();
 
     expect(screen.getByText('dice.bust')).toBeInTheDocument();
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, false));
@@ -702,6 +763,7 @@ describe('DiceGame interactive turn logic', () => {
     const onComplete = vi.fn();
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="400" onComplete={onComplete} />);
+    await flushRoll();
 
     selectAllValid();
     fireEvent.click(screen.getByText('dice.stop_and_score'));
@@ -715,6 +777,7 @@ describe('DiceGame interactive turn logic', () => {
     const onComplete = vi.fn();
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="x2" onComplete={onComplete} />);
+    await flushRoll();
 
     selectAllValid();
     fireEvent.click(screen.getByText('dice.stop_and_score'));
@@ -726,6 +789,7 @@ describe('DiceGame interactive turn logic', () => {
     const onComplete = vi.fn();
     queueRoll([1, 1, 1, 5, 5, 5]); // first roll: full Tutto worth 1500
     render(<DiceGame currentCard="Feuerwerk" onComplete={onComplete} />);
+    await flushRoll();
 
     selectAllValid();
 
@@ -734,6 +798,7 @@ describe('DiceGame interactive turn logic', () => {
 
     queueRoll([2, 2, 3, 3, 4, 6]); // forced re-roll busts
     fireEvent.click(screen.getByText('dice.roll_again'));
+    await flushRoll();
 
     expect(screen.getByText('dice.success')).toBeInTheDocument();
     // The bust still banks everything rolled before it — a Feuerwerk "win".
@@ -744,7 +809,7 @@ describe('DiceGame interactive turn logic', () => {
     const onComplete = vi.fn();
     queueRoll([2, 2, 3, 3, 4, 6]);
     render(<DiceGame currentCard="Feuerwerk" onComplete={onComplete} />);
-
+    await flushRoll();
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, false));
   });
@@ -755,9 +820,11 @@ describe('DiceGame interactive turn logic', () => {
     // The first Tutto immediately triggers the second 6-dice roll — queue it up front.
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="Kleeblatt" onComplete={onComplete} />);
+    await flushRoll();
 
     selectAllValid();
     fireEvent.click(screen.getByText('dice.roll_2nd_tutto'));
+    await flushRoll();
 
     // Second roll is live now; one Tutto banked.
     expect(screen.getByText('dice.tuttos_count')).toBeInTheDocument();
@@ -774,7 +841,7 @@ describe('DiceGame interactive turn logic', () => {
     const onComplete = vi.fn();
     queueRoll([2, 2, 3, 3, 4, 6]);
     render(<DiceGame currentCard="Kleeblatt" onComplete={onComplete} />);
-
+    await flushRoll();
 
     expect(screen.getByText('dice.bust')).toBeInTheDocument();
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, false));
@@ -784,10 +851,12 @@ describe('DiceGame interactive turn logic', () => {
     const onComplete = vi.fn();
     queueRoll([1, 2, 3, 2, 4, 6]);
     render(<DiceGame currentCard="Kniffel" onComplete={onComplete} />);
+    await flushRoll();
 
     selectAllValid(); // picks the 1-2-3-4 run
     queueRoll([5, 6]); // two dice remain; the run needs 5 then 6
     fireEvent.click(screen.getByText('dice.roll_again'));
+    await flushRoll();
 
     // roll_again above already consumed the queued roll; select the completion
     selectAllValid();
@@ -798,17 +867,19 @@ describe('DiceGame interactive turn logic', () => {
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, true));
   });
 
-  it('Kniffel judges the next selection by the progress the roll-on committed', () => {
+  it('Kniffel judges the next selection by the progress the roll-on committed', async () => {
     // The machine's kniffelProgress — not the roll's own bust parameter — is
     // what validates the NEXT selection. If the roll-on commit lost it, a 6
     // after a kept 1 would read as a fresh descending start and be accepted,
     // quietly abandoning the run the player is mid-way through.
     queueRoll([1, 3, 3, 4, 4, 2]);
     render(<DiceGame currentCard="Kniffel" onComplete={vi.fn()} />);
+    await flushRoll();
 
     fireEvent.click(dieShowing(1, false)); // start the ascending run
     queueRoll([6, 2, 3, 3, 4]); // five dice: the needed 2, and the impostor 6
     fireEvent.click(screen.getByText('dice.roll_again'));
+    await flushRoll();
 
     // A 6 is only a valid pick when there is NO progress (fresh descending
     // start). With [1] committed, the run needs a 2 — the 6 must not pass.
@@ -827,13 +898,14 @@ describe('DiceGame interactive turn logic', () => {
     expect(playTone).not.toHaveBeenCalled();
   });
 
-  it('auto-rolls as soon as panelReady flips to true', () => {
+  it('auto-rolls as soon as panelReady flips to true', async () => {
     queueRoll([1, 5, 2, 2, 3, 4]);
     const { rerender } = render(<DiceGame currentCard="200" onComplete={vi.fn()} panelReady={false} />);
 
     expect(screen.queryAllByLabelText(/dice.die_showing/).length).toBe(0);
 
     rerender(<DiceGame currentCard="200" onComplete={vi.fn()} panelReady={true} />);
+    await flushRoll();
 
     expect(screen.getAllByLabelText(/dice.die_showing/).length).toBe(6);
   });
@@ -847,9 +919,10 @@ describe('DiceGame interactive turn logic', () => {
   describe('the running total for a card worth a fixed award', () => {
     const scoreShown = () => screen.getByTestId('dice-current-score').textContent;
 
-    it('shows Plus/Minus what it pays, not the dice, under modernized rules', () => {
+    it('shows Plus/Minus what it pays, not the dice, under modernized rules', async () => {
       queueRoll([1, 1, 1, 5, 5, 5]); // 1500 dice points that are never awarded
       render(<DiceGame currentCard="Plus_Minus" onComplete={vi.fn()} />);
+      await flushRoll();
 
       clickDie(1);
       expect(scoreShown()).toBe('0'); // a partial selection completes nothing
@@ -858,7 +931,7 @@ describe('DiceGame interactive turn logic', () => {
       expect(scoreShown()).toBe('1000');
     });
 
-    it('shows the same for Plus/Minus under classic rules, on top of the chain total', () => {
+    it('shows the same for Plus/Minus under classic rules, on top of the chain total', async () => {
       queueRoll([1, 1, 1, 5, 5, 5]);
       localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
         turnScore: 1800, keptDice: [], currentRoll: [], kniffelProgress: [],
@@ -866,15 +939,17 @@ describe('DiceGame interactive turn logic', () => {
         turnKey: 'K',
       }));
       render(<DiceGame currentCard="Plus_Minus" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
+      await flushRoll();
 
       expect(scoreShown()).toBe('1800');
       selectAllValid();
       expect(scoreShown()).toBe('2800');
     });
 
-    it('shows a completed straight its 2000', () => {
+    it('shows a completed straight its 2000', async () => {
       queueRoll([1, 2, 3, 4, 5, 6]);
       render(<DiceGame currentCard="Kniffel" onComplete={vi.fn()} />);
+      await flushRoll();
 
       clickDie(1);
       expect(scoreShown()).toBe('0');
@@ -883,9 +958,10 @@ describe('DiceGame interactive turn logic', () => {
       expect(scoreShown()).toBe('2000');
     });
 
-    it('leaves an ordinary card counting its dice', () => {
+    it('leaves an ordinary card counting its dice', async () => {
       queueRoll([1, 5, 2, 2, 3, 4]);
       render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+      await flushRoll();
 
       selectAllValid();
       expect(scoreShown()).toBe('150'); // 100 + 50, and no card award until the tutto
@@ -902,16 +978,17 @@ describe('DiceGame pending timer cleanup on unmount', () => {
     // --sequence.shuffle, where any tone-playing test could run directly
     // before this one.
     vi.mocked(playTone).mockClear();
-    // Disable the test-env fast path so roll() actually schedules its
-    // animation/finalize setTimeouts instead of running everything synchronously
-    // — otherwise there would be nothing queued to verify cleanup against.
-    isTestEnvMock.mockReturnValue(false);
+    // Use the real (non-zero) durations so roll() actually schedules its
+    // animation/finalize setTimeouts at meaningful delays instead of firing
+    // on the next tick — otherwise there would be nothing queued to verify
+    // cleanup against.
+    Object.assign(timing, realTiming);
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    isTestEnvMock.mockReturnValue(true);
+    Object.assign(timing, ZERO_TIMING);
     localStorage.clear();
   });
 
@@ -944,15 +1021,15 @@ describe('DiceGame pending timer cleanup on unmount', () => {
 describe('DiceGame roll-again mid-animation button stability', () => {
   beforeEach(() => {
     localStorage.clear();
-    // Disable the test-env fast path so isRolling actually stays true for a
-    // stretch after Roll Again, instead of the roll resolving synchronously.
-    isTestEnvMock.mockReturnValue(false);
+    // Use the real (non-zero) durations so isRolling actually stays true for
+    // a stretch after Roll Again, instead of the roll resolving on the next tick.
+    Object.assign(timing, realTiming);
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    isTestEnvMock.mockReturnValue(true);
+    Object.assign(timing, ZERO_TIMING);
     localStorage.clear();
   });
 
@@ -961,7 +1038,7 @@ describe('DiceGame roll-again mid-animation button stability', () => {
     render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
 
     // advanceTimersByTime, not runAllTimers: the tumbling-display effect runs
-    // a recurring setInterval while dice are rolling (isTestEnv() is false in
+    // a recurring setInterval while dice are rolling (real, non-zero timing in
     // this suite), which runAllTimers would spin on forever.
     act(() => { vi.advanceTimersByTime(2000); }); // let the first roll's animation settle
 
@@ -1029,6 +1106,7 @@ describe('DiceGame chain draw the server discards', () => {
     const onDrawCard = vi.fn(() => '500' as const);
     queueRoll([1, 1, 1, 5, 5, 5]); // 1500 dice + 300 card = 1800
     render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
+    flushRollFake();
 
     drawAndDismiss();
     // currentCard is never re-rendered as '500': the push was discarded, so
@@ -1058,6 +1136,7 @@ describe('DiceGame chain draw the server discards', () => {
     queueRoll([1, 1, 1, 5, 5, 5]); // 1500 dice + 300 card = 1800
     const props = { ruleset: 'classic' as const, onDrawCard, onComplete };
     const { rerender } = render(<DiceGame currentCard="300" {...props} />);
+    flushRollFake();
 
     selectAllValid();
     fireEvent.click(screen.getByTestId('draw-next-card'));
@@ -1085,6 +1164,7 @@ describe('DiceGame chain draw the server discards', () => {
     const { rerender } = render(
       <DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />,
     );
+    flushRollFake();
 
     selectAllValid();
     fireEvent.click(screen.getByTestId('draw-next-card'));
@@ -1107,6 +1187,7 @@ describe('DiceGame chain draw the server discards', () => {
     const onDrawCard = vi.fn(() => '300' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
+    flushRollFake();
 
     selectAllValid();
     fireEvent.click(screen.getByTestId('draw-next-card'));
@@ -1130,6 +1211,7 @@ describe('DiceGame chain draw the server discards', () => {
     queueRoll([1, 1, 1, 5, 5, 5]); // 1500 dice + 300 card = 1800
     const props = { ruleset: 'classic' as const, onDrawCard, onComplete };
     const { rerender } = render(<DiceGame currentCard="300" {...props} />);
+    flushRollFake();
 
     selectAllValid();
     fireEvent.click(screen.getByTestId('draw-next-card'));
@@ -1159,6 +1241,7 @@ describe('DiceGame chain draw the server discards', () => {
     queueRoll([1, 1, 1, 5, 5, 5]);
     const props = { ruleset: 'classic' as const, onDrawCard, onComplete };
     const { rerender } = render(<DiceGame currentCard="300" {...props} />);
+    flushRollFake();
 
     selectAllValid();
     fireEvent.click(screen.getByTestId('draw-next-card'));
@@ -1187,6 +1270,7 @@ describe('DiceGame chain draw the server discards', () => {
     queueRoll([1, 1, 1, 5, 5, 5]);
     const props = { ruleset: 'classic' as const, onDrawCard, onComplete };
     const { rerender } = render(<DiceGame currentCard="300" {...props} />);
+    flushRollFake();
 
     selectAllValid();
     fireEvent.click(screen.getByTestId('draw-next-card'));
@@ -1206,22 +1290,25 @@ describe('DiceGame dice settled before the roll finalizes', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
-    // The real (test-env) fast path collapses the whole roll to one synchronous
-    // step, which is exactly the window this is about.
-    isTestEnvMock.mockReturnValue(false);
+    // Use the real (non-zero) durations — collapsing the whole roll to the
+    // next tick would erase the very window this describe is about.
+    Object.assign(timing, realTiming);
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    isTestEnvMock.mockReturnValue(true);
+    Object.assign(timing, ZERO_TIMING);
     localStorage.clear();
   });
 
   const DICE_IN_A_ROLL = 6;
   // The last die of a full roll stops tumbling here; finalizeRoll — which is
   // what actually lets clicks through — only runs ROLL_SETTLE_BUFFER_MS later.
-  const LAST_DIE_SETTLES_MS = DIE_TUMBLE_MS + (DICE_IN_A_ROLL - 1) * DIE_STAGGER_MS;
+  // Read from realTiming (the true values captured before this describe's
+  // beforeEach overrides `timing`), not the live mocked import — this
+  // constant is computed once, at collection time, before any beforeEach runs.
+  const LAST_DIE_SETTLES_MS = realTiming.DIE_TUMBLE_MS + (DICE_IN_A_ROLL - 1) * realTiming.DIE_STAGGER_MS;
 
   it('renders a settled die disabled while the roll as a whole is still pending', () => {
     // The die had stopped moving and looked clickable — pointer cursor, hover
@@ -1238,7 +1325,7 @@ describe('DiceGame dice settled before the roll finalizes', () => {
     fireEvent.click(settled);
     expect(dieShowing(1, false)).toBeInTheDocument();
 
-    act(() => { vi.advanceTimersByTime(ROLL_SETTLE_BUFFER_MS); });
+    act(() => { vi.advanceTimersByTime(realTiming.ROLL_SETTLE_BUFFER_MS); });
 
     // Finalized: the guard is gone, so the die offers itself again — and means it.
     const finalized = dieShowing(1, false);
@@ -1254,7 +1341,7 @@ describe('DiceGame dice settled before the roll finalizes', () => {
     queueRoll([2, 2, 3, 3, 4, 6]);
     render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
 
-    act(() => { vi.advanceTimersByTime(LAST_DIE_SETTLES_MS + ROLL_SETTLE_BUFFER_MS); });
+    act(() => { vi.advanceTimersByTime(LAST_DIE_SETTLES_MS + realTiming.ROLL_SETTLE_BUFFER_MS); });
 
     expect(screen.getByText('dice.bust_description')).toBeInTheDocument();
     screen.getAllByLabelText(/dice.die_showing/).forEach(die => expect(die).toBeDisabled());
@@ -1264,13 +1351,13 @@ describe('DiceGame dice settled before the roll finalizes', () => {
 describe('DiceGame Kleeblatt bust delay', () => {
   beforeEach(() => {
     localStorage.clear();
-    isTestEnvMock.mockReturnValue(false);
+    Object.assign(timing, realTiming);
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    isTestEnvMock.mockReturnValue(true);
+    Object.assign(timing, ZERO_TIMING);
     localStorage.clear();
   });
 
@@ -1311,10 +1398,11 @@ describe('DiceGame classic chains', () => {
     fireEvent.click(dice[0]);
   };
 
-  it('offers bank and draw side by side on the tutto, and banks with a turn summary', () => {
+  it('offers bank and draw side by side on the tutto, and banks with a turn summary', async () => {
     const onComplete = vi.fn();
     queueRoll([1, 1, 1, 5, 5, 5]); // 1000 + 500, all six scoring
     render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
+    await flushRoll();
 
     // Both options sit in the same button row, on the selection that completes
     // the tutto — the player is not told the turn stopped and then offered a
@@ -1339,9 +1427,10 @@ describe('DiceGame classic chains', () => {
     }));
   });
 
-  it('offers the draw only once the selection completes the tutto', () => {
+  it('offers the draw only once the selection completes the tutto', async () => {
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
+    await flushRoll();
 
     clickDie(1); // one scoring die: valid, but nowhere near a tutto
     expect(screen.queryByTestId('draw-next-card')).not.toBeInTheDocument();
@@ -1350,22 +1439,24 @@ describe('DiceGame classic chains', () => {
     expect(screen.getByTestId('draw-next-card')).toBeInTheDocument();
   });
 
-  it('never offers the draw under modernized rules', () => {
+  it('never offers the draw under modernized rules', async () => {
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="300" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
+    await flushRoll();
 
     selectAllValid();
     expect(screen.getByText('dice.stop_and_score')).toBeInTheDocument();
     expect(screen.queryByTestId('draw-next-card')).not.toBeInTheDocument();
   });
 
-  it('drawing an x2 mid-chain doubles the whole accumulated total on its tutto', () => {
+  it('drawing an x2 mid-chain doubles the whole accumulated total on its tutto', async () => {
     const onComplete = vi.fn();
     const onDrawCard = vi.fn(() => 'x2' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     const { rerender } = render(
       <DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />,
     );
+    await flushRoll();
 
     selectAllValid();
     queueRoll([1, 1, 1, 5, 5, 5]); // the fresh 6-dice roll on the x2 card
@@ -1376,6 +1467,7 @@ describe('DiceGame classic chains', () => {
     // to be dismissed on top of that.
     rerender(<DiceGame currentCard="x2" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
+    await flushRoll();
 
     selectAllValid();
     fireEvent.click(screen.getByText('dice.stop_and_score'));
@@ -1394,6 +1486,7 @@ describe('DiceGame classic chains', () => {
     const onDrawCard = vi.fn(() => 'Stop' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="500" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
+    await flushRoll();
 
     selectAllValid();
     fireEvent.click(screen.getByTestId('draw-next-card'));
@@ -1411,9 +1504,10 @@ describe('DiceGame classic chains', () => {
     })));
   });
 
-  it('classic Feuerwerk force-keeps every scoring die and locks the selection', () => {
+  it('classic Feuerwerk force-keeps every scoring die and locks the selection', async () => {
     queueRoll([1, 5, 2, 3, 4, 6]); // exactly two scoring dice: the 1 and the 5
     render(<DiceGame currentCard="Feuerwerk" ruleset="classic" onComplete={vi.fn()} />);
+    await flushRoll();
 
     expect(dieShowing(1, true)).toBeInTheDocument();
     expect(dieShowing(5, true)).toBeInTheDocument();
@@ -1426,11 +1520,12 @@ describe('DiceGame classic chains', () => {
     expect(dieShowing(2, false)).toBeInTheDocument();
   });
 
-  it('renders classic Feuerwerk\'s locked dice as unclickable, not merely dead to clicks', () => {
+  it('renders classic Feuerwerk\'s locked dice as unclickable, not merely dead to clicks', async () => {
     // The no-op above was invisible: every die still came with a pointer cursor
     // and a hover highlight, so the whole board invited clicks it swallowed.
     queueRoll([1, 5, 2, 3, 4, 6]);
     render(<DiceGame currentCard="Feuerwerk" ruleset="classic" onComplete={vi.fn()} />);
+    await flushRoll();
 
     screen.getAllByLabelText(/dice.die_showing/).forEach(die => {
       expect(die).toBeDisabled();
@@ -1441,19 +1536,22 @@ describe('DiceGame classic chains', () => {
     cleanup();
     queueRoll([1, 5, 2, 3, 4, 6]);
     render(<DiceGame currentCard="Feuerwerk" onComplete={vi.fn()} />);
+    await flushRoll();
     expect(dieShowing(1, false)).not.toBeDisabled();
   });
 
-  it('classic straight collects any missing numbers, in any order', () => {
+  it('classic straight collects any missing numbers, in any order', async () => {
     const onComplete = vi.fn();
     queueRoll([3, 3, 2, 2, 4, 4]); // a modernized straight would bust here (no 1, no 6)
     render(<DiceGame currentCard="Kniffel" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
+    await flushRoll();
 
     clickDie(3);
     clickDie(2);
     clickDie(4);
     queueRoll([1, 5, 6]); // the three still-missing numbers at once
     fireEvent.click(screen.getByText('dice.roll_again'));
+    await flushRoll();
 
     selectAllValid();
     fireEvent.click(screen.getByText('dice.finish_card'));
@@ -1466,10 +1564,11 @@ describe('DiceGame classic chains', () => {
     }));
   });
 
-  it('classic Plus/Minus scores exactly +1000 on its tutto, ignoring the dice points', () => {
+  it('classic Plus/Minus scores exactly +1000 on its tutto, ignoring the dice points', async () => {
     const onComplete = vi.fn();
     queueRoll([1, 1, 1, 5, 5, 5]); // 1500 dice points that must NOT count
     render(<DiceGame currentCard="Plus_Minus" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
+    await flushRoll();
 
     selectAllValid();
     fireEvent.click(screen.getByText('dice.finish_card'));
@@ -1484,7 +1583,7 @@ describe('DiceGame classic chains', () => {
     }));
   });
 
-  it('records the running total a mid-chain Plus/Minus resolved on', () => {
+  it('records the running total a mid-chain Plus/Minus resolved on', async () => {
     // The engine replays each ±1000 against what the player held when the card
     // resolved, so a Plus/Minus drawn onto 1800 must report 1800 — not 0, which
     // would deduct from a leader this chain had already overtaken.
@@ -1494,12 +1593,14 @@ describe('DiceGame classic chains', () => {
     const { rerender } = render(
       <DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />,
     );
+    await flushRoll();
 
     selectAllValid();
     queueRoll([1, 1, 1, 5, 5, 5]);
     fireEvent.click(screen.getByTestId('draw-next-card'));
     rerender(<DiceGame currentCard="Plus_Minus" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
+    await flushRoll();
 
     selectAllValid();
     fireEvent.click(screen.getByText('dice.finish_card'));
@@ -1518,14 +1619,17 @@ describe('DiceGame classic chains', () => {
     const { rerender } = render(
       <DiceGame currentCard="200" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />,
     );
+    await flushRoll();
     selectAllValid();
     queueRoll([1, 2, 3, 4, 6, 6]); // the forced keep takes the 1...
     fireEvent.click(screen.getByTestId('draw-next-card')); // tutto → 1700, drawn on
     rerender(<DiceGame currentCard="Feuerwerk" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
+    await flushRoll();
 
     queueRoll([2, 3, 4, 6, 6]); // ...and the next roll is a null → banks everything
     fireEvent.click(screen.getByText('dice.roll_again'));
+    await flushRoll();
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(1800, true, expect.objectContaining({
       cards: [{ card: '200', completed: true }, { card: 'Feuerwerk', completed: true }],
@@ -1540,9 +1644,11 @@ describe('DiceGame classic chains', () => {
     const onComplete = vi.fn();
     queueRoll([1, 2, 3, 4, 6, 6]); // the forced keep takes the 1 — 100, no clear
     render(<DiceGame currentCard="Feuerwerk" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
+    await flushRoll();
 
     queueRoll([2, 3, 4, 6, 6]); // the five left roll a null → banks the 100
     fireEvent.click(screen.getByText('dice.roll_again'));
+    await flushRoll();
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(100, true, expect.objectContaining({
       cards: [{ card: 'Feuerwerk', completed: true }],
@@ -1558,9 +1664,11 @@ describe('DiceGame classic chains', () => {
     const onComplete = vi.fn();
     queueRoll([1, 1, 1, 5, 5, 5]); // all six score: a tutto worth 1500, six fresh dice
     render(<DiceGame currentCard="Feuerwerk" ruleset="classic" onDrawCard={vi.fn()} onComplete={onComplete} />);
+    await flushRoll();
 
     queueRoll([2, 2, 3, 3, 4, 6]); // the fresh six roll a null → banks the 1500
     fireEvent.click(screen.getByText('dice.roll_again'));
+    await flushRoll();
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(1500, true, expect.objectContaining({
       cards: [{ card: 'Feuerwerk', completed: true }],
@@ -1586,12 +1694,13 @@ describe('DiceGame classic chains', () => {
     expect(screen.queryByText('dice.roll_again')).not.toBeInTheDocument();
   });
 
-  it('shows the drawn card and holds the fresh roll until it is dismissed', () => {
+  it('shows the drawn card and holds the fresh roll until it is dismissed', async () => {
     const onDrawCard = vi.fn(() => '500' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     const { rerender } = render(
       <DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />,
     );
+    await flushRoll();
 
     selectAllValid();
     fireEvent.click(screen.getByTestId('draw-next-card'));
@@ -1610,6 +1719,7 @@ describe('DiceGame classic chains', () => {
 
     queueRoll([1, 5, 2, 3, 4, 6]);
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
+    await flushRoll();
 
     expect(screen.queryByText('dice.drawn_card_title')).not.toBeInTheDocument();
     expect(dieShowing(1, false)).toBeInTheDocument();
@@ -1622,6 +1732,7 @@ describe('DiceGame classic chains', () => {
     const onComplete = vi.fn();
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={() => null} onComplete={onComplete} />);
+    await flushRoll();
 
     selectAllValid();
     fireEvent.click(screen.getByTestId('draw-next-card'));
@@ -1633,12 +1744,13 @@ describe('DiceGame classic chains', () => {
     })));
   });
 
-  it('draws a second card of the same type without waiting for a prop that never changes', () => {
+  it('draws a second card of the same type without waiting for a prop that never changes', async () => {
     // currentCard does not change when the drawn card matches the current one,
     // so the deferred roll can only be released by the reveal being dismissed.
     const onDrawCard = vi.fn(() => '300' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />);
+    await flushRoll();
 
     selectAllValid();
     fireEvent.click(screen.getByTestId('draw-next-card'));
@@ -1646,15 +1758,17 @@ describe('DiceGame classic chains', () => {
 
     queueRoll([1, 5, 2, 3, 4, 6]);
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
+    await flushRoll();
 
     expect(dieShowing(1, false)).toBeInTheDocument();
     expect(screen.getByTestId('dice-current-score')).toHaveTextContent('1800');
   });
 
-  it('D draws the next card, the same as the button', () => {
+  it('D draws the next card, the same as the button', async () => {
     const onDrawCard = vi.fn(() => '500' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />);
+    await flushRoll();
 
     selectAllValid();
     fireEvent.keyDown(window, { key: 'd' });
@@ -1663,7 +1777,7 @@ describe('DiceGame classic chains', () => {
     expect(screen.getByTestId('drawn-card-continue')).toBeInTheDocument();
   });
 
-  it('resumes a reload taken between the draw and its first roll by rolling', () => {
+  it('resumes a reload taken between the draw and its first roll by rolling', async () => {
     // The reveal panel holds that window open for as long as the player takes
     // to dismiss it, so the empty table it snapshots is now genuinely
     // reachable — restoring it as-is left no dice and no way to get any.
@@ -1674,6 +1788,7 @@ describe('DiceGame classic chains', () => {
       turnKey: 'K',
     }));
     render(<DiceGame currentCard="500" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
+    await flushRoll();
 
     expect(dieShowing(1, false)).toBeInTheDocument();
     expect(screen.getByTestId('dice-current-score')).toHaveTextContent('1800');
@@ -1685,6 +1800,7 @@ describe('DiceGame classic chains', () => {
     const onStateChange = vi.fn();
     queueRoll([1, 1, 1, 5, 5, 2]); // five scoring dice; the 2 stays out
     render(<DiceGame currentCard="300" onComplete={vi.fn()} onStateChange={onStateChange} />);
+    await flushRoll();
 
     selectAllValid();
     fireEvent.click(screen.getByText('dice.stop_and_score'));
@@ -1705,6 +1821,7 @@ describe('DiceGame classic chains', () => {
     const onStateChange = vi.fn();
     queueRoll([1, 1, 1, 5, 5, 5]); // all six scoring → tutto
     render(<DiceGame currentCard="300" onComplete={vi.fn()} onStateChange={onStateChange} />);
+    await flushRoll();
 
     selectAllValid();
     fireEvent.click(screen.getByText('dice.stop_and_score'));
@@ -1724,9 +1841,11 @@ describe('DiceGame classic chains', () => {
     queueRoll([1, 1, 1, 5, 5, 5]); // first tutto
     queueRoll([1, 1, 1, 5, 5, 5]); // second tutto — the win
     render(<DiceGame currentCard="Kleeblatt" onComplete={vi.fn()} onStateChange={onStateChange} />);
+    await flushRoll();
 
     selectAllValid();
     fireEvent.click(screen.getByText('dice.roll_2nd_tutto'));
+    await flushRoll();
     selectAllValid();
     fireEvent.click(screen.getByText('dice.finish_card'));
 
@@ -1795,7 +1914,7 @@ describe('DiceGame classic chains', () => {
   // would get the whole turn thrown away, so at the cap the only move left is
   // banking. Both resume mid-draw (empty table → fresh roll) and play the
   // tutto, which is where the offer is now made.
-  const renderChainOfLength = (length: number) => {
+  const renderChainOfLength = async (length: number) => {
     queueRoll([1, 1, 1, 5, 5, 5]);
     localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
       turnScore: 9000, keptDice: [], currentRoll: [], kniffelProgress: [],
@@ -1803,18 +1922,19 @@ describe('DiceGame classic chains', () => {
       plusMinusScores: [], chainTuttoCount: length - 1, turnKey: 'K',
     }));
     render(<DiceGame currentCard="300" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
+    await flushRoll();
     selectAllValid();
   };
 
-  it('closes the draw at the chain-card cap, leaving only Stop & Score', () => {
-    renderChainOfLength(MAX_CHAIN_CARDS);
+  it('closes the draw at the chain-card cap, leaving only Stop & Score', async () => {
+    await renderChainOfLength(MAX_CHAIN_CARDS);
 
     expect(screen.queryByTestId('draw-next-card')).not.toBeInTheDocument();
     expect(screen.getByText('dice.stop_and_score')).toBeInTheDocument();
   });
 
-  it('still offers the draw one card below the cap', () => {
-    renderChainOfLength(MAX_CHAIN_CARDS - 1);
+  it('still offers the draw one card below the cap', async () => {
+    await renderChainOfLength(MAX_CHAIN_CARDS - 1);
 
     expect(screen.getByTestId('draw-next-card')).toBeInTheDocument();
   });
@@ -1841,9 +1961,10 @@ describe('machine transitions the DOM suite left to unit tests', () => {
   beforeEach(() => { localStorage.clear(); });
   afterEach(() => { localStorage.clear(); });
 
-  it('shows the banked running total after rolling on', () => {
+  it('shows the banked running total after rolling on', async () => {
     queueRoll([1, 5, 2, 2, 3, 4]);
     render(<DiceGame currentCard="300" onComplete={vi.fn()} />);
+    await flushRoll();
 
     fireEvent.click(dieShowing(1, false));
     fireEvent.click(dieShowing(5, false));
@@ -1853,19 +1974,22 @@ describe('machine transitions the DOM suite left to unit tests', () => {
     expect(screen.getByTestId('dice-current-score')).toHaveTextContent('150');
   });
 
-  it('clears the kept tray for the second Kleeblatt tutto attempt', () => {
+  it('clears the kept tray for the second Kleeblatt tutto attempt', async () => {
     // The first tutto is built across TWO rolls, so the tray actually holds
     // dice when it completes — a one-roll tutto keeps everything in the
     // selection and would leave nothing for the clear to be seen clearing.
     queueRoll([1, 1, 1, 2, 3, 4]);
     render(<DiceGame currentCard="Kleeblatt" onComplete={vi.fn()} />);
+    await flushRoll();
 
     selectAllValid(); // the three 1s go to the tray
     queueRoll([5, 5, 5]);
     fireEvent.click(screen.getByText('dice.roll_again'));
+    await flushRoll();
     selectAllValid(); // the three 5s complete the first tutto
     queueRoll([1, 2, 3, 4, 6, 6]); // the fresh six; the 1 keeps it alive
     fireEvent.click(screen.getByText('dice.roll_2nd_tutto'));
+    await flushRoll();
 
     // The first tutto is banked into the total; the tray must be EMPTY for
     // the second attempt — six fresh dice on the board, none carried over.
@@ -1879,10 +2003,12 @@ describe('machine transitions the DOM suite left to unit tests', () => {
     const onStateChange = vi.fn();
     queueRoll([1, 2, 3, 2, 4, 6]);
     render(<DiceGame currentCard="Kniffel" onComplete={vi.fn()} onStateChange={onStateChange} />);
+    await flushRoll();
 
     selectAllValid(); // the 1-2-3-4 run
     queueRoll([5, 6]);
     fireEvent.click(screen.getByText('dice.roll_again'));
+    await flushRoll();
     selectAllValid(); // 5 and 6 complete it
     fireEvent.click(screen.getByText('dice.finish_card'));
 
@@ -1895,10 +2021,11 @@ describe('machine transitions the DOM suite left to unit tests', () => {
     }, { timeout: 5000 });
   });
 
-  it('counts the drawn card into the chain badge', () => {
+  it('counts the drawn card into the chain badge', async () => {
     const onDrawCard = vi.fn(() => '300' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />);
+    await flushRoll();
 
     // Card 1 of the chain: no badge yet.
     expect(screen.queryByText('dice.chain_card_count')).not.toBeInTheDocument();
@@ -1909,6 +2036,7 @@ describe('machine transitions the DOM suite left to unit tests', () => {
     // Drawing the SAME card type: currentCard never changes, so no rerender
     // is needed — dismissing the reveal releases the deferred roll.
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
+    await flushRoll();
 
     // Card 2: the badge appears. The count itself is interpolated inside
     // t() (collapsed by the bare-key mock); presence at >1 is the assertable
@@ -1916,15 +2044,17 @@ describe('machine transitions the DOM suite left to unit tests', () => {
     expect(screen.getByText('dice.chain_card_count')).toBeInTheDocument();
   });
 
-  it('starts a freshly drawn Kniffel with an empty run', () => {
+  it('starts a freshly drawn Kniffel with an empty run', async () => {
     const onDrawCard = vi.fn(() => 'Kniffel' as const);
     queueRoll([1, 2, 3, 4, 5, 6]); // classic Kniffel: the whole straight at once
     render(<DiceGame currentCard="Kniffel" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />);
+    await flushRoll();
 
     selectAllValid();
     queueRoll([1, 2, 2, 3, 3, 4]);
     fireEvent.click(screen.getByTestId('draw-next-card'));
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
+    await flushRoll();
 
     // The new Kniffel needs every number again, so a 1 must be selectable.
     // With the finished run leaking across the draw, every number would read
