@@ -1,11 +1,19 @@
 /**
  * @vitest-environment node
  */
+import type { ChildProcess } from 'child_process';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { io } from 'socket.io-client';
-import { asserting, startTestServer } from './socketTestHarness';
+import { io, type Socket as ClientSocket } from 'socket.io-client';
+import { asserting, startTestServer, type JoinAck } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import type { GameStore } from '../src/store/storeTypes';
+
+// The shape of a 'gameState' broadcast, matching how the client itself types
+// it (socketSlice.ts's own 'gameState' handler) — a broadcast only ever
+// carries a subset of GameStore, plus the ordering counter that is not part
+// of the store itself.
+type GameStatePayload = Partial<GameStore> & { stateVersion?: number };
 
 // Regression coverage for three related fixes to server/index.ts:
 //  1. pushState previously trusted several fields (currentPlayerIndex, chartValues,
@@ -17,7 +25,7 @@ import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 //  3. Aborting a game (drops below 2 players) didn't reset the room's elapsed-time
 //     clock, so the next game in the same room inherited the old game's runtime.
 describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
-  let serverProcess;
+  let serverProcess: ChildProcess | undefined;
   const PORT = TEST_PORTS.pushStateValidation;
 
   beforeAll(async () => {
@@ -28,12 +36,12 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
     if (serverProcess) serverProcess.kill();
   });
 
-  const joinRoom = (roomId, name, deviceId) =>
+  const joinRoom = (roomId: string, name: string, deviceId: string): Promise<ClientSocket> =>
     new Promise((resolve, reject) => {
       const s = io(`http://127.0.0.1:${PORT}`);
       const timeoutId = setTimeout(() => reject(new Error(`join timed out for ${name}`)), 5000);
       s.on('connect', () => {
-        s.emit('joinRoom', { roomId, name, deviceId, color: '#ff0000' }, (res) => {
+        s.emit('joinRoom', { roomId, name, deviceId, color: '#ff0000' }, (res: JoinAck) => {
           clearTimeout(timeoutId);
           if (!res.success) return reject(new Error(res.error));
           resolve(s);
@@ -42,9 +50,9 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
     });
 
   it('ignores an out-of-range currentPlayerIndex and keeps the server-side turn timer alive afterward', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const timeoutId = setTimeout(() => reject(new Error('Test timed out')), 15000);
-      let s1, s2;
+      let s1: ClientSocket, s2: ClientSocket;
 
       (async () => {
         const roomId = 'DOS_INDEX_ROOM';
@@ -54,7 +62,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
         let sawValidState = false;
         let sawTimerAdvance = false;
 
-        s1.on('gameState', asserting(reject, (state) => {
+        s1.on('gameState', asserting(reject, (state: GameStatePayload) => {
           if (state.currentPlayerIndex === 5000) {
             clearTimeout(timeoutId);
             s1.disconnect(); s2.disconnect();
@@ -87,9 +95,9 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
   }, 17000);
 
   it('ignores malformed chartValues/chartLabels without crashing or corrupting room state', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const timeoutId = setTimeout(() => reject(new Error('Test timed out')), 8000);
-      let s1, s2;
+      let s1: ClientSocket, s2: ClientSocket;
 
       (async () => {
         const roomId = 'DOS_CHART_ROOM';
@@ -98,7 +106,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
 
         let pushedBad = false;
 
-        s1.on('gameState', asserting(reject, (state) => {
+        s1.on('gameState', asserting(reject, (state: GameStatePayload) => {
           if (state.status === 'playing' && !pushedBad) {
             pushedBad = true;
             s1.emit('pushState', {
@@ -130,16 +138,16 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
   }, 10000);
 
   it('never includes deviceId on any player in a gameState broadcast', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const timeoutId = setTimeout(() => reject(new Error('Test timed out')), 8000);
-      let s1, s2;
+      let s1: ClientSocket, s2: ClientSocket;
 
       (async () => {
         const roomId = 'HIJACK_ROOM';
         s1 = await joinRoom(roomId, 'Alice', 'dev-hijack-a');
         s2 = await joinRoom(roomId, 'Bob', 'dev-hijack-b');
 
-        s2.on('gameState', asserting(reject, (state) => {
+        s2.on('gameState', asserting(reject, (state: GameStatePayload) => {
           if (state.players?.length !== 2) return;
           for (const p of state.players) {
             expect('deviceId' in p).toBe(false);
@@ -164,9 +172,9 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
   }, 10000);
 
   it('does not carry a stale game clock from an aborted game into the next game in the same room', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const timeoutId = setTimeout(() => reject(new Error('Test timed out')), 10000);
-      let s1, s2;
+      let s1: ClientSocket, s2: ClientSocket;
 
       (async () => {
         const roomId = 'ABORT_CLOCK_ROOM';
@@ -184,7 +192,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
         await new Promise((r) => setTimeout(r, 350));
 
         let restarted = false;
-        s1.on('gameState', asserting(reject, (state) => {
+        s1.on('gameState', asserting(reject, (state: GameStatePayload) => {
           if (state.status === 'lobby' && state.players?.length === 1 && !restarted) {
             restarted = true;
             (async () => {
