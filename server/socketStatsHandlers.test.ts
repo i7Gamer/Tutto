@@ -11,7 +11,7 @@ vi.mock('./database', () => ({
   updateDeviceStats: vi.fn(),
   updateGlobalStats: vi.fn(),
 }));
-import { getDeviceStats, updateDeviceStats } from './database';
+import { getDeviceStats, updateDeviceStats, updateGlobalStats } from './database';
 
 // This file's players default to position: 1 (rather than makeServerPlayer's
 // own default of 0) — kept as an explicit override below so converting to
@@ -466,5 +466,79 @@ describe('a seat that left before the finish is recorded by the server itself', 
 
       expect(summarizeActivity(rooms).awaitingStats).toBe(0);
     });
+  });
+});
+
+describe('the global row counts the same players the device rows do', () => {
+  // endGameStats takes totalPlayersSum/mostPlayersInGame from the frozen
+  // verdict, because the submitting client's roster is missing anyone who
+  // left. submitGlobalStats overrode only isDefaultGame, so the GLOBAL row
+  // still took both from the host's snapshot — and the two halves of the same
+  // game disagreed about how many people played it.
+  const roomId = 'GLOBAL-COUNT-ROOM';
+  const SEATS_AT_KICKOFF = 3;
+
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.mocked(getDeviceStats).mockReset().mockResolvedValue(null);
+    vi.mocked(updateDeviceStats).mockReset().mockResolvedValue(true);
+    vi.mocked(updateGlobalStats).mockReset().mockResolvedValue(1);
+  });
+
+  afterEach(() => { for (const id of Object.keys(rooms)) deleteRoom(id); });
+
+  it('takes the player count from the frozen verdict, not the host snapshot', async () => {
+    // Three seats started; Carol left before the finish was broadcast, so the
+    // host's own end-screen roster — and the payload built from it — knows
+    // only two.
+    rooms[roomId] = createRoom('alice-sock');
+    rooms[roomId].startRoster = [
+      { deviceId: 'dev-alice', name: 'Alice' },
+      { deviceId: 'dev-bob', name: 'Bob' },
+      { deviceId: 'dev-carol', name: 'Carol' },
+    ];
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null, winningScore: 6000,
+      players: [
+        { ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: 10000 },
+        { ...makePlayer('Bob', 'bob-sock', 'dev-bob'), score: 4000 },
+      ],
+    });
+    emitRoomState(makeFakeIo().io, roomId);
+
+    const fake = makeFakeSocket('alice-sock');
+    registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Alice' } });
+    await fake.handlers['submitGlobalStats']({
+      roomId,
+      payload: { totalGamesPlayed: 1, totalPlayersSum: 2, mostPlayersInGame: 2 },
+    });
+
+    const written = vi.mocked(updateGlobalStats).mock.calls[0]?.[0];
+    expect(written, 'the game is still recorded').toBeDefined();
+    expect(written!.totalPlayersSum, 'three seats started this game').toBe(SEATS_AT_KICKOFF);
+    expect(written!.mostPlayersInGame).toBe(SEATS_AT_KICKOFF);
+    expect(written!.isDefaultGame, 'the existing override is untouched').toBe(true);
+  });
+
+  it('leaves the payload alone when the room froze no verdict to correct from', async () => {
+    // A room seeded without a start roster still freezes a verdict, but one
+    // whose finishedGame is missing entirely (nothing broadcast the finish)
+    // has no count to substitute — the payload is the only answer there is.
+    rooms[roomId] = createRoom('alice-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null,
+      players: [makePlayer('Alice', 'alice-sock', 'dev-alice')],
+    });
+
+    const fake = makeFakeSocket('alice-sock');
+    registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Alice' } });
+    await fake.handlers['submitGlobalStats']({
+      roomId,
+      payload: { totalGamesPlayed: 1, totalPlayersSum: 2, mostPlayersInGame: 2 },
+    });
+
+    const written = vi.mocked(updateGlobalStats).mock.calls[0]?.[0];
+    expect(written!.totalPlayersSum).toBe(2);
+    expect(written!.mostPlayersInGame).toBe(2);
   });
 });

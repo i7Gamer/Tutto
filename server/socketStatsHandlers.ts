@@ -52,13 +52,23 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // but rolled back on failure — otherwise a transient DB error would
     // permanently swallow this game's stats (the dedup would reject a retry).
     room.statsRecordedForGame.global = true;
+    // isDefaultGame decides whether this game's numbers join the global
+    // totals at all, so it is the server's call, not the sender's: taken
+    // from the config the game started with (frozen in pushState) and
+    // written over whatever the payload claimed. The ruleset picks which
+    // global row the numbers land in — frozen at kickoff the same way.
+    const globalStats = { ...sanitizeStats(payload), isDefaultGame: room.normalizedGame };
+    // And so is how many people played it, for exactly the reason endGameStats
+    // overrides the same pair on the device rows: the host's snapshot is its
+    // own roster, which is missing anyone who left before the finish. Taking
+    // one from the frozen verdict and the other from the sender left the two
+    // halves of the same game disagreeing about its size.
+    if (room.finishedGame) {
+      globalStats.totalPlayersSum = room.finishedGame.playerCount;
+      globalStats.mostPlayersInGame = room.finishedGame.playerCount;
+    }
     try {
-      // isDefaultGame decides whether this game's numbers join the global
-      // totals at all, so it is the server's call, not the sender's: taken
-      // from the config the game started with (frozen in pushState) and
-      // written over whatever the payload claimed. The ruleset picks which
-      // global row the numbers land in — frozen at kickoff the same way.
-      await updateGlobalStats({ ...sanitizeStats(payload), isDefaultGame: room.normalizedGame }, room.ruleset);
+      await updateGlobalStats(globalStats, room.ruleset);
     } catch (err) {
       room.statsRecordedForGame.global = false;
       console.error('submitGlobalStats error:', err);
