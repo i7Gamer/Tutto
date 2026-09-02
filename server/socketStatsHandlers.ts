@@ -8,6 +8,28 @@ import { safeOn, type SocketContext } from './socketContext';
 const SUBMIT_GLOBAL_STATS_LIMIT = { windowMs: 10_000, max: 5 };
 const END_GAME_STATS_LIMIT = { windowMs: 10_000, max: 5 };
 
+// Spelled out: what a merge adds to a running sum the server's verdict-only
+// row has already counted.
+const ALREADY_COUNTED_BY_VERDICT_ROW = 0;
+
+/**
+ * Turns a full submission into a top-up of the server's verdict-only row.
+ *
+ * `gamesPlayed` and `totalPlayersSum` are running sums (see deviceCols in
+ * database.ts) that the verdict row already added, so the merge adds nothing
+ * to either. `wins` is deleted rather than zeroed: it is additive too, but
+ * its mere PRESENCE is what makes updateDeviceStats re-run the win-streak
+ * CASE, and a second run over the same game would reset the streak the
+ * verdict row just set. Everything else in the payload — the per-turn
+ * counters, and the MIN/MAX record columns, which are idempotent by
+ * construction — is exactly what the merge exists to add.
+ */
+const applyMergeOverrides = (clean: SanitizedStats): void => {
+  clean.gamesPlayed = ALREADY_COUNTED_BY_VERDICT_ROW;
+  clean.totalPlayersSum = ALREADY_COUNTED_BY_VERDICT_ROW;
+  delete clean.wins;
+};
+
 /**
  * Recording what a finished game did, per device and server-wide.
  *
@@ -91,11 +113,21 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // See submitGlobalStats above — stats are only accepted for a game that
     // actually reached its end.
     if (!room.state.finished) return;
-    // See submitGlobalStats above — same reconnect-after-finish dedup, per device.
-    if (room.statsRecordedForGame.devices.has(deviceId)) return;
-    // See submitGlobalStats: pre-add blocks concurrent duplicates, rollback
-    // on failure keeps a retry possible instead of losing the game's stats.
-    room.statsRecordedForGame.devices.add(deviceId);
+    // See submitGlobalStats above — same reconnect-after-finish dedup, per
+    // device. A row the SERVER wrote for this device (a seat that had left or
+    // was disconnected when the finish was broadcast — see
+    // recordDepartedSeatsStats in rooms.ts) is only the verdict: the game and
+    // its outcome, with none of this seat's per-turn counters or records,
+    // which live in the very client now submitting them. Refusing that
+    // submission as a duplicate lost them for good, so it is accepted as a
+    // MERGE instead. Only a full row already in makes a submission a no-op.
+    const recordedLevel = room.statsRecordedForGame.devices.get(deviceId);
+    if (recordedLevel === 'full') return;
+    const isMerge = recordedLevel === 'verdict-only';
+    // See submitGlobalStats: pre-marking blocks concurrent duplicates,
+    // rollback on failure keeps a retry possible instead of losing the game's
+    // stats.
+    room.statsRecordedForGame.devices.set(deviceId, 'full');
     // Recorded in full either way — a custom game just lands in its own
     // bucket, where it cannot move the totals or the records a player reads
     // as theirs. Which bucket is the server's call, taken from the config
@@ -131,13 +163,24 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
       clean.mostPlayersInGame = finishedGame.playerCount;
     }
 
+    // A merge tops up a row the server already wrote from the same verdict,
+    // so everything that row counted must not be counted again. Applied
+    // AFTER the override block above, which is where those very fields were
+    // just set from the verdict.
+    if (isMerge) applyMergeOverrides(clean);
+
     // Scoped to the write alone: it is the only step whose failure means
     // nothing was committed, and so the only one the dedup may be reopened
     // for. The refresh below has its own catch for exactly that reason.
     try {
       await updateDeviceStats(deviceId, clean, mode);
     } catch (err) {
-      room.statsRecordedForGame.devices.delete(deviceId);
+      // Back to what was recorded BEFORE this attempt, not to "nothing
+      // recorded": a merge whose write failed still leaves the server's
+      // verdict row committed, and reopening the dedup outright would let the
+      // retry count the same game a second time.
+      if (recordedLevel) room.statsRecordedForGame.devices.set(deviceId, recordedLevel);
+      else room.statsRecordedForGame.devices.delete(deviceId);
       console.error('[endGameStats] error:', err);
       return;
     }

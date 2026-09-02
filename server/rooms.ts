@@ -145,7 +145,7 @@ export const createRoom = (hostSocketId: string, createdBy = ''): Room => ({
   // to the Object.keys/values that cancel it, so deleteRoom cannot stop it.
   disconnectTimers: Object.create(null) as Room['disconnectTimers'],
   turnExpireTimer: null,
-  statsRecordedForGame: { devices: new Set(), global: false },
+  statsRecordedForGame: { devices: new Map(), global: false },
   // Matches the default config below. Recomputed the moment a game actually
   // starts, so this only covers a room that somehow submits without one.
   normalizedGame: true,
@@ -375,13 +375,12 @@ export const sanitizePlayerForBroadcast = (p: ServerPlayer): Omit<ServerPlayer, 
  * written — the pre-existing, survivors-only behavior.
  *
  * Shares statsRecordedForGame.devices with endGameStats — the exact same
- * per-game dedup — so a later submission for the same device+game (a rejoin
- * whose client still thinks it owes its own endGameStats) is a no-op, and a
- * write already in flight here blocks that submission just as one already
- * committed there blocks a duplicate of this one. For the disconnected-seat
- * case that dedup is a deliberate trade: a player who does reconnect before
- * their timer drains loses the per-turn counters their client was holding
- * (busts, tuttos, …) rather than having the whole game counted twice.
+ * per-game dedup — so a write already in flight here blocks that submission
+ * just as one already committed there blocks a duplicate of this one. The row
+ * is marked 'verdict-only', though, not 'full': a device that DOES come back
+ * and submits for the same game has its per-turn counters and records merged
+ * into this row (see endGameStats), with the game itself and the seats at the
+ * table not counted a second time. Only a second FULL submission is a no-op.
  *
  * No per-turn counters (not cheaply available for either case — a departed
  * seat's ServerPlayer object was already spliced out, and a disconnected
@@ -406,7 +405,11 @@ const recordDepartedSeatsStats = (room: Room): void => {
     // without it a start-roster listing the same deviceId twice (impossible
     // from a real join, but nothing here depends on that) would race its own
     // two iterations into two writes.
-    room.statsRecordedForGame.devices.add(deviceId);
+    // 'verdict-only': the row below carries the game and its outcome and
+    // nothing else, so the device's own submission — should it reconnect
+    // after all — is still owed its per-turn counters and records, and
+    // endGameStats merges rather than refuses it.
+    room.statsRecordedForGame.devices.set(deviceId, 'verdict-only');
     updateDeviceStats(deviceId, {
       gamesPlayed: 1,
       wins: winners.includes(name) ? 1 : 0,

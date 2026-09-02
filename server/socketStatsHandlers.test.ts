@@ -304,21 +304,25 @@ describe('a seat that left before the finish is recorded by the server itself', 
     expect(updateDeviceStats).toHaveBeenCalledTimes(1);
   });
 
-  it('is a no-op for a later submission from the same device+game (e.g. a reconnect replaying its own submission)', async () => {
+  it('never counts the game twice when the same device submits for it later', async () => {
     stageBobLeftBeforeFinish();
     emitRoomState(makeFakeIo().io, roomId);
     expect(updateDeviceStats).toHaveBeenCalledTimes(1);
 
-    // Bob reconnects under the same deviceId (a rejoin after the timeout
-    // that removed him) and his own client then submits for the same game —
-    // the dedup this server write shares with endGameStats must refuse it,
-    // proving the row can never be written twice.
+    // Bob rejoins under the same deviceId (after the timeout that removed
+    // him) and his own client then submits for the same game. The row this
+    // server write left behind is verdict-only, so the submission is merged
+    // into it rather than refused — but the game is already counted, and the
+    // merge may not count it again (see the merge suite below).
     rooms[roomId].state.players.push(makePlayer('Bob', 'bob-sock-2', 'dev-bob'));
     const fake = makeFakeSocket('bob-sock-2');
     registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Bob' } });
     await fake.handlers['endGameStats']({ deviceId: 'dev-bob', stats: { gamesPlayed: 1, wins: 1 } });
 
-    expect(updateDeviceStats).toHaveBeenCalledTimes(1);
+    const gamesCounted = vi.mocked(updateDeviceStats).mock.calls
+      .filter(c => c[0] === 'dev-bob')
+      .reduce((sum, c) => sum + Number(c[1].gamesPlayed ?? 0), 0);
+    expect(gamesCounted, 'one game, however many writes it took').toBe(1);
   });
 
   it('skips a start-roster seat with no deviceId', () => {
@@ -396,6 +400,8 @@ describe('a seat that left before the finish is recorded by the server itself', 
 
     const BOB_LOST = 4000;
     const BOB_WON = 10000;
+    // Per-turn counters only the dropped seat's own client ever held.
+    const BOB_BUSTS_HELD = 7;
     const ALICE_LOST = 4000;
     const ALICE_WON = 10000;
 
@@ -436,10 +442,10 @@ describe('a seat that left before the finish is recorded by the server itself', 
       expect(vi.mocked(updateDeviceStats).mock.calls.every(c => c[0] !== 'dev-alice')).toBe(true);
     });
 
-    it('blocks the seat\'s own submission if it reconnects after all', async () => {
-      // The trade this accepts: the row is already in, so the per-turn
-      // counters the returning client is holding are dropped rather than
-      // double-counted.
+    it('takes the seat\'s own counters if it reconnects after all', async () => {
+      // The row already in is verdict-only, so the per-turn counters the
+      // returning client is holding are merged into it — see the merge suite
+      // below for what such a write may and may not repeat.
       stageBobDisconnectedAtFinish(BOB_LOST, ALICE_WON);
       emitRoomState(makeFakeIo().io, roomId);
       expect(updateDeviceStats).toHaveBeenCalledTimes(1);
@@ -448,9 +454,11 @@ describe('a seat that left before the finish is recorded by the server itself', 
       bobSeat.disconnected = false;
       const fake = makeFakeSocket('bob-sock');
       registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Bob' } });
-      await fake.handlers['endGameStats']({ deviceId: 'dev-bob', stats: { gamesPlayed: 1, wins: 1, busts: 7 } });
+      await fake.handlers['endGameStats']({ deviceId: 'dev-bob', stats: { gamesPlayed: 1, wins: 1, busts: BOB_BUSTS_HELD } });
 
-      expect(updateDeviceStats).toHaveBeenCalledTimes(1);
+      expect(updateDeviceStats).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(updateDeviceStats).mock.calls[1][1].busts, 'the counters no server write could know')
+        .toBe(BOB_BUSTS_HELD);
     });
 
     it('stops the status line calling the game "awaiting stats" for that seat', () => {
@@ -460,7 +468,7 @@ describe('a seat that left before the finish is recorded by the server itself', 
       // The server's own write closes it through the shared dedup.
       stageBobDisconnectedAtFinish(BOB_LOST, ALICE_WON);
       rooms[roomId].statsRecordedForGame.global = true;
-      rooms[roomId].statsRecordedForGame.devices.add('dev-alice');
+      rooms[roomId].statsRecordedForGame.devices.set('dev-alice', 'full');
 
       emitRoomState(makeFakeIo().io, roomId);
 
@@ -540,5 +548,147 @@ describe('the global row counts the same players the device rows do', () => {
     const written = vi.mocked(updateGlobalStats).mock.calls[0]?.[0];
     expect(written!.totalPlayersSum).toBe(2);
     expect(written!.mostPlayersInGame).toBe(2);
+  });
+});
+
+describe("a returning client merges into the server's verdict-only row", () => {
+  // Item W7-1: the server writes a VERDICT-ONLY row (gamesPlayed 1, wins from
+  // the frozen verdict, the player-count pair — and nothing else) for a seat
+  // that is gone or merely disconnected when the finish is broadcast. That
+  // write marks the shared per-game dedup, which used to make the device's
+  // OWN submission a duplicate: a player who dropped right at the finish and
+  // reconnected seconds later lost that game's busts, tuttos, card counters
+  // and records for good. Such a submission is now accepted as a MERGE —
+  // everything the verdict row could not know, with the game itself not
+  // counted a second time and the streak left exactly where the verdict put
+  // it.
+  const roomId = 'MERGE-ROOM';
+  const BOB_LOST = 4000;
+  const ALICE_WON = 10000;
+  const BOB_TURNS = 19;
+  const BOB_BUSTS = 7;
+  const BOB_TUTTOS = 3;
+  const BOB_MOST_CARDS = 6;
+  const SEATS_AT_KICKOFF = 2;
+
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.mocked(getDeviceStats).mockReset().mockResolvedValue(null);
+    vi.mocked(updateDeviceStats).mockReset().mockResolvedValue(true);
+  });
+
+  afterEach(() => { for (const id of Object.keys(rooms)) deleteRoom(id); });
+
+  /** Bob dropped mid-game and is waiting out his reconnect timer at the finish. */
+  const stageBobDroppedAtFinish = () => {
+    rooms[roomId] = createRoom('alice-sock');
+    rooms[roomId].startRoster = [
+      { deviceId: 'dev-alice', name: 'Alice' },
+      { deviceId: 'dev-bob', name: 'Bob' },
+    ];
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null, winningScore: 6000,
+      players: [
+        { ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: ALICE_WON },
+        { ...makePlayer('Bob', 'bob-sock', 'dev-bob'), score: BOB_LOST, disconnected: true },
+      ],
+    });
+    rooms[roomId].disconnectTimers['dev-bob'] = setTimeout(() => {}, RECONNECT_TIMER_MS);
+    // The finish freezes the verdict and writes Bob's verdict-only row.
+    emitRoomState(makeFakeIo().io, roomId);
+  };
+
+  /** Bob is back, and his client submits the game it has been holding. */
+  const bobSubmits = async (stats: Record<string, unknown>) => {
+    const bobSeat = nonNull(rooms[roomId].state.players.find(p => p.deviceId === 'dev-bob'));
+    bobSeat.disconnected = false;
+    const fake = makeFakeSocket('bob-sock');
+    registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Bob' } });
+    await fake.handlers['endGameStats']({ deviceId: 'dev-bob', stats });
+  };
+
+  const BOB_PAYLOAD = {
+    gamesPlayed: 1, wins: 1, totalTurns: BOB_TURNS, busts: BOB_BUSTS,
+    totalTuttos: BOB_TUTTOS, mostCardsInTurn: BOB_MOST_CARDS,
+    totalPlayersSum: SEATS_AT_KICKOFF, mostPlayersInGame: SEATS_AT_KICKOFF,
+  };
+
+  it('adds the per-turn counters and records the verdict row could not know', async () => {
+    stageBobDroppedAtFinish();
+    expect(updateDeviceStats).toHaveBeenCalledTimes(1);
+
+    await bobSubmits(BOB_PAYLOAD);
+
+    expect(updateDeviceStats).toHaveBeenCalledTimes(2);
+    const merged = vi.mocked(updateDeviceStats).mock.calls[1][1];
+    expect(merged.busts, 'the counters the client was holding').toBe(BOB_BUSTS);
+    expect(merged.totalTuttos).toBe(BOB_TUTTOS);
+    expect(merged.mostCardsInTurn).toBe(BOB_MOST_CARDS);
+    expect(merged.totalTurns).toBe(BOB_TURNS);
+    expect(merged.fastestLossTurns, 'the record this game earned').toBe(BOB_TURNS);
+    expect(vi.mocked(updateDeviceStats).mock.calls[1][2], 'the same bucket the verdict row went to').toBe('normalized');
+  });
+
+  it('does not count the game, the seats, or the verdict a second time', async () => {
+    stageBobDroppedAtFinish();
+    const verdictRow = vi.mocked(updateDeviceStats).mock.calls[0][1];
+    expect(verdictRow.gamesPlayed, 'the verdict row counted the game').toBe(1);
+
+    await bobSubmits(BOB_PAYLOAD);
+
+    const merged = vi.mocked(updateDeviceStats).mock.calls[1][1];
+    expect(merged.gamesPlayed, 'the game is already counted').toBe(0);
+    expect(merged.totalPlayersSum, 'so are the seats at the table (an additive column)').toBe(0);
+    expect(merged.mostPlayersInGame, 'a MAX column is safe to repeat').toBe(SEATS_AT_KICKOFF);
+    // `wins` is what makes updateDeviceStats re-run the streak CASE, and a
+    // second run would reset the streak the verdict row already set.
+    expect('wins' in merged, 'the verdict is not restated, so the streak is not touched again').toBe(false);
+  });
+
+  it('cannot flip a lost game into a win, whatever the client claims', async () => {
+    stageBobDroppedAtFinish();
+
+    await bobSubmits({ ...BOB_PAYLOAD, wins: 1, fastestWinTurns: BOB_TURNS });
+
+    const merged = vi.mocked(updateDeviceStats).mock.calls[1][1];
+    expect(merged.wins, 'Bob lost — the frozen verdict says so').toBeUndefined();
+    expect(merged.fastestWinTurns, 'and a loss sets no fastest-win record').toBeNull();
+  });
+
+  it('is a no-op for a third submission of the same game', async () => {
+    stageBobDroppedAtFinish();
+
+    await bobSubmits(BOB_PAYLOAD);
+    await bobSubmits(BOB_PAYLOAD);
+
+    expect(updateDeviceStats, 'the verdict row plus exactly one merge').toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves a seat that never comes back with its verdict-only row alone', async () => {
+    stageBobDroppedAtFinish();
+
+    emitRoomState(makeFakeIo().io, roomId);
+
+    expect(updateDeviceStats).toHaveBeenCalledTimes(1);
+    expect(rooms[roomId].statsRecordedForGame.devices.get('dev-bob')).toBe('verdict-only');
+  });
+
+  it('reopens only the merge when the merge write fails, never the verdict row', async () => {
+    stageBobDroppedAtFinish();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(updateDeviceStats).mockRejectedValueOnce(new Error('write failed'));
+
+    await bobSubmits(BOB_PAYLOAD);
+
+    expect(errorSpy).toHaveBeenCalledWith('[endGameStats] error:', expect.anything());
+    // Back to verdict-only, NOT to "nothing recorded" — a retry must merge
+    // again rather than count the game a second time.
+    expect(rooms[roomId].statsRecordedForGame.devices.get('dev-bob')).toBe('verdict-only');
+
+    await bobSubmits(BOB_PAYLOAD);
+    const retried = vi.mocked(updateDeviceStats).mock.calls[2][1];
+    expect(retried.gamesPlayed, 'the retry is still a merge').toBe(0);
+    expect(retried.busts).toBe(BOB_BUSTS);
+    errorSpy.mockRestore();
   });
 });

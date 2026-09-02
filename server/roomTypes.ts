@@ -100,9 +100,31 @@ export interface TurnTimerState {
 // "finished just became true" stats submission on every reconnect, repeatedly
 // inflating both their device stats and, if they're host, the global stats.
 export interface StatsRecordedForGame {
-  devices: Set<string>;
+  /**
+   * How much of each device's row for the CURRENT game is already written.
+   *
+   * Membership alone is the dedup every path shares; the LEVEL is what tells
+   * the server's own departed-seat write apart from a device recording its
+   * own game in full. See DeviceStatsRecordLevel.
+   */
+  devices: Map<string, DeviceStatsRecordLevel>;
   global: boolean;
 }
+
+/**
+ * How complete a device's statistics row for the current game is.
+ *
+ * 'verdict-only' — the SERVER wrote the row (recordDepartedSeatsStats in
+ * rooms.ts) for a seat that had left or was disconnected when the finish was
+ * broadcast: the game and its outcome, and nothing else. The device's own
+ * later submission (it reconnected after all) is still owed everything that
+ * row could not know, so endGameStats merges it in rather than refusing it as
+ * a duplicate.
+ *
+ * 'full' — a complete row is in, from the seat's own endGameStats. Any
+ * further submission for the same game is a no-op.
+ */
+export type DeviceStatsRecordLevel = 'verdict-only' | 'full';
 
 /**
  * The result of a finished game, as the room saw it at the moment it ended.

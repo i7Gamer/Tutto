@@ -113,7 +113,7 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     // started let the host submit the still-finished game's statistics a
     // second time.
     if (startedGame) {
-      room.statsRecordedForGame = { devices: new Set(), global: false };
+      room.statsRecordedForGame = { devices: new Map(), global: false };
       // The only record of who was actually at the table when THIS game
       // began — a seat that leaves, is kicked, or times out before the
       // finish is broadcast is spliced out of room.state.players by then, and

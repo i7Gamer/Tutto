@@ -361,7 +361,7 @@ describe('pushState may not leave a running game with nobody to act', () => {
     rooms[roomId].state.currentPlayerIndex = null;
     // The previous game's bookkeeping, which a real start would clear and
     // recapture — and which this push must leave exactly as it found it.
-    const previousGameDevices = new Set([PREVIOUS_GAME_DEVICE]);
+    const previousGameDevices = new Map([[PREVIOUS_GAME_DEVICE, 'full' as const]]);
     rooms[roomId].statsRecordedForGame = { devices: previousGameDevices, global: true };
     const hostFake = makeFakeSocket('host-sock');
     registerGameStateHandlers({ io: makeFakeIo().io, socket: hostFake.socket, session: { roomId, username: 'Bob' } });
