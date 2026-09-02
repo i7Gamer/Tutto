@@ -28,11 +28,18 @@ vi.mock('./database', () => ({
   getDeviceStats: vi.fn().mockResolvedValue(null),
 }));
 
+import type { Socket as ClientSocket } from 'socket.io-client';
 import { startInProcessServer, emitJoin, waitFor, type InProcessServer } from './socketTestHarness';
 import { rooms } from './rooms';
 // Rooms are stored under the canonical (trimmed, upper-cased) id since
 // joinRoom started normalising; this file's lower-case ids must follow it.
 import { normalizeRoomId } from '../src/utils/configValidation';
+import type { GameStore } from '../src/store/storeTypes';
+import { nonNull } from '../src/testing/factories';
+
+// The shape of a 'gameState' broadcast — see socket.test.ts's identical copy
+// of this type for why it is not shared via socketTestHarness.ts.
+type GameStatePayload = Partial<GameStore> & { stateVersion?: number };
 
 describe('Server-side turn timer', () => {
   let server: InProcessServer;
@@ -67,20 +74,24 @@ describe('Server-side turn timer', () => {
     // Registered before the join rather than inside its ack: joinRoom acks and
     // then broadcasts, and a listener attached after the ack has already been
     // awaited can miss the broadcast it is waiting for.
-    const firstState = new Promise(resolve => sock.once('gameState', resolve));
+    const firstState = new Promise<GameStatePayload>(resolve => sock.once('gameState', resolve));
     const res = await emitJoin(sock, roomId, name, `dev-${roomId}-${name}`);
     if (!res.success) { sock.disconnect(); throw new Error(res.error); }
-    return { sock, socketId: res.socketId, state: await firstState as Record<string, unknown> };
+    return { sock, socketId: res.socketId, state: await firstState };
   };
 
   // Resolves with the first gameState matching predicate, or rejects on timeout.
-  const waitForState = (sock, predicate, timeoutMs = 6000) =>
-    new Promise<Record<string, unknown>>((resolve, reject) => {
+  const waitForState = (
+    sock: ClientSocket,
+    predicate: (state: GameStatePayload) => boolean,
+    timeoutMs = 6000,
+  ) =>
+    new Promise<GameStatePayload>((resolve, reject) => {
       const timer = setTimeout(() => {
         sock.off('gameState', handler);
         reject(new Error('Timed out waiting for expected gameState'));
       }, timeoutMs);
-      const handler = (state) => {
+      const handler = (state: GameStatePayload) => {
         if (predicate(state)) {
           clearTimeout(timer);
           sock.off('gameState', handler);
@@ -123,7 +134,7 @@ describe('Server-side turn timer', () => {
   const expectNoTimerArmed = (roomId: string) =>
     expect(rooms[normalizeRoomId(roomId)].turnExpireTimer).toBeNull();
 
-  const twoPlayers = (roomId: string, hostSock, guestSock) => [
+  const twoPlayers = (roomId: string, hostSock: ClientSocket, guestSock: ClientSocket) => [
     { name: 'Alice', deviceId: `dev-${roomId}-Alice`, socketId: hostSock.id, disconnected: false, score: 0 },
     { name: 'Bob', deviceId: `dev-${roomId}-Bob`, socketId: guestSock.id, disconnected: false, score: 0 },
   ];
@@ -148,13 +159,14 @@ describe('Server-side turn timer', () => {
     const state = await advanced;
     expect(state.previousCard).toBe('200');
     expect(state.previousScore).toBe(0);
-    const alice = (state.players as { name: string; busts: number }[]).find(p => p.name === 'Alice');
-    expect(alice.busts).toBe(1); // no manual action was taken → counts as a bust, like a real timeout
+    const alice = nonNull(state.players).find(p => p.name === 'Alice');
+    expect(nonNull(alice).busts).toBe(1); // no manual action was taken → counts as a bust, like a real timeout
     expect(state.historyLog).toBeDefined();
-    expect(state.historyLog.length).toBe(1);
-    expect(state.historyLog[0].playerName).toBe('Alice');
-    expect(state.historyLog[0].type).toBe('bust');
-    expect(state.historyLog[0].card).toBe('200');
+    const historyLog = nonNull(state.historyLog);
+    expect(historyLog.length).toBe(1);
+    expect(historyLog[0].playerName).toBe('Alice');
+    expect(historyLog[0].type).toBe('bust');
+    expect(historyLog[0].card).toBe('200');
 
     hostSock.disconnect();
     guestSock.disconnect();
@@ -220,11 +232,11 @@ describe('Server-side turn timer', () => {
     // Reconnect as Alice (same deviceId) to observe the room's current state.
     const { sock: observerSock, state } = await joinRoom(roomId, 'Alice');
 
-    const [firstTimeout] = state.historyLog as { playerName: string; type: string; card: string }[];
+    const [firstTimeout] = nonNull(state.historyLog);
     expect(firstTimeout.playerName).toBe('Alice');
     expect(firstTimeout.type).toBe('bust');
     expect(firstTimeout.card).toBe('200');
-    expect((state.players as { name: string; busts: number }[]).find(p => p.name === 'Alice').busts).toBe(1);
+    expect(nonNull(nonNull(state.players).find(p => p.name === 'Alice')).busts).toBe(1);
     // Exactly one expiry ran, so the turn sits with Bob — an assertion the
     // sampled version could not make, because a second expiry could have
     // wrapped it back to Alice before the sample was taken.
@@ -333,8 +345,9 @@ describe('Server-side turn timer', () => {
 
     const state = await advanced;
     expect(state.currentPlayerIndex).toBe(0);
-    expect(state.chartValues[0].length).toBe(2);
-    expect(state.chartValues[1].length).toBe(2);
+    const chartValues = nonNull(state.chartValues);
+    expect(chartValues[0].length).toBe(2);
+    expect(chartValues[1].length).toBe(2);
     expect(state.chartLabels).toEqual([1]); // round at the moment it ended
 
     hostSock.disconnect();
@@ -427,7 +440,7 @@ describe('Server-side turn timer', () => {
     // Host kicks Bob mid-turn. Bob wasn't last in turn order (Carol, at index 2,
     // hasn't gone yet this round) so the round must NOT bump — Carol simply
     // inherits Bob's slot (shifted down to index 1) and gets a fresh window.
-    const kickedState = waitForState(hostSock, (s) => s.players.length === 2 && s.currentPlayerIndex === 1);
+    const kickedState = waitForState(hostSock, (s) => s.players?.length === 2 && s.currentPlayerIndex === 1);
     hostSock.emit('kickPlayer', bobId);
     bobSock.disconnect();
     const afterKick = await kickedState;
@@ -446,7 +459,7 @@ describe('Server-side turn timer', () => {
     // completes the round, wrapping to round 2.
     const wrapped = waitForState(hostSock, (s) => s.round === 2);
     fireTurnExpiry(roomId);
-    expect((await wrapped).players.length).toBe(2);
+    expect(nonNull((await wrapped).players).length).toBe(2);
 
     hostSock.disconnect();
     carolSock.disconnect();
@@ -475,7 +488,7 @@ describe('Server-side turn timer', () => {
 
     // Kicking her should complete the round immediately, unlike kicking a
     // mid-order player — nobody else was still owed a turn this round.
-    const kickedState = waitForState(hostSock, (s) => s.players.length === 2);
+    const kickedState = waitForState(hostSock, (s) => s.players?.length === 2);
     hostSock.emit('kickPlayer', carolId);
     carolSock.disconnect();
     const afterKick = await kickedState;
@@ -515,7 +528,7 @@ describe('Server-side turn timer', () => {
 
     // Kicking Bob must drop his snapshot — otherwise the remaining players keep
     // seeing Bob's dice attributed to Carol, who inherits his turn slot.
-    const kickedState = waitForState(hostSock, (s) => s.players.length === 2);
+    const kickedState = waitForState(hostSock, (s) => s.players?.length === 2);
     hostSock.emit('kickPlayer', bobId);
     bobSock.disconnect();
     const afterKick = await kickedState;
