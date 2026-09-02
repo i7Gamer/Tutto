@@ -26,10 +26,63 @@ import type { AddressInfo } from 'net';
 import { Server, type Socket } from 'socket.io';
 import { io as clientIo, type Socket as ClientSocket, type ManagerOptions, type SocketOptions } from 'socket.io-client';
 import { vi } from 'vitest';
-import dotenv from 'dotenv';
 import { registerSocketHandlers } from './socketHandlers';
 
-dotenv.config();
+// No dotenv.config() here on purpose (it used to sit above this comment). A
+// real .env holds CORS_ORIGIN / TRUST_PROXY / API_TOKEN / ALLOWED_HOST for a
+// developer's own server, and loading it into this process — on top of the
+// `...process.env` spread startTestServer used to pass straight to the
+// child — meant a spawned test server's behaviour depended on whatever the
+// machine running the suite happened to have configured, and differed
+// between developers and CI. buildChildEnv below is the explicit allow-list
+// that replaced both.
+//
+// Keys let through from THIS process's own env into a spawned test server.
+// Everything else — including a real .env's CORS_ORIGIN, TRUST_PROXY,
+// API_TOKEN, ALLOWED_HOST, DB_PATH, ... — is stripped; a test that needs one
+// of them opts in explicitly via StartTestServerOptions.env instead of
+// inheriting it ambiently. SOCKET_CONN_LIMIT_MAX and MAX_ROOMS_PER_ADDRESS
+// are not "dangerous" the same way: vite.config.ts's `test.env` raises both
+// for the whole suite so bursts of same-address connections/rooms don't trip
+// the production defaults, and several spawned suites rely on that reaching
+// the child (see the comment there) rather than setting it themselves.
+const CHILD_ENV_ALLOWLIST_KEYS = [
+  // Resolving node/npm/tsx and shared libraries.
+  'PATH', 'Path',
+  // Windows process bootstrapping.
+  'SYSTEMROOT', 'SystemRoot',
+  // Temp directories some libraries fall back to.
+  'TEMP', 'TMP',
+  // User profile lookups some npm/node internals probe.
+  'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
+  // Node's own runtime tuning (e.g. --max-old-space-size in CI).
+  'NODE_OPTIONS',
+  // This suite's own test-only knobs, some set by vite.config.ts's
+  // `test.env` and expected to reach spawned children (see above), some
+  // read directly by the harness itself (TEST_TIMER_SCALE, just below).
+  'TEST_DB', 'TEST_TIMER_SCALE', 'TEST_PORT_OFFSET',
+  'SOCKET_CONN_LIMIT_MAX', 'MAX_ROOMS_PER_ADDRESS',
+] as const;
+
+/**
+ * Builds the env object a spawned test server receives: the allow-listed
+ * subset of `parentEnv`, with `overrides` applied on top (winning over both
+ * an allow-listed parent value and the allow-list itself — an override can
+ * reintroduce a stripped key on purpose, e.g. api.test.ts's CORS_ORIGIN
+ * suite). Pure and exported so this is unit-testable without spawning
+ * anything; see socketTestHarness.test.ts.
+ */
+export const buildChildEnv = (
+  parentEnv: Record<string, string | undefined>,
+  overrides: Record<string, string> = {},
+): Record<string, string> => {
+  const inherited: Record<string, string> = {};
+  for (const key of CHILD_ENV_ALLOWLIST_KEYS) {
+    const value = parentEnv[key];
+    if (value !== undefined) inherited[key] = value;
+  }
+  return { ...inherited, ...overrides };
+};
 
 // TEST_TIMER_SCALE (see vite.config.ts) compresses the spawned server's own
 // timers, so orchestration waits in the tests have to scale with them or they
@@ -96,7 +149,7 @@ export const startTestServer = (
       process.execPath,
       ['--require', require.resolve('tsx/cjs'), 'server/index.ts'],
       {
-        env: { ...process.env, PORT: port, FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2', ...env },
+        env: buildChildEnv(process.env, { PORT: port, FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2', ...env }),
         stdio: 'pipe',
       },
     );

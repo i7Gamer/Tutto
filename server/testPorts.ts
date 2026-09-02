@@ -43,6 +43,7 @@ const BASE_PORTS = {
   // rather than reused, so an old checkout running alongside a new one does not
   // collide with whichever suite inherited it.
   pushStateValidation: '3011',
+  socketTestHarnessEnvIsolation: '3019',
 } as const;
 
 const PORT_OFFSET_ENV = 'TEST_PORT_OFFSET';
