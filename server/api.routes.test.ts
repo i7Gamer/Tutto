@@ -265,6 +265,24 @@ describe('api routes in-process', () => {
       const res = await postJson('/api/stats/global?ruleset=modernised', { gamesPlayed: 1 }, 'wrong-token');
       expect(res.status).toBe(403);
     });
+
+    // This route reads `ruleset`, not `mode` — but 'classic' is a member of
+    // both GAME_MODES and RULESETS, so `?mode=classic` on this route is the
+    // plausible operator typo (meant ?ruleset=classic) that silently wrote
+    // the default ruleset row while `mode` was quietly ignored.
+    it('refuses a mode= parameter — this route accepts ruleset, not mode', async () => {
+      const res = await postJson('/api/stats/global?mode=classic', { gamesPlayed: 1 }, API_TOKEN);
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toContain('ruleset');
+      expect(updateGlobalStats).not.toHaveBeenCalled();
+    });
+
+    it('still writes when the correct ruleset parameter is used alongside no mode', async () => {
+      const res = await postJson('/api/stats/global?ruleset=classic', { gamesPlayed: 1 }, API_TOKEN);
+      expect(res.status).toBe(200);
+      expect(updateGlobalStats).toHaveBeenCalledWith({ gamesPlayed: 1 }, 'classic');
+    });
   });
 
   describe('GET the device stats route', () => {
@@ -369,6 +387,24 @@ describe('api routes in-process', () => {
       const res = await postJson('/api/stats/unlucky-device', { gamesPlayed: 1 }, API_TOKEN);
       expect(res.status).toBe(500);
       expect(await res.json()).toEqual({ error: 'Database error' });
+    });
+
+    // This route reads `mode`, not `ruleset` — but 'classic' is a member of
+    // both GAME_MODES and RULESETS, so `?ruleset=classic` on this route is
+    // the plausible operator typo (meant ?mode=classic) that silently wrote
+    // the default mode bucket while `ruleset` was quietly ignored.
+    it('refuses a ruleset= parameter — this route accepts mode, not ruleset', async () => {
+      const res = await postJson('/api/stats/in-proc-device?ruleset=classic', { gamesPlayed: 1 }, API_TOKEN);
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toContain('mode');
+      expect(updateDeviceStats).not.toHaveBeenCalled();
+    });
+
+    it('still writes when the correct mode parameter is used alongside no ruleset', async () => {
+      const res = await postJson('/api/stats/in-proc-device?mode=classic', { gamesPlayed: 1 }, API_TOKEN);
+      expect(res.status).toBe(200);
+      expect(updateDeviceStats).toHaveBeenCalledWith('in-proc-device', { gamesPlayed: 1 }, 'classic');
     });
   });
 

@@ -150,6 +150,27 @@ export const registerApiRoutes = (app: express.Express): void => {
   const rejectUnknownMode = rejectUnknownBucket(MODE_PARAM, GAME_MODES);
   const rejectUnknownRuleset = rejectUnknownBucket(RULESET_PARAM, RULESETS);
 
+  /**
+   * Refuses a WRITE that carries the OTHER route's bucket parameter.
+   *
+   * Each write route above only ever reads the one parameter it understands
+   * — /api/stats/:deviceId reads `mode`, /api/stats/global reads `ruleset` —
+   * so passing the wrong one is silently ignored and the write lands in the
+   * default bucket. 'classic' is a value in both GAME_MODES and RULESETS,
+   * which makes `?mode=classic` on the global route (or `?ruleset=classic` on
+   * the device route) a highly plausible operator typo: it reads as though it
+   * worked, `success: true` and all, while quietly corrupting the default row
+   * instead of the one the caller meant.
+   */
+  const rejectForeignBucketParam = (acceptedParam: string, foreignParam: string) =>
+    (req: express.Request, res: express.Response, next: express.NextFunction): void => {
+      if (req.query[foreignParam] === undefined) {
+        next();
+        return;
+      }
+      res.status(400).json({ error: `This route accepts ${acceptedParam}, not ${foreignParam}` });
+    };
+
   const crashLogRateLimiter = createRateLimiter({
     windowMs: CRASH_LOG_RATE_LIMIT_WINDOW_MS,
     max: CRASH_LOG_RATE_LIMIT_MAX,
@@ -193,7 +214,7 @@ export const registerApiRoutes = (app: express.Express): void => {
     }
   });
 
-  app.post('/api/stats/global', requireToken, rejectUnknownRuleset, async (req: express.Request, res: express.Response) => {
+  app.post('/api/stats/global', requireToken, rejectForeignBucketParam(RULESET_PARAM, MODE_PARAM), rejectUnknownRuleset, async (req: express.Request, res: express.Response) => {
     try {
       await updateGlobalStats(sanitizeStats(req.body), requestedRuleset(req));
       res.json({ success: true });
@@ -230,7 +251,7 @@ export const registerApiRoutes = (app: express.Express): void => {
     }
   });
 
-  app.post('/api/stats/:deviceId', requireToken, requireValidDeviceId, rejectUnknownMode, async (req: express.Request, res: express.Response) => {
+  app.post('/api/stats/:deviceId', requireToken, requireValidDeviceId, rejectForeignBucketParam(MODE_PARAM, RULESET_PARAM), rejectUnknownMode, async (req: express.Request, res: express.Response) => {
     try {
       await updateDeviceStats(req.params.deviceId as string, sanitizeStats(req.body), requestedMode(req));
       res.json({ success: true });
