@@ -13,6 +13,7 @@ import { TEST_PORTS } from './testPorts';
 import { MIN_ENABLED_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 import { nonNull } from '../src/testing/factories';
+import { MS_PER_SECOND } from '../src/utils/time';
 import type { GameStore } from '../src/store/storeTypes';
 
 // The shape of a 'gameState' broadcast — see pushStateValidation.test.ts's
@@ -25,7 +26,6 @@ type GameStatePayload = Partial<GameStore> & { stateVersion?: number };
 // than its own config validator, and three tests were written against the gap.
 // TEST_TIMER_SCALE is the supported way to make a server timer fast, so the
 // legal 10s arms in 2s here and nothing else changes.
-const MS_PER_SECOND = 1000;
 const RECONNECT_TIMER_UNSCALED_MS = MIN_ENABLED_RECONNECT_TIMEOUT * MS_PER_SECOND;
 // Enough past the armed timer that a stale one would have fired by now.
 const PAST_RECONNECT_TIMER_UNSCALED_MS = RECONNECT_TIMER_UNSCALED_MS + 2000;
