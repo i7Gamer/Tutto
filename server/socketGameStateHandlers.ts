@@ -99,7 +99,13 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     // the room had already reverted: the stats dedup was cleared, letting the
     // still-finished game be submitted a second time, and startRoster/
     // normalizedGame/ruleset were re-frozen from a game that never began.
-    const startedGame = startingGame && applied && roomPhase(room.state) === 'playing';
+    //
+    // A MOVED phase, not specifically 'playing': the repair's two undos are
+    // precisely "the room is still in the phase it was pushed out of" — back
+    // to 'lobby' for the first disjunct below, back to 'finished' for Play
+    // Again's. A kickoff that legitimately lands somewhere else (a push that
+    // starts and finishes a game in one go) is a start like any other.
+    const startedGame = startingGame && applied && roomPhase(room.state) !== currentPhase;
 
     // Gated on the push having landed, and therefore only readable AFTER it:
     // applyPushedState discards a whole snapshot whose roster no longer

@@ -276,7 +276,10 @@ describe('Server Socket E2E — statistics persistence', () => {
 
             // Play Again with a CUSTOM classic config → classic_custom, and
             // only the classic row's customGamesPlayed moves.
-            s1.emit('pushState', { roomId, newState: { status: 'playing', finished: false, winningScore: 1000 } });
+            // currentPlayerIndex, like the real client's Play Again: an
+            // un-finish that names nobody to act is refused wholesale by the
+            // coherence repair (pushValidation), so no second game would start.
+            s1.emit('pushState', { roomId, newState: { status: 'playing', finished: false, currentPlayerIndex: 0, winningScore: 1000 } });
             s1.emit('pushState', { roomId, newState: { status: 'playing', finished: true } });
             s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, wins: 0, totalScore: 111 } });
             s1.emit('submitGlobalStats', { roomId, payload: { gamesPlayed: 1, totalScore: 111, isDefaultGame: true } });
@@ -407,7 +410,10 @@ describe('Server Socket E2E — statistics persistence', () => {
             // broadcast, the duplicate has already been through the handler,
             // which decides synchronously.
             const restarted = new Promise(r => { s1.once('gameState', r); });
-            s1.emit('pushState', { roomId, newState: { status: 'playing', finished: false } });
+            // currentPlayerIndex, like the real client's Play Again: an
+            // un-finish that names nobody to act is refused wholesale by the
+            // coherence repair (pushValidation), so no second game would start.
+            s1.emit('pushState', { roomId, newState: { status: 'playing', finished: false, currentPlayerIndex: 0 } });
             await restarted;
             expect(await getGlobalTotalScore()).toBe(before + 100);
 
