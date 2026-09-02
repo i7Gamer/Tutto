@@ -1,20 +1,18 @@
-import { localStore } from '../utils/storage';
 import { getDisplayCardName } from '../utils/cardVisuals';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../store/useGameStore';
-import confetti from 'canvas-confetti';
-import { playBuzzer, playSuccess, vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
+import { vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
 import { computeRankedPlayers } from '../utils/coreGameEngine';
 import { applyTuttoBonus } from '../utils/diceLogic';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { formatTime } from '../utils/formatTime';
-import { buildTurnKey, parseSavedDiceState, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
+import { buildTurnKey } from '../utils/diceTurnState';
 import { hasScoreInput, isSpecialCard, parseScoreInput } from '../utils/diceTurnControls';
 import { readableNameVars } from '../utils/contrastColor';
 import { gameModeOf, isCustomGameMode } from '../utils/statsApi';
-import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, DICE_PANEL_ENTRANCE_MS, TURN_URGENT_SECONDS } from '../utils/uiTimings';
+import { DICE_PANEL_ENTRANCE_MS, TURN_URGENT_SECONDS } from '../utils/uiTimings';
 import { HOT_WIN_STREAK } from '../utils/playerStats';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
@@ -23,6 +21,9 @@ import type { PreGameStats } from '../store/storeTypes';
 import type { DiceSnapshot, TurnEnd, TurnSummary } from '../types';
 import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../utils/coreGameEngine';
 import { usePhysicalChain, readPhysicalChainCache } from '../hooks/usePhysicalChain';
+import { useReconnectResume } from '../hooks/useReconnectResume';
+import { useStopCardAutoContinue } from '../hooks/useStopCardAutoContinue';
+import { useFeuerwerkFanfare } from '../hooks/useFeuerwerkFanfare';
 
 import ModalShell from './ModalShell';
 import ConfirmModal from './ConfirmModal';
@@ -179,10 +180,6 @@ export default function Game() {
   // DiceGame knows when it's safe to start rolling automatically. Reset once
   // the panel closes so the next opening waits for its own animation again.
   const [diceGamePanelReady, setDiceGamePanelReady] = useState(false);
-  const confettiFiredRef = useRef(false);
-  const reconnectHandledRef = useRef(false);
-  const onlineReconnectHandledRef = useRef(false);
-  const localCacheOnMountRef = useRef(!!localStore.read(DICE_TURN_STATE_KEY));
   // Seeded with the initial value (not false) so mounting straight into an
   // already-your-turn state (fresh load, reconnect) doesn't itself count as
   // a "turn started" transition — only a later false-to-true flip does.
@@ -263,123 +260,47 @@ export default function Game() {
     });
   }, [preGameStatsData, setPreGameStats]);
 
-  // justReconnected is set — and self-cleared on the next gameState event it
-  // isn't itself part of — by the store; this effect only reads it to decide
-  // whether to show the resume UI. onlineReconnectHandledRef still guards
-  // against firing the toast/modal more than once per reconnect episode: once
-  // resumed, DiceGame calls onStateChange ~300ms after mount (see its own
-  // effect), which updates liveTurnState — a dependency here — and would
-  // otherwise re-run this effect while justReconnected is still waiting on the
-  // store's next gameState round-trip to clear it.
-  //
-  // The turn-key inputs below are honest dependencies, so this now also re-runs
-  // on any ordinary turn or card change. Both one-shot refs make those runs
-  // return immediately, and running with the current turn is the whole point:
-  // the key it builds has to describe the turn actually on screen.
-  useEffect(() => {
-    if (isOnline && justReconnected) {
-      if (onlineReconnectHandledRef.current) return;
-      onlineReconnectHandledRef.current = true;
-      // The relayed snapshot carries no turn key of its own (the server strips
-      // it — see sanitizeDiceSnapshot), so re-stamping it with the CURRENT key
-      // is an assertion that it belongs to the current card. A classic chain
-      // can disprove that: the ~300ms snapshot debounce means a mid-chain draw
-      // can land while the last pushed snapshot still describes the card
-      // before it, and re-stamping that one hands its six kept dice and its
-      // accumulated total to the newly drawn card — banking a chain the player
-      // never played it for. The chain's own tail is the check.
-      const chain = liveTurnState?.cardsThisTurn;
-      const describesCurrentCard = !chain?.length || chain[chain.length - 1] === currentCard;
-      if (isMyTurn && effectiveDiceMode === 'digital' && liveTurnState && describesCurrentCard) {
-        const snapshotWithPlayer = {
-          ...liveTurnState,
-          playerName: currentPlayer?.name,
-          turnKey: buildTurnKey(roomId, round, currentPlayerIndex, currentCard, game.ruleset),
-        };
-        localStore.write(DICE_TURN_STATE_KEY, JSON.stringify(snapshotWithPlayer));
-        // The one suppression left in this file, and it is not a stale-render
-        // case like the ones above: reopening the panel here is one of three
-        // things that happen together when a reconnect lands — the cache entry
-        // is written, the panel comes back, the player is told why. There is no
-        // render-time expression of that, because the other two are side
-        // effects and an effect is exactly where they belong.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setShowDiceGame(true);
-        addToast(t('game.resumingDiceGame', 'Resuming your dice game...'));
-      }
-      return;
+  // Stable for useReconnectResume's dependency array.
+  const openDiceGame = useCallback(() => setShowDiceGame(true), []);
+
+  // What a Stop card commits when it runs out its own clock. A classic chain
+  // standing under it is forfeited with its summary (and the total typed so
+  // far); anything else is the bare turn advance.
+  const commitStopCard = useCallback(() => {
+    if (isClassic && hasPhysicalChain()) {
+      nextTurn(0, false, buildPhysicalSummary('stopCard', false, parseScoreInput(scoreInput)));
+      clearChain();
+    } else {
+      nextTurn(0, false);
     }
-    onlineReconnectHandledRef.current = false;
+  }, [isClassic, hasPhysicalChain, nextTurn, buildPhysicalSummary, clearChain, scoreInput]);
 
-    if (!isOnline && isMyTurn && effectiveDiceMode === 'digital' && localCacheOnMountRef.current && !reconnectHandledRef.current) {
-      reconnectHandledRef.current = true;
-      localCacheOnMountRef.current = false;
+  useReconnectResume({
+    isOnline,
+    justReconnected,
+    isMyTurn: !!isMyTurn,
+    effectiveDiceMode,
+    liveTurnState,
+    currentCard,
+    currentPlayerName: currentPlayer?.name,
+    currentPlayerIndex,
+    roomId,
+    round,
+    ruleset: game.ruleset,
+    addToast,
+    onResume: openDiceGame,
+  });
 
-      const raw = localStore.read(DICE_TURN_STATE_KEY);
-      const parsed = parseSavedDiceState(raw);
-      const expectedTurnKey = buildTurnKey(roomId, round, currentPlayerIndex, currentCard, game.ruleset);
+  useStopCardAutoContinue({
+    currentCard,
+    cardsLength: cards?.length,
+    isOnline,
+    isMyTurn: !!isMyTurn,
+    showDiceGame,
+    onAutoContinue: commitStopCard,
+  });
 
-      if (parsed && parsed.turnKey === expectedTurnKey) {
-        setShowDiceGame(true);
-        addToast(t('game.resumingDiceGame', 'Resuming your dice game...'));
-      } else {
-        localStore.remove(DICE_TURN_STATE_KEY);
-      }
-    }
-  }, [
-    justReconnected, liveTurnState, isMyTurn, effectiveDiceMode, isOnline,
-    currentCard, currentPlayer?.name, currentPlayerIndex, roomId, round, addToast, t,
-    game.ruleset,
-  ]);
-
-  useEffect(() => {
-    let soundTimeout: ReturnType<typeof setTimeout> | undefined;
-    let turnTimeout: ReturnType<typeof setTimeout> | undefined;
-
-    // A Stop drawn while the dice modal is open is a classic chain forfeit
-    // that DiceGame itself commits (with its own summary) — the auto-continue
-    // here would race it and commit the turn a second time.
-    if (currentCard === 'Stop' && !showDiceGame) {
-      const commitStop = () => {
-        if (isClassic && hasPhysicalChain()) {
-          nextTurn(0, false, buildPhysicalSummary('stopCard', false, parseScoreInput(scoreInput)));
-          clearChain();
-        } else {
-          nextTurn(0, false);
-        }
-      };
-      soundTimeout = setTimeout(() => playBuzzer(), CARD_FLIP_MS);
-      if (isOnline && isMyTurn) {
-        turnTimeout = setTimeout(commitStop, CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS);
-      }
-    }
-
-    return () => {
-      clearTimeout(soundTimeout);
-      clearTimeout(turnTimeout);
-    };
-  // cards?.length is deliberate and not incidental: drawing another Stop card
-  // leaves currentCard unchanged, and the deck shrinking is what tells the two
-  // draws apart so the buzzer sounds again for the second one.
-  }, [isOnline, isMyTurn, currentCard, cards?.length, nextTurn, showDiceGame, isClassic, hasPhysicalChain, buildPhysicalSummary, clearChain, scoreInput]);
-
-  useEffect(() => {
-    confettiFiredRef.current = false;
-  }, [currentCard, cards?.length]);
-
-  useEffect(() => {
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    if (currentCard === 'Feuerwerk' && !confettiFiredRef.current) {
-      timeout = setTimeout(() => {
-        if (!confettiFiredRef.current) {
-          confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
-          playSuccess();
-          confettiFiredRef.current = true;
-        }
-      }, CARD_FLIP_MS);
-    }
-    return () => clearTimeout(timeout);
-  }, [currentCard, cards?.length]);
+  useFeuerwerkFanfare(currentCard, cards?.length);
 
   const handleNextTurn = useCallback(() => {
     let parsedScore = parseScoreInput(scoreInput);
