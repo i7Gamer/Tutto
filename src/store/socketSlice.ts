@@ -159,12 +159,26 @@ let lastReconnectAt: number | null = null;
  * move made in a room the player has already left would be flushed into
  * whatever room the next reconnect finds them in.
  */
-export const clearPendingPush = (): void => {
-  parkedPush = null;
+/**
+ * Cancels a pending rejoin retry (see pushRejoinRetryTimer/emitPushState)
+ * without touching parkedPush or lastReconnectAt.
+ *
+ * Split out of clearPendingPush so pushState can call just this: a fresh
+ * pushState() call means a newer full snapshot exists, which supersedes
+ * whatever stale one a queued retry would otherwise resend — but pushState
+ * has nothing to do with abandoning the room, so parkedPush and
+ * lastReconnectAt (whose clearing means exactly that) must stay put.
+ */
+const clearPendingPushRetry = (): void => {
   if (pushRejoinRetryTimer !== null) {
     clearTimeout(pushRejoinRetryTimer);
     pushRejoinRetryTimer = null;
   }
+};
+
+export const clearPendingPush = (): void => {
+  parkedPush = null;
+  clearPendingPushRetry();
   lastReconnectAt = null;
 };
 
@@ -694,6 +708,11 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
   },
 
   pushState: () => {
+    // A newer full snapshot supersedes any retry still queued for an older
+    // one (see clearPendingPushRetry) — otherwise that stale resend can land
+    // AFTER this push and the server, which tracks no version for pushState
+    // payloads by design, would apply it right over the top.
+    clearPendingPushRetry();
     const s = get();
     const socket = getSocket();
     if (s.isOnline && socket) {

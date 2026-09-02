@@ -1503,6 +1503,35 @@ describe('useGameStore', () => {
         }
       });
 
+      it('cancels a pending rejoin retry when a newer push is made before it fires', () => {
+        vi.useFakeTimers();
+        try {
+          stageSeatedGame();
+          mockSocketConnected = false;
+          useGameStore.getState().pushState();
+
+          mockSocketConnected = true;
+          mockOnHandlers['connect']();
+          ackRejoin({ success: true, isHost: true, name: 'Alice' });
+
+          // The rejoin race arms a retry of the STAGED_ROUND snapshot.
+          pushes()[0][2]({ ok: false, reason: 'unauthorized' });
+          const pushesBeforeRetry = pushes().length;
+
+          // A newer full snapshot is pushed before that retry ever fires —
+          // it must supersede the stale one instead of racing it.
+          useGameStore.setState({ round: LATER_ROUND });
+          useGameStore.getState().pushState();
+
+          vi.advanceTimersByTime(PUSH_REJOIN_RETRY_DELAY_MS);
+
+          expect(pushes(), 'the stale retry must not also fire').toHaveLength(pushesBeforeRetry + 1);
+          expect(pushes().at(-1)![1].newState.round).toBe(LATER_ROUND);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
       it('treats an unauthorized refusal as real when no reconnect preceded it', () => {
         stageSeatedGame();
 
