@@ -251,10 +251,27 @@ describe('the game mode a finished game is recorded under', () => {
     });
   };
 
+  /**
+   * Ends the game the way a real client does — with a push, which BROADCASTS.
+   *
+   * That broadcast is where the room freezes its verdict (rememberFinishedGame
+   * in rooms.ts), and the freeze is also when the server writes the device row
+   * for any seat that cannot submit its own. Setting `state.finished` in place
+   * instead left the room unfrozen until the next broadcast, which in these
+   * tests is the teardown `client.disconnect()` — by then the only seat reads
+   * as disconnected, so the server recorded a row for it into the shared
+   * updateDeviceStats mock, asynchronously, after the next test had already
+   * reset it.
+   */
+  const finishTheGame = async (sock: ClientSocket, roomId: string): Promise<void> => {
+    push(sock, roomId, { finished: true });
+    await waitFor(() => rooms[roomId].finishedGame !== null);
+  };
+
   // The client's own isDefaultGame is advisory; every case below asserts what
   // the SERVER decided, by reading the flag the DB layer actually received.
   const submitAndReadMode = async (sock: ClientSocket, roomId: string, claimed?: boolean): Promise<boolean> => {
-    rooms[roomId].state.finished = true;
+    await finishTheGame(sock, roomId);
     sock.emit('submitGlobalStats', {
       roomId,
       payload: { gamesPlayed: 1, ...(claimed === undefined ? {} : { isDefaultGame: claimed }) },
@@ -370,7 +387,7 @@ describe('the game mode a finished game is recorded under', () => {
     client = await hostAGame(roomId);
     push(client, roomId, { initialCards: { ...CUSTOM_DECK } });
     await waitFor(() => rooms[roomId].state.status === 'playing');
-    rooms[roomId].state.finished = true;
+    await finishTheGame(client, roomId);
 
     // joinRoom reads the streak too — only what happens AFTER the game is of
     // interest here.
@@ -395,7 +412,7 @@ describe('the game mode a finished game is recorded under', () => {
     client = await hostAGame(roomId);
     push(client, roomId, { winningScore: DEFAULT_WINNING_SCORE });
     await waitFor(() => rooms[roomId].state.status === 'playing');
-    rooms[roomId].state.finished = true;
+    await finishTheGame(client, roomId);
 
     mockedGetDeviceStats.mockClear();
     client.emit('endGameStats', { deviceId: deviceFor(roomId), stats: { gamesPlayed: 1, wins: 1 } });
