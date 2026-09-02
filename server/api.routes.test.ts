@@ -23,7 +23,7 @@ import type http from 'http';
 import { registerApiRoutes } from './api';
 import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } from './database';
 import { DEVICE_ID_HEADER, DEVICE_STATS_PATH } from '../src/utils/statsApi';
-import { DEFAULT_GAME_MODE } from '../src/types';
+import { DEFAULT_GAME_MODE, type DeviceStatsRow, type GlobalStatsRow } from '../src/types';
 import { DEFAULT_RULESET } from '../src/utils/configValidation';
 
 vi.mock('./database', () => ({
@@ -41,10 +41,86 @@ const CRASH_FIELD_CAP = 2000; // mirrors CRASH_FIELD_MAX in api.ts
 
 const API_TOKEN = 'in-process-route-token';
 
-const deviceRow = (stats: Record<string, number>) =>
-  stats as Awaited<ReturnType<typeof getDeviceStats>>;
-const globalRow = (stats: Record<string, number>) =>
-  stats as Awaited<ReturnType<typeof getGlobalStats>>;
+// Full rows, every field zeroed, so the two `mockResolvedValueOnce` call sites
+// below stay real DeviceStatsRow/GlobalStatsRow values (the handler does
+// `res.json(stats ?? {})` — a straight pass-through of whatever the database
+// layer resolves) instead of a `Record<string, number>` standing in for one.
+const deviceRow = (overrides: Partial<DeviceStatsRow> = {}): DeviceStatsRow => ({
+  deviceId: 'route-test-device',
+  mode: DEFAULT_GAME_MODE,
+  gamesPlayed: 0,
+  wins: 0,
+  pointsDeducted: 0,
+  plusMinusCompleted: 0,
+  plusMinusFailed: 0,
+  kniffelCompleted: 0,
+  kniffelFailed: 0,
+  skipped: 0,
+  feuerwerkReceived: 0,
+  kleeblattFailed: 0,
+  kleeblattCompleted: 0,
+  x2Received: 0,
+  totalPlaytime: 0,
+  totalTurns: 0,
+  busts: 0,
+  feuerwerkBusts: 0,
+  x2Busts: 0,
+  feuerwerkPointsScored: 0,
+  x2PointsScored: 0,
+  totalScore: 0,
+  highestTurnScore: null,
+  fastestWinTurns: null,
+  fastestLossTurns: null,
+  currentWinStreak: 0,
+  bestWinStreak: 0,
+  mostPlayersInGame: null,
+  totalPlayersSum: 0,
+  longestGameRounds: null,
+  totalRoundsSum: 0,
+  highestFeuerwerkTurnScore: null,
+  highestX2TurnScore: null,
+  totalTuttos: 0,
+  mostCardsInTurn: null,
+  highestForfeitedTurnScore: null,
+  ...overrides,
+});
+
+const globalRow = (overrides: Partial<GlobalStatsRow> = {}): GlobalStatsRow => ({
+  ruleset: DEFAULT_RULESET,
+  totalGamesPlayed: 0,
+  totalPlaytime: 0,
+  totalPlusMinus: 0,
+  totalKniffel: 0,
+  totalStop: 0,
+  totalFeuerwerk: 0,
+  totalKleeblatt: 0,
+  totalKleeblattCompleted: 0,
+  totalx2: 0,
+  totalTurns: 0,
+  totalScore: 0,
+  totalPlusMinusCompleted: 0,
+  totalKniffelCompleted: 0,
+  totalFeuerwerkPoints: 0,
+  totalx2Points: 0,
+  defaultGamesPlayed: 0,
+  customGamesPlayed: 0,
+  totalFeuerwerkBusts: 0,
+  totalx2Busts: 0,
+  totalBusts: 0,
+  highestTurnScore: null,
+  fastestWinTurns: null,
+  fastestLossTurns: null,
+  mostPlayersInGame: null,
+  totalPlayersSum: 0,
+  longestGameRounds: null,
+  totalRoundsSum: 0,
+  highestFeuerwerkTurnScore: null,
+  highestX2TurnScore: null,
+  totalTuttos: 0,
+  mostCardsInTurn: null,
+  highestForfeitedTurnScore: null,
+  ...overrides,
+});
 
 describe('api routes in-process', () => {
   let server: http.Server;
@@ -102,10 +178,11 @@ describe('api routes in-process', () => {
 
   describe('GET /api/stats/global', () => {
     it('answers the row the database returns', async () => {
-      vi.mocked(getGlobalStats).mockResolvedValueOnce(globalRow({ totalGamesPlayed: 10 }));
+      const row = globalRow({ totalGamesPlayed: 10 });
+      vi.mocked(getGlobalStats).mockResolvedValueOnce(row);
       const res = await fetch(url('/api/stats/global'));
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ totalGamesPlayed: 10 });
+      expect(await res.json()).toEqual(row);
       expect(getGlobalStats).toHaveBeenCalledWith(DEFAULT_RULESET);
     });
 
@@ -192,10 +269,11 @@ describe('api routes in-process', () => {
 
   describe('GET the device stats route', () => {
     it('decodes the header id and reads the requested mode', async () => {
-      vi.mocked(getDeviceStats).mockResolvedValueOnce(deviceRow({ gamesPlayed: 5 }));
+      const row = deviceRow({ gamesPlayed: 5 });
+      vi.mocked(getDeviceStats).mockResolvedValueOnce(row);
       const res = await getDevice('dev/odd id?x', '?mode=custom');
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ gamesPlayed: 5 });
+      expect(await res.json()).toEqual(row);
       expect(getDeviceStats).toHaveBeenCalledWith('dev/odd id?x', 'custom');
     });
 
