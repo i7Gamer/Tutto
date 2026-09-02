@@ -56,6 +56,11 @@ jobs:
       - name: Type Check
         run: npm run type-check
 
+      # The test suites have their own project (tsconfig.test.json). Clean
+      # since 2026-09-02; a new error here fails the build.
+      - name: Type Check (test suites)
+        run: npm run type-check:test
+
       - name: Lint
         run: npm run lint
 

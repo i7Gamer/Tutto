@@ -291,6 +291,31 @@ describe('dependabot configuration covers all ecosystems in the repository', () 
   });
 });
 
+describe('the test suites are type-checked in CI', () => {
+  // tsconfig.test.json existed for weeks as a report nobody had to read:
+  // 1486 errors, "not yet a gate". Once the typed fixtures brought it to zero
+  // the only way to keep it there is to fail the build on the first new one.
+  const CI_WORKFLOW = path.join(WORKFLOWS_DIR, 'ci.yml');
+  // Anchored at end of line so the production step does not also match the
+  // test step (its command is a prefix of the other).
+  const PRODUCTION_TYPE_CHECK = /run: npm run type-check$/m;
+  const TEST_TYPE_CHECK = /run: npm run type-check:test$/m;
+
+  it('ci.yml runs type-check:test right after the production type-check', () => {
+    const yaml = fs.readFileSync(CI_WORKFLOW, 'utf8');
+    const production = yaml.search(PRODUCTION_TYPE_CHECK);
+    const tests = yaml.search(TEST_TYPE_CHECK);
+    expect(production, 'the production type-check step is the anchor').toBeGreaterThan(-1);
+    expect(tests, 'the test type-check must be a CI step').toBeGreaterThan(-1);
+    expect(tests, 'and it runs after the production one').toBeGreaterThan(production);
+  });
+
+  it('tsconfig.test.json no longer calls itself a non-gate', () => {
+    const header = fs.readFileSync(path.join(REPO_ROOT, 'tsconfig.test.json'), 'utf8');
+    expect(header).not.toMatch(/NOT YET A GATE/);
+  });
+});
+
 describe('every job that runs the suite has built first', () => {
   // src/utils/serviceWorkerConfig.test.ts is `describe.skipIf(!existsSync(
   // 'dist/sw.js'))`, and it is the ONLY guard on the shipped service worker —

@@ -6,15 +6,15 @@
      tests wrong and the whole pipeline stays green until something happens to
      assert on the value at runtime.
 
-     NOT YET A GATE, and deliberately not referenced from tsconfig.json: as of
-     writing this reports 1447 errors across 48 files. Almost all of them are
-     one idiom — a partial object literal standing in for a full interface (a
-     two-field object as a Player, a ten-field one as a CoreGameState) — and
-     three files account for 589 of them. The fix is typed
-     fixture factories per shape, which collapses errors by the hundred but
-     touches nearly every suite, so it is its own piece of work rather than a
-     footnote to someone else's. Run it with `npm run type-check:test`, and
-     fold it into `type-check` (and so into CI) once it is clean.
+     A CI GATE since 2026-09-02 (ci.yml runs `npm run type-check:test` right
+     after the production type-check), and deliberately still not referenced
+     from tsconfig.json: tsc --build would otherwise type-check the suites on
+     every editor save of a production file. It went from 1486 errors to zero
+     through typed fixture factories (src/testing/factories.ts and the helpers
+     socketTestHarness.ts exports) — a full Player/CoreGameState/ServerPlayer
+     instead of a partial literal, a real Response instead of a hand-rolled
+     one, nonNull() where a test dereferences a nullable read. Keep it that
+     way: a new error here is a fixture that lies about a shape.
 
      Left at full `strict` on purpose: relaxing it to make the number smaller
      buys nothing while neither number is green, and quietly moves the
