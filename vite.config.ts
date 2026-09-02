@@ -157,7 +157,7 @@ export default defineConfig(({ mode }) => {
       // and fails the whole suite with "Playwright Test did not expect
       // test.describe() to be called here", for a file that is not part of
       // the project at all.
-      exclude: ['node_modules', 'dist', '.idea', '.git', '.cache', 'e2e/**', 'server/node_modules/**', 'scratch/**'],
+      exclude: ['node_modules', 'dist', '.idea', '.git', '.cache', 'e2e/**', 'server/node_modules/**', 'scratch/**', '.claude/**'],
       coverage: {
         thresholds: {
           statements: COVERAGE_FLOOR_PERCENT,

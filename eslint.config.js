@@ -33,6 +33,9 @@ export default defineConfig([
     'playwright-report',
     'scratch',
     'server/node_modules',
+    // Agent worktrees live here (see .gitignore); their copies of src/ and
+    // server/ belong to no tsconfig project of THIS checkout.
+    '.claude',
   ]),
 
   // Browser app source (React TypeScript) — excludes tests, which get their own config.
