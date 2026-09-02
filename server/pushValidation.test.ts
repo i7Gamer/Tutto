@@ -1192,6 +1192,30 @@ describe('validatePushedPlayers', () => {
   });
 });
 
+describe('MAX_SCORE_MAGNITUDE: client and server share one ceiling', () => {
+  // A physical score box used to cap length alone (7 digits, up to 9,999,999)
+  // while this server-side bound was 1,000,000 — also 7 digits, so the length
+  // cap never caught the gap. The server then dropped score/previousScore
+  // field-wise but applied everything else pushed alongside them, silently
+  // desyncing the two sides (and handing Undo the wrong forfeited amount).
+  // Both re-export the SAME constant from src/utils/configValidation.ts now
+  // (see this file's own MAX_SCORE_MAGNITUDE re-export), so this pins the
+  // value itself — a future edit to just one side's import would still leave
+  // them equal in code but wrong in effect if the shared constant were ever
+  // duplicated back out into two.
+  it('parseScoreInput (the client clamp) never exceeds this file\'s MAX_SCORE_MAGNITUDE', async () => {
+    const { parseScoreInput } = await import('../src/utils/diceTurnControls');
+    expect(parseScoreInput(String(MAX_SCORE_MAGNITUDE))).toBe(MAX_SCORE_MAGNITUDE);
+    expect(parseScoreInput(String(MAX_SCORE_MAGNITUDE + 1))).toBe(MAX_SCORE_MAGNITUDE);
+    expect(parseScoreInput('9999999')).toBe(MAX_SCORE_MAGNITUDE);
+  });
+
+  it('is imported from the shared client/server module, not redefined here', async () => {
+    const { MAX_SCORE_MAGNITUDE: clientSideConstant } = await import('../src/utils/configValidation');
+    expect(MAX_SCORE_MAGNITUDE).toBe(clientSideConstant);
+  });
+});
+
 describe('isPlausiblePlayerSnapshot', () => {
   it('requires an object with a string name and finite numeric score', () => {
     expect(isPlausiblePlayerSnapshot({ name: 'A', score: 1 })).toBe(true);

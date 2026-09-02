@@ -4,6 +4,7 @@ import { buildTurnKey, PHYSICAL_TURN_STATE_KEY } from '../utils/diceTurnState';
 import { MAX_CHAIN_CARDS } from '../types';
 import { isChainScoreList, isTurnCardList } from '../utils/turnShapes';
 import { parseScoreInput } from '../utils/diceTurnControls';
+import { MAX_SCORE_MAGNITUDE } from '../utils/configValidation';
 import type { CardType, DiceSnapshot, Ruleset, TurnCardPlayed, TurnEnd, TurnSummary } from '../types';
 
 /*
@@ -33,7 +34,11 @@ interface PhysicalChainCache extends PhysicalChainState {
 
 // The running total is digits the player typed — anything longer than a real
 // Tutto score (or not digits at all) is a corrupted entry, not a score.
-const MAX_SCORE_INPUT_LENGTH = 7;
+// Derived from MAX_SCORE_MAGNITUDE (rather than a separate 7) so this cache's
+// own plausibility check can never fall out of step with the shared ceiling
+// parseScoreInput clamps to — a magnitude bump there would otherwise leave a
+// stale, too-short length cap here silently truncating valid entries.
+const MAX_SCORE_INPUT_LENGTH = String(MAX_SCORE_MAGNITUDE).length;
 const SCORE_INPUT_SHAPE = /^\d*$/;
 
 // The chain fields are load-bearing (undo, per-card counters) and validated

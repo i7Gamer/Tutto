@@ -1,5 +1,5 @@
 import type { CardType, Die, Ruleset } from '../types';
-import { DEFAULT_RULESET } from './configValidation';
+import { DEFAULT_RULESET, MAX_SCORE_MAGNITUDE } from './configValidation';
 import { getMaxValidSelection } from './diceLogic';
 
 export const SPECIAL_CARDS: readonly CardType[] = ['Kniffel', 'Plus_Minus', 'Kleeblatt'];
@@ -24,14 +24,28 @@ const MIN_PARSED_SCORE = 0;
 /**
  * The number behind whatever is currently in the score box. The box holds a
  * string that is empty before anything is typed and can hold anything a paste
- * puts there, so every reader wants the same three rules: leading digits win
+ * puts there, so every reader wants the same four rules: leading digits win
  * ('12abc' is 12, the way the number input's own coercion reads it), anything
- * with no leading digits is 0, and the result never goes below zero. Shared by
+ * with no leading digits is 0, the result never goes below zero, and it never
+ * exceeds MAX_SCORE_MAGNITUDE — the same ceiling the server enforces on every
+ * pushed score, so a value this clamps can never desync the two. Shared by
  * Game.tsx's commit handlers and usePhysicalChain's cache/snapshot writes so
  * the score a turn commits and the score it broadcasts can never disagree.
  */
 export const parseScoreInput = (raw: string): number =>
-  Math.max(MIN_PARSED_SCORE, parseInt(raw, SCORE_INPUT_RADIX) || MIN_PARSED_SCORE);
+  Math.min(MAX_SCORE_MAGNITUDE, Math.max(MIN_PARSED_SCORE, parseInt(raw, SCORE_INPUT_RADIX) || MIN_PARSED_SCORE));
+
+/**
+ * What the score box's own text should become after a keystroke or a
+ * quick-add tap, so it can never DISPLAY a number larger than what
+ * parseScoreInput would actually commit — typing '9999999' snaps the box
+ * back to the clamped value instead of showing nine million right up until
+ * Next Turn silently banks one. Empty stays empty (untouched, not "0"); the
+ * distinction parseScoreInput's own MIN_PARSED_SCORE floor doesn't need to
+ * make, since it only ever reports a committed NUMBER.
+ */
+export const clampScoreInputText = (raw: string): string =>
+  raw === '' ? '' : String(parseScoreInput(raw));
 
 export interface StopButtonText {
   key: string;

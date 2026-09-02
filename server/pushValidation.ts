@@ -9,6 +9,7 @@ import {
   isValidEnforcedDiceMode, isValidRuleset,
   MAX_CARD_COUNT, VALID_CARD_TYPES,
   MAX_TURN_DURATION, MAX_PLAYER_NAME_LENGTH,
+  MAX_SCORE_MAGNITUDE,
 } from '../src/utils/configValidation';
 import { PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
 import { getLeaders } from '../src/utils/coreGameEngine';
@@ -24,8 +25,13 @@ const MAX_DECK_SIZE = MAX_CARD_COUNT * 11;
 // beyond any real game, just enough to stop a malicious pushState from growing
 // these arrays without bound.
 export const MAX_ROUNDS = 100000;
-// Exported so the tests can assert the bound itself rather than restating it.
-export const MAX_SCORE_MAGNITUDE = 1_000_000;
+// Re-exported (not redefined) so this file's own tests can keep importing it
+// from here — the real definition lives in src/utils/configValidation.ts,
+// shared with the client's own score clamp (diceTurnControls.ts's
+// parseScoreInput), which is what keeps the two ceilings from drifting apart
+// the way they used to (the client allowed a 7-digit box up to 9,999,999
+// while this bound was 1,000,000).
+export { MAX_SCORE_MAGNITUDE };
 const MAX_GAME_SECONDS = 10_000_000;
 // A history-entry id is a client-generated string (see HistoryEntry in
 // src/types.ts) — this is a sanity bound, not a format, same role as

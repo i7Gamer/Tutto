@@ -1,6 +1,7 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
-import { isSpecialCard, hasScoreInput, deriveTurnControls, sortKeptDiceForDisplay, withForcedFeuerwerkSelection, parseScoreInput } from './diceTurnControls';
+import { isSpecialCard, hasScoreInput, deriveTurnControls, sortKeptDiceForDisplay, withForcedFeuerwerkSelection, parseScoreInput, clampScoreInputText } from './diceTurnControls';
+import { MAX_SCORE_MAGNITUDE } from './configValidation';
 import { VALID_CARD_TYPES } from './configValidation';
 
 describe('diceTurnControls', () => {
@@ -188,5 +189,40 @@ describe('parseScoreInput', () => {
 
   it('reads a non-numeric entry as no score instead of NaN', () => {
     expect(parseScoreInput('abc')).toBe(0);
+  });
+
+  // Bug: MAX_SCORE_INPUT_LENGTH (7 digits) let a physical score box hold up
+  // to 9,999,999 while the server's own MAX_SCORE_MAGNITUDE bound is
+  // 1,000,000 — both are 7 digits, so the length cap alone never caught it.
+  // The server then dropped score/previousScore field-wise but kept the rest
+  // of the pushed state, silently desyncing the client and server totals.
+  it('clamps a value above the shared server maximum down to it', () => {
+    expect(parseScoreInput('9999999')).toBe(MAX_SCORE_MAGNITUDE);
+  });
+
+  it('reads the maximum itself unclamped', () => {
+    expect(parseScoreInput(String(MAX_SCORE_MAGNITUDE))).toBe(MAX_SCORE_MAGNITUDE);
+  });
+});
+
+describe('clampScoreInputText', () => {
+  it('leaves an untouched box empty rather than turning it into "0"', () => {
+    expect(clampScoreInputText('')).toBe('');
+  });
+
+  it('leaves a value under the maximum untouched', () => {
+    expect(clampScoreInputText('350')).toBe('350');
+  });
+
+  // The score box must never DISPLAY a number larger than what will actually
+  // be committed — showing "9999999" while parseScoreInput quietly banks
+  // 1,000,000 at Next Turn would be its own silent-desync bug between what
+  // the player sees and what the server accepts.
+  it('clamps a typed value above the maximum down to it, as text', () => {
+    expect(clampScoreInputText('9999999')).toBe(String(MAX_SCORE_MAGNITUDE));
+  });
+
+  it('clamps a negative-looking entry to "0"', () => {
+    expect(clampScoreInputText('-5')).toBe('0');
   });
 });

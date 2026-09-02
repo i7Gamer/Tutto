@@ -4,9 +4,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../../store/useGameStore';
-import { sortKeptDiceForDisplay, hasScoreInput, isSpecialCard } from '../../utils/diceTurnControls';
+import { sortKeptDiceForDisplay, hasScoreInput, isSpecialCard, clampScoreInputText } from '../../utils/diceTurnControls';
 import { CARD_FLIP_MS } from '../../utils/uiTimings';
-import { BONUS_CARDS } from '../../utils/configValidation';
+import { BONUS_CARDS, MAX_SCORE_MAGNITUDE } from '../../utils/configValidation';
 import type { CardType, DiceMode } from '../../types';
 import { DiePips } from './Die';
 import ConfirmModal from '../ConfirmModal';
@@ -148,7 +148,10 @@ export default function GameControls({
   const addScore = (val: number) => {
     setScoreInput(prev => {
       const current = parseInt(prev, 10) || 0;
-      return (current + val).toString();
+      // Clamped like every other write to this box (see the score input's own
+      // onChange below) — a run of quick-add taps must not be able to push
+      // the total past what the server will actually accept.
+      return clampScoreInputText((current + val).toString());
     });
   };
 
@@ -183,8 +186,13 @@ export default function GameControls({
                       id="score-input"
                       type="number"
                       min="0"
+                      max={MAX_SCORE_MAGNITUDE}
                       value={scoreInput}
-                      onChange={(e) => setScoreInput(e.target.value)}
+                      // Clamped on every keystroke (not just at commit time)
+                      // so the box can never DISPLAY a number larger than
+                      // what Next Turn will actually bank — see
+                      // clampScoreInputText.
+                      onChange={(e) => setScoreInput(clampScoreInputText(e.target.value))}
                       placeholder={t('game.controls.scorePlaceholder', 'Score')}
                       className="flex-1 min-w-0 w-full text-center text-2xl md:text-3xl font-bold py-3 md:py-4 rounded-2xl border-2 border-gray-200 dark:border-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/20 bg-(--card-bg) transition-all outline-hidden"
                     />

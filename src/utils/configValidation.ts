@@ -156,3 +156,14 @@ export const RULESETS: readonly Ruleset[] = ['modernized', 'classic'];
 
 export const isValidRuleset = (v: unknown): v is Ruleset =>
   RULESETS.some(ruleset => ruleset === v);
+
+// The largest magnitude a turn/game score may claim, shared by the client's
+// manual score-entry clamp (diceTurnControls.ts's parseScoreInput, for
+// physical dice mode) and the server's own bound on every pushed score
+// (server/pushValidation.ts re-exports this rather than defining its own).
+// One source of truth so the two ceilings can never drift apart the way they
+// used to: the client let a 7-digit box hold up to 9,999,999 while the server
+// silently dropped anything past 1,000,000 field-wise, desyncing score and
+// previousScore without either side noticing. 1,000,000: far beyond any
+// realistic Tutto turn or game total, just enough to stop garbage.
+export const MAX_SCORE_MAGNITUDE = 1_000_000;

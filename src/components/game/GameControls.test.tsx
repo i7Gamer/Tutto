@@ -5,6 +5,7 @@ import GameControls from './GameControls';
 import { useGameStore, type GameStore } from '../../store/useGameStore';
 import type { CardType, DiceSnapshot } from '../../types';
 import { CARD_FLIP_MS } from '../../utils/uiTimings';
+import { MAX_SCORE_MAGNITUDE } from '../../utils/configValidation';
 
 // GameControls now reads currentCard, cards, ruleset, isOnline, isHost,
 // liveTurnState and currentPlayer (plus the undo/endGame/leaveRoom actions)
@@ -352,6 +353,36 @@ describe('GameControls physical dice interactions', () => {
 
     const updater = setScoreInput.mock.calls[0][0] as (prev: string) => string;
     expect(updater('not-a-number')).toBe('1000');
+  });
+
+  // Bug: the score box had a 7-digit length cap (MAX_SCORE_INPUT_LENGTH) but
+  // no numeric ceiling, so it happily held 9,999,999 while the server's own
+  // MAX_SCORE_MAGNITUDE (1,000,000 — also 7 digits) silently dropped anything
+  // past it, desyncing the client and server totals.
+  it('declares the shared server maximum on the input element', () => {
+    render(<GameControls {...baseProps()} />);
+    const input = screen.getByPlaceholderText('game.controls.scorePlaceholder');
+    expect(input).toHaveAttribute('max', String(MAX_SCORE_MAGNITUDE));
+  });
+
+  it('clamps a typed value above the maximum down to it, live in the box', () => {
+    const setScoreInput = vi.fn();
+    render(<GameControls {...baseProps({ scoreInput: '', setScoreInput })} />);
+
+    const input = screen.getByPlaceholderText('game.controls.scorePlaceholder');
+    fireEvent.change(input, { target: { value: '9999999' } });
+
+    expect(setScoreInput).toHaveBeenCalledWith(String(MAX_SCORE_MAGNITUDE));
+  });
+
+  it('clamps a quick-add that would push the total past the maximum', () => {
+    const setScoreInput = vi.fn();
+    render(<GameControls {...baseProps({ scoreInput: String(MAX_SCORE_MAGNITUDE - 10), setScoreInput })} />);
+
+    fireEvent.click(screen.getByText('+1000'));
+
+    const updater = setScoreInput.mock.calls[0][0] as (prev: string) => string;
+    expect(updater(String(MAX_SCORE_MAGNITUDE - 10))).toBe(String(MAX_SCORE_MAGNITUDE));
   });
 });
 
