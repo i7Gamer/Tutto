@@ -7,6 +7,7 @@ import type { GameStore } from '../../store/useGameStore';
 import { VALID_CARD_TYPES } from '../../utils/configValidation';
 import { REORDER_PRESS_RELEASE_MS } from '../../utils/uiTimings';
 import type { Player } from '../../types';
+import { makePlayer, nonNull } from '../../testing/factories';
 
 // AdvancedOptionsPanel subscribes to the store itself (no more `game` prop),
 // so its tests stage state/action-spies with setState and restore the
@@ -44,9 +45,9 @@ describe('StartGameButton', () => {
 
 describe('PlayerList', () => {
   const mockPlayers = [
-    { name: 'Alice', color: '#ff0000', socketId: 'host1' },
-    { name: 'Bob', color: '#00ff00', socketId: 'client2' },
-    { name: 'Charlie', color: '#0000ff', socketId: 'client3' }
+    makePlayer({ name: 'Alice', color: '#ff0000', socketId: 'host1' }),
+    makePlayer({ name: 'Bob', color: '#00ff00', socketId: 'client2' }),
+    makePlayer({ name: 'Charlie', color: '#0000ff', socketId: 'client3' }),
   ];
 
   it('renders players and reorder buttons correctly for host', () => {
@@ -72,9 +73,9 @@ describe('PlayerList', () => {
     expect(upButtons.length).toBe(3);
     
     // But the first Up button should be invisible
-    expect(upButtons[0].closest('button').className).toContain('opacity-0');
+    expect(nonNull(upButtons[0].closest('button')).className).toContain('opacity-0');
     // And the last Down button should be invisible
-    expect(downButtons[2].closest('button').className).toContain('opacity-0');
+    expect(nonNull(downButtons[2].closest('button')).className).toContain('opacity-0');
   });
 
   it('takes the invisible boundary reorder buttons out of the tab order via disabled', () => {
@@ -628,8 +629,8 @@ describe('HapticsSettingSelector', () => {
 describe('PlayerList win streak', () => {
   it('renders win streak badge for players with winStreak >= 3', () => {
     const players: Player[] = [
-      { name: 'P1', winStreak: 3, score: 0, socketId: '1', position: 0, deviceId: 'a', color: '#ff0000', disconnected: false },
-      { name: 'P2', winStreak: 2, score: 0, socketId: '2', position: 1, deviceId: 'b', color: '#00ff00', disconnected: false }
+      makePlayer({ name: 'P1', winStreak: 3, socketId: '1', position: 0, deviceId: 'a', color: '#ff0000', disconnected: false }),
+      makePlayer({ name: 'P2', winStreak: 2, socketId: '2', position: 1, deviceId: 'b', color: '#00ff00', disconnected: false }),
     ];
     render(
       <PlayerList 
