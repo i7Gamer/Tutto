@@ -4,10 +4,17 @@ import { disconnectSocket } from './socketRef';
 import { DEFAULT_INITIAL_CARDS } from '../utils/configValidation';
 import { blockStorage, failStorageMethods, restoreStorage } from '../testing/storageStubs';
 import { JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS } from '../utils/uiTimings';
-import type { Player } from '../types';
+import type { DiceSnapshot, Player } from '../types';
+import type { GameStore } from './storeTypes';
+import { makePlayer as makeFullPlayer, mockFetchJson, nonNull } from '../testing/factories';
 
 let mockEmit = vi.fn();
-let mockOnHandlers = {};
+// A handler registered via the mock socket's `on(event, handler)` — same
+// loose shape vitest/socket.io-client itself uses for a listener, which is
+// all this file needs: every mockOnHandlers['x'](...) call site already
+// passes whatever payload shape that event carries.
+type SocketEventHandler = (...args: unknown[]) => void;
+let mockOnHandlers: Record<string, SocketEventHandler> = {};
 // The mock socket's transport state. socketSlice's pushState parks its payload
 // while the socket is down and flushes it after the rejoin, so the tests for
 // that path have to be able to take the socket offline. A getter keeps the
@@ -18,7 +25,7 @@ const mockDisconnect = vi.fn();
 vi.mock('socket.io-client', () => {
   return {
     io: vi.fn(() => ({
-      on: (event, handler) => {
+      on: (event: string, handler: SocketEventHandler) => {
         mockOnHandlers[event] = handler;
       },
       emit: mockEmit,
@@ -34,13 +41,31 @@ vi.mock('socket.io-client', () => {
 const namedPlayers = (...names: string[]): Player[] =>
   names.map(name => ({ name }) as unknown as Player);
 
-const makeOnlinePlayer = (name, overrides = {}) => ({
-  name, socketId: `sock-${name}`, deviceId: `dev-${name}`, score: 0,
-  times1000PointsDeducted: 0, timesKniffelCompleted: 0, timesPlusMinusCompleted: 0,
-  timesKniffelFailed: 0, timesKleeblattFailed: 0, timesKleeblattCompleted: 0,
-  timesPlusMinusFailed: 0, timesFeuerwerkReceived: 0, timesSkipped: 0,
-  timesx2Received: 0, totalTurns: 0, busts: 0, feuerwerkBusts: 0, x2Busts: 0,
-  feuerwerkPointsScored: 0, x2PointsScored: 0,
+// Thin, name-first adapter over the shared factory — keeps every existing
+// `makeOnlinePlayer('Alice', { score: 500 })` call site unchanged while
+// returning a real, fully-typed Player (every counter zeroed) instead of a
+// hand-rolled partial literal.
+const makeOnlinePlayer = (name: string, overrides: Partial<Player> = {}): Player =>
+  makeFullPlayer({ name, socketId: `sock-${name}`, deviceId: `dev-${name}`, ...overrides });
+
+// gameTimeInSeconds is declared as a plain `number` (CoreGameState), so
+// Partial<GameStore> narrows it to `number | undefined` — but a value
+// restored from localStorage or an untyped push can genuinely be `null`
+// (timers.ts defensively checks `!== null` for exactly this), and the two
+// tests below deliberately drive that runtime-only case.
+const setStateWithNullableGameTime = useGameStore.setState as (
+  partial: Partial<Omit<GameStore, 'gameTimeInSeconds'>> & { gameTimeInSeconds?: number | null }
+) => void;
+
+// A full DiceSnapshot with the mid-turn fields (kniffelProgress, tuttosThisTurn)
+// most of these tests never look at — they only care about turnScore/keptDice/
+// currentRoll surviving a round trip.
+const makeSnapshot = (overrides: Partial<DiceSnapshot> = {}): DiceSnapshot => ({
+  turnScore: 0,
+  keptDice: [],
+  currentRoll: [],
+  kniffelProgress: [],
+  tuttosThisTurn: 0,
   ...overrides,
 });
 
@@ -231,7 +256,7 @@ describe('useGameStore', () => {
     useGameStore.setState({
       mode: 'online', isOnline: true, isHost: true, status: 'playing', finished: true,
       round: 7,
-      players: [{ name: 'Alice', score: 10000, position: 1 }],
+      players: [makeOnlinePlayer('Alice', { score: 10000, position: 1 })],
     });
 
     useGameStore.getState().startGame();
@@ -424,7 +449,8 @@ describe('useGameStore', () => {
   it('updateConfig drops out-of-range/invalid values instead of applying them (STORE-SMELL-4)', () => {
     useGameStore.setState({ winningScore: 6000, turnDuration: 120 });
 
-    // @ts-expect-error -- intentionally invalid input to verify the guard
+    // NaN/-5 are runtime-invalid, not type-invalid (updateConfig takes plain
+    // numbers) — the guard under test rejects them at the value level.
     useGameStore.getState().updateConfig({ winningScore: NaN, turnDuration: -5 });
 
     const state = useGameStore.getState();
@@ -700,7 +726,7 @@ describe('useGameStore', () => {
       previousScore: 0,
       previousLeaders: [],
       previousPlayerName: 'P1',
-      players: [{ name: 'P1', score: 500 }, { name: 'P2', score: 0 }]
+      players: [makeOnlinePlayer('P1', { score: 500 }), makeOnlinePlayer('P2')]
     });
 
     useGameStore.getState().undo();
@@ -737,7 +763,7 @@ describe('useGameStore', () => {
       previousPlayerName: 'P1',
       currentPlayerIndex: 1,
       round: 1,
-      players: [{ name: 'P1', score: 500 }, { name: 'P2', score: 0 }]
+      players: [makeOnlinePlayer('P1', { score: 500 }), makeOnlinePlayer('P2')]
     });
 
     useGameStore.getState().undo();
@@ -786,7 +812,7 @@ describe('useGameStore', () => {
       previousScore: 0,
       previousLeaders: [],
       previousPlayerName: 'P1',
-      players: [{ name: 'P1', score: 500 }, { name: 'P2', score: 0 }],
+      players: [makeOnlinePlayer('P1', { score: 500 }), makeOnlinePlayer('P2')],
       liveTurnState: liveSnapshot,
     });
 
@@ -822,7 +848,7 @@ describe('useGameStore', () => {
 
   describe('local game stats saving', () => {
     it('does NOT send any stats when a local game ends', () => {
-      global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }));
+      global.fetch = vi.fn(() => Promise.resolve(mockFetchJson({})));
 
       const store = useGameStore.getState();
       store.addPlayer('Alice');
@@ -838,7 +864,7 @@ describe('useGameStore', () => {
       expect(global.fetch).not.toHaveBeenCalledWith('/api/stats/global', expect.any(Object));
       expect(global.fetch).not.toHaveBeenCalledWith(expect.stringMatching(/\/api\/stats\//), expect.any(Object));
 
-      global.fetch.mockRestore();
+      vi.mocked(global.fetch).mockRestore();
     });
   });
 
@@ -847,7 +873,7 @@ describe('useGameStore', () => {
       // Connect to online mode as non-host
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
-      useGameStore.setState({ isHost: false, roomId: 'ROOM1', myName: 'Bob', deviceId: 'dev-bob', players: [{name: 'Alice', times1000PointsDeducted: 0}, {name: 'Bob', times1000PointsDeducted: 0}], status: 'playing', finished: false });
+      useGameStore.setState({ isHost: false, roomId: 'ROOM1', myName: 'Bob', deviceId: 'dev-bob', players: [makeOnlinePlayer('Alice'), makeOnlinePlayer('Bob')], status: 'playing', finished: false });
 
       mockEmit.mockClear();
 
@@ -871,7 +897,7 @@ describe('useGameStore', () => {
       useGameStore.getState().setMode('online');
       useGameStore.setState({
         isHost: true, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
-        players: [{name: 'Bob', score: 2000, times1000PointsDeducted: 0}, {name: 'Alice', score: 5500, times1000PointsDeducted: 0}],
+        players: [makeOnlinePlayer('Bob', { score: 2000 }), makeOnlinePlayer('Alice', { score: 5500 })],
         currentPlayerIndex: 1, status: 'playing', finished: false,
         winningScore: 6000, initialCards: {}
       });
@@ -898,8 +924,8 @@ describe('useGameStore', () => {
       useGameStore.setState({
         isHost: true, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
         players: [
-          { name: 'Bob', score: 2000, times1000PointsDeducted: 0 },
-          { name: 'Alice', score: 5500, times1000PointsDeducted: 0, highestFeuerwerkTurnScore: 300, highestX2TurnScore: 400 },
+          makeOnlinePlayer('Bob', { score: 2000 }),
+          makeOnlinePlayer('Alice', { score: 5500, highestFeuerwerkTurnScore: 300, highestX2TurnScore: 400 }),
         ],
         currentPlayerIndex: 1, status: 'playing', finished: false,
         winningScore: 6000, initialCards: {}, round: 4,
@@ -942,7 +968,7 @@ describe('useGameStore', () => {
       useGameStore.getState().setMode('online');
       useGameStore.setState({
         isHost: true, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
-        players: [{ name: 'Bob', score: 2000, times1000PointsDeducted: 0 }, { name: 'Alice', score: 5500, times1000PointsDeducted: 0 }],
+        players: [makeOnlinePlayer('Bob', { score: 2000 }), makeOnlinePlayer('Alice', { score: 5500 })],
         currentPlayerIndex: 1, status: 'playing', finished: false,
         winningScore: 6000, initialCards: {},
       });
@@ -969,7 +995,7 @@ describe('useGameStore', () => {
       useGameStore.getState().setMode('online');
       useGameStore.setState({
         isHost: true, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
-        players: [{ name: 'Bob', score: 2000, times1000PointsDeducted: 0 }, { name: 'Alice', score: 5500, times1000PointsDeducted: 0 }],
+        players: [makeOnlinePlayer('Bob', { score: 2000 }), makeOnlinePlayer('Alice', { score: 5500 })],
         currentPlayerIndex: 1, status: 'playing', finished: false,
         winningScore: 6000, initialCards: {},
       });
@@ -1058,7 +1084,7 @@ describe('useGameStore', () => {
       useGameStore.setState({
         isHost: false, hostId: 'departed-host', roomId: 'ROOM1', myName: 'Alice',
         deviceId: 'dev-alice', finished: true,
-        players: [{ name: 'Alice', score: 6000 }, { name: 'Bob', score: 2000 }],
+        players: [makeOnlinePlayer('Alice', { score: 6000 }), makeOnlinePlayer('Bob', { score: 2000 })],
       });
       mockEmit.mockClear();
 
@@ -1224,7 +1250,7 @@ describe('useGameStore', () => {
       useGameStore.setState({
         isHost: true, hostId: 'socket-123', roomId: 'ROOM1', myName: 'Alice',
         deviceId: 'dev-alice', finished: true,
-        players: [{ name: 'Alice', score: 6000 }, { name: 'Bob', score: 2000 }],
+        players: [makeOnlinePlayer('Alice', { score: 6000 }), makeOnlinePlayer('Bob', { score: 2000 })],
       });
       mockEmit.mockClear();
 
@@ -1240,7 +1266,7 @@ describe('useGameStore', () => {
       useGameStore.setState({
         isHost: false, hostId: 'departed-host', roomId: 'ROOM1', myName: 'Alice',
         deviceId: 'dev-alice', finished: false,
-        players: [{ name: 'Alice', score: 100 }, { name: 'Bob', score: 200 }],
+        players: [makeOnlinePlayer('Alice', { score: 100 }), makeOnlinePlayer('Bob', { score: 200 })],
       });
       mockEmit.mockClear();
 
@@ -1358,8 +1384,8 @@ describe('useGameStore', () => {
 
       const pushes = () => mockEmit.mock.calls.filter(([event]) => event === 'pushState');
 
-      const ackRejoin = (res) => {
-        const join = mockEmit.mock.calls.find(([event]) => event === 'joinRoom');
+      const ackRejoin = (res: { success: boolean; isHost?: boolean; name?: string; code?: string; error?: string }) => {
+        const join = nonNull(mockEmit.mock.calls.find(([event]) => event === 'joinRoom'));
         expect(join, 'the reconnect must have attempted a rejoin').toBeTruthy();
         join[2](res);
       };
@@ -1632,7 +1658,7 @@ describe('useGameStore', () => {
 
       expect(mockOnHandlers['connect']).toBeTypeOf('function');
       mockOnHandlers['connect']();
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       expect(joinRoomCall).toBeTruthy();
       joinRoomCall[2]({ success: false, error: 'Username already exists in this room' });
 
@@ -1661,7 +1687,7 @@ describe('useGameStore', () => {
       mockEmit.mockClear();
 
       mockOnHandlers['connect']();
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       expect(joinRoomCall).toBeTruthy();
       joinRoomCall[2]({ success: false, code: 'name_taken', error: 'Username already exists in this room' });
 
@@ -1681,7 +1707,7 @@ describe('useGameStore', () => {
       mockEmit.mockClear();
 
       mockOnHandlers['connect']();
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       joinRoomCall[2]({ success: false, error: 'Refused for a reason this client predates' });
 
       expect(useGameStore.getState().toasts.map(t => t.message))
@@ -1698,7 +1724,7 @@ describe('useGameStore', () => {
 
       mockOnHandlers['connect']();
 
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       expect(joinRoomCall).toBeTruthy();
       expect(joinRoomCall[1]).toMatchObject({ isReconnect: true });
     });
@@ -1724,7 +1750,7 @@ describe('useGameStore', () => {
       mockEmit.mockClear();
 
       mockOnHandlers['connect']();
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       expect(joinRoomCall).toBeTruthy();
       joinRoomCall[2]({ success: false, code: 'room-gone', error: 'This game no longer exists on the server.' });
 
@@ -1758,7 +1784,7 @@ describe('useGameStore', () => {
 
       expect(mockOnHandlers['connect']).toBeTypeOf('function');
       mockOnHandlers['connect']();
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       expect(joinRoomCall).toBeTruthy();
       joinRoomCall[2]({ success: true, isHost: true });
 
@@ -2243,7 +2269,7 @@ describe('useGameStore', () => {
       ['Kleeblatt', 2],
       ['200',       1],
       ['Stop',      1],
-    ])('syncOnlineTimers applies %s turn multiplier (%dx)', (card, multiplier) => {
+    ] as const)('syncOnlineTimers applies %s turn multiplier (%dx)', (card, multiplier) => {
       useGameStore.setState({
         mode: 'online', isOnline: true, status: 'playing',
         currentPlayerIndex: 0, currentCard: card,
@@ -2349,7 +2375,7 @@ describe('useGameStore', () => {
       useGameStore.setState({
         mode: 'local',
         isOnline: false,
-        players: [{ name: 'Alice', score: 0 }],
+        players: [makeOnlinePlayer('Alice')],
       });
 
       useGameStore.getState().startGame();
@@ -2372,7 +2398,7 @@ describe('useGameStore', () => {
 
       // Compute elapsed AFTER sync so both Date.now() calls are nearly simultaneous
       const state = useGameStore.getState();
-      const elapsedSeconds = Math.floor((Date.now() - state.gameStartTime) / 1000);
+      const elapsedSeconds = Math.floor((Date.now() - nonNull(state.gameStartTime)) / 1000);
       expect(elapsedSeconds).toBe(45);
     });
 
@@ -2423,7 +2449,7 @@ describe('useGameStore', () => {
       useGameStore.getState().syncOnlineTimers();
 
       const state = useGameStore.getState();
-      const elapsedMs = Date.now() - state.gameStartTime;
+      const elapsedMs = Date.now() - nonNull(state.gameStartTime);
       const elapsedSeconds = Math.floor(elapsedMs / 1000);
 
       // Should reflect new server time (35 seconds)
@@ -2448,7 +2474,7 @@ describe('useGameStore', () => {
 
           useGameStore.getState().syncOnlineTimers();
           const state = useGameStore.getState();
-          const elapsedMs = Date.now() - state.gameStartTime;
+          const elapsedMs = Date.now() - nonNull(state.gameStartTime);
           const elapsedSeconds = Math.floor(elapsedMs / 1000);
 
           syncTimes.push({ server: serverTime, local: elapsedSeconds });
@@ -2489,7 +2515,7 @@ describe('useGameStore', () => {
     });
 
     it('does not set gameStartTime if gameTimeInSeconds is null', () => {
-      useGameStore.setState({
+      setStateWithNullableGameTime({
         mode: 'online',
         isOnline: true,
         status: 'playing',
@@ -2551,7 +2577,7 @@ describe('useGameStore', () => {
       // Drift is 35s > 2s threshold → gameStartTime must be updated
       const newStart = useGameStore.getState().gameStartTime;
       expect(newStart).not.toBe(staleStart);
-      const newElapsed = Math.floor((Date.now() - newStart) / 1000);
+      const newElapsed = Math.floor((Date.now() - nonNull(newStart)) / 1000);
       expect(newElapsed).toBe(45);
     });
 
@@ -2580,7 +2606,7 @@ describe('useGameStore', () => {
     it('game timer does not tick when gameStartTime is null (null gameTimeInSeconds skips anchor)', () => {
       vi.useFakeTimers();
       // gameTimeInSeconds=null → syncOnlineTimers cannot anchor gameStartTime → timer fires but does nothing
-      useGameStore.setState({
+      setStateWithNullableGameTime({
         mode: 'online',
         isOnline: true,
         status: 'playing',
@@ -2602,9 +2628,9 @@ describe('useGameStore', () => {
 
     it('cancelReconnect (no args) clears showReconnectPopup and local state without connecting', async () => {
       const { io } = await import('socket.io-client');
-      io.mockClear();
+      vi.mocked(io).mockClear();
 
-      useGameStore.setState({ showReconnectPopup: true, liveTurnState: { turnScore: 50 } });
+      useGameStore.setState({ showReconnectPopup: true, liveTurnState: makeSnapshot({ turnScore: 50 }) });
       sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'R1', myName: 'Alice' }));
       localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 50 }));
 
@@ -2671,7 +2697,7 @@ describe('useGameStore', () => {
 
     it('joinRoom extracts and emits initialConfig from localStorage', async () => {
       const { io } = await import('socket.io-client');
-      io.mockClear();
+      vi.mocked(io).mockClear();
       mockEmit.mockClear();
 
       localStorage.setItem('tutto_online_config', JSON.stringify({
@@ -2686,7 +2712,7 @@ describe('useGameStore', () => {
       expect(io).toHaveBeenCalledWith(expect.any(String));
       mockOnHandlers['connect']();
 
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       expect(joinRoomCall).toBeTruthy();
       expect(joinRoomCall[1]).toMatchObject({
         roomId: 'CONFIG_ROOM',
@@ -2717,7 +2743,7 @@ describe('useGameStore', () => {
 
     it('joinRoom includes a saved enforcedDiceMode in the transmitted initialConfig', async () => {
       const { io } = await import('socket.io-client');
-      io.mockClear();
+      vi.mocked(io).mockClear();
       mockEmit.mockClear();
 
       localStorage.setItem('tutto_online_config', JSON.stringify({
@@ -2728,7 +2754,7 @@ describe('useGameStore', () => {
       const joinPromise = useGameStore.getState().joinRoom('CONFIG_ROOM2', 'Alice', false);
       mockOnHandlers['connect']();
 
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       expect(joinRoomCall[1].initialConfig).toMatchObject({ enforcedDiceMode: 'digital' });
 
       joinRoomCall[2]({ success: true, isHost: true });
@@ -2738,7 +2764,7 @@ describe('useGameStore', () => {
 
     it('joinRoom includes a saved ruleset in the transmitted initialConfig', async () => {
       const { io } = await import('socket.io-client');
-      io.mockClear();
+      vi.mocked(io).mockClear();
       mockEmit.mockClear();
 
       localStorage.setItem('tutto_online_config', JSON.stringify({ ruleset: 'classic' }));
@@ -2746,7 +2772,7 @@ describe('useGameStore', () => {
       const joinPromise = useGameStore.getState().joinRoom('CONFIG_ROOM3', 'Alice', false);
       mockOnHandlers['connect']();
 
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       expect(joinRoomCall[1].initialConfig).toMatchObject({ ruleset: 'classic' });
 
       joinRoomCall[2]({ success: true, isHost: true });
@@ -2761,13 +2787,13 @@ describe('useGameStore', () => {
       mockEmit.mockClear();
 
       const joinPromise = useGameStore.getState().joinRoom('SEAT_ROOM', 'Impostor', true);
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       expect(joinRoomCall).toBeTruthy();
       joinRoomCall[2]({ success: true, isHost: false, name: 'Alice' });
       await joinPromise;
 
       expect(useGameStore.getState().myName).toBe('Alice');
-      expect(JSON.parse(sessionStorage.getItem('tutto_online_session'))).toEqual({ roomId: 'SEAT_ROOM', myName: 'Alice' });
+      expect(JSON.parse(nonNull(sessionStorage.getItem('tutto_online_session')))).toEqual({ roomId: 'SEAT_ROOM', myName: 'Alice' });
     });
 
     it('auto-rejoin adopts the server-confirmed name when provided', () => {
@@ -2776,7 +2802,7 @@ describe('useGameStore', () => {
       mockEmit.mockClear();
 
       mockOnHandlers['connect']();
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       expect(joinRoomCall).toBeTruthy();
       joinRoomCall[2]({ success: true, isHost: false, name: 'Alice' });
 
@@ -2785,10 +2811,10 @@ describe('useGameStore', () => {
 
     it('cancelReconnect(roomId, name) clears state and opens a temp socket to leave the room', async () => {
       const { io } = await import('socket.io-client');
-      io.mockClear();
+      vi.mocked(io).mockClear();
       mockEmit.mockClear();
 
-      useGameStore.setState({ pendingReconnectSession: { roomId: 'GHOST_ROOM', myName: 'Charlie' }, liveTurnState: { turnScore: 10 } });
+      useGameStore.setState({ pendingReconnectSession: { roomId: 'GHOST_ROOM', myName: 'Charlie' }, liveTurnState: makeSnapshot({ turnScore: 10 }) });
       localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 10 }));
 
       useGameStore.getState().cancelReconnect('GHOST_ROOM', 'Charlie');
@@ -2801,7 +2827,7 @@ describe('useGameStore', () => {
 
       // Simulate socket connecting and server accepting joinRoom
       mockOnHandlers['connect']();
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       expect(joinRoomCall).toBeTruthy();
       expect(joinRoomCall[1]).toMatchObject({ roomId: 'GHOST_ROOM', name: 'Charlie' });
 
@@ -2820,19 +2846,19 @@ describe('useGameStore', () => {
       // second player could join a phantom lobby. As a reconnect it is
       // refused with room-gone and nothing is created.
       const { io } = await import('socket.io-client');
-      io.mockClear();
+      vi.mocked(io).mockClear();
       mockEmit.mockClear();
 
       useGameStore.getState().cancelReconnect('GHOST_ROOM', 'Charlie');
       mockOnHandlers['connect']();
 
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       expect(joinRoomCall[1]).toMatchObject({ roomId: 'GHOST_ROOM', name: 'Charlie', isReconnect: true });
     });
 
     it('cancelReconnect(roomId, name) does not emit leaveRoom if joinRoom fails', async () => {
       const { io } = await import('socket.io-client');
-      io.mockClear();
+      vi.mocked(io).mockClear();
       mockEmit.mockClear();
       mockDisconnect.mockClear();
 
@@ -2841,7 +2867,7 @@ describe('useGameStore', () => {
       expect(io).toHaveBeenCalledWith(expect.any(String));
       mockOnHandlers['connect']();
 
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       const joinCallback = joinRoomCall[2];
       // Simulate failed joinRoom (success: false or server error)
       joinCallback({ success: false });
@@ -2854,7 +2880,7 @@ describe('useGameStore', () => {
 
     it('cancelReconnect(roomId, name) cleans up on connect_error without trying to join', async () => {
       const { io } = await import('socket.io-client');
-      io.mockClear();
+      vi.mocked(io).mockClear();
       mockEmit.mockClear();
       mockDisconnect.mockClear();
 
@@ -2873,20 +2899,20 @@ describe('useGameStore', () => {
 
     it('cancelReconnect(roomId, name) passes color from localStorage if available', async () => {
       const { io } = await import('socket.io-client');
-      io.mockClear();
+      vi.mocked(io).mockClear();
       mockEmit.mockClear();
 
       localStorage.setItem('tutto_color', '#FF5733');
       useGameStore.getState().cancelReconnect('ROOM_123', 'Alice');
 
       mockOnHandlers['connect']();
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       expect(joinRoomCall[1]).toMatchObject({ color: '#FF5733' });
     });
 
     it('cancelReconnect handles missing deviceId gracefully', async () => {
       const { io } = await import('socket.io-client');
-      io.mockClear();
+      vi.mocked(io).mockClear();
       mockEmit.mockClear();
       mockDisconnect.mockClear();
 
@@ -2897,7 +2923,7 @@ describe('useGameStore', () => {
       useGameStore.getState().cancelReconnect('ROOM_XYZ', 'TestUser');
 
       mockOnHandlers['connect']();
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       // Should still emit joinRoom even with null deviceId
       expect(joinRoomCall).toBeTruthy();
       expect(joinRoomCall[1]).toMatchObject({
@@ -2912,7 +2938,7 @@ describe('useGameStore', () => {
 
     it('cancelReconnect called multiple times disconnects the prior temp socket instead of leaving it dangling (STORE-SMELL-7)', async () => {
       const { io } = await import('socket.io-client');
-      io.mockClear();
+      vi.mocked(io).mockClear();
       mockDisconnect.mockClear();
 
       const store = useGameStore.getState();
@@ -2943,14 +2969,14 @@ describe('useGameStore', () => {
 
     it('cancelReconnect cleans up socket after joinRoom callback with error', async () => {
       const { io } = await import('socket.io-client');
-      io.mockClear();
+      vi.mocked(io).mockClear();
       mockEmit.mockClear();
       mockDisconnect.mockClear();
 
       useGameStore.getState().cancelReconnect('ROOM_FAIL', 'FailUser');
 
       mockOnHandlers['connect']();
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       const callback = joinRoomCall[2];
 
       // Simulate error in callback (e.g., room no longer exists)
@@ -2964,7 +2990,7 @@ describe('useGameStore', () => {
 
     it('cancelReconnect disconnects socket after 10s if joinRoom callback never fires', async () => {
       const { io } = await import('socket.io-client');
-      io.mockClear();
+      vi.mocked(io).mockClear();
       mockDisconnect.mockClear();
 
       vi.useFakeTimers();
@@ -2987,7 +3013,7 @@ describe('useGameStore', () => {
 
     it('cancelReconnect clears the timeout when joinRoom callback fires normally', async () => {
       const { io } = await import('socket.io-client');
-      io.mockClear();
+      vi.mocked(io).mockClear();
       mockDisconnect.mockClear();
 
       vi.useFakeTimers();
@@ -2995,7 +3021,7 @@ describe('useGameStore', () => {
       useGameStore.getState().cancelReconnect('ROOM_OK', 'Alice');
       mockOnHandlers['connect']();
 
-      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       const callback = joinRoomCall[2];
 
       // Callback fires well before the 10s timeout
@@ -3012,7 +3038,7 @@ describe('useGameStore', () => {
     it('cancelReconnect clears showReconnectPopup when called with no roomId', async () => {
       useGameStore.setState({
         showReconnectPopup: true,
-        liveTurnState: { turnScore: 100 },
+        liveTurnState: makeSnapshot({ turnScore: 100 }),
       });
 
       useGameStore.getState().cancelReconnect();
@@ -3309,7 +3335,7 @@ describe('useGameStore', () => {
   // the client indexed result.players past the end and threw, taking the game
   // into the ErrorBoundary's clear-and-reload.
   describe('round-end chart bookkeeping', () => {
-    const stagePlayingRound = (chartValues) => {
+    const stagePlayingRound = (chartValues: number[][]) => {
       useGameStore.setState({
         mode: 'local', isOnline: false, status: 'playing',
         players: [makeOnlinePlayer('Alice'), makeOnlinePlayer('Bob')],
@@ -3546,7 +3572,7 @@ describe('useGameStore', () => {
 
   describe('liveTurnState', () => {
     it('setLiveTurnState stores the snapshot locally', () => {
-      const snapshot = { turnScore: 200, keptDice: [{ val: 1 }], currentRoll: [] };
+      const snapshot = makeSnapshot({ turnScore: 200, keptDice: [{ id: 'd1', val: 1 }] });
       useGameStore.getState().setLiveTurnState(snapshot);
       expect(useGameStore.getState().liveTurnState).toEqual(snapshot);
     });
@@ -3561,7 +3587,7 @@ describe('useGameStore', () => {
       });
       mockEmit.mockClear();
 
-      const snapshot = { turnScore: 350, keptDice: [{ val: 5 }], currentRoll: [{ val: 3, selected: false }] };
+      const snapshot = makeSnapshot({ turnScore: 350, keptDice: [{ id: 'd1', val: 5 }], currentRoll: [{ id: 'd2', val: 3, selected: false }] });
       useGameStore.getState().setLiveTurnState(snapshot);
 
       // A dedicated, small event — not the full state-bundle 'pushState' event
@@ -3581,7 +3607,7 @@ describe('useGameStore', () => {
       });
       mockEmit.mockClear();
 
-      const snapshot = { turnScore: 350, keptDice: [], currentRoll: [] };
+      const snapshot = makeSnapshot({ turnScore: 350 });
       useGameStore.getState().setLiveTurnState(snapshot);
 
       const pushCall = mockEmit.mock.calls.find(([ev]) => ev === 'liveTurnState');
@@ -3614,7 +3640,7 @@ describe('useGameStore', () => {
       useGameStore.getState().addPlayer('P2');
       useGameStore.setState({
         status: 'playing', currentPlayerIndex: 0, round: 1,
-        liveTurnState: { turnScore: 100, keptDice: [], currentRoll: [] },
+        liveTurnState: makeSnapshot({ turnScore: 100 }),
       });
 
       useGameStore.getState().nextTurn(500, true);
@@ -3624,7 +3650,7 @@ describe('useGameStore', () => {
 
     it('endGame clears liveTurnState', () => {
       useGameStore.setState({
-        liveTurnState: { turnScore: 100, keptDice: [], currentRoll: [] },
+        liveTurnState: makeSnapshot({ turnScore: 100 }),
       });
 
       useGameStore.getState().endGame();
@@ -3641,7 +3667,7 @@ describe('useGameStore', () => {
         cards: ['200', '300'],
         previousCard: 'Kniffel',
         previousScore: 2000,
-        previousLeaders: [{ name: 'Alice', score: 6000 }],
+        previousLeaders: [makeOnlinePlayer('Alice', { score: 6000 })],
         previousWasBust: true,
         previousHighestTurnScore: 2000,
         chartValues: [[0, 500], [0, 300]],
@@ -3684,14 +3710,7 @@ describe('useGameStore', () => {
   });
 
   describe('Plus_Minus store integration', () => {
-    const makeP = (name, score = 0) => ({
-      name, score, times1000PointsDeducted: 0, timesKniffelCompleted: 0,
-      timesPlusMinusCompleted: 0, timesKniffelFailed: 0, timesKleeblattFailed: 0,
-      timesKleeblattCompleted: 0, timesPlusMinusFailed: 0, timesFeuerwerkReceived: 0,
-      timesSkipped: 0, timesx2Received: 0, totalTurns: 0, busts: 0,
-      feuerwerkBusts: 0, x2Busts: 0, feuerwerkPointsScored: 0, x2PointsScored: 0,
-      position: 0,
-    });
+    const makeP = (name: string, score = 0): Player => makeFullPlayer({ name, score });
 
     it('deducts 1000 from leader with exactly 1000 pts when non-leader plays Plus_Minus', () => {
       useGameStore.setState({
@@ -3727,7 +3746,7 @@ describe('useGameStore', () => {
         chartValues: [[0], [1000]], chartLabels: [1],
         previousCard: 'Plus_Minus',
         previousScore: 1000,
-        previousLeaders: [{ name: 'Alice', score: 1000, times1000PointsDeducted: 0, timesKniffelCompleted: 0, timesPlusMinusCompleted: 0, timesKniffelFailed: 0, timesKleeblattFailed: 0, timesKleeblattCompleted: 0, timesPlusMinusFailed: 0, timesFeuerwerkReceived: 0, timesSkipped: 0, timesx2Received: 0, totalTurns: 0, busts: 0, feuerwerkBusts: 0, x2Busts: 0, feuerwerkPointsScored: 0, x2PointsScored: 0, position: 0 }],
+        previousLeaders: [makeP('Alice', 1000)],
         previousWasBust: false,
         previousHighestTurnScore: 0,
         previousPlayerName: 'Bob',
@@ -3850,12 +3869,12 @@ describe('useGameStore', () => {
 
   describe('Dice Game State Persistence', () => {
     it('setLiveTurnState saves state to localStorage', () => {
-      const turnState = {
+      const turnState = makeSnapshot({
         turnScore: 1250,
         keptDice: [{ id: 'die-1', val: 1 }],
         currentRoll: [{ id: 'die-2', val: 6, selected: true }],
         rollingDiceIds: ['die-3']
-      };
+      });
 
       useGameStore.setState({
         players: namedPlayers('TestPlayer'),
@@ -3883,17 +3902,11 @@ describe('useGameStore', () => {
       // Setup initial state
       useGameStore.setState({
         players: [
-          { name: 'Alice', deviceId: 'dev-alice', score: 0, busts: 0, totalTurns: 0,
-            times1000PointsDeducted: 0, timesKniffelCompleted: 0, timesPlusMinusCompleted: 0,
-            timesKniffelFailed: 0, timesKleeblattFailed: 0, timesKleeblattCompleted: 0,
-            timesPlusMinusFailed: 0, timesFeuerwerkReceived: 0, timesSkipped: 0,
-            timesx2Received: 0, feuerwerkBusts: 0, x2Busts: 0,
-            feuerwerkPointsScored: 0, x2PointsScored: 0, highestTurnScore: 0, position: 1, color: '#ff0000'
-          }
+          makeOnlinePlayer('Alice', { deviceId: 'dev-alice', position: 1, color: '#ff0000' }),
         ],
         currentPlayerIndex: 0,
         currentCard: 'Feuerwerk',
-        cards: [1, 2, 3, 4, 5, 6],
+        cards: ['200', '200', '200', '200', '200', '200'],
         round: 1
       });
 
@@ -4132,7 +4145,7 @@ describe('useGameStore', () => {
         bogus: true,       // unknown — must not be transmitted
       }));
       void useGameStore.getState().joinRoom('room-x', 'Alice');
-      const call = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const call = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       expect(call).toBeDefined();
       expect(call[1].initialConfig).toEqual({ winningScore: 7000 });
     });
@@ -4140,7 +4153,7 @@ describe('useGameStore', () => {
     it('joinRoom sends no initialConfig when the stored config is entirely invalid', () => {
       localStorage.setItem('tutto_online_config', JSON.stringify({ turnDuration: 3 }));
       void useGameStore.getState().joinRoom('room-y', 'Alice');
-      const call = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      const call = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       expect(call).toBeDefined();
       expect(call[1].initialConfig).toBeUndefined();
     });
