@@ -776,13 +776,15 @@ export const applyPushedState = (
 ): boolean => {
   const allowedFields = isHost ? ALL_FIELDS : ACTIVE_PLAYER_FIELDS;
 
-  // Kept for the coherence check after the loop. Both, not just the index:
-  // the incoherent combination can be reached by moving EITHER field, so a
-  // push that supplies no index to go back to must give up its status change
-  // instead. The pre-push state is coherent by induction, so restoring the
-  // pair always lands somewhere valid.
+  // Kept for the coherence check after the loop. All three, not just the
+  // index: the incoherent combination can be reached by moving ANY of them, so
+  // a push that supplies no index to go back to must give up its status change
+  // instead, and one whose status was already 'playing' must give up its
+  // `finished` change. The pre-push state is coherent by induction, so
+  // restoring the three always lands somewhere valid.
   const statusBeforePush = state.status;
   const playerIndexBeforePush = state.currentPlayerIndex;
+  const finishedBeforePush = state.finished;
 
   // Read from the PRE-push status, never from state.status inside the loop:
   // 'status' is the first Set entry and has already been overwritten by the
@@ -834,6 +836,16 @@ export const applyPushedState = (
   if (roomPhase(state) === 'playing' && state.currentPlayerIndex === null) {
     state.currentPlayerIndex = playerIndexBeforePush;
     if (state.currentPlayerIndex === null) state.status = statusBeforePush;
+    // Both fallbacks above are no-ops for the third way in: a FINISHED game
+    // is status 'playing' / finished true / currentPlayerIndex null, so a push
+    // that only clears `finished` had no index to go back to and no status
+    // change to give up — and the repair handed back the very state it was
+    // checking. Giving up the un-finish instead is the one move left, and it
+    // is the right one: the legitimate un-finish is Play Again, which names
+    // the first player in the same push and never reaches here.
+    if (roomPhase(state) === 'playing' && state.currentPlayerIndex === null) {
+      state.finished = finishedBeforePush;
+    }
   }
 
   return true;

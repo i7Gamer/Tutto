@@ -362,6 +362,53 @@ describe('pushState may not leave a running game with nobody to act', () => {
 
     expect(rooms[roomId].state.status, 'a game cannot start with nobody to act').toBe('lobby');
   });
+
+  // The third way into the same stranded room, and the one the repair could
+  // not repair: a FINISHED game is status 'playing' / finished true /
+  // currentPlayerIndex null, so a push that only clears `finished` leaves a
+  // running game with nobody to act — and both existing fallbacks are no-ops
+  // there (the index was already null, the status was already 'playing').
+  const stageFinishedGame = () => {
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null, currentCard: null,
+      turnStartTime: null,
+    });
+  };
+
+  const hostPush = (): Handler => {
+    const hostFake = makeFakeSocket('host-sock');
+    registerGameStateHandlers({ io: makeFakeIo().io, socket: hostFake.socket, session: { roomId, username: 'Bob' } });
+    return hostFake.handlers['pushState'];
+  };
+
+  it('refuses a host push that un-finishes a game without saying whose turn it is', () => {
+    stageFinishedGame();
+
+    hostPush()({ roomId, newState: { finished: false } });
+
+    const state = rooms[roomId].state;
+    expect(state.finished, 'the un-finish is given up instead of the room being stranded').toBe(true);
+    expect(state.currentPlayerIndex).toBeNull();
+    expect(state.status).toBe('playing');
+  });
+
+  it('still accepts the real Play Again, which names the first player', () => {
+    // The control for the guard above: Play Again is exactly a finished ->
+    // playing push carrying finished: false, and it must keep working.
+    stageFinishedGame();
+
+    hostPush()({
+      roomId,
+      newState: {
+        status: 'playing', finished: false, currentPlayerIndex: 0, round: 1,
+        players: [{ name: 'Alice', score: 0 }, { name: 'Bob', score: 0 }],
+      },
+    });
+
+    const state = rooms[roomId].state;
+    expect(state.finished, 'a rematch that names an actor is a legitimate un-finish').toBe(false);
+    expect(state.currentPlayerIndex).toBe(0);
+  });
 });
 
 describe('pushState against an already-finished game', () => {
