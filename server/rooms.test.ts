@@ -17,6 +17,7 @@ import type { Server } from 'socket.io';
 import { MAX_ROUNDS } from './pushValidation';
 import type { Room, RoomState, ServerPlayer } from './roomTypes';
 import { makeServerPlayer as makePlayer } from './socketTestHarness';
+import { nonNull } from '../src/testing/factories';
 
 // handleActivePlayerRemoved is always called AFTER the caller has already
 // spliced the removed player out of state.players — `players` here is the
@@ -114,10 +115,11 @@ describe('handleActivePlayerRemoved', () => {
         currentCard: 'Stop',
         turnStartTime: 12345,
       });
-      room.turnTimerState = { lastCard: 'Stop', lastPlayerIndex: 2 };
+      room.turnTimerState = { lastCard: 'Stop', lastPlayerIndex: 2, lastDeckSize: null, restartsThisTurn: 0 };
       handleActivePlayerRemoved(room, 0);
-      expect(room.turnTimerState.lastPlayerIndex).toBe(1);
-      expect(room.turnTimerState.lastCard).toBe('Stop');
+      const timerState = nonNull(room.turnTimerState);
+      expect(timerState.lastPlayerIndex).toBe(1);
+      expect(timerState.lastCard).toBe('Stop');
     });
   });
 
@@ -340,13 +342,14 @@ describe('handleActivePlayerRemoved', () => {
         currentCard: 'Kniffel',
         cards: ['200', '300'],
       });
-      room.turnTimerState = { lastCard: 'Kniffel', lastPlayerIndex: 0 };
+      room.turnTimerState = { lastCard: 'Kniffel', lastPlayerIndex: 0, lastDeckSize: null, restartsThisTurn: 0 };
 
       handleActivePlayerRemoved(room, 0);
 
-      expect(room.turnTimerState.lastCard).toBe(room.state.currentCard);
-      expect(room.turnTimerState.lastCard).toBe('200');
-      expect(room.turnTimerState.lastPlayerIndex).toBe(0);
+      const timerState = nonNull(room.turnTimerState);
+      expect(timerState.lastCard).toBe(room.state.currentCard);
+      expect(timerState.lastCard).toBe('200');
+      expect(timerState.lastPlayerIndex).toBe(0);
     });
 
     it('creates turnTimerState when the room never had one', () => {
@@ -480,7 +483,11 @@ describe('deleteRoom', () => {
   it('cancels a pending disconnectTimers entry so it never fires', () => {
     vi.useFakeTimers();
     const room = createRoom('sock-host');
-    const callback = vi.fn();
+    // Annotated: passed straight into setTimeout below, and a bare Mock's
+    // inferred type doesn't match Node's setTimeout overload closely enough,
+    // so TS falls back to lib.dom's — whose return type is `number`, not
+    // the `NodeJS.Timeout` disconnectTimers/turnExpireTimer declare.
+    const callback: () => void = vi.fn();
     room.disconnectTimers['dev-1'] = setTimeout(callback, 1000);
     rooms['DELETE_ROOM_TEST_2'] = room;
 
@@ -493,8 +500,8 @@ describe('deleteRoom', () => {
   it('cancels multiple pending disconnectTimers entries', () => {
     vi.useFakeTimers();
     const room = createRoom('sock-host');
-    const cb1 = vi.fn();
-    const cb2 = vi.fn();
+    const cb1: () => void = vi.fn();
+    const cb2: () => void = vi.fn();
     room.disconnectTimers['dev-1'] = setTimeout(cb1, 1000);
     room.disconnectTimers['dev-2'] = setTimeout(cb2, 1000);
     rooms['DELETE_ROOM_TEST_3'] = room;
@@ -509,7 +516,11 @@ describe('deleteRoom', () => {
   it('cancels a pending turnExpireTimer', () => {
     vi.useFakeTimers();
     const room = createRoom('sock-host');
-    const callback = vi.fn();
+    // Annotated: passed straight into setTimeout below, and a bare Mock's
+    // inferred type doesn't match Node's setTimeout overload closely enough,
+    // so TS falls back to lib.dom's — whose return type is `number`, not
+    // the `NodeJS.Timeout` disconnectTimers/turnExpireTimer declare.
+    const callback: () => void = vi.fn();
     room.turnExpireTimer = setTimeout(callback, 1000);
     rooms['DELETE_ROOM_TEST_4'] = room;
 
@@ -587,7 +598,11 @@ describe('emitRoomState scrubs reconnect credentials', () => {
   it('cancels a disconnect timer whose deviceId names an Object.prototype member', () => {
     vi.useFakeTimers();
     const room = createRoom('sock-host');
-    const callback = vi.fn();
+    // Annotated: passed straight into setTimeout below, and a bare Mock's
+    // inferred type doesn't match Node's setTimeout overload closely enough,
+    // so TS falls back to lib.dom's — whose return type is `number`, not
+    // the `NodeJS.Timeout` disconnectTimers/turnExpireTimer declare.
+    const callback: () => void = vi.fn();
     room.disconnectTimers['__proto__'] = setTimeout(callback, 1000);
     rooms['DELETE_ROOM_TEST_5'] = room;
 
@@ -644,7 +659,7 @@ describe('isAbandonedRoom', () => {
       makePlayer('Alice', { disconnected: true }),
       makePlayer('Bob', { disconnected: true }),
     ]);
-    room.disconnectTimers['dev-Alice'] = setTimeout(vi.fn(), 1000);
+    room.disconnectTimers['dev-Alice'] = setTimeout(() => {}, 1000);
 
     expect(isAbandonedRoom(room)).toBe(false);
   });
