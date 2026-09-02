@@ -25,6 +25,9 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: master
+          # git describe --tags below needs the tag objects present locally;
+          # actions/checkout does not fetch them by default even at full depth.
+          fetch-tags: true
 
       - name: Read version from package.json
         id: read
@@ -42,6 +45,17 @@ jobs:
           echo "Publishing version ${version} from ${sha}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+
+      # master routinely sits ahead of its last release tag with package.json
+      # still reading the OLD version (e.g. 25+ commits past v1.5.4, version
+      # still 1.5.4) — dispatching from there would silently republish that old
+      # tag's version number under a brand new, unreviewed-as-a-release build.
+      # README promises pinned versions stay pinned to what was actually
+      # tagged, so this refuses to proceed unless HEAD is that exact tag.
+      - name: Verify HEAD is the tagged release
+        run: |
+          set -euo pipefail
+          test "$(git describe --tags --exact-match HEAD 2>/dev/null)" = "v$(node -p "require('./package.json').version")" || { echo "::error::HEAD is not the release tag v$(node -p "require('./package.json').version") — publish-latest must be dispatched from the commit tagged as the release, not an arbitrary point on master"; exit 1; }
 
   publish:
     name: Publish

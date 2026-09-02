@@ -389,3 +389,77 @@ describe('a root install cannot quietly repair the server lockfile', () => {
     expect(postinstall).toMatch(/npm install/);
   });
 });
+
+/**
+ * publish-latest.yml tags the image `latest,<package.json version>` at
+ * whatever commit the dispatch resolves (master, by convention). Nothing
+ * checked that resolved commit was actually the release: master routinely
+ * sits dozens of commits ahead of its last version tag while package.json
+ * still reads the old version, so a dispatch would silently republish that
+ * old tag's number under a brand new build. This guards the invariant
+ * instead of trusting whoever clicks "Run workflow" to remember it.
+ */
+describe('publish-latest fails closed unless HEAD is the release tag', () => {
+  const PUBLISH_LATEST_WORKFLOW = 'publish-latest.yml';
+  const VERSION_JOB = 'version';
+  const PUBLISH_JOB = 'publish';
+
+  // What the guard step's `run` body must contain: the exact-match check
+  // against HEAD, and a comparison against the version read out of
+  // package.json (not a hardcoded string, which would rot the moment the
+  // version changes).
+  const EXACT_MATCH_GUARD_PATTERN = /git describe --tags --exact-match HEAD/;
+  const VERSION_COMPARISON_PATTERN = /require\(['"]\.\/package\.json['"]\)\.version/;
+
+  const loadPublishLatestWorkflow = (): Workflow =>
+    parseWorkflow(fs.readFileSync(path.join(WORKFLOWS_DIR, PUBLISH_LATEST_WORKFLOW), 'utf8'));
+
+  const versionJobSteps = (): WorkflowStep[] => loadPublishLatestWorkflow().jobs?.[VERSION_JOB]?.steps ?? [];
+
+  const findGuardStep = (): WorkflowStep | undefined =>
+    versionJobSteps().find(step => EXACT_MATCH_GUARD_PATTERN.test(step.run ?? ''));
+
+  it('finds the version job it is meant to be checking', () => {
+    // The self-oracle: matching nothing must not read as everything passing.
+    expect(versionJobSteps().length).toBeGreaterThan(0);
+  });
+
+  it('fetches tags on checkout, so git describe can see the release tag', () => {
+    const checkout = versionJobSteps().find(step => step.uses?.startsWith('actions/checkout'));
+    expect(checkout, 'expected the version job to check out the repository').toBeDefined();
+
+    const checkoutWith = (checkout?.with ?? {}) as Record<string, unknown>;
+    const fetchesTags = checkoutWith['fetch-tags'] === true || checkoutWith['fetch-depth'] === 0;
+    expect(
+      fetchesTags,
+      'checkout needs fetch-tags: true or fetch-depth: 0, or `git describe --tags` never sees the release tag',
+    ).toBe(true);
+  });
+
+  it('has a step that refuses to proceed unless HEAD is exactly the release tag', () => {
+    const guard = findGuardStep();
+    expect(
+      guard,
+      'expected a step comparing `git describe --tags --exact-match HEAD` against v<package.json version>',
+    ).toBeDefined();
+    expect(guard?.run).toMatch(VERSION_COMPARISON_PATTERN);
+  });
+
+  it('fails the guard loudly: a non-zero exit behind an ::error:: annotation', () => {
+    const guard = findGuardStep();
+    expect(guard?.run).toMatch(/::error::/);
+    expect(guard?.run).toMatch(/exit 1/);
+  });
+
+  it('runs the guard before the publish job — which is where the build/login steps live', () => {
+    // build/login happen in docker-publish.yml's `build` job, reached only
+    // through the `publish` job below. `publish` needs `version`, so putting
+    // the guard anywhere in `version` puts it before every build/login step
+    // without having to reach into the reusable workflow.
+    const publishJob = loadPublishLatestWorkflow().jobs?.[PUBLISH_JOB] as { needs?: string | string[] } | undefined;
+    const needs = ([] as string[]).concat(publishJob?.needs ?? []);
+    expect(needs).toContain(VERSION_JOB);
+
+    expect(findGuardStep(), 'the guard must live in the version job, which publish depends on').toBeDefined();
+  });
+});
