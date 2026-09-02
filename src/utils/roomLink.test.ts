@@ -46,12 +46,17 @@ describe('readRoomFromSearch', () => {
     expect(readRoomFromSearch(`?a=1&${ROOM_LINK_PARAM}=ROOM1&b=2`)).toBe('ROOM1');
   });
 
-  it('decodes an escaped room code', () => {
-    expect(readRoomFromSearch('?room=a+b%26c')).toBe('a b&c');
+  it('decodes an escaped room code, normalized to canonical case', () => {
+    expect(readRoomFromSearch('?room=a+b%26c')).toBe('A B&C');
   });
 
   it('trims surrounding whitespace', () => {
     expect(readRoomFromSearch('?room=%20ROOM1%20')).toBe('ROOM1');
+  });
+
+  it('upper-cases a lower- or mixed-case code, so a link always fills in the canonical form', () => {
+    expect(readRoomFromSearch('?room=abc')).toBe('ABC');
+    expect(readRoomFromSearch('?room=AbC')).toBe('ABC');
   });
 
   it('returns null when there is no room to read', () => {

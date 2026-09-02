@@ -3,6 +3,7 @@ import { startServerTurnTimer, abortGameIfLowPlayers } from './turnTimers';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
 import { COLOR_RE } from './playerColor';
+import { normalizeRoomId } from '../src/utils/configValidation';
 import type { ServerPlayer } from './roomTypes';
 
 // Reordering is a discrete button click in the lobby — same cap as kicking.
@@ -28,8 +29,11 @@ export const registerRosterHandlers = ({ io, socket, session }: SocketContext): 
   safeOn(socket, 'reorderPlayers', (data: { roomId?: string; newPlayers?: { name: string }[] } | null | undefined) => {
     if (!reorderPlayersLimiter()) return;
     if (!data || typeof data !== 'object') return;
-    const { roomId, newPlayers } = data;
-    if (typeof roomId !== 'string' || !rooms[roomId] || rooms[roomId].host !== socket.id) return;
+    const { roomId: rawRoomId, newPlayers } = data;
+    // Same normalization joinRoom applies before ever touching `rooms`.
+    if (typeof rawRoomId !== 'string') return;
+    const roomId = normalizeRoomId(rawRoomId);
+    if (!rooms[roomId] || rooms[roomId].host !== socket.id) return;
     if (rooms[roomId].state.status !== 'lobby') return;
     // Guard against non-array payloads, which would throw on the .map/.length below.
     if (!Array.isArray(newPlayers)) return;
@@ -60,8 +64,10 @@ export const registerRosterHandlers = ({ io, socket, session }: SocketContext): 
   safeOn(socket, 'updatePlayerColor', (data: { roomId?: string; color?: string } | null | undefined) => {
     if (!updatePlayerColorLimiter()) return;
     if (!data || typeof data !== 'object') return;
-    const { roomId, color } = data;
-    if (typeof roomId !== 'string' || typeof color !== 'string') return;
+    const { roomId: rawRoomId, color } = data;
+    if (typeof rawRoomId !== 'string' || typeof color !== 'string') return;
+    // Same normalization joinRoom applies before ever touching `rooms`.
+    const roomId = normalizeRoomId(rawRoomId);
     if (!rooms[roomId]) return;
     if (!COLOR_RE.test(color)) return;
     const player = rooms[roomId].state.players.find(p => p.socketId === socket.id);

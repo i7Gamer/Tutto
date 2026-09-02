@@ -743,6 +743,51 @@ describe('OnlineLobby arriving from a join link', () => {
   });
 });
 
+// "abc" and "ABC" used to be two different rooms. joinRoom itself normalizes
+// (socketSlice.ts, covered in useGameStore.test.ts) — these tests cover the
+// lobby's own half: it must persist the CANONICAL id (Recent Rooms,
+// tutto_last_room), not whatever was typed, even against a mocked joinRoom
+// that bypasses the real normalization.
+describe('OnlineLobby persists the canonical room id, not what was typed', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('remembers the upper-cased form when the ack carries no canonical id (older server)', async () => {
+    const joinRoom = vi.fn().mockResolvedValue({ success: true });
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+
+    render(<OnlineLobby />);
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.roomCodePlaceholder'), { target: { value: 'abc' } });
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.yourNamePlaceholder'), { target: { value: 'Alice' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('lobby.online.joinCreateButton'));
+    });
+
+    expect(localStorage.getItem('tutto_last_room')).toBe('ABC');
+    expect(JSON.parse(localStorage.getItem('tutto_recent_rooms') || '[]')).toEqual([
+      expect.objectContaining({ roomId: 'ABC', name: 'Alice' }),
+    ]);
+  });
+
+  it('prefers the canonical id the ack names over what was typed', async () => {
+    const joinRoom = vi.fn().mockResolvedValue({ success: true, roomId: 'ABC-CANON' });
+    stageStore({ joinRoom: joinRoom as unknown as GameStore['joinRoom'] });
+
+    render(<OnlineLobby />);
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.roomCodePlaceholder'), { target: { value: 'abc' } });
+    fireEvent.change(screen.getByPlaceholderText('lobby.online.yourNamePlaceholder'), { target: { value: 'Alice' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('lobby.online.joinCreateButton'));
+    });
+
+    expect(localStorage.getItem('tutto_last_room')).toBe('ABC-CANON');
+    expect(JSON.parse(localStorage.getItem('tutto_recent_rooms') || '[]')).toEqual([
+      expect.objectContaining({ roomId: 'ABC-CANON', name: 'Alice' }),
+    ]);
+  });
+});
+
 describe('OnlineLobby scanning a friend\'s QR code', () => {
   beforeEach(() => {
     localStorage.clear();

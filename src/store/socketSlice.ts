@@ -2,7 +2,7 @@ import { localStore, sessionStore } from '../utils/storage';
 import { io, type Socket } from 'socket.io-client';
 import { buildDeviceStatsPayload, noUndoableTurn } from '../utils/coreGameEngine';
 import i18n from '../i18n';
-import { areInitialCardsEqual } from '../utils/configValidation';
+import { areInitialCardsEqual, normalizeRoomId } from '../utils/configValidation';
 import { validateOnlineConfig } from './persistence';
 import { getSocket, setSocket } from './socketRef';
 import { REACTION_DISPLAY_MS } from '../utils/reactions';
@@ -656,6 +656,12 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
   },
 
   joinRoom: (room, name, isReconnect = false) => {
+    // The single choke point every caller of joinRoom goes through (the
+    // lobby's typed input, a scanned QR code, a shared invite link already
+    // normalizes its own parse, and the automatic reconnect-on-connect
+    // handler above, which replays whatever this action last stored) — so
+    // "abc" and "ABC" always ask the server for the same room, and never two.
+    const normalizedRoom = normalizeRoomId(room);
     if (!isReconnect) {
       clearTurnCaches();
       set({ liveTurnState: null });
@@ -686,21 +692,25 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         resolve({ success: false, error: 'Socket not connected' });
         return;
       }
-      socket.emit('joinRoom', { roomId: room, name, deviceId: get().deviceId, color: savedColor, initialConfig, isReconnect }, (res: JoinRoomResponse) => {
+      socket.emit('joinRoom', { roomId: normalizedRoom, name, deviceId: get().deviceId, color: savedColor, initialConfig, isReconnect }, (res: JoinRoomResponse) => {
         if (res.success) {
           // Adopt the name the server seated us under — a mid-game rejoin with
           // a different name keeps the seat's original name (see JoinRoomResponse).
           const seatedName = res.name ?? name;
+          // The server echoes back the same canonical id this normalized —
+          // res.roomId only needs to stand in for it against an older server
+          // that predates the ack carrying one.
+          const canonicalRoomId = res.roomId ?? normalizedRoom;
           // The floor goes with the join, exactly as it does on the automatic
           // rejoin above: the room behind this id may have been recreated
           // since this store last applied a broadcast, and a fresh room's
           // versions start at 1 — every one of them below a carried-over
           // floor, and so dropped as stale.
           set({
-            roomId: room, isHost: res.isHost ?? false, myName: seatedName,
+            roomId: canonicalRoomId, isHost: res.isHost ?? false, myName: seatedName,
             mode: 'online', isOnline: true, lastAppliedStateVersion: null,
           });
-          sessionStore.write('tutto_online_session', JSON.stringify({ roomId: room, myName: seatedName }));
+          sessionStore.write('tutto_online_session', JSON.stringify({ roomId: canonicalRoomId, myName: seatedName }));
 
           if (res.isHost && !isReconnect && initialConfig) {
             get().addToast(i18n.t('lobby.savedSettingsLoaded'));

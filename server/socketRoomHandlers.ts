@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getDeviceStats } from './database';
 import {
   DEFAULT_RECONNECT_TIMEOUT, MAX_ROOM_ID_LENGTH, MAX_DEVICE_ID_LENGTH, MAX_PLAYER_NAME_LENGTH,
+  normalizeRoomId,
 } from '../src/utils/configValidation';
 import { zeroedPlayerStats } from '../src/utils/playerStats';
 import { applyValidatedConfig } from './pushValidation';
@@ -196,7 +197,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
 
   safeOn(socket, 'joinRoom', async (
     payload: { roomId?: string; name?: string; deviceId?: string; color?: string; initialConfig?: Record<string, unknown>; isReconnect?: boolean } | null | undefined,
-    callback: (result: { success: boolean; isHost?: boolean; socketId?: string; error?: string; code?: JoinRefusal; name?: string }) => void
+    callback: (result: { success: boolean; isHost?: boolean; socketId?: string; error?: string; code?: JoinRefusal; name?: string; roomId?: string }) => void
   ) => {
     // Reject malformed payloads before any field is used. Without these guards a
     // client that omits the ack callback or sends a non-string name crashes the
@@ -206,8 +207,17 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
     if (!payload || typeof payload !== 'object') {
       return refuse(callback, 'invalid_payload', 'Invalid payload');
     }
-    const { roomId, name: rawName, deviceId, color, initialConfig, isReconnect } = payload;
-    if (typeof roomId !== 'string' || roomId.length === 0 || roomId.length > MAX_ROOM_ID_LENGTH) {
+    const { roomId: rawRoomId, name: rawName, deviceId, color, initialConfig, isReconnect } = payload;
+    if (typeof rawRoomId !== 'string') {
+      return refuse(callback, 'invalid_room', 'Invalid room');
+    }
+    // Normalized (trim + upper-case) BEFORE the length check, so a code that
+    // only exceeds MAX_ROOM_ID_LENGTH because of padding a copy-paste left
+    // behind is still accepted — and so "abc" and "ABC" always resolve to the
+    // same room from here on. Every use of `roomId` below is this canonical
+    // form; nothing in this handler ever looks up `rooms` by the raw value.
+    const roomId = normalizeRoomId(rawRoomId);
+    if (roomId.length === 0 || roomId.length > MAX_ROOM_ID_LENGTH) {
       return refuse(callback, 'invalid_room', 'Invalid room');
     }
     if (typeof deviceId !== 'string' || deviceId.length === 0 || deviceId.length > MAX_DEVICE_ID_LENGTH) {
@@ -395,7 +405,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       socket.join(roomChannel(roomId));
       session.roomId = roomId;
       session.username = name;
-      callback({ success: true, isHost: room.host === socket.id, socketId: socket.id, name });
+      callback({ success: true, isHost: room.host === socket.id, socketId: socket.id, name, roomId });
       emitRoomState(io, roomId);
       return;
     }
@@ -440,7 +450,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
     // would reach it showing a player list that doesn't include itself.
     socket.join(roomChannel(roomId));
 
-    callback({ success: true, isHost: room.host === socket.id, socketId: socket.id, name });
+    callback({ success: true, isHost: room.host === socket.id, socketId: socket.id, name, roomId });
     emitRoomState(io, roomId);
   });
 

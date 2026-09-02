@@ -3,6 +3,7 @@ import { applyValidatedConfig } from './pushValidation';
 import { startServerTurnTimer } from './turnTimers';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
+import { normalizeRoomId } from '../src/utils/configValidation';
 import type { DiceMode } from '../src/types';
 
 const UPDATE_CONFIG_LIMIT = { windowMs: 1_000, max: 20 };
@@ -23,8 +24,13 @@ export const registerConfigHandlers = ({ io, socket }: SocketContext): void => {
   } | null | undefined) => {
     if (!updateConfigLimiter()) return;
     if (!data || typeof data !== 'object') return;
-    const { roomId, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode, ruleset } = data;
-    if (typeof roomId !== 'string' || !rooms[roomId] || rooms[roomId].host !== socket.id) return;
+    const { roomId: rawRoomId, winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode, ruleset } = data;
+    // Same normalization joinRoom applies before ever touching `rooms` — a
+    // client always holds the canonical id post-join, but this keeps the
+    // lookup correct regardless of what case a caller happens to send.
+    if (typeof rawRoomId !== 'string') return;
+    const roomId = normalizeRoomId(rawRoomId);
+    if (!rooms[roomId] || rooms[roomId].host !== socket.id) return;
     const state = rooms[roomId].state;
     if (state.status === 'lobby') {
       applyValidatedConfig(state, { winningScore, initialCards, randomOrder, turnDuration, reconnectTimeout, enforcedDiceMode, ruleset });

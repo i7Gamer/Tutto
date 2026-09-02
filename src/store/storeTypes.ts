@@ -43,6 +43,11 @@ export interface JoinRoomResponse {
   // refused server-side (names are the identity key for pushState merging),
   // so the client must adopt the seat's existing name.
   name?: string;
+  // The canonical (trimmed, upper-cased) form of the room id this client
+  // asked to join — see normalizeRoomId. Absent on a refusal and from any
+  // server older than the normalization; joinRoom (socketSlice.ts) falls
+  // back to its own normalized request id in either case.
+  roomId?: string;
 }
 
 export type { ConfigKeys };

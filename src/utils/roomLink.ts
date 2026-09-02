@@ -5,7 +5,7 @@
 // and because the whole point is that the phone's own camera app can open it
 // from a QR code without Tutto being involved.
 
-import { isPlausibleRoomId } from './configValidation';
+import { isPlausibleRoomId, normalizeRoomId } from './configValidation';
 
 /** The query parameter a join link carries the room in. */
 export const ROOM_LINK_PARAM = 'room';
@@ -36,10 +36,14 @@ export const buildRoomLink = (roomId: string, href: string): string => {
  *
  * Validated exactly as strictly as the remembered-rooms cache: a link is no
  * more trustworthy than a hand-edited localStorage entry, and both end up in
- * the same input.
+ * the same input. Normalized (trim + upper-case) to the same canonical form
+ * joinRoom uses server-side, and checked for length AFTER that — not before —
+ * so the bound applies to the id that will actually be stored/keyed rather
+ * than to incidental input shape.
  */
 export const readRoomFromSearch = (search: string): string | null => {
-  const value = new URLSearchParams(search).get(ROOM_LINK_PARAM)?.trim() ?? '';
+  const raw = new URLSearchParams(search).get(ROOM_LINK_PARAM) ?? '';
+  const value = normalizeRoomId(raw);
   return isPlausibleRoomId(value) ? value : null;
 };
 

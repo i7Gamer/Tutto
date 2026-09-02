@@ -9,7 +9,7 @@ import {
   RulesetSelector, RulesetBadge,
 } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
-import { MIN_ONLINE_PLAYERS, MAX_PLAYER_NAME_LENGTH, MAX_ROOM_ID_LENGTH } from '../../utils/configValidation';
+import { MIN_ONLINE_PLAYERS, MAX_PLAYER_NAME_LENGTH, MAX_ROOM_ID_LENGTH, normalizeRoomId } from '../../utils/configValidation';
 import { JOIN_TIMEOUT_MS } from '../../utils/uiTimings';
 import { parseRecentRooms, MAX_RECENT_ROOMS, type RecentRoom } from '../../utils/recentRooms';
 import { buildRoomLink } from '../../utils/roomLink';
@@ -38,6 +38,11 @@ interface JoinRoomResult {
   // store adopts it as myName — so remembering what was TYPED left this lobby
   // prefilling, and listing under Recent Rooms, a name the room will not seat.
   name?: string;
+  // The canonical (trimmed, upper-cased) form of the room id actually joined
+  // — see normalizeRoomId. Absent on a refusal and from an older server;
+  // handleJoinResult falls back to normalizing what was typed in either case,
+  // so Recent Rooms and tutto_last_room always remember the canonical form.
+  roomId?: string;
 }
 
 interface OnlineLobbyProps {
@@ -268,18 +273,22 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
       // names no seat (an older server, or the watchdog resolving first) leaves
       // what was typed, which is what the store adopted too.
       const seatedName = res?.name ?? trimmedName;
+      // The canonical room id, so "abc" is remembered and displayed as "ABC"
+      // — see JoinRoomResult. Falls back to normalizing what was typed for an
+      // older server whose ack carries no roomId.
+      const canonicalRoomId = res?.roomId ?? normalizeRoomId(trimmedRoomCode);
       // The join has already SUCCEEDED, so a refused write here is
       // bookkeeping loss, not a join failure — localStore absorbs the throw
       // that used to escape the caller's void'ed promise as an unhandled
       // rejection. Remembering the room is best-effort.
-      localStore.write('tutto_last_room', trimmedRoomCode);
+      localStore.write('tutto_last_room', canonicalRoomId);
       localStore.write('tutto_last_name', seatedName);
 
       // Same validated read as the initial state above, so the write path
       // can no longer carry a malformed entry forward either.
       const remembered = parseRecentRooms(getStoredValue('tutto_recent_rooms'))
-        .filter(item => item.roomId !== trimmedRoomCode);
-      const joined: RecentRoom = { roomId: trimmedRoomCode, name: seatedName, timestamp: joinedAt };
+        .filter(item => item.roomId !== canonicalRoomId);
+      const joined: RecentRoom = { roomId: canonicalRoomId, name: seatedName, timestamp: joinedAt };
       persistRecentRooms([joined, ...remembered].slice(0, MAX_RECENT_ROOMS));
     }
   };

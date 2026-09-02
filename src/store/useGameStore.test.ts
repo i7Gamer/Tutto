@@ -1879,6 +1879,57 @@ describe('useGameStore', () => {
     });
   });
 
+  // "abc" and "ABC" used to be two different rooms end to end. joinRoom
+  // normalizes the id it is given (see normalizeRoomId in configValidation.ts)
+  // before it is ever emitted, sent to the server, or written into the store —
+  // so a lower-case type-in still ends up asking for, and remembering, the
+  // canonical room.
+  describe('joinRoom normalizes the room id it is given', () => {
+    it('emits the canonical (upper-cased) form, not what was typed', async () => {
+      mockEmit.mockClear();
+      const joining = useGameStore.getState().joinRoom('abc', 'Alice', false);
+      const join = nonNull(mockEmit.mock.calls.find(([event]) => event === 'joinRoom'));
+      expect(join[1].roomId).toBe('ABC');
+      join[2]({ success: true, isHost: true, name: 'Alice', roomId: 'ABC' });
+      await joining;
+    });
+
+    it('trims surrounding whitespace before emitting', async () => {
+      mockEmit.mockClear();
+      const joining = useGameStore.getState().joinRoom('  abc  ', 'Alice', false);
+      const join = nonNull(mockEmit.mock.calls.find(([event]) => event === 'joinRoom'));
+      expect(join[1].roomId).toBe('ABC');
+      join[2]({ success: true, isHost: true, name: 'Alice', roomId: 'ABC' });
+      await joining;
+    });
+
+    it('stores the canonical id from the ack, not the one it sent, when the two differ', async () => {
+      // Defence in depth for an older/mismatched server: this client already
+      // normalized before sending, so in practice the two agree — but the
+      // store must prefer whatever the server actually seated it under.
+      mockEmit.mockClear();
+      const joining = useGameStore.getState().joinRoom('abc', 'Alice', false);
+      const join = nonNull(mockEmit.mock.calls.find(([event]) => event === 'joinRoom'));
+      join[2]({ success: true, isHost: true, name: 'Alice', roomId: 'ABC-RENAMED' });
+      await joining;
+
+      expect(useGameStore.getState().roomId).toBe('ABC-RENAMED');
+      expect(JSON.parse(nonNull(sessionStorage.getItem('tutto_online_session')))).toEqual({
+        roomId: 'ABC-RENAMED', myName: 'Alice',
+      });
+    });
+
+    it('falls back to its own normalized id when an older ack carries none', async () => {
+      mockEmit.mockClear();
+      const joining = useGameStore.getState().joinRoom('abc', 'Alice', false);
+      const join = nonNull(mockEmit.mock.calls.find(([event]) => event === 'joinRoom'));
+      join[2]({ success: true, isHost: true, name: 'Alice' });
+      await joining;
+
+      expect(useGameStore.getState().roomId).toBe('ABC');
+    });
+  });
+
   describe('legacy config fallback', () => {
     it('setMode(local) parses and merges config from localStorage fallback', () => {
       const legacyState = { winningScore: 7000, randomOrder: false, turnDuration: 300, reconnectTimeout: 120, initialCards: { '200': 10 } };

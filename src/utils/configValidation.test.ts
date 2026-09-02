@@ -26,6 +26,8 @@ import {
   snapDisableableDuration,
   areInitialCardsEqual,
   isNormalizedConfig,
+  normalizeRoomId,
+  MAX_ROOM_ID_LENGTH,
 } from './configValidation';
 
 describe('configValidation', () => {
@@ -506,6 +508,37 @@ describe('configValidation', () => {
 
     it('accepts the default', () => {
       expect(isValidRuleset(DEFAULT_RULESET)).toBe(true);
+    });
+  });
+
+  describe('normalizeRoomId', () => {
+    it('upper-cases so "abc" and "ABC" resolve to the same room', () => {
+      expect(normalizeRoomId('abc')).toBe('ABC');
+      expect(normalizeRoomId('AbC')).toBe('ABC');
+      expect(normalizeRoomId('ABC')).toBe('ABC');
+    });
+
+    it('trims surrounding whitespace', () => {
+      expect(normalizeRoomId('  abc  ')).toBe('ABC');
+      expect(normalizeRoomId('\tabc\n')).toBe('ABC');
+    });
+
+    it('trims before upper-casing, not after', () => {
+      // Order only matters if trimming could ever change what upper-casing
+      // does — it cannot for whitespace, but this pins the composition rather
+      // than relying on that coincidence.
+      expect(normalizeRoomId('  abc  ')).toBe('abc'.trim().toUpperCase());
+    });
+
+    it('is idempotent, so re-normalizing an already-canonical id is a no-op', () => {
+      const canonical = normalizeRoomId('  abc  ');
+      expect(normalizeRoomId(canonical)).toBe(canonical);
+    });
+
+    it('leaves a code that is only over length before trimming as fitting after', () => {
+      const padded = `  ${'R'.repeat(MAX_ROOM_ID_LENGTH)}  `;
+      expect(padded.length).toBeGreaterThan(MAX_ROOM_ID_LENGTH);
+      expect(normalizeRoomId(padded)).toHaveLength(MAX_ROOM_ID_LENGTH);
     });
   });
 });

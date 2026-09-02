@@ -5,6 +5,7 @@ import { registerRoomHandlers } from './socketRoomHandlers';
 import { makeFakeSocket, type Handler } from './socketTestHarness';
 import { rooms, deleteRoom, roomChannel } from './rooms';
 import type { ConnectionSession } from './socketContext';
+import { normalizeRoomId } from '../src/utils/configValidation';
 
 vi.mock('./database', () => ({
   getDeviceStats: vi.fn(),
@@ -426,6 +427,11 @@ describe('joinRoom with ids that name Object.prototype members', () => {
     // `!rooms['__proto__']` is false (Object.prototype is truthy), so no room
     // is created and reading room.state.players off the inherited value throws
     // — safeOn contains the throw, and the caller simply never hears back.
+    // (rooms.ts now uses Object.create(null), and normalizeRoomId upper-cases
+    // every id before it reaches the registry — '__proto__' becomes the
+    // perfectly ordinary key '__PROTO__' — so this specific collision is now
+    // guarded twice over. The regression coverage stays: an id shaped like a
+    // prototype member must still seat the player rather than hang the ack.)
     const { io } = makeFakeIo();
     const { socket, handlers } = makeFakeSocket('proto-sock');
     registerRoomHandlers({ io, socket, session: { roomId: null, username: null } });
@@ -433,7 +439,7 @@ describe('joinRoom with ids that name Object.prototype members', () => {
     const ack = await joinAndWait(handlers, { roomId: '__proto__', name: 'Alice', deviceId: 'dev-proto' });
 
     expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
-    expect(rooms['__proto__'].state.players.map(p => p.name)).toEqual(['Alice']);
+    expect(rooms['__PROTO__'].state.players.map(p => p.name)).toEqual(['Alice']);
   });
 
   it('cancels the pending removal when the player reconnects in time', async () => {
@@ -516,5 +522,88 @@ describe('joinRoom with ids that name Object.prototype members', () => {
     const room = rooms['PROTO-DEVICE-ROOM'];
     expect(Object.keys(room.disconnectTimers)).toEqual(['__proto__']);
     deleteRoom('PROTO-DEVICE-ROOM');
+  });
+});
+
+// "abc" and "ABC" used to be two different rooms end to end. joinRoom
+// normalizes the client-supplied id (trim + upper-case, see
+// normalizeRoomId in src/utils/configValidation.ts) before it is ever used
+// to look up or create an entry in `rooms`, so every case variant of a code
+// now names the same room.
+describe('joinRoom normalizes room ids to a single canonical case', () => {
+  beforeEach(resetRooms);
+
+  it('seats "abc" and "ABC" in the same room', async () => {
+    const alice = makeFakeSocket('case-alice');
+    const { io } = makeFakeIo();
+    registerRoomHandlers({ io, socket: alice.socket, session: { roomId: null, username: null } });
+    await joinAndWait(alice.handlers, { roomId: 'abc', name: 'Alice', deviceId: 'dev-case-a' });
+
+    const bob = makeFakeSocket('case-bob');
+    registerRoomHandlers({ io, socket: bob.socket, session: { roomId: null, username: null } });
+    const ack = await joinAndWait(bob.handlers, { roomId: 'ABC', name: 'Bob', deviceId: 'dev-case-b' });
+
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+    // Only the canonical (upper-case) key exists in the registry — a lower-
+    // case "abc" is never a room of its own.
+    expect(rooms['abc']).toBeUndefined();
+    expect(rooms[normalizeRoomId('abc')].state.players.map(p => p.name).sort()).toEqual(['Alice', 'Bob']);
+  });
+
+  it('trims surrounding whitespace before it ever reaches the registry', async () => {
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('padded-room-sock');
+    registerRoomHandlers({ io, socket, session: { roomId: null, username: null } });
+
+    const ack = await joinAndWait(handlers, { roomId: '  abc  ', name: 'Alice', deviceId: 'dev-padded-room' });
+
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+    expect(rooms[normalizeRoomId('abc')]).toBeDefined();
+    expect(rooms['  abc  ']).toBeUndefined();
+  });
+
+  it('returns the canonical id in the ack, so the client stores that instead of what it typed', async () => {
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('canonical-ack-sock');
+    registerRoomHandlers({ io, socket, session: { roomId: null, username: null } });
+
+    const ack = await joinAndWait(handlers, { roomId: '  abc  ', name: 'Alice', deviceId: 'dev-canonical-ack' });
+
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: true, roomId: 'ABC' }));
+  });
+
+  it('accepts a code that only fits the length limit after trimming', async () => {
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('trim-length-sock');
+    registerRoomHandlers({ io, socket, session: { roomId: null, username: null } });
+
+    // Over the bound including the padding, but exactly at it once trimmed.
+    const paddedToLimit = `  ${'r'.repeat(100)}  `;
+    expect(paddedToLimit.length).toBeGreaterThan(100);
+
+    const ack = await joinAndWait(handlers, { roomId: paddedToLimit, name: 'Alice', deviceId: 'dev-trim-length' });
+
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: true, roomId: 'R'.repeat(100) }));
+  });
+
+  it('still refuses a code that is over length even after trimming', async () => {
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('over-length-sock');
+    registerRoomHandlers({ io, socket, session: { roomId: null, username: null } });
+
+    const overLimit = `  ${'r'.repeat(101)}  `;
+    const ack = await joinAndWait(handlers, { roomId: overLimit, name: 'Alice', deviceId: 'dev-over-length' });
+
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: false, code: 'invalid_room' }));
+  });
+
+  it('refuses a code that is only whitespace, as if it were empty', async () => {
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('blank-room-sock');
+    registerRoomHandlers({ io, socket, session: { roomId: null, username: null } });
+
+    const ack = await joinAndWait(handlers, { roomId: '   ', name: 'Alice', deviceId: 'dev-blank-room' });
+
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: false, code: 'invalid_room' }));
   });
 });

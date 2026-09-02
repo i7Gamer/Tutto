@@ -1,6 +1,6 @@
 import { rooms, emitRoomState, emitRoomStateTo, idleTurnTimerState, rememberCurrentTurn, roomChannel } from './rooms';
 import { applyPushedState, isValidDiceSnapshot, sanitizeDiceSnapshot } from './pushValidation';
-import { isNormalizedConfig } from '../src/utils/configValidation';
+import { isNormalizedConfig, normalizeRoomId } from '../src/utils/configValidation';
 import { roomPhase } from '../src/utils/roomPhase';
 import { MS_PER_SECOND } from '../src/utils/time';
 import { clearServerTurnTimer, startServerTurnTimer } from './turnTimers';
@@ -53,8 +53,10 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
 
     if (!pushStateLimiter()) return refuse('rate-limited');
     if (!data || typeof data !== 'object') return refuse('refused');
-    const { roomId, newState } = data;
-    if (typeof roomId !== 'string' || !newState || typeof newState !== 'object') return refuse('refused');
+    const { roomId: rawRoomId, newState } = data;
+    if (typeof rawRoomId !== 'string' || !newState || typeof newState !== 'object') return refuse('refused');
+    // Same normalization joinRoom applies before ever touching `rooms`.
+    const roomId = normalizeRoomId(rawRoomId);
     const room = rooms[roomId];
     if (!room) return refuse('no-room');
 
@@ -240,8 +242,13 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
   safeOn(socket, 'requestState', (data: { roomId?: string } | null | undefined) => {
     if (!requestStateLimiter()) return;
     if (!data || typeof data !== 'object') return;
-    const { roomId } = data;
-    if (typeof roomId !== 'string' || session.roomId !== roomId) return;
+    const { roomId: rawRoomId } = data;
+    if (typeof rawRoomId !== 'string') return;
+    // Same normalization joinRoom applies before ever touching `rooms` —
+    // session.roomId is already canonical (set there), so this keeps the
+    // comparison correct regardless of what case the client happens to send.
+    const roomId = normalizeRoomId(rawRoomId);
+    if (session.roomId !== roomId) return;
     const room = rooms[roomId];
     if (!room) return;
     if (!room.state.players.some(p => p.socketId === socket.id)) return;
@@ -260,8 +267,10 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
   safeOn(socket, 'liveTurnState', (data: { roomId?: string; liveTurnState?: unknown } | null | undefined) => {
     if (!liveTurnStateLimiter()) return;
     if (!data || typeof data !== 'object') return;
-    const { roomId, liveTurnState } = data;
-    if (typeof roomId !== 'string') return;
+    const { roomId: rawRoomId, liveTurnState } = data;
+    if (typeof rawRoomId !== 'string') return;
+    // Same normalization joinRoom applies before ever touching `rooms`.
+    const roomId = normalizeRoomId(rawRoomId);
     const room = rooms[roomId];
     if (!room) return;
 

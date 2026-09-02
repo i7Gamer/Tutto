@@ -40,6 +40,18 @@ export const MAX_DEVICE_ID_LENGTH = 200;
 export const isPlausibleRoomId = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= MAX_ROOM_ID_LENGTH;
 
+// The case a room id is normalized to before it may key a room anywhere —
+// client or server — so "abc" and "ABC" always resolve to the same room
+// instead of two. Chosen arbitrarily: the UI applies no case convention of
+// its own (the placeholder is digits), so upper-case is as good a canonical
+// form as any. Trims first, so surrounding whitespace never counts against
+// MAX_ROOM_ID_LENGTH — a length check run before this would refuse a code
+// that only exceeds the bound because of padding a copy-paste left behind.
+// Every untrusted source of a room id normalizes through this single
+// function: the join input and invite-link parser on the client, and
+// joinRoom on the server (see socketRoomHandlers.ts).
+export const normalizeRoomId = (raw: string): string => raw.trim().toUpperCase();
+
 // Single source of truth for the game-config defaults, shared by the client
 // store (initial state / reset actions) and the server (new-room state) so the
 // two can never drift apart. Consumers that store these in mutable state should
