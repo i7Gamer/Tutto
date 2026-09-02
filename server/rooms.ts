@@ -418,8 +418,14 @@ const recordDepartedSeatsStats = (room: Room): void => {
     }, mode).catch((err: unknown) => {
       // Reopened on failure so a retry (the same trigger firing again, or the
       // device's own later reconnect) can still record the game — mirrors
-      // endGameStats' write-failure rollback.
-      room.statsRecordedForGame.devices.delete(deviceId);
+      // endGameStats' write-failure rollback. Guarded on the dedup still
+      // reading 'verdict-only': the device's OWN submission can merge into
+      // this row and mark it 'full' while this write is still in flight, and
+      // an unconditional delete here would reopen that already-completed
+      // entry — losing the merge's dedup and letting a retry double-count.
+      if (room.statsRecordedForGame.devices.get(deviceId) === 'verdict-only') {
+        room.statsRecordedForGame.devices.delete(deviceId);
+      }
       console.error('[recordDepartedSeatsStats] error:', err);
     });
   }

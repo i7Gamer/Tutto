@@ -372,6 +372,43 @@ describe('a seat that left before the finish is recorded by the server itself', 
     errorSpy.mockRestore();
   });
 
+  // If Bob reconnects and his own client's merge completes — marking the row
+  // 'full' — WHILE the original verdict-only write above is still in flight,
+  // an unconditional rollback on that write's later failure would delete the
+  // 'full' entry the merge just finished, reopening the dedup for a retry
+  // that would double-count the game.
+  it('leaves the dedup at "full" when the verdict write rejects after a merge already completed', async () => {
+    stageBobLeftBeforeFinish();
+
+    let rejectVerdictWrite!: (err: Error) => void;
+    const verdictWrite = new Promise<boolean>((_resolve, reject) => { rejectVerdictWrite = reject; });
+    vi.mocked(updateDeviceStats).mockReset()
+      .mockImplementationOnce(() => verdictWrite) // recordDepartedSeatsStats' own write, left pending
+      .mockResolvedValue(true); // the merge's own write, which resolves right away
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    emitRoomState(makeFakeIo().io, roomId);
+    expect(rooms[roomId].statsRecordedForGame.devices.get('dev-bob')).toBe('verdict-only');
+
+    // Bob rejoins under the same deviceId and his own client submits before
+    // the verdict write above has settled.
+    rooms[roomId].state.players.push(makePlayer('Bob', 'bob-sock-2', 'dev-bob'));
+    const fake = makeFakeSocket('bob-sock-2');
+    registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Bob' } });
+    await fake.handlers['endGameStats']({ deviceId: 'dev-bob', stats: { gamesPlayed: 1, wins: 1 } });
+    expect(rooms[roomId].statsRecordedForGame.devices.get('dev-bob'), 'the merge finished first').toBe('full');
+
+    // The original verdict-only write now finally fails.
+    rejectVerdictWrite(new Error('write failed'));
+    await vi.waitFor(() => expect(errorSpy).toHaveBeenCalled());
+
+    expect(
+      rooms[roomId].statsRecordedForGame.devices.get('dev-bob'),
+      'the merge\'s completed row must not be reopened by the older write\'s rollback',
+    ).toBe('full');
+    errorSpy.mockRestore();
+  });
+
   // A seat that dropped mid-game is still IN room.state.players at the finish
   // — `disconnected: true`, waiting out its reconnect timer — so the
   // still-seated check skipped it. Its own client is offline and never
