@@ -1,8 +1,19 @@
 /** @vitest-environment node */
+import { createRequire } from 'node:module';
 import { describe, it, expect, afterEach } from 'vitest';
 import knexLib from 'knex';
 import type { Knex } from 'knex';
-import migration from './migrations/20260707000000_add_game_stats';
+
+// require() (typed `any` by @types/node) avoids static module resolution of
+// this untyped CJS migration — a colocated .d.ts would be picked up by
+// knex's own directory-scanning migration loader (see the comment above) and
+// break real migration runs, so the module's shape is asserted only here.
+interface Migration {
+  up: (knex: Knex) => Promise<void>;
+  down: (knex: Knex) => Promise<void>;
+}
+const require = createRequire(import.meta.url);
+const migration = require('./migrations/20260707000000_add_game_stats') as Migration;
 
 // Deliberately NOT placed under server/migrations/ — knex's migration loader
 // scans every file in that directory and would try to require() this one as

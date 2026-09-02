@@ -1,8 +1,21 @@
 /** @vitest-environment node */
+import { createRequire } from 'node:module';
 import { describe, it, expect, afterEach } from 'vitest';
 import knexLib from 'knex';
 import type { Knex } from 'knex';
-import migration from './migrations/20260809000000_add_device_stats_mode';
+
+// The migrations directory is plain, untyped CJS (no allowJs in
+// tsconfig.test.json) — worse, knex's own migration loader globs that
+// directory for runnable migrations, so a colocated .d.ts stub next to the
+// .js file gets picked up as an invalid migration and breaks real replays.
+// require() (typed `any` by @types/node) sidesteps static module resolution
+// entirely; the `as Migration` below is the only place the shape is asserted.
+interface Migration {
+  up: (knex: Knex) => Promise<void>;
+  down: (knex: Knex) => Promise<void>;
+}
+const require = createRequire(import.meta.url);
+const migration = require('./migrations/20260809000000_add_device_stats_mode') as Migration;
 
 // Deliberately NOT placed under server/migrations/ — see the note in
 // gameStatsMigration.test.ts for why a test file in that directory breaks the

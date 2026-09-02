@@ -1,15 +1,28 @@
 /** @vitest-environment node */
+import { createRequire } from 'node:module';
 import { describe, it, expect, afterEach } from 'vitest';
 import knexLib from 'knex';
 import type { Knex } from 'knex';
-import addAdvancedStats from './migrations/20260622084400_add_advanced_stats';
-import addWinStreak from './migrations/20260704000000_add_win_streak';
-import addGameStats from './migrations/20260707000000_add_game_stats';
-import addDeviceStatsMode from './migrations/20260809000000_add_device_stats_mode';
-import classicStats from './migrations/20260810000000_classic_stats';
-import ensureGlobalStatsRow from './migrations/20260625000000_ensure_global_stats_row';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// These migrations are untyped CJS (no allowJs in tsconfig.test.json). A
+// colocated .d.ts would fix the import, but knex's own migration loader globs
+// server/migrations/ for runnable migrations — a .d.ts stub there gets picked
+// up as an invalid migration and breaks the real replays this very file drives
+// below (migrateAll/db.migrate.latest). require() (typed `any` by @types/node)
+// sidesteps static module resolution so the shape is asserted only here.
+interface Migration {
+  up: (knex: Knex) => Promise<void>;
+  down: (knex: Knex) => Promise<void>;
+}
+const require = createRequire(import.meta.url);
+const addAdvancedStats = require('./migrations/20260622084400_add_advanced_stats') as Migration;
+const addWinStreak = require('./migrations/20260704000000_add_win_streak') as Migration;
+const addGameStats = require('./migrations/20260707000000_add_game_stats') as Migration;
+const addDeviceStatsMode = require('./migrations/20260809000000_add_device_stats_mode') as Migration;
+const classicStats = require('./migrations/20260810000000_classic_stats') as Migration;
+const ensureGlobalStatsRow = require('./migrations/20260625000000_ensure_global_stats_row') as Migration;
 
 /**
  * Re-running a migration must not throw.
