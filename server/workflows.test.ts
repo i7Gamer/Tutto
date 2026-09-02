@@ -29,6 +29,10 @@ const NODE_MODULES = 'node_modules';
 
 const LOCKFILE_GLOB = '**/package-lock.json';
 
+const DEPENDABOT_FILE = path.join(REPO_ROOT, '.github', 'dependabot.yml');
+const EXPECTED_DEPENDABOT_VERSION = 2;
+const VALID_SCHEDULE_INTERVALS = ['daily', 'weekly', 'monthly', 'quarterly', 'semiannually', 'yearly'];
+
 /**
  * Whether a repo-relative path lives inside a dependency tree.
  *
@@ -211,6 +215,71 @@ describe('the credentialed publish workflow pins its actions by commit', () => {
     const ecosystems = (config.updates ?? []).map(entry => entry['package-ecosystem']);
 
     expect(ecosystems).toContain('github-actions');
+  });
+});
+
+describe('dependabot configuration covers all ecosystems in the repository', () => {
+  interface DependabotUpdateEntry {
+    'package-ecosystem'?: string;
+    directory?: string;
+    directories?: string[];
+    schedule?: { interval?: string };
+    groups?: Record<string, unknown>;
+    'commit-message'?: { prefix?: string };
+  }
+
+  interface DependabotConfig {
+    version?: number;
+    updates?: DependabotUpdateEntry[];
+  }
+
+  const loadDependabotConfig = (): DependabotConfig => {
+    const raw = fs.readFileSync(DEPENDABOT_FILE, 'utf8');
+    return (parse(raw) as DependabotConfig | null) ?? {};
+  };
+
+  it('declares version 2 configuration', () => {
+    const config = loadDependabotConfig();
+    expect(config.version).toBe(EXPECTED_DEPENDABOT_VERSION);
+  });
+
+  it('covers root npm, server npm, docker, and github-actions ecosystems', () => {
+    const config = loadDependabotConfig();
+    const updates = config.updates ?? [];
+
+    const rootNpm = updates.find(
+      u => u['package-ecosystem'] === 'npm' && (u.directory === '/' || u.directories?.includes('/')),
+    );
+    expect(rootNpm).toBeDefined();
+
+    const serverNpm = updates.find(
+      u => u['package-ecosystem'] === 'npm' && (u.directory === '/server' || u.directories?.includes('/server')),
+    );
+    expect(serverNpm).toBeDefined();
+
+    const docker = updates.find(
+      u => u['package-ecosystem'] === 'docker' && (u.directory === '/' || u.directories?.includes('/')),
+    );
+    expect(docker).toBeDefined();
+
+    const actions = updates.find(
+      u => u['package-ecosystem'] === 'github-actions' && (u.directory === '/' || u.directories?.includes('/')),
+    );
+    expect(actions).toBeDefined();
+  });
+
+  it('configures schedule, groups, and commit prefixes on every update entry', () => {
+    const config = loadDependabotConfig();
+    const updates = config.updates ?? [];
+    expect(updates.length).toBeGreaterThan(0);
+
+    for (const entry of updates) {
+      expect(entry.schedule?.interval).toBeDefined();
+      expect(VALID_SCHEDULE_INTERVALS).toContain(entry.schedule?.interval);
+      expect(entry.groups).toBeDefined();
+      expect(Object.keys(entry.groups ?? {}).length).toBeGreaterThan(0);
+      expect(entry['commit-message']?.prefix).toBeDefined();
+    }
   });
 });
 

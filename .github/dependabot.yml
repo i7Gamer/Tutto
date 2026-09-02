@@ -1,17 +1,47 @@
-# Keeps the pins in .github/workflows/docker-publish.yml from rotting.
+# Keeps dependencies and workflow pins from rotting across all package ecosystems in the repo.
 #
-# That workflow holds registry credentials and pushes the image the world
-# pulls, so its actions are pinned to commit SHAs rather than mutable major
-# tags — the code running with those credentials should change only after
-# review here, not when an action's owner moves v5. The cost of pinning is
-# staleness: a security fix in an action would otherwise never arrive. This is
-# the other half of that trade, and the two belong in the same change.
+# Ecosystems covered:
+# - npm (root workspace / frontend)
+# - npm (server workspace / backend)
+# - docker (Dockerfile base images)
+# - github-actions (.github/workflows actions)
 #
-# Grouped so a routine week is one pull request rather than seven, and kept
-# monthly because these actions move slowly and a weekly cadence would train
-# everyone to merge them unread.
+# Grouped into single PRs per ecosystem to keep update volume manageable.
 version: 2
 updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm-dependencies:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: 'chore(deps)'
+
+  - package-ecosystem: npm
+    directory: /server
+    schedule:
+      interval: weekly
+    groups:
+      server-dependencies:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: 'chore(deps)'
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      docker-dependencies:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: 'chore(docker)'
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
