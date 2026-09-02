@@ -9,6 +9,8 @@
   "home.restore.failed": "Failed to reconnect to the game",
   "errorBoundary.title": "Oops! Something went wrong.",
   "errorBoundary.description": "The application encountered an unexpected error and needs to reload.",
+  "errorBoundary.resetAppData": "Reset app data",
+  "error.hardResetConfirm": "This also deletes the saved local game and the online session on this device. Continue?",
   "dice.stop_and_score": "Stop & Score",
   "dice.roll_2nd_tutto": "Roll 2nd Tutto",
   "dice.finish_card": "Finish Card",

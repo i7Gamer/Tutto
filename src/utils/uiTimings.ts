@@ -76,6 +76,14 @@ export const TOAST_LIFETIME_MS = 3000;
 // blips implies), well inside the shortest turn timer that can be configured.
 export const DISCARDED_DRAW_RECOVERY_MS = 5000;
 
+// ErrorBoundary throttles its automatic crash recovery: a crash within this
+// many ms of the previous one skips straight to the fallback UI instead of
+// reloading again, so a persistent render crash cannot loop forever. Long
+// enough that a reload plus the app re-mounting comfortably finishes inside
+// it; short enough that two genuinely unrelated crashes minutes apart both
+// still get an automatic recovery attempt.
+export const CRASH_LOOP_WINDOW_MS = 10_000;
+
 // Lobby reorder buttons defer the actual swap: on mobile, swapping the rows
 // synchronously re-renders while the tap's hover/active state is still held,
 // leaving that highlight stuck on a DIFFERENT row's button after the press.
