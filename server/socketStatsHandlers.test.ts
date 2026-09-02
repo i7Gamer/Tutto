@@ -47,7 +47,7 @@ describe('endGameStats win-streak refresh', () => {
     // is replaced by a copy.
     vi.mocked(updateDeviceStats).mockImplementation(async () => {
       rooms[roomId].state.players = rooms[roomId].state.players.map(p => ({ ...p }));
-      return 1;
+      return true;
     });
     vi.mocked(getDeviceStats).mockResolvedValue({ currentWinStreak: 5 } as never);
 

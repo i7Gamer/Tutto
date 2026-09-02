@@ -274,7 +274,13 @@ describe('.env.example is a startable production configuration', () => {
   // The README's production path: copy the example, export a real API_TOKEN
   // (dotenv never overrides a variable already in the environment), then
   // `npm run start:prod`. Every other value still comes from the file.
-  const productionEnv = {
+  // Annotated: dotenv's parsed `example` carries an index signature, but a
+  // spread of an indexed type plus named properties drops it, leaving
+  // `{ NODE_ENV: string; API_TOKEN: string }` — which has no property in
+  // common with validatePortForStartup's all-optional `{ PORT?: string }`
+  // and TS refuses the call outright (TS2559) even though the real
+  // (unannotated) shape would satisfy it structurally.
+  const productionEnv: Record<string, string> = {
     ...example,
     NODE_ENV: 'production',
     API_TOKEN: OPERATOR_SUPPLIED_API_TOKEN,

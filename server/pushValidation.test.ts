@@ -24,6 +24,7 @@ import { MIN_ENABLED_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
 import { PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
 import type { RoomState, ServerPlayer } from './roomTypes';
 import { makeServerPlayer as makePlayer } from './socketTestHarness';
+import type { DiceSnapshot } from '../src/types';
 
 const makeState = (playerNames: string[] = ['Alice', 'Bob']): RoomState => {
   const state = createRoom('sock-Alice').state;
@@ -1317,7 +1318,7 @@ describe('isValidDiceSnapshot', () => {
 });
 
 describe('classic chain fields (snapshot / history / turn summary)', () => {
-  const validSnapshot = {
+  const validSnapshot: DiceSnapshot = {
     turnScore: 100,
     keptDice: [{ id: 'd1', val: 1 }],
     currentRoll: [{ id: 'd2', val: 5, selected: false }],
@@ -1326,7 +1327,11 @@ describe('classic chain fields (snapshot / history / turn summary)', () => {
   };
 
   it('accepts and copies optional chain fields on a dice snapshot', () => {
-    const withChain = {
+    // Annotated (rather than inferred) so cardsThisTurn's literals are
+    // checked against CardType instead of widening to string[] — a typo'd
+    // card name here would otherwise pass sanitizeDiceSnapshot's parameter
+    // check and only fail, confusingly, deep inside the function.
+    const withChain: DiceSnapshot = {
       ...validSnapshot,
       cardsThisTurn: ['300', 'x2'],
       plusMinusScores: [1800],
