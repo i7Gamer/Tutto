@@ -208,3 +208,28 @@ describe('German bust glossary consistency', () => {
     expect(de).not.toMatch(/Fehlwurf/);
   });
 });
+
+describe('Interpolation placeholders match between en and de', () => {
+  // Key parity says nothing about {{name}} vs {{player}}: a German string
+  // that renames or drops a placeholder renders the literal braces (or
+  // nothing) at runtime and no test noticed. Compare the placeholder SETS
+  // per key.
+  const placeholders = (value: string): string[] =>
+    [...value.matchAll(/\{\{\s*([^}\s]+)\s*\}\}/g)].map(m => m[1]).sort();
+
+  it('every key uses the same placeholders in both languages', () => {
+    const en = readLocale(enPath);
+    const de = readLocale(dePath);
+    const mismatched = Object.keys(en)
+      .filter(key => key in de)
+      .filter(key => placeholders(en[key]).join(',') !== placeholders(de[key]).join(','))
+      .map(key => `${key}: en ${placeholders(en[key]).join(',') || '-'} / de ${placeholders(de[key]).join(',') || '-'}`);
+    expect(mismatched).toEqual([]);
+  });
+
+  it('is a real oracle: a renamed placeholder is reported', () => {
+    expect(placeholders('Kick {{name}}?')).toEqual(['name']);
+    expect(placeholders('{{name}} wirft {{player}}')).toEqual(['name', 'player']);
+    expect(placeholders('no placeholder')).toEqual([]);
+  });
+});
