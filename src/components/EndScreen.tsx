@@ -233,11 +233,11 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
         <div className="flex flex-wrap justify-center gap-6 mb-10">
           <div className="bg-black/5 dark:bg-white/5 border border-gray-200 dark:border-slate-600 rounded-2xl p-6 min-w-[180px] shadow-xs">
             <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('end.playedRounds', 'Played Rounds')}</div>
-            <div className="text-4xl font-black text-indigo-600">{round}</div>
+            <div className="text-4xl font-black accent-number">{round}</div>
           </div>
           <div className="bg-black/5 dark:bg-white/5 border border-gray-200 dark:border-slate-600 rounded-2xl p-6 min-w-[180px] shadow-xs">
             <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('end.playtime', 'Playtime')}</div>
-            <div className="text-4xl font-black text-indigo-600">{formattedTime}</div>
+            <div className="text-4xl font-black accent-number">{formattedTime}</div>
           </div>
         </div>
 
@@ -358,7 +358,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
           )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 text-center max-w-3xl mx-auto">
             <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl p-4 border border-indigo-100 dark:border-indigo-800 flex flex-col justify-center">
-              <div className="text-3xl sm:text-4xl font-black text-indigo-600 mb-1">{deviceStats.gamesPlayed}</div>
+              <div className="text-3xl sm:text-4xl font-black accent-number mb-1">{deviceStats.gamesPlayed}</div>
               <div className="end-stat-label">{t('end.gamesPlayed', 'Games Played')}</div>
             </div>
             <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-4 border border-emerald-100 dark:border-emerald-800 flex flex-col justify-center">
@@ -406,7 +406,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
             <div className="flex flex-col">
               {[
                 { label: t('end.position', 'Position'), render: (p: Player) => `${p.position}.` },
-                { label: t('end.score', 'Score'), render: (p: Player) => <span className="font-black text-indigo-600">{p.score}</span> },
+                { label: t('end.score', 'Score'), render: (p: Player) => <span className="font-black accent-number">{p.score}</span> },
                 { label: t('end.totalTurns', 'Total Turns'), render: (p: Player) => p.totalTurns },
                 { label: t('end.busts', 'Busts'), render: (p: Player) => <span className="text-red-500 font-bold">{p.busts}</span> },
                 // The chain record of the game that just ended — a classic-only

@@ -46,7 +46,7 @@ export default function DiceSummary({ summaryData, continueCountdown, finishGame
       animate={{ opacity: 1, scale: 1 }}
       className="text-center py-10"
     >
-      <h2 className={`text-4xl font-extrabold mb-4 ${summaryData.won ? 'text-emerald-500' : 'text-red-500'}`}>
+      <h2 className={`text-4xl font-extrabold mb-4 ${summaryData.won ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
         {summaryData.won ? t('dice.success', 'Success!') : t('dice.bust', 'Bust!')}
       </h2>
       {summaryData.isTutto && (
@@ -67,7 +67,7 @@ export default function DiceSummary({ summaryData, continueCountdown, finishGame
         summaryData.score > 0 && (
           <p className="text-2xl text-gray-700 dark:text-gray-200">
             {t('dice.points_gained', 'Points gained: ')}
-            <strong className="text-indigo-600 font-black">{summaryData.score}</strong>
+            <strong className="accent-number font-black">{summaryData.score}</strong>
           </p>
         )}
 

@@ -63,7 +63,7 @@ export default function CurrentRollBoard({
               this line's reserved space never pops in/out as the
               selection flips valid/invalid. */}
           <span
-            className={`text-red-500 font-bold bg-red-50 px-3 py-1 rounded-full border border-red-100 ${
+            className={`text-red-700 dark:text-red-300 font-bold bg-red-50 dark:bg-red-950/40 px-3 py-1 rounded-full border border-red-100 ${
               !selectionValid && selectedCount > 0 ? '' : 'invisible'
             }`}
           >

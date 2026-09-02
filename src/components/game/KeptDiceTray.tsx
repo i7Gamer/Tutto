@@ -27,7 +27,7 @@ export default function KeptDiceTray({ keptDice }: KeptDiceTrayProps) {
             </motion.div>
           ))}
         </AnimatePresence>
-        {keptDice.length === 0 && <span className="text-gray-400 font-medium italic mx-auto">{t('dice.none', 'None')}</span>}
+        {keptDice.length === 0 && <span className="text-gray-500 dark:text-gray-400 font-medium italic mx-auto">{t('dice.none', 'None')}</span>}
       </div>
     </div>
   );

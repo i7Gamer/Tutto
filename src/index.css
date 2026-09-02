@@ -120,6 +120,34 @@
   }
 }
 
+/* Shared low-emphasis colours for accent numbers and small captions.
+ *
+ * An audit of the shipped oklch palette found several `text-indigo-600`
+ * accents with no `dark:` twin at all (2.0-2.4:1 on the dark card) and a
+ * couple of `text-gray-400` captions under 3:1 on a light one. `@layer
+ * components` (not left unlayered like the class rules below) so a Tailwind
+ * utility on the same element can still win over it if one is ever added —
+ * unlike the unlayered rules further down, nothing here is meant to be the
+ * unconditional last word on an element's colour.
+ */
+@layer components {
+  /* A number called out from surrounding body text (a goal, a running score,
+     "points gained"). Statistics.tsx already gets this right per-tile via its
+     own STAT_TONES map (text-indigo-600 dark:text-indigo-400, 4.75:1) — this
+     is the same idea for the handful of one-off accent numbers outside that
+     grid, at dark:indigo-300 for a safer margin on small/thin text. */
+  .accent-number {
+    @apply text-indigo-600 dark:text-indigo-300;
+  }
+
+  /* The word under a number, or any other small uppercase caption — moved
+     here from Statistics.css so it can be reused app-wide; see the note
+     there for why it could not simply stay in both places. */
+  .stat-caption {
+    @apply text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest;
+  }
+}
+
 /* A name drawn in its player's own colour.
 
    The two custom properties are set inline per player by readableNameVars

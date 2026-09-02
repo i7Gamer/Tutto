@@ -124,7 +124,7 @@ export function PlayerList({
                     {p.name}
                     {isOnline && p.socketId === hostId && <Crown size={16} className="text-amber-500" />}
                     {streak !== undefined && streak >= 3 && (
-                      <span title={t('lobby.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak })} className="text-amber-500 text-xs font-bold bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 flex items-center gap-0.5 whitespace-nowrap">
+                      <span title={t('lobby.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak })} className="text-amber-700 dark:text-amber-200 text-xs font-bold bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 flex items-center gap-0.5 whitespace-nowrap">
                         🔥 {streak}
                       </span>
                     )}

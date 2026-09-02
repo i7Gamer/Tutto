@@ -377,7 +377,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
             <div
               role="alert"
               aria-live="assertive"
-              className="text-red-500 dark:text-red-300 text-sm font-medium bg-red-50 dark:bg-red-900/30 p-2 rounded-sm"
+              className="text-red-700 dark:text-red-300 text-sm font-medium bg-red-50 dark:bg-red-950/40 p-2 rounded-sm"
             >
               {errorMsg}
             </div>
@@ -410,11 +410,11 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
                       onClick={() => handleSelectRecentRoom(room)}
                       className="flex-1 min-w-0 flex justify-between items-center gap-2 bg-gray-50 hover:bg-indigo-50/50 dark:bg-slate-800/30 dark:hover:bg-slate-700/40 border border-gray-200/80 dark:border-slate-700 rounded-lg px-3 py-2 text-sm transition-colors text-left font-medium text-gray-700 dark:text-gray-200 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
                     >
-                      <span className="truncate">{room.roomId} <span className="text-gray-400 dark:text-gray-500 text-xs font-normal">({room.name})</span></span>
+                      <span className="truncate">{room.roomId} <span className="text-gray-500 dark:text-gray-400 text-xs font-normal">({room.name})</span></span>
                       {/* Dated in the UI language, not the device's: a German
                           UI on an English-locale machine used to date its own
                           room list "Aug 17". */}
-                      <span className="shrink-0 text-[10px] text-gray-400 dark:text-gray-500 font-normal">{new Date(room.timestamp).toLocaleDateString(i18n.language, { month: 'short', day: 'numeric' })}</span>
+                      <span className="shrink-0 text-[10px] text-gray-500 dark:text-gray-400 font-normal">{new Date(room.timestamp).toLocaleDateString(i18n.language, { month: 'short', day: 'numeric' })}</span>
                     </button>
                     <button
                       onClick={() => handleForgetRecentRoom(room.roomId)}
@@ -567,7 +567,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="text-center text-indigo-600 font-bold text-lg p-6 bg-white dark:bg-slate-800/40 rounded-xl border border-indigo-100"
+            className="text-center accent-number font-bold text-lg p-6 bg-white dark:bg-slate-800/40 rounded-xl border border-indigo-100"
           >
             <div className="flex justify-center mb-3">
               <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>

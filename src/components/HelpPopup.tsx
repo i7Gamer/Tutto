@@ -376,7 +376,7 @@ export default function HelpPopup() {
                   to the bottom of the wiki — the point of it is to be findable
                   when someone asks "which build are you running?". */}
               <footer className="shrink-0 px-4 sm:px-6 py-3 border-t border-gray-100 dark:border-slate-800 text-center">
-                <span data-testid="help-app-version" className="text-xs text-gray-400 dark:text-gray-500">
+                <span data-testid="help-app-version" className="text-xs text-gray-500 dark:text-gray-400">
                   {t('help.version', 'Version')} {APP_VERSION}
                 </span>
               </footer>

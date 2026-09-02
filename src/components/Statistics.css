@@ -20,7 +20,10 @@
   @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4;
 }
 
-/* The word under a number in the card breakdown — Total, Won, Lost, Rate. */
-.stat-caption {
-  @apply text-[10px] font-bold text-gray-400 uppercase tracking-widest;
-}
+/* .stat-caption (the word under a number — Total, Won, Lost, Rate) moved to
+   index.css: a contrast pass needed it fixed (text-gray-400 was 2.6:1 on
+   white) and reused at other low-emphasis captions app-wide, and this file's
+   own rules are deliberately UNLAYERED (see the top of this file) — kept here
+   too under the same class name, it would have permanently shadowed the
+   version in index.css's `@layer components`, since unlayered CSS always
+   outranks a layer regardless of order. */

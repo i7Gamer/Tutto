@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Locator } from '@playwright/test';
+import { seedLocalDeck, startLocalGame } from './helpers';
 
 /**
  * Tailwind v4 emits its utilities inside a real `@layer utilities`. Unlayered
@@ -344,4 +345,163 @@ test.describe('theme colours resolve', () => {
     expect(await widthAt({ width: 420, height: 850 })).not.toBe('75px');   // same phone, upright
     expect(await widthAt({ width: 1280, height: 800 })).not.toBe('75px');  // desktop
   });
+});
+
+/**
+ * A8 — a contrast pass on a handful of accent/caption colours that shipped
+ * below WCAG AA (4.5:1 for text, 3:1 for large text) once the v3->v4 palette
+ * swap left several `text-*-500/600` utilities with no `dark:` twin, and a
+ * couple of gray-on-white captions under 3:1 in light mode.
+ *
+ * The ratio itself is computed here rather than in a unit test: the app's own
+ * contrastRatio (src/utils/contrastColor.ts) takes hex, but Tailwind v4's
+ * palette is defined in oklch and only resolves to a concrete rgb() once a
+ * real browser has laid the page out — exactly the case the task allowed
+ * falling back to an e2e probe for. The algorithm below is the same WCAG 2.1
+ * relative-luminance formula contrastColor.ts uses, reading getComputedStyle()
+ * instead of a hex literal.
+ */
+test.describe('WCAG AA contrast — accent and caption fixes (A8)', () => {
+  const AA_TEXT = 4.5;
+  const AA_LARGE = 3;
+
+  const contrastOf = (locator: Locator): Promise<number> => locator.evaluate((el) => {
+    // getComputedStyle().color on a Tailwind v4 utility comes back as a raw
+    // 'oklch(L C H)' (or 'oklab(L a b)' for a colourless mix like bg-black/5)
+    // string in this Chromium build, not rgb()/rgba() — confirmed by probing
+    // a real `text-indigo-600` node, and a canvas fillStyle round-trip does
+    // NOT normalise it either (its getter echoes the oklch string back
+    // unchanged). A plain rgba() regex over either therefore silently read
+    // every colour as black-on-transparent and every ratio came back exactly
+    // 1. This converts oklab/oklch to sRGB directly with the standard
+    // OKLab<->linear-sRGB matrices (Björn Ottosson's oklab reference), the
+    // same math every CSS-color-4-aware engine uses internally.
+    const oklabToSrgb255 = (L: number, a: number, b: number): [number, number, number] => {
+      const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+      const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+      const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+      const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
+      const r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+      const g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+      const bl = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+      const gamma = (c: number) => {
+        const clamped = Math.max(0, Math.min(1, c));
+        return clamped <= 0.0031308 ? 12.92 * clamped : 1.055 * Math.pow(clamped, 1 / 2.4) - 0.055;
+      };
+      return [gamma(r) * 255, gamma(g) * 255, gamma(bl) * 255];
+    };
+    // A token ending in '%' is a percentage of its own axis (alpha: 0-100%,
+    // oklch chroma/lightness: 0-100% of that axis's own reference range) —
+    // only alpha is ever hit here in practice, so '%' is just read as /100.
+    const num = (tok: string | undefined, fallback: number): number =>
+      tok === undefined ? fallback : parseFloat(tok) / (tok.endsWith('%') ? 100 : 1);
+
+    const parseRGBA = (str: string): [number, number, number, number] => {
+      let m = str.match(/^rgba?\(([^)]+)\)$/);
+      if (m) {
+        const p = m[1].split(/[ ,/]+/).filter(Boolean);
+        return [parseFloat(p[0]), parseFloat(p[1]), parseFloat(p[2]), num(p[3], 1)];
+      }
+      m = str.match(/^oklch\(([^)]+)\)$/);
+      if (m) {
+        const p = m[1].split(/[ /]+/).filter(Boolean);
+        const [L, C] = [parseFloat(p[0]), parseFloat(p[1])];
+        const hRad = parseFloat(p[2]) * Math.PI / 180;
+        return [...oklabToSrgb255(L, C * Math.cos(hRad), C * Math.sin(hRad)), num(p[3], 1)];
+      }
+      m = str.match(/^oklab\(([^)]+)\)$/);
+      if (m) {
+        const p = m[1].split(/[ /]+/).filter(Boolean);
+        return [...oklabToSrgb255(parseFloat(p[0]), parseFloat(p[1]), parseFloat(p[2])), num(p[3], 1)];
+      }
+      // 'transparent' and anything unrecognised: alpha 0, so it never
+      // contributes to the ancestor background walk below.
+      return [0, 0, 0, 0];
+    };
+    // Composites `fg` over `bg`, both already resolved to opaque channels.
+    const over = (fg: [number, number, number, number], bg: [number, number, number, number]): [number, number, number, number] => {
+      const a = fg[3];
+      return [fg[0] * a + bg[0] * (1 - a), fg[1] * a + bg[1] * (1 - a), fg[2] * a + bg[2] * (1 - a), 1];
+    };
+    const luminance = ([r, g, b]: [number, number, number, number]): number => {
+      const s = (c: number) => { const n = c / 255; return n <= 0.03928 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4); };
+      return 0.2126 * s(r) + 0.7152 * s(g) + 0.0722 * s(b);
+    };
+    // Several of the elements below sit on a translucent card (--card-bg is
+    // rgba, not opaque) over the page background, so the background actually
+    // behind the text is composited down the ancestor chain rather than read
+    // off the nearest parent alone.
+    const chain: Element[] = [];
+    for (let n: Element | null = el; n; n = n.parentElement) chain.unshift(n);
+    let bg: [number, number, number, number] = [255, 255, 255, 1];
+    for (const n of chain) {
+      const c = parseRGBA(getComputedStyle(n).backgroundColor);
+      if (c[3] > 0) bg = over(c, bg);
+    }
+    const fg = over(parseRGBA(getComputedStyle(el).color), bg);
+    const [lighter, darker] = [luminance(fg), luminance(bg)].sort((a, b) => b - a);
+    return (lighter + 0.05) / (darker + 0.05);
+  });
+
+  const setTheme = (page: Page, theme: 'light' | 'dark') =>
+    page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme);
+
+  /**
+   * Stop & Score always banks the turn as a win (DiceGame.tsx's `stop` branch
+   * dispatches `TURN_BANKED` with `won: true` unconditionally) — the only way
+   * this lands on "Bust!" instead is the opening auto-roll itself busting
+   * before a selection is ever made, which is rare with six dice. Accepted as
+   * the same small flakiness trade-off the rest of this suite takes with
+   * random rolls; CI's retry covers it.
+   */
+  const winATurn = async (page: Page) => {
+    await page.getByRole('button', { name: /Roll Dice/i }).click();
+    const selectAll = page.getByRole('button', { name: /Select all/i });
+    await expect(selectAll).toBeVisible({ timeout: 15000 });
+    await selectAll.click();
+    await page.getByRole('button', { name: /Stop & Score/i }).click();
+  };
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`the goal number clears AA in ${theme} mode`, async ({ page }) => {
+      await seedLocalDeck(page);
+      await page.goto('/');
+      await setTheme(page, theme);
+      await startLocalGame(page);
+
+      // The default fallback string in Game.tsx reads "Goal: First to
+      // reach" — but en/translation.json overrides it to just "Goal:", and
+      // that loaded string, not the fallback, is what actually renders.
+      const goalLine = page.getByText('Goal:');
+      await expect(goalLine).toBeVisible();
+      expect(await contrastOf(goalLine.locator('strong'))).toBeGreaterThanOrEqual(AA_TEXT);
+    });
+
+    test(`the join-room error text clears AA in ${theme} mode`, async ({ page }) => {
+      await page.goto('/');
+      await setTheme(page, theme);
+      await page.getByRole('button', { name: /Online Play/i }).click();
+      await page.getByRole('button', { name: /Join \/ Create/i }).click();
+
+      const error = page.getByText('Please enter both a Room Code and a Name.');
+      await expect(error).toBeVisible();
+      expect(await contrastOf(error)).toBeGreaterThanOrEqual(AA_TEXT);
+    });
+
+    test(`the dice summary's win heading and points-gained value clear AA in ${theme} mode`, async ({ page }) => {
+      await seedLocalDeck(page);
+      await page.goto('/');
+      await setTheme(page, theme);
+      await startLocalGame(page);
+      await winATurn(page);
+
+      const heading = page.getByRole('heading', { name: 'Success!' });
+      await expect(heading).toBeVisible();
+      expect(await contrastOf(heading)).toBeGreaterThanOrEqual(AA_LARGE);
+
+      const pointsLine = page.getByText('Points gained:');
+      await expect(pointsLine).toBeVisible();
+      expect(await contrastOf(pointsLine.locator('strong'))).toBeGreaterThanOrEqual(AA_TEXT);
+    });
+  }
 });

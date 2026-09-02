@@ -314,7 +314,7 @@ export default function GameControls({
                   )}
                   {activeTurnState.keptDice.length > 0 && (
                     <div className="mb-4">
-                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('game.controls.keptDice', 'Kept Dice')}</p>
+                      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('game.controls.keptDice', 'Kept Dice')}</p>
                       <div className="flex gap-2 flex-wrap justify-center">
                         {sortKeptDiceForDisplay(activeTurnState.keptDice, currentCard, activeTurnState.kniffelProgress, ruleset).map((d) => (
                           // Pips carry no text, and the digit beside them is
@@ -331,7 +331,7 @@ export default function GameControls({
                   )}
                   {activeTurnState.currentRoll.length > 0 && (
                     <div>
-                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('game.controls.currentRoll', 'Current Roll')}</p>
+                      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('game.controls.currentRoll', 'Current Roll')}</p>
                       <div className="flex gap-2 flex-wrap justify-center">
                         {activeTurnState.currentRoll.map((d) => {
                           const isRolling = activeTurnState.rollingDiceIds?.includes(d.id) ?? false;
@@ -380,14 +380,14 @@ export default function GameControls({
       <div className="flex justify-between w-full mt-auto pt-6 border-t border-gray-100 dark:border-slate-700">
         {(!isOnline || isHost) ? (
           <button
-            className="flex items-center gap-2 text-red-500 hover:bg-red-50 px-4 py-2 rounded-lg font-medium transition-colors"
+            className="flex items-center gap-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 px-4 py-2 rounded-lg font-medium transition-colors"
             onClick={() => setPendingAction('end')}
           >
             <X size={18} /> {t('game.controls.endGame', 'End Game')}
           </button>
         ) : (
           <button
-            className="flex items-center gap-2 text-red-500 hover:bg-red-50 px-4 py-2 rounded-lg font-medium transition-colors"
+            className="flex items-center gap-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 px-4 py-2 rounded-lg font-medium transition-colors"
             onClick={() => setPendingAction('leave')}
           >
             <X size={18} /> {t('game.controls.leaveGame', 'Leave Game')}

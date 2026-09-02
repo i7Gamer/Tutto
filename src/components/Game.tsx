@@ -637,7 +637,7 @@ export default function Game() {
                         // The streak matching the rules this room plays by.
                         const streak = isClassic ? p.winStreakClassic : p.winStreak;
                         return streak !== undefined && streak >= 3 && (
-                          <span title={t('game.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak })} className="text-amber-500 text-[10px] sm:text-xs font-bold bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 flex items-center gap-0.5 whitespace-nowrap">
+                          <span title={t('game.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak })} className="text-amber-700 dark:text-amber-200 text-[10px] sm:text-xs font-bold bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 flex items-center gap-0.5 whitespace-nowrap">
                             <span aria-hidden="true">🔥 {streak}</span>
                             <span className="sr-only">{t('game.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak })}</span>
                           </span>
@@ -666,7 +666,7 @@ export default function Game() {
           </div>
           {winningScore > 0 && (
             <div className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400 bg-black/5 dark:bg-white/5 p-3 rounded-xl border border-gray-100 dark:border-slate-700">
-              {t('game.goalPrefix', 'Goal: First to reach')} <strong className="text-indigo-600">{winningScore}</strong> {t('game.goalSuffix', 'points wins!')}
+              {t('game.goalPrefix', 'Goal: First to reach')} <strong className="accent-number">{winningScore}</strong> {t('game.goalSuffix', 'points wins!')}
               <span className="mx-1">·</span>
               {t('game.rulesetBadge', {
                 defaultValue: '{{value}} rules',
