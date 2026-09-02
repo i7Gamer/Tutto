@@ -15,7 +15,10 @@ import cors from 'cors';
 import { registerSocketHandlers } from './socketHandlers';
 import { registerApiRoutes } from './api';
 import { initDb, closeDb } from './database';
-import { resolveCorsOrigin, validateCorsOriginForStartup, isProxyTrusted, warnIfProxyTrustUnset } from './startupGuards';
+import {
+  resolveCorsOrigin, validateCorsOriginForStartup, isProxyTrusted, warnIfProxyTrustUnset,
+  validatePortForStartup, resolvePortForStartup, describeListenError, type ErrnoException,
+} from './startupGuards';
 import { applyResponseHardening } from './securityHeaders';
 import { resolveDbFilename } from './knexfile';
 import { createShutdownHandler, createServerClosers, SHUTDOWN_SIGNALS } from './shutdown';
@@ -64,6 +67,16 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '../dist')));
 
 const server = http.createServer(app);
+
+// Without a listener here, Node's default behaviour for a 'error' event with
+// none is to throw it and crash with a raw stack — EADDRINUSE (something
+// else already bound this PORT) and EACCES (privileged port, or an OS
+// policy) are both real deployment mistakes that deserve a one-line
+// explanation instead.
+server.on('error', (err: ErrnoException) => {
+  console.error(describeListenError(err, PORT));
+  process.exit(1);
+});
 const io = new Server(server, {
   cors: { origin: CORS_ORIGIN },
   pingInterval: 4000,
@@ -73,7 +86,16 @@ const io = new Server(server, {
 registerSocketHandlers(io);
 registerApiRoutes(app);
 
-const PORT = process.env.PORT || 3001;
+// Mirrors the CORS_ORIGIN guard above: junk PORT used to either crash with a
+// raw stack (non-numeric) or silently bind an ephemeral port (PORT=0)
+// instead of the one an operator asked for.
+const portError = validatePortForStartup(process.env);
+if (portError) {
+  console.error(portError);
+  process.exit(1);
+}
+
+const PORT = resolvePortForStartup(process.env);
 
 // Whether a game is in progress, on one line rewritten in place at the bottom
 // of this console — the answer to "may I close this window?", which nothing can

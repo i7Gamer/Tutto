@@ -90,3 +90,71 @@ export const resolveCorsOrigin = (
   if (env.CORS_ORIGIN) return env.CORS_ORIGIN;
   return env.NODE_ENV === 'production' ? SAME_ORIGIN_ONLY : WILDCARD_CORS_ORIGIN;
 };
+
+// Unset PORT (local dev, and every documented deployment path) falls back to
+// this. Named so it is never retyped as a bare 3001 at the two call sites
+// that need it (the guard's error message and the resolver below).
+export const DEFAULT_PORT = 3001;
+
+const MIN_PORT = 1;
+const MAX_PORT = 65535;
+
+// Anything but digits is refused outright, which also rejects '3001.5',
+// '+3001', leading/trailing whitespace and the empty string reaching this
+// far — a value this strict never needs Number()'s own leniency (it parses
+// '3001abc' as 3001) to be re-guarded against.
+const PORT_PATTERN = /^\d+$/;
+
+const describeInvalidPort = (raw: string): string =>
+  `[STARTUP] PORT must be an integer between ${MIN_PORT} and ${MAX_PORT}, got ${JSON.stringify(raw)}. Refusing to start.`;
+
+// PORT=<junk> used to reach server.listen() unguarded, where Node either
+// crashed with a raw stack (non-numeric) or silently bound an ephemeral port
+// instead of the one requested (PORT=0). Unset or empty means "use the
+// default" and is not an error; anything else must be a plain integer in the
+// valid TCP port range.
+export const validatePortForStartup = (
+  env: { PORT?: string },
+): string | null => {
+  const raw = env.PORT;
+  if (raw === undefined || raw === '') return null;
+  if (!PORT_PATTERN.test(raw)) return describeInvalidPort(raw);
+  const port = Number(raw);
+  if (port < MIN_PORT || port > MAX_PORT) return describeInvalidPort(raw);
+  return null;
+};
+
+// Only meaningful once validatePortForStartup has passed (index.ts calls the
+// guard first and exits on a non-null result, the same order as CORS_ORIGIN
+// above) — this does not re-validate.
+export const resolvePortForStartup = (env: { PORT?: string }): number => {
+  const raw = env.PORT;
+  if (raw === undefined || raw === '') return DEFAULT_PORT;
+  return Number(raw);
+};
+
+// The shape Node attaches to a system-call error (ECONNRESET, EADDRINUSE, ...)
+// on top of plain Error — @types/node exposes it only as the ambient global
+// NodeJS.ErrnoException, which this repo's eslint config flags as `no-undef`
+// (a known typescript-eslint gotcha: plain `no-undef` predates TS's own
+// checking of ambient type namespaces). A local shape says exactly what this
+// file reads off the error without relying on that global.
+export interface ErrnoException extends Error {
+  code?: string;
+}
+
+// server.listen() emits 'error' instead of throwing, and Node's default
+// listener for an EventEmitter with no listeners is to throw the raw error
+// and crash — the port range guard above still leaves EADDRINUSE (something
+// else is already listening) and EACCES (privileged port, or an OS policy)
+// reachable at listen time. Named per code so an operator sees the actual
+// problem instead of an ELF-looking stack trace.
+export const describeListenError = (err: ErrnoException, port: number): string => {
+  if (err.code === 'EADDRINUSE') {
+    return `[STARTUP] Port ${port} is already in use. Stop whatever is listening on it, or set PORT to a free one. Refusing to start.`;
+  }
+  if (err.code === 'EACCES') {
+    return `[STARTUP] Permission denied binding to port ${port} (ports below 1024 usually need elevated privileges). Refusing to start.`;
+  }
+  return `[STARTUP] Failed to start listening on port ${port}: ${err.message}. Refusing to start.`;
+};

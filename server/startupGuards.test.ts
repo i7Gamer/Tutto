@@ -9,10 +9,15 @@ import {
   resolveCorsOrigin,
   isProxyTrusted,
   warnIfProxyTrustUnset,
+  validatePortForStartup,
+  resolvePortForStartup,
+  describeListenError,
+  type ErrnoException,
   DEV_DEFAULT_API_TOKEN,
   COMPOSE_PLACEHOLDER_API_TOKEN,
   PUBLISHED_API_TOKENS,
   WILDCARD_CORS_ORIGIN,
+  DEFAULT_PORT,
 } from './startupGuards';
 import knexConfig, { resolveDbFilename } from './knexfile';
 
@@ -182,6 +187,81 @@ describe('resolveCorsOrigin', () => {
   });
 });
 
+describe('validatePortForStartup', () => {
+  it('allows an unset or empty PORT (the default applies)', () => {
+    expect(validatePortForStartup({})).toBeNull();
+    expect(validatePortForStartup({ PORT: '' })).toBeNull();
+  });
+
+  it('allows any integer in the valid 1..65535 range, including the boundaries', () => {
+    expect(validatePortForStartup({ PORT: '1' })).toBeNull();
+    expect(validatePortForStartup({ PORT: '3001' })).toBeNull();
+    expect(validatePortForStartup({ PORT: '65535' })).toBeNull();
+  });
+
+  it('refuses 0: it binds an ephemeral port silently instead of the one requested', () => {
+    expect(validatePortForStartup({ PORT: '0' })).toMatch(/PORT/);
+  });
+
+  it('refuses non-numeric junk instead of letting it crash with a raw stack', () => {
+    expect(validatePortForStartup({ PORT: 'abc' })).toMatch(/PORT/);
+  });
+
+  it('refuses a port above the valid range', () => {
+    expect(validatePortForStartup({ PORT: '70000' })).toMatch(/PORT/);
+  });
+
+  it('refuses a negative port', () => {
+    expect(validatePortForStartup({ PORT: '-5' })).toMatch(/PORT/);
+  });
+
+  it('refuses a non-integer port', () => {
+    expect(validatePortForStartup({ PORT: '3001.5' })).toMatch(/PORT/);
+  });
+
+  it('names the offending value in the refusal message', () => {
+    expect(validatePortForStartup({ PORT: 'abc' })).toContain('abc');
+  });
+});
+
+describe('resolvePortForStartup', () => {
+  it('resolves to the named default constant when PORT is unset or empty', () => {
+    expect(resolvePortForStartup({})).toBe(DEFAULT_PORT);
+    expect(resolvePortForStartup({ PORT: '' })).toBe(DEFAULT_PORT);
+  });
+
+  it('parses a configured PORT to a number', () => {
+    expect(resolvePortForStartup({ PORT: '8080' })).toBe(8080);
+  });
+});
+
+describe('describeListenError', () => {
+  const asErrno = (code: string): ErrnoException => {
+    const err = new Error(`listen ${code}`) as ErrnoException;
+    err.code = code;
+    return err;
+  };
+
+  it('names EADDRINUSE and the port in one readable line', () => {
+    const message = describeListenError(asErrno('EADDRINUSE'), 3001);
+    expect(message).toContain('3001');
+    expect(message).toMatch(/in use/i);
+  });
+
+  it('names EACCES and the port in one readable line', () => {
+    const message = describeListenError(asErrno('EACCES'), 80);
+    expect(message).toContain('80');
+    expect(message).toMatch(/permission/i);
+  });
+
+  it('falls back to the raw error message for an unrecognised code', () => {
+    const err = asErrno('EWEIRD');
+    const message = describeListenError(err, 3001);
+    expect(message).toContain('3001');
+    expect(message).toContain(err.message);
+  });
+});
+
 // The guards above are only half the contract: they also have to agree with
 // the file the README tells people to copy. `.env.example` used to ship
 // CORS_ORIGIN=*, which every guard here correctly refuses — so following the
@@ -220,6 +300,10 @@ describe('.env.example is a startable production configuration', () => {
 
   it('leaves production same-origin only, as the README documents', () => {
     expect(resolveCorsOrigin(productionEnv)).toBe(false);
+  });
+
+  it('ships a PORT the startup guard accepts', () => {
+    expect(validatePortForStartup(productionEnv)).toBeNull();
   });
 
   it('still gives local development the permissive wildcard', () => {
