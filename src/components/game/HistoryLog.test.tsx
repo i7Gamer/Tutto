@@ -96,6 +96,26 @@ describe('HistoryLog', () => {
     expect(screen.getByText('history.bust')).toBeInTheDocument();
   });
 
+  // A dedicated wording for a turn the server's clock forfeited: no dice bust
+  // happened, so the log must not print "busted on X" (history.bust) or claim
+  // an ordinary success worth 0 points (history.success) for it.
+  it('renders a timeout entry with its own wording, not bust or success', () => {
+    const entry: HistoryEntry = {
+      id: '1-Alice-1',
+      round: 1,
+      playerName: 'Alice',
+      card: '300',
+      type: 'timeout',
+      score: 0,
+    };
+    useGameStore.setState({ historyLog: [entry] });
+    render(<HistoryLog />);
+
+    expect(screen.getByText('history.timeout')).toBeInTheDocument();
+    expect(screen.queryByText('history.bust')).not.toBeInTheDocument();
+    expect(screen.queryByText('history.success')).not.toBeInTheDocument();
+  });
+
   it('renders a fail entry correctly', () => {
     const entry: HistoryEntry = {
       id: '1-Alice-1',

@@ -202,7 +202,13 @@ export interface Player {
   winStreakClassic?: number;
 }
 
-export type HistoryEventType = 'success' | 'bust' | 'skip' | 'fail';
+// DERIVED from the list rather than declared beside it, the same reason
+// TURN_ENDS above is: server/pushValidation.ts has to recognise these values
+// at runtime and used to hand-roll its own copy — so a new kind ('timeout',
+// added for a turn the server's clock forfeited without charging a bust or a
+// success) type-checked everywhere while pushValidation silently rejected it.
+export const HISTORY_EVENT_TYPES = ['success', 'bust', 'skip', 'fail', 'timeout'] as const;
+export type HistoryEventType = typeof HISTORY_EVENT_TYPES[number];
 
 export interface HistoryEntry {
   id: string;

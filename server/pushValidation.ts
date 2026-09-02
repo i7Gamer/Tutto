@@ -1,4 +1,4 @@
-import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS, type CardType, type InitialCards, type DiceSnapshot, type HistoryEntry, type TurnSummary, type TurnCardPlayed } from '../src/types';
+import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS, HISTORY_EVENT_TYPES, type CardType, type InitialCards, type DiceSnapshot, type HistoryEntry, type TurnSummary, type TurnCardPlayed } from '../src/types';
 import {
   isSnapshotDie, isRolledDie, isKniffelProgressEntry, isRollingDiceIdList,
   isChainCard, isChainCounter, isChainScoreList, isDeductedAmountList, isTurnCardList, isTurnEnd,
@@ -212,14 +212,16 @@ export const sanitizeTurnSummary = (v: TurnSummary): TurnSummary => {
 const isValidHistoryEntry = (v: unknown): v is HistoryEntry => {
   if (typeof v !== 'object' || v === null) return false;
   const entry = v as Record<string, unknown>;
-  const validTypes = ['success', 'bust', 'skip', 'fail'];
 
   if (!(typeof entry.id === 'string' && entry.id.length > 0 && entry.id.length <= MAX_HISTORY_ID_LENGTH)) return false;
   if (!(typeof entry.round === 'number' && Number.isInteger(entry.round) && entry.round >= 1 && entry.round <= MAX_ROUNDS)) return false;
   if (!(typeof entry.playerName === 'string' && entry.playerName.length > 0 && entry.playerName.length <= MAX_PLAYER_NAME_LENGTH)) return false;
   if (entry.playerColor !== undefined && !(typeof entry.playerColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(entry.playerColor))) return false;
   if (!(typeof entry.card === 'string' && (VALID_CARD_TYPES as readonly string[]).includes(entry.card))) return false;
-  if (!(typeof entry.type === 'string' && validTypes.includes(entry.type))) return false;
+  // Derived from src/types.ts's HISTORY_EVENT_TYPES rather than a hand-rolled
+  // copy — a kind added there (like 'timeout') used to type-check everywhere
+  // while this validator silently rejected it off the wire.
+  if (!(typeof entry.type === 'string' && (HISTORY_EVENT_TYPES as readonly string[]).includes(entry.type))) return false;
   if (!(typeof entry.score === 'number' && Number.isFinite(entry.score) && Math.abs(entry.score) <= MAX_SCORE_MAGNITUDE)) return false;
   if (entry.deductedPlayers !== undefined) {
     if (!Array.isArray(entry.deductedPlayers)) return false;

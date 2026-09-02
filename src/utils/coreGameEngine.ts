@@ -488,6 +488,16 @@ export const calculateNextTurn = (
   scoreInput: number,
   isSuccess = false,
   turnSummary?: TurnSummary,
+  // Set only by server/turnTimers.ts: this commit was forced by the server's
+  // turn clock expiring, not a player action. It changes nothing about the
+  // scoring/counters — those already read the outcome from isSuccess/
+  // turnSummary.ended — only which HistoryEventType a turn that would
+  // otherwise default to 'success' gets logged as (see historyType below):
+  // a "decided but never confirmed" modernized turn (Stop & Score / a
+  // turn-ending tutto whose auto-continue never fired) forfeits its points to
+  // the clock, so logging it as a plain success ("scored 0 pts") would be
+  // read as an ordinary turn rather than a timeout.
+  isTimeout = false,
 ): NextTurnResult => {
   const { players, currentPlayerIndex, currentCard, round, winningScore, cards, initialCards } = gameState;
 
@@ -520,7 +530,12 @@ export const calculateNextTurn = (
       }
     }
 
-    historyType = isSuccess ? 'success' : 'bust';
+    // The chain's own `ended` already distinguishes a genuine dice bust
+    // ('null', charged above) from the server clock forfeiting a completed-
+    // but-uncommitted card ('timeout', never charged) — see TURN_ENDS in
+    // types.ts. historyType must track that same distinction, or the log
+    // prints "busted on X" for a turn no bust was ever charged for.
+    historyType = isSuccess ? 'success' : (summaryForState.ended === 'timeout' ? 'timeout' : 'bust');
     historyCard = turnSummary.cards[0]?.card ?? currentCard ?? 'Stop';
   } else {
     // ── Modernized path (also the server-timeout forfeit) — unchanged.
@@ -576,6 +591,14 @@ export const calculateNextTurn = (
       historyType = 'bust';
     } else if (isSpecialCard(currentCard)) {
       historyType = isSuccess ? 'success' : 'fail';
+    } else if (isTimeout) {
+      // Every other branch above already means something more specific than
+      // "ran out of time" (a real bust, a Stop skip, a special card's own
+      // outcome) and takes priority. What's left is exactly the "decided but
+      // never confirmed" turn turnTimers.ts forfeits at 0 — logging it as the
+      // default 'success' would print "scored 0 pts" for points the clock
+      // took, not the player.
+      historyType = 'timeout';
     }
     historyCard = currentCard ?? 'Stop';
   }

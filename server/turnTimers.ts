@@ -174,11 +174,17 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
 
     // Timeout = the player neither scored nor answered in time, same as a manual
     // "Stop & Score 0" — matches what the client used to send on host-side expiry.
+    // isTimeout: true unconditionally — every commit from here is the
+    // server's clock forcing the turn, never a player action. It only
+    // actually changes the logged HistoryEventType for the modernized
+    // decided-before-timeout case (see calculateNextTurn); every other path
+    // (a real bust, a Stop skip, a classic chain's own `ended`) is unaffected.
     const result = calculateNextTurn(
       stateForCalc as CoreGameState & { currentPlayerIndex: number },
       0,
       decidedBeforeTimeout,
       timeoutSummary,
+      true,
     );
 
     room.state.players = result.players as ServerPlayer[];

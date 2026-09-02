@@ -70,6 +70,14 @@ export default function HistoryLog() {
     if (entry.type === 'bust') {
       return t('history.bust', { name, card: cardName, defaultValue: `${name} busted on ${cardName}` });
     }
+    // A dedicated type/wording for a turn the server's clock forfeited: no
+    // dice bust happened (a classic chain caught mid-draw or at the bank-or-
+    // draw choice) and no genuine success either (a modernized decided-but-
+    // never-confirmed turn) — 'bust' claimed a bust that was never charged,
+    // and 'success' printed "scored 0 pts" for points the clock took.
+    if (entry.type === 'timeout') {
+      return t('history.timeout', { name, defaultValue: `${name} ran out of time` });
+    }
     if (entry.type === 'fail') {
       return t('history.fail', { name, card: cardName, defaultValue: `${name} failed ${cardName}` });
     }

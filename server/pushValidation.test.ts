@@ -1531,6 +1531,23 @@ describe('classic chain fields (snapshot / history / turn summary)', () => {
     ])('rejects %s', (_name, override) => {
       expect(rejects(override)).toBe(true);
     });
+
+    // The 'type' field's own valid set is now HISTORY_EVENT_TYPES
+    // (src/types.ts) rather than a hand-rolled copy in this file — a member
+    // added there (like 'timeout', for a server-clock forfeit) used to
+    // type-check everywhere while this validator silently rejected it off
+    // the wire, dropping the whole history entry from every OTHER client.
+    it.each(['success', 'bust', 'skip', 'fail', 'timeout'])('accepts type %s', (type) => {
+      expect(rejects({ type })).toBe(false);
+    });
+
+    it.each([
+      ['an unknown string', { type: 'timeout_bogus' }],
+      ['not a string', { type: 3 }],
+      ['missing', { type: undefined }],
+    ])('rejects a type that is %s', (_name, override) => {
+      expect(rejects(override)).toBe(true);
+    });
   });
 
   it('accepts a history entry carrying a chain card list, and strips a bad one', () => {

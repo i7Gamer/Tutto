@@ -422,6 +422,7 @@
   "history.empty": "No turns taken yet.",
   "history.skip": "{{name}} skipped (Stop)",
   "history.bust": "{{name}} busted on {{card}}",
+  "history.timeout": "{{name}} ran out of time",
   "history.chainSuccess": "{{name}} scored {{score}} pts ({{chain}})",
   "history.chainSuccessDeducted": "{{name}} scored {{score}} pts ({{chain}}) — {{deducted}}",
   "history.chainBust": "{{name}} lost everything ({{chain}})",

@@ -1625,6 +1625,40 @@ describe('coreGameEngine', () => {
       expect(resultFail.historyEntry.type).toBe('fail');
       expect(resultFail.historyEntry.score).toBe(0);
     });
+
+    // Bug: server/turnTimers.ts commits a "decided but never confirmed"
+    // modernized turn (Stop & Score / a turn-ending tutto whose auto-continue
+    // never fired) as isSuccess=true, turnScore=0 — which the engine could
+    // only read as a genuine success worth 0 points, printing "scored 0 pts"
+    // for a turn whose points were actually forfeited to the clock. The 5th
+    // `isTimeout` parameter tells the engine this commit came from the
+    // server's turn timer, so it can log it honestly instead.
+    it('generates a "timeout" historyEntry for a modernized decided-before-timeout turn, not "success"', () => {
+      const state = makeState({ currentCard: '300' });
+      const result = calculateNextTurn(state, 0, true, undefined, true);
+      expect(result.historyEntry.type).toBe('timeout');
+      expect(result.historyEntry.score).toBe(0);
+    });
+
+    // isTimeout must not relabel a genuine bust or a Stop skip — it only
+    // covers the one case that would otherwise default to 'success'.
+    it('a plain server timeout on an undecided card is still a "bust", not "timeout" wording', () => {
+      const state = makeState({ currentCard: '300' });
+      const result = calculateNextTurn(state, 0, false, undefined, true);
+      expect(result.historyEntry.type).toBe('bust');
+    });
+
+    it('a server timeout on a Stop card is still "skip", not "timeout" wording', () => {
+      const state = makeState({ currentCard: 'Stop' });
+      const result = calculateNextTurn(state, 0, false, undefined, true);
+      expect(result.historyEntry.type).toBe('skip');
+    });
+
+    it('a server timeout on an unanswered special card is still "fail", not "timeout" wording', () => {
+      const state = makeState({ currentCard: 'Kniffel' });
+      const result = calculateNextTurn(state, 0, false, undefined, true);
+      expect(result.historyEntry.type).toBe('fail');
+    });
   });
 
   describe('classic turn summaries (calculateNextTurn with turnSummary)', () => {
@@ -1676,6 +1710,27 @@ describe('coreGameEngine', () => {
       expect(alice.x2Busts).toBe(0);
       expect(result.historyEntry.type).toBe('bust');
       expect(result.historyEntry.cards).toEqual(['600', 'x2']);
+    });
+
+    // Bug: server/turnTimers.ts reconstructs a chain-ending server timeout as
+    // `ended: 'timeout'` specifically so applySummaryCounters does not charge
+    // a bust (wasBust reads `ended === 'null'` only) — but the history entry's
+    // type was still hardcoded from isSuccess alone ('bust' whenever it was
+    // false), so the log printed "X busted on Y" for a turn no bust was ever
+    // charged for.
+    it('a chain-ending server timeout is a forfeit but not a bust (type timeout)', () => {
+      const result = calculateNextTurn(
+        makeState({ currentCard: '600' }),
+        0, false,
+        summary({
+          cards: [{ card: '600', completed: false }],
+          ended: 'timeout',
+        }),
+      );
+      const alice = result.players[0];
+      expect(alice.busts).toBe(0);
+      expect(result.historyEntry.type).toBe('timeout');
+      expect(result.previousTurnSummary?.ended).toBe('timeout');
     });
 
     it('a chain-ending Stop card is a forfeit (type bust), counted as skipped but not as a dice bust', () => {

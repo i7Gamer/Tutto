@@ -409,9 +409,9 @@ describe('turnTimers', () => {
       expect(alice.timesKniffelFailed).toBe(0);
       expect(rooms[roomId].state.previousTurnSummary?.ended).toBe('timeout');
       expect(rooms[roomId].state.previousTurnSummary?.cards).toEqual([{ card: 'Kniffel', completed: true }]);
-      // NOT asserted: historyLog type. coreGameEngine collapses every classic
-      // non-success to 'bust' because HistoryEventType has no 'timeout'
-      // member — a separate display concern from the counters above.
+      // The display concern the counters above don't cover: the log must not
+      // print "busted on Kniffel" for a turn no bust was ever charged for.
+      expect(rooms[roomId].state.historyLog?.at(-1)?.type).toBe('timeout');
     });
 
     it('keeps a banked tutto marked completed when the summary countdown times out', () => {
@@ -688,6 +688,9 @@ describe('turnTimers', () => {
       expect(state.previousScore).toBe(0);
       expect(state.previousWasBust).toBe(false);
       expect(state.previousTurnSummary).toBeNull();
+      // Previously logged as a plain 'success' worth 0 pts — indistinguishable
+      // from an ordinary turn that genuinely scored nothing.
+      expect(state.historyLog?.at(-1)?.type).toBe('timeout');
     });
 
     it('still counts the bust when a modernized snapshot busted, stale stop marker or not', () => {
