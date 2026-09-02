@@ -476,19 +476,26 @@ describe('configValidation', () => {
     // fields of NormalizableConfig — these cases pin down that widening the
     // input never makes the predicate start reading them.
     it('ignores the turn timer, the kick timer, the play order and an enforced dice mode', () => {
-      expect(isNormalizedConfig({
+      // Assigned to a variable rather than passed as a fresh literal: these
+      // fields are deliberately NOT part of NormalizableConfig (see the
+      // comment above), and the point of the test is that the predicate
+      // ignores them on a real config object that carries them, same as
+      // isNormalizedConfig's actual caller passes the whole GameStore config.
+      const configWithExtraFields = {
         ...NORMALIZED,
         turnDuration: 0,
         reconnectTimeout: MAX_RECONNECT_TIMEOUT,
         randomOrder: false,
         enforcedDiceMode: 'physical',
-      })).toBe(true);
+      };
+      expect(isNormalizedConfig(configWithExtraFields)).toBe(true);
     });
 
     // The ruleset selects which stats bucket PAIR a game lands in (modernized
     // vs classic) — it must never flip a game to "custom" by itself.
     it('ignores the ruleset', () => {
-      expect(isNormalizedConfig({ ...NORMALIZED, ruleset: 'classic' })).toBe(true);
+      const configWithRuleset = { ...NORMALIZED, ruleset: 'classic' };
+      expect(isNormalizedConfig(configWithRuleset)).toBe(true);
     });
   });
 
