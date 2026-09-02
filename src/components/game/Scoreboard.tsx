@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import type { GameStore } from '../../store/useGameStore';
 import { readableNameVars } from '../../utils/contrastColor';
+import { TURN_URGENT_SECONDS } from '../../utils/uiTimings';
 
 interface ScoreboardProps {
   game: Pick<GameStore, 'players' | 'currentPlayerIndex' | 'isOnline' | 'myName' | 'round' | 'winningScore' | 'turnTimeRemaining' | 'hostId'>;
@@ -32,7 +33,7 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
   const scoreProgress = winningScore ? Math.min((displayScore / winningScore) * 100, 100) : 0;
   const roundProgress = players?.length && currentPlayerIndex !== null ? (currentPlayerIndex / players.length) * 100 : 0;
 
-  const isTurnTimerUrgent = turnTimeRemaining !== null && turnTimeRemaining <= 10;
+  const isTurnTimerUrgent = turnTimeRemaining !== null && turnTimeRemaining <= TURN_URGENT_SECONDS;
 
   if (!currentPlayer) return null;
 

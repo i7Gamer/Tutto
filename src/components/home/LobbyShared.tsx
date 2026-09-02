@@ -14,6 +14,7 @@ import { useGameStore } from '../../store/useGameStore';
 import { readableNameVars } from '../../utils/contrastColor';
 import { supportsIOSSwitchHaptic } from '../../utils/iosSwitchHaptic';
 import { REORDER_PRESS_RELEASE_MS } from '../../utils/uiTimings';
+import { HOT_WIN_STREAK } from '../../utils/playerStats';
 import ConfirmModal from '../ConfirmModal';
 import './LobbyShared.css';
 
@@ -123,7 +124,7 @@ export function PlayerList({
                     )}
                     {p.name}
                     {isOnline && p.socketId === hostId && <Crown size={16} className="text-amber-500" />}
-                    {streak !== undefined && streak >= 3 && (
+                    {streak !== undefined && streak >= HOT_WIN_STREAK && (
                       <span title={t('lobby.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak })} className="text-amber-700 dark:text-amber-200 text-xs font-bold bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 flex items-center gap-0.5 whitespace-nowrap">
                         🔥 {streak}
                       </span>
@@ -424,7 +425,7 @@ interface BlurInputProps extends InputHTMLAttributes<HTMLInputElement> {
   normalize?: (val: number) => number;
 }
 
-function BlurInput({ value, onValueChange, minVal = 0, maxVal = 99999, normalize, ...props }: BlurInputProps) {
+function BlurInput({ value, onValueChange, minVal = 0, maxVal = MAX_WINNING_SCORE, normalize, ...props }: BlurInputProps) {
   const [localValue, setLocalValue] = useState((value ?? 0).toString());
   const [prevValue, setPrevValue] = useState(value);
   const [isDirty, setIsDirty] = useState(false);

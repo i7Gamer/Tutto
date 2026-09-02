@@ -6,6 +6,7 @@ import { CARD_EMOJIS } from '../utils/cardVisuals';
 import { STAT_TONES, DEFAULT_STAT_TONE, type StatTone } from '../utils/statTones';
 import { percentageOf } from '../utils/percentage';
 import { useDeviceStats, type DeviceStatsStatus } from '../hooks/useDeviceStats';
+import { HOT_WIN_STREAK } from '../utils/playerStats';
 import {
   DEFAULT_GAME_MODE, type CardType, type GameMode, type Ruleset,
   type DeviceStatsRow, type GlobalStatsRow,
@@ -31,10 +32,6 @@ type PersonalStats =
 type GlobalStats =
   & Pick<GlobalStatsRow, 'totalGamesPlayed' | 'totalPlaytime'>
   & Partial<Omit<GlobalStatsRow, 'ruleset' | 'totalGamesPlayed' | 'totalPlaytime'>>;
-
-// The run of wins at which the streak tile starts celebrating — flame, pulse
-// and the brighter amber all switch on together.
-const HOT_WIN_STREAK = 3;
 
 // Heads the card breakdown: a playing card in general, not any one card.
 const CARD_BREAKDOWN_ICON = '🃏';

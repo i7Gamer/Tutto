@@ -30,6 +30,10 @@ export const MAX_PLAYER_NAME_LENGTH = 30;
 // cache (recentRooms.ts), which renders stored ids straight into the DOM.
 export const MAX_ROOM_ID_LENGTH = 100;
 
+// Same length cap joinRoom enforces on deviceIds — the HTTP (api.ts) and
+// socket (joinRoom) paths must not accept different shapes for the same key.
+export const MAX_DEVICE_ID_LENGTH = 200;
+
 // Shared by every untrusted source of a room id — the remembered-rooms cache
 // (recentRooms.ts) and a shared join link (roomLink.ts) — so the two cannot
 // drift apart. Both feed the same input and the same joinRoom emit.

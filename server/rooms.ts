@@ -5,6 +5,7 @@ import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
   DEFAULT_RULESET,
 } from '../src/utils/configValidation';
+import { MS_PER_SECOND } from '../src/utils/time';
 import { MAX_ROUNDS } from './pushValidation';
 import { envLimitOr } from './envLimits';
 import { updateDeviceStats } from './database';
@@ -280,7 +281,7 @@ export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void 
       state.currentCard = null;
       state.turnStartTime = null;
       if (room.gameActualStartTime) {
-        state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / 1000);
+        state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / MS_PER_SECOND);
         room.gameActualStartTime = null;
       }
     } else {
@@ -322,14 +323,14 @@ export const calculateGameTime = (room: Room): number => {
   if (!room.gameActualStartTime || room.state.status !== 'playing') {
     return room.state.gameTimeInSeconds;
   }
-  return Math.floor((Date.now() - room.gameActualStartTime) / 1000);
+  return Math.floor((Date.now() - room.gameActualStartTime) / MS_PER_SECOND);
 };
 
 export const calculateRemainingTurnTime = (room: Room): number | null => {
   if (!room.state.turnStartTime || room.state.turnDuration === 0) return null;
 
   const targetDuration = getEffectiveTurnDuration(room.state.currentCard, room.state.turnDuration);
-  const elapsedSeconds = Math.floor((Date.now() - room.state.turnStartTime) / 1000);
+  const elapsedSeconds = Math.floor((Date.now() - room.state.turnStartTime) / MS_PER_SECOND);
   return Math.max(0, targetDuration - elapsedSeconds);
 };
 

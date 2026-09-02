@@ -13,7 +13,7 @@ import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from 
 import { finishedGameSnapshotOf, makeToast } from './gameSlice';
 import { clearTurnCaches } from '../utils/diceTurnState';
 import { joinErrorMessage } from '../utils/joinErrors';
-import { JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS } from '../utils/uiTimings';
+import { JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS, CANCEL_RECONNECT_FAILSAFE_MS } from '../utils/uiTimings';
 
 type SocketSlice = Pick<GameStore,
   | 'connectSocket' | 'joinRoom' | 'leaveRoom' | 'kickPlayer'
@@ -589,7 +589,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       if (pendingCancelReconnectCleanup === cleanup) pendingCancelReconnectCleanup = null;
     };
     pendingCancelReconnectCleanup = cleanup;
-    const timeoutId = setTimeout(cleanup, 10000);
+    const timeoutId = setTimeout(cleanup, CANCEL_RECONNECT_FAILSAFE_MS);
 
     tempSocket.on('connect_error', cleanup);
     tempSocket.on('connect', () => {

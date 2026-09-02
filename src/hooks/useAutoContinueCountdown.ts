@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { isTestEnv } from '../utils/env';
 import { AUTO_CONTINUE_SECONDS } from '../utils/uiTimings';
+import { MS_PER_SECOND } from '../utils/time';
 
 interface UseAutoContinueCountdownOptions {
   shouldStart: boolean;
@@ -50,7 +51,7 @@ export function useAutoContinueCountdown({ shouldStart, onElapsed, restartKey }:
       onElapsedRef.current();
       return;
     }
-    const id = setTimeout(() => setCountdown(prev => (prev !== null ? prev - 1 : prev)), 1000);
+    const id = setTimeout(() => setCountdown(prev => (prev !== null ? prev - 1 : prev)), MS_PER_SECOND);
     return () => clearTimeout(id);
   }, [countdown]);
 

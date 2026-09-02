@@ -6,7 +6,7 @@ import { sanitizeStats, sanitizeLogHeaderField, indentLogContinuationLines } fro
 import { createRateLimiter } from './rateLimit';
 import { DEV_DEFAULT_API_TOKEN, validateApiTokenForStartup } from './startupGuards';
 import { DEFAULT_GAME_MODE, GAME_MODES, type GameMode, type Ruleset } from '../src/types';
-import { DEFAULT_RULESET, isValidRuleset } from '../src/utils/configValidation';
+import { DEFAULT_RULESET, isValidRuleset, MAX_DEVICE_ID_LENGTH } from '../src/utils/configValidation';
 import { DEVICE_ID_HEADER, DEVICE_STATS_PATH } from '../src/utils/statsApi';
 
 // Client crash reports from the ErrorBoundary (see src/utils/crashLog.ts).
@@ -22,10 +22,6 @@ const CRASH_LOG_RATE_LIMIT_MAX = 20;
 
 const STATS_RATE_LIMIT_WINDOW_MS = 60_000;
 const STATS_RATE_LIMIT_MAX = 60;
-
-// Same length cap joinRoom enforces on deviceIds (socketHandlers.ts) — the
-// HTTP and socket paths must not accept different shapes for the same key.
-const MAX_DEVICE_ID_LENGTH = 200;
 
 // How a client walking away mid-response reaches an express callback: the
 // player hit stop or reload, or the connection dropped, while a file was

@@ -1,6 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getDeviceStats } from './database';
-import { DEFAULT_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
+import {
+  DEFAULT_RECONNECT_TIMEOUT, MAX_ROOM_ID_LENGTH, MAX_DEVICE_ID_LENGTH, MAX_PLAYER_NAME_LENGTH,
+} from '../src/utils/configValidation';
 import { zeroedPlayerStats } from '../src/utils/playerStats';
 import { applyValidatedConfig } from './pushValidation';
 import { startServerTurnTimer, abortGameIfLowPlayers, scaledTimerMs } from './turnTimers';
@@ -205,17 +207,17 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       return refuse(callback, 'invalid_payload', 'Invalid payload');
     }
     const { roomId, name: rawName, deviceId, color, initialConfig, isReconnect } = payload;
-    if (typeof roomId !== 'string' || roomId.length === 0 || roomId.length > 100) {
+    if (typeof roomId !== 'string' || roomId.length === 0 || roomId.length > MAX_ROOM_ID_LENGTH) {
       return refuse(callback, 'invalid_room', 'Invalid room');
     }
-    if (typeof deviceId !== 'string' || deviceId.length === 0 || deviceId.length > 200) {
+    if (typeof deviceId !== 'string' || deviceId.length === 0 || deviceId.length > MAX_DEVICE_ID_LENGTH) {
       return refuse(callback, 'invalid_device', 'Invalid device');
     }
     if (typeof rawName !== 'string') {
       return refuse(callback, 'invalid_name', 'Invalid name');
     }
     let name = rawName.trim();
-    if (name.length === 0 || name.length > 30) {
+    if (name.length === 0 || name.length > MAX_PLAYER_NAME_LENGTH) {
       return refuse(callback, 'invalid_name', 'Invalid name');
     }
 

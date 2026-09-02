@@ -1,11 +1,7 @@
 import { getEffectiveTurnDuration } from '../utils/turnDuration';
 import { roomPhase } from '../utils/roomPhase';
+import { MS_PER_SECOND } from '../utils/time';
 import type { GameStore, ImmerStateCreator } from './storeTypes';
-
-// Module-local until the shared constant lands elsewhere (per A3's brief) —
-// exported so other timer-adjacent code in this file/tests can reuse it
-// instead of repeating the literal.
-export const MS_PER_SECOND = 1000;
 
 let gameTimerInterval: ReturnType<typeof setInterval> | null = null;
 let turnTimerInterval: ReturnType<typeof setInterval> | null = null;

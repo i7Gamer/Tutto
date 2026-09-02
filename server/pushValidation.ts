@@ -8,7 +8,7 @@ import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
   isValidEnforcedDiceMode, isValidRuleset,
   MAX_CARD_COUNT, VALID_CARD_TYPES,
-  MAX_TURN_DURATION,
+  MAX_TURN_DURATION, MAX_PLAYER_NAME_LENGTH,
 } from '../src/utils/configValidation';
 import { PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
 import { getLeaders } from '../src/utils/coreGameEngine';
@@ -27,6 +27,10 @@ export const MAX_ROUNDS = 100000;
 // Exported so the tests can assert the bound itself rather than restating it.
 export const MAX_SCORE_MAGNITUDE = 1_000_000;
 const MAX_GAME_SECONDS = 10_000_000;
+// A history-entry id is a client-generated string (see HistoryEntry in
+// src/types.ts) — this is a sanity bound, not a format, same role as
+// MAX_ROOM_ID_LENGTH plays for room ids.
+const MAX_HISTORY_ID_LENGTH = 100;
 
 // The bound every numeric in a client-pushed payload must clear: finite AND
 // within the sanity cap. Named once so a new field cannot accidentally settle
@@ -204,7 +208,7 @@ const isValidHistoryEntry = (v: unknown): v is HistoryEntry => {
   const entry = v as Record<string, unknown>;
   const validTypes = ['success', 'bust', 'skip', 'fail'];
 
-  if (!(typeof entry.id === 'string' && entry.id.length > 0 && entry.id.length <= 100)) return false;
+  if (!(typeof entry.id === 'string' && entry.id.length > 0 && entry.id.length <= MAX_HISTORY_ID_LENGTH)) return false;
   if (!(typeof entry.round === 'number' && Number.isInteger(entry.round) && entry.round >= 1 && entry.round <= MAX_ROUNDS)) return false;
   if (!(typeof entry.playerName === 'string' && entry.playerName.length > 0 && entry.playerName.length <= MAX_PLAYER_NAME_LENGTH)) return false;
   if (entry.playerColor !== undefined && !(typeof entry.playerColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(entry.playerColor))) return false;
@@ -213,7 +217,7 @@ const isValidHistoryEntry = (v: unknown): v is HistoryEntry => {
   if (!(typeof entry.score === 'number' && Number.isFinite(entry.score) && Math.abs(entry.score) <= MAX_SCORE_MAGNITUDE)) return false;
   if (entry.deductedPlayers !== undefined) {
     if (!Array.isArray(entry.deductedPlayers)) return false;
-    if (entry.deductedPlayers.length > 100) return false;
+    if (entry.deductedPlayers.length > MAX_CHAIN_CARDS) return false;
     if (!entry.deductedPlayers.every(name => typeof name === 'string' && name.length > 0 && name.length <= MAX_PLAYER_NAME_LENGTH)) return false;
   }
   // Same index-alignment rule as the turn summary's — this is the entry the
@@ -289,9 +293,6 @@ export type PushFieldLock = [
   AssertNever<Exclude<SyncedGameStateKey, (typeof HOST_ONLY_FIELD_LIST)[number] | (typeof ACTIVE_PLAYER_FIELD_LIST)[number]>>,
   AssertNever<Extract<(typeof HOST_ONLY_FIELD_LIST)[number], (typeof ACTIVE_PLAYER_FIELD_LIST)[number]>>,
 ];
-
-// Same length cap joinRoom enforces on a player's name.
-const MAX_PLAYER_NAME_LENGTH = 30;
 
 const ALL_FIELDS: ReadonlySet<SyncedGameStateKey> =
   Object.freeze(new Set<SyncedGameStateKey>([...HOST_ONLY_FIELDS, ...ACTIVE_PLAYER_FIELDS]));

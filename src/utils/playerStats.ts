@@ -75,3 +75,9 @@ export const PLAYER_NUMERIC_FIELDS: (PlayerStatField | PlayerRecordField)[] =
 
 /** A fresh set — never the shared object, which every player would then share. */
 export const zeroedPlayerStats = (): PlayerStats => ({ ...ZEROED_PLAYER_STATS });
+
+// The win-streak length that earns a player the 🔥 badge — shared by the
+// lobby roster (LobbyShared.tsx), the in-game scoreboard (Game.tsx) and the
+// statistics page's own streak highlight, so the three can never disagree on
+// what counts as "hot".
+export const HOT_WIN_STREAK = 3;

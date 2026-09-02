@@ -15,7 +15,8 @@ import { buildTurnKey, parseSavedDiceState, DICE_TURN_STATE_KEY } from '../utils
 import { hasScoreInput, isSpecialCard } from '../utils/diceTurnControls';
 import { readableNameVars } from '../utils/contrastColor';
 import { gameModeOf, isCustomGameMode } from '../utils/statsApi';
-import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, DICE_PANEL_ENTRANCE_MS } from '../utils/uiTimings';
+import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, DICE_PANEL_ENTRANCE_MS, TURN_URGENT_SECONDS } from '../utils/uiTimings';
+import { HOT_WIN_STREAK } from '../utils/playerStats';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useDeviceStats } from '../hooks/useDeviceStats';
@@ -215,7 +216,7 @@ export default function Game() {
   useEffect(() => {
     if (!isOnline || !isMyTurn) return;
     if (turnTimeRemaining === null || turnTimeRemaining === undefined) return;
-    if (turnTimeRemaining <= 10) vibrateTurnUrgent();
+    if (turnTimeRemaining <= TURN_URGENT_SECONDS) vibrateTurnUrgent();
   }, [isOnline, isMyTurn, turnTimeRemaining]);
 
   useEffect(() => {
@@ -636,7 +637,7 @@ export default function Game() {
                       {(() => {
                         // The streak matching the rules this room plays by.
                         const streak = isClassic ? p.winStreakClassic : p.winStreak;
-                        return streak !== undefined && streak >= 3 && (
+                        return streak !== undefined && streak >= HOT_WIN_STREAK && (
                           <span title={t('game.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak })} className="text-amber-700 dark:text-amber-200 text-[10px] sm:text-xs font-bold bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 flex items-center gap-0.5 whitespace-nowrap">
                             <span aria-hidden="true">🔥 {streak}</span>
                             <span className="sr-only">{t('game.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak })}</span>

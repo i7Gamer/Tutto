@@ -27,6 +27,15 @@ export const DICE_PANEL_ENTRANCE_MS = 350;
 // "Yes, Reconnect", which race it against the join for the same reason.
 export const JOIN_TIMEOUT_MS = 10_000;
 
+// cancelReconnect's own failsafe: the fire-and-forget temp socket it opens to
+// vacate a seat (join-then-immediately-leave) must not hang forever if the
+// server never calls the joinRoom callback back. Deliberately a separate
+// constant from JOIN_TIMEOUT_MS even though the two share a value today —
+// that timeout bounds a user-facing join the caller is waiting on, this one
+// bounds a background cleanup nobody is watching, and the two have no reason
+// to change together.
+export const CANCEL_RECONNECT_FAILSAFE_MS = 10_000;
+
 // How long after a reconnect an 'unauthorized' pushState refusal is read as a
 // race with this client's own rejoin rather than a real authorization failure.
 //
@@ -106,3 +115,9 @@ export const CRASH_LOOP_WINDOW_MS = 10_000;
 // leaving that highlight stuck on a DIFFERENT row's button after the press.
 // The short delay lets the browser release the pressed state first.
 export const REORDER_PRESS_RELEASE_MS = 50;
+
+// A turn's countdown reads as "urgent" (Scoreboard's red styling, Game.tsx's
+// urgency haptic) once this many seconds or fewer remain. One threshold
+// shared by both so the visual cue and the buzz always agree on when the turn
+// is running out.
+export const TURN_URGENT_SECONDS = 10;

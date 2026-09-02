@@ -7,6 +7,7 @@ import { roomPhase } from '../src/utils/roomPhase';
 import type { Room, ServerPlayer } from './roomTypes';
 import { rooms, calculateRemainingTurnTime, emitRoomState, idleTurnTimerState, rememberCurrentTurn, roomChannel } from './rooms';
 import { MAX_ROUNDS } from './pushValidation';
+import { MS_PER_SECOND } from '../src/utils/time';
 
 // Milliseconds for a server timer armed from a duration in seconds — the turn
 // expiry below and socketRoomHandlers' seat reconnect timer both arm through
@@ -218,7 +219,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       room.state.currentCard = null;
       room.state.turnStartTime = null;
       if (room.gameActualStartTime) {
-        room.state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / 1000);
+        room.state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / MS_PER_SECOND);
         room.gameActualStartTime = null;
       }
       room.turnTimerState = idleTurnTimerState();

@@ -1,4 +1,5 @@
 import type express from 'express';
+import { MS_PER_SECOND } from '../src/utils/time';
 
 export interface RateLimiterOptions {
   windowMs: number;
@@ -61,7 +62,7 @@ export const createRateLimiter = ({ windowMs, max, maxTrackedKeys = 10_000 }: Ra
     }
 
     if (existing.count >= max) {
-      const retryAfterSeconds = Math.ceil((existing.resetAt - now) / 1000);
+      const retryAfterSeconds = Math.ceil((existing.resetAt - now) / MS_PER_SECOND);
       res.set('Retry-After', String(retryAfterSeconds));
       res.status(429).json({ error: 'Too many requests' });
       return;

@@ -10,6 +10,7 @@ import {
 import { buildTurnKey, DICE_TURN_STATE_KEY, clearTurnCaches } from '../utils/diceTurnState';
 import { MAX_PLAYER_NAME_LENGTH, MIN_ONLINE_PLAYERS, isNormalizedConfig } from '../utils/configValidation';
 import { zeroedPlayerStats } from '../utils/playerStats';
+import { MS_PER_SECOND } from '../utils/time';
 import playerColorsData from '../../playerColors.json';
 import { v4 as uuidv4 } from 'uuid';
 import type { Player, CoreGameState, Toast, CardType } from '../types';
@@ -290,7 +291,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
         state.finished = true;
         state.currentPlayerIndex = null;
         if (state.gameStartTime) {
-          state.gameTimeInSeconds = Math.floor((Date.now() - state.gameStartTime) / 1000);
+          state.gameTimeInSeconds = Math.floor((Date.now() - state.gameStartTime) / MS_PER_SECOND);
         }
         // Frozen here as well as on the broadcast edge (socketSlice), because
         // this client never sees that edge: `finished` is already true by the

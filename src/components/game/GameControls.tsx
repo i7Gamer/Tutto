@@ -54,6 +54,10 @@ interface GameControlsProps {
   currentPlayer: Player | null | undefined;
 }
 
+// The manual-score quick-add buttons: fixed point values a player can bank
+// with one tap instead of typing them in.
+const QUICK_ADD_SCORES = [50, 100, 200, 300, 400, 500, 600, 1000];
+
 export default function GameControls({
   currentCard,
   cardsLength,
@@ -189,7 +193,7 @@ export default function GameControls({
                   </div>
 
                   <div className="grid grid-cols-4 gap-2 mb-6 w-full max-w-sm">
-                    {[50, 100, 200, 300, 400, 500, 600, 1000].map(val => (
+                    {QUICK_ADD_SCORES.map(val => (
                       <motion.button
                         key={val}
                         whileHover={{ scale: 1.05 }}

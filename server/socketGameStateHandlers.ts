@@ -2,6 +2,7 @@ import { rooms, emitRoomState, emitRoomStateTo, idleTurnTimerState, rememberCurr
 import { applyPushedState, isValidDiceSnapshot, sanitizeDiceSnapshot } from './pushValidation';
 import { isNormalizedConfig } from '../src/utils/configValidation';
 import { roomPhase } from '../src/utils/roomPhase';
+import { MS_PER_SECOND } from '../src/utils/time';
 import { clearServerTurnTimer, startServerTurnTimer } from './turnTimers';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
@@ -179,7 +180,7 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
       clearServerTurnTimer(roomId);
       room.state.turnStartTime = null;
       if (room.gameActualStartTime) {
-        room.state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / 1000);
+        room.state.gameTimeInSeconds = Math.floor((Date.now() - room.gameActualStartTime) / MS_PER_SECOND);
       }
       room.gameActualStartTime = null;
       room.turnTimerState = idleTurnTimerState();
