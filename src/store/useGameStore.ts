@@ -18,6 +18,7 @@ import { disconnectSocket } from './socketRef';
 
 export type { GameStore } from './storeTypes';
 export { _resetTimersForTests } from './timers';
+export { _resetSocketSliceForTests } from './socketSlice';
 export { PLAYER_COLORS } from './gameSlice';
 
 // A factory, not a shared literal: the collections below land in mutable store

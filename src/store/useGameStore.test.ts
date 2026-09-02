@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { useGameStore, _resetTimersForTests } from './useGameStore';
+import { useGameStore, _resetTimersForTests, _resetSocketSliceForTests } from './useGameStore';
 import { disconnectSocket } from './socketRef';
 import { DEFAULT_INITIAL_CARDS } from '../utils/configValidation';
 import { blockStorage, failStorageMethods, restoreStorage } from '../testing/storageStubs';
@@ -54,6 +54,15 @@ describe('useGameStore', () => {
     localStorage.clear();
     sessionStorage.clear();
     mockEmit.mockClear();
+    // Two module singletons outlive reset(): the socket in socketRef.ts
+    // (connectSocket is a no-op while one exists, so a later joinRoom test
+    // would never see io() called) and socketSlice's pending cancelReconnect
+    // cleanup (invoked by the next cancelReconnect, whose disconnect
+    // assertions then count a stranger's teardown). Both showed up as
+    // order-dependent failures under --sequence.shuffle.
+    mockOnHandlers = {};
+    disconnectSocket();
+    _resetSocketSliceForTests();
   });
 
   describe('default deck isolation', () => {
@@ -1734,6 +1743,10 @@ describe('useGameStore', () => {
     });
 
     it('sets justReconnected when reconnecting with active game (status=playing), independent of liveTurnState', () => {
+      // Registers the gameState handler this test drives. It used to lean on
+      // a socket an EARLIER test had connected, which the shared afterEach
+      // now tears down — under --sequence.shuffle there was none.
+      useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.setState({
         mode: 'online',
         isOnline: true,
@@ -1763,6 +1776,7 @@ describe('useGameStore', () => {
     });
 
     it('does NOT set justReconnected when reconnecting with non-playing status', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.setState({
         mode: 'online',
         isOnline: true,
@@ -1830,6 +1844,7 @@ describe('useGameStore', () => {
     });
 
     it('the gameState handler self-clears justReconnected on the next event that is not itself a reconnect', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.setState({
         mode: 'online',
         isOnline: true,
@@ -1861,6 +1876,7 @@ describe('useGameStore', () => {
     });
 
     it('does NOT set justReconnected on a normal gameState update (not a reconnect)', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.setState({
         mode: 'online',
         isOnline: true,

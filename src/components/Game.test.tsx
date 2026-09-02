@@ -3,7 +3,7 @@ import { Profiler } from 'react';
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Game from './Game';
-import { useGameStore } from '../store/useGameStore';
+import { useGameStore, _resetTimersForTests } from '../store/useGameStore';
 import { MAX_CHAIN_CARDS } from '../types';
 import { STOP_CARD_AUTO_CONTINUE_MS } from '../utils/uiTimings';
 import { vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
@@ -42,7 +42,21 @@ describe('Game Component Integration', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockNextTurn = vi.fn();
+    // Start from a pristine store: the setState below is partial, and the
+    // store outlives each test. Without this a test that set
+    // enforcedDiceMode: 'digital' hid the score input from every physical-mode
+    // test declared after it — 12 order-dependent failures under
+    // --sequence.shuffle. reset() keeps enforcedDiceMode on purpose (it is a
+    // room setting that survives leaving a room), so it is cleared explicitly.
+    useGameStore.getState().reset();
+    _resetTimersForTests();
+    // The physical-chain and dice-panel caches live in localStorage and are
+    // restored on mount: a chain cached by one test turned the next test's
+    // Kniffel Yes/No into a mid-chain score box.
+    localStorage.clear();
+    sessionStorage.clear();
     useGameStore.setState({
+      enforcedDiceMode: null,
       currentPlayerIndex: 0,
       currentPlayer: { name: 'Alice', socketId: 'socket1', score: 0, position: 1 },
       currentCard: 'x2',
@@ -1367,8 +1381,10 @@ describe('Game Component Integration', () => {
 
       // The mocked DiceGame never completes, so the panel is closed the way an
       // externally advanced turn closes it: the turn moves to someone else.
+      // Host, so this client may still undo once it is no longer its turn
+      // (an earlier test used to leave isHost: true behind for this one).
       act(() => {
-        useGameStore.setState({ isOnline: true, myName: 'Bob', currentPlayerIndex: 0 });
+        useGameStore.setState({ isOnline: true, isHost: true, myName: 'Bob', currentPlayerIndex: 0 });
       });
       expect(screen.queryByTestId('mock-dice-game')).not.toBeInTheDocument();
       expect(undoButton()).toBeEnabled();

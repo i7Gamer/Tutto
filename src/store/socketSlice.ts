@@ -110,6 +110,15 @@ export type ClearRoomStateLock = [
 // alongside a new one.
 let pendingCancelReconnectCleanup: (() => void) | null = null;
 
+// Test-only escape hatch, the socket twin of timers.ts's _resetTimersForTests:
+// the pending cleanup above is module state, so a cancelReconnect left
+// in flight by one test would be torn down by the NEXT test's call and
+// count against its disconnect assertions. reset() cannot reach it.
+export const _resetSocketSliceForTests = (): void => {
+  pendingCancelReconnectCleanup?.();
+  pendingCancelReconnectCleanup = null;
+};
+
 type SocketSliceSet = Parameters<ImmerStateCreator<SocketSlice>>[0];
 type SocketSliceGet = Parameters<ImmerStateCreator<SocketSlice>>[1];
 
