@@ -1,6 +1,7 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
 import { rollDie, isBust, checkKniffel, checkKniffelClassic, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from './diceLogic';
+import type { CardType } from '../types';
 
 describe('diceLogic', () => {
 
@@ -181,7 +182,7 @@ describe('diceLogic', () => {
 
   describe('getMaxValidSelection', () => {
     // Maps selected indices back to the dice values they point at.
-    const selectedVals = (roll, card, progress = []) =>
+    const selectedVals = (roll: number[], card: CardType | null, progress: number[] = []) =>
       getMaxValidSelection(roll, card, progress).map(i => roll[i]);
 
     it('selects all 1s and 5s', () => {
