@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import RoomQrCode from './RoomQrCode';
+import { nonNull } from '../../testing/factories';
 
 // The real encoder is loaded lazily, which a test should not have to await for
 // the sake of asserting what got encoded.
@@ -90,7 +91,7 @@ describe('RoomQrCode', () => {
     const { container } = render(<RoomQrCode link="https://tutto.example.com/?room=ROOM1" />);
     await screen.findByAltText('lobby.online.qrAlt');
 
-    expect(container.firstElementChild.className).toContain('mb-4');
+    expect(nonNull(container.firstElementChild).className).toContain('mb-4');
   });
 
   it('shows no warning for an address other devices can reach', async () => {

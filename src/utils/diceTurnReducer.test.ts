@@ -29,7 +29,7 @@ const freshRestore = (): RestoredTurn => ({
   busted: false,
   bankedDecision: false,
   hasRolled: false,
-  initialChain: { cards: [{ card: '300', completed: false }], tuttoCount: 0, plusMinusScores: [] },
+  initialChain: { cards: [{ card: '300', completed: false }], tuttoCount: 0, plusMinusScores: [], ended: 'null' },
 });
 
 describe('initialDiceTurnState', () => {

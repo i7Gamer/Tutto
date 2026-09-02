@@ -6,6 +6,7 @@ import { useGameStore, type GameStore } from '../../store/useGameStore';
 import type { CardType, DiceSnapshot } from '../../types';
 import { CARD_FLIP_MS } from '../../utils/uiTimings';
 import { MAX_SCORE_MAGNITUDE } from '../../utils/configValidation';
+import { makePlayer } from '../../testing/factories';
 
 // GameControls now reads currentCard, cards, ruleset, isOnline, isHost,
 // liveTurnState and currentPlayer (plus the undo/endGame/leaveRoom actions)
@@ -29,7 +30,7 @@ const setStore = (partial: Partial<GameStore> = {}) => {
     isHost: true,
     liveTurnState: null,
     currentPlayerIndex: 0,
-    players: [{ name: 'Alice', socketId: 'socket1', score: 0, position: 1 }],
+    players: [makePlayer({ name: 'Alice', socketId: 'socket1', position: 1 })],
     undo: vi.fn(),
     endGame: vi.fn(),
     leaveRoom: vi.fn(),

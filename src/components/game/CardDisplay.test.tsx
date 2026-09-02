@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import CardDisplay from './CardDisplay';
+import type { CardType } from '../../types';
 
 describe('CardDisplay', () => {
   describe('no-card state', () => {
@@ -30,7 +31,7 @@ describe('CardDisplay', () => {
       'Kniffel', 'Plus_Minus', 'x2',
       '200', '300', '400', '500', '600',
       'Feuerwerk', 'Kleeblatt', 'Stop',
-    ])('renders card type %s with correct class', (cardType) => {
+    ] as CardType[])('renders card type %s with correct class', (cardType) => {
       const { container } = render(<CardDisplay currentCard={cardType} cards={[]} />);
       expect(container.querySelector(`.tutto-card.c-${cardType}`)).toBeInTheDocument();
     });
