@@ -168,7 +168,7 @@ function RestoreSessionPopup() {
             className="w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-200 font-bold py-3 px-4 rounded-xl transition-colors"
             onClick={() => { cancelReconnect(pendingReconnectSession.roomId, pendingReconnectSession.myName); }}
           >
-            {t('home.restore.cancel', 'No, Cancel')}
+            {t('home.restore.cancel', 'No, Leave the Game')}
           </button>
         </div>
     </ModalShell>

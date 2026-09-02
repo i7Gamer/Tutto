@@ -185,6 +185,20 @@ describe('lobby.customGameNoStats wording', () => {
   });
 });
 
+// home.restore.cancel actually gives up the seat (App.tsx's restore dialog
+// wires it to cancelReconnect, a server leave) but read like a harmless
+// dismiss ("No, Cancel") — nothing on the button hinted that declining costs
+// the player their spot in the room.
+describe('home.restore.cancel wording', () => {
+  it('en states that declining leaves the game', () => {
+    expect(readLocale(enPath)['home.restore.cancel'].toLowerCase()).toContain('leave');
+  });
+
+  it('de states that declining leaves the game', () => {
+    expect(readLocale(dePath)['home.restore.cancel']).toMatch(/verlass/i);
+  });
+});
+
 // Every other bust string in the German file says "Niete" — game.controls.bust
 // alone said "Fehlwurf", a different word for the same event nowhere else used
 // in the glossary.

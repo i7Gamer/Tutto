@@ -5,7 +5,7 @@
   "home.restore.title": "Ongoing Game Found",
   "home.restore.description": "You were recently in an online room ({{roomId}}). Do you want to reconnect?",
   "home.restore.yes": "Yes, Reconnect",
-  "home.restore.cancel": "No, Cancel",
+  "home.restore.cancel": "No, Leave the Game",
   "home.restore.failed": "Failed to reconnect to the game",
   "errorBoundary.title": "Oops! Something went wrong.",
   "errorBoundary.description": "The application encountered an unexpected error and needs to reload.",

@@ -5,7 +5,7 @@
   "home.restore.title": "Laufendes Spiel gefunden",
   "home.restore.description": "Du warst vor kurzem in einem Online-Raum ({{roomId}}). Möchtest du wieder beitreten?",
   "home.restore.yes": "Ja, wieder verbinden",
-  "home.restore.cancel": "Nein, abbrechen",
+  "home.restore.cancel": "Nein, Spiel verlassen",
   "home.restore.failed": "Wiederverbindung zum Spiel fehlgeschlagen",
   "errorBoundary.title": "Hoppla! Etwas ist schiefgelaufen.",
   "errorBoundary.description": "Die Anwendung hat einen unerwarteten Fehler festgestellt und muss neu geladen werden.",
