@@ -297,22 +297,14 @@ export type PushFieldLock = [
 const ALL_FIELDS: ReadonlySet<SyncedGameStateKey> =
   Object.freeze(new Set<SyncedGameStateKey>([...HOST_ONLY_FIELDS, ...ACTIVE_PLAYER_FIELDS]));
 
-// Sanity-guard bounds for the two timers arriving via pushState — not a UX
-// rule (pushState mirrors state the client already ran through updateConfig,
-// and tests legitimately push short 1-2s turns, below isValidTurnDuration's
-// enabled-minimum), just enough to reject values that would corrupt
-// server-side logic: a negative/non-finite turnDuration makes
-// startServerTurnTimer re-arm with remaining<=0 and advance turns in a
-// synchronous loop until the stack overflows. winningScore is validated with
-// the real isValidWinningScore (see the dedicated branch below) instead of
-// living in this table — unlike the timers, it has no "loose sanity range"
-// use case, so it should enforce exactly the same rule as updateConfig; a
-// looser check here would make pushState a side door for a winning score
-// updateConfig had just rejected.
 // The config a running game must not have changed underneath it — the same set
 // updateConfig refuses mid-game (socketConfigHandlers.ts), enforced here too
-// because pushState reaches every one of these fields. Only `ruleset` used to
-// carry the check, so the guard was one config path wide.
+// because pushState reaches every one of these fields. winningScore is
+// validated with the real isValidWinningScore (see the dedicated branch
+// below), so it enforces exactly the same rule as updateConfig; a looser
+// check here would make pushState a side door for a winning score updateConfig
+// had just rejected. The other fields have their own handlers in FIELD_HANDLERS
+// with their own validation rules.
 const LOBBY_ONLY_CONFIG_FIELD_LIST = [
   'winningScore', 'initialCards', 'randomOrder',
   'enforcedDiceMode', 'reconnectTimeout', 'ruleset',
@@ -337,7 +329,7 @@ export type LobbyOnlyConfigLock = [
 ];
 
 // 'disconnected' is deliberately excluded: it is server-owned (set in
-// socketHandlers.handlePlayerLeave/joinRoom from actual socket connectivity,
+// socketRoomHandlers.handlePlayerLeave/joinRoom from actual socket connectivity,
 // never from client input). Letting a push overwrite it let a stale roster
 // snapshot — composed before a client saw a peer's disconnect, e.g. the
 // active player's ~300ms live-dice pushState cadence — flip it back to

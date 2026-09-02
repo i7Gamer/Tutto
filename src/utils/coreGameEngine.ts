@@ -687,9 +687,9 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
     previousWasSuccess ?? (previousScore === fixedScore);
 
   if (gameState.finished) return null;
-  // A bare Stop turn commits nothing (type 'skip') and stays un-undoable. A
-  // classic chain that ENDED on a drawn Stop, however, forfeited real points
-  // and mutated counters — its summary makes it undoable like any bust.
+  // A bare Stop turn (type 'skip') commits totalTurns and timesSkipped and stays
+  // un-undoable. A classic chain that ENDED on a drawn Stop, however, forfeited
+  // real points and mutated counters — its summary makes it undoable like any bust.
   if (!previousCard || (previousCard === 'Stop' && !previousTurnSummary)) return null;
   if (currentPlayerIndex === null) return null;
   if (!previousPlayerName) return null;

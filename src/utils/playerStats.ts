@@ -3,7 +3,7 @@ import type { Player } from '../types';
 // Every number a player starts a game on. Written out once, because three
 // places need the same list and nothing made them agree: the client creates
 // players (gameSlice.ts), the server creates them for an online room
-// (socketHandlers.ts), and the server decides which of their fields a client
+// (socketRoomHandlers.ts), and the server decides which of their fields a client
 // is allowed to write back (pushValidation.ts).
 //
 // The third one is where forgetting hurts. A gameState broadcast replaces the

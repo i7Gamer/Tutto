@@ -115,7 +115,9 @@ export interface StatsRecordedForGame {
  * seated — the same reasoning that makes isDefaultGame the server's call.
  */
 export interface FinishedGame {
-  /** Every tied leader, by name. A tie is not a win — see getLeaders. */
+  /** Every tied leader, by name. A tie is not a win — see getLeaders. A host push
+   * is exempt from the game-over check in pushValidation and can set finished=true
+   * unconditionally. */
   winners: string[];
   /**
    * Seats at the table when the game ended, for the players-per-game totals —

@@ -229,7 +229,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
   // Classic chains only: the active player reveals the next card mid-turn
   // after a tutto. Same reshuffle rule as calculateNextTurn's next-player
   // draw. The server side already works — the active player may push
-  // currentCard/cards, and the timer restarts on the card change.
+  // currentCard/cards, and the timer restarts on the deck change.
   drawCardMidTurn: (): CardType | null => {
     const s = get();
     if (s.finished || s.currentPlayerIndex === null) return null;

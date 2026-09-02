@@ -20,10 +20,6 @@ type SocketSlice = Pick<GameStore,
   | 'cancelReconnect' | 'pushState' | 'pushLiveTurnState' | 'sendOnlineStats'
 >;
 
-// Shared by every path that abandons the current online room (leaveRoom, the
-// 'kicked' handler, cancelReconnect, and useGameStore's reset) so these
-// ~12 room-identity/game fields can't drift out of sync between them the
-// way they were previously duplicated as separate hand-written literals.
 // Fields the server's 'gameState' broadcast is allowed to overwrite on the
 // client store — the canonical SYNCED_GAME_STATE_KEYS (src/types.ts), which
 // server/roomTypes.ts locks against RoomState, the authoritative game state
@@ -34,6 +30,10 @@ type SocketSlice = Pick<GameStore,
 // The satisfies is the lock's client half: every synced key is a real store field.
 export const GAME_STATE_SYNC_KEYS = SYNCED_GAME_STATE_KEYS satisfies readonly (keyof GameStore)[];
 
+// Shared by every path that abandons the current online room (leaveRoom, the
+// 'kicked' handler, cancelReconnect, and useGameStore's reset) so these
+// 30 room-identity/game fields can't drift out of sync between them the
+// way they were previously duplicated as separate hand-written literals.
 export const clearRoomState = (): Pick<GameStore,
   | 'players' | 'currentPlayerIndex' | 'currentCard' | 'cards' | 'round' | 'finished'
   | 'status' | 'roomId' | 'isHost' | 'hostId' | 'myName' | 'liveTurnState'

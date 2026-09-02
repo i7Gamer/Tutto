@@ -179,7 +179,7 @@ export const createRoom = (hostSocketId: string, createdBy = ''): Room => ({
 });
 
 // Every room-deletion site must go through this, not a bare `delete rooms[id]`.
-// A pending disconnect-timeout timer (armed in socketHandlers.handlePlayerLeave)
+// A pending disconnect-timeout timer (armed in socketRoomHandlers.handlePlayerLeave)
 // captures roomId in its closure and looks the room up fresh, by id, when it
 // fires — so if the room was deleted without cancelling it, and a NEW room is
 // later created under the same id (e.g. the disconnected player reconnects and

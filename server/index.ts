@@ -77,8 +77,8 @@ const PORT = process.env.PORT || 3001;
 
 // Whether a game is in progress, on one line rewritten in place at the bottom
 // of this console — the answer to "may I close this window?", which nothing can
-// give once the process holding `rooms` is gone. Opt-in (start-tutto-prod.bat
-// sets TUTTO_STATUS_LINE), so containers and CI log exactly what they did
+// give once the process holding `rooms` is gone. Opt-in (the production start
+// script sets TUTTO_STATUS_LINE), so containers and CI log exactly what they did
 // before. null when it is not asked for: nothing is timed and console is left
 // untouched.
 const statusLine = isStatusLineEnabled(process.env)

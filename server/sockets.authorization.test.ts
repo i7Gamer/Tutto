@@ -236,9 +236,9 @@ describe('Server Socket E2E — authorization & payload validation', () => {
   }, 15000);
 
   it('non-host active player can deduct Plus_Minus score from the host-leader', () => {
-    // Regression test: the server previously rejected changes to other players' rows
-    // pushed by a non-host, silently discarding the Plus_Minus -1000 deduction from
-    // the leader (host). The per-row restriction has been removed — see server/index.js.
+    // Regression test: a non-host active player can write to the host's row for
+    // score and times1000PointsDeducted (PLAYER_CROSS_SEAT_MUTABLE in pushValidation.ts).
+    // The Plus_Minus -1000 deduction applies this cross-seat write path.
     return new Promise((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host, current leader at 1000 pts
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — non-host, active player, plays Plus_Minus

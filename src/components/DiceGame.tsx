@@ -30,8 +30,8 @@ import type { CardType, Die as DieType, DiceSnapshot, Ruleset, TurnSummary } fro
 interface DiceGameProps {
   currentCard: CardType | null;
   // Identifies the turn this instance was opened for (see buildTurnKey in
-  // diceTurnState.ts). Left undefined, restoration is unconditional — matches
-  // every test in this file that doesn't pass it and predates this prop.
+  // diceTurnState.ts). Left undefined, restoration is unconditional — the default
+  // for callers that render this panel without a specific turn to restore.
   turnKey?: string;
   onComplete: (score: number, isSuccess: boolean, turnSummary?: TurnSummary) => void;
   onStateChange?: (snapshot: DiceSnapshot | null) => void;

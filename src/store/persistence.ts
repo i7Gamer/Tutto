@@ -254,7 +254,7 @@ export const validateOnlineConfig = (config: unknown): Partial<Pick<GameStore, C
   if (typeof config !== 'object' || config === null) return {};
   const valid: Partial<Pick<GameStore, ConfigKeys>> = {};
   const c = config as Record<string, unknown>;
-  // Ranges must match the server's applyValidatedConfig (server/index.ts):
+  // Ranges must match the server's applyValidatedConfig (server/pushValidation.ts):
   // values the server would reject are dropped here too, so the lobby never
   // shows a setting the server silently refused.
   if (isValidWinningScore(c.winningScore)) valid.winningScore = c.winningScore;

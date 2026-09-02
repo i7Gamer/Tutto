@@ -164,7 +164,7 @@ docker run --rm -v tutto-data:/data -v "$(pwd):/backup" alpine cp /data/stats.db
 
 Schema migrations run automatically at startup, so upgrading is just pulling a newer image.
 
-> One migration rebuilds the `device_statistics` table to split normal and custom games apart (SQLite cannot alter a primary key in place). It runs in a transaction and existing rows are carried over as normal games, but taking the backup above before that upgrade is worth the minute it costs.
+> Migrations rebuild `device_statistics` and `global_statistics` to split normal and custom games apart (SQLite cannot alter a primary key). They run in transactions and existing rows are carried over as normal games, but taking the backup above before that upgrade is worth the minute it costs.
 
 ### Behind a reverse proxy
 
@@ -182,7 +182,7 @@ Available tags: `latest` (current release), a pinned version such as `1.1.3`, an
 
 Since `latest` and `nightly` both move, the running build names itself in the footer of the in-app wiki (the `?` button) — worth quoting in a bug report.
 
-**Rolling back is one-way past a migration.** The database is upgraded in place on first start, and the schema does not go backwards — 1.1.1, 1.3.0 and 1.4.0 each added one. Starting an older image against a `/data` volume a newer one has already migrated fails at startup and, with `restart: unless-stopped`, keeps retrying; the log says the database was migrated by a newer version. Re-pull the newer tag to get back up, or restore the backup taken before the upgrade (see [Data and backups](#data-and-backups)). Taking that backup before a version bump is the whole reason to have one.
+**Rolling back is one-way past a migration.** The database is upgraded in place on first start, and the schema does not go backwards — 1.1.1 added two, and 1.3.0 and 1.4.0 each added one. Starting an older image against a `/data` volume a newer one has already migrated fails at startup and, with `restart: unless-stopped`, keeps retrying; the log says the database was migrated by a newer version. Re-pull the newer tag to get back up, or restore the backup taken before the upgrade (see [Data and backups](#data-and-backups)). Taking that backup before a version bump is the whole reason to have one.
 
 ### Health
 
@@ -248,7 +248,7 @@ Rooms live in the server's memory, so restarting ends every game in progress. Wi
 [activity] 1 finished game awaiting stats — DO NOT RESTART
 ```
 
-A restart is called unsafe while a game is being played, and while a finished game's statistics have not been submitted yet (they are sent by the host's client after the game ends and are lost if the server goes away first). Set the variable on the one command you watch — `TUTTO_STATUS_LINE=1 npm run start:prod`, or `set TUTTO_STATUS_LINE=1` before it on Windows — rather than in `.env`, which every other start reads too.
+A restart is called unsafe while a game is being played, and while a finished game's statistics have not been submitted yet (each client sends its own device stats after the game ends, and the server also records departed seats; stats are lost if the server goes away first). Set the variable on the one command you watch — `TUTTO_STATUS_LINE=1 npm run start:prod`, or `set TUTTO_STATUS_LINE=1` before it on Windows — rather than in `.env`, which every other start reads too.
 
 On a terminal the line is rewritten in place, so it never scrolls; redirected to a file it prints one line per change instead. The variable is off by default, so Docker, CI and development servers log exactly as they otherwise would.
 

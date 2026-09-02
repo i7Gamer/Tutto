@@ -111,7 +111,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       //    reveal (or the reload window it restores into): the new card is
       //    in the chain but its first roll never happened, so like the
       //    stopped case it forfeits as 'timeout' with the last card
-      //    uncompleted — DiceGame's restoredMidDraw reads this same
+      //    uncompleted — DiceGame's restore.midDraw reads this same
       //    snapshot as "resume by rolling", not as a bust. A drawn Stop
       //    parks here too, and stays the Stop forfeit via the `ended`
       //    ternary below.

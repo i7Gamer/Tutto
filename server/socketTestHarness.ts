@@ -96,7 +96,7 @@ export const buildChildEnv = (
 // TEST_TIMER_SCALE (see vite.config.ts) compresses the spawned server's own
 // timers, so orchestration waits in the tests have to scale with them or they
 // would wait far longer than the behaviour they are pacing. Mirrors the same
-// computation in turnTimers.ts and socketHandlers.ts.
+// computation in turnTimers.ts.
 const SCALE = process.env.TEST_TIMER_SCALE ? parseFloat(process.env.TEST_TIMER_SCALE) : 1;
 export const testDelay = (ms: number) => Math.max(20, Math.floor(ms * SCALE));
 

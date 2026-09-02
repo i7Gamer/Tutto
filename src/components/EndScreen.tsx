@@ -118,7 +118,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
   // snapshot fetched when the game STARTED (game.preGameStats, see Game.tsx),
   // not the post-game deviceStats fetched below (which already includes this
   // game's own contribution and so can't tell a genuine new record apart from
-  // merely tying an older one — see the plan notes for this feature).
+  // merely tying an older one).
   const me = playerSnapshot.find(p => p.name === myName);
   const isWinner = !!me && getLeaders(playerSnapshot).some(l => l.name === me.name);
   const newHighScore = !!(preGameStats && me && me.highestTurnScore && me.highestTurnScore > (preGameStats.highestTurnScore ?? 0));
