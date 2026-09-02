@@ -5,14 +5,15 @@
  * Split out of the former monolithic sockets.test.ts; see socketTestHarness.ts
  * for why, and for the port allocation rules.
  */
+import type { ChildProcess } from 'child_process';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io } from 'socket.io-client';
-import { startTestServer, testDelay } from './socketTestHarness';
+import { startTestServer, testDelay, type JoinAck } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 
 describe('Server Socket E2E — room lifecycle & joining', () => {
-  let serverProcess;
+  let serverProcess: ChildProcess | undefined;
 
   const PORT = TEST_PORTS.socketsRoom;
 
@@ -120,7 +121,7 @@ describe('Server Socket E2E — room lifecycle & joining', () => {
   });
 
   it('does not send gameState to a player who just left the room intentionally', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const s2 = io(`http://127.0.0.1:${PORT}`);
 
@@ -306,18 +307,18 @@ describe('Server Socket E2E — room lifecycle & joining', () => {
   }, 10000);
 
   it('joinRoom returns an error (and does not crash) when name is missing', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Timed out')); }, 4000);
 
       s1.on('connect', () => {
         // No `name` field — previously crashed the handler at name.toLowerCase().
-        s1.emit('joinRoom', { roomId: 'BAD_JOIN_NONAME', deviceId: 'dev-bj-1' }, (res) => {
+        s1.emit('joinRoom', { roomId: 'BAD_JOIN_NONAME', deviceId: 'dev-bj-1' }, (res: JoinAck) => {
           expect(res.error).toBeTruthy();
           expect(res.success).toBeFalsy();
 
           // Server must still be alive — a subsequent valid join must succeed.
-          s1.emit('joinRoom', { roomId: 'BAD_JOIN_NONAME', name: 'Alice', deviceId: 'dev-bj-1', color: '#ff0000' }, (res2) => {
+          s1.emit('joinRoom', { roomId: 'BAD_JOIN_NONAME', name: 'Alice', deviceId: 'dev-bj-1', color: '#ff0000' }, (res2: JoinAck) => {
             expect(res2.success).toBe(true);
             clearTimeout(timeoutId);
             s1.disconnect();
@@ -329,12 +330,12 @@ describe('Server Socket E2E — room lifecycle & joining', () => {
   }, 10000);
 
   it('joinRoom rejects an over-long name', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Timed out')); }, 4000);
 
       s1.on('connect', () => {
-        s1.emit('joinRoom', { roomId: 'BAD_JOIN_LONGNAME', name: 'x'.repeat(31), deviceId: 'dev-bj-2' }, (res) => {
+        s1.emit('joinRoom', { roomId: 'BAD_JOIN_LONGNAME', name: 'x'.repeat(31), deviceId: 'dev-bj-2' }, (res: JoinAck) => {
           expect(res.error).toBeTruthy();
           clearTimeout(timeoutId);
           s1.disconnect();
@@ -345,7 +346,7 @@ describe('Server Socket E2E — room lifecycle & joining', () => {
   }, 10000);
 
   it('joinRoom without an ack callback does not crash the server', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Timed out')); }, 4000);
 
@@ -357,7 +358,7 @@ describe('Server Socket E2E — room lifecycle & joining', () => {
         setTimeout(() => {
           const s2 = io(`http://127.0.0.1:${PORT}`);
           s2.on('connect', () => {
-            s2.emit('joinRoom', { roomId: 'NO_CALLBACK_ROOM2', name: 'Alice', deviceId: 'dev-nc-2', color: '#ff0000' }, (res) => {
+            s2.emit('joinRoom', { roomId: 'NO_CALLBACK_ROOM2', name: 'Alice', deviceId: 'dev-nc-2', color: '#ff0000' }, (res: JoinAck) => {
               expect(res.success).toBe(true);
               clearTimeout(timeoutId);
               s1.disconnect();
@@ -400,14 +401,14 @@ describe('Server Socket E2E — room lifecycle & joining', () => {
         const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Timed out')); }, 6000);
 
         s1.on('connect', () => {
-          s1.emit('joinRoom', { roomId, name: 'Alice', deviceId, color: '#ff0000' }, (res2) => {
+          s1.emit('joinRoom', { roomId, name: 'Alice', deviceId, color: '#ff0000' }, (res2: JoinAck) => {
             expect(res2.success).toBe(true);
           });
         });
 
         s1.on('gameState', (state) => {
           try {
-            const alice = state.players.find((p) => p.name === 'Alice');
+            const alice = state.players.find((p: { name: string; winStreak?: number }) => p.name === 'Alice');
             if (alice) {
               expect(alice.winStreak).toBe(5);
               clearTimeout(timeoutId);
