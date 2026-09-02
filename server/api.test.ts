@@ -497,16 +497,48 @@ describe('the SPA fallback when sendFile reports an error', () => {
   });
 });
 
+describe('STATS_RATE_LIMIT_MAX overrides the stats per-window cap', () => {
+  // The test harness raises this for spawned servers so a slow poll cannot
+  // 429 the rest of its suite; the override is only real if api.ts reads it.
+  let serverProcess;
+  const PORT = TEST_PORTS.apiStatsRateLimitEnv;
+  const TINY_CAP = '2';
+
+  beforeAll(async () => {
+    if (globalThis.__nativeFetch) {
+      globalThis.fetch = globalThis.__nativeFetch;
+    }
+    serverProcess = await startTestServer(PORT, { env: { STATS_RATE_LIMIT_MAX: TINY_CAP } });
+  }, SERVER_BOOT_TIMEOUT_MS);
+
+  afterAll(() => {
+    if (serverProcess) serverProcess.kill();
+  });
+
+  it('rejects the request after the overridden cap, not after the production 60', async () => {
+    const get = () => fetch(`http://127.0.0.1:${PORT}/api/stats/global`);
+    const statuses = [];
+    for (let i = 0; i < Number(TINY_CAP) + 1; i++) statuses.push((await get()).status);
+
+    expect(statuses.slice(0, Number(TINY_CAP))).toEqual([200, 200]);
+    expect(statuses[Number(TINY_CAP)]).toBe(429);
+  }, 15000);
+});
+
 describe('GET /api/stats/global rate limiting', () => {
   let serverProcess;
   const PORT = TEST_PORTS.apiGlobalStatsRateLimit;
+  // vite.config.ts raises STATS_RATE_LIMIT_MAX for every spawned server so a
+  // polling suite cannot 429 itself; this suite is about the production cap,
+  // so it pins the default explicitly.
+  const PRODUCTION_STATS_CAP = '60';
 
   beforeAll(async () => {
     if (globalThis.__nativeFetch) {
       globalThis.fetch = globalThis.__nativeFetch;
     }
 
-    serverProcess = await startTestServer(PORT);
+    serverProcess = await startTestServer(PORT, { env: { STATS_RATE_LIMIT_MAX: PRODUCTION_STATS_CAP } });
   }, SERVER_BOOT_TIMEOUT_MS);
 
   afterAll(() => {

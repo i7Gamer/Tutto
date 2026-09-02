@@ -4,6 +4,7 @@ import express from 'express';
 import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } from './database';
 import { sanitizeStats, sanitizeLogHeaderField, indentLogContinuationLines } from './sanitize';
 import { createRateLimiter } from './rateLimit';
+import { envLimitOr } from './envLimits';
 import { DEV_DEFAULT_API_TOKEN, validateApiTokenForStartup } from './startupGuards';
 import { DEFAULT_GAME_MODE, GAME_MODES, type GameMode, type Ruleset } from '../src/types';
 import { DEFAULT_RULESET, isValidRuleset, RULESETS, MAX_DEVICE_ID_LENGTH } from '../src/utils/configValidation';
@@ -21,7 +22,10 @@ const CRASH_LOG_RATE_LIMIT_WINDOW_MS = 60_000;
 const CRASH_LOG_RATE_LIMIT_MAX = 20;
 
 const STATS_RATE_LIMIT_WINDOW_MS = 60_000;
-const STATS_RATE_LIMIT_MAX = 60;
+// Overridable for spawned test servers (see socketTestHarness.ts and
+// vite.config.ts): a suite that polls /api/stats must not 429 itself. Unset in
+// production, so the default stands there.
+const STATS_RATE_LIMIT_MAX = envLimitOr(process.env.STATS_RATE_LIMIT_MAX, 60);
 
 // How a client walking away mid-response reaches an express callback: the
 // player hit stop or reload, or the connection dropped, while a file was
