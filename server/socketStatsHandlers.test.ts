@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { registerStatsHandlers } from './socketStatsHandlers';
 import { makeFakeSocket, makeFakeIo, makeServerPlayer } from './socketTestHarness';
 import { rooms, createRoom, deleteRoom, emitRoomState } from './rooms';
+import { summarizeActivity } from './activity';
+import { nonNull } from '../src/testing/factories';
 
 vi.mock('./database', () => ({
   getDeviceStats: vi.fn(),
@@ -16,6 +18,10 @@ import { getDeviceStats, updateDeviceStats } from './database';
 // the shared factory doesn't change what these fixtures build.
 const makePlayer = (name: string, socketId: string, deviceId: string) =>
   makeServerPlayer(name, { socketId, deviceId, position: 1 });
+
+// Long enough that the staged reconnect timer is still pending for the whole
+// test (deleteRoom clears it afterwards) — only its EXISTENCE is read.
+const RECONNECT_TIMER_MS = 60_000;
 
 describe('endGameStats win-streak refresh', () => {
   const roomId = 'STREAK-ROOM';
@@ -360,5 +366,105 @@ describe('a seat that left before the finish is recorded by the server itself', 
     await vi.waitFor(() => expect(errorSpy).toHaveBeenCalled());
     expect(rooms[roomId].statsRecordedForGame.devices.has('dev-bob')).toBe(false);
     errorSpy.mockRestore();
+  });
+
+  // A seat that dropped mid-game is still IN room.state.players at the finish
+  // — `disconnected: true`, waiting out its reconnect timer — so the
+  // still-seated check skipped it. Its own client is offline and never
+  // submits, and by the time the timer drains and splices the seat,
+  // rememberFinishedGame has long since frozen the verdict and early-returns.
+  // Nothing recorded that device's game, ever.
+  describe('a seat that is disconnected but still seated at the finish', () => {
+    /** Bob dropped mid-game and is waiting out his reconnect timer at the finish. */
+    const stageBobDisconnectedAtFinish = (bobScore: number, aliceScore: number) => {
+      rooms[roomId] = createRoom('alice-sock');
+      rooms[roomId].startRoster = [
+        { deviceId: 'dev-alice', name: 'Alice' },
+        { deviceId: 'dev-bob', name: 'Bob' },
+      ];
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', finished: true, currentPlayerIndex: null, winningScore: 6000,
+        players: [
+          { ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: aliceScore },
+          { ...makePlayer('Bob', 'bob-sock', 'dev-bob'), score: bobScore, disconnected: true },
+        ],
+      });
+      // The pending reconnect timer that keeps the seat alive — and that
+      // activity.ts reads as "this device can still submit".
+      rooms[roomId].disconnectTimers['dev-bob'] = setTimeout(() => {}, RECONNECT_TIMER_MS);
+    };
+
+    const BOB_LOST = 4000;
+    const BOB_WON = 10000;
+    const ALICE_LOST = 4000;
+    const ALICE_WON = 10000;
+
+    it('records the dropped seat as a played, lost game', () => {
+      stageBobDisconnectedAtFinish(BOB_LOST, ALICE_WON);
+
+      emitRoomState(makeFakeIo().io, roomId);
+
+      expect(updateDeviceStats).toHaveBeenCalledWith(
+        'dev-bob',
+        expect.objectContaining({ gamesPlayed: 1, wins: 0, totalPlayersSum: 2, mostPlayersInGame: 2 }),
+        'normalized',
+      );
+    });
+
+    it('credits the dropped seat with the win when the frozen verdict says it won', () => {
+      // Unlike a seat that LEFT, a disconnected one is still at the table when
+      // the round ends — the game finishes regardless of who is connected, so
+      // this seat can genuinely be the winner. Written from room.finishedGame,
+      // exactly the way endGameStats' server-side override decides `wins`.
+      stageBobDisconnectedAtFinish(BOB_WON, ALICE_LOST);
+
+      emitRoomState(makeFakeIo().io, roomId);
+
+      expect(updateDeviceStats).toHaveBeenCalledWith(
+        'dev-bob',
+        expect.objectContaining({ gamesPlayed: 1, wins: 1 }),
+        'normalized',
+      );
+    });
+
+    it('leaves the connected survivor to submit for herself', () => {
+      stageBobDisconnectedAtFinish(BOB_LOST, ALICE_WON);
+
+      emitRoomState(makeFakeIo().io, roomId);
+
+      expect(updateDeviceStats).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(updateDeviceStats).mock.calls.every(c => c[0] !== 'dev-alice')).toBe(true);
+    });
+
+    it('blocks the seat\'s own submission if it reconnects after all', async () => {
+      // The trade this accepts: the row is already in, so the per-turn
+      // counters the returning client is holding are dropped rather than
+      // double-counted.
+      stageBobDisconnectedAtFinish(BOB_LOST, ALICE_WON);
+      emitRoomState(makeFakeIo().io, roomId);
+      expect(updateDeviceStats).toHaveBeenCalledTimes(1);
+
+      const bobSeat = nonNull(rooms[roomId].state.players.find(p => p.deviceId === 'dev-bob'));
+      bobSeat.disconnected = false;
+      const fake = makeFakeSocket('bob-sock');
+      registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Bob' } });
+      await fake.handlers['endGameStats']({ deviceId: 'dev-bob', stats: { gamesPlayed: 1, wins: 1, busts: 7 } });
+
+      expect(updateDeviceStats).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops the status line calling the game "awaiting stats" for that seat', () => {
+      // activity.ts counts a disconnected seat with a pending reconnect timer
+      // as one that can still submit — which held the room in `awaiting` (and
+      // the console at DO NOT RESTART) for a row nothing would ever write.
+      // The server's own write closes it through the shared dedup.
+      stageBobDisconnectedAtFinish(BOB_LOST, ALICE_WON);
+      rooms[roomId].statsRecordedForGame.global = true;
+      rooms[roomId].statsRecordedForGame.devices.add('dev-alice');
+
+      emitRoomState(makeFakeIo().io, roomId);
+
+      expect(summarizeActivity(rooms).awaitingStats).toBe(0);
+    });
   });
 });

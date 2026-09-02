@@ -346,14 +346,26 @@ export const sanitizePlayerForBroadcast = (p: ServerPlayer): Omit<ServerPlayer, 
 };
 
 /**
- * Writes a played, lost game for every game-start seat that is no longer at
- * the table by the time the game's verdict is frozen — a seat that left, was
- * kicked, or timed out BEFORE the finish was ever broadcast, and so never ran
- * its own endGameStats submission (that handler requires a currently seated
- * socket; see socketStatsHandlers.ts). Left unrecorded, that device's win
- * streak and win rate are silently frozen at whatever they were before this
- * game, and it can never earn a fastest-loss record either — permanent,
- * silent damage.
+ * Writes the game for every game-start seat that cannot submit it itself by
+ * the time the game's verdict is frozen — a seat that left, was kicked, or
+ * timed out BEFORE the finish was ever broadcast, and so never ran its own
+ * endGameStats submission (that handler requires a currently seated socket;
+ * see socketStatsHandlers.ts). Left unrecorded, that device's win streak and
+ * win rate are silently frozen at whatever they were before this game, and it
+ * can never earn a fastest-loss record either — permanent, silent damage.
+ *
+ * A seat that is merely DISCONNECTED counts as departed too, even though it is
+ * still in room.state.players: its client is offline and will never submit,
+ * and by the time the reconnect timer drains and splices it,
+ * rememberFinishedGame has long since frozen the verdict and early-returns —
+ * so that device's game used to be lost entirely. Unlike a seat that left,
+ * though, such a seat is still AT the table when the round ends (the game
+ * finishes regardless of who is connected), so it can genuinely be the
+ * winner — hence `wins` is taken from the frozen verdict rather than assumed
+ * to be 0, the same call endGameStats' own server-side override makes. For a
+ * seat that was already spliced out the verdict can never name it (the
+ * winners are read off the roster it is no longer in), so the one expression
+ * covers both.
  *
  * Called once, right after rememberFinishedGame freezes room.finishedGame for
  * the first time — the same "verdict is now final" moment endGameStats itself
@@ -366,21 +378,28 @@ export const sanitizePlayerForBroadcast = (p: ServerPlayer): Omit<ServerPlayer, 
  * per-game dedup — so a later submission for the same device+game (a rejoin
  * whose client still thinks it owes its own endGameStats) is a no-op, and a
  * write already in flight here blocks that submission just as one already
- * committed there blocks a duplicate of this one.
+ * committed there blocks a duplicate of this one. For the disconnected-seat
+ * case that dedup is a deliberate trade: a player who does reconnect before
+ * their timer drains loses the per-turn counters their client was holding
+ * (busts, tuttos, …) rather than having the whole game counted twice.
  *
- * No per-turn counters (not cheaply available once the seat is gone — its
- * ServerPlayer object was already spliced out) and no records: the seat never
- * saw the game through to the end, so `wins`/`gamesPlayed` are the only fields
- * set, `wins: 0` also resetting the device's current win streak.
+ * No per-turn counters (not cheaply available for either case — a departed
+ * seat's ServerPlayer object was already spliced out, and a disconnected
+ * seat's counters live in a client that is not talking to us) and no records:
+ * `wins`/`gamesPlayed` and the player-count pair are the only fields set, and
+ * `wins: 0` also resets the device's current win streak.
  */
 const recordDepartedSeatsStats = (room: Room): void => {
   if (!room.startRoster || !room.finishedGame) return;
-  const seatedDeviceIds = new Set(room.state.players.map(p => p.deviceId));
+  // Only a CONNECTED seat is left to record the game for itself.
+  const stillSubmittingDeviceIds = new Set(
+    room.state.players.filter(p => !p.disconnected).map(p => p.deviceId),
+  );
   const mode = statsModeFor(room);
-  const { playerCount } = room.finishedGame;
+  const { playerCount, winners } = room.finishedGame;
 
-  for (const { deviceId } of room.startRoster) {
-    if (!deviceId || seatedDeviceIds.has(deviceId)) continue;
+  for (const { deviceId, name } of room.startRoster) {
+    if (!deviceId || stillSubmittingDeviceIds.has(deviceId)) continue;
     if (room.statsRecordedForGame.devices.has(deviceId)) continue;
     // Marked BEFORE the write for the same reason endGameStats marks its own
     // dedup before awaiting: this loop runs synchronously start to finish, so
@@ -390,7 +409,7 @@ const recordDepartedSeatsStats = (room: Room): void => {
     room.statsRecordedForGame.devices.add(deviceId);
     updateDeviceStats(deviceId, {
       gamesPlayed: 1,
-      wins: 0,
+      wins: winners.includes(name) ? 1 : 0,
       totalPlayersSum: playerCount,
       mostPlayersInGame: playerCount,
     }, mode).catch((err: unknown) => {

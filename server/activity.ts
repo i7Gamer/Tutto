@@ -38,9 +38,14 @@ const PART_SEPARATOR = ' · ';
  * line reported the server safe to restart while per-device rows were exactly
  * what a restart would destroy.
  *
- * A seated player who never returns holds this until their reconnect timer
- * drains and the seat is spliced, which is the honest answer: their statistics
- * really are still pending until then.
+ * A seated player who never returns no longer holds this, even though the
+ * predicate below still says they could submit: the server writes that seat's
+ * row itself the moment the verdict is frozen (recordDepartedSeatsStats in
+ * rooms.ts now treats a DISCONNECTED seat as departed), and it does so through
+ * the very dedup set checked beside this — so `devices.has` is already true
+ * for them and the `||` never reaches here. What is left for this predicate is
+ * the honest case it was written for: a seat that is still connected, or one
+ * whose room froze no verdict to record from (no startRoster).
  *
  * Unless there is no timer to drain. reconnectTimeout: 0 is a supported lobby
  * option and arms nothing at all — on that path a seat is removed only if
