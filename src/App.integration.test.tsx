@@ -425,6 +425,10 @@ describe('App Integration (End-to-End)', () => {
     render(<App />);
     expect(screen.queryByText('home.restore.title')).not.toBeInTheDocument();
 
+    // This test's joinRoom really did create a socket, and connectSocket is a
+    // no-op while one exists (socketRef) — leaving it behind hands the next
+    // test that stages its own mockSocketInstance this one's acks instead.
+    disconnectSocket();
     mockSocketInstance = null;
   });
 
