@@ -1225,9 +1225,16 @@ describe('coreGameEngine', () => {
     });
 
     it('returns null when the game is finished, regardless of other fields', () => {
+      // Every OTHER guard must pass so `finished` is the only reason this is
+      // refused: previousPlayerName in the roster (default makeState() leaves
+      // it null, which the `!previousPlayerName` guard alone already refuses —
+      // that made this test pass even with the `finished` check deleted).
       const state = makeState({
+        players: [makePlayer('Alice'), makePlayer('Bob')],
+        currentPlayerIndex: 1,
         previousCard: '200',
         previousScore: 300,
+        previousPlayerName: 'Alice',
         finished: true,
       });
       expect(calculateUndo(state)).toBeNull();
