@@ -39,14 +39,24 @@ const PRECACHED = new Set(PRECACHE_URLS);
  * asset (the content hash already lives in the filename, so an identical URL
  * is proof of identical content) and a revision string for anything whose URL
  * stays the same across builds (index.html, the webmanifest, the icons) —
- * there the URL alone says nothing about whether the content changed. Keeps
- * the first occurrence's revision for a URL the manifest lists twice, matching
- * the PRECACHE_URLS dedupe above.
+ * there the URL alone says nothing about whether the content changed.
+ *
+ * The icons are listed twice: once from the build's glob, with `revision:
+ * null` (that entry knows nothing about hashing), and again from
+ * vite-plugin-pwa's own manifest injection, with a real hash — and the null
+ * entry comes first. A plain "keep the first occurrence" merge would then
+ * treat an icon as immutable and copy it forward across a deploy that
+ * changed its bytes, so a non-null revision always wins over a null one for
+ * the same URL regardless of which is seen first, matching the PRECACHE_URLS
+ * dedupe above.
  */
 const MANIFEST_REVISIONS = new Map();
 for (const entry of MANIFEST) {
   const href = new URL(entry.url, self.location.href).href;
-  if (!MANIFEST_REVISIONS.has(href)) MANIFEST_REVISIONS.set(href, entry.revision);
+  const existingRevision = MANIFEST_REVISIONS.get(href);
+  if (existingRevision === undefined || (existingRevision === null && entry.revision !== null)) {
+    MANIFEST_REVISIONS.set(href, entry.revision);
+  }
 }
 
 /**
@@ -112,9 +122,12 @@ self.addEventListener('install', event => {
     // The generation(s) `activate` is about to retain (see
     // RETAINED_CACHE_GENERATIONS) may already hold byte-identical copies of
     // this build's hashed assets — reuse them instead of re-downloading react,
-    // vendor, jsQR and the icons on every deploy. Opened once, up front,
-    // rather than per-URL: `caches.open` on the same name is cheap, but there
-    // is no reason to pay it PRECACHE_URLS times over.
+    // vendor and jsQR on every deploy. Not the icons: those keep the same URL
+    // across builds regardless of content (see MANIFEST_REVISIONS above), so
+    // they are never eligible for this copy-forward and always come from the
+    // network below. Opened once, up front, rather than per-URL: `caches.open`
+    // on the same name is cheap, but there is no reason to pay it
+    // PRECACHE_URLS times over.
     const previousCaches = await Promise.all(
       (await caches.keys())
         .filter(name => name.startsWith(CACHE_PREFIX) && name !== PRECACHE)
@@ -134,8 +147,14 @@ self.addEventListener('install', event => {
         for (const previousCache of previousCaches) {
           const cached = await previousCache.match(url);
           if (cached) {
-            await cache.put(url, cached);
-            return;
+            try {
+              await cache.put(url, cached);
+              return;
+            } catch {
+              // Quota or similar — fall through to the network fetch below
+              // rather than letting one failed copy reject the whole install.
+              break;
+            }
           }
         }
       }

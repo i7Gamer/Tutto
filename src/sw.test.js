@@ -297,6 +297,82 @@ describe('service worker install', () => {
       ]);
     });
 
+    it('still resolves install when copying a previous-generation hit fails, fetching it from the network instead', async () => {
+      // A single-entry manifest: install() runs PRECACHE_URLS concurrently
+      // (Promise.all), and with more than one entry another URL's own
+      // network-fetch put could race the copy-forward attempt below for the
+      // "first put on this cache rejects" trick to target.
+      await loadSw({ manifest: [{ url: 'assets/index-aaa111.js', revision: null }] });
+      const asset = `${ORIGIN}/assets/index-aaa111.js`;
+      cacheStorage.stores.set('tutto-precache-previous', new Map([
+        [asset, makeResponse('previous build js')],
+      ]));
+
+      // The current generation's cache is the FIRST one install() opens
+      // (see sw.js) — swap just that one open() call's `put` so its FIRST
+      // write (the copy-forward attempt) rejects like a quota error, while
+      // the network-fallback path's own put still lands for real, and every
+      // other open() (reading the previous generation) is untouched.
+      const realOpen = cacheStorage.open.bind(cacheStorage);
+      let openCount = 0;
+      cacheStorage.open = vi.fn(async (name) => {
+        openCount += 1;
+        const store = await realOpen(name);
+        if (openCount !== 1) return store;
+        let putCount = 0;
+        return {
+          ...store,
+          put: async (...args) => {
+            putCount += 1;
+            if (putCount === 1) throw new Error('quota exceeded');
+            return store.put(...args);
+          },
+        };
+      });
+
+      // A plain await, not expect().resolves: install() throwing (the bug)
+      // must fail this test the same way any other unexpected rejection
+      // would, with the real error surfaced instead of swallowed.
+      const cacheName = await runInstall();
+
+      expect(fetchMock.mock.calls.some(([u]) => u === asset), 'the failed copy must fall through to the network').toBe(true);
+      const stored = await (await realOpen(cacheName)).match(asset);
+      expect(stored.body).toBe(`network:${asset}`);
+    });
+
+    it('prefers a non-null revision over null for a URL the manifest lists twice, so a changed icon is not copied forward stale', async () => {
+      // vite-plugin-pwa's glob picks the icon up with revision: null (its
+      // hashless filename says nothing about content), then its manifest
+      // injection lists the SAME URL again with a real hash — and the null
+      // entry comes first, so a naive "keep the first occurrence" map would
+      // treat the icon as immutable and copy it forward even when its bytes
+      // changed.
+      const icon = `${ORIGIN}/assets/icon-512.png`;
+      const plainAsset = `${ORIGIN}/assets/index-aaa111.js`;
+      await loadSw({
+        manifest: [
+          { url: 'assets/icon-512.png', revision: null },
+          { url: 'assets/icon-512.png', revision: 'icon-hash' },
+          { url: 'assets/index-aaa111.js', revision: null },
+        ],
+      });
+      cacheStorage.stores.set('tutto-precache-previous', new Map([
+        [icon, makeResponse('previous icon bytes')],
+        [plainAsset, makeResponse('previous build js')],
+      ]));
+
+      const cacheName = await runInstall();
+
+      const iconCall = fetchMock.mock.calls.find(([u]) => u === icon);
+      expect(iconCall, 'the icon must be fetched, not copied forward, once a revision string is known for it').toBeDefined();
+      expect(iconCall[1]).toEqual({ cache: 'reload' });
+
+      // A plain revision-less URL is unaffected and still reused.
+      expect(fetchMock.mock.calls.some(([u]) => u === plainAsset)).toBe(false);
+      const storedAsset = await (await cacheStorage.open(cacheName)).match(plainAsset);
+      expect(storedAsset.body).toBe('previous build js');
+    });
+
     it('reuses an entry from a retained generation and still drops anything older on activate', async () => {
       await loadSw();
       const asset = `${ORIGIN}/assets/index-aaa111.js`;
