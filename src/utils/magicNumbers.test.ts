@@ -144,6 +144,13 @@ describe('MS_PER_SECOND has one home in src/utils/time.ts', () => {
     ['server/rateLimit.ts', /existing\.resetAt - now\) \/ 1000\)/],
   ];
 
+  it('scaledTimerMs names both the ms-per-second factor and its floor', () => {
+    const src = read('server/turnTimers.ts');
+    expect(src).not.toMatch(/seconds \* 1000/);
+    expect(src).not.toMatch(/Math\.max\(10,/);
+    expect(src).toMatch(/MIN_SCALED_TIMER_MS/);
+  });
+
   it.each(serverMsPerSecondSites)('%s no longer spells out the bare ms-per-second literal', (file, bareLiteral) => {
     const src = read(file);
     expect(src).not.toMatch(bareLiteral);

@@ -19,14 +19,17 @@ import { MS_PER_SECOND } from '../src/utils/time';
 // 5x. Junk values (non-numeric, zero, negative) run unscaled rather than
 // NaN-arming the timer or flooring every wait to 10ms, the same guard
 // SOCKET_CONN_LIMIT_MAX gets in socketHandlers.ts. The 10ms floor keeps a
-// heavily scaled short timer from firing effectively synchronously.
+// heavily scaled short timer from firing effectively synchronously
+// (MIN_SCALED_TIMER_MS).
+const MIN_SCALED_TIMER_MS = 10;
+
 export const scaledTimerMs = (
   seconds: number,
   env: { NODE_ENV?: string; TEST_TIMER_SCALE?: string } = process.env,
 ): number => {
   const parsed = Number(env.TEST_TIMER_SCALE);
   const scale = env.NODE_ENV !== 'production' && Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
-  return Math.max(10, Math.floor(seconds * 1000 * scale));
+  return Math.max(MIN_SCALED_TIMER_MS, Math.floor(seconds * MS_PER_SECOND * scale));
 };
 
 export const clearServerTurnTimer = (roomId: string): void => {
