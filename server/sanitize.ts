@@ -51,8 +51,18 @@ export const indentLogContinuationLines = (value: string): string =>
 
 // A turn count of 0 is meaningless for these two fields (a game always takes
 // at least 1 turn) — named here as the single source of truth for which
-// fields get the stricter >= 1 floor instead of the default >= 0.
-const MIN_ONE_STATS_FIELDS = new Set(['fastestWinTurns', 'fastestLossTurns']);
+// fields are DROPPED below 1 rather than clamped up to the default floor of 0.
+//
+// Dropped, not clamped: both are MIN-merged record columns whose best
+// possible value IS 1, so clamping a 0 (or a negative, or a fraction that
+// floors to 0) up to it wrote an unbeatable record out of a value that says
+// nothing — and nothing short of editing the database dislodges it again.
+// Absent is what such a value means, and an absent record column is left
+// alone by both merge paths.
+const MIN_RECORD_STATS_FIELDS = new Set(['fastestWinTurns', 'fastestLossTurns']);
+
+// The smallest turn count either of those records can honestly hold.
+const MIN_RECORD_TURNS = 1;
 
 // Modernized rules keep Plus/Minus deductions unclamped (see the engine's
 // deliberate no-clamp comment), so a player can legitimately FINISH a game
@@ -94,10 +104,14 @@ export const sanitizeStats = (raw: unknown): SanitizedStats => {
     if (typeof val !== 'number' && typeof val !== 'string') continue;
     const n = Number(val);
     if (!Number.isFinite(n)) continue;
-    const minAllowed = MIN_ONE_STATS_FIELDS.has(key) ? 1
-      : NEGATIVE_ALLOWED_STATS_FIELDS.has(key) ? -STATS_VALUE_CAP
-        : 0;
-    clean[key] = Math.max(minAllowed, Math.min(Math.floor(n), STATS_VALUE_CAP));
+    const capped = Math.min(Math.floor(n), STATS_VALUE_CAP);
+    if (MIN_RECORD_STATS_FIELDS.has(key)) {
+      if (capped < MIN_RECORD_TURNS) continue;
+      clean[key] = capped;
+      continue;
+    }
+    const minAllowed = NEGATIVE_ALLOWED_STATS_FIELDS.has(key) ? -STATS_VALUE_CAP : 0;
+    clean[key] = Math.max(minAllowed, capped);
   }
   return clean;
 };

@@ -98,9 +98,25 @@ describe('sanitizeStats', () => {
     });
   });
 
-  it('clamps fastestWinTurns and fastestLossTurns to >= 1', () => {
-    expect(sanitizeStats({ fastestWinTurns: 0 })).toEqual({ fastestWinTurns: 1 });
-    expect(sanitizeStats({ fastestLossTurns: 0 })).toEqual({ fastestLossTurns: 1 });
+  it('drops a non-positive fastestWinTurns/fastestLossTurns instead of clamping it', () => {
+    // 1 is the BEST turn count either record can hold, and both columns are
+    // MIN-merged — so clamping 0 (or a negative) UP to 1 wrote an unbeatable
+    // record from a value that says nothing at all, with no way back short of
+    // editing the database. Unreachable on the socket path, where the handler
+    // derives both fields from the frozen verdict; live on the token-gated
+    // HTTP POSTs, which sanitize whatever body they are given.
+    expect(sanitizeStats({ fastestWinTurns: 0 })).toEqual({});
+    expect(sanitizeStats({ fastestLossTurns: 0 })).toEqual({});
+    expect(sanitizeStats({ fastestWinTurns: -3 })).toEqual({});
+    expect(sanitizeStats({ fastestLossTurns: -3 })).toEqual({});
+    // Floored first, so a fraction below one is just as absent.
+    expect(sanitizeStats({ fastestWinTurns: 0.5 })).toEqual({});
+  });
+
+  it('keeps a real fastest-turn record, and drops only the unusable field', () => {
+    expect(sanitizeStats({ fastestWinTurns: 5 })).toEqual({ fastestWinTurns: 5 });
+    expect(sanitizeStats({ fastestLossTurns: 5 })).toEqual({ fastestLossTurns: 5 });
+    expect(sanitizeStats({ fastestLossTurns: 0, busts: 2 })).toEqual({ busts: 2 });
   });
 });
 
