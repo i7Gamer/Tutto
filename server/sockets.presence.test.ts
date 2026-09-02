@@ -5,12 +5,19 @@
  * Split out of the former monolithic sockets.test.ts; see socketTestHarness.ts
  * for why, and for the port allocation rules.
  */
+import type { ChildProcess } from 'child_process';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { io } from 'socket.io-client';
-import { startTestServer, testDelay, asserting } from './socketTestHarness';
+import { io, type Socket as ClientSocket } from 'socket.io-client';
+import { startTestServer, testDelay, asserting, type JoinAck } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { MIN_ENABLED_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { nonNull } from '../src/testing/factories';
+import type { GameStore } from '../src/store/storeTypes';
+
+// The shape of a 'gameState' broadcast — see pushStateValidation.test.ts's
+// identical copy of this type for why it is not shared via socketTestHarness.ts.
+type GameStatePayload = Partial<GameStore> & { stateVersion?: number };
 
 // The shortest kick timer a lobby can actually produce. These tests used to
 // push 1s and 5s, values updateConfig refuses and snapDisableableDuration
@@ -24,9 +31,9 @@ const RECONNECT_TIMER_UNSCALED_MS = MIN_ENABLED_RECONNECT_TIMEOUT * MS_PER_SECON
 const PAST_RECONNECT_TIMER_UNSCALED_MS = RECONNECT_TIMER_UNSCALED_MS + 2000;
 
 describe('Server Socket E2E — presence, kicks & host promotion', () => {
-  let serverProcess;
-  let socket1;
-  let socket2;
+  let serverProcess: ChildProcess | undefined;
+  let socket1: ClientSocket | undefined;
+  let socket2: ClientSocket | undefined;
 
   const PORT = TEST_PORTS.socketsPresence;
 
@@ -41,12 +48,16 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   });
 
   it('preserves socket metadata, detects disconnects, and kicks player correctly', () => {
-    return new Promise((resolve, reject) => {
-      socket1 = io(`http://127.0.0.1:${PORT}`);
-      socket2 = io(`http://127.0.0.1:${PORT}`);
+    return new Promise<void>((resolve, reject) => {
+      // Captured into the describe-scoped socket1/socket2 (afterAll's cleanup
+      // reads those) and also kept as local consts — narrowed to ClientSocket
+      // once here, rather than ClientSocket | undefined every time a nested
+      // closure below reads the describe-scoped, reassignable variable.
+      const s1: ClientSocket = socket1 = io(`http://127.0.0.1:${PORT}`);
+      const s2: ClientSocket = socket2 = io(`http://127.0.0.1:${PORT}`);
 
-      socket1.on('connect_error', (err) => console.error('socket1 connect_error:', err));
-      socket2.on('connect_error', (err) => console.error('socket2 connect_error:', err));
+      s1.on('connect_error', (err: Error) => console.error('socket1 connect_error:', err));
+      s2.on('connect_error', (err: Error) => console.error('socket2 connect_error:', err));
 
       let stateUpdates = 0;
       let bobDisconnectedNotified = false;
@@ -55,19 +66,19 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
         reject(new Error(`Test timed out. stateUpdates=${stateUpdates}, bobDisconnectedNotified=${bobDisconnectedNotified}`));
       }, 9000);
 
-      socket1.on('connect', () => {
-        socket1.emit('joinRoom', { roomId: 'E2E_ROOM', name: 'Alice', deviceId: 'dev-e2e-alice', color: '#ff0000' }, (res) => {
+      s1.on('connect', () => {
+        s1.emit('joinRoom', { roomId: 'E2E_ROOM', name: 'Alice', deviceId: 'dev-e2e-alice', color: '#ff0000' }, (res: JoinAck) => {
           expect(res.success).toBe(true);
 
-          socket2.emit('joinRoom', { roomId: 'E2E_ROOM', name: 'Bob', deviceId: 'dev-e2e-bob', color: '#00ff00' }, (res2) => {
+          s2.emit('joinRoom', { roomId: 'E2E_ROOM', name: 'Bob', deviceId: 'dev-e2e-bob', color: '#00ff00' }, (res2: JoinAck) => {
             expect(res2.success).toBe(true);
 
             // Simulating Alice explicitly pushing state to start game
             const mockPlayers = [
-              { name: 'Alice', deviceId: 'dev-e2e-alice', socketId: socket1.id, disconnected: false, score: 0 },
-              { name: 'Bob', deviceId: 'dev-e2e-bob', socketId: socket2.id, disconnected: false, score: 0 }
+              { name: 'Alice', deviceId: 'dev-e2e-alice', socketId: s1.id, disconnected: false, score: 0 },
+              { name: 'Bob', deviceId: 'dev-e2e-bob', socketId: s2.id, disconnected: false, score: 0 }
             ];
-            socket1.emit('pushState', {
+            s1.emit('pushState', {
               roomId: 'E2E_ROOM',
               newState: {
                 players: mockPlayers,
@@ -76,26 +87,26 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
                 reconnectTimeout: MIN_ENABLED_RECONNECT_TIMEOUT // 2s under TEST_TIMER_SCALE
               }
             });
-            
+
             // Wait a brief moment to ensure state was pushed before disconnecting
             setTimeout(() => {
-              socket2.disconnect();
+              s2.disconnect();
             }, testDelay(100));
           });
         });
       });
 
-      socket1.on('playerDisconnected', (name) => {
+      s1.on('playerDisconnected', (name: string) => {
         if (name === 'Bob') bobDisconnectedNotified = true;
       });
 
-      socket1.on('gameState', (state) => {
+      s1.on('gameState', (state: GameStatePayload) => {
         stateUpdates++;
-        
+
         // Skip early states
         if (stateUpdates < 3) return;
 
-        if (state.players.length === 1) {
+        if (state.players?.length === 1) {
           // Second check passed: player was kicked after timeout
           expect(state.players[0].name).toBe('Alice');
           expect(bobDisconnectedNotified).toBe(true);
@@ -107,7 +118,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   }, 10000);
 
   it('shrinks chartValues and chartNames when a player is kicked', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — will be kicked
 
@@ -144,16 +155,16 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
         });
       });
 
-      s1.on('gameState', (state) => {
+      s1.on('gameState', (state: GameStatePayload) => {
         // After the kick, players should be 1 and chartValues/chartNames should also be length 1
         // Guard: only check once chartLabels has been pushed (game started) and a player was removed
         if (state.players && state.players.length === 1 &&
             Array.isArray(state.chartValues) && state.chartValues.length > 0 &&
             Array.isArray(state.chartLabels) && state.chartLabels.length > 0) {
           expect(state.chartValues.length).toBe(1);
-          expect(state.chartNames.length).toBe(1);
+          expect(state.chartNames?.length).toBe(1);
           expect(state.chartValues[0]).toEqual([0, 100]); // Alice's values preserved
-          expect(state.chartNames[0]).toBe('Alice');
+          expect(state.chartNames?.[0]).toBe('Alice');
           clearTimeout(timeoutId);
           s1.disconnect();
           s2.disconnect();
@@ -171,7 +182,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
     // card type in initialCards, the redrawn card is fully deterministic,
     // which lets us verify both that a valid card comes back and that
     // buildShuffledDeck (now removed) isn't secretly still in play.
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — active player, will be kicked
       const s3 = io(`http://127.0.0.1:${PORT}`); // Carol — needed so the room doesn't drop below 2 players and abort
@@ -211,7 +222,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
         });
       });
 
-      s1.on('gameState', asserting(reject, (state) => {
+      s1.on('gameState', asserting(reject, (state: GameStatePayload) => {
         // Guard on both players.length===2 AND currentCard==='200' — joinRoom
         // itself broadcasts gameState after each join, so players.length briefly
         // equals 2 while Carol is still joining (with currentCard still null,
@@ -230,11 +241,11 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   }, 10000);
 
   it('closes room when host leaves and all remaining players are disconnected', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const roomId = 'HOST_LEAVE_ALL_DISC';
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — disconnects unexpectedly
-      let s3 = null;
+      let s3: ClientSocket | null = null;
 
       const cleanup = () => { s1.disconnect(); if (s3) s3.disconnect(); };
       const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 8000);
@@ -249,9 +260,9 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
         });
       });
 
-      s1.on('gameState', (state) => {
+      s1.on('gameState', (state: GameStatePayload) => {
         if (handled) return;
-        const bob = state.players.find(p => p.name === 'Bob');
+        const bob = state.players?.find(p => p.name === 'Bob');
         if (bob && bob.disconnected) {
           handled = true;
           // Emit leaveRoom but do NOT disconnect s1 immediately — the transport must
@@ -264,9 +275,9 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
             s3 = io(`http://127.0.0.1:${PORT}`);
             s3.emit('joinRoom', { roomId, name: 'Charlie', deviceId: 'dev-hld-c', color: '#0000ff' }, () => {});
 
-            s3.on('gameState', (freshState) => {
-              expect(freshState.players.some(p => p.name === 'Bob')).toBe(false);
-              expect(freshState.players.some(p => p.name === 'Charlie')).toBe(true);
+            s3.on('gameState', (freshState: GameStatePayload) => {
+              expect(freshState.players?.some(p => p.name === 'Bob')).toBe(false);
+              expect(freshState.players?.some(p => p.name === 'Charlie')).toBe(true);
               clearTimeout(timeoutId);
               cleanup();
               resolve();
@@ -278,7 +289,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   }, 10000);
 
   it('emits gameAborted when a player explicitly leaves during a game and only 1 player remains', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const s2 = io(`http://127.0.0.1:${PORT}`);
 
@@ -305,7 +316,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
 
       s1.on('gameAborted', () => { abortReceived = true; });
 
-      s1.on('gameState', asserting(reject, (state) => {
+      s1.on('gameState', asserting(reject, (state: GameStatePayload) => {
         if (abortReceived && state.status === 'lobby' && state.players?.length === 1) {
           expect(state.players[0].name).toBe('Alice');
           expect(state.currentPlayerIndex).toBeNull();
@@ -319,7 +330,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   }, 10000);
 
   it('emits gameAborted when a disconnected player times out and only 1 player remains', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const s2 = io(`http://127.0.0.1:${PORT}`);
 
@@ -348,7 +359,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
 
       s1.on('gameAborted', () => { abortReceived = true; });
 
-      s1.on('gameState', asserting(reject, (state) => {
+      s1.on('gameState', asserting(reject, (state: GameStatePayload) => {
         if (abortReceived && state.status === 'lobby' && state.players?.length === 1) {
           expect(state.players[0].name).toBe('Alice');
           clearTimeout(timeoutId);
@@ -360,7 +371,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   }, 10000);
 
   it('emits gameAborted when host kicks a player during a game and only 1 player remains', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const s2 = io(`http://127.0.0.1:${PORT}`);
 
@@ -387,7 +398,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
 
       s1.on('gameAborted', () => { abortReceived = true; });
 
-      s1.on('gameState', asserting(reject, (state) => {
+      s1.on('gameState', asserting(reject, (state: GameStatePayload) => {
         if (abortReceived && state.status === 'lobby' && state.players?.length === 1) {
           expect(state.players[0].name).toBe('Alice');
           clearTimeout(timeoutId);
@@ -409,14 +420,14 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
     // 'gameState' carries a late-broadcast guard client-side; 'gameAborted'
     // and 'hostId' do not, and the fix belongs on the server anyway -- one
     // reordered line closes the whole class rather than a guard per event.
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const roomId = 'KICK_SILENCE_ROOM';
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const s2 = io(`http://127.0.0.1:${PORT}`);
       const cleanup = () => { s1.disconnect(); s2.disconnect(); };
       const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 9000);
 
-      const afterKick = [];
+      const afterKick: string[] = [];
       let kicked = false;
 
       // Everything the room is told once Bob is out. Recorded rather than
@@ -429,7 +440,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
       // Alice's own view of the abort is the settling point: by the time she
       // has seen the room collapse to one player, every broadcast the kick
       // produced has been sent, so anything Bob was going to receive he has.
-      s1.on('gameState', asserting(reject, (state) => {
+      s1.on('gameState', asserting(reject, (state: GameStatePayload) => {
         if (!kicked || state.players?.length !== 1) return;
         setTimeout(() => {
           expect(afterKick, 'these reached a socket that had just been kicked out').toEqual([]);
@@ -460,7 +471,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   // anchor instead of sleeping real wall-clock seconds.
 
   it('promotes first connected player to host when host leaves, skipping disconnected players', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const roomId = 'HOST_REASSIGN_CONNECTED';
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — disconnects (must NOT become host)
@@ -489,8 +500,8 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
       // Wait until server marks Bob as disconnected, then Alice leaves.
       // Do NOT disconnect s1 immediately — the transport must stay open so
       // the server processes the leaveRoom event before the socket closes.
-      s1.on('gameState', (state) => {
-        const bob = state.players.find(p => p.name === 'Bob');
+      s1.on('gameState', (state: GameStatePayload) => {
+        const bob = state.players?.find(p => p.name === 'Bob');
         if (bob && bob.disconnected && !bobDisconnected) {
           bobDisconnected = true;
           s1.emit('leaveRoom');
@@ -517,7 +528,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
     // is asserted directly in socketRoomHandlers.test.ts, because no wall
     // clock here can distinguish "no timer" from "a timer 12 seconds out"
     // without a 12-second test.
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const s2 = io(`http://127.0.0.1:${PORT}`);
 
@@ -526,7 +537,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
         reject(new Error('Test timed out'));
       }, 8000);
 
-      let latestState = null;
+      let latestState: GameStatePayload | null = null;
       let bobDisconnectSeen = false;
 
       s1.on('connect', () => {
@@ -545,7 +556,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
         });
       });
 
-      s1.on('gameState', (state) => {
+      s1.on('gameState', (state: GameStatePayload) => {
         latestState = state;
         const bob = state.players?.find(p => p.name === 'Bob');
         if (bob?.disconnected && !bobDisconnectSeen) {
@@ -554,8 +565,8 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
           // a sleep: this is the state the server settled on, and the sleep
           // that used to sit here was 70ms against a regression that fires
           // 12 seconds later.
-          expect(latestState.players.length).toBe(2);
-          expect(latestState.players.find(p => p.name === 'Bob')?.disconnected).toBe(true);
+          expect(latestState.players?.length).toBe(2);
+          expect(latestState.players?.find(p => p.name === 'Bob')?.disconnected).toBe(true);
           clearTimeout(timeoutId);
           s1.disconnect();
           resolve();
@@ -565,7 +576,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   }, 10000);
 
   it('notifies the host when a new device tries to join using a disconnected player\'s name', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — will disconnect but not be kicked yet
       const s3 = io(`http://127.0.0.1:${PORT}`); // Charlie — tries to join as "Bob"
@@ -596,7 +607,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
               // Give the server a moment to process Bob's disconnect and mark him
               // before Charlie attempts to take his name.
               setTimeout(() => {
-                s3.emit('joinRoom', { roomId: 'GHOST_NAME_ROOM', name: 'Bob', deviceId: 'dev-ghost-charlie', color: '#0000ff' }, (res) => {
+                s3.emit('joinRoom', { roomId: 'GHOST_NAME_ROOM', name: 'Bob', deviceId: 'dev-ghost-charlie', color: '#0000ff' }, (res: JoinAck) => {
                   expect(res.success).toBe(false);
                 });
               }, testDelay(300));
@@ -620,7 +631,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   const NAME_CONFLICT_WATCHDOG_MS = 6000;
 
   it('does not notify the host when the conflicting name belongs to a still-connected player', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — stays connected
       const s3 = io(`http://127.0.0.1:${PORT}`); // Charlie — tries to join as "Bob"
@@ -637,7 +648,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'ACTIVE_NAME_ROOM', name: 'Alice', deviceId: 'dev-active-alice', color: '#ff0000' }, () => {
           s2.emit('joinRoom', { roomId: 'ACTIVE_NAME_ROOM', name: 'Bob', deviceId: 'dev-active-bob', color: '#00ff00' }, () => {
-            s3.emit('joinRoom', { roomId: 'ACTIVE_NAME_ROOM', name: 'Bob', deviceId: 'dev-active-charlie', color: '#0000ff' }, asserting(reject, (res) => {
+            s3.emit('joinRoom', { roomId: 'ACTIVE_NAME_ROOM', name: 'Bob', deviceId: 'dev-active-charlie', color: '#0000ff' }, asserting(reject, (res: JoinAck) => {
               expect(res.success).toBe(false);
               // The settle window is armed HERE, by the refusal it is
               // measuring. Armed from the executor it started before the three
@@ -659,7 +670,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   }, 10000);
 
   it('rejects a rejoining device renaming itself to a disconnected player\'s name', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host, will attempt the rename
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — disconnects, name stays reserved
 
@@ -682,12 +693,12 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
                 // (matched by deviceId) must reject it just like a fresh join
                 // would — otherwise the room ends up with two "Bob"s once the
                 // real Bob reconnects, and name-keyed state merging corrupts.
-                s1.emit('joinRoom', { roomId: 'RENAME_STEAL_ROOM', name: 'Bob', deviceId: 'dev-steal-alice', color: '#ff0000' }, (res) => {
+                s1.emit('joinRoom', { roomId: 'RENAME_STEAL_ROOM', name: 'Bob', deviceId: 'dev-steal-alice', color: '#ff0000' }, (res: JoinAck) => {
                   expect(res.success).toBe(false);
                   expect(res.error).toBe('Username already exists in this room');
 
                   // Rejoining under her own (unchanged) name still works.
-                  s1.emit('joinRoom', { roomId: 'RENAME_STEAL_ROOM', name: 'Alice', deviceId: 'dev-steal-alice', color: '#ff0000' }, (res2) => {
+                  s1.emit('joinRoom', { roomId: 'RENAME_STEAL_ROOM', name: 'Alice', deviceId: 'dev-steal-alice', color: '#ff0000' }, (res2: JoinAck) => {
                     expect(res2.success).toBe(true);
                     clearTimeout(timeoutId);
                     s1.disconnect(); s2.disconnect();
@@ -703,7 +714,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   }, 10000);
 
   it('kickPlayer aimed at a socket in a different room does not emit kicked to it', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const hostA = io(`http://127.0.0.1:${PORT}`);   // host of room A — the attacker
       const hostB = io(`http://127.0.0.1:${PORT}`);   // host of room B
       const victimB = io(`http://127.0.0.1:${PORT}`); // member of room B — the target
@@ -720,7 +731,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
       hostA.on('connect', () => {
         hostA.emit('joinRoom', { roomId: 'XKICK_ROOM_A', name: 'Attacker', deviceId: 'dev-xkick-a', color: '#ff0000' }, () => {
           hostB.emit('joinRoom', { roomId: 'XKICK_ROOM_B', name: 'HostB', deviceId: 'dev-xkick-hb', color: '#00ff00' }, () => {
-            victimB.emit('joinRoom', { roomId: 'XKICK_ROOM_B', name: 'Victim', deviceId: 'dev-xkick-v', color: '#0000ff' }, (res) => {
+            victimB.emit('joinRoom', { roomId: 'XKICK_ROOM_B', name: 'Victim', deviceId: 'dev-xkick-v', color: '#0000ff' }, (res: JoinAck) => {
               const victimSocketId = res.socketId;
 
               hostA.emit('kickPlayer', victimSocketId);
@@ -728,9 +739,9 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
               // Give a stray 'kicked' time to arrive, then confirm room B's
               // roster is untouched (the victim is still a member).
               setTimeout(() => {
-                hostB.once('gameState', (state) => {
-                  expect(state.players.length).toBe(2);
-                  expect(state.players.some(p => p.name === 'Victim')).toBe(true);
+                hostB.once('gameState', (state: GameStatePayload) => {
+                  expect(state.players?.length).toBe(2);
+                  expect(state.players?.some(p => p.name === 'Victim')).toBe(true);
                   clearTimeout(timeoutId);
                   cleanup();
                   resolve();
@@ -746,10 +757,10 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   }, 10000);
 
   it('closes room when all players passively disconnect and reconnectTimeout is 0', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const roomId = 'PASSIVE_DISCONNECT_0';
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
-      let s2 = null;
+      let s2: ClientSocket | null = null;
 
       const cleanup = () => { s1.disconnect(); if (s2) s2.disconnect(); };
       const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 8000);
@@ -771,11 +782,11 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
         s2 = io(`http://127.0.0.1:${PORT}`);
         s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-pdo-b', color: '#00ff00' }, () => {});
 
-        s2.on('gameState', (freshState) => {
+        s2.on('gameState', (freshState: GameStatePayload) => {
           // If the room was properly closed, it should be a fresh room with only Bob.
           // If the room leaked, Alice would still be in the state (as disconnected).
-          expect(freshState.players.some((p) => p.name === 'Alice')).toBe(false);
-          expect(freshState.players.some((p) => p.name === 'Bob')).toBe(true);
+          expect(freshState.players?.some((p) => p.name === 'Alice')).toBe(false);
+          expect(freshState.players?.some((p) => p.name === 'Bob')).toBe(true);
           clearTimeout(timeoutId);
           cleanup();
           resolve(undefined);
@@ -785,17 +796,17 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   }, 10000);
 
   it('kicking a disconnected player cancels their reconnect timer, so a fresh rejoin is not removed by the stale timer', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const roomId = 'KICK_REJOIN_ROOM';
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — disconnects, gets kicked
-      let s3 = null;                             // Bob again — fresh rejoin, same device
+      let s3: ClientSocket | null = null;                             // Bob again — fresh rejoin, same device
       const cleanup = () => { s1.disconnect(); s2.disconnect(); if (s3) s3.disconnect(); };
       const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 9000);
 
-      let latestState = null;
+      let latestState: GameStatePayload | null = null;
       let kicked = false;
-      s1.on('gameState', (state) => {
+      s1.on('gameState', (state: GameStatePayload) => {
         latestState = state;
         const bob = state.players?.find((p) => p.name === 'Bob');
         if (bob?.disconnected && !kicked) {
@@ -805,15 +816,20 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
           setTimeout(() => {
             // Bob rejoins fresh (room is in lobby) with the SAME deviceId.
             s3 = io(`http://127.0.0.1:${PORT}`);
-            s3.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-kr-b', color: '#00ff00' }, (res) => {
+            s3.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-kr-b', color: '#00ff00' }, (res: JoinAck) => {
               expect(res.success).toBe(true);
               // Wait past the armed reconnect timer: the stale one must NOT
               // remove the rejoined Bob. Expressed in server-seconds and
               // scaled the same way the server scales its own timer, so the
               // two can never drift apart into a vacuous pass.
               setTimeout(() => {
-                expect(latestState.players.map((p) => p.name).sort()).toEqual(['Alice', 'Bob']);
-                expect(latestState.players.find((p) => p.name === 'Bob')?.disconnected).toBe(false);
+                // Read through nonNull rather than the closure-narrowed variable
+                // directly: this runs inside nested setTimeout/joinRoom callbacks,
+                // several closures away from the `latestState = state` assignment,
+                // so TypeScript can no longer see that it was already set.
+                const finalState = nonNull(latestState);
+                expect(finalState.players?.map((p) => p.name).sort()).toEqual(['Alice', 'Bob']);
+                expect(finalState.players?.find((p) => p.name === 'Bob')?.disconnected).toBe(false);
                 clearTimeout(timeoutId);
                 cleanup();
                 resolve(undefined);
@@ -835,7 +851,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   }, 10000);
 
   it('host timeout promotes the first CONNECTED player, skipping disconnected ones', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const roomId = 'HOST_TIMEOUT_SKIP_DISC';
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host, disconnects first
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — also disconnected (must NOT become host)
@@ -863,7 +879,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
 
       // Every step waits for the broadcast proving the previous one landed, so
       // the only clock left is the server's own removal timer.
-      s3.on('gameState', asserting(reject, (state) => {
+      s3.on('gameState', asserting(reject, (state: GameStatePayload) => {
         if (!aliceDropped) {
           // Not before the longer timeout is in force: on the default 60s
           // Alice is never removed at all and this test just times out.
@@ -927,7 +943,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   // owned by a socket that no longer exists: no config, no kick, no restart,
   // no global-stats submission, and no way back short of everyone leaving.
   it('hands the room over when the host drops and the kick timer is disabled', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const roomId = 'HOSTLESS_NO_KICK_TIMER';
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host, drops
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — connected, must inherit
@@ -937,7 +953,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
       let aliceDropped = false;
       let checked = false;
 
-      s2.on('gameState', asserting(reject, (state) => {
+      s2.on('gameState', asserting(reject, (state: GameStatePayload) => {
         if (!aliceDropped) {
           if (state.reconnectTimeout !== 0) return;
           aliceDropped = true;
@@ -972,13 +988,13 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
   }, 10000);
 
   it('a fired reconnect timer cleans up its bookkeeping entry, so the room is still deleted when the last connected player leaves', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const roomId = 'STALE_TIMER_LEAK_ROOM';
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — times out (leaves a fired timer behind)
       const s3 = io(`http://127.0.0.1:${PORT}`); // Charlie — passively disconnects (timeout 0)
       const s4 = io(`http://127.0.0.1:${PORT}`); // Dave — explicit-leaves last
-      let s5 = null;                             // Eve — probes whether the room leaked
+      let s5: ClientSocket | null = null;                             // Eve — probes whether the room leaked
       const cleanup = () => { s1.disconnect(); s2.disconnect(); s3.disconnect(); s4.disconnect(); if (s5) s5.disconnect(); };
       const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 12000);
 
@@ -1013,12 +1029,12 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
                   // Probe: a new join must land in a FRESH room (default config,
                   // sole member = host), not the leaked one.
                   s5 = io(`http://127.0.0.1:${PORT}`);
-                  s5.emit('joinRoom', { roomId, name: 'Eve', deviceId: 'dev-stl-e', color: '#123456' }, (res) => {
+                  s5.emit('joinRoom', { roomId, name: 'Eve', deviceId: 'dev-stl-e', color: '#123456' }, (res: JoinAck) => {
                     expect(res.success).toBe(true);
                     expect(res.isHost).toBe(true);
                   });
-                  s5.on('gameState', (state) => {
-                    expect(state.players.map((p) => p.name)).toEqual(['Eve']);
+                  s5.on('gameState', (state: GameStatePayload) => {
+                    expect(state.players?.map((p) => p.name)).toEqual(['Eve']);
                     expect(state.winningScore).toBe(6000);
                     clearTimeout(timeoutId);
                     cleanup();

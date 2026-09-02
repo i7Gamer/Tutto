@@ -10,9 +10,13 @@ import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 import type { GameStore } from '../src/store/storeTypes';
 
 // The shape of a 'gameState' broadcast, matching how the client itself types
-// it (socketSlice.ts's own 'gameState' handler) — a broadcast only ever
-// carries a subset of GameStore, plus the ordering counter that is not part
-// of the store itself.
+// it (src/store/socketSlice.ts's own 'gameState' handler) — a broadcast only
+// ever carries a subset of GameStore, plus the ordering counter that is not
+// part of the store itself. Kept local to the .test.ts files that need it
+// (rather than in socketTestHarness.ts) because that file — unlike this one —
+// is part of tsconfig.server.json's production build, which checks under a
+// narrower lib/environment than tsconfig.test.json and cannot resolve
+// storeTypes.ts's zustand/immer middleware typing.
 type GameStatePayload = Partial<GameStore> & { stateVersion?: number };
 
 // Regression coverage for three related fixes to server/index.ts:
