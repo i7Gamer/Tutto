@@ -85,7 +85,17 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // from the config the game started with (frozen in pushState) and
     // written over whatever the payload claimed. The ruleset picks which
     // global row the numbers land in — frozen at kickoff the same way.
-    const globalStats: SanitizedStats = { ...sanitizeStats(payload), isDefaultGame: room.normalizedGame };
+    // gamesPlayed is likewise the server's call, not the sender's, and for the
+    // same reason endGameStats overrides it on the device row: reaching this
+    // point already means room.state.finished — exactly one game — so an
+    // empty or invalid payload must not leave it at the sanitized 0. Without
+    // this, an empty submission advanced the global row's defaultGamesPlayed
+    // counter (from isDefaultGame) while totalGamesPlayed stayed put.
+    const globalStats: SanitizedStats = {
+      ...sanitizeStats(payload),
+      isDefaultGame: room.normalizedGame,
+      gamesPlayed: GAMES_PER_FINISH,
+    };
     // And so is how many people played it, for exactly the reason endGameStats
     // overrides the same pair on the device rows: the host's snapshot is its
     // own roster, which is missing anyone who left before the finish. Taking

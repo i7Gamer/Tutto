@@ -561,6 +561,33 @@ describe('the global row counts the same players the device rows do', () => {
     expect(written!.isDefaultGame, 'the existing override is untouched').toBe(true);
   });
 
+  // The empty-payload fix (see 'a submission carrying no usable game data
+  // still records the verdict' below) set gamesPlayed on the DEVICE row from
+  // the frozen verdict, but submitGlobalStats never applied the same
+  // override to the GLOBAL row: an empty `{}` payload sanitizes to {}, so the
+  // global row's isDefaultGame-triggered defaultGamesPlayed counter advanced
+  // while totalGamesPlayed (taken from the payload) stayed 0 — the same game
+  // undercounted server-wide.
+  it('counts the game a host submits with no usable payload, same as the device row does', async () => {
+    rooms[roomId] = createRoom('alice-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null, winningScore: 6000,
+      players: [
+        { ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: 10000 },
+        { ...makePlayer('Bob', 'bob-sock', 'dev-bob'), score: 4000 },
+      ],
+    });
+    emitRoomState(makeFakeIo().io, roomId);
+
+    const fake = makeFakeSocket('alice-sock');
+    registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Alice' } });
+    await fake.handlers['submitGlobalStats']({ roomId, payload: {} });
+
+    const written = vi.mocked(updateGlobalStats).mock.calls[0]?.[0];
+    expect(written, 'the game is still recorded').toBeDefined();
+    expect(written!.gamesPlayed, 'the game was played, whatever the payload said').toBe(1);
+  });
+
   it('leaves the payload alone when the room froze no verdict to correct from', async () => {
     // A room seeded without a start roster still freezes a verdict, but one
     // whose finishedGame is missing entirely (nothing broadcast the finish)
