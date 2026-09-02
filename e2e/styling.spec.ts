@@ -576,4 +576,68 @@ test.describe('HUD vs dice panel, help button z-order (A9)', () => {
     await helpButton.click();
     await expect(page.getByRole('heading', { name: 'Tutto Wiki' })).toBeVisible();
   });
+
+  /**
+   * A10 — the HUD also sits over whatever the current screen puts in its own
+   * top-right corner, not just the dice panel: the Scoreboard's Score tile
+   * during ordinary play, and the centred main heading on Home. The dice
+   * panel case above got the HUD moved up; this carves out a phone-only strip
+   * at the App level so no screen's first row lands under it, regardless of
+   * what that screen renders there.
+   */
+  test('the language switcher and theme toggle do not cover the Scoreboard tiles at 375x812 with the dice panel closed', async ({ page }) => {
+    await seedLocalDeck(page);
+    await page.goto('/');
+    await startLocalGame(page);
+    await page.setViewportSize({ width: 375, height: 812 });
+    // Resizing the viewport keeps the prior scroll offset, which at the wider
+    // desktop size (used above so the lobby's icon-only "Add" button keeps its
+    // accessible name) can leave the top of the page scrolled out of view —
+    // scroll back up so the boxes below reflect what a phone visitor actually
+    // sees on arrival.
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    const languageSwitcher = page.getByLabel('Switch to English').locator('xpath=..');
+    const themeToggle = page.getByLabel('Toggle theme');
+    // The tile label sits directly inside its tile container (Scoreboard.tsx),
+    // so one level up from the label text is the whole tile's bounding box.
+    const currentPlayerTile = page.getByText('Current Player').locator('xpath=..');
+    // 'Score' alone also names the Leaderboard's column header further down
+    // the page (Leaderboard.tsx) — .first() takes the Scoreboard's own tile,
+    // which renders earlier in the DOM.
+    const scoreTile = page.getByText('Score', { exact: true }).first().locator('xpath=..');
+
+    const languageBox = await languageSwitcher.boundingBox();
+    const themeBox = await themeToggle.boundingBox();
+    const currentPlayerBox = await currentPlayerTile.boundingBox();
+    const scoreBox = await scoreTile.boundingBox();
+    expect(languageBox).not.toBeNull();
+    expect(themeBox).not.toBeNull();
+    expect(currentPlayerBox).not.toBeNull();
+    expect(scoreBox).not.toBeNull();
+
+    expect(intersects(languageBox!, currentPlayerBox!)).toBe(false);
+    expect(intersects(themeBox!, currentPlayerBox!)).toBe(false);
+    expect(intersects(languageBox!, scoreBox!)).toBe(false);
+    expect(intersects(themeBox!, scoreBox!)).toBe(false);
+  });
+
+  test('the language switcher and theme toggle do not cover the Home screen main heading at 375x812', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+
+    const languageSwitcher = page.getByLabel('Switch to English').locator('xpath=..');
+    const themeToggle = page.getByLabel('Toggle theme');
+    const heading = page.getByRole('heading', { level: 1 });
+
+    const languageBox = await languageSwitcher.boundingBox();
+    const themeBox = await themeToggle.boundingBox();
+    const headingBox = await heading.boundingBox();
+    expect(languageBox).not.toBeNull();
+    expect(themeBox).not.toBeNull();
+    expect(headingBox).not.toBeNull();
+
+    expect(intersects(languageBox!, headingBox!)).toBe(false);
+    expect(intersects(themeBox!, headingBox!)).toBe(false);
+  });
 });

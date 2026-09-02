@@ -258,19 +258,32 @@ export default function App() {
       <ReactionOverlay />
       <IOSHapticProxy />
 
-      {showStats ? (
-        <Suspense fallback={<RouteSpinner />}>
-          <Statistics deviceId={deviceId} onBack={() => setShowStats(false)} />
-        </Suspense>
-      ) : hasWinner ? (
-        <Suspense fallback={<RouteSpinner />}>
-          <EndScreen theme={theme} deviceId={deviceId} />
-        </Suspense>
-      ) : isPlaying ? (
-        <Game />
-      ) : (
-        <Home onShowStats={() => setShowStats(true)} />
-      )}
+      {/* pt-14: reserves the HUD's own strip (top-4 + its ~40px control
+          height) above every screen's first row on phones, where the HUD
+          sits top-right instead of its usual bottom-right corner (from `sm`
+          up this is a no-op — the HUD has moved out of the way itself).
+          Applied once here rather than per screen, so no screen's own
+          top-right content — the Scoreboard's tiles during play, a
+          centred heading on Home or Statistics — has to know the HUD
+          exists. flex-1 flex flex-col: #root itself is a flex column
+          (index.css), and Home's own outer div is `flex-1` to fill it —
+          this wrapper has to pass that flex context through rather than
+          sit in front of it as a plain block. */}
+      <div className="pt-14 sm:pt-0 flex-1 flex flex-col">
+        {showStats ? (
+          <Suspense fallback={<RouteSpinner />}>
+            <Statistics deviceId={deviceId} onBack={() => setShowStats(false)} />
+          </Suspense>
+        ) : hasWinner ? (
+          <Suspense fallback={<RouteSpinner />}>
+            <EndScreen theme={theme} deviceId={deviceId} />
+          </Suspense>
+        ) : isPlaying ? (
+          <Game />
+        ) : (
+          <Home onShowStats={() => setShowStats(true)} />
+        )}
+      </div>
     </MotionConfig>
   );
 }
