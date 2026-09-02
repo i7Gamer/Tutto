@@ -230,6 +230,94 @@ describe('service worker install', () => {
 
     expect(second).not.toBe(first);
   });
+
+  // A7: reusing unchanged precache entries across generations. A hashed asset
+  // (revision: null) has its content hash in the filename already, so an
+  // identical URL in a retained previous generation is byte-identical content
+  // — no need to spend a client's data re-downloading react, vendor, jsQR or
+  // the icons on every deploy. Workbox does this; this worker didn't.
+  describe('reusing entries from a retained previous generation', () => {
+    it('copies an unchanged hashed asset from the previous generation instead of refetching it', async () => {
+      await loadSw();
+      const asset = `${ORIGIN}/assets/index-aaa111.js`;
+      cacheStorage.stores.set('tutto-precache-previous', new Map([
+        [asset, makeResponse('previous build js')],
+      ]));
+
+      const cacheName = await runInstall();
+
+      expect(fetchMock.mock.calls.some(([u]) => u === asset)).toBe(false);
+      const stored = await (await cacheStorage.open(cacheName)).match(asset);
+      expect(stored.body).toBe('previous build js');
+    });
+
+    it('fetches a revision-less asset the previous generation does not have', async () => {
+      await loadSw();
+      // The previous generation exists, but never held this particular asset.
+      cacheStorage.stores.set('tutto-precache-previous', new Map());
+
+      const cacheName = await runInstall();
+
+      const asset = `${ORIGIN}/assets/index-aaa111.js`;
+      expect(fetchMock.mock.calls.some(([u]) => u === asset)).toBe(true);
+      const stored = await (await cacheStorage.open(cacheName)).match(asset);
+      expect(stored.body).toBe(`network:${asset}`);
+    });
+
+    it('still fetches a revisioned URL with cache: reload even when the previous generation has it', async () => {
+      // index.html and the webmanifest change meaning without changing URL, so
+      // their revision string is the only thing that says whether they're
+      // stale — unlike a hashed asset, an identical URL is not proof of
+      // identical content, so they must always be refetched from the network.
+      await loadSw();
+      cacheStorage.stores.set('tutto-precache-previous', new Map([
+        [SHELL, makeResponse('previous shell')],
+      ]));
+
+      const cacheName = await runInstall();
+
+      const call = fetchMock.mock.calls.find(([u]) => u === SHELL);
+      expect(call, 'index.html must still be fetched').toBeDefined();
+      expect(call[1]).toEqual({ cache: 'reload' });
+      const stored = await (await cacheStorage.open(cacheName)).match(SHELL);
+      expect(stored.body).toBe(`network:${SHELL}`);
+    });
+
+    it('fetches every entry when there is no previous generation to reuse from', async () => {
+      await loadSw();
+
+      await runInstall();
+
+      const fetchedUrls = fetchMock.mock.calls.map(([u]) => u).sort();
+      expect(fetchedUrls).toEqual([
+        `${ORIGIN}/assets/index-aaa111.css`,
+        `${ORIGIN}/assets/index-aaa111.js`,
+        SHELL,
+        `${ORIGIN}/manifest.webmanifest`,
+      ]);
+    });
+
+    it('reuses an entry from a retained generation and still drops anything older on activate', async () => {
+      await loadSw();
+      const asset = `${ORIGIN}/assets/index-aaa111.js`;
+      // Older than the retention window, and does not hold the asset either —
+      // the search must fall through to the generation that does.
+      cacheStorage.stores.set('tutto-precache-ancient', new Map());
+      cacheStorage.stores.set('tutto-precache-previous', new Map([
+        [asset, makeResponse('previous js')],
+      ]));
+
+      const current = await runInstall();
+      expect(fetchMock.mock.calls.some(([u]) => u === asset)).toBe(false);
+
+      await runActivate();
+
+      const remaining = await cacheStorage.keys();
+      expect(remaining).toContain(current);
+      expect(remaining).toContain('tutto-precache-previous');
+      expect(remaining).not.toContain('tutto-precache-ancient');
+    });
+  });
 });
 
 describe('service worker activate', () => {

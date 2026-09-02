@@ -35,6 +35,21 @@ const PRECACHE_URLS = [...new Set(MANIFEST.map(entry => new URL(entry.url, self.
 const PRECACHED = new Set(PRECACHE_URLS);
 
 /**
+ * Revision per precache URL, from the injected manifest: `null` for a hashed
+ * asset (the content hash already lives in the filename, so an identical URL
+ * is proof of identical content) and a revision string for anything whose URL
+ * stays the same across builds (index.html, the webmanifest, the icons) —
+ * there the URL alone says nothing about whether the content changed. Keeps
+ * the first occurrence's revision for a URL the manifest lists twice, matching
+ * the PRECACHE_URLS dedupe above.
+ */
+const MANIFEST_REVISIONS = new Map();
+for (const entry of MANIFEST) {
+  const href = new URL(entry.url, self.location.href).href;
+  if (!MANIFEST_REVISIONS.has(href)) MANIFEST_REVISIONS.set(href, entry.revision);
+}
+
+/**
  * The directories the build emits hashed assets into, derived from the manifest
  * rather than hardcoded.
  *
@@ -93,10 +108,37 @@ self.addEventListener('install', event => {
   // now, via the SKIP_WAITING message below.
   event.waitUntil((async () => {
     const cache = await caches.open(PRECACHE);
+
+    // The generation(s) `activate` is about to retain (see
+    // RETAINED_CACHE_GENERATIONS) may already hold byte-identical copies of
+    // this build's hashed assets — reuse them instead of re-downloading react,
+    // vendor, jsQR and the icons on every deploy. Opened once, up front,
+    // rather than per-URL: `caches.open` on the same name is cheap, but there
+    // is no reason to pay it PRECACHE_URLS times over.
+    const previousCaches = await Promise.all(
+      (await caches.keys())
+        .filter(name => name.startsWith(CACHE_PREFIX) && name !== PRECACHE)
+        .map(name => caches.open(name)),
+    );
+
     // Individually rather than addAll, which rejects the whole install if any
     // single request fails — one missing asset should not cost offline support
     // entirely.
     await Promise.all(PRECACHE_URLS.map(async url => {
+      // Only a hashed asset (revision: null) is safe to copy forward: its URL
+      // encodes its content, so a same-URL hit in a previous generation is
+      // guaranteed identical. Anything with a revision string — index.html,
+      // the manifest, the icons — keeps the same URL across builds even when
+      // its content changes, so it must always come from the network.
+      if (MANIFEST_REVISIONS.get(url) === null) {
+        for (const previousCache of previousCaches) {
+          const cached = await previousCache.match(url);
+          if (cached) {
+            await cache.put(url, cached);
+            return;
+          }
+        }
+      }
       try {
         const response = await fetch(url, { cache: 'reload' });
         if (response.ok) await cache.put(url, response);
