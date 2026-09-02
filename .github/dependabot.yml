@@ -13,6 +13,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
     groups:
       npm-dependencies:
         patterns:
@@ -24,6 +26,8 @@ updates:
     directory: /server
     schedule:
       interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
     groups:
       server-dependencies:
         patterns:
@@ -35,6 +39,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
     groups:
       docker-dependencies:
         patterns:
@@ -46,6 +52,7 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    open-pull-requests-limit: 5
     groups:
       actions:
         patterns:

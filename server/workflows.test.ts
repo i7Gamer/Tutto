@@ -31,6 +31,9 @@ const LOCKFILE_GLOB = '**/package-lock.json';
 
 const DEPENDABOT_FILE = path.join(REPO_ROOT, '.github', 'dependabot.yml');
 const EXPECTED_DEPENDABOT_VERSION = 2;
+const EXPECTED_OPEN_PR_LIMIT = 5;
+const EXPECTED_WEEKLY_SCHEDULE_DAY = 'monday';
+const WEEKLY_INTERVAL = 'weekly';
 const VALID_SCHEDULE_INTERVALS = ['daily', 'weekly', 'monthly', 'quarterly', 'semiannually', 'yearly'];
 
 /**
@@ -223,7 +226,8 @@ describe('dependabot configuration covers all ecosystems in the repository', () 
     'package-ecosystem'?: string;
     directory?: string;
     directories?: string[];
-    schedule?: { interval?: string };
+    schedule?: { interval?: string; day?: string };
+    'open-pull-requests-limit'?: number;
     groups?: Record<string, unknown>;
     'commit-message'?: { prefix?: string };
   }
@@ -268,7 +272,7 @@ describe('dependabot configuration covers all ecosystems in the repository', () 
     expect(actions).toBeDefined();
   });
 
-  it('configures schedule, groups, and commit prefixes on every update entry', () => {
+  it('configures schedule, groups, commit prefixes, and PR limits on every update entry', () => {
     const config = loadDependabotConfig();
     const updates = config.updates ?? [];
     expect(updates.length).toBeGreaterThan(0);
@@ -276,6 +280,10 @@ describe('dependabot configuration covers all ecosystems in the repository', () 
     for (const entry of updates) {
       expect(entry.schedule?.interval).toBeDefined();
       expect(VALID_SCHEDULE_INTERVALS).toContain(entry.schedule?.interval);
+      if (entry.schedule?.interval === WEEKLY_INTERVAL) {
+        expect(entry.schedule?.day).toBe(EXPECTED_WEEKLY_SCHEDULE_DAY);
+      }
+      expect(entry['open-pull-requests-limit']).toBe(EXPECTED_OPEN_PR_LIMIT);
       expect(entry.groups).toBeDefined();
       expect(Object.keys(entry.groups ?? {}).length).toBeGreaterThan(0);
       expect(entry['commit-message']?.prefix).toBeDefined();
