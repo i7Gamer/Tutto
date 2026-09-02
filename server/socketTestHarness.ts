@@ -31,6 +31,7 @@ import { vi } from 'vitest';
 import { zeroedPlayerStats } from '../src/utils/playerStats';
 import type { ServerPlayer } from './roomTypes';
 import { registerSocketHandlers } from './socketHandlers';
+import { JOIN_REFUSAL_CODES } from './socketRoomHandlers';
 
 // No dotenv.config() here on purpose (it used to sit above this comment). A
 // real .env holds CORS_ORIGIN / TRUST_PROXY / API_TOKEN / ALLOWED_HOST for a
@@ -196,11 +197,13 @@ export const startTestServer = (
 // ---------------------------------------------------------------------------
 
 // What joinRoom acks with. The optional fields only appear on some paths
-// (name/isHost on seatings, socketId for callers that address other players),
-// so suites assert on exactly the ones their scenario produces.
+// (name/isHost on seatings, socketId for callers that address other players,
+// code on a refusal — mirrors socketRoomHandlers.ts's own refuse() callback
+// shape), so suites assert on exactly the ones their scenario produces.
 export interface JoinAck {
   success: boolean;
   error?: string;
+  code?: typeof JOIN_REFUSAL_CODES[number];
   name?: string;
   isHost?: boolean;
   socketId?: string;
