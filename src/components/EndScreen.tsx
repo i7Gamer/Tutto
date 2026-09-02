@@ -21,7 +21,7 @@ import { MIN_ONLINE_PLAYERS } from '../utils/configValidation';
 import { computeRankedPlayers, getLeaders } from '../utils/coreGameEngine';
 import { motion } from 'framer-motion';
 import { useGameStore } from '../store/useGameStore';
-import type { Player } from '../types';
+import type { Player, DeviceStatsRow } from '../types';
 import './EndScreen.css';
 import { readableNameVars } from '../utils/contrastColor';
 
@@ -39,15 +39,10 @@ export const STATS_FETCH_MAX_RETRIES = 5;
 export const STATS_FETCH_RETRY_DELAY_MS = 1000;
 export const STATS_FETCH_INITIAL_DELAY_MS = 500;
 
-interface DeviceStats {
-  gamesPlayed: number;
-  wins: number;
-  pointsDeducted: number;
-  kniffelCompleted: number;
-  busts?: number;
-  currentWinStreak?: number;
-  bestWinStreak?: number;
-}
+// The subset of this device's DeviceStatsRow the end screen reads.
+type DeviceStats =
+  & Pick<DeviceStatsRow, 'gamesPlayed' | 'wins' | 'pointsDeducted' | 'kniffelCompleted'>
+  & Partial<Pick<DeviceStatsRow, 'busts' | 'currentWinStreak' | 'bestWinStreak'>>;
 
 interface EndScreenProps {
   theme: string;

@@ -1,8 +1,18 @@
 import knexLib from 'knex';
 import type { Knex } from 'knex';
 import knexConfig from './knexfile';
-import { DEFAULT_GAME_MODE, type GameMode, type Ruleset } from '../src/types';
+import {
+  DEFAULT_GAME_MODE, type GameMode, type Ruleset,
+  type DeviceStatsRow, type GlobalStatsRow, type StatsPayload,
+} from '../src/types';
 import { DEFAULT_RULESET } from '../src/utils/configValidation';
+
+// Re-exported for anything that imports these from here rather than from
+// src/types.ts directly, which is where they are now defined — moved there
+// so the client can Pick/Partial from the same row shapes the server writes,
+// instead of hand-maintaining its own copies (see src/types.ts's doc comment
+// on DeviceStatsRow).
+export type { DeviceStatsRow, GlobalStatsRow, StatsPayload };
 
 const knex = knexLib(knexConfig);
 
@@ -91,46 +101,21 @@ export const RECORD_COLUMNS: readonly [col: string, agg: 'MAX' | 'MIN'][] = [
   ['highestForfeitedTurnScore', 'MAX'],
 ];
 
-export interface DeviceStatsRow {
-  deviceId: string;
-  mode: GameMode;
-  gamesPlayed: number;
-  wins: number;
-  pointsDeducted: number;
-  plusMinusCompleted: number;
-  plusMinusFailed: number;
-  kniffelCompleted: number;
-  kniffelFailed: number;
-  skipped: number;
-  feuerwerkReceived: number;
-  kleeblattFailed: number;
-  kleeblattCompleted: number;
-  x2Received: number;
-  totalPlaytime: number;
-  totalTurns: number;
-  busts: number;
-  feuerwerkBusts: number;
-  x2Busts: number;
-  feuerwerkPointsScored: number;
-  x2PointsScored: number;
-  totalScore: number;
-  highestTurnScore: number | null;
-  fastestWinTurns: number | null;
-  fastestLossTurns: number | null;
-  currentWinStreak: number;
-  bestWinStreak: number;
-  mostPlayersInGame: number | null;
-  totalPlayersSum: number;
-  longestGameRounds: number | null;
-  totalRoundsSum: number;
-  highestFeuerwerkTurnScore: number | null;
-  highestX2TurnScore: number | null;
-  totalTuttos: number;
-  mostCardsInTurn: number | null;
-  highestForfeitedTurnScore: number | null;
-}
-
-export type StatsPayload = Record<string, number | boolean | null>;
+// The device_statistics columns that are plain running sums: EXCLUDED.<col>
+// is added to whatever is already stored, both on insert (against the
+// column's schema default of 0) and on conflict. Everything else in the
+// table — the primary key, the two win-streak columns, and RECORD_COLUMNS —
+// has its own non-additive merge logic below, so it is deliberately absent
+// from this list. Exported so the schema-lock test in database.test.ts can
+// check it (plus those exclusions) against the table's actual columns.
+export const deviceCols = [
+  'gamesPlayed', 'wins', 'pointsDeducted', 'plusMinusCompleted',
+  'plusMinusFailed', 'kniffelCompleted', 'kniffelFailed', 'skipped',
+  'feuerwerkReceived', 'kleeblattFailed', 'kleeblattCompleted', 'x2Received',
+  'totalPlaytime', 'totalTurns', 'busts', 'feuerwerkBusts', 'x2Busts',
+  'feuerwerkPointsScored', 'x2PointsScored', 'totalScore',
+  'totalPlayersSum', 'totalRoundsSum', 'totalTuttos',
+];
 
 // A device holds one row per mode, so the mode is part of the key, not a
 // filter that can be left off: `.where({ deviceId })` alone would return
@@ -154,15 +139,6 @@ export const updateDeviceStats = async (
   mode: GameMode = DEFAULT_GAME_MODE,
 ): Promise<boolean> => {
   if (!stats || Object.keys(stats).length === 0) return true;
-
-  const deviceCols = [
-    'gamesPlayed', 'wins', 'pointsDeducted', 'plusMinusCompleted',
-    'plusMinusFailed', 'kniffelCompleted', 'kniffelFailed', 'skipped',
-    'feuerwerkReceived', 'kleeblattFailed', 'kleeblattCompleted', 'x2Received',
-    'totalPlaytime', 'totalTurns', 'busts', 'feuerwerkBusts', 'x2Busts',
-    'feuerwerkPointsScored', 'x2PointsScored', 'totalScore',
-    'totalPlayersSum', 'totalRoundsSum', 'totalTuttos',
-  ];
 
   const data: Record<string, unknown> = { deviceId, mode };
   const mergeCols: Record<string, Knex.Raw> = {};
@@ -221,44 +197,6 @@ export const updateDeviceStats = async (
   }
 };
 
-export interface GlobalStatsRow {
-  // One row per ruleset ('modernized' | 'classic'), both seeded by migration —
-  // updateGlobalStats never inserts and hard-fails on a missing row.
-  ruleset: Ruleset;
-  totalGamesPlayed: number;
-  totalPlaytime: number;
-  totalPlusMinus: number;
-  totalKniffel: number;
-  totalStop: number;
-  totalFeuerwerk: number;
-  totalKleeblatt: number;
-  totalKleeblattCompleted: number;
-  totalx2: number;
-  totalTurns: number;
-  totalScore: number;
-  totalPlusMinusCompleted: number;
-  totalKniffelCompleted: number;
-  totalFeuerwerkPoints: number;
-  totalx2Points: number;
-  defaultGamesPlayed: number;
-  customGamesPlayed: number;
-  totalFeuerwerkBusts: number;
-  totalx2Busts: number;
-  totalBusts: number;
-  highestTurnScore: number | null;
-  fastestWinTurns: number | null;
-  fastestLossTurns: number | null;
-  mostPlayersInGame: number | null;
-  totalPlayersSum: number;
-  longestGameRounds: number | null;
-  totalRoundsSum: number;
-  highestFeuerwerkTurnScore: number | null;
-  highestX2TurnScore: number | null;
-  totalTuttos: number;
-  mostCardsInTurn: number | null;
-  highestForfeitedTurnScore: number | null;
-}
-
 export const getGlobalStats = async (ruleset: Ruleset = DEFAULT_RULESET): Promise<GlobalStatsRow | null> => {
   try {
     const row = await knex('global_statistics').where({ ruleset }).first<GlobalStatsRow>();
@@ -268,6 +206,42 @@ export const getGlobalStats = async (ruleset: Ruleset = DEFAULT_RULESET): Promis
     throw err;
   }
 };
+
+// The global_statistics columns that are plain running sums, mapped from the
+// StatsPayload field each reads (usually the same name; totalGamesPlayed is
+// the one exception, read from the payload's `gamesPlayed`). Everything else
+// in the table — the ruleset primary key, customGamesPlayed (only ever
+// touched by the early-return custom-game branch above), and RECORD_COLUMNS —
+// has its own non-additive handling, so it is deliberately absent here.
+// Extracted to a function (rather than an inline object literal) so the
+// schema-lock test in database.test.ts can call it with an empty payload to
+// read its keys — recordsGame only affects VALUES, never which keys exist.
+export const buildGlobalMapping = (stats: StatsPayload, recordsGame: boolean): Record<string, number> => ({
+  totalGamesPlayed: (stats.gamesPlayed as number | undefined) ?? 0,
+  totalPlaytime: (stats.totalPlaytime as number | undefined) ?? 0,
+  totalPlusMinus: (stats.totalPlusMinus as number | undefined) ?? 0,
+  totalKniffel: (stats.totalKniffel as number | undefined) ?? 0,
+  totalStop: (stats.totalStop as number | undefined) ?? 0,
+  totalFeuerwerk: (stats.totalFeuerwerk as number | undefined) ?? 0,
+  totalKleeblatt: (stats.totalKleeblatt as number | undefined) ?? 0,
+  totalKleeblattCompleted: (stats.totalKleeblattCompleted as number | undefined) ?? 0,
+  totalx2: (stats.totalx2 as number | undefined) ?? 0,
+  totalTurns: (stats.totalTurns as number | undefined) ?? 0,
+  totalScore: (stats.totalScore as number | undefined) ?? 0,
+  totalPlusMinusCompleted: (stats.totalPlusMinusCompleted as number | undefined) ?? 0,
+  totalKniffelCompleted: (stats.totalKniffelCompleted as number | undefined) ?? 0,
+  totalFeuerwerkPoints: (stats.totalFeuerwerkPoints as number | undefined) ?? 0,
+  totalx2Points: (stats.totalx2Points as number | undefined) ?? 0,
+  // Only the default-game counter here: a custom game never reaches this
+  // far, and a partial update records no game at all.
+  defaultGamesPlayed: recordsGame && stats.isDefaultGame ? 1 : 0,
+  totalFeuerwerkBusts: (stats.totalFeuerwerkBusts as number | undefined) ?? 0,
+  totalx2Busts: (stats.totalx2Busts as number | undefined) ?? 0,
+  totalBusts: (stats.totalBusts as number | undefined) ?? 0,
+  totalPlayersSum: (stats.totalPlayersSum as number | undefined) ?? 0,
+  totalRoundsSum: (stats.totalRoundsSum as number | undefined) ?? 0,
+  totalTuttos: (stats.totalTuttos as number | undefined) ?? 0,
+});
 
 export const updateGlobalStats = async (stats: StatsPayload, ruleset: Ruleset = DEFAULT_RULESET): Promise<number> => {
   if (!stats || Object.keys(stats).length === 0) return 0;
@@ -300,32 +274,7 @@ export const updateGlobalStats = async (stats: StatsPayload, ruleset: Ruleset = 
     }
   }
 
-  const globalMapping: Record<string, number> = {
-    totalGamesPlayed: (stats.gamesPlayed as number | undefined) ?? 0,
-    totalPlaytime: (stats.totalPlaytime as number | undefined) ?? 0,
-    totalPlusMinus: (stats.totalPlusMinus as number | undefined) ?? 0,
-    totalKniffel: (stats.totalKniffel as number | undefined) ?? 0,
-    totalStop: (stats.totalStop as number | undefined) ?? 0,
-    totalFeuerwerk: (stats.totalFeuerwerk as number | undefined) ?? 0,
-    totalKleeblatt: (stats.totalKleeblatt as number | undefined) ?? 0,
-    totalKleeblattCompleted: (stats.totalKleeblattCompleted as number | undefined) ?? 0,
-    totalx2: (stats.totalx2 as number | undefined) ?? 0,
-    totalTurns: (stats.totalTurns as number | undefined) ?? 0,
-    totalScore: (stats.totalScore as number | undefined) ?? 0,
-    totalPlusMinusCompleted: (stats.totalPlusMinusCompleted as number | undefined) ?? 0,
-    totalKniffelCompleted: (stats.totalKniffelCompleted as number | undefined) ?? 0,
-    totalFeuerwerkPoints: (stats.totalFeuerwerkPoints as number | undefined) ?? 0,
-    totalx2Points: (stats.totalx2Points as number | undefined) ?? 0,
-    // Only the default-game counter here: a custom game never reaches this
-    // far, and a partial update records no game at all.
-    defaultGamesPlayed: recordsGame && stats.isDefaultGame ? 1 : 0,
-    totalFeuerwerkBusts: (stats.totalFeuerwerkBusts as number | undefined) ?? 0,
-    totalx2Busts: (stats.totalx2Busts as number | undefined) ?? 0,
-    totalBusts: (stats.totalBusts as number | undefined) ?? 0,
-    totalPlayersSum: (stats.totalPlayersSum as number | undefined) ?? 0,
-    totalRoundsSum: (stats.totalRoundsSum as number | undefined) ?? 0,
-    totalTuttos: (stats.totalTuttos as number | undefined) ?? 0,
-  };
+  const globalMapping = buildGlobalMapping(stats, recordsGame);
 
   const updateData: Record<string, Knex.Raw> = {};
   for (const [col, val] of Object.entries(globalMapping)) {

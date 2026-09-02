@@ -2,9 +2,23 @@
 process.env.TEST_DB = 'true';
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import database, { RECORD_COLUMNS } from './database';
+import database, { RECORD_COLUMNS, deviceCols, buildGlobalMapping } from './database';
 import { sanitizeStats } from './sanitize';
 import { DB_INIT_TIMEOUT_MS } from './testTimeouts';
+
+// The device_statistics/global_statistics columns that exist for reasons
+// deviceCols/buildGlobalMapping/RECORD_COLUMNS don't cover: primary keys, and
+// the two win-streak and one custom-game-counter columns whose merge logic is
+// inline in updateDeviceStats/updateGlobalStats rather than list-driven. Kept
+// here rather than duplicated per-table so the schema-lock test below stays a
+// single readable union per table.
+const DEVICE_STRUCTURAL_COLUMNS = ['deviceId', 'mode', 'currentWinStreak', 'bestWinStreak'];
+const GLOBAL_STRUCTURAL_COLUMNS = ['ruleset', 'customGamesPlayed'];
+
+const columnNamesOf = async (table: string): Promise<string[]> => {
+  const rows = await database.knex.raw(`PRAGMA table_info(${table})`) as { name: string }[];
+  return rows.map(r => r.name);
+};
 
 describe('Database Statistics Integration', () => {
   beforeAll(async () => {
@@ -13,6 +27,29 @@ describe('Database Statistics Integration', () => {
 
   afterAll(async () => {
     await database.knex.destroy();
+  });
+
+  // The first schema lock: database.ts carries several hand-written column
+  // lists (deviceCols, buildGlobalMapping, RECORD_COLUMNS) that decide what
+  // SQL gets generated, and nothing previously checked them against what the
+  // migrations actually created. A column added to a migration but forgotten
+  // in one of these lists would silently stop being read or written; a bogus
+  // key added to one of these lists (a typo, or a column since renamed) would
+  // silently no-op instead of failing loudly. This locks both directions.
+  it('keeps deviceCols/buildGlobalMapping/RECORD_COLUMNS in exact sync with the migrated schema', async () => {
+    const recordColumnNames = RECORD_COLUMNS.map(([col]) => col);
+
+    const expectedDeviceColumns = [...DEVICE_STRUCTURAL_COLUMNS, ...deviceCols, ...recordColumnNames];
+    const actualDeviceColumns = await columnNamesOf('device_statistics');
+    expect(new Set(actualDeviceColumns)).toEqual(new Set(expectedDeviceColumns));
+
+    const expectedGlobalColumns = [
+      ...GLOBAL_STRUCTURAL_COLUMNS,
+      ...Object.keys(buildGlobalMapping({}, false)),
+      ...recordColumnNames,
+    ];
+    const actualGlobalColumns = await columnNamesOf('global_statistics');
+    expect(new Set(actualGlobalColumns)).toEqual(new Set(expectedGlobalColumns));
   });
   it('should store and retrieve all device statistics without SQL errors', async () => {
     const mockDeviceId = 'unique-test-device-' + Date.now();

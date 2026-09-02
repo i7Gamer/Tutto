@@ -399,6 +399,97 @@ export interface GlobalStatsPayload {
   highestForfeitedTurnScore: number | null;
 }
 
+/**
+ * One device's persisted row in `device_statistics` — the single source for
+ * every client-side view of a device's stats (Statistics.tsx's PersonalStats,
+ * EndScreen.tsx's DeviceStats, storeTypes.ts's PreGameStats), which each Pick
+ * or Partial<Pick> the fields they need rather than redeclaring the shape.
+ * Lives here rather than in server/database.ts (which imports and re-exports
+ * it) because the client needs it too, and server/database.ts cannot be
+ * imported by the client bundle.
+ */
+export interface DeviceStatsRow {
+  deviceId: string;
+  mode: GameMode;
+  gamesPlayed: number;
+  wins: number;
+  pointsDeducted: number;
+  plusMinusCompleted: number;
+  plusMinusFailed: number;
+  kniffelCompleted: number;
+  kniffelFailed: number;
+  skipped: number;
+  feuerwerkReceived: number;
+  kleeblattFailed: number;
+  kleeblattCompleted: number;
+  x2Received: number;
+  totalPlaytime: number;
+  totalTurns: number;
+  busts: number;
+  feuerwerkBusts: number;
+  x2Busts: number;
+  feuerwerkPointsScored: number;
+  x2PointsScored: number;
+  totalScore: number;
+  highestTurnScore: number | null;
+  fastestWinTurns: number | null;
+  fastestLossTurns: number | null;
+  currentWinStreak: number;
+  bestWinStreak: number;
+  mostPlayersInGame: number | null;
+  totalPlayersSum: number;
+  longestGameRounds: number | null;
+  totalRoundsSum: number;
+  highestFeuerwerkTurnScore: number | null;
+  highestX2TurnScore: number | null;
+  totalTuttos: number;
+  mostCardsInTurn: number | null;
+  highestForfeitedTurnScore: number | null;
+}
+
+// The untyped shape a stats update payload arrives in (socket handler or
+// admin HTTP route) before database.ts's column mappings pick out what they
+// recognise — see server/sanitize.ts, which is what produces one of these.
+export type StatsPayload = Record<string, number | boolean | null>;
+
+export interface GlobalStatsRow {
+  // One row per ruleset ('modernized' | 'classic'), both seeded by migration —
+  // updateGlobalStats never inserts and hard-fails on a missing row.
+  ruleset: Ruleset;
+  totalGamesPlayed: number;
+  totalPlaytime: number;
+  totalPlusMinus: number;
+  totalKniffel: number;
+  totalStop: number;
+  totalFeuerwerk: number;
+  totalKleeblatt: number;
+  totalKleeblattCompleted: number;
+  totalx2: number;
+  totalTurns: number;
+  totalScore: number;
+  totalPlusMinusCompleted: number;
+  totalKniffelCompleted: number;
+  totalFeuerwerkPoints: number;
+  totalx2Points: number;
+  defaultGamesPlayed: number;
+  customGamesPlayed: number;
+  totalFeuerwerkBusts: number;
+  totalx2Busts: number;
+  totalBusts: number;
+  highestTurnScore: number | null;
+  fastestWinTurns: number | null;
+  fastestLossTurns: number | null;
+  mostPlayersInGame: number | null;
+  totalPlayersSum: number;
+  longestGameRounds: number | null;
+  totalRoundsSum: number;
+  highestFeuerwerkTurnScore: number | null;
+  highestX2TurnScore: number | null;
+  totalTuttos: number;
+  mostCardsInTurn: number | null;
+  highestForfeitedTurnScore: number | null;
+}
+
 export interface NextTurnResult {
   players: Player[];
   isGameOver: boolean;

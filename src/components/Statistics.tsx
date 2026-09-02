@@ -6,83 +6,31 @@ import { CARD_EMOJIS } from '../utils/cardVisuals';
 import { STAT_TONES, DEFAULT_STAT_TONE, type StatTone } from '../utils/statTones';
 import { percentageOf } from '../utils/percentage';
 import { deviceStatsRequest } from '../utils/statsApi';
-import { DEFAULT_GAME_MODE, type CardType, type GameMode, type Ruleset } from '../types';
+import {
+  DEFAULT_GAME_MODE, type CardType, type GameMode, type Ruleset,
+  type DeviceStatsRow, type GlobalStatsRow,
+} from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import React from 'react';
 import './Statistics.css';
 
-interface PersonalStats {
-  gamesPlayed: number;
-  wins: number;
-  totalPlaytime: number;
-  busts?: number;
-  totalTurns?: number;
-  totalScore?: number;
-  pointsDeducted?: number;
-  plusMinusCompleted?: number;
-  plusMinusFailed?: number;
-  kniffelCompleted?: number;
-  kniffelFailed?: number;
-  kleeblattCompleted?: number;
-  kleeblattFailed?: number;
-  skipped?: number;
-  feuerwerkReceived?: number;
-  feuerwerkBusts?: number;
-  feuerwerkPointsScored?: number;
-  x2Received?: number;
-  x2Busts?: number;
-  x2PointsScored?: number;
-  highestTurnScore?: number;
-  fastestWinTurns?: number | null;
-  fastestLossTurns?: number | null;
-  currentWinStreak?: number;
-  bestWinStreak?: number;
-  mostPlayersInGame?: number;
-  totalPlayersSum?: number;
-  longestGameRounds?: number;
-  totalRoundsSum?: number;
-  highestFeuerwerkTurnScore?: number;
-  highestX2TurnScore?: number;
-  totalTuttos?: number;
-  mostCardsInTurn?: number | null;
-  highestForfeitedTurnScore?: number | null;
-}
+// This device's own stats, as fetched for display — every DeviceStatsRow
+// column except the primary key (deviceId, mode), which this screen never
+// shows. Only the three fields the screen cannot render sensibly as "no data
+// yet" are required; the rest come back Partial so a personal-bests scope
+// that has never recorded a field (or an older payload predating it) can omit
+// it, same as the wire payload always could.
+type PersonalStats =
+  & Pick<DeviceStatsRow, 'gamesPlayed' | 'wins' | 'totalPlaytime'>
+  & Partial<Omit<DeviceStatsRow, 'deviceId' | 'mode' | 'gamesPlayed' | 'wins' | 'totalPlaytime'>>;
 
-interface GlobalStats {
-  totalGamesPlayed: number;
-  totalPlaytime: number;
-  totalTurns?: number;
-  totalScore?: number;
-  totalBusts?: number;
-  totalPlusMinus?: number;
-  totalPlusMinusCompleted?: number;
-  totalKniffel?: number;
-  totalKniffelCompleted?: number;
-  totalKleeblatt?: number;
-  totalKleeblattCompleted?: number;
-  totalStop?: number;
-  totalFeuerwerk?: number;
-  totalFeuerwerkBusts?: number;
-  totalFeuerwerkPoints?: number;
-  totalx2?: number;
-  totalx2Busts?: number;
-  totalx2Points?: number;
-  highestTurnScore?: number;
-  fastestWinTurns?: number | null;
-  fastestLossTurns?: number | null;
-  mostPlayersInGame?: number;
-  totalPlayersSum?: number;
-  longestGameRounds?: number;
-  totalRoundsSum?: number;
-  highestFeuerwerkTurnScore?: number;
-  highestX2TurnScore?: number;
-  defaultGamesPlayed?: number;
-  customGamesPlayed?: number;
-  totalTuttos?: number;
-  mostCardsInTurn?: number | null;
-  highestForfeitedTurnScore?: number | null;
-}
+// The matching global row, as fetched for display — every GlobalStatsRow
+// column except the ruleset primary key, which is selected via RULESET_TABS
+// rather than shown per-field.
+type GlobalStats =
+  & Pick<GlobalStatsRow, 'totalGamesPlayed' | 'totalPlaytime'>
+  & Partial<Omit<GlobalStatsRow, 'ruleset' | 'totalGamesPlayed' | 'totalPlaytime'>>;
 
 // The run of wins at which the streak tile starts celebrating — flame, pulse
 // and the brighter amber all switch on together.

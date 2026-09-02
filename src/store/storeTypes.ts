@@ -12,6 +12,7 @@ import type {
   Ruleset,
   CardType,
   TurnSummary,
+  DeviceStatsRow,
 } from '../types';
 
 export type GameMode = 'local' | 'online';
@@ -54,16 +55,16 @@ export type { ConfigKeys };
  * (mostPlayersInGame and longestGameRounds are properties of the game, not of
  * a player, and are already on screen as themselves.)
  */
-export interface PreGameStats {
-  highestTurnScore: number | null;
-  fastestWinTurns: number | null;
-  fastestLossTurns: number | null;
-  highestFeuerwerkTurnScore: number | null;
-  highestX2TurnScore: number | null;
-  /** Classic only: a modernized turn is one card and forfeits nothing. */
-  mostCardsInTurn: number | null;
-  highestForfeitedTurnScore: number | null;
-}
+export type PreGameStats = Pick<DeviceStatsRow,
+  | 'highestTurnScore'
+  | 'fastestWinTurns'
+  | 'fastestLossTurns'
+  | 'highestFeuerwerkTurnScore'
+  | 'highestX2TurnScore'
+  // Classic only: a modernized turn is one card and forfeits nothing.
+  | 'mostCardsInTurn'
+  | 'highestForfeitedTurnScore'
+>;
 
 export interface GameStore extends CoreGameState {
   mode: GameMode;
