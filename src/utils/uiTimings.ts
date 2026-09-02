@@ -27,6 +27,23 @@ export const DICE_PANEL_ENTRANCE_MS = 350;
 // "Yes, Reconnect", which race it against the join for the same reason.
 export const JOIN_TIMEOUT_MS = 10_000;
 
+// How long after a reconnect an 'unauthorized' pushState refusal is read as a
+// race with this client's own rejoin rather than a real authorization failure.
+//
+// The two are indistinguishable from the reason alone: the server refuses a
+// push from a socket that holds no seat, and for the first round trip after a
+// transport drop that is exactly what a legitimate host looks like. Inside
+// this window the push is retried once; outside it the refusal is taken at
+// face value. Generous next to a rejoin round trip, far short of the shortest
+// turn timer a lobby can configure.
+export const PUSH_REJOIN_RACE_WINDOW_MS = 5_000;
+
+// How long that single retry waits for the rejoin to settle server-side before
+// re-sending the same snapshot. One short round trip — long enough that the
+// joinRoom the ack just answered has finished its own bookkeeping, short
+// enough that the move is not visibly late.
+export const PUSH_REJOIN_RETRY_DELAY_MS = 300;
+
 // How long a resolved dice turn's summary counts down before auto-continuing
 // to the next player. The countdown logic (useAutoContinueCountdown) and the
 // summary's shrinking progress bar (DiceSummary) both derive from this one

@@ -166,6 +166,138 @@ describe('pushState authorization', () => {
   });
 });
 
+describe('pushState acknowledgement and stateVersion', () => {
+  // pushState used to be fire-and-forget in both directions: a refused push
+  // told the sender nothing, and a broadcast carried no ordering information,
+  // so a late one could overwrite newer local state. The ack names the
+  // refusal; the version lets the client floor what it applies.
+  const roomId = 'ACK-ROOM';
+  const ACTIVE_INDEX = 1;
+
+  const seat = (socketId: string, username: string) => {
+    const fake = makeFakeSocket(socketId);
+    const { io, emit } = makeFakeIo();
+    registerGameStateHandlers({ io, socket: fake.socket, session: { roomId, username } });
+    return { handlers: fake.handlers, socket: fake.socket, emit };
+  };
+
+  const gameStates = (emit: ReturnType<typeof makeFakeIo>['emit']) =>
+    emit.mock.calls.filter(([event]) => event === 'gameState').map(([, payload]) => payload);
+
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    rooms[roomId] = createRoom('host-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: false, currentPlayerIndex: ACTIVE_INDEX, currentCard: '300',
+      cards: ['200'], round: 1, turnDuration: 60, turnStartTime: Date.now(),
+      winningScore: 6000,
+      players: [
+        makePlayer('Alice', 'host-sock'),
+        makePlayer('Bob', 'active-sock'),
+        makePlayer('Carol', 'bystander-sock'),
+      ],
+    });
+  });
+
+  afterEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+  });
+
+  it('acks an accepted push with the bumped state version', () => {
+    const bob = seat('active-sock', 'Bob');
+    const before = rooms[roomId].stateVersion;
+    const ack = vi.fn();
+
+    bob.handlers['pushState']({ roomId, newState: { round: 2 } }, ack);
+
+    expect(rooms[roomId].state.round).toBe(2);
+    expect(ack).toHaveBeenCalledWith({ ok: true, stateVersion: before + 1 });
+    expect(rooms[roomId].stateVersion).toBe(before + 1);
+  });
+
+  it('acks a bystander\'s push as unauthorized and broadcasts nothing', () => {
+    const carol = seat('bystander-sock', 'Carol');
+    const ack = vi.fn();
+
+    carol.handlers['pushState']({ roomId, newState: { round: 2 } }, ack);
+
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'unauthorized' });
+    expect(rooms[roomId].state.round, 'the refused push changed nothing').toBe(1);
+    expect(carol.emit, 'a refused push is not broadcast').not.toHaveBeenCalled();
+  });
+
+  it('acks a push whose roster no longer matches as stale-roster', () => {
+    const bob = seat('active-sock', 'Bob');
+    const ack = vi.fn();
+
+    bob.handlers['pushState']({
+      roomId,
+      newState: { round: 2, players: [{ name: 'Alice' }, { name: 'Bob' }] },
+    }, ack);
+
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'stale-roster' });
+    expect(rooms[roomId].state.round, 'the whole snapshot is discarded').toBe(1);
+  });
+
+  it('acks a push naming no room as no-room, and a malformed one as refused', () => {
+    const bob = seat('active-sock', 'Bob');
+    const missingRoom = vi.fn();
+    const malformed = vi.fn();
+
+    bob.handlers['pushState']({ roomId: 'NO-SUCH-ROOM', newState: { round: 2 } }, missingRoom);
+    bob.handlers['pushState'](null, malformed);
+
+    expect(missingRoom).toHaveBeenCalledWith({ ok: false, reason: 'no-room' });
+    expect(malformed).toHaveBeenCalledWith({ ok: false, reason: 'refused' });
+  });
+
+  it('still applies a push from a client that passes no callback at all', () => {
+    // Wire compatibility: a client predating the ack sends two arguments, and
+    // socket.io then hands the handler no callback.
+    const bob = seat('active-sock', 'Bob');
+
+    expect(() => bob.handlers['pushState']({ roomId, newState: { round: 2 } })).not.toThrow();
+
+    expect(rooms[roomId].state.round).toBe(2);
+    expect(bob.emit).toHaveBeenCalled();
+  });
+
+  it('carries a monotonically increasing stateVersion on every broadcast', () => {
+    const bob = seat('active-sock', 'Bob');
+
+    bob.handlers['pushState']({ roomId, newState: { round: 2 } });
+    bob.handlers['pushState']({ roomId, newState: { round: 3 } });
+
+    const versions = gameStates(bob.emit).map(state => (state as { stateVersion: number }).stateVersion);
+    expect(versions).toHaveLength(2);
+    expect(versions[1]).toBeGreaterThan(versions[0]);
+  });
+
+  it('answers requestState on the asking socket alone, without bumping the version', () => {
+    const bob = seat('active-sock', 'Bob');
+    const versionBefore = rooms[roomId].stateVersion;
+
+    bob.handlers['requestState']({ roomId });
+
+    const direct = (bob.socket.emit as unknown as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([event]) => event === 'gameState');
+    expect(direct, 'the requester gets its own copy').toHaveLength(1);
+    expect((direct[0][1] as { stateVersion: number }).stateVersion).toBe(versionBefore);
+    expect(bob.emit, 'nobody else is told anything').not.toHaveBeenCalled();
+    expect(rooms[roomId].stateVersion, 'a read is not a mutation').toBe(versionBefore);
+  });
+
+  it('refuses requestState from a socket whose session is not in that room', () => {
+    const fake = makeFakeSocket('stranger-sock');
+    const { io } = makeFakeIo();
+    registerGameStateHandlers({ io, socket: fake.socket, session: { roomId: null, username: null } });
+
+    fake.handlers['requestState']({ roomId });
+
+    expect(fake.socket.emit).not.toHaveBeenCalled();
+  });
+});
+
 describe('pushState may not leave a running game with nobody to act', () => {
   const roomId = 'STALL-ROOM';
   let pushState: Handler;

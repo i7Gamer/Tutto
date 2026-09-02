@@ -12,7 +12,7 @@ import type { GameStore, GameStatus, ReconnectSession, PreGameStats, FinishedGam
 import { validateOnlineConfig, reanchorLocalClock, attachPersistence, pickLocalGameState } from './persistence';
 import { createTimerSlice } from './timers';
 import { createConfigSlice } from './configSlice';
-import { createSocketSlice, clearRoomState } from './socketSlice';
+import { createSocketSlice, clearRoomState, clearPendingPush } from './socketSlice';
 import { createGameSlice } from './gameSlice';
 import { disconnectSocket } from './socketRef';
 
@@ -105,6 +105,7 @@ export const useGameStore = create<GameStore>()(
     isHost: false,
     hostId: null,
     myName: null,
+    lastAppliedStateVersion: null,
     toasts: [],
     reactions: [],
     ...createInitialLocalState(),
@@ -113,6 +114,10 @@ export const useGameStore = create<GameStore>()(
     // per-concern actions come from the slices spread below.
 
     reset: () => {
+      // Module state, so clearRoomState below cannot reach it: a push parked
+      // for a room this store is throwing away must not be flushed into the
+      // next one by a later reconnect.
+      clearPendingPush();
       set({
         ...createInitialLocalState(),
         ...clearRoomState(),

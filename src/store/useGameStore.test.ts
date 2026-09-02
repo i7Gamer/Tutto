@@ -3,11 +3,16 @@ import { useGameStore, _resetTimersForTests, _resetSocketSliceForTests } from '.
 import { disconnectSocket } from './socketRef';
 import { DEFAULT_INITIAL_CARDS } from '../utils/configValidation';
 import { blockStorage, failStorageMethods, restoreStorage } from '../testing/storageStubs';
-import { JOIN_TIMEOUT_MS } from '../utils/uiTimings';
+import { JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS } from '../utils/uiTimings';
 import type { Player } from '../types';
 
 let mockEmit = vi.fn();
 let mockOnHandlers = {};
+// The mock socket's transport state. socketSlice's pushState parks its payload
+// while the socket is down and flushes it after the rejoin, so the tests for
+// that path have to be able to take the socket offline. A getter keeps the
+// one object io() handed out in step with this flag.
+let mockSocketConnected = true;
 const mockDisconnect = vi.fn();
 
 vi.mock('socket.io-client', () => {
@@ -20,6 +25,7 @@ vi.mock('socket.io-client', () => {
       off: vi.fn(),
       disconnect: mockDisconnect,
       id: 'socket-123',
+      get connected() { return mockSocketConnected; },
     }))
   };
 });
@@ -54,6 +60,7 @@ describe('useGameStore', () => {
     localStorage.clear();
     sessionStorage.clear();
     mockEmit.mockClear();
+    mockSocketConnected = true;
     // Two module singletons outlive reset(): the socket in socketRef.ts
     // (connectSocket is a no-op while one exists, so a later joinRoom test
     // would never see io() called) and socketSlice's pending cancelReconnect
@@ -1325,6 +1332,239 @@ describe('useGameStore', () => {
         } finally {
           vi.useRealTimers();
         }
+      });
+    });
+
+    // pushState was fire-and-forget in both directions. socket.io-client
+    // flushes buffered emits BEFORE it fires 'connect', so a push made during
+    // a transport drop reached the server on the new socket id while the seat
+    // still carried the old one — it failed the authorization gate, was
+    // dropped without a word, and the rejoin broadcast then overwrote the turn
+    // the player had already committed locally. The parked slot below, the
+    // ack, and the version floor are the three halves of the fix.
+    describe('pushState parking, the refusal ack and the stateVersion floor', () => {
+      const STAGED_ROUND = 4;
+      const LATER_ROUND = 5;
+
+      const stageSeatedGame = () => {
+        useGameStore.setState({
+          mode: 'online', isOnline: true,
+          roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice', isHost: true,
+          players: namedPlayers('Alice', 'Bob'),
+          status: 'playing', currentPlayerIndex: 0, round: STAGED_ROUND,
+        });
+        mockEmit.mockClear();
+      };
+
+      const pushes = () => mockEmit.mock.calls.filter(([event]) => event === 'pushState');
+
+      const ackRejoin = (res) => {
+        const join = mockEmit.mock.calls.find(([event]) => event === 'joinRoom');
+        expect(join, 'the reconnect must have attempted a rejoin').toBeTruthy();
+        join[2](res);
+      };
+
+      it('parks a push made while the socket is down and sends it once the rejoin is acked', () => {
+        stageSeatedGame();
+        mockSocketConnected = false;
+
+        useGameStore.getState().pushState();
+        expect(pushes(), 'nothing may go out over a dead transport').toHaveLength(0);
+
+        mockSocketConnected = true;
+        mockOnHandlers['connect']();
+        expect(pushes(), 'and not before the rejoin is acked either').toHaveLength(0);
+
+        ackRejoin({ success: true, isHost: true, name: 'Alice' });
+
+        expect(pushes()).toHaveLength(1);
+        expect(pushes()[0][1].newState.round).toBe(STAGED_ROUND);
+      });
+
+      it('keeps only the newest parked push — an older snapshot is obsolete', () => {
+        stageSeatedGame();
+        mockSocketConnected = false;
+
+        useGameStore.getState().pushState();
+        useGameStore.setState({ round: LATER_ROUND });
+        useGameStore.getState().pushState();
+
+        mockSocketConnected = true;
+        mockOnHandlers['connect']();
+        ackRejoin({ success: true, isHost: true, name: 'Alice' });
+
+        expect(pushes(), 'one flush, not two').toHaveLength(1);
+        expect(pushes()[0][1].newState.round).toBe(LATER_ROUND);
+      });
+
+      it('drops the parked push when the rejoin itself fails', () => {
+        stageSeatedGame();
+        mockSocketConnected = false;
+        useGameStore.getState().pushState();
+
+        mockSocketConnected = true;
+        mockOnHandlers['connect']();
+        ackRejoin({ success: false, code: 'name_taken', error: 'Username already exists in this room' });
+
+        expect(pushes(), 'the seat is gone — the move has nowhere to land').toHaveLength(0);
+        expect(useGameStore.getState().roomId).toBeNull();
+      });
+
+      it('toasts and asks for a fresh state when the server refuses the push', () => {
+        stageSeatedGame();
+
+        useGameStore.getState().pushState();
+        const push = pushes()[0];
+        expect(push[2], 'the push carries an ack callback').toBeTypeOf('function');
+
+        push[2]({ ok: false, reason: 'stale-roster' });
+
+        expect(useGameStore.getState().toasts.some(
+          t => t.message.includes('not accepted by the server'),
+        )).toBe(true);
+        expect(mockEmit).toHaveBeenCalledWith('requestState', { roomId: 'ROOM1' });
+      });
+
+      it('says nothing at all when the server accepts the push', () => {
+        stageSeatedGame();
+
+        useGameStore.getState().pushState();
+        pushes()[0][2]({ ok: true, stateVersion: 3 });
+
+        expect(useGameStore.getState().toasts).toHaveLength(0);
+        expect(mockEmit).not.toHaveBeenCalledWith('requestState', expect.anything());
+      });
+
+      it('tolerates a server old enough to ack nothing', () => {
+        stageSeatedGame();
+
+        useGameStore.getState().pushState();
+        expect(() => pushes()[0][2](undefined)).not.toThrow();
+
+        expect(useGameStore.getState().toasts).toHaveLength(0);
+        expect(mockEmit).not.toHaveBeenCalledWith('requestState', expect.anything());
+      });
+
+      it('retries an unauthorized refusal once when it lands right after a reconnect', () => {
+        vi.useFakeTimers();
+        try {
+          stageSeatedGame();
+          mockSocketConnected = false;
+          useGameStore.getState().pushState();
+
+          mockSocketConnected = true;
+          mockOnHandlers['connect']();
+          ackRejoin({ success: true, isHost: true, name: 'Alice' });
+
+          // The rejoin race: the server saw the push before it saw the join.
+          pushes()[0][2]({ ok: false, reason: 'unauthorized' });
+          expect(useGameStore.getState().toasts, 'a race is not worth a toast').toHaveLength(0);
+          expect(mockEmit).not.toHaveBeenCalledWith('requestState', expect.anything());
+
+          vi.advanceTimersByTime(PUSH_REJOIN_RETRY_DELAY_MS);
+          expect(pushes(), 'the same snapshot goes out again').toHaveLength(2);
+          expect(pushes()[1][1].newState.round).toBe(STAGED_ROUND);
+
+          // Once. A second refusal is a real one.
+          pushes()[1][2]({ ok: false, reason: 'unauthorized' });
+          vi.advanceTimersByTime(PUSH_REJOIN_RETRY_DELAY_MS * 4);
+          expect(pushes()).toHaveLength(2);
+          expect(useGameStore.getState().toasts.some(
+            t => t.message.includes('not accepted by the server'),
+          )).toBe(true);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('treats an unauthorized refusal as real when no reconnect preceded it', () => {
+        stageSeatedGame();
+
+        useGameStore.getState().pushState();
+        pushes()[0][2]({ ok: false, reason: 'unauthorized' });
+
+        expect(pushes(), 'no retry without a reconnect to blame').toHaveLength(1);
+        expect(mockEmit).toHaveBeenCalledWith('requestState', { roomId: 'ROOM1' });
+      });
+
+      it('treats an unauthorized refusal as real once the reconnect window has passed', () => {
+        vi.useFakeTimers();
+        try {
+          stageSeatedGame();
+          mockOnHandlers['connect']();
+          ackRejoin({ success: true, isHost: true, name: 'Alice' });
+          mockEmit.mockClear();
+
+          useGameStore.getState().pushState();
+          vi.advanceTimersByTime(PUSH_REJOIN_RACE_WINDOW_MS + 1);
+          pushes()[0][2]({ ok: false, reason: 'unauthorized' });
+
+          expect(pushes()).toHaveLength(1);
+          expect(mockEmit).toHaveBeenCalledWith('requestState', { roomId: 'ROOM1' });
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('ignores a broadcast older than the one already applied, and applies the rest', () => {
+        stageSeatedGame();
+
+        mockOnHandlers['gameState']({ round: 10, stateVersion: 10 });
+        expect(useGameStore.getState().round).toBe(10);
+        expect(useGameStore.getState().lastAppliedStateVersion).toBe(10);
+
+        mockOnHandlers['gameState']({ round: 9, stateVersion: 9 });
+        expect(useGameStore.getState().round, 'a late broadcast may not undo newer state').toBe(10);
+
+        // Equal, higher, and missing all apply — the last so an older server
+        // (and the very first broadcast) still works.
+        mockOnHandlers['gameState']({ round: 11, stateVersion: 10 });
+        expect(useGameStore.getState().round).toBe(11);
+        mockOnHandlers['gameState']({ round: 12, stateVersion: 11 });
+        expect(useGameStore.getState().round).toBe(12);
+        mockOnHandlers['gameState']({ round: 13 });
+        expect(useGameStore.getState().round).toBe(13);
+        expect(useGameStore.getState().lastAppliedStateVersion, 'an unversioned broadcast leaves the floor alone').toBe(11);
+      });
+
+      it('drops the floor on a successful rejoin, so a fresh room can never be ignored', () => {
+        stageSeatedGame();
+        mockOnHandlers['gameState']({ round: 10, stateVersion: 50 });
+
+        mockOnHandlers['connect']();
+        ackRejoin({ success: true, isHost: true, name: 'Alice' });
+        expect(useGameStore.getState().lastAppliedStateVersion).toBeNull();
+
+        mockOnHandlers['gameState']({ round: 1, stateVersion: 1 });
+        expect(useGameStore.getState().round).toBe(1);
+      });
+
+      it('leaveRoom clears both the floor and the parked push', () => {
+        stageSeatedGame();
+        mockOnHandlers['gameState']({ round: 10, stateVersion: 50 });
+        mockSocketConnected = false;
+        useGameStore.getState().pushState();
+
+        useGameStore.getState().leaveRoom();
+        expect(useGameStore.getState().lastAppliedStateVersion).toBeNull();
+
+        // Nothing left to flush: a later reconnect must not resurrect a move
+        // made in a room this client has left.
+        mockSocketConnected = true;
+        useGameStore.setState({ roomId: 'ROOM1', myName: 'Alice' });
+        mockEmit.mockClear();
+        mockOnHandlers['connect']();
+        ackRejoin({ success: true, isHost: true, name: 'Alice' });
+        expect(pushes()).toHaveLength(0);
+      });
+
+      it('reset clears the floor too', () => {
+        stageSeatedGame();
+        mockOnHandlers['gameState']({ round: 10, stateVersion: 50 });
+
+        useGameStore.getState().reset();
+
+        expect(useGameStore.getState().lastAppliedStateVersion).toBeNull();
       });
     });
 

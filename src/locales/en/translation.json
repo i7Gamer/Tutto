@@ -121,6 +121,7 @@
   "game.toastRuleset": "Rules: {{value}}",
   "game.rulesetBadge": "{{value}} rules",
   "game.toastHostEndedEarly": "Host ended game early",
+  "game.toastPushRefused": "Your last move was not accepted by the server; the game state was refreshed.",
   "game.nameConflictWithDisconnected": "Someone tried to join as \"{{name}}\", which belongs to a disconnected player. Kick them below to free up the name.",
   "game.kick": "Kick",
   "game.kickPlayer": "Kick Player",

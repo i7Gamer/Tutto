@@ -1,13 +1,28 @@
-import { rooms, emitRoomState, idleTurnTimerState, rememberCurrentTurn, roomChannel } from './rooms';
+import { rooms, emitRoomState, emitRoomStateTo, idleTurnTimerState, rememberCurrentTurn, roomChannel } from './rooms';
 import { applyPushedState, isValidDiceSnapshot, sanitizeDiceSnapshot } from './pushValidation';
 import { isNormalizedConfig } from '../src/utils/configValidation';
 import { clearServerTurnTimer, startServerTurnTimer } from './turnTimers';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
+import type { PushRefusalReason, PushStateAck } from '../src/types';
 
 const PUSH_STATE_LIMIT = { windowMs: 1_000, max: 20 };
 // liveTurnState fires ~every 300ms while a player is rolling.
 const LIVE_TURN_STATE_LIMIT = { windowMs: 1_000, max: 15 };
+// requestState is a client's recovery path after a refused push — one round
+// trip, not a stream. Bounded well above any real burst (a reconnect storm on
+// one socket) and far below anything that could be used to make the server
+// re-serialize a room in a loop.
+const REQUEST_STATE_LIMIT = { windowMs: 1_000, max: 5 };
+
+/**
+ * The optional callback a client may pass as pushState's second argument.
+ *
+ * Optional in the type as well as on the wire: a client predating the ack
+ * sends only the payload, socket.io then invokes the handler with one
+ * argument, and everything below behaves exactly as it did before.
+ */
+type PushStateAckFn = (result: PushStateAck) => void;
 
 // How many deck-triggered turn-timer restarts one player's turn may earn.
 // A legitimate classic chain draws one card per continuation and even a
@@ -17,17 +32,29 @@ const LIVE_TURN_STATE_LIMIT = { windowMs: 1_000, max: 15 };
 export const MAX_TIMER_RESTARTS_PER_TURN = 50;
 
 /** The authoritative game state, and the live dice view that rides alongside it. */
-export const registerGameStateHandlers = ({ io, socket }: SocketContext): void => {
+export const registerGameStateHandlers = ({ io, socket, session }: SocketContext): void => {
   const pushStateLimiter = createSocketEventLimiter(PUSH_STATE_LIMIT);
   const liveTurnStateLimiter = createSocketEventLimiter(LIVE_TURN_STATE_LIMIT);
+  const requestStateLimiter = createSocketEventLimiter(REQUEST_STATE_LIMIT);
 
-  safeOn(socket, 'pushState', (data: { roomId?: string; newState?: Record<string, unknown> } | null | undefined) => {
-    if (!pushStateLimiter()) return;
-    if (!data || typeof data !== 'object') return;
+  safeOn(socket, 'pushState', (
+    data: { roomId?: string; newState?: Record<string, unknown> } | null | undefined,
+    ack?: PushStateAckFn,
+  ) => {
+    // Every bail-out below now names itself to the sender. The gates
+    // themselves are unchanged — a refused push is still applied nowhere and
+    // still broadcasts nothing; the client just stops having to infer that
+    // from a broadcast that may never come.
+    const refuse = (reason: PushRefusalReason): void => {
+      if (typeof ack === 'function') ack({ ok: false, reason });
+    };
+
+    if (!pushStateLimiter()) return refuse('rate-limited');
+    if (!data || typeof data !== 'object') return refuse('refused');
     const { roomId, newState } = data;
-    if (typeof roomId !== 'string' || !newState || typeof newState !== 'object') return;
+    if (typeof roomId !== 'string' || !newState || typeof newState !== 'object') return refuse('refused');
     const room = rooms[roomId];
-    if (!room) return;
+    if (!room) return refuse('no-room');
 
     const isHost = room.host === socket.id;
     const activePlayer = room.state.currentPlayerIndex !== null
@@ -35,7 +62,11 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
       : null;
     const isActivePlayer = activePlayer?.socketId === socket.id;
 
-    if (!isHost && !isActivePlayer) return;
+    // Also what a push that overtook its own sender's rejoin looks like: the
+    // seat still carries the socket id of the connection that died. The client
+    // retries such a refusal once (see emitPushState in socketSlice.ts) rather
+    // than the seat being loosened here.
+    if (!isHost && !isActivePlayer) return refuse('unauthorized');
 
     // The host may legitimately reorder players (e.g. the random shuffle) only at
     // the moment the game starts. Outside that transition the server keeps its own
@@ -153,6 +184,37 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
     }
 
     emitRoomState(io, roomId);
+
+    // After the broadcast, so the version reported is the one the sender's own
+    // push produced. A discarded snapshot (the roster bail-out — the only way
+    // applyPushedState returns false) still broadcasts, because the
+    // bookkeeping above ran either way and the sender must re-derive from an
+    // authoritative state; it is simply not reported as accepted.
+    if (typeof ack === 'function') {
+      ack(applied ? { ok: true, stateVersion: room.stateVersion } : { ok: false, reason: 'stale-roster' });
+    }
+  });
+
+  /**
+   * "Send me the room as it is now" — answered to this socket alone.
+   *
+   * The recovery path for a client whose push was refused: it can no longer
+   * trust what it is rendering, and the room may not broadcast again for a
+   * whole turn. Read-only, so it does not advance the state version (see
+   * emitRoomStateTo) and a client that asks is not penalised with a state its
+   * own floor would then drop.
+   *
+   * Gated on the session rather than on a client-supplied membership claim,
+   * the same way sendReaction/kickPlayer/endGameStats are: `session.roomId` is
+   * the room this socket is actually seated in.
+   */
+  safeOn(socket, 'requestState', (data: { roomId?: string } | null | undefined) => {
+    if (!requestStateLimiter()) return;
+    if (!data || typeof data !== 'object') return;
+    const { roomId } = data;
+    if (typeof roomId !== 'string' || session.roomId !== roomId) return;
+    if (!rooms[roomId]) return;
+    emitRoomStateTo(socket, roomId);
   });
 
   // Dedicated low-overhead path for live dice-roll updates (fired ~every

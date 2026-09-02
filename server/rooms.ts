@@ -1,4 +1,4 @@
-import type { Server } from 'socket.io';
+import type { Server, Socket } from 'socket.io';
 import { buildDeck, getLeaders, noUndoableTurn } from '../src/utils/coreGameEngine';
 import { getEffectiveTurnDuration } from '../src/utils/turnDuration';
 import {
@@ -133,6 +133,9 @@ export const rememberCurrentTurn = (room: Room): void => {
 export const createRoom = (hostSocketId: string, createdBy = ''): Room => ({
   host: hostSocketId,
   createdBy,
+  // The first broadcast this room makes is version 1 (emitRoomState bumps
+  // before it sends), so nothing a client can apply ever carries 0.
+  stateVersion: 0,
   gameActualStartTime: null,
   turnTimerState: null,
   // Null-prototype for the same reason `rooms` is: the keys are client-supplied
@@ -427,19 +430,47 @@ const rememberFinishedGame = (room: Room): void => {
   recordDepartedSeatsStats(room);
 };
 
+/**
+ * The `gameState` payload: the whole room state with the deviceId-bearing
+ * player objects scrubbed, the two clock fields recomputed against now, and
+ * the room's current stateVersion.
+ *
+ * stateVersion is the client's ordering floor (see Room.stateVersion), so this
+ * builder deliberately does NOT bump it — emitRoomState does, exactly once per
+ * broadcast, which is what makes "one bump = one accepted mutation reaching
+ * the room" true no matter which of its dozen callers fired. A reply that
+ * merely re-sends what a client already has (emitRoomStateTo) re-uses the
+ * current version instead, so it is applied rather than dropped as stale.
+ */
+const buildGameStatePayload = (room: Room) => ({
+  ...room.state,
+  players: room.state.players.map(sanitizePlayerForBroadcast),
+  previousLeaders: room.state.previousLeaders
+    ? room.state.previousLeaders.map(sanitizePlayerForBroadcast)
+    : room.state.previousLeaders,
+  turnTimeRemaining: calculateRemainingTurnTime(room),
+  gameTimeInSeconds: calculateGameTime(room),
+  stateVersion: room.stateVersion,
+});
+
 export const emitRoomState = (io: Server, roomId: string): void => {
   const room = rooms[roomId];
   if (!room) return;
   rememberFinishedGame(room);
-  const gameState = {
-    ...room.state,
-    players: room.state.players.map(sanitizePlayerForBroadcast),
-    previousLeaders: room.state.previousLeaders
-      ? room.state.previousLeaders.map(sanitizePlayerForBroadcast)
-      : room.state.previousLeaders,
-    turnTimeRemaining: calculateRemainingTurnTime(room),
-    gameTimeInSeconds: calculateGameTime(room),
-  };
-  io.to(roomChannel(roomId)).emit('gameState', gameState);
+  room.stateVersion += 1;
+  io.to(roomChannel(roomId)).emit('gameState', buildGameStatePayload(room));
   io.to(roomChannel(roomId)).emit('hostId', room.host);
+};
+
+/**
+ * The same snapshot, to one socket only and without advancing the version —
+ * nothing changed, this is a re-read. Used by the `requestState` handler, which
+ * a client falls back to when its own push was refused and it can no longer
+ * trust what it is rendering.
+ */
+export const emitRoomStateTo = (socket: Socket, roomId: string): void => {
+  const room = rooms[roomId];
+  if (!room) return;
+  socket.emit('gameState', buildGameStatePayload(room));
+  socket.emit('hostId', room.host);
 };

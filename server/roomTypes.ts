@@ -135,6 +135,19 @@ export interface StartRosterEntry {
 
 export interface Room {
   host: string;
+  /**
+   * Monotonic counter of this room's broadcasts, bumped once per gameState
+   * emitRoomState sends and carried on the payload.
+   *
+   * Ordering metadata, not game state — which is why it lives on Room rather
+   * than RoomState: it is never pushable (a client that sends it is ignored,
+   * the same as any unknown key), never part of SYNCED_GAME_STATE_KEYS, and
+   * the client keeps it in a client-only field of its own
+   * (lastAppliedStateVersion). What it buys is a floor: a broadcast that
+   * overtakes a newer one can be recognised and dropped instead of silently
+   * reverting state the receiving client has already moved past.
+   */
+  stateVersion: number;
   // The client address this room was created from, for the per-address
   // creation cap (countRoomsCreatedBy). '' means it was not attributed to
   // any client — a room seeded directly by a test.

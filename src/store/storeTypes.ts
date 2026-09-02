@@ -78,6 +78,15 @@ export interface GameStore extends CoreGameState {
   isHost: boolean;
   hostId: string | null;
   myName: string | null;
+  // The `stateVersion` of the newest gameState broadcast this client has
+  // applied, and the floor for the next one: a broadcast carrying a LOWER
+  // version is a late straggler and is dropped, so it cannot overwrite state
+  // this client has already moved past. Client-only — server-derived metadata
+  // that is never pushed back (it is deliberately absent from
+  // SYNCED_GAME_STATE_KEYS) and never persisted. null means "no floor yet",
+  // which is where every join and every leave puts it: a new room's versions
+  // start over at zero, and a floor carried across would ignore all of them.
+  lastAppliedStateVersion: number | null;
   toasts: Toast[];
   reactions: Reaction[];
   diceMode: DiceMode;

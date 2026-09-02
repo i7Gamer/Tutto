@@ -304,6 +304,44 @@ export type SyncedGameStateKey = (typeof SYNCED_GAME_STATE_KEYS)[number];
 // which is where the client has always imported it from.
 export type ConfigKeys = 'winningScore' | 'initialCards' | 'randomOrder' | 'turnDuration' | 'reconnectTimeout' | 'enforcedDiceMode' | 'ruleset';
 
+/**
+ * Why the server refused a whole pushState.
+ *
+ * pushState used to be fire-and-forget: a refused push told the sender
+ * nothing, so the client kept a turn the room never accepted until the next
+ * broadcast silently overwrote it. The ack names the reason instead, and
+ * 'unauthorized' in particular is the one the client can recover from on its
+ * own — it is what a push that raced its own rejoin gets (see the parked-push
+ * flush in src/store/socketSlice.ts).
+ *
+ * Shared with the server (server/socketGameStateHandlers.ts), which is the
+ * only thing that produces these values.
+ */
+export const PUSH_REFUSAL_REASONS = [
+  // Neither the host nor the active player — including the transient case of
+  // a socket whose rejoin has not landed yet.
+  'unauthorized',
+  // The snapshot describes a table that no longer exists (applyPushedState's
+  // whole-push roster bail-out).
+  'stale-roster',
+  // The payload itself was not a usable pushState.
+  'refused',
+  // No such room (deleted while the push was in flight).
+  'no-room',
+  // The per-socket pushState rate limit.
+  'rate-limited',
+] as const;
+
+export type PushRefusalReason = (typeof PUSH_REFUSAL_REASONS)[number];
+
+/**
+ * What the server answers a pushState with, when the client passes a callback.
+ * A client that passes none (an older one) is served exactly as before.
+ */
+export type PushStateAck =
+  | { ok: true; stateVersion: number }
+  | { ok: false; reason: PushRefusalReason };
+
 // Instantiating this with anything but `never` is a compile error that names
 // the offending key ("Type '\"foo\"' does not satisfy the constraint 'never'").
 // The field-list locks are built on it: wrap Exclude<inventory, handled> in it

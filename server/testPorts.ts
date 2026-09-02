@@ -27,6 +27,7 @@ const BASE_PORTS = {
   socketsAuthorization: '3015',
   socketsPresence: '3016',
   socketsStats: '3017',
+  socketsResilience: '3020',
 
   // HTTP API suites.
   apiTokenProtection: '3006',

@@ -7,12 +7,12 @@ import { validateOnlineConfig } from './persistence';
 import { getSocket, setSocket } from './socketRef';
 import { REACTION_DISPLAY_MS } from '../utils/reactions';
 import { SYNCED_GAME_STATE_KEYS } from '../types';
-import type { Reaction, DiceSnapshot, AssertNever, SyncedGameStateKey } from '../types';
+import type { Reaction, DiceSnapshot, AssertNever, SyncedGameStateKey, PushStateAck } from '../types';
 import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from './storeTypes';
 import { finishedGameSnapshotOf, makeToast } from './gameSlice';
 import { clearTurnCaches } from '../utils/diceTurnState';
 import { joinErrorMessage } from '../utils/joinErrors';
-import { JOIN_TIMEOUT_MS } from '../utils/uiTimings';
+import { JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS } from '../utils/uiTimings';
 
 type SocketSlice = Pick<GameStore,
   | 'connectSocket' | 'joinRoom' | 'leaveRoom' | 'kickPlayer'
@@ -42,6 +42,7 @@ export const clearRoomState = (): Pick<GameStore,
   | 'previousWasSuccess' | 'previousHighestTurnScore'
   | 'previousHighestFeuerwerkTurnScore' | 'previousHighestX2TurnScore'
   | 'previousPlayerName' | 'previousTurnSummary' | 'finishedGameSnapshot'
+  | 'lastAppliedStateVersion'
 > => ({
   players: [],
   currentPlayerIndex: null,
@@ -78,6 +79,10 @@ export const clearRoomState = (): Pick<GameStore,
   historyLog: [],
   // The finished game goes with the room it was played in.
   finishedGameSnapshot: null,
+  // Versions are per-room and start over at zero in a freshly created room, so
+  // a floor carried out of the room just left would make the next room's whole
+  // opening sequence look stale and be ignored.
+  lastAppliedStateVersion: null,
   ...noUndoableTurn(),
 });
 
@@ -113,13 +118,64 @@ export type ClearRoomStateLock = [
 // alongside a new one.
 let pendingCancelReconnectCleanup: (() => void) | null = null;
 
+/** The exact bytes pushState puts on the wire — see the action at the bottom. */
+interface PushStatePayload {
+  roomId: string | null;
+  newState: Record<SyncedGameStateKey, unknown>;
+}
+
+/**
+ * The one push that could not be sent, held until this client's rejoin lands.
+ *
+ * socket.io-client would happily buffer the emit itself — and that is the bug.
+ * Its Socket#onconnect flushes the send buffer BEFORE it fires 'connect', so a
+ * buffered push arrives on the NEW socket id while the seat still carries the
+ * old one. The server (which has no connection-state recovery) then sees a
+ * socket that is neither host nor active player, drops the push silently, and
+ * the rejoin's own broadcast overwrites the turn the player already committed
+ * locally. Parking it here instead puts it behind the joinRoom ack.
+ *
+ * One slot, latest wins: every push is a full snapshot of the synced keys, so
+ * an older parked one describes a state the newer one already supersedes.
+ */
+let parkedPush: PushStatePayload | null = null;
+
+// The single retry armed for a push refused as 'unauthorized' right after a
+// reconnect (see emitPushState). Held so every teardown path can cancel it.
+let pushRejoinRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+// When this client last reconnected, or null if it has not. An 'unauthorized'
+// refusal within PUSH_REJOIN_RACE_WINDOW_MS of that is read as the rejoin race
+// rather than as a real refusal.
+let lastReconnectAt: number | null = null;
+
+/**
+ * Forgets any push this client is still holding for the current room.
+ *
+ * Module state, so `set(clearRoomState())` cannot reach it — every path that
+ * abandons the room (leaveRoom, the kicked/seatTakenOver surrender,
+ * cancelReconnect, useGameStore's reset) calls this alongside it. Without it a
+ * move made in a room the player has already left would be flushed into
+ * whatever room the next reconnect finds them in.
+ */
+export const clearPendingPush = (): void => {
+  parkedPush = null;
+  if (pushRejoinRetryTimer !== null) {
+    clearTimeout(pushRejoinRetryTimer);
+    pushRejoinRetryTimer = null;
+  }
+  lastReconnectAt = null;
+};
+
 // Test-only escape hatch, the socket twin of timers.ts's _resetTimersForTests:
 // the pending cleanup above is module state, so a cancelReconnect left
 // in flight by one test would be torn down by the NEXT test's call and
-// count against its disconnect assertions. reset() cannot reach it.
+// count against its disconnect assertions. reset() cannot reach it. The
+// parked push and its retry timer are module state for the same reason.
 export const _resetSocketSliceForTests = (): void => {
   pendingCancelReconnectCleanup?.();
   pendingCancelReconnectCleanup = null;
+  clearPendingPush();
 };
 
 type SocketSliceSet = Parameters<ImmerStateCreator<SocketSlice>>[0];
@@ -142,12 +198,74 @@ const submitGlobalStats = (get: SocketSliceGet): void => {
   });
 };
 
+/**
+ * Sends one push and acts on what the server says about it.
+ *
+ * The ack is optional on the wire in both directions: a server predating it
+ * simply never invokes the callback, which is indistinguishable from a push
+ * nobody objected to — so silence is success. A refusal is not silent:
+ *
+ *  - 'unauthorized' shortly after a reconnect is almost always this client's
+ *    own rejoin not having landed yet, so the same snapshot is re-sent ONCE
+ *    (`retryable` is false on that retry, and on every push that follows).
+ *  - anything else — and a second 'unauthorized' — is a push the room has
+ *    genuinely thrown away. The player is told, and a fresh snapshot is pulled
+ *    so the client stops rendering a turn the room never accepted.
+ */
+const emitPushState = (
+  sock: Socket,
+  payload: PushStatePayload,
+  get: SocketSliceGet,
+  retryable: boolean,
+): void => {
+  sock.emit('pushState', payload, (ack?: PushStateAck) => {
+    if (!ack || ack.ok) return;
+
+    const racedOwnRejoin = ack.reason === 'unauthorized' && retryable &&
+      lastReconnectAt !== null && Date.now() - lastReconnectAt <= PUSH_REJOIN_RACE_WINDOW_MS;
+    if (racedOwnRejoin) {
+      if (pushRejoinRetryTimer !== null) clearTimeout(pushRejoinRetryTimer);
+      pushRejoinRetryTimer = setTimeout(() => {
+        pushRejoinRetryTimer = null;
+        const current = getSocket();
+        if (current) emitPushState(current, payload, get, false);
+      }, PUSH_REJOIN_RETRY_DELAY_MS);
+      return;
+    }
+
+    get().addToast(i18n.t('game.toastPushRefused',
+      'Your last move was not accepted by the server; the game state was refreshed.'));
+    // Answered with a gameState to this socket alone. The room broadcasts on
+    // its own schedule, and a refused push may be the last thing that would
+    // have happened in it for a while — this client cannot afford to wait.
+    getSocket()?.emit('requestState', { roomId: payload.roomId });
+  });
+};
+
+/**
+ * Sends the push held for a transport drop, now that the rejoin has been acked.
+ *
+ * Cleared before the emit, not after: the flush must be one-shot even if the
+ * emit itself throws.
+ */
+const flushParkedPush = (get: SocketSliceGet): void => {
+  const payload = parkedPush;
+  parkedPush = null;
+  if (!payload) return;
+  const sock = getSocket();
+  if (sock) emitPushState(sock, payload, get, true);
+};
+
 // Wires every server->client event for one socket connection. Extracted out of
 // connectSocket (which just creates the socket and delegates here) so the
 // event-bus itself is a standalone, independently readable unit rather than a
 // 150-line inline factory.
 const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSliceSet): void => {
-  sock.on('gameState', (serverState: Partial<GameStore>) => {
+  // `stateVersion` rides alongside the synced fields (server/rooms.ts's
+  // emitRoomState bumps it once per broadcast) but is not one of them: it is
+  // server-derived metadata, deliberately absent from SYNCED_GAME_STATE_KEYS
+  // so the sync loop below cannot apply it and a push can never write it.
+  sock.on('gameState', (serverState: Partial<GameStore> & { stateVersion?: number }) => {
     // A broadcast can land after this client already returned to local mode
     // (leaveRoom/kicked flip the mode before the socket fully tears down).
     // Applying it would inject the online room into local state — which the
@@ -167,6 +285,18 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     // just stopped. roomId is set in the same tick as mode on the way in (the
     // joinRoom ack), so this closes a window rather than opening one.
     if (get().mode !== 'online' || !get().roomId) return;
+
+    // A straggler from before something this client has already applied — a
+    // broadcast that overtook a newer one, or the room's own pre-push state
+    // arriving after the push that superseded it. Applying it would undo a
+    // turn already committed here, and the next broadcast would not
+    // necessarily correct it. Only a STRICTLY lower version is dropped:
+    // equal still applies (the requestState reply re-sends the same version),
+    // and a missing one applies too, so an older server keeps working.
+    const incomingVersion = serverState.stateVersion;
+    const floor = get().lastAppliedStateVersion;
+    if (typeof incomingVersion === 'number' && floor !== null && incomingVersion < floor) return;
+
     const wasFinished = get().finished;
     set((prev) => {
       const wasDisconnected = prev.showReconnectPopup;
@@ -223,6 +353,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
       for (const key of GAME_STATE_SYNC_KEYS) {
         if (key in serverState) (prev as Record<string, unknown>)[key] = serverState[key];
       }
+      if (typeof incomingVersion === 'number') prev.lastAppliedStateVersion = incomingVersion;
 
       const isNewReconnect = wasDisconnected && serverState.status === 'playing';
       if (isNewReconnect) {
@@ -324,6 +455,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     get().stopOnlineTimers();
     sessionStore.remove('tutto_online_session');
     clearTurnCaches();
+    clearPendingPush();
     set(clearRoomState());
     get().setMode('local');
   };
@@ -356,6 +488,9 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
   });
 
   sock.on('connect', () => {
+    // Stamped before the early return: an 'unauthorized' push refusal is only
+    // excused as a rejoin race for a short window after this moment.
+    lastReconnectAt = Date.now();
     const { mode, roomId, myName, deviceId } = get();
     if (!roomId || !myName) {
       // Nothing to rejoin, so anything the drop raised is now stale. Limited
@@ -385,13 +520,21 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     sock.emit('joinRoom', { roomId, name: myName, deviceId, color: savedColor, isReconnect: true }, (res: JoinRoomResponse) => {
       clearTimeout(watchdog);
       if (res.success) {
-        set({ isHost: res.isHost ?? false, myName: res.name ?? myName });
+        // The floor goes with the connection: the room may have been
+        // recreated under the same id while this client was away, and its
+        // versions then start over below whatever floor was carried in.
+        set({ isHost: res.isHost ?? false, myName: res.name ?? myName, lastAppliedStateVersion: null });
+        // Only now: the seat is this socket's again, so the push made during
+        // the drop can finally pass the server's authorization gate.
+        flushParkedPush(get);
         return;
       }
       // The seat is unrecoverable (room deleted after the reconnect
       // timeout, name reclaimed, …) — retrying on the next 'connect'
       // can never succeed, so stop showing the "attempting to
-      // reconnect" popup and drop back to the online join form.
+      // reconnect" popup and drop back to the online join form. The parked
+      // push goes with it: there is no seat left for it to land in.
+      clearPendingPush();
       get().addToast(
         joinErrorMessage(res, (key, defaultValue) => i18n.t(key, defaultValue))
           ?? i18n.t('home.restore.failed', 'Failed to reconnect to the game'),
@@ -417,6 +560,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     pendingCancelReconnectCleanup = null;
 
     clearTurnCaches();
+    clearPendingPush();
     sessionStore.remove('tutto_online_session');
     set({ pendingReconnectSession: null, liveTurnState: null, showReconnectPopup: false });
 
@@ -526,6 +670,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     get().stopOnlineTimers();
     sessionStore.remove('tutto_online_session');
     clearTurnCaches();
+    clearPendingPush();
     set(clearRoomState());
   },
 
@@ -560,7 +705,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         previousPlayerName, previousTurnSummary, chartValues, chartNames, chartLabels, status,
         liveTurnState, enforcedDiceMode, ruleset, historyLog,
       } = s;
-      socket.emit('pushState', {
+      const payload: PushStatePayload = {
         roomId: s.roomId,
         newState: {
           players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
@@ -577,8 +722,19 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           // carry whatever the literal names — without this, a new synced
           // field passed every other lock and still never reached the wire,
           // where applyPushedState's allowlist loop silently dropped it.
+          //
+          // stateVersion is NOT here on purpose: it is the server's own
+          // counter, not a field a client may write.
         } satisfies Record<SyncedGameStateKey, unknown>,
-      });
+      };
+
+      // Park rather than let socket.io buffer it — see parkedPush for why
+      // the library's own buffering is the bug and not the fix.
+      if (!socket.connected) {
+        parkedPush = payload;
+        return;
+      }
+      emitPushState(socket, payload, get, true);
     }
   },
 
