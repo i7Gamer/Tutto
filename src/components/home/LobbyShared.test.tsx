@@ -794,7 +794,11 @@ describe('PlayerList row actions', () => {
     expect(screen.getByLabelText('lobby.playerColorLabel Nocolor')).toHaveValue('#ffffff');
   });
 
-  it('kicks online through the row button, passing the player object', () => {
+  // Kicking a live player from a room is not reversible the way reordering
+  // or a colour change is — the same reason End Game/Leave/Undo confirm
+  // (see GameControls.tsx) — so the row button now opens a confirm dialog
+  // instead of kicking on the tap itself.
+  it('kicks online only after the confirm dialog is accepted, passing the player object', () => {
     const onRemovePlayer = vi.fn();
     render(
       <PlayerList players={three as Player[]} reorderPlayers={vi.fn()} isOnline={true}
@@ -802,8 +806,26 @@ describe('PlayerList row actions', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'lobby.kickPlayer Bob' }));
+    expect(onRemovePlayer).not.toHaveBeenCalled();
+    expect(screen.getByText('lobby.kickConfirm')).toBeInTheDocument();
 
+    fireEvent.click(screen.getByText('common.confirm'));
     expect(onRemovePlayer).toHaveBeenCalledWith(expect.objectContaining({ name: 'Bob' }));
+    expect(screen.queryByText('lobby.kickConfirm')).toBeNull();
+  });
+
+  it('cancelling the kick confirm dialog does not remove the player', () => {
+    const onRemovePlayer = vi.fn();
+    render(
+      <PlayerList players={three as Player[]} reorderPlayers={vi.fn()} isOnline={true}
+        isHost={true} hostId="host1" myName="Alice" changeColor={vi.fn()} onRemovePlayer={onRemovePlayer} />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'lobby.kickPlayer Bob' }));
+    fireEvent.click(screen.getByText('common.cancel'));
+
+    expect(onRemovePlayer).not.toHaveBeenCalled();
+    expect(screen.queryByText('lobby.kickConfirm')).toBeNull();
   });
 
   it('removes offline through the trash button', () => {

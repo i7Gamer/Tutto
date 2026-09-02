@@ -152,3 +152,22 @@ describe('Win rule wording', () => {
     expect(readLocale(dePath)['help.general.intro']).toMatch(/runde/i);
   });
 });
+
+// The badge used to say a custom game "will not count toward the
+// statistics", contradicting end.customGameNotice/statistics.customGamesExplainer/
+// help.statistics.s7 and the README, which all agree custom games ARE
+// recorded (just kept out of the lifetime record). Pins the corrected wording.
+describe('lobby.customGameNoStats wording', () => {
+  it('en says the game is recorded under Custom, not that it goes uncounted', () => {
+    const value = readLocale(enPath)['lobby.customGameNoStats'];
+    expect(value).toContain('Custom');
+    expect(value.toLowerCase()).not.toContain('not count');
+  });
+
+  it('de says the game is recorded under "Angepasst", not that it goes uncounted', () => {
+    const value = readLocale(dePath)['lobby.customGameNoStats'];
+    expect(value).toContain('Angepasst');
+    expect(value).not.toMatch(/zählt nicht/i);
+    expect(value).not.toMatch(/nicht gezählt/i);
+  });
+});

@@ -391,7 +391,10 @@ describe('Game Component Integration', () => {
     expect(screen.getAllByText(/game.goalSuffix/).length).toBeGreaterThan(0);
   });
 
-  it('renders a Kick button next to disconnected player when current user is the host', () => {
+  // Kicking mid-game is not reversible, so the pill now opens the same kind
+  // of confirm dialog End Game/Leave/Undo use (see ConfirmModal.tsx) instead
+  // of kicking on the tap itself.
+  it('renders a Kick button next to disconnected player when current user is the host, and kicks only after confirming', () => {
     const kickPlayerMock = vi.fn();
     useGameStore.setState({
       isOnline: true,
@@ -412,7 +415,36 @@ describe('Game Component Integration', () => {
     expect(kickButton).toBeInTheDocument();
 
     fireEvent.click(kickButton);
+    expect(kickPlayerMock).not.toHaveBeenCalled();
+    expect(screen.getByText('lobby.kickConfirm')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('common.confirm'));
     expect(kickPlayerMock).toHaveBeenCalledWith('socket-client');
+    expect(screen.queryByText('lobby.kickConfirm')).toBeNull();
+  });
+
+  it('cancelling the mid-game kick confirm dialog does not kick the player', () => {
+    const kickPlayerMock = vi.fn();
+    useGameStore.setState({
+      isOnline: true,
+      isHost: true,
+      kickPlayer: kickPlayerMock,
+      players: [
+        { name: 'Alice', socketId: 'socket-host', score: 0, position: 1 },
+        { name: 'Bob', socketId: 'socket-client', score: 0, position: 2, disconnected: true }
+      ],
+      sortedPlayers: [
+        { name: 'Alice', socketId: 'socket-host', score: 0, position: 1 },
+        { name: 'Bob', socketId: 'socket-client', score: 0, position: 2, disconnected: true }
+      ]
+    });
+    render(<Game />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'game.kick' }));
+    fireEvent.click(screen.getByText('common.cancel'));
+
+    expect(kickPlayerMock).not.toHaveBeenCalled();
+    expect(screen.queryByText('lobby.kickConfirm')).toBeNull();
   });
 
   describe('Plus_Minus Card - Physical Dice (Manual Entry)', () => {

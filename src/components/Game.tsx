@@ -25,6 +25,7 @@ import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../utils/coreGameEngine';
 import { usePhysicalChain, readPhysicalChainCache } from '../hooks/usePhysicalChain';
 
 import ModalShell from './ModalShell';
+import ConfirmModal from './ConfirmModal';
 import Scoreboard from './game/Scoreboard';
 import CardDisplay from './game/CardDisplay';
 import GameControls from './game/GameControls';
@@ -132,6 +133,10 @@ export default function Game() {
   const [scoreInput, setScoreInput] = useState(() => (classicPhysical ? readPhysicalChainCache(physicalTurnKey)?.scoreInput : null) ?? '');
   const [applyBonus, setApplyBonus] = useState(false);
   const [showDiceGame, setShowDiceGame] = useState(false);
+  // Kicking a disconnected player mid-game is not reversible, so the pill
+  // opens the same confirm dialog End Game/Leave/Undo use (ConfirmModal,
+  // see GameControls.tsx) instead of kicking on the tap itself.
+  const [pendingKick, setPendingKick] = useState<{ socketId: string; name: string } | null>(null);
   // The physical counterpart of the digital panel's onStateChange (wired at
   // the bottom of this file). Straight to pushLiveTurnState rather than
   // setLiveTurnState: that one also writes the DIGITAL resume cache, and a
@@ -650,7 +655,7 @@ export default function Game() {
                           <span className="text-red-500 text-[10px] sm:text-xs font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50 whitespace-nowrap">{t('game.disconnected', 'Disconnected')}</span>
                           {isOnline && isHost && (
                             <button
-                              onClick={() => { if (p.socketId) kickPlayer(p.socketId); }}
+                              onClick={() => { if (p.socketId) setPendingKick({ socketId: p.socketId, name: p.name }); }}
                               className="text-red-600 dark:text-red-400 hover:text-white hover:bg-red-500 dark:hover:bg-red-600 px-2 py-0.5 text-[10px] sm:text-xs font-semibold rounded-full border border-red-200 dark:border-red-800 transition-colors shadow-xs ml-1"
                               title={t('game.kickPlayer', 'Kick Player')}
                             >
@@ -731,6 +736,17 @@ export default function Game() {
           />
         </ModalShell>
       )}
+
+      <ConfirmModal
+        open={pendingKick !== null}
+        danger
+        message={t('lobby.kickConfirm', 'Kick {{name}} from the game?', { name: pendingKick?.name ?? '' })}
+        onCancel={() => setPendingKick(null)}
+        onConfirm={() => {
+          if (pendingKick) kickPlayer(pendingKick.socketId);
+          setPendingKick(null);
+        }}
+      />
     </div>
   );
 }

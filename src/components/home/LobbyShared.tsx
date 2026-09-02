@@ -14,6 +14,7 @@ import { useGameStore } from '../../store/useGameStore';
 import { readableNameVars } from '../../utils/contrastColor';
 import { supportsIOSSwitchHaptic } from '../../utils/iosSwitchHaptic';
 import { REORDER_PRESS_RELEASE_MS } from '../../utils/uiTimings';
+import ConfirmModal from '../ConfirmModal';
 import './LobbyShared.css';
 
 interface PlayerListProps {
@@ -50,6 +51,14 @@ export function PlayerList({
   const pendingReorderTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(pendingReorderTimer.current), []);
 
+  // Kicking a connected player out of a live room is not reversible the way
+  // reordering or a colour change is — the same reason End Game/Leave/Undo
+  // confirm (see GameControls.tsx) — so an online kick opens this dialog
+  // instead of firing on the tap itself. Removing a not-yet-joined local
+  // player (isOnline false) stays a direct tap: there is no room to be
+  // kicked from, only a name typed a moment ago.
+  const [pendingKick, setPendingKick] = useState<Player | null>(null);
+
   const deferReorder = (newPlayers: Player[]) => {
     if (!reorderPlayers) return;
     clearTimeout(pendingReorderTimer.current);
@@ -73,102 +82,114 @@ export function PlayerList({
   if (!players || players.length === 0) return null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, height: 0 }}
-      animate={{ opacity: 1, height: 'auto' }}
-      exit={{ opacity: 0, height: 0 }}
-      className="bg-white dark:bg-slate-800/40 rounded-xl overflow-hidden mb-6 border border-gray-100 dark:border-slate-700"
-    >
-      <div className="w-full flex flex-col">
-        <AnimatePresence>
-          {players.map((p, idx) => {
-            const isMe = isOnline ? p.name === myName : true;
-            const streak = ruleset === 'classic' ? p.winStreakClassic : p.winStreak;
-            return (
-              <motion.div
-                key={p.id ?? p.name}
-                layout
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                className={`flex items-center justify-between p-3 border-b border-gray-100 dark:border-slate-700 last:border-0 hover:bg-white dark:bg-slate-800/50 transition-colors ${isOnline && isMe ? 'bg-indigo-50/50' : ''}`}
-              >
-                <div className="player-name font-semibold flex items-center gap-2" style={readableNameVars(p.color)}>
-                  {isMe ? (
-                    <input
-                      type="color"
-                      /* The player name rides OUTSIDE t(): every one of these
-                         labels names a specific row, and an interpolated name
-                         collapses to one identical string under the unit i18n
-                         mock — the same reason the recent-rooms remove button
-                         builds its label this way. */
-                      aria-label={`${t('lobby.playerColorLabel', 'Colour for:')} ${p.name}`}
-                      title={`${t('lobby.playerColorLabel', 'Colour for:')} ${p.name}`}
-                      value={p.color || '#ffffff'}
-                      onChange={(e) => changeColor(p, e.target.value)}
-                      className={`w-6 h-6 p-0 border-0 bg-transparent align-middle cursor-pointer ${!isOnline ? 'mr-1' : ''}`}
-                    />
-                  ) : (
-                    <span className="inline-block w-4 h-4 rounded-full shadow-xs border border-black/10" style={{ backgroundColor: p.color || '#ffffff' }} />
-                  )}
-                  {p.name}
-                  {isOnline && p.socketId === hostId && <Crown size={16} className="text-amber-500" />}
-                  {streak !== undefined && streak >= 3 && (
-                    <span title={t('lobby.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak })} className="text-amber-500 text-xs font-bold bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 flex items-center gap-0.5 whitespace-nowrap">
-                      🔥 {streak}
-                    </span>
-                  )}
-                  {p.disconnected && <span className="text-red-500 text-xs ml-1 font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50">{t('lobby.disconnected', 'Disconnected')}</span>}
-                </div>
-                <div className="whitespace-nowrap">
-                  <div className="flex items-center justify-end gap-1">
-                    {isHost && (
-                      <div className="w-[68px] flex items-center justify-center gap-1">
-                        {/* disabled accompanies aria-hidden: an aria-hidden element
-                            must not stay focusable (WCAG) — without it, a keyboard
-                            user can Tab onto an invisible (opacity-0) button. */}
-                        <button
-                          className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded-sm transition-colors ${idx === 0 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
-                          onClick={(e) => { e.currentTarget.blur(); if (idx > 0) handleMoveUp(idx); }}
-                          aria-label={`${t('lobby.movePlayerUp', 'Move up:')} ${p.name}`}
-                          title={`${t('lobby.movePlayerUp', 'Move up:')} ${p.name}`}
-                          aria-hidden={idx === 0}
-                          disabled={idx === 0}
-                        >
-                          <ChevronUp size={18} />
-                        </button>
-                        <button
-                          className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded-sm transition-colors ${idx === players.length - 1 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
-                          onClick={(e) => { e.currentTarget.blur(); if (idx < players.length - 1) handleMoveDown(idx); }}
-                          aria-label={`${t('lobby.movePlayerDown', 'Move down:')} ${p.name}`}
-                          title={`${t('lobby.movePlayerDown', 'Move down:')} ${p.name}`}
-                          aria-hidden={idx === players.length - 1}
-                          disabled={idx === players.length - 1}
-                        >
-                          <ChevronDown size={18} />
-                        </button>
-                      </div>
+    <>
+      <motion.div
+        initial={{ opacity: 0, height: 0 }}
+        animate={{ opacity: 1, height: 'auto' }}
+        exit={{ opacity: 0, height: 0 }}
+        className="bg-white dark:bg-slate-800/40 rounded-xl overflow-hidden mb-6 border border-gray-100 dark:border-slate-700"
+      >
+        <div className="w-full flex flex-col">
+          <AnimatePresence>
+            {players.map((p, idx) => {
+              const isMe = isOnline ? p.name === myName : true;
+              const streak = ruleset === 'classic' ? p.winStreakClassic : p.winStreak;
+              return (
+                <motion.div
+                  key={p.id ?? p.name}
+                  layout
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className={`flex items-center justify-between p-3 border-b border-gray-100 dark:border-slate-700 last:border-0 hover:bg-white dark:bg-slate-800/50 transition-colors ${isOnline && isMe ? 'bg-indigo-50/50' : ''}`}
+                >
+                  <div className="player-name font-semibold flex items-center gap-2" style={readableNameVars(p.color)}>
+                    {isMe ? (
+                      <input
+                        type="color"
+                        /* The player name rides OUTSIDE t(): every one of these
+                           labels names a specific row, and an interpolated name
+                           collapses to one identical string under the unit i18n
+                           mock — the same reason the recent-rooms remove button
+                           builds its label this way. */
+                        aria-label={`${t('lobby.playerColorLabel', 'Colour for:')} ${p.name}`}
+                        title={`${t('lobby.playerColorLabel', 'Colour for:')} ${p.name}`}
+                        value={p.color || '#ffffff'}
+                        onChange={(e) => changeColor(p, e.target.value)}
+                        className={`w-6 h-6 p-0 border-0 bg-transparent align-middle cursor-pointer ${!isOnline ? 'mr-1' : ''}`}
+                      />
+                    ) : (
+                      <span className="inline-block w-4 h-4 rounded-full shadow-xs border border-black/10" style={{ backgroundColor: p.color || '#ffffff' }} />
                     )}
-                    <div className="w-8 h-8 flex items-center justify-center ml-1">
-                      {(!isOnline || (isHost && p.socketId !== hostId)) && (
-                        <button
-                          className="text-red-500 hover:bg-red-100 active:bg-red-200 dark:hover:bg-red-900/40 dark:active:bg-red-900/60 w-full h-full flex items-center justify-center rounded-sm transition-colors"
-                          aria-label={`${isOnline ? t('lobby.kickPlayer', 'Kick:') : t('lobby.removePlayer', 'Remove:')} ${p.name}`}
-                          title={`${isOnline ? t('lobby.kickPlayer', 'Kick:') : t('lobby.removePlayer', 'Remove:')} ${p.name}`}
-                          onClick={() => onRemovePlayer(p)}
-                        >
-                          {isOnline ? <UserMinus size={18} /> : <Trash2 size={18} />}
-                        </button>
+                    {p.name}
+                    {isOnline && p.socketId === hostId && <Crown size={16} className="text-amber-500" />}
+                    {streak !== undefined && streak >= 3 && (
+                      <span title={t('lobby.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak })} className="text-amber-500 text-xs font-bold bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 flex items-center gap-0.5 whitespace-nowrap">
+                        🔥 {streak}
+                      </span>
+                    )}
+                    {p.disconnected && <span className="text-red-500 text-xs ml-1 font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50">{t('lobby.disconnected', 'Disconnected')}</span>}
+                  </div>
+                  <div className="whitespace-nowrap">
+                    <div className="flex items-center justify-end gap-1">
+                      {isHost && (
+                        <div className="w-[68px] flex items-center justify-center gap-1">
+                          {/* disabled accompanies aria-hidden: an aria-hidden element
+                              must not stay focusable (WCAG) — without it, a keyboard
+                              user can Tab onto an invisible (opacity-0) button. */}
+                          <button
+                            className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded-sm transition-colors ${idx === 0 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
+                            onClick={(e) => { e.currentTarget.blur(); if (idx > 0) handleMoveUp(idx); }}
+                            aria-label={`${t('lobby.movePlayerUp', 'Move up:')} ${p.name}`}
+                            title={`${t('lobby.movePlayerUp', 'Move up:')} ${p.name}`}
+                            aria-hidden={idx === 0}
+                            disabled={idx === 0}
+                          >
+                            <ChevronUp size={18} />
+                          </button>
+                          <button
+                            className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded-sm transition-colors ${idx === players.length - 1 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
+                            onClick={(e) => { e.currentTarget.blur(); if (idx < players.length - 1) handleMoveDown(idx); }}
+                            aria-label={`${t('lobby.movePlayerDown', 'Move down:')} ${p.name}`}
+                            title={`${t('lobby.movePlayerDown', 'Move down:')} ${p.name}`}
+                            aria-hidden={idx === players.length - 1}
+                            disabled={idx === players.length - 1}
+                          >
+                            <ChevronDown size={18} />
+                          </button>
+                        </div>
                       )}
+                      <div className="w-8 h-8 flex items-center justify-center ml-1">
+                        {(!isOnline || (isHost && p.socketId !== hostId)) && (
+                          <button
+                            className="text-red-500 hover:bg-red-100 active:bg-red-200 dark:hover:bg-red-900/40 dark:active:bg-red-900/60 w-full h-full flex items-center justify-center rounded-sm transition-colors"
+                            aria-label={`${isOnline ? t('lobby.kickPlayer', 'Kick:') : t('lobby.removePlayer', 'Remove:')} ${p.name}`}
+                            title={`${isOnline ? t('lobby.kickPlayer', 'Kick:') : t('lobby.removePlayer', 'Remove:')} ${p.name}`}
+                            onClick={() => (isOnline ? setPendingKick(p) : onRemovePlayer(p))}
+                          >
+                            {isOnline ? <UserMinus size={18} /> : <Trash2 size={18} />}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
-      </div>
-    </motion.div>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </div>
+      </motion.div>
+      <ConfirmModal
+        open={pendingKick !== null}
+        danger
+        message={t('lobby.kickConfirm', 'Kick {{name}} from the game?', { name: pendingKick?.name ?? '' })}
+        onCancel={() => setPendingKick(null)}
+        onConfirm={() => {
+          if (pendingKick) onRemovePlayer(pendingKick);
+          setPendingKick(null);
+        }}
+      />
+    </>
   );
 }
 
