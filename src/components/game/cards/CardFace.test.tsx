@@ -3,22 +3,33 @@ import { render, within } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import CardFace from './CardFace';
 import { getDisplayCardName } from '../../../utils/cardVisuals';
+import type { CardType } from '../../../types';
+import { nonNull } from '../../../testing/factories';
 
-const ALL_CARD_TYPES = [
+const ALL_CARD_TYPES: readonly CardType[] = [
   'Kniffel', 'Plus_Minus', 'x2',
   '200', '300', '400', '500', '600',
   'Feuerwerk', 'Kleeblatt', 'Stop',
 ];
 
+const BONUS_CARD_TYPES: readonly CardType[] = ['200', '300', '400', '500', '600'];
+
 describe('CardFace', () => {
   describe('unknown card type', () => {
+    // CardFace's cardType prop is the closed CardType union, and every real
+    // caller (CardDisplay, DrawnCardReveal) only ever passes one from a
+    // truthy-guarded branch — this value cannot occur through the type
+    // system. These two tests exercise the defensive fallback that catches
+    // it anyway, so they deliberately feed it something outside the union.
     it('renders nothing for an unrecognised card type', () => {
-      const { container } = render(<CardFace cardType="InvalidCard" />);
+      const invalidCardType = 'InvalidCard' as CardType;
+      const { container } = render(<CardFace cardType={invalidCardType} />);
       expect(container.firstChild).toBeNull();
     });
 
     it('renders nothing when cardType is undefined', () => {
-      const { container } = render(<CardFace />);
+      const undefinedCardType = undefined as unknown as CardType;
+      const { container } = render(<CardFace cardType={undefinedCardType} />);
       expect(container.firstChild).toBeNull();
     });
   });
@@ -54,7 +65,7 @@ describe('CardFace', () => {
     it.each([
       ['Plus_Minus', 'Plus/Minus'],
       ['300', '300 Bonus'],
-    ])('names %s the way the dice panel header does', (cardType, expected) => {
+    ] as [CardType, string][])('names %s the way the dice panel header does', (cardType, expected) => {
       const { container } = render(<CardFace cardType={cardType} />);
 
       expect(within(container).getByRole('img')).toHaveAccessibleName(expected);
@@ -81,25 +92,25 @@ describe('CardFace', () => {
   describe('card header values', () => {
     it('Kniffel shows "2000"', () => {
       const { container } = render(<CardFace cardType="Kniffel" />);
-      expect(container.querySelector('.val').textContent).toBe('2000');
+      expect(nonNull(container.querySelector('.val')).textContent).toBe('2000');
     });
 
     it('Plus_Minus shows "1000"', () => {
       const { container } = render(<CardFace cardType="Plus_Minus" />);
-      expect(container.querySelector('.val').textContent).toBe('1000');
+      expect(nonNull(container.querySelector('.val')).textContent).toBe('1000');
     });
 
     it('x2 shows "×2"', () => {
       const { container } = render(<CardFace cardType="x2" />);
-      expect(container.querySelector('.val').textContent).toBe('×2');
+      expect(nonNull(container.querySelector('.val')).textContent).toBe('×2');
     });
 
-    it.each(['200', '300', '400', '500', '600'])(
+    it.each(BONUS_CARD_TYPES)(
       '%s bonus card shows value and "Bonus" label',
       (value) => {
         const { container } = render(<CardFace cardType={value} />);
-        expect(container.querySelector('.val').textContent).toBe(value);
-        expect(container.querySelector('.b-txt').textContent).toBe('Bonus');
+        expect(nonNull(container.querySelector('.val')).textContent).toBe(value);
+        expect(nonNull(container.querySelector('.b-txt')).textContent).toBe('Bonus');
       }
     );
   });
@@ -161,7 +172,7 @@ describe('CardFace', () => {
       expect(container.querySelectorAll('.grd .die-face').length).toBe(6);
     });
 
-    it.each(['200', '300', '400', '500', '600'])(
+    it.each(BONUS_CARD_TYPES)(
       '%s has 6 dice in the .grd layout',
       (value) => {
         const { container } = render(<CardFace cardType={value} />);
@@ -189,7 +200,7 @@ describe('CardFace', () => {
     });
 
     it('each bonus card grid has 21 total dots (6+5+4+3+2+1)', () => {
-      ['200', '300', '400', '500', '600'].forEach((value) => {
+      BONUS_CARD_TYPES.forEach((value) => {
         const { container } = render(<CardFace cardType={value} />);
         expect(container.querySelectorAll('.grd .die-face i').length).toBe(21);
       });
