@@ -12,7 +12,7 @@
 ARG NODE_VERSION=24
 # Pinned: tsx runs the TypeScript server directly. Installed with the server
 # dependencies so the runtime CMD can load it as a node import hook.
-ARG TSX_VERSION=4.22.4
+ARG TSX_VERSION=4.23.13
 ARG APP_PORT=3001
 
 # ── Stage 1: build the frontend bundle ───────────────────────────────────────

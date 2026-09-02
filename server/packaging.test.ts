@@ -577,6 +577,23 @@ describe('the image runs the server as PID 1', () => {
     expect(readDockerfile()).not.toMatch(/npm\s+install\s+-g\s+tsx/);
   });
 
+  it('pins TSX_VERSION to the same tsx the lockfile gives dev and CI', () => {
+    // The image installs tsx fresh at this ARG's pin (stage 2's `npm install
+    // --no-save`); everywhere else — a local `npm run start:prod`, CI — runs
+    // whatever the lockfile resolved. Left to drift, the image runs a tsx the
+    // rest of the project never actually tests against.
+    const argMatch = /^ARG\s+TSX_VERSION=(\S+)\s*$/m.exec(readDockerfile());
+    expect(argMatch, 'no ARG TSX_VERSION=<version> found in the Dockerfile').not.toBeNull();
+
+    const lockfile = JSON.parse(
+      fs.readFileSync(path.join(REPO_ROOT, 'package-lock.json'), 'utf8'),
+    ) as { packages: Record<string, { version?: string }> };
+    const lockedVersion = lockfile.packages['node_modules/tsx']?.version;
+    expect(lockedVersion, 'no node_modules/tsx entry in package-lock.json').toBeDefined();
+
+    expect(argMatch![1]).toBe(lockedVersion);
+  });
+
   // The Dockerfile was the only launcher this described. `start:prod` is the
   // production-from-source route the README documents, and it kept the exact
   // form the image was moved away from — including on Windows, where libuv
