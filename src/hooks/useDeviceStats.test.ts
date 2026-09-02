@@ -5,6 +5,7 @@ import {
   STATS_FETCH_MAX_RETRIES, STATS_FETCH_RETRY_DELAY_MS, STATS_FETCH_INITIAL_DELAY_MS,
   type DeviceStatsRetryOptions,
 } from './useDeviceStats';
+import type { GameMode } from '../types';
 
 interface Stats { gamesPlayed: number; wins: number }
 
@@ -154,16 +155,16 @@ describe('useDeviceStats', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const { result, rerender } = renderHook(
-      ({ deviceId, mode }) => useDeviceStats<Stats>(deviceId, mode),
-      { initialProps: { deviceId: 'device-1', mode: 'normalized' as const } },
+      ({ deviceId, mode }: { deviceId: string; mode: GameMode }) => useDeviceStats<Stats>(deviceId, mode),
+      { initialProps: { deviceId: 'device-1', mode: 'normalized' } },
     );
     await waitFor(() => expect(result.current.status).toBe('ready'));
     expect(result.current.stats).toEqual({ gamesPlayed: 3, wins: 1 });
 
-    rerender({ deviceId: 'device-1', mode: 'custom' as const });
+    rerender({ deviceId: 'device-1', mode: 'custom' });
     await waitFor(() => expect(result.current.stats).toEqual({ gamesPlayed: 9, wins: 1 }));
 
-    rerender({ deviceId: 'device-2', mode: 'custom' as const });
+    rerender({ deviceId: 'device-2', mode: 'custom' });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       '/api/stats/device?mode=custom',
       { headers: { 'x-tutto-device': 'device-2' } },
