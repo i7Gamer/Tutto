@@ -15,16 +15,20 @@ vi.mock('react-i18next', async () => {
 // assertions below keep checking the human-readable label.
 const tMock = (_key: string, defaultValue?: string) => defaultValue ?? _key;
 
+// The real useTranslation() return type carries a branded TFunction and a
+// 30+-member i18n instance; LanguageSwitcher only ever reads t, i18n.language
+// and i18n.changeLanguage. Threading a minimal stand-in through unknown once
+// here, rather than fabricating (or `any`-ing away) the rest of i18next's
+// surface, is what "type it as unknown at the boundary" means for a
+// third-party hook whose full shape isn't the thing under test.
+const mockUseTranslation = (i18n: { language: string; changeLanguage: (lng: string) => void }) => {
+  vi.mocked(useTranslation).mockReturnValue({ t: tMock, i18n } as unknown as ReturnType<typeof useTranslation>);
+};
+
 describe('LanguageSwitcher', () => {
   it('renders correctly and switches language', () => {
     const changeLanguageMock = vi.fn();
-    useTranslation.mockReturnValue({
-      t: tMock,
-      i18n: {
-        language: 'en',
-        changeLanguage: changeLanguageMock,
-      },
-    });
+    mockUseTranslation({ language: 'en', changeLanguage: changeLanguageMock });
 
     render(<LanguageSwitcher />);
 
@@ -41,10 +45,7 @@ describe('LanguageSwitcher', () => {
   });
 
   it('exposes aria-label and aria-pressed reflecting the active language (COMP-ISSUE-37)', () => {
-    useTranslation.mockReturnValue({
-      t: tMock,
-      i18n: { language: 'en', changeLanguage: vi.fn() },
-    });
+    mockUseTranslation({ language: 'en', changeLanguage: vi.fn() });
 
     render(<LanguageSwitcher />);
 
