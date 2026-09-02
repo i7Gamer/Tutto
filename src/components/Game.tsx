@@ -293,7 +293,11 @@ export default function Game() {
 
   const handleNextTurn = useCallback(() => {
     let parsedScore = parseScoreInput(scoreInput);
-    if (applyBonus) {
+    // A bonus multiplies or adds to a SCORED turn — applyTuttoBonus(0, '400')
+    // is 400, so applying it to an empty box used to bank the bonus alone
+    // (nextTurn(400, true)) for a turn that scored nothing. Zero scored means
+    // nothing banked, the same as the empty-box bust path.
+    if (applyBonus && parsedScore > 0) {
       parsedScore = applyTuttoBonus(parsedScore, currentCard);
     }
     if (isClassic) {

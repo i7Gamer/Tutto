@@ -162,6 +162,36 @@ describe('Game Component Integration', () => {
     expect(mockNextTurn).toHaveBeenCalledWith(1400, true);
   });
 
+  // Bug: applyTuttoBonus(0, '400') = 0 + 400 = 400, so checking "Apply bonus"
+  // with an empty score box banked the bonus alone — nextTurn(400, true) for
+  // a turn that scored nothing. A bonus multiplies or adds to a SCORED turn;
+  // zero scored means nothing banked, the same as the empty-box bust path.
+  it('does not bank the bonus alone when the score box is empty', () => {
+    useGameStore.setState({ currentCard: '400' });
+    render(<Game />);
+
+    const bonusCheck = screen.getByLabelText(/game.controls.applyBonus/i);
+    fireEvent.click(bonusCheck);
+
+    const submitBtn = screen.getByRole('button', { name: /game.controls.nextTurn/i });
+    fireEvent.click(submitBtn);
+
+    expect(mockNextTurn).toHaveBeenCalledWith(0, false);
+  });
+
+  it('does not bank the bonus alone when the score box is empty (x2)', () => {
+    useGameStore.setState({ currentCard: 'x2' });
+    render(<Game />);
+
+    const bonusCheck = screen.getByLabelText(/game.controls.applyBonus/i);
+    fireEvent.click(bonusCheck);
+
+    const submitBtn = screen.getByRole('button', { name: /game.controls.nextTurn/i });
+    fireEvent.click(submitBtn);
+
+    expect(mockNextTurn).toHaveBeenCalledWith(0, false);
+  });
+
   it('does not render "Apply bonus" checkbox for normal cards', () => {
     useGameStore.setState({ currentCard: 'Kniffel', currentCardHasInput: false });
     const { unmount } = render(<Game />);
