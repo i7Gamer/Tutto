@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parseSavedDiceState, buildDiceSnapshot, buildTurnKey, DICE_TURN_STATE_KEY, PHYSICAL_TURN_STATE_KEY } from './diceTurnState';
 import { MAX_CHAIN_CARDS } from '../types';
+import { nonNull } from '../testing/factories';
 
 describe('the cached-turn storage keys', () => {
   // Deliberately the raw strings and not the constants: this is the one place
@@ -81,7 +82,11 @@ describe('diceTurnState', () => {
   describe('parseSavedDiceState', () => {
     it('returns null for empty/missing input', () => {
       expect(parseSavedDiceState(null)).toBeNull();
-      expect(parseSavedDiceState(undefined)).toBeNull();
+      // parseSavedDiceState's real caller (localStorage.getItem) only ever
+      // hands back string | null, never undefined — but the `!raw` guard
+      // treats every falsy input alike, so this deliberately feeds it a
+      // value outside the declared domain to prove that holds.
+      expect(parseSavedDiceState(undefined as unknown as string | null)).toBeNull();
       expect(parseSavedDiceState('')).toBeNull();
     });
 
@@ -122,8 +127,8 @@ describe('diceTurnState', () => {
     });
 
     it('coerces busted to a boolean', () => {
-      expect(parseSavedDiceState(JSON.stringify({ busted: 1 })).busted).toBe(true);
-      expect(parseSavedDiceState(JSON.stringify({ busted: 0 })).busted).toBe(false);
+      expect(nonNull(parseSavedDiceState(JSON.stringify({ busted: 1 }))).busted).toBe(true);
+      expect(nonNull(parseSavedDiceState(JSON.stringify({ busted: 0 }))).busted).toBe(false);
     });
 
     it('returns undefined playerName for legacy snapshots that do not contain the field', () => {
