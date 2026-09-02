@@ -60,6 +60,28 @@ describe('EndScreen Component', () => {
     expect(confetti).toHaveBeenCalledTimes(1);
   });
 
+  it('wraps a long winner name instead of widening the page', () => {
+    // A 30-character name (the allowed maximum) is one unbreakable word to
+    // the layout. Without break-words the 5xl heading widened the mobile
+    // viewport to ~836px and the browser zoomed the whole screen out; the
+    // stats-table header cells (fixed w-32) bled the same name into the
+    // neighbouring column.
+    const longName = 'Maximilian-Alexander-Schmidt30';
+    const players = [
+      { name: longName, score: 10000, position: 1 },
+      { name: 'Bob', score: 5000, position: 2 },
+    ];
+    useGameStore.setState({ players, sortedPlayers: players });
+
+    const { getByText, getAllByText } = render(<EndScreen />);
+
+    expect(getByText(`end.winner ${longName}`)).toHaveClass('break-words');
+    const headerCell = getAllByText(longName).find(el => el.classList.contains('player-name'));
+    expect(headerCell).toBeDefined();
+    expect(headerCell).toHaveClass('truncate');
+    expect(headerCell).toHaveAttribute('title', longName);
+  });
+
   it('renders flex div structure instead of table to avoid transform bugs', () => {
     const { container } = render(<EndScreen />);
     

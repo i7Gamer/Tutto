@@ -218,6 +218,25 @@ describe('App Integration (End-to-End)', () => {
     expect(live).toHaveTextContent('Host ended game early');
   });
 
+  it('lets a long toast wrap instead of overflowing the phone viewport', () => {
+    // A toast is the only notice a player gets for losing a seat (kicked, a
+    // name conflict, a superseded session), and it removes itself after
+    // TOAST_LIFETIME_MS. Rendered nowrap inside a translate-centred fixed
+    // container, a long message overflowed BOTH edges at phone widths, so the
+    // one line that explained what happened was mostly off-screen.
+    render(<App />);
+    const message = 'Your seat in room ABCDEF was taken over by another device using the same name';
+
+    act(() => {
+      useGameStore.setState({ toasts: [{ id: 1, message }] });
+    });
+
+    const toast = screen.getByText(message);
+    expect(toast).not.toHaveClass('whitespace-nowrap');
+    expect(toast).toHaveClass('break-words');
+    expect(toast).toHaveClass('max-w-[calc(100vw-2rem)]');
+  });
+
   it('clears a toast once its time is up', () => {
     vi.useFakeTimers();
     render(<App />);

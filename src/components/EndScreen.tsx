@@ -256,7 +256,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
           </div>
         </motion.div>
 
-        <h1 className="text-5xl font-extrabold text-transparent bg-clip-text bg-linear-to-r from-amber-500 to-orange-600 mb-8">
+        <h1 className="text-5xl font-extrabold text-transparent bg-clip-text bg-linear-to-r from-amber-500 to-orange-600 mb-8 break-words">
           {t('end.winner', 'Winner:')} {winner.name}
         </h1>
 
@@ -430,7 +430,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
             <div className="flex border-b border-gray-200 dark:border-slate-600 bg-black/5 dark:bg-white/5">
               <div className="p-4 w-56 shrink-0 font-bold text-gray-600 dark:text-gray-300">{t('end.stat', 'Stat')}</div>
               {sortedPlayers.map(p => (
-                <div key={p.id ?? p.name} className="player-name p-4 w-32 shrink-0 font-bold text-center" style={readableNameVars(p.color)}>{p.name}</div>
+                <div key={p.id ?? p.name} className="player-name p-4 w-32 shrink-0 font-bold text-center truncate" style={readableNameVars(p.color)} title={p.name}>{p.name}</div>
               ))}
             </div>
             <div className="flex flex-col">
