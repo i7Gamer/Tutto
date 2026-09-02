@@ -3,6 +3,7 @@ import database from './database';
 import { useGameStore } from '../src/store/useGameStore';
 import { buildDeviceStatsPayload } from '../src/utils/coreGameEngine';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { nonNull } from '../src/testing/factories';
 
 // Force the test DB
 process.env.TEST_DB = 'true';
@@ -86,7 +87,12 @@ describe('End-to-End Statistics Integration', () => {
     const playerCount1 = useGameStore.getState().players.length;
 
     const payload1 = useGameStore.getState().buildGlobalStatsPayload();
-    await database.updateGlobalStats(payload1);
+    // Spread into a fresh literal: database.updateGlobalStats takes the
+    // loosely-typed StatsPayload (server/sanitize.ts's output shape), and a
+    // reference to the strongly-typed GlobalStatsPayload variable itself
+    // isn't assignable to an index-signature type without one — the same
+    // reason every production caller (socketStatsHandlers.ts) spreads too.
+    await database.updateGlobalStats({ ...payload1 });
 
     // The payload the app actually builds, not a copy of it. The copy that
     // used to stand here had drifted: no totalTuttos, neither classic record,
@@ -102,7 +108,7 @@ describe('End-to-End Statistics Integration', () => {
       return stats!;
     };
 
-    await database.updateDeviceStats(mockDeviceId, payloadFor(50));
+    await database.updateDeviceStats(mockDeviceId, { ...payloadFor(50) });
 
     // ==========================================
     // GAME 2
@@ -134,15 +140,15 @@ describe('End-to-End Statistics Integration', () => {
     const playerCount2 = useGameStore.getState().players.length;
 
     const payload2 = useGameStore.getState().buildGlobalStatsPayload();
-    await database.updateGlobalStats(payload2);
+    await database.updateGlobalStats({ ...payload2 });
 
-    await database.updateDeviceStats(mockDeviceId, payloadFor(120));
+    await database.updateDeviceStats(mockDeviceId, { ...payloadFor(120) });
 
     // ==========================================
     // ASSERTIONS
     // ==========================================
-    const globalStats = await database.getGlobalStats();
-    const deviceStats = await database.getDeviceStats(mockDeviceId);
+    const globalStats = nonNull(await database.getGlobalStats());
+    const deviceStats = nonNull(await database.getDeviceStats(mockDeviceId));
 
     expect(globalStats.totalGamesPlayed).toBeGreaterThanOrEqual(2);
     expect(globalStats.totalPlaytime).toBeGreaterThanOrEqual(170);
