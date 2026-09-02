@@ -91,6 +91,81 @@ describe('pushState turn-timer restarts', () => {
   });
 });
 
+describe('pushState authorization', () => {
+  // The spawned-server twin of this check (sockets.authorization.test.ts)
+  // could not fail: its hostile push carried `players: []`, which the roster
+  // gate discards before the authorization line is ever consulted. These
+  // cases push a lone `currentPlayerIndex` — the field nothing but the
+  // authorization line stands between a bystander and.
+  const roomId = 'AUTHZ-ROOM';
+  const ACTIVE_INDEX = 1;
+
+  const seat = (socketId: string, username: string) => {
+    const fake = makeFakeSocket(socketId);
+    const { io, emit } = makeFakeIo();
+    registerGameStateHandlers({ io, socket: fake.socket, session: { roomId, username } });
+    return { pushState: fake.handlers['pushState'], emit };
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    rooms[roomId] = createRoom('host-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: false, currentPlayerIndex: ACTIVE_INDEX, currentCard: '300',
+      cards: ['200'], round: 1, turnDuration: 60, turnStartTime: Date.now(),
+      winningScore: 6000,
+      players: [
+        makePlayer('Alice', 'host-sock'),
+        makePlayer('Bob', 'active-sock'),
+        makePlayer('Carol', 'bystander-sock'),
+      ],
+    });
+  });
+
+  afterEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.useRealTimers();
+  });
+
+  it('ignores a seated bystander who is neither host nor the active player', () => {
+    const carol = seat('bystander-sock', 'Carol');
+
+    carol.pushState({ roomId, newState: { currentPlayerIndex: 2 } });
+
+    expect(rooms[roomId].state.currentPlayerIndex, 'the turn stays where it was').toBe(ACTIVE_INDEX);
+    expect(carol.emit, 'a refused push is not broadcast').not.toHaveBeenCalled();
+  });
+
+  it('ignores a socket that is not seated in the room at all', () => {
+    const stranger = seat('stranger-sock', 'Mallory');
+
+    stranger.pushState({ roomId, newState: { currentPlayerIndex: 2 } });
+
+    expect(rooms[roomId].state.currentPlayerIndex).toBe(ACTIVE_INDEX);
+    expect(stranger.emit).not.toHaveBeenCalled();
+  });
+
+  it('accepts the same push from the active player, who is not the host', () => {
+    // The control: without it the refusals above would also pass for a
+    // handler that ignores everyone.
+    const bob = seat('active-sock', 'Bob');
+
+    bob.pushState({ roomId, newState: { currentPlayerIndex: 2 } });
+
+    expect(rooms[roomId].state.currentPlayerIndex).toBe(2);
+    expect(bob.emit).toHaveBeenCalled();
+  });
+
+  it('accepts it from the host, who is not the active player', () => {
+    const alice = seat('host-sock', 'Alice');
+
+    alice.pushState({ roomId, newState: { currentPlayerIndex: 2 } });
+
+    expect(rooms[roomId].state.currentPlayerIndex).toBe(2);
+  });
+});
+
 describe('pushState may not leave a running game with nobody to act', () => {
   const roomId = 'STALL-ROOM';
   let pushState: Handler;

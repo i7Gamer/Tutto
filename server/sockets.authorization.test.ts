@@ -51,12 +51,15 @@ describe('Server Socket E2E — authorization & payload validation', () => {
 
             setTimeout(() => {
               // Bob is not host and not the active player → this must be
-              // ignored. currentPlayerIndex is in the payload deliberately:
-              // the roster and status are independently sanitised downstream,
-              // so a push of those alone stays harmless even with the
-              // authorization check removed. Seizing the turn is the part only
-              // this check stands between Bob and.
-              s2.emit('pushState', { roomId: 'E2E_AUTH', newState: { players: [], status: 'hacked', currentPlayerIndex: 1 } });
+              // ignored. The payload is a lone currentPlayerIndex on purpose:
+              // an earlier version also sent `players: []`, and the roster
+              // gate in applyPushedState discards any push whose roster does
+              // not match BEFORE the authorization line is consulted — so that
+              // push was refused with or without the check, and deleting the
+              // check left every server test green. Seizing the turn is the
+              // one thing nothing but the authorization line stands between
+              // Bob and.
+              s2.emit('pushState', { roomId: 'E2E_AUTH', newState: { currentPlayerIndex: 1 } });
               // Alice may push; her round bump is what ends the test, and it
               // can only arrive from a room that was live enough to have taken
               // Bob's push too, had the server been willing to.
@@ -69,7 +72,7 @@ describe('Server Socket E2E — authorization & payload validation', () => {
       });
 
       s1.on('gameState', (state) => {
-        if (state.status === 'hacked' || state.players?.length === 0 || state.currentPlayerIndex === 1) {
+        if (state.currentPlayerIndex === 1) {
           clearTimeout(timeoutId);
           s1.disconnect();
           s2.disconnect();
