@@ -1,12 +1,13 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { Profiler } from 'react';
 import '@testing-library/jest-dom';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, type Mock } from 'vitest';
 import Game from './Game';
 import { useGameStore, _resetTimersForTests } from '../store/useGameStore';
-import { MAX_CHAIN_CARDS } from '../types';
+import { MAX_CHAIN_CARDS, type TurnSummary } from '../types';
 import { STOP_CARD_AUTO_CONTINUE_MS, CARD_FLIP_MS } from '../utils/uiTimings';
 import { vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
+import { makePlayer, makeDiceSnapshot, nonNull } from '../testing/factories';
 
 vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
@@ -37,7 +38,7 @@ vi.mock('./DiceGame', () => ({
 }));
 
 describe('Game Component Integration', () => {
-  let mockNextTurn;
+  let mockNextTurn: Mock<(scoreInput: number, isSuccess?: boolean, turnSummary?: TurnSummary) => void>;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -58,11 +59,9 @@ describe('Game Component Integration', () => {
     useGameStore.setState({
       enforcedDiceMode: null,
       currentPlayerIndex: 0,
-      currentPlayer: { name: 'Alice', socketId: 'socket1', score: 0, position: 1 },
       currentCard: 'x2',
       nextTurn: mockNextTurn,
       isOnline: true,
-      socketId: 'socket1',
       hostId: 'socket1',
       myName: 'Alice',
       winningScore: 6000,
@@ -74,14 +73,9 @@ describe('Game Component Integration', () => {
       // yes/no and score-input controls DO for every test declared after it
       // (classic routes them through the chain, not straight to nextTurn).
       ruleset: 'modernized',
-      currentCardHasInput: true,
-      currentCardHasYesNo: false,
       players: [
-        { name: 'Alice', socketId: 'socket1', score: 0, position: 1 }
+        makePlayer({ name: 'Alice', socketId: 'socket1', position: 1 })
       ],
-      sortedPlayers: [
-        { name: 'Alice', socketId: 'socket1', score: 0, position: 1 }
-      ]
     });
   });
 
@@ -94,7 +88,7 @@ describe('Game Component Integration', () => {
   });
 
   it('renders crown emoji for the host player in online games', () => {
-    useGameStore.setState({ isOnline: true, hostId: 'socket1', myName: 'Alice', socketId: 'socket1' });
+    useGameStore.setState({ isOnline: true, hostId: 'socket1', myName: 'Alice' });
     render(<Game />);
     
     // Check for the "You" string, we don't test Scoreboard here directly unless it's rendered,
@@ -193,12 +187,12 @@ describe('Game Component Integration', () => {
   });
 
   it('does not render "Apply bonus" checkbox for normal cards', () => {
-    useGameStore.setState({ currentCard: 'Kniffel', currentCardHasInput: false });
+    useGameStore.setState({ currentCard: 'Kniffel' });
     const { unmount } = render(<Game />);
     expect(screen.queryByLabelText('game.controls.applyBonus')).not.toBeInTheDocument();
     unmount();
 
-    useGameStore.setState({ currentCard: 'Feuerwerk', currentCardHasInput: true });
+    useGameStore.setState({ currentCard: 'Feuerwerk' });
     render(<Game />);
     expect(screen.queryByLabelText('game.controls.applyBonus')).not.toBeInTheDocument();
   });
@@ -248,7 +242,7 @@ describe('Game Component Integration', () => {
   });
 
   it('does NOT automatically advance turn if it is NOT the players turn', () => {
-    useGameStore.setState({ currentCard: 'Stop', myName: 'Bob', socketId: 'socket2' });
+    useGameStore.setState({ currentCard: 'Stop', myName: 'Bob' });
     
     render(<Game />);
 
@@ -441,11 +435,8 @@ describe('Game Component Integration', () => {
     useGameStore.setState({
       winningScore: 5000,
       players: [
-        { name: 'Bob', socketId: 'socket1', score: 0, position: 1, disconnected: true }
+        makePlayer({ name: 'Bob', socketId: 'socket1', position: 1, disconnected: true })
       ],
-      sortedPlayers: [
-        { name: 'Bob', socketId: 'socket1', score: 0, position: 1, disconnected: true }
-      ]
     });
     render(<Game />);
 
@@ -468,13 +459,9 @@ describe('Game Component Integration', () => {
       isHost: true,
       kickPlayer: kickPlayerMock,
       players: [
-        { name: 'Alice', socketId: 'socket-host', score: 0, position: 1 },
-        { name: 'Bob', socketId: 'socket-client', score: 0, position: 2, disconnected: true }
+        makePlayer({ name: 'Alice', socketId: 'socket-host', position: 1 }),
+        makePlayer({ name: 'Bob', socketId: 'socket-client', position: 2, disconnected: true }),
       ],
-      sortedPlayers: [
-        { name: 'Alice', socketId: 'socket-host', score: 0, position: 1 },
-        { name: 'Bob', socketId: 'socket-client', score: 0, position: 2, disconnected: true }
-      ]
     });
     render(<Game />);
 
@@ -497,13 +484,9 @@ describe('Game Component Integration', () => {
       isHost: true,
       kickPlayer: kickPlayerMock,
       players: [
-        { name: 'Alice', socketId: 'socket-host', score: 0, position: 1 },
-        { name: 'Bob', socketId: 'socket-client', score: 0, position: 2, disconnected: true }
+        makePlayer({ name: 'Alice', socketId: 'socket-host', position: 1 }),
+        makePlayer({ name: 'Bob', socketId: 'socket-client', position: 2, disconnected: true }),
       ],
-      sortedPlayers: [
-        { name: 'Alice', socketId: 'socket-host', score: 0, position: 1 },
-        { name: 'Bob', socketId: 'socket-client', score: 0, position: 2, disconnected: true }
-      ]
     });
     render(<Game />);
 
@@ -711,7 +694,7 @@ describe('Game Component Integration', () => {
       // forfeited either — the summary must not claim a completed card AND a
       // forfeit AND a tutto all from the same zero-value turn.
       const summary = mockNextTurn.mock.calls[0][2];
-      expect(summary.forfeitedScore).toBeUndefined();
+      expect(nonNull(summary).forfeitedScore).toBeUndefined();
     });
 
     it('a bust forfeits the chain and records what it cost', () => {
@@ -786,7 +769,6 @@ describe('Game Component Integration', () => {
         currentCard: 'Kniffel',
         pushLiveTurnState: mockPush,
         myName: 'Bob',
-        currentPlayer: { name: 'Alice', socketId: 'socket1', score: 0, position: 1 },
       });
       render(<Game />);
 
@@ -1039,7 +1021,7 @@ describe('Game Component Integration', () => {
 
         fireEvent.click(screen.getByText('game.controls.nextTurn'));
         expect(mockNextTurn).toHaveBeenCalledWith(500, true, expect.objectContaining({ ended: 'banked' }));
-        expect(mockNextTurn.mock.calls[0][2].cards).toHaveLength(MAX_CHAIN_CARDS);
+        expect(nonNull(mockNextTurn.mock.calls[0][2]).cards).toHaveLength(MAX_CHAIN_CARDS);
       });
 
       it('allows the draw right up to the cap, then refuses', () => {
@@ -1188,7 +1170,7 @@ describe('Game Component Integration', () => {
         diceMode: 'digital',
         myName: 'LocalPlayer',
         players: [
-          { name: 'LocalPlayer', score: 0, position: 1, color: '#FF5733' }
+          makePlayer({ name: 'LocalPlayer', position: 1, color: '#FF5733' })
         ],
       });
     });
@@ -1241,7 +1223,7 @@ describe('Game Component Integration', () => {
       // Simulate liveTurnState being written after first dice roll (DiceGame calls onStateChange)
       act(() => {
         useGameStore.setState({
-          liveTurnState: { turnScore: 50, keptDice: [], currentRoll: [] }
+          liveTurnState: makeDiceSnapshot({ turnScore: 50 })
         });
         // This also writes to localStorage (as setLiveTurnState does)
         localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 50, turnKey: 'local:1:0:x2:modernized' }));
@@ -1268,7 +1250,7 @@ describe('Game Component Integration', () => {
 
       // Simulate store having a liveTurnState (from dice rolls during this turn)
       act(() => {
-        useGameStore.setState({ liveTurnState: { turnScore: 100 } });
+        useGameStore.setState({ liveTurnState: makeDiceSnapshot({ turnScore: 100 }) });
       });
 
       expect(useGameStore.getState().liveTurnState).not.toBeNull();
@@ -1292,7 +1274,7 @@ describe('Game Component Integration', () => {
         currentCard: 'x2',
         diceMode: 'digital',
         myName: 'Alice',
-        players: [{ name: 'Alice', socketId: 'socket1', score: 0, position: 1 }],
+        players: [makePlayer({ name: 'Alice', socketId: 'socket1', position: 1 })],
         liveTurnState: null,
         justReconnected: false,
       });
@@ -1302,7 +1284,7 @@ describe('Game Component Integration', () => {
       const mockAddToast = vi.fn();
       useGameStore.setState({
         addToast: mockAddToast,
-        liveTurnState: { turnScore: 200, keptDice: [], currentRoll: [] },
+        liveTurnState: makeDiceSnapshot({ turnScore: 200 }),
         justReconnected: true,
       });
 
@@ -1393,7 +1375,7 @@ describe('Game Component Integration', () => {
       const mockAddToast = vi.fn();
       useGameStore.setState({
         addToast: mockAddToast,
-        liveTurnState: { turnScore: 200, keptDice: [], currentRoll: [] },
+        liveTurnState: makeDiceSnapshot({ turnScore: 200 }),
         justReconnected: true,
       });
 
@@ -1402,7 +1384,7 @@ describe('Game Component Integration', () => {
       expect(mockAddToast).toHaveBeenCalledTimes(1);
 
       act(() => {
-        useGameStore.setState({ liveTurnState: { turnScore: 250, keptDice: [], currentRoll: [] } });
+        useGameStore.setState({ liveTurnState: makeDiceSnapshot({ turnScore: 250 }) });
         vi.advanceTimersByTime(100);
       });
 
@@ -1415,7 +1397,7 @@ describe('Game Component Integration', () => {
         addToast: mockAddToast,
         // It IS my turn and there IS a live state — but dice mode is physical, so
         // no digital DiceGame to resume.
-        liveTurnState: { turnScore: 200, keptDice: [], currentRoll: [] },
+        liveTurnState: makeDiceSnapshot({ turnScore: 200 }),
         diceMode: 'physical',
         justReconnected: true,
       });
@@ -1451,7 +1433,7 @@ describe('Game Component Integration', () => {
       const mockAddToast = vi.fn();
       useGameStore.setState({
         addToast: mockAddToast,
-        liveTurnState: { turnScore: 200, keptDice: [], currentRoll: [] },
+        liveTurnState: makeDiceSnapshot({ turnScore: 200 }),
         justReconnected: true,
       });
 
@@ -1542,7 +1524,7 @@ describe('Game Component Integration', () => {
       useGameStore.setState({
         currentCard: 'x2',
         currentPlayerIndex: 0,
-        players: [{ name: 'Alice', socketId: 'socket1', score: 0, position: 1 }],
+        players: [makePlayer({ name: 'Alice', socketId: 'socket1', position: 1 })],
         previousCard: '300',
         previousScore: 500,
         previousPlayerName: 'Bob', // no longer in players
@@ -1947,8 +1929,8 @@ describe('Game Component Integration', () => {
         myName: 'Bob',
         currentPlayerIndex: 0,
         players: [
-          { name: 'Alice', socketId: 'socket1', score: 0, position: 1 },
-          { name: 'Bob', socketId: 'socket2', score: 0, position: 2 },
+          makePlayer({ name: 'Alice', socketId: 'socket1', position: 1 }),
+          makePlayer({ name: 'Bob', socketId: 'socket2', position: 2 }),
         ],
       });
       render(<Game />);
@@ -1974,8 +1956,8 @@ describe('Game Component Integration', () => {
         myName: 'Bob',
         currentPlayerIndex: 0,
         players: [
-          { name: 'Alice', socketId: 'socket1', score: 0, position: 1 },
-          { name: 'Bob', socketId: 'socket2', score: 0, position: 2 },
+          makePlayer({ name: 'Alice', socketId: 'socket1', position: 1 }),
+          makePlayer({ name: 'Bob', socketId: 'socket2', position: 2 }),
         ],
       });
       render(<Game />);
@@ -2016,8 +1998,8 @@ describe('Game Component Integration', () => {
         myName: 'Bob',
         currentPlayerIndex: 0,
         players: [
-          { name: 'Alice', socketId: 'socket1', score: 0, position: 1 },
-          { name: 'Bob', socketId: 'socket2', score: 0, position: 2 },
+          makePlayer({ name: 'Alice', socketId: 'socket1', position: 1 }),
+          makePlayer({ name: 'Bob', socketId: 'socket2', position: 2 }),
         ],
         turnTimeRemaining: 15,
       });
@@ -2036,7 +2018,7 @@ describe('Game Component Integration', () => {
         myName: 'Alice',
         currentPlayerIndex: 0,
         players: [
-          { name: 'Alice', socketId: 'socket1', score: 0, position: 1, winStreak: 4 },
+          makePlayer({ name: 'Alice', socketId: 'socket1', position: 1, winStreak: 4 }),
         ],
       });
       render(<Game />);
@@ -2049,7 +2031,7 @@ describe('Game Component Integration', () => {
         myName: 'Alice',
         currentPlayerIndex: 0,
         players: [
-          { name: 'Alice', socketId: 'socket1', score: 0, position: 1, winStreak: 2 },
+          makePlayer({ name: 'Alice', socketId: 'socket1', position: 1, winStreak: 2 }),
         ],
       });
       render(<Game />);
@@ -2063,7 +2045,7 @@ describe('Game Component Integration', () => {
         hostId: 'socket1',
         currentPlayerIndex: 0,
         players: [
-          { name: 'Alice', socketId: 'socket1', score: 0, position: 1, winStreak: 4 },
+          makePlayer({ name: 'Alice', socketId: 'socket1', position: 1, winStreak: 4 }),
         ],
       });
       render(<Game />);
@@ -2097,8 +2079,8 @@ describe('Game Component Integration', () => {
       useGameStore.setState({
         diceMode: 'digital',
         players: [
-          { name: 'Alice', socketId: 'socket1', score: 0, position: 1 },
-          { name: 'Bob', socketId: 'socket2', score: 0, position: 2 },
+          makePlayer({ name: 'Alice', socketId: 'socket1', position: 1 }),
+          makePlayer({ name: 'Bob', socketId: 'socket2', position: 2 }),
         ],
       });
 
