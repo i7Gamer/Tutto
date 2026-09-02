@@ -7,7 +7,8 @@ import {
 } from '../src/utils/configValidation';
 import { MAX_ROUNDS } from './pushValidation';
 import { envLimitOr } from './envLimits';
-import type { Room, RoomState, ServerPlayer, TurnTimerState } from './roomTypes';
+import { updateDeviceStats } from './database';
+import { statsModeFor, type Room, type RoomState, type ServerPlayer, type TurnTimerState } from './roomTypes';
 
 // Null-prototype, not `{}`: every key here is a client-supplied roomId, and
 // joinRoom validates it only as a non-empty string within a length bound. On a
@@ -146,6 +147,7 @@ export const createRoom = (hostSocketId: string, createdBy = ''): Room => ({
   normalizedGame: true,
   ruleset: DEFAULT_RULESET,
   finishedGame: null,
+  startRoster: null,
   state: {
     players: [],
     status: 'lobby',
@@ -340,6 +342,64 @@ export const sanitizePlayerForBroadcast = (p: ServerPlayer): Omit<ServerPlayer, 
 };
 
 /**
+ * Writes a played, lost game for every game-start seat that is no longer at
+ * the table by the time the game's verdict is frozen — a seat that left, was
+ * kicked, or timed out BEFORE the finish was ever broadcast, and so never ran
+ * its own endGameStats submission (that handler requires a currently seated
+ * socket; see socketStatsHandlers.ts). Left unrecorded, that device's win
+ * streak and win rate are silently frozen at whatever they were before this
+ * game, and it can never earn a fastest-loss record either — permanent,
+ * silent damage.
+ *
+ * Called once, right after rememberFinishedGame freezes room.finishedGame for
+ * the first time — the same "verdict is now final" moment endGameStats itself
+ * trusts. room.startRoster is the only record of who was actually there at
+ * kickoff; without it (a room whose game predates this feature, or one seeded
+ * directly by a test) there is nothing to compare against, so nothing is
+ * written — the pre-existing, survivors-only behavior.
+ *
+ * Shares statsRecordedForGame.devices with endGameStats — the exact same
+ * per-game dedup — so a later submission for the same device+game (a rejoin
+ * whose client still thinks it owes its own endGameStats) is a no-op, and a
+ * write already in flight here blocks that submission just as one already
+ * committed there blocks a duplicate of this one.
+ *
+ * No per-turn counters (not cheaply available once the seat is gone — its
+ * ServerPlayer object was already spliced out) and no records: the seat never
+ * saw the game through to the end, so `wins`/`gamesPlayed` are the only fields
+ * set, `wins: 0` also resetting the device's current win streak.
+ */
+const recordDepartedSeatsStats = (room: Room): void => {
+  if (!room.startRoster || !room.finishedGame) return;
+  const seatedDeviceIds = new Set(room.state.players.map(p => p.deviceId));
+  const mode = statsModeFor(room);
+  const { playerCount } = room.finishedGame;
+
+  for (const { deviceId } of room.startRoster) {
+    if (!deviceId || seatedDeviceIds.has(deviceId)) continue;
+    if (room.statsRecordedForGame.devices.has(deviceId)) continue;
+    // Marked BEFORE the write for the same reason endGameStats marks its own
+    // dedup before awaiting: this loop runs synchronously start to finish, so
+    // without it a start-roster listing the same deviceId twice (impossible
+    // from a real join, but nothing here depends on that) would race its own
+    // two iterations into two writes.
+    room.statsRecordedForGame.devices.add(deviceId);
+    updateDeviceStats(deviceId, {
+      gamesPlayed: 1,
+      wins: 0,
+      totalPlayersSum: playerCount,
+      mostPlayersInGame: playerCount,
+    }, mode).catch((err: unknown) => {
+      // Reopened on failure so a retry (the same trigger firing again, or the
+      // device's own later reconnect) can still record the game — mirrors
+      // endGameStats' write-failure rollback.
+      room.statsRecordedForGame.devices.delete(deviceId);
+      console.error('[recordDepartedSeatsStats] error:', err);
+    });
+  }
+};
+
+/**
  * Freezes who won, the first moment the room reports the game over.
  *
  * Called from emitRoomState because that is the one place EVERY path to
@@ -348,20 +408,23 @@ export const sanitizePlayerForBroadcast = (p: ServerPlayer): Omit<ServerPlayer, 
  * them can reach a client without doing so. Freezing at each of those three
  * sites instead would work until the fourth one was added without it.
  *
- * Idempotent by `??=`, so the later broadcasts of the same finished game (a
- * seat leaving, the end screen's traffic) keep the roster the game actually
- * ended with rather than whatever is left. Self-clearing, so the next game
- * starts with no verdict rather than the previous one's.
+ * Idempotent — checked explicitly rather than via `??=` so recordDepartedSeatsStats
+ * runs exactly once, on the transition into a frozen verdict, rather than on
+ * every later broadcast of the same finished game (a seat leaving, the end
+ * screen's traffic). Self-clearing, so the next game starts with no verdict
+ * rather than the previous one's.
  */
 const rememberFinishedGame = (room: Room): void => {
   if (!room.state.finished) {
     room.finishedGame = null;
     return;
   }
-  room.finishedGame ??= {
+  if (room.finishedGame) return;
+  room.finishedGame = {
     winners: getLeaders(room.state.players).map(p => p.name),
-    playerCount: room.state.players.length,
+    playerCount: room.startRoster?.length ?? room.state.players.length,
   };
+  recordDepartedSeatsStats(room);
 };
 
 export const emitRoomState = (io: Server, roomId: string): void => {

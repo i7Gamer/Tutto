@@ -306,3 +306,91 @@ describe('pushState against an already-finished game', () => {
     expect(rooms[roomId].state.gameTimeInSeconds).toBe(PLAYED_SECONDS);
   });
 });
+
+describe('pushState captures the game-start roster (startRoster)', () => {
+  // A seat that leaves, is kicked, or times out before the game's finish is
+  // broadcast is invisible to endGameStats (see socketStatsHandlers.ts) —
+  // that handler only ever hears from a currently seated socket. The server
+  // records that seat's row itself instead (rooms.ts' recordDepartedSeatsStats),
+  // and it can only tell who was AT the table when the game began by
+  // capturing the roster right here, the one place a game start is detected
+  // (see the startingGame comment above).
+  const roomId = 'ROSTER-CAPTURE-ROOM';
+  let pushState: Handler;
+
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    rooms[roomId] = createRoom('alice-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'lobby', finished: false, currentPlayerIndex: null,
+      players: [makePlayer('Alice', 'alice-sock'), makePlayer('Bob', 'bob-sock')],
+    });
+    const fake = makeFakeSocket('alice-sock');
+    registerGameStateHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Alice' } });
+    pushState = fake.handlers['pushState'];
+  });
+
+  afterEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+  });
+
+  it('captures every seat\'s deviceId and name on lobby -> playing', () => {
+    expect(rooms[roomId].startRoster).toBeNull();
+
+    pushState({ roomId, newState: { status: 'playing', currentPlayerIndex: 0 } });
+
+    expect(rooms[roomId].startRoster).toEqual([
+      { deviceId: 'dev-Alice', name: 'Alice' },
+      { deviceId: 'dev-Bob', name: 'Bob' },
+    ]);
+  });
+
+  it('does not capture anything from a push a stale roster gets discarded wholesale', () => {
+    // A host push whose roster no longer matches the room's is thrown away
+    // entirely (validatePushedPlayers) — `applied` is false, so this must not
+    // run at all, or a discarded "start" would freeze a roster the room never
+    // actually adopted.
+    pushState({
+      roomId,
+      newState: {
+        status: 'playing', currentPlayerIndex: 0,
+        players: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Carol' }],
+      },
+    });
+
+    expect(rooms[roomId].startRoster).toBeNull();
+    expect(rooms[roomId].state.status, 'the discarded push must not have started the game either').toBe('lobby');
+  });
+
+  it('re-captures the roster on Play Again: a joiner is included, a leaver is not', () => {
+    // Game 1 starts and finishes with Alice and Bob.
+    pushState({ roomId, newState: { status: 'playing', currentPlayerIndex: 0 } });
+    pushState({ roomId, newState: { finished: true } });
+    expect(rooms[roomId].startRoster).toEqual([
+      { deviceId: 'dev-Alice', name: 'Alice' },
+      { deviceId: 'dev-Bob', name: 'Bob' },
+    ]);
+
+    // Between games: Bob leaves, Carol joins — mirrors what a real
+    // joinRoom/handlePlayerLeave pair would have done to the roster.
+    rooms[roomId].state.players = [
+      makePlayer('Alice', 'alice-sock'),
+      makePlayer('Carol', 'carol-sock'),
+    ];
+
+    // "Play Again" — finished -> playing without a lobby stop — carries the
+    // host's freshly composed roster.
+    pushState({
+      roomId,
+      newState: {
+        status: 'playing', finished: false, currentPlayerIndex: 0,
+        players: [{ name: 'Alice', score: 0 }, { name: 'Carol', score: 0 }],
+      },
+    });
+
+    expect(rooms[roomId].startRoster).toEqual([
+      { deviceId: 'dev-Alice', name: 'Alice' },
+      { deviceId: 'dev-Carol', name: 'Carol' },
+    ]);
+  });
+});

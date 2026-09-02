@@ -62,6 +62,14 @@ export const registerGameStateHandlers = ({ io, socket }: SocketContext): void =
     // second time.
     if (startingGame && applied) {
       room.statsRecordedForGame = { devices: new Set(), global: false };
+      // The only record of who was actually at the table when THIS game
+      // began — a seat that leaves, is kicked, or times out before the
+      // finish is broadcast is spliced out of room.state.players by then, and
+      // this is what lets recordDepartedSeatsStats (rooms.ts) still find it.
+      // Read after applyPushedState, same as normalizedGame/ruleset below:
+      // the opening push may itself carry the roster (a fresh shuffle, or
+      // Play Again's new order), so the pre-push players would miss it.
+      room.startRoster = room.state.players.map(p => ({ deviceId: p.deviceId, name: p.name }));
     }
 
     // Decided AFTER the push is applied: the opening push carries winningScore

@@ -1,13 +1,22 @@
 import { getDeviceStats, updateDeviceStats, updateGlobalStats } from './database';
 import { sanitizeStats } from './sanitize';
 import { rooms, emitRoomState } from './rooms';
+import { statsModeFor } from './roomTypes';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
 
 const SUBMIT_GLOBAL_STATS_LIMIT = { windowMs: 10_000, max: 5 };
 const END_GAME_STATS_LIMIT = { windowMs: 10_000, max: 5 };
 
-/** Recording what a finished game did, per device and server-wide. */
+/**
+ * Recording what a finished game did, per device and server-wide.
+ *
+ * This handler only ever hears from a currently seated socket — a seat that
+ * leaves, is kicked, or times out before the finish is broadcast never runs
+ * this path at all. That seat's game is not lost, though: the server records
+ * it itself, as a played, lost game (gamesPlayed+1, wins 0, no records — see
+ * recordDepartedSeatsStats in rooms.ts), the moment the verdict is frozen.
+ */
 export const registerStatsHandlers = ({ io, socket, session }: SocketContext): void => {
   const submitGlobalStatsLimiter = createSocketEventLimiter(SUBMIT_GLOBAL_STATS_LIMIT);
   const endGameStatsLimiter = createSocketEventLimiter(END_GAME_STATS_LIMIT);
@@ -82,9 +91,7 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // as theirs. Which bucket is the server's call, taken from the config
     // the game started with: the frozen ruleset picks the pair, the frozen
     // normalizedGame flag picks within it.
-    const mode = room.ruleset === 'classic'
-      ? (room.normalizedGame ? 'classic' : 'classic_custom')
-      : (room.normalizedGame ? 'normalized' : 'custom');
+    const mode = statsModeFor(room);
     const clean = sanitizeStats(stats);
 
     // Whether this device WON is the server's call, for the same reason

@@ -1,4 +1,4 @@
-import type { CardType, InitialCards, Player, DiceSnapshot, DiceMode, HistoryEntry, Ruleset, TurnSummary, SyncedGameStateKey, AssertNever } from '../src/types';
+import type { CardType, InitialCards, Player, DiceSnapshot, DiceMode, GameMode, HistoryEntry, Ruleset, TurnSummary, SyncedGameStateKey, AssertNever } from '../src/types';
 
 // CardType / InitialCards / Player are shared with the client (src/types.ts) to
 // keep the card set and player shape from drifting. The server requires the
@@ -117,8 +117,20 @@ export interface StatsRecordedForGame {
 export interface FinishedGame {
   /** Every tied leader, by name. A tie is not a win — see getLeaders. */
   winners: string[];
-  /** Seats at the table when the game ended, for the players-per-game totals. */
+  /**
+   * Seats at the table when the game ended, for the players-per-game totals —
+   * every seat that was there at kickoff (room.startRoster's length when one
+   * was captured), not merely whoever is still seated at the finish. A seat
+   * that left, was kicked, or timed out before the finish still played the
+   * game and must still count.
+   */
   playerCount: number;
+}
+
+/** One seat's identity at the moment the CURRENT game started. */
+export interface StartRosterEntry {
+  deviceId: string;
+  name: string;
 }
 
 export interface Room {
@@ -148,4 +160,26 @@ export interface Room {
   // endGameStats trusts instead of the verdict the submitting client computed.
   // null while no game is finished. See rememberFinishedGame in rooms.ts.
   finishedGame: FinishedGame | null;
+  // Every seat's deviceId + name at the moment the CURRENT game started —
+  // captured in socketGameStateHandlers' pushState, the same place that
+  // freezes normalizedGame/ruleset, and reset the same way on the next game
+  // (lobby->playing or Play Again's finished->playing). null until a game has
+  // actually started under this Room object. A start-roster entry with no
+  // matching seat left in room.state.players by the time the game ends left
+  // BEFORE the finish and is invisible to endGameStats — see
+  // recordDepartedSeatsStats in rooms.ts, which records it instead.
+  startRoster: StartRosterEntry[] | null;
 }
+
+/**
+ * Which device-statistics bucket a game with this ruleset/normalizedGame
+ * combination belongs in. The ruleset picks the bucket PAIR, normalizedGame
+ * picks within it — shared by endGameStats (the submitting seat's own
+ * write) and the server's own departed-seat write (recordDepartedSeatsStats
+ * in rooms.ts), so the two can never disagree about where the same game's
+ * rows land.
+ */
+export const statsModeFor = (room: Pick<Room, 'ruleset' | 'normalizedGame'>): GameMode =>
+  room.ruleset === 'classic'
+    ? (room.normalizedGame ? 'classic' : 'classic_custom')
+    : (room.normalizedGame ? 'normalized' : 'custom');

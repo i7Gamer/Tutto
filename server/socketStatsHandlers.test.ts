@@ -233,3 +233,145 @@ describe('endGameStats dedup rollback', () => {
     expect(getDeviceStats).not.toHaveBeenCalled();
   });
 });
+
+describe('a seat that left before the finish is recorded by the server itself', () => {
+  // Item A5: endGameStats only ever hears from a currently seated socket, so
+  // a seat that left, was kicked, or timed out before the game's finish was
+  // broadcast used to leave no trace at all — preserving its win streak,
+  // hiding a fastest-loss record, and undercounting totalPlayersSum /
+  // mostPlayersInGame. The server now writes that seat's row itself, the
+  // moment the game's verdict is frozen (rooms.ts' rememberFinishedGame /
+  // recordDepartedSeatsStats), from the roster captured when the game
+  // started (see socketGameStateHandlers.ts' startRoster capture).
+  const roomId = 'DEPARTED-ROOM';
+
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.mocked(getDeviceStats).mockReset();
+    vi.mocked(updateDeviceStats).mockReset().mockResolvedValue(true);
+  });
+
+  afterEach(() => { for (const id of Object.keys(rooms)) deleteRoom(id); });
+
+  /** Alice is the sole survivor at the finish; Bob left before it was broadcast. */
+  const stageBobLeftBeforeFinish = () => {
+    rooms[roomId] = createRoom('alice-sock');
+    rooms[roomId].startRoster = [
+      { deviceId: 'dev-alice', name: 'Alice' },
+      { deviceId: 'dev-bob', name: 'Bob' },
+    ];
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null,
+      players: [{ ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: 10000 }],
+    });
+  };
+
+  it('writes a played, lost game for the departed seat — gamesPlayed 1, wins 0', () => {
+    stageBobLeftBeforeFinish();
+
+    emitRoomState(makeFakeIo().io, roomId);
+
+    expect(updateDeviceStats).toHaveBeenCalledWith(
+      'dev-bob',
+      expect.objectContaining({ gamesPlayed: 1, wins: 0 }),
+      'normalized',
+    );
+    // No fastest-loss/win record: the seat never saw the game through to the
+    // end, so it earns no record — only the survivor's own submission can.
+    const written = vi.mocked(updateDeviceStats).mock.calls[0][1];
+    expect(written.fastestWinTurns).toBeUndefined();
+    expect(written.fastestLossTurns).toBeUndefined();
+  });
+
+  it('does not touch the surviving player\'s row', () => {
+    stageBobLeftBeforeFinish();
+
+    emitRoomState(makeFakeIo().io, roomId);
+
+    expect(updateDeviceStats).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(updateDeviceStats).mock.calls.every(c => c[0] !== 'dev-alice')).toBe(true);
+  });
+
+  it('counts every start-roster seat toward totalPlayersSum/mostPlayersInGame, not just survivors', () => {
+    stageBobLeftBeforeFinish();
+
+    emitRoomState(makeFakeIo().io, roomId);
+
+    const written = vi.mocked(updateDeviceStats).mock.calls[0][1];
+    expect(written.totalPlayersSum, 'two seats started the game').toBe(2);
+    expect(written.mostPlayersInGame).toBe(2);
+  });
+
+  it('is idempotent across repeated broadcasts of the same finished game', () => {
+    stageBobLeftBeforeFinish();
+
+    emitRoomState(makeFakeIo().io, roomId);
+    emitRoomState(makeFakeIo().io, roomId); // e.g. a spectator join re-broadcasting state
+
+    expect(updateDeviceStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('is a no-op for a later submission from the same device+game (e.g. a reconnect replaying its own submission)', async () => {
+    stageBobLeftBeforeFinish();
+    emitRoomState(makeFakeIo().io, roomId);
+    expect(updateDeviceStats).toHaveBeenCalledTimes(1);
+
+    // Bob reconnects under the same deviceId (a rejoin after the timeout
+    // that removed him) and his own client then submits for the same game —
+    // the dedup this server write shares with endGameStats must refuse it,
+    // proving the row can never be written twice.
+    rooms[roomId].state.players.push(makePlayer('Bob', 'bob-sock-2', 'dev-bob'));
+    const fake = makeFakeSocket('bob-sock-2');
+    registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Bob' } });
+    await fake.handlers['endGameStats']({ deviceId: 'dev-bob', stats: { gamesPlayed: 1, wins: 1 } });
+
+    expect(updateDeviceStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips a start-roster seat with no deviceId', () => {
+    rooms[roomId] = createRoom('alice-sock');
+    rooms[roomId].startRoster = [
+      { deviceId: 'dev-alice', name: 'Alice' },
+      { deviceId: '', name: 'Ghost' },
+    ];
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null,
+      players: [makePlayer('Alice', 'alice-sock', 'dev-alice')],
+    });
+
+    emitRoomState(makeFakeIo().io, roomId);
+
+    expect(updateDeviceStats).not.toHaveBeenCalled();
+  });
+
+  it('does not write anything when every start-roster seat is still present', () => {
+    rooms[roomId] = createRoom('alice-sock');
+    rooms[roomId].startRoster = [
+      { deviceId: 'dev-alice', name: 'Alice' },
+      { deviceId: 'dev-bob', name: 'Bob' },
+    ];
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null,
+      players: [
+        makePlayer('Alice', 'alice-sock', 'dev-alice'),
+        makePlayer('Bob', 'bob-sock', 'dev-bob'),
+      ],
+    });
+
+    emitRoomState(makeFakeIo().io, roomId);
+
+    expect(updateDeviceStats).not.toHaveBeenCalled();
+  });
+
+  it('rolls back the dedup so a retry can land when the write fails', async () => {
+    stageBobLeftBeforeFinish();
+    vi.mocked(updateDeviceStats).mockRejectedValue(new Error('write failed'));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    emitRoomState(makeFakeIo().io, roomId);
+
+    await vi.waitFor(() => expect(errorSpy).toHaveBeenCalled());
+    expect(rooms[roomId].statsRecordedForGame.devices.has('dev-bob')).toBe(false);
+    errorSpy.mockRestore();
+  });
+});
