@@ -20,7 +20,8 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 import express from 'express';
 import type { AddressInfo } from 'net';
 import type http from 'http';
-import { registerApiRoutes } from './api';
+import { registerApiRoutes, DEFAULT_STATS_RATE_LIMIT_MAX } from './api';
+import { envLimitOr } from './envLimits';
 import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } from './database';
 import { DEVICE_ID_HEADER, DEVICE_STATS_PATH } from '../src/utils/statsApi';
 import { DEFAULT_GAME_MODE, type DeviceStatsRow, type GlobalStatsRow } from '../src/types';
@@ -462,6 +463,22 @@ describe('api routes in-process', () => {
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({ error: 'Not found' });
     });
+  });
+});
+
+// Item 5: the STATS_RATE_LIMIT_MAX production default (60) used to be a bare
+// literal that nothing pinned — the rate-limit e2e in api.test.ts passes
+// STATS_RATE_LIMIT_MAX explicitly for every server it spawns (a hardcoded
+// '60' of its own), so it never exercises the fallback that runs in an actual
+// unconfigured production deployment. Exporting the constant lets an
+// in-process test assert on the real value directly.
+describe('DEFAULT_STATS_RATE_LIMIT_MAX', () => {
+  it('is the documented production default of 60', () => {
+    expect(DEFAULT_STATS_RATE_LIMIT_MAX).toBe(60);
+  });
+
+  it('is what envLimitOr falls back to when STATS_RATE_LIMIT_MAX is unset', () => {
+    expect(envLimitOr(undefined, DEFAULT_STATS_RATE_LIMIT_MAX)).toBe(60);
   });
 });
 
