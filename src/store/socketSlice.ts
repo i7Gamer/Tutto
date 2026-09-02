@@ -223,6 +223,15 @@ const submitGlobalStats = (get: SocketSliceGet): void => {
  *  - 'unauthorized' shortly after a reconnect is almost always this client's
  *    own rejoin not having landed yet, so the same snapshot is re-sent ONCE
  *    (`retryable` is false on that retry, and on every push that follows).
+ *  - 'no-room' is the one refusal a fresh snapshot cannot answer: there is no
+ *    room left to ask. The seat is given up the same way the kicked and
+ *    seatTakenOver handlers give it up (see surrenderSeat), rather than the
+ *    player being left in a room that does not exist, where every action
+ *    silently does nothing.
+ *  - 'rate-limited' says nothing is wrong with what this client is holding —
+ *    it is simply pushing faster than the limiter allows, and the next
+ *    legitimate push lands normally. A toast per dropped push would be a burst
+ *    of alarming noise, and a requestState per dropped push feeds the flood.
  *  - anything else — and a second 'unauthorized' — is a push the room has
  *    genuinely thrown away. The player is told, and a fresh snapshot is pulled
  *    so the client stops rendering a turn the room never accepted.
@@ -247,6 +256,21 @@ const emitPushState = (
       }, PUSH_REJOIN_RETRY_DELAY_MS);
       return;
     }
+
+    if (ack.reason === 'no-room') {
+      get().addToast(i18n.t('game.toastPushRoomGone',
+        'This room no longer exists on the server.'));
+      // leaveRoom is surrenderSeat's own teardown (stop the timers, drop the
+      // stored session, clear the turn caches and the parked push, wipe the
+      // room state) plus a 'leaveRoom' emit the server ignores for a room it
+      // no longer has; setMode('local') completes it, exactly as the
+      // room-gone branch of the rejoin handler does.
+      get().leaveRoom();
+      get().setMode('local');
+      return;
+    }
+
+    if (ack.reason === 'rate-limited') return;
 
     get().addToast(i18n.t('game.toastPushRefused',
       'Your last move was not accepted by the server; the game state was refreshed.'));

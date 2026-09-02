@@ -1451,6 +1451,42 @@ describe('useGameStore', () => {
         expect(mockEmit).toHaveBeenCalledWith('requestState', { roomId: 'ROOM1' });
       });
 
+      it('gives the seat up when the server says the room is gone', () => {
+        // 'no-room' is not something a fresh state can repair: there is no
+        // room left to ask. Toasting "the game state was refreshed" and then
+        // firing a requestState into the void left the player looking at a
+        // room that no longer exists, with every action silently doing
+        // nothing. Same teardown the kicked/seatTakenOver handlers run.
+        stageSeatedGame();
+        sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'ROOM1', myName: 'Alice' }));
+
+        useGameStore.getState().pushState();
+        pushes()[0][2]({ ok: false, reason: 'no-room' });
+
+        const state = useGameStore.getState();
+        expect(state.toasts.some(t => t.message.includes('no longer exists'))).toBe(true);
+        expect(state.roomId, 'the room is given up, not refreshed').toBeNull();
+        expect(state.mode).toBe('local');
+        expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+        expect(mockEmit).not.toHaveBeenCalledWith('requestState', expect.anything());
+      });
+
+      it('stays quiet when the server refuses the push as rate-limited', () => {
+        // Nothing is wrong with the client's state — it is simply pushing
+        // faster than the limiter allows, and the next legitimate push will
+        // land. A toast per dropped push would be a burst of alarming noise,
+        // and a requestState per dropped push feeds the very flood that
+        // caused it.
+        stageSeatedGame();
+
+        useGameStore.getState().pushState();
+        pushes()[0][2]({ ok: false, reason: 'rate-limited' });
+
+        expect(useGameStore.getState().toasts).toHaveLength(0);
+        expect(mockEmit).not.toHaveBeenCalledWith('requestState', expect.anything());
+        expect(useGameStore.getState().roomId, 'and the seat is kept').toBe('ROOM1');
+      });
+
       it('says nothing at all when the server accepts the push', () => {
         stageSeatedGame();
 
