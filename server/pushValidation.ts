@@ -27,24 +27,6 @@ export const MAX_ROUNDS = 100000;
 export const MAX_SCORE_MAGNITUDE = 1_000_000;
 const MAX_GAME_SECONDS = 10_000_000;
 
-/**
- * The chain's terminal `else`, and the other half of the field locks.
- *
- * PushFieldLock proves the two allowlists partition SyncedGameStateKey — but
- * said nothing about the `if / else if` chain that acts on them, which had no
- * `else` at all. A field added to the canonical list AND to an allowlist but
- * given no branch fell straight through, was silently dropped from every push,
- * and the build stayed green: the exact defect class the lock is there to make
- * impossible. `key: never` closes it, naming the offending key.
- *
- * Unreachable at runtime by construction (the sets are built from the same
- * tuples the union comes from); the throw is what makes it a total function
- * rather than a silent fallthrough if that ever stops being true.
- */
-const assertHandled = (key: never): never => {
-  throw new Error(`applyPushedState has no branch for the synced field '${String(key)}'`);
-};
-
 // The bound every numeric in a client-pushed payload must clear: finite AND
 // within the sanity cap. Named once so a new field cannot accidentally settle
 // for finiteness alone (which is how turnScore came to be uncapped).
@@ -468,6 +450,306 @@ const mergeMutable = (
   return updated;
 };
 
+// The context every field handler needs — the same reads/writes the old
+// if/else chain closed over per branch, gathered in one place so a handler
+// can be a plain function instead of an inline branch.
+type ApplyContext = {
+  state: RoomState;
+  isHost: boolean;
+  startingGame: boolean;
+  // See applyPushedState's own parameter doc below: the seat the sender
+  // occupies, captured before this push touched anything.
+  pusherName: string | null;
+};
+
+// A field's whole accept-or-drop rule: validate `value` and, if it passes,
+// write it onto ctx.state. An invalid value is dropped for this field only —
+// the chain's silent per-field skip. The one case that discards the WHOLE
+// push (a roster that is not a permutation of the seated players) is the
+// roster gate in applyPushedState, which runs before the table is consulted.
+type FieldHandler = (value: unknown, ctx: ApplyContext) => void;
+
+const applyPlayers: FieldHandler = (value, ctx) => {
+  const pushed = value as Record<string, unknown>[];
+  // No permutation re-check here: the roster gate in applyPushedState already
+  // refused anything that is not one (equal length, unique names, every name
+  // known), so a surviving push's roster IS a strict permutation. A second
+  // check would be dead code that reads as if non-permutations could reach
+  // this handler.
+  if (ctx.startingGame) {
+    // Adopt the host's chosen ordering, but keep the server-side player
+    // identities and non-mutable fields. Keeps chartNames/chartValues
+    // (pushed in the same order) aligned with the authoritative roster.
+    const byName = new Map(ctx.state.players.map(p => [p.name, p]));
+    ctx.state.players = pushed.map(q =>
+      mergeMutable(byName.get(q.name as string)!, q, { clearAbsentRecords: true }),
+    );
+  } else {
+    ctx.state.players = ctx.state.players.map(existing =>
+      mergeMutable(existing, pushed.find(q => q.name === existing.name), {
+        ownSeat: ctx.isHost || existing.name === ctx.pusherName,
+      }),
+    );
+  }
+};
+
+const applyWinningScore: FieldHandler = (value, ctx) => {
+  if (isValidWinningScore(value)) ctx.state.winningScore = value;
+};
+
+// Keyed into FIELD_HANDLERS by MID_GAME_CONFIG_FIELD below, not the literal
+// 'turnDuration', so the one field a running game may still change stays
+// named in one place.
+const applyTurnDuration: FieldHandler = (value, ctx) => {
+  // Integers only: the loose >= 0 floor stays (integration tests push 1-2s
+  // turns), but a SUB-SECOND duration would arm the 10ms-floor server timer
+  // as a self-advancing loop that never ends the game. This is the one place
+  // the push path is deliberately looser than isValidTurnDuration — every
+  // other config field shares updateConfig's exact validator.
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= MAX_TURN_DURATION) {
+    ctx.state.turnDuration = value;
+  }
+};
+
+const applyReconnectTimeout: FieldHandler = (value, ctx) => {
+  // updateConfig's own validator, not merely the outer numeric bounds: 1..9
+  // is the hole in the range (neither "disabled" nor an accepted duration),
+  // the lobby snaps a typed value up out of it, and a pushed 3 used to land
+  // and arm a 3-second kick timer no UI can produce.
+  if (isValidReconnectTimeout(value)) ctx.state.reconnectTimeout = value;
+};
+
+const applyInitialCards: FieldHandler = (value, ctx) => {
+  if (validateInitialCards(value)) ctx.state.initialCards = value;
+};
+
+const applyStatus: FieldHandler = (value, ctx) => {
+  if (value === 'lobby' || value === 'playing') ctx.state.status = value;
+};
+
+const applyRandomOrder: FieldHandler = (value, ctx) => {
+  if (typeof value === 'boolean') ctx.state.randomOrder = value;
+};
+
+// Shared by currentCard/previousCard: identical rule, only the target field
+// differs. The double cast matches the chain's own workaround for writing
+// through a key that is only known to be one of two fields of the same type.
+const cardFieldHandler = (field: 'currentCard' | 'previousCard'): FieldHandler => (value, ctx) => {
+  if (value === null || VALID_CARD_TYPES.includes(value as CardType)) {
+    (ctx.state as unknown as Record<string, unknown>)[field] = value;
+  }
+};
+
+const applyCards: FieldHandler = (value, ctx) => {
+  if (Array.isArray(value) && value.length <= MAX_DECK_SIZE && value.every(c => VALID_CARD_TYPES.includes(c as CardType))) {
+    ctx.state.cards = value as CardType[];
+  }
+};
+
+const applyCurrentPlayerIndex: FieldHandler = (value, ctx) => {
+  if (value === null || (Number.isInteger(value) && (value as number) >= 0 && (value as number) < ctx.state.players.length)) {
+    ctx.state.currentPlayerIndex = value as number | null;
+  }
+};
+
+const applyRound: FieldHandler = (value, ctx) => {
+  // MAX_ROUNDS is an array-length safety cap (chartLabels, historyLog), not a
+  // bound on a legitimate round number — on its own it let an active player
+  // push round: 100000 on their own turn. The honest host then submits that
+  // as longestGameRounds, sanitizeStats' 1e9 cap waves it through, and the
+  // column is MAX-merged into the global row forever.
+  //
+  // A game only ever nudges this: +1 when a round ends, the same value on
+  // every other push, and -1 when a turn is undone across a round boundary.
+  // The host is exempt because a Play Again kickoff resets it to 1.
+  const withinReach = ctx.isHost || (value as number >= ctx.state.round - 1 && value as number <= ctx.state.round + 1);
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= MAX_ROUNDS && withinReach) {
+    ctx.state.round = value;
+  }
+};
+
+const applyFinished: FieldHandler = (value, ctx) => {
+  // Both stats handlers take state.finished as proof a real game ended, and
+  // their comments reason about the risk as host-only — but this is an
+  // ACTIVE-player field. Any seated player could otherwise end the table's
+  // game on their own turn; every honest client then submits, and each
+  // victim's device row takes gamesPlayed + 1 with wins: 0, resetting their
+  // win streak.
+  //
+  // The same condition calculateNextTurn and handleActivePlayerRemoved use,
+  // against the roster this push has already merged ('players' runs before
+  // 'finished' in ACTIVE_PLAYER_FIELD_LIST). A tie is not a win. Un-finishing
+  // is never gated — that is what Play Again does. The host is exempt for the
+  // same reason it is everywhere else here: it already writes every field via
+  // ALL_FIELDS.
+  if (typeof value !== 'boolean') return;
+  const leaders = getLeaders(ctx.state.players);
+  const gameIsOver = leaders.length === 1 && leaders[0].score >= ctx.state.winningScore;
+  if (!value || ctx.isHost || gameIsOver) ctx.state.finished = value;
+};
+
+const applyPreviousScore: FieldHandler = (value, ctx) => {
+  if (value === null || (typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= MAX_SCORE_MAGNITUDE)) {
+    ctx.state.previousScore = value as number | null;
+  }
+};
+
+const applyPreviousLeaders: FieldHandler = (value, ctx) => {
+  if (value === null) {
+    ctx.state.previousLeaders = null;
+  } else if (Array.isArray(value) && value.length <= ctx.state.players.length && value.every(isPlausiblePlayerSnapshot)) {
+    // Rebuilt from only the checked fields — isPlausiblePlayerSnapshot only
+    // shape-checks name/score, so storing `value` as-is would let extra
+    // properties on each entry ride along into every future broadcast.
+    ctx.state.previousLeaders = value.map(p => ({ name: p.name, score: p.score })) as ServerPlayer[];
+  }
+};
+
+const applyPreviousWasBust: FieldHandler = (value, ctx) => {
+  if (typeof value === 'boolean') ctx.state.previousWasBust = value;
+};
+
+const applyPreviousWasSuccess: FieldHandler = (value, ctx) => {
+  // A client predating this field omits the key entirely, so the loop skips
+  // it and the room keeps what it had — which is exactly the "no outcome
+  // recorded" state undo's fallback expects.
+  if (typeof value === 'boolean') ctx.state.previousWasSuccess = value;
+};
+
+// The chain's three byte-identical branches, collapsed into one handler bound
+// to whichever field it is guarding.
+const boundedCounterHandler = (
+  field: 'previousHighestTurnScore' | 'previousHighestFeuerwerkTurnScore' | 'previousHighestX2TurnScore',
+): FieldHandler => (value, ctx) => {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= MAX_SCORE_MAGNITUDE) {
+    (ctx.state as unknown as Record<string, unknown>)[field] = value;
+  }
+};
+
+const applyPreviousPlayerName: FieldHandler = (value, ctx) => {
+  if (value === null || (typeof value === 'string' && value.length > 0 && value.length <= MAX_PLAYER_NAME_LENGTH)) {
+    ctx.state.previousPlayerName = value as string | null;
+  }
+};
+
+const applyPreviousTurnSummary: FieldHandler = (value, ctx) => {
+  if (value === null) {
+    ctx.state.previousTurnSummary = null;
+  } else if (isValidTurnSummary(value)) {
+    ctx.state.previousTurnSummary = sanitizeTurnSummary(value);
+  }
+};
+
+const applyChartValues: FieldHandler = (value, ctx) => {
+  if (
+    Array.isArray(value) && isPerPlayerOrCleared(value, ctx.state.players) &&
+    value.every(arr => Array.isArray(arr) && arr.length <= MAX_ROUNDS && arr.every(isBoundedNumber))
+  ) {
+    ctx.state.chartValues = value as number[][];
+  }
+};
+
+const applyChartNames: FieldHandler = (value, ctx) => {
+  // Entries are player names, so they follow the same 1-30 char rule as
+  // previousPlayerName/historyLog.playerName. Without the length cap this was
+  // the one client-pushed string stored unbounded — and rebroadcast to every
+  // client on each subsequent emitRoomState.
+  if (
+    Array.isArray(value) && isPerPlayerOrCleared(value, ctx.state.players) &&
+    value.every(n => typeof n === 'string' && n.length > 0 && n.length <= MAX_PLAYER_NAME_LENGTH)
+  ) {
+    ctx.state.chartNames = value as string[];
+  }
+};
+
+const applyChartLabels: FieldHandler = (value, ctx) => {
+  // Round numbers: whole, and bounded like every other pushed numeric.
+  if (Array.isArray(value) && value.length <= MAX_ROUNDS && value.every(n => Number.isInteger(n) && isBoundedNumber(n))) {
+    ctx.state.chartLabels = value as number[];
+  }
+};
+
+const applyGameTimeInSeconds: FieldHandler = (value, ctx) => {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= MAX_GAME_SECONDS) {
+    ctx.state.gameTimeInSeconds = value;
+  }
+};
+
+const applyLiveTurnState: FieldHandler = (value, ctx) => {
+  if (value === null) {
+    ctx.state.liveTurnState = null;
+  } else if (isValidDiceSnapshot(value)) {
+    ctx.state.liveTurnState = sanitizeDiceSnapshot(value);
+  }
+};
+
+const applyEnforcedDiceMode: FieldHandler = (value, ctx) => {
+  if (isValidEnforcedDiceMode(value)) ctx.state.enforcedDiceMode = value;
+};
+
+const applyRuleset: FieldHandler = (value, ctx) => {
+  // The mid-game refusal lives in LOBBY_ONLY_CONFIG_FIELDS now, with the rest
+  // of the config. It matters most here: flipping the rule set under an
+  // active game changes the turn logic on every client mid-turn, and the
+  // normalizedGame-style sticky downgrade cannot help — it protects the
+  // stats label, not gameplay.
+  if (isValidRuleset(value)) ctx.state.ruleset = value;
+};
+
+const applyHistoryLog: FieldHandler = (value, ctx) => {
+  if (Array.isArray(value) && value.length <= MAX_HISTORY_LOG_SIZE && value.every(isValidHistoryEntry)) {
+    ctx.state.historyLog = value.map(sanitizeHistoryEntry);
+  }
+};
+
+/**
+ * One handler per synced field, replacing the if/else chain that used to
+ * dispatch on `key`.
+ *
+ * `satisfies Record<SyncedGameStateKey, FieldHandler>` is the old chain's
+ * terminal `else` (assertHandled), moved to compile time: every key in the
+ * canonical SyncedGameStateKey union must have an entry here, the same way
+ * PushFieldLock forces every key onto one of the two allowlists below. A
+ * synced key added without a handler now fails the build naming the missing
+ * property, instead of silently falling through a chain with no `else` — the
+ * exact defect class this table (and PushFieldLock beside it) exists to make
+ * impossible. Verified by mutation: temporarily add a field to
+ * SyncedGameStateKey (src/types.ts) with no matching entry here and tsc fails
+ * on this table; remove it again afterwards.
+ */
+const FIELD_HANDLERS = {
+  status: applyStatus,
+  winningScore: applyWinningScore,
+  initialCards: applyInitialCards,
+  randomOrder: applyRandomOrder,
+  [MID_GAME_CONFIG_FIELD]: applyTurnDuration,
+  reconnectTimeout: applyReconnectTimeout,
+  enforcedDiceMode: applyEnforcedDiceMode,
+  ruleset: applyRuleset,
+  currentCard: cardFieldHandler('currentCard'),
+  cards: applyCards,
+  currentPlayerIndex: applyCurrentPlayerIndex,
+  round: applyRound,
+  previousCard: cardFieldHandler('previousCard'),
+  previousScore: applyPreviousScore,
+  previousLeaders: applyPreviousLeaders,
+  previousWasBust: applyPreviousWasBust,
+  previousWasSuccess: applyPreviousWasSuccess,
+  previousHighestTurnScore: boundedCounterHandler('previousHighestTurnScore'),
+  previousHighestFeuerwerkTurnScore: boundedCounterHandler('previousHighestFeuerwerkTurnScore'),
+  previousHighestX2TurnScore: boundedCounterHandler('previousHighestX2TurnScore'),
+  previousPlayerName: applyPreviousPlayerName,
+  previousTurnSummary: applyPreviousTurnSummary,
+  chartValues: applyChartValues,
+  chartNames: applyChartNames,
+  chartLabels: applyChartLabels,
+  gameTimeInSeconds: applyGameTimeInSeconds,
+  players: applyPlayers,
+  finished: applyFinished,
+  liveTurnState: applyLiveTurnState,
+  historyLog: applyHistoryLog,
+} satisfies Record<SyncedGameStateKey, FieldHandler>;
+
 // Merges a client-pushed state snapshot into the authoritative room state,
 // field by field: fields outside the sender's permission set are skipped, and
 // every accepted value must pass its shape/bounds check — anything else is
@@ -527,213 +809,13 @@ export const applyPushedState = (
     return false;
   }
 
+  const ctx: ApplyContext = { state, isHost, startingGame, pusherName };
   for (const key of allowedFields) {
     if (!(key in newState)) continue;
     // One check for the whole config set rather than a condition repeated in
     // six branches, which is how five of them came to be missing it.
     if (!allowConfigWrite && LOBBY_ONLY_CONFIG_FIELDS.has(key)) continue;
-    if (key === 'players') {
-      const pushed = newState.players as Record<string, unknown>[];
-
-      // No permutation re-check here: the roster gate above already refused
-      // anything that is not one (equal length, unique names, every name
-      // known), so a surviving push's roster IS a strict permutation. A
-      // second check would be dead code that reads as if non-permutations
-      // could reach this branch.
-      if (startingGame) {
-        // Adopt the host's chosen ordering, but keep the server-side player
-        // identities and non-mutable fields. Keeps chartNames/chartValues
-        // (pushed in the same order) aligned with the authoritative roster.
-        const byName = new Map(state.players.map(p => [p.name, p]));
-        state.players = pushed.map(q =>
-          mergeMutable(byName.get(q.name as string)!, q, { clearAbsentRecords: true }),
-        );
-      } else {
-        state.players = state.players.map(existing =>
-          mergeMutable(existing, pushed.find(q => q.name === existing.name), {
-            ownSeat: isHost || existing.name === pusherName,
-          }),
-        );
-      }
-    } else if (key === 'winningScore') {
-      if (isValidWinningScore(newState.winningScore)) state.winningScore = newState.winningScore;
-    } else if (key === MID_GAME_CONFIG_FIELD) {
-      const v = newState.turnDuration;
-      // Integers only: the loose >= 0 floor stays (integration tests push 1-2s
-      // turns), but a SUB-SECOND duration would arm the 10ms-floor server
-      // timer as a self-advancing loop that never ends the game. This is the
-      // one place the push path is deliberately looser than isValidTurnDuration
-      // — every other config field now shares updateConfig's exact validator.
-      if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= MAX_TURN_DURATION) {
-        state.turnDuration = v;
-      }
-    } else if (key === 'reconnectTimeout') {
-      // updateConfig's own validator, not merely the outer numeric bounds:
-      // 1..9 is the hole in the range (neither "disabled" nor an accepted
-      // duration), the lobby snaps a typed value up out of it, and a pushed 3
-      // used to land and arm a 3-second kick timer no UI can produce.
-      if (isValidReconnectTimeout(newState.reconnectTimeout)) {
-        state.reconnectTimeout = newState.reconnectTimeout;
-      }
-    } else if (key === 'initialCards') {
-      if (validateInitialCards(newState.initialCards)) state.initialCards = newState.initialCards;
-    } else if (key === 'status') {
-      if (newState.status === 'lobby' || newState.status === 'playing') state.status = newState.status;
-    } else if (key === 'randomOrder') {
-      if (typeof newState.randomOrder === 'boolean') state.randomOrder = newState.randomOrder;
-    } else if (key === 'currentCard' || key === 'previousCard') {
-      const v = newState[key];
-      if (v === null || VALID_CARD_TYPES.includes(v as CardType)) {
-        (state as unknown as Record<string, unknown>)[key] = v;
-      }
-    } else if (key === 'cards') {
-      const v = newState.cards;
-      if (Array.isArray(v) && v.length <= MAX_DECK_SIZE && v.every(c => VALID_CARD_TYPES.includes(c as CardType))) {
-        state.cards = v as CardType[];
-      }
-    } else if (key === 'currentPlayerIndex') {
-      const v = newState.currentPlayerIndex;
-      if (v === null || (Number.isInteger(v) && (v as number) >= 0 && (v as number) < state.players.length)) {
-        state.currentPlayerIndex = v as number | null;
-      }
-    } else if (key === 'round') {
-      const v = newState.round;
-      // MAX_ROUNDS is an array-length safety cap (chartLabels, historyLog),
-      // not a bound on a legitimate round number — on its own it let an active
-      // player push round: 100000 on their own turn. The honest host then
-      // submits that as longestGameRounds, sanitizeStats' 1e9 cap waves it
-      // through, and the column is MAX-merged into the global row forever.
-      //
-      // A game only ever nudges this: +1 when a round ends, the same value on
-      // every other push, and -1 when a turn is undone across a round boundary.
-      // The host is exempt because a Play Again kickoff resets it to 1.
-      const withinReach = isHost || (v as number >= state.round - 1 && v as number <= state.round + 1);
-      if (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MAX_ROUNDS && withinReach) {
-        state.round = v;
-      }
-    } else if (key === 'finished') {
-      // Both stats handlers take state.finished as proof a real game ended,
-      // and their comments reason about the risk as host-only — but this is an
-      // ACTIVE-player field, and it had no check at all. Any seated player
-      // could end the table's game on their own turn; every honest client then
-      // submits, and each victim's device row takes gamesPlayed + 1 with
-      // wins: 0, which resets their win streak.
-      //
-      // The same condition calculateNextTurn and handleActivePlayerRemoved
-      // use, against the roster this push has already merged. A tie is not a
-      // win. Un-finishing is never gated — that is what Play Again does. The
-      // host is exempt for the same reason it is everywhere else here: it
-      // already writes every field via ALL_FIELDS.
-      if (typeof newState.finished === 'boolean') {
-        const leaders = getLeaders(state.players);
-        const gameIsOver = leaders.length === 1 && leaders[0].score >= state.winningScore;
-        if (!newState.finished || isHost || gameIsOver) state.finished = newState.finished;
-      }
-    } else if (key === 'previousScore') {
-      const v = newState.previousScore;
-      if (v === null || (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= MAX_SCORE_MAGNITUDE)) {
-        state.previousScore = v as number | null;
-      }
-    } else if (key === 'previousLeaders') {
-      const v = newState.previousLeaders;
-      if (v === null) {
-        state.previousLeaders = null;
-      } else if (Array.isArray(v) && v.length <= state.players.length && v.every(isPlausiblePlayerSnapshot)) {
-        // Rebuilt from only the checked fields — isPlausiblePlayerSnapshot only
-        // shape-checks name/score, so storing `v` as-is would let extra
-        // properties on each entry ride along into every future broadcast.
-        state.previousLeaders = v.map(p => ({ name: p.name, score: p.score })) as ServerPlayer[];
-      }
-    } else if (key === 'previousWasBust') {
-      if (typeof newState.previousWasBust === 'boolean') state.previousWasBust = newState.previousWasBust;
-    } else if (key === 'previousWasSuccess') {
-      // A client predating this field omits the key entirely, so the loop
-      // above skips it and the room keeps what it had — which is exactly the
-      // "no outcome recorded" state undo's fallback expects.
-      if (typeof newState.previousWasSuccess === 'boolean') state.previousWasSuccess = newState.previousWasSuccess;
-    } else if (key === 'previousHighestTurnScore') {
-      const v = newState.previousHighestTurnScore;
-      if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= MAX_SCORE_MAGNITUDE) {
-        state.previousHighestTurnScore = v;
-      }
-    } else if (key === 'previousHighestFeuerwerkTurnScore') {
-      const v = newState.previousHighestFeuerwerkTurnScore;
-      if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= MAX_SCORE_MAGNITUDE) {
-        state.previousHighestFeuerwerkTurnScore = v;
-      }
-    } else if (key === 'previousHighestX2TurnScore') {
-      const v = newState.previousHighestX2TurnScore;
-      if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= MAX_SCORE_MAGNITUDE) {
-        state.previousHighestX2TurnScore = v;
-      }
-    } else if (key === 'previousPlayerName') {
-      const v = newState.previousPlayerName;
-      if (v === null || (typeof v === 'string' && v.length > 0 && v.length <= MAX_PLAYER_NAME_LENGTH)) {
-        state.previousPlayerName = v as string | null;
-      }
-    } else if (key === 'previousTurnSummary') {
-      const v = newState.previousTurnSummary;
-      if (v === null) {
-        state.previousTurnSummary = null;
-      } else if (isValidTurnSummary(v)) {
-        state.previousTurnSummary = sanitizeTurnSummary(v);
-      }
-    } else if (key === 'chartValues') {
-      const v = newState.chartValues;
-      if (
-        Array.isArray(v) && isPerPlayerOrCleared(v, state.players) &&
-        v.every(arr => Array.isArray(arr) && arr.length <= MAX_ROUNDS && arr.every(isBoundedNumber))
-      ) {
-        state.chartValues = v as number[][];
-      }
-    } else if (key === 'chartNames') {
-      const v = newState.chartNames;
-      // Entries are player names, so they follow the same 1-30 char rule as
-      // previousPlayerName/historyLog.playerName. Without the length cap this
-      // was the one client-pushed string stored unbounded — and rebroadcast
-      // to every client on each subsequent emitRoomState.
-      if (
-        Array.isArray(v) && isPerPlayerOrCleared(v, state.players) &&
-        v.every(n => typeof n === 'string' && n.length > 0 && n.length <= MAX_PLAYER_NAME_LENGTH)
-      ) {
-        state.chartNames = v as string[];
-      }
-    } else if (key === 'chartLabels') {
-      const v = newState.chartLabels;
-      // Round numbers: whole, and bounded like every other pushed numeric.
-      if (Array.isArray(v) && v.length <= MAX_ROUNDS && v.every(n => Number.isInteger(n) && isBoundedNumber(n))) {
-        state.chartLabels = v as number[];
-      }
-    } else if (key === 'gameTimeInSeconds') {
-      const v = newState.gameTimeInSeconds;
-      if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= MAX_GAME_SECONDS) {
-        state.gameTimeInSeconds = v;
-      }
-    } else if (key === 'liveTurnState') {
-      const v = newState.liveTurnState;
-      if (v === null) {
-        state.liveTurnState = null;
-      } else if (isValidDiceSnapshot(v)) {
-        state.liveTurnState = sanitizeDiceSnapshot(v);
-      }
-    } else if (key === 'enforcedDiceMode') {
-      const v = newState.enforcedDiceMode;
-      if (isValidEnforcedDiceMode(v)) state.enforcedDiceMode = v;
-    } else if (key === 'ruleset') {
-      // The mid-game refusal lives in LOBBY_ONLY_CONFIG_FIELDS now, with the
-      // rest of the config. It matters most here: flipping the rule set under
-      // an active game changes the turn logic on every client mid-turn, and
-      // the normalizedGame-style sticky downgrade cannot help — it protects
-      // the stats label, not gameplay.
-      if (isValidRuleset(newState.ruleset)) state.ruleset = newState.ruleset;
-    } else if (key === 'historyLog') {
-      const v = newState.historyLog;
-      if (Array.isArray(v) && v.length <= MAX_HISTORY_LOG_SIZE && v.every(isValidHistoryEntry)) {
-        state.historyLog = v.map(sanitizeHistoryEntry);
-      }
-    } else {
-      assertHandled(key);
-    }
+    FIELD_HANDLERS[key](newState[key], ctx);
   }
 
   // A running game must always have someone to act. `null` is a legal value —
