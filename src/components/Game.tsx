@@ -20,7 +20,7 @@ import { useWakeLock } from '../hooks/useWakeLock';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useDeviceStats } from '../hooks/useDeviceStats';
 import type { PreGameStats } from '../store/storeTypes';
-import type { DiceSnapshot, TurnSummary } from '../types';
+import type { DiceSnapshot, TurnEnd, TurnSummary } from '../types';
 import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../utils/coreGameEngine';
 import { usePhysicalChain, readPhysicalChainCache } from '../hooks/usePhysicalChain';
 
@@ -408,6 +408,23 @@ export default function Game() {
     setApplyBonus(false);
   }, [scoreInput, applyBonus, currentCard, nextTurn, isClassic, buildPhysicalSummary, physicalAwaitingChoice, clearChain]);
 
+  // Every classic-physical turn that ends on ZERO banked points — a special
+  // card's No, a Kleeblatt answered either way, a mid-chain Stop, a declared
+  // bust — commits the same three things: the turn with the chain's summary,
+  // the chain itself cleared, the score box emptied. Spelled out at each of
+  // the four call sites it was four chances to forget one of them (the
+  // forfeited total in particular, which is what the summary carries the
+  // typed score for).
+  //
+  // `banked` is derived rather than passed: 'banked' is precisely the end a
+  // caller means when the turn scored, and the two arguments could not
+  // disagree without one of them being a bug.
+  const commitPhysicalTurn = useCallback((ended: TurnEnd, lastCardCompleted = false) => {
+    nextTurn(0, ended === 'banked', buildPhysicalSummary(ended, lastCardCompleted, parseScoreInput(scoreInput)));
+    clearChain();
+    setScoreInput('');
+  }, [nextTurn, buildPhysicalSummary, clearChain, scoreInput]);
+
   const handleYesNo = useCallback((isSuccess: boolean) => {
     if (isClassic && currentCard && isSpecialCard(currentCard) && currentCard !== 'Kleeblatt') {
       // Kniffel/Plus_Minus under classic: a Yes does NOT commit the turn —
@@ -420,27 +437,23 @@ export default function Game() {
         setScoreInput(prev => String((parseInt(prev, 10) || 0) + (isPlusMinus ? PLUS_MINUS_SCORE : KNIFFEL_SCORE)));
         return;
       }
-      nextTurn(0, false, buildPhysicalSummary('null', false, parseScoreInput(scoreInput)));
-      clearChain();
-      setScoreInput('');
+      commitPhysicalTurn('null');
       return;
     }
     if (isClassic && currentCard === 'Kleeblatt') {
-      nextTurn(0, isSuccess, buildPhysicalSummary(isSuccess ? 'banked' : 'null', isSuccess, parseScoreInput(scoreInput)));
-      clearChain();
-      setScoreInput('');
+      // The one caller with a completed last card to record: a Kleeblatt Yes
+      // both banks and completes, a No does neither.
+      commitPhysicalTurn(isSuccess ? 'banked' : 'null', isSuccess);
       return;
     }
     if (isClassic && currentCard === 'Stop' && hasPhysicalChain()) {
       // The local Continue button on a mid-chain Stop — same forfeit the
       // online auto-continue commits.
-      nextTurn(0, false, buildPhysicalSummary('stopCard', false, parseScoreInput(scoreInput)));
-      clearChain();
-      setScoreInput('');
+      commitPhysicalTurn('stopCard');
       return;
     }
     nextTurn(0, isSuccess);
-  }, [nextTurn, isClassic, currentCard, completeCurrentCard, buildPhysicalSummary, clearChain, hasPhysicalChain, scoreInput]);
+  }, [nextTurn, isClassic, currentCard, completeCurrentCard, hasPhysicalChain, commitPhysicalTurn]);
 
   // Classic physical: the player made a tutto with their real dice and
   // reveals the next card, keeping the running total in the score input.
@@ -464,10 +477,8 @@ export default function Game() {
   // box banked a chain that had just been lost. Same call handleYesNo's No
   // already makes for a special card.
   const handlePhysicalBust = useCallback(() => {
-    nextTurn(0, false, buildPhysicalSummary('null', false, parseScoreInput(scoreInput)));
-    clearChain();
-    setScoreInput('');
-  }, [nextTurn, buildPhysicalSummary, clearChain, scoreInput]);
+    commitPhysicalTurn('null');
+  }, [commitPhysicalTurn]);
 
   const handleDiceComplete = useCallback((score: number, isSuccess: boolean, turnSummary?: TurnSummary) => {
     setShowDiceGame(false);
