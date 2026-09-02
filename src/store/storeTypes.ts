@@ -93,6 +93,13 @@ export interface GameStore extends CoreGameState {
   turnDuration: number;
   reconnectTimeout: number;
   turnTimeRemaining: number | null;
+  // Epoch ms the current turn expires at, derived from the server's reported
+  // remaining time plus Date.now() at the moment it arrived (see
+  // syncOnlineTimers in timers.ts). Client-derived — never synced from the
+  // server and never persisted — so the display countdown can be recomputed
+  // from wall-clock time on every tick instead of decrementing by 1, which
+  // drifts once a throttled background tab stops firing interval callbacks.
+  turnDeadline: number | null;
   chartValues: number[][];
   chartNames: string[];
   chartLabels: number[];

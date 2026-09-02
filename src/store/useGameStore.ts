@@ -36,6 +36,7 @@ const createInitialLocalState = (): Omit<CoreGameState, never> & {
   turnDuration: number;
   reconnectTimeout: number;
   turnTimeRemaining: number | null;
+  turnDeadline: number | null;
   chartValues: number[][];
   chartNames: string[];
   chartLabels: number[];
@@ -67,6 +68,7 @@ const createInitialLocalState = (): Omit<CoreGameState, never> & {
   gameStartTime: null,
   gameTimeInSeconds: 0,
   turnTimeRemaining: null,
+  turnDeadline: null,
   previousScore: null,
   previousCard: null,
   previousLeaders: null,

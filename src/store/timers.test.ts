@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useGameStore, _resetTimersForTests } from './useGameStore';
+import { clearRoomState } from './socketSlice';
 
 const startedOnlineTurnState = {
   mode: 'online' as const,
@@ -193,6 +194,105 @@ describe('timer slice', () => {
       vi.advanceTimersByTime(5000);
       expect(useGameStore.getState().turnTimeRemaining).toBe(30);
       expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
+    });
+  });
+
+  // A3: the countdown used to decrement turnTimeRemaining by 1 per interval
+  // tick, so a throttled/backgrounded tab that misses ticks left the display
+  // stuck on a stale number (measured: 54s shown while the server had 14s
+  // left). It is now deadline-anchored — every tick (and every
+  // visibilitychange back to 'visible') recomputes turnTimeRemaining from
+  // Date.now() against a stored turnDeadline, so a missed tick self-corrects
+  // instead of compounding.
+  describe('deadline-anchored turn countdown', () => {
+    it('sets turnDeadline alongside turnTimeRemaining on every countdown restart', () => {
+      useGameStore.setState(startedOnlineTurnState);
+      const before = Date.now();
+
+      useGameStore.getState().syncOnlineTimers(45);
+
+      expect(useGameStore.getState().turnDeadline).toBe(before + 45_000);
+    });
+
+    it('derives the next tick from the deadline instead of decrementing — a system-time jump (throttled background tab) is caught immediately', () => {
+      useGameStore.setState(startedOnlineTurnState);
+      useGameStore.getState().syncOnlineTimers(60);
+      expect(useGameStore.getState().turnTimeRemaining).toBe(60);
+
+      // Simulate a background tab: real time passes but no interval callback
+      // fires while it does (vi.setSystemTime jumps the clock without running
+      // any pending timers).
+      vi.setSystemTime(Date.now() + 40_000);
+
+      // Let the already-scheduled interval fire its next tick (fake timers
+      // still require ticking the clock forward by the interval's own
+      // period to reach it — real background tabs simply skip firing
+      // entirely, which the visibilitychange listener below covers). A naive
+      // decrement would read 59 (one tick, minus one); the deadline-anchored
+      // tick reads the true elapsed time instead.
+      vi.advanceTimersByTime(1000);
+      expect(useGameStore.getState().turnTimeRemaining).toBe(19);
+    });
+
+    it('a visibilitychange to "visible" ticks immediately instead of waiting for the interval', () => {
+      useGameStore.setState(startedOnlineTurnState);
+      useGameStore.getState().syncOnlineTimers(60);
+
+      vi.setSystemTime(Date.now() + 40_000);
+      // jsdom documents default to visibilityState 'visible'; dispatching the
+      // event alone (no interval tick, no advanceTimersByTime) must recompute.
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(useGameStore.getState().turnTimeRemaining).toBe(20);
+    });
+
+    it('does not tick on a visibilitychange while the tab is hidden', () => {
+      useGameStore.setState(startedOnlineTurnState);
+      useGameStore.getState().syncOnlineTimers(60);
+
+      vi.setSystemTime(Date.now() + 40_000);
+      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(useGameStore.getState().turnTimeRemaining).toBe(60);
+      vi.restoreAllMocks();
+    });
+
+    it('registers the visibilitychange listener when the countdown starts and removes it when stopOnlineTimers runs', () => {
+      const addSpy = vi.spyOn(document, 'addEventListener');
+      const removeSpy = vi.spyOn(document, 'removeEventListener');
+
+      useGameStore.setState(startedOnlineTurnState);
+      useGameStore.getState().syncOnlineTimers(60);
+      expect(addSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+
+      useGameStore.getState().stopOnlineTimers();
+      expect(removeSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+
+      addSpy.mockRestore();
+      removeSpy.mockRestore();
+    });
+
+    it('never reports a negative remaining time, even long past the deadline', () => {
+      useGameStore.setState(startedOnlineTurnState);
+      useGameStore.getState().syncOnlineTimers(5);
+
+      vi.advanceTimersByTime(10 * 60_000);
+
+      expect(useGameStore.getState().turnTimeRemaining).toBe(0);
+    });
+
+    it('reset() clears turnDeadline', () => {
+      useGameStore.setState(startedOnlineTurnState);
+      useGameStore.getState().syncOnlineTimers(45);
+      expect(useGameStore.getState().turnDeadline).not.toBeNull();
+
+      useGameStore.getState().reset();
+      expect(useGameStore.getState().turnDeadline).toBeNull();
+    });
+
+    it('clearRoomState clears turnDeadline', () => {
+      expect(clearRoomState().turnDeadline).toBeNull();
     });
   });
 });

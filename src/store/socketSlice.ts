@@ -36,7 +36,7 @@ export const GAME_STATE_SYNC_KEYS = SYNCED_GAME_STATE_KEYS satisfies readonly (k
 export const clearRoomState = (): Pick<GameStore,
   | 'players' | 'currentPlayerIndex' | 'currentCard' | 'cards' | 'round' | 'finished'
   | 'status' | 'roomId' | 'isHost' | 'hostId' | 'myName' | 'liveTurnState'
-  | 'turnTimeRemaining'
+  | 'turnTimeRemaining' | 'turnDeadline'
   | 'chartValues' | 'chartNames' | 'chartLabels' | 'historyLog'
   | 'previousCard' | 'previousScore' | 'previousLeaders' | 'previousWasBust'
   | 'previousWasSuccess' | 'previousHighestTurnScore'
@@ -60,6 +60,9 @@ export const clearRoomState = (): Pick<GameStore,
   // renders its tile from this alone, so an abandoned room's countdown sat
   // frozen inside a local game.
   turnTimeRemaining: null,
+  // Client-derived, like turnTimeRemaining above — an abandoned room's
+  // deadline must not survive into the next local/online game either.
+  turnDeadline: null,
   // The rest of the abandoned game, not just who was at the table. These are
   // per-game, so leaving them behind is the same bleed the roster used to
   // cause: setMode('local') only overwrites the keys a saved local game
