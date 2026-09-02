@@ -606,28 +606,45 @@ export function AdvancedOptionsPanel({
                 </label>
                 {isOnline && (
                   <>
-                    <label className="lobby-row focus-within:ring-2 focus-within:ring-indigo-500 cursor-text">
-                      <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.turnTimer', 'Turn Timer (s)')}</span>
-                      <BlurInput
-                        type="number" minVal={0} maxVal={MAX_TURN_DURATION} inputMode="numeric" pattern="[0-9]*"
-                        normalize={(val) => snapDisableableDuration(val, MIN_ENABLED_TURN_DURATION)}
-                        className="bg-transparent border-0 outline-hidden focus:outline-hidden focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
-                        value={turnDuration}
-                        onValueChange={(val) => setTurnDuration(val)}
-                        placeholder="0"
-                      />
-                    </label>
-                    <label className="lobby-row focus-within:ring-2 focus-within:ring-indigo-500 cursor-text">
-                      <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.kickTimer', 'Kick Timer (s)')}</span>
-                      <BlurInput
-                        type="number" minVal={0} maxVal={MAX_RECONNECT_TIMEOUT} inputMode="numeric" pattern="[0-9]*"
-                        normalize={(val) => snapDisableableDuration(val, MIN_ENABLED_RECONNECT_TIMEOUT)}
-                        className="bg-transparent border-0 outline-hidden focus:outline-hidden focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
-                        value={reconnectTimeout}
-                        onValueChange={(val) => setReconnectTimeout(val)}
-                        placeholder="0"
-                      />
-                    </label>
+                    <div className="flex flex-col gap-1">
+                      <label className="lobby-row focus-within:ring-2 focus-within:ring-indigo-500 cursor-text">
+                        <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.turnTimer', 'Turn Timer (s)')}</span>
+                        <BlurInput
+                          type="number" minVal={0} maxVal={MAX_TURN_DURATION} inputMode="numeric" pattern="[0-9]*"
+                          normalize={(val) => snapDisableableDuration(val, MIN_ENABLED_TURN_DURATION)}
+                          className="bg-transparent border-0 outline-hidden focus:outline-hidden focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
+                          value={turnDuration}
+                          onValueChange={(val) => setTurnDuration(val)}
+                          placeholder="0"
+                        />
+                      </label>
+                      {/* Otherwise unexplained: a value below MIN_ENABLED_TURN_DURATION
+                          (10) silently snaps up to it on blur (snapDisableableDuration,
+                          configValidation.ts) — 0 is the one exception, which disables
+                          the timer instead of snapping. */}
+                      <span className="text-xs text-gray-500 dark:text-gray-400 px-1">{t('lobby.zeroToDisable', '0 to disable')}</span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="lobby-row focus-within:ring-2 focus-within:ring-indigo-500 cursor-text">
+                        <span className="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis mr-2">{t('lobby.kickTimer', 'Kick Timer (s)')}</span>
+                        <BlurInput
+                          type="number" minVal={0} maxVal={MAX_RECONNECT_TIMEOUT} inputMode="numeric" pattern="[0-9]*"
+                          normalize={(val) => snapDisableableDuration(val, MIN_ENABLED_RECONNECT_TIMEOUT)}
+                          className="bg-transparent border-0 outline-hidden focus:outline-hidden focus:ring-0 focus:border-transparent shadow-none text-right w-24 py-1 text-gray-900 dark:text-white font-medium"
+                          value={reconnectTimeout}
+                          onValueChange={(val) => setReconnectTimeout(val)}
+                          placeholder="0"
+                        />
+                      </label>
+                      {/* Same 0-disables / snap-to-10 rule as the turn timer, plus
+                          the one thing "Kick Timer" alone doesn't say: the clock only
+                          starts once a player actually disconnects, not from whenever
+                          this is set. */}
+                      <span className="text-xs text-gray-500 dark:text-gray-400 px-1 flex flex-wrap gap-x-1">
+                        <span>{t('lobby.zeroToDisable', '0 to disable')}</span>
+                        <span>{t('lobby.disconnect', '(after disconnect)')}</span>
+                      </span>
+                    </div>
                   </>
                 )}
                 {/* A real <button role="switch">, not a div: this is the only

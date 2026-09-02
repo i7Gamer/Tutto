@@ -210,6 +210,30 @@ describe('AdvancedOptionsPanel', () => {
     });
   });
 
+  // lobby.zeroToDisable ("0 to disable") and lobby.disconnect ("(after
+  // disconnect)") existed in both locale files but were never rendered
+  // anywhere — nothing explained why typing 1-9 into the turn/kick timer
+  // silently snaps to 10 (snapDisableableDuration, configValidation.ts), or
+  // that the kick timer's clock only starts once a player actually
+  // disconnects.
+  it('renders the 0-to-disable hint under both timer inputs, and the disconnect hint under the kick timer', () => {
+    stageStore({ turnDuration: 10, reconnectTimeout: 10, initialCards: {} });
+
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={true} />);
+
+    expect(screen.getAllByText('lobby.zeroToDisable')).toHaveLength(2);
+    expect(screen.getByText('lobby.disconnect')).toBeInTheDocument();
+  });
+
+  it('does not render the timer hints for offline games, which have no online timers to explain', () => {
+    stageStore({ initialCards: {} });
+
+    render(<AdvancedOptionsPanel showAdvanced={true} isOnline={false} />);
+
+    expect(screen.queryByText('lobby.zeroToDisable')).not.toBeInTheDocument();
+    expect(screen.queryByText('lobby.disconnect')).not.toBeInTheDocument();
+  });
+
   it('updates card count using object syntax instead of functional update', () => {
     const mockSetInitialCards = vi.fn();
     stageStore({ initialCards: { Kleeblatt: 1, Stop: 10 }, setInitialCards: mockSetInitialCards });
