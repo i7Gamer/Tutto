@@ -172,7 +172,12 @@ export default function HelpPopup() {
       <button
         ref={openButtonRef}
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 left-6 w-12 h-12 bg-white dark:bg-slate-800 rounded-full shadow-lg flex items-center justify-center hover:scale-110 transition-transform z-50 text-indigo-500 dark:text-indigo-400 border border-gray-100 dark:border-slate-700"
+        // z-100 (not z-50, the dice panel's own `.modal-backdrop-under-hud`
+        // layer): this button was earlier in the DOM than that backdrop and
+        // tied with it at z-50, so it lost the paint-order tie and was
+        // unreachable while the dice panel was open. z-100 is the same layer
+        // App.tsx's language/theme corner already uses.
+        className="fixed bottom-6 left-6 w-12 h-12 bg-white dark:bg-slate-800 rounded-full shadow-lg flex items-center justify-center hover:scale-110 transition-transform z-100 text-indigo-500 dark:text-indigo-400 border border-gray-100 dark:border-slate-700"
         title={t('help.buttonTitle', 'Open Help / Wiki')}
       >
         <HelpCircle size={24} />

@@ -505,3 +505,75 @@ test.describe('WCAG AA contrast — accent and caption fixes (A8)', () => {
     });
   }
 });
+
+/**
+ * A9 — the fixed HUD (language switcher + theme toggle, App.tsx) used to carry
+ * an inline `zIndex: 100` and sit bottom-right at every width, which put it
+ * directly over the dice panel's action row (Stop & Score / Roll Again) on a
+ * phone — the panel reserves no bottom space for it. The help trigger
+ * (HelpPopup.tsx) was `z-50`, the same layer as the dice panel's own backdrop
+ * (`.modal-backdrop-under-hud`) and earlier in the DOM, so it lost the paint
+ * order tie and was unreachable while the dice panel was open.
+ */
+test.describe('HUD vs dice panel, help button z-order (A9)', () => {
+  interface Box { x: number; y: number; width: number; height: number; }
+
+  const intersects = (a: Box, b: Box): boolean =>
+    a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+
+  const openDicePanelOnPhone = async (page: Page) => {
+    // The lobby's own "Add" button label is `hidden sm:inline`
+    // (LocalLobby.tsx) — icon-only, with no aria-label, below the sm
+    // breakpoint — so the phone viewport is applied only after the local
+    // game is under way, not before the lobby form is used.
+    await seedLocalDeck(page);
+    await page.goto('/');
+    await startLocalGame(page);
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.getByRole('button', { name: /Roll Dice/i }).click();
+    await expect(page.getByRole('button', { name: /Stop & Score/i })).toBeVisible({ timeout: 15000 });
+  };
+
+  test('the language switcher and theme toggle do not cover the dice panel action row at 375x812', async ({ page }) => {
+    await openDicePanelOnPhone(page);
+
+    const languageSwitcher = page.getByLabel('Switch to English').locator('xpath=..');
+    const themeToggle = page.getByLabel('Toggle theme');
+    const stopButton = page.getByRole('button', { name: /Stop & Score/i });
+    const rollAgainButton = page.getByRole('button', { name: /Roll Again/i });
+
+    const languageBox = await languageSwitcher.boundingBox();
+    const themeBox = await themeToggle.boundingBox();
+    const stopBox = await stopButton.boundingBox();
+    expect(languageBox).not.toBeNull();
+    expect(themeBox).not.toBeNull();
+    expect(stopBox).not.toBeNull();
+
+    expect(intersects(languageBox!, stopBox!)).toBe(false);
+    expect(intersects(themeBox!, stopBox!)).toBe(false);
+
+    // Roll Again is absent only on the rare turn that already made a tutto —
+    // checked when present rather than asserted unconditionally.
+    if (await rollAgainButton.isVisible()) {
+      const rollAgainBox = await rollAgainButton.boundingBox();
+      expect(intersects(languageBox!, rollAgainBox!)).toBe(false);
+      expect(intersects(themeBox!, rollAgainBox!)).toBe(false);
+    }
+  });
+
+  test('the help trigger sits above the dice panel backdrop and stays clickable at 375x812', async ({ page }) => {
+    await openDicePanelOnPhone(page);
+
+    const helpButton = page.getByTitle('Open Help / Wiki');
+    const backdrop = page.locator('.modal-backdrop-under-hud');
+    await expect(backdrop).toBeVisible();
+    await expect(helpButton).toBeVisible();
+
+    const helpZ = Number(await helpButton.evaluate(el => getComputedStyle(el).zIndex));
+    const backdropZ = Number(await backdrop.evaluate(el => getComputedStyle(el).zIndex));
+    expect(helpZ).toBeGreaterThan(backdropZ);
+
+    await helpButton.click();
+    await expect(page.getByRole('heading', { name: 'Tutto Wiki' })).toBeVisible();
+  });
+});

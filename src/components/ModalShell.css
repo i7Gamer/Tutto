@@ -17,9 +17,14 @@
 }
 
 /* For the dice panel, which lives INSIDE gameplay: the toasts (z-150), the
-   emoji reactions (z-100) and the corner buttons (z-100) must stay visible
-   over it — the resume toast fires exactly as it opens, and reactions land
-   mid-roll. z-50 is the layer the pre-ModalShell backdrop occupied. */
+   emoji reactions (z-100) and the corner buttons — the language/theme group
+   in App.tsx and the help trigger in HelpPopup.tsx, both z-100 — must stay
+   visible over it — the resume toast fires exactly as it opens, reactions
+   land mid-roll, and the help trigger has to stay reachable while the panel
+   is up. (The help trigger used to be z-50, tied with this very layer and
+   earlier in the DOM, so it lost the tie and was unreachable — that is now
+   fixed, not merely documented here.) z-50 is the layer the pre-ModalShell
+   backdrop occupied. */
 .modal-backdrop-under-hud {
   @apply z-50;
 }

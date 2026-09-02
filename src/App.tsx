@@ -235,7 +235,16 @@ export default function App() {
   // framer-motion never sees.
   return (
     <MotionConfig reducedMotion="user">
-      <div style={{ position: 'fixed', bottom: '1rem', right: '1rem', zIndex: 100, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+      {/* z-100: the same bare Tailwind z-index ReactionOverlay already uses,
+          and now what HelpPopup's own corner trigger uses too — see the
+          z-order note there. Top-right below `sm`, its usual bottom-right
+          corner from `sm` up: at phone width this sat directly over the dice
+          panel's Stop & Score / Roll Again row (the panel reserves no bottom
+          space for it) and, behind the panel, over the Undo / End Game row
+          until scrolled. Moving both floating controls up on narrow widths
+          clears both without asking either screen to carve out padding for
+          a control that isn't part of their own layout. */}
+      <div className="fixed top-4 right-4 sm:top-auto sm:bottom-4 z-100 flex gap-2 items-center">
         <LanguageSwitcher />
         <button className="theme-toggle" onClick={toggleTheme} aria-label={t('app.toggleTheme', 'Toggle theme')} style={{ background: 'var(--card-bg)', boxShadow: 'var(--shadow-md)' }}>
           {theme === 'light' ? <Moon size={24} /> : <Sun size={24} />}
