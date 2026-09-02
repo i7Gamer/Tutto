@@ -469,9 +469,9 @@ test.describe('WCAG AA contrast — accent and caption fixes (A8)', () => {
       await setTheme(page, theme);
       await startLocalGame(page);
 
-      // The default fallback string in Game.tsx reads "Goal: First to
-      // reach" — but en/translation.json overrides it to just "Goal:", and
-      // that loaded string, not the fallback, is what actually renders.
+      // The default fallback string in Leaderboard.tsx reads "Goal:" — but
+      // en/translation.json overrides it to the same "Goal:", and that
+      // loaded string, not the fallback, is what actually renders.
       const goalLine = page.getByText('Goal:');
       await expect(goalLine).toBeVisible();
       expect(await contrastOf(goalLine.locator('strong'))).toBeGreaterThanOrEqual(AA_TEXT);

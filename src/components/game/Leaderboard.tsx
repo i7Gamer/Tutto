@@ -111,7 +111,7 @@ export default function Leaderboard({
         </div>
         {winningScore > 0 && (
           <div className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400 bg-black/5 dark:bg-white/5 p-3 rounded-xl border border-gray-100 dark:border-slate-700">
-            {t('game.goalPrefix', 'Goal: First to reach')} <strong className="accent-number">{winningScore}</strong> {t('game.goalSuffix', 'points wins!')}
+            {t('game.goalPrefix', 'Goal:')} <strong className="accent-number">{winningScore}</strong> {t('game.goalSuffix', 'points. The round is played to the end; a tie plays on.')}
             <span className="mx-1">·</span>
             {t('game.rulesetBadge', {
               defaultValue: '{{value}} rules',

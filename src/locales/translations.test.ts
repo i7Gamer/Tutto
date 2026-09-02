@@ -151,6 +151,19 @@ describe('Win rule wording', () => {
   it('help.general.intro (de) states the round-end rule', () => {
     expect(readLocale(dePath)['help.general.intro']).toMatch(/runde/i);
   });
+
+  // Leaderboard.tsx's own t() calls still carried the pre-A1 default strings
+  // as their fallback (second) argument, even after the translation VALUES
+  // above were corrected — a source no locale file could catch, since a
+  // fallback only ever renders when the key itself is missing.
+  it('Leaderboard.tsx\'s t() fallbacks for the goal line carry no old wrong wording', () => {
+    const leaderboardSource = fs.readFileSync(
+      path.resolve(__dirname, '../components/game/Leaderboard.tsx'),
+      'utf8',
+    );
+    bannedPatterns.forEach((pattern) => expect(leaderboardSource).not.toMatch(pattern));
+    expect(leaderboardSource).not.toMatch(/wins!/i);
+  });
 });
 
 // The badge used to say a custom game "will not count toward the
