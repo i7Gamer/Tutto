@@ -43,8 +43,6 @@ const useGameSlice = () => useGameStore(useShallow(state => ({
   cards: state.cards,
   nextTurn: state.nextTurn,
   drawCardMidTurn: state.drawCardMidTurn,
-  undo: state.undo,
-  endGame: state.endGame,
   isOnline: state.isOnline,
   myName: state.myName,
   winningScore: state.winningScore,
@@ -67,7 +65,6 @@ const useGameSlice = () => useGameStore(useShallow(state => ({
   setPreGameStats: state.setPreGameStats,
   turnTimeRemaining: state.turnTimeRemaining,
   addToast: state.addToast,
-  leaveRoom: state.leaveRoom,
   sendReaction: state.sendReaction,
   hostId: state.hostId,
   finished: state.finished,
@@ -84,8 +81,6 @@ export default function Game() {
     cards,
     nextTurn,
     drawCardMidTurn,
-    undo,
-    endGame,
     isOnline,
     myName,
     winningScore,
@@ -485,11 +480,8 @@ export default function Game() {
 
         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col h-full">
           <GameControls
-            currentCard={currentCard}
-            cardsLength={cards?.length || 0}
             isMyTurn={!!isMyTurn}
             diceMode={effectiveDiceMode}
-            ruleset={game.ruleset}
             showDiceGame={showDiceGame}
             setShowDiceGame={setShowDiceGame}
             scoreInput={scoreInput}
@@ -501,15 +493,8 @@ export default function Game() {
             onDrawNextCard={canDrawOnThisCard ? handlePhysicalDrawNextCard : undefined}
             onBust={canBustOnThisCard ? handlePhysicalBust : undefined}
             awaitingChainChoice={physicalAwaitingChoice}
-            undo={undo}
             canUndo={canUndo}
             undoTurnId={undoTurnId}
-            endGame={endGame}
-            isOnline={isOnline}
-            isHost={isHost}
-            leaveRoom={game.leaveRoom}
-            activeTurnState={liveTurnState}
-            currentPlayer={currentPlayer}
           />
           {/* Reactions are meaningless without other players around to see
               them, so the bar only makes sense for online games. */}

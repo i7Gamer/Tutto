@@ -1,9 +1,44 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ComponentProps } from 'react';
 import GameControls from './GameControls';
-import type { CardType, DiceSnapshot, Player } from '../../types';
+import { useGameStore, type GameStore } from '../../store/useGameStore';
+import type { CardType, DiceSnapshot } from '../../types';
 import { CARD_FLIP_MS } from '../../utils/uiTimings';
+
+// GameControls now reads currentCard, cards, ruleset, isOnline, isHost,
+// liveTurnState and currentPlayer (plus the undo/endGame/leaveRoom actions)
+// straight off the store instead of taking them as props (see Game.tsx's
+// useGameSlice for the same narrowing, and AdvancedOptionsPanel in
+// LobbyShared.tsx for the pattern this copies). So driving these tests means
+// setting store state, not passing props -- mirrors the beforeEach in
+// Game.test.tsx: reset() first (the store outlives every test), then clear
+// the localStorage/sessionStorage caches reset() deliberately leaves alone,
+// then layer this file's own baseline on top.
+const setStore = (partial: Partial<GameStore> = {}) => {
+  useGameStore.getState().reset();
+  localStorage.clear();
+  sessionStorage.clear();
+  useGameStore.setState({
+    enforcedDiceMode: null,
+    currentCard: '200',
+    cards: Array.from({ length: 5 }),
+    ruleset: 'modernized',
+    isOnline: false,
+    isHost: true,
+    liveTurnState: null,
+    currentPlayerIndex: 0,
+    players: [{ name: 'Alice', socketId: 'socket1', score: 0, position: 1 }],
+    undo: vi.fn(),
+    endGame: vi.fn(),
+    leaveRoom: vi.fn(),
+    ...partial,
+  });
+};
+
+beforeEach(() => {
+  setStore();
+});
 
 describe('GameControls card-flip state', () => {
   // Replaces six tests that imported GameControls, never rendered it, and
@@ -18,8 +53,6 @@ describe('GameControls card-flip state', () => {
   // drive it. Every wait below is bounded by the flip's own deadline rather
   // than by a guess, so none of them can pass merely by being slow.
   const flipProps = (overrides = {}) => ({
-    currentCard: '200' as CardType,
-    cardsLength: 5,
     isMyTurn: true,
     diceMode: 'physical' as const,
     setShowDiceGame: vi.fn(),
@@ -29,14 +62,7 @@ describe('GameControls card-flip state', () => {
     setApplyBonus: vi.fn(),
     handleNextTurn: vi.fn(),
     handleYesNo: vi.fn(),
-    undo: vi.fn(),
     canUndo: true,
-    endGame: vi.fn(),
-    isOnline: false,
-    isHost: true,
-    leaveRoom: vi.fn(),
-    activeTurnState: null,
-    currentPlayer: { name: 'Alice' } as Player,
     ...overrides,
   });
 
@@ -47,10 +73,11 @@ describe('GameControls card-flip state', () => {
   const settle = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
   it('hides the turn controls for exactly one flip when the card changes', async () => {
-    const { rerender } = render(<GameControls {...flipProps({ currentCard: '200' })} />);
+    setStore({ currentCard: '200', cards: Array.from({ length: 5 }) });
+    render(<GameControls {...flipProps()} />);
     expect(scoreInputShown(), 'the first render has nothing to flip from').toBe(true);
 
-    rerender(<GameControls {...flipProps({ currentCard: 'x2' })} />);
+    act(() => { useGameStore.setState({ currentCard: 'x2' }); });
     await waitFor(() => {
       expect(scoreInputShown(), 'the old card\'s controls stayed up over the new card').toBe(false);
     });
@@ -69,10 +96,11 @@ describe('GameControls card-flip state', () => {
     // Asserted as the transition, never as "still visible after a wait":
     // written that way this test passed while the flip WAS happening, because
     // the settle it used outlasted the flip it was denying.
-    const { rerender } = render(<GameControls {...flipProps({ currentCard: 'x2', cardsLength: 5 })} />);
+    setStore({ currentCard: 'x2', cards: Array.from({ length: 5 }) });
+    render(<GameControls {...flipProps()} />);
     expect(scoreInputShown()).toBe(true);
 
-    rerender(<GameControls {...flipProps({ currentCard: 'x2', cardsLength: 4 })} />);
+    act(() => { useGameStore.setState({ cards: Array.from({ length: 4 }) }); });
 
     await waitFor(() => {
       expect(scoreInputShown(), 'a deck-size change alone left the old controls up').toBe(false);
@@ -84,15 +112,16 @@ describe('GameControls card-flip state', () => {
     // Going card -> null starts a flip whose timer never arms (the effect
     // needs a currentCard), so the reset branch is the only thing that can
     // end it. Without that branch the controls stay hidden for good.
-    const { rerender } = render(<GameControls {...flipProps({ currentCard: '200' })} />);
+    setStore({ currentCard: '200', cards: Array.from({ length: 5 }) });
+    render(<GameControls {...flipProps()} />);
 
-    rerender(<GameControls {...flipProps({ currentCard: null })} />);
+    act(() => { useGameStore.setState({ currentCard: null }); });
     await waitFor(() => expect(scoreInputShown()).toBe(false));
 
     await settle(PAST_THE_FLIP_MS);
     expect(scoreInputShown(), 'no card means no timer, so the flip is still standing').toBe(false);
 
-    rerender(<GameControls {...flipProps({ currentCard: null, cardsLength: 4 })} />);
+    act(() => { useGameStore.setState({ currentCard: null, cards: Array.from({ length: 4 }) }); });
 
     await waitFor(() => {
       expect(scoreInputShown(), 'the reset branch never ran, so the controls are gone for good').toBe(true);
@@ -101,11 +130,10 @@ describe('GameControls card-flip state', () => {
 });
 
 describe('GameControls spectator view (online, not my turn)', () => {
-  const renderSpectator = (activeTurnState: DiceSnapshot, currentCard: CardType | null = null, diceMode: 'digital' | 'physical' = 'digital') =>
-    render(
+  const renderSpectator = (activeTurnState: DiceSnapshot, currentCard: CardType | null = null, diceMode: 'digital' | 'physical' = 'digital') => {
+    setStore({ isOnline: true, isHost: false, currentCard, liveTurnState: activeTurnState });
+    return render(
       <GameControls
-        currentCard={currentCard}
-        cardsLength={5}
         isMyTurn={false}
         diceMode={diceMode}
         setShowDiceGame={vi.fn()}
@@ -115,15 +143,10 @@ describe('GameControls spectator view (online, not my turn)', () => {
         setApplyBonus={vi.fn()}
         handleNextTurn={vi.fn()}
         handleYesNo={vi.fn()}
-        undo={vi.fn()}
-        endGame={vi.fn()}
-        isOnline={true}
-        isHost={false}
-        leaveRoom={vi.fn()}
-        activeTurnState={activeTurnState}
-        currentPlayer={{ name: 'Alice' } as Player}
+        canUndo={true}
       />
     );
+  };
 
   // With currentRoll empty, the only single-digit texts on screen are the kept dice.
   const keptDiceOrder = () => screen.getAllByText(/^[1-6]$/).map((el) => el.textContent);
@@ -287,8 +310,6 @@ describe('GameControls spectator view (online, not my turn)', () => {
 
 describe('GameControls physical dice interactions', () => {
   const baseProps = (overrides: Partial<ComponentProps<typeof GameControls>> = {}) => ({
-    currentCard: '200' as CardType,
-    cardsLength: 5,
     isMyTurn: true,
     diceMode: 'physical' as const,
     setShowDiceGame: vi.fn(),
@@ -298,14 +319,7 @@ describe('GameControls physical dice interactions', () => {
     setApplyBonus: vi.fn(),
     handleNextTurn: vi.fn(),
     handleYesNo: vi.fn(),
-    undo: vi.fn(),
     canUndo: true,
-    endGame: vi.fn(),
-    isOnline: false,
-    isHost: true,
-    leaveRoom: vi.fn(),
-    activeTurnState: null,
-    currentPlayer: { name: 'Alice' } as Player,
     ...overrides,
   });
 
@@ -343,8 +357,6 @@ describe('GameControls physical dice interactions', () => {
 
 describe('GameControls end/leave game confirmation dialogs', () => {
   const baseProps = (overrides: Partial<ComponentProps<typeof GameControls>> = {}) => ({
-    currentCard: '200' as CardType,
-    cardsLength: 5,
     isMyTurn: true,
     diceMode: 'physical' as const,
     setShowDiceGame: vi.fn(),
@@ -354,14 +366,7 @@ describe('GameControls end/leave game confirmation dialogs', () => {
     setApplyBonus: vi.fn(),
     handleNextTurn: vi.fn(),
     handleYesNo: vi.fn(),
-    undo: vi.fn(),
     canUndo: true,
-    endGame: vi.fn(),
-    isOnline: false,
-    isHost: true,
-    leaveRoom: vi.fn(),
-    activeTurnState: null,
-    currentPlayer: { name: 'Alice' } as Player,
     ...overrides,
   });
 
@@ -369,9 +374,10 @@ describe('GameControls end/leave game confirmation dialogs', () => {
     vi.restoreAllMocks();
   });
 
-  it('offline: shows End Game, and only calls endGame once the confirm dialog is accepted', () => {
+  it('offline: shows End Game, and only calls the store\'s endGame once the confirm dialog is accepted', () => {
     const endGame = vi.fn();
-    render(<GameControls {...baseProps({ isOnline: false, isHost: true, endGame })} />);
+    setStore({ isOnline: false, isHost: true, endGame });
+    render(<GameControls {...baseProps()} />);
 
     expect(screen.queryByText('game.controls.leaveGame')).toBeNull();
     fireEvent.click(screen.getByText('game.controls.endGame'));
@@ -390,16 +396,18 @@ describe('GameControls end/leave game confirmation dialogs', () => {
 
   it('online + host: still shows End Game (not Leave Game)', () => {
     const endGame = vi.fn();
-    render(<GameControls {...baseProps({ isOnline: true, isHost: true, endGame })} />);
+    setStore({ isOnline: true, isHost: true, endGame });
+    render(<GameControls {...baseProps()} />);
 
     fireEvent.click(screen.getByText('game.controls.endGame'));
     fireEvent.click(screen.getByText('common.confirm'));
     expect(endGame).toHaveBeenCalledTimes(1);
   });
 
-  it('online + non-host: shows Leave Game, and only calls leaveRoom once the confirm dialog is accepted', () => {
+  it('online + non-host: shows Leave Game, and only calls the store\'s leaveRoom once the confirm dialog is accepted', () => {
     const leaveRoom = vi.fn();
-    render(<GameControls {...baseProps({ isOnline: true, isHost: false, leaveRoom })} />);
+    setStore({ isOnline: true, isHost: false, leaveRoom });
+    render(<GameControls {...baseProps()} />);
 
     expect(screen.queryByText('game.controls.endGame')).toBeNull();
     fireEvent.click(screen.getByText('game.controls.leaveGame'));
@@ -414,9 +422,10 @@ describe('GameControls end/leave game confirmation dialogs', () => {
     expect(leaveRoom).toHaveBeenCalledTimes(1);
   });
 
-  it('undo: only calls undo once the confirm dialog is accepted', () => {
+  it('undo: only calls the store\'s undo once the confirm dialog is accepted', () => {
     const undo = vi.fn();
-    render(<GameControls {...baseProps({ undo })} />);
+    setStore({ undo });
+    render(<GameControls {...baseProps()} />);
 
     fireEvent.click(screen.getByText('game.controls.undo'));
     expect(screen.getByText('game.controls.undoConfirm')).toBeInTheDocument();
@@ -438,13 +447,14 @@ describe('GameControls end/leave game confirmation dialogs', () => {
     // are rewritten by the broadcast; Confirm then rewound CAROL's turn — and
     // pushState propagated it to the whole room.
     const undo = vi.fn();
-    const { rerender } = render(<GameControls {...baseProps({ undo, undoTurnId: 'Bob:200:4' })} />);
+    setStore({ undo });
+    const { rerender } = render(<GameControls {...baseProps({ undoTurnId: 'Bob:200:4' })} />);
 
     fireEvent.click(screen.getByText('game.controls.undo'));
     expect(screen.getByText('game.controls.undoConfirm')).toBeInTheDocument();
 
     // The turn moves on underneath the open dialog.
-    rerender(<GameControls {...baseProps({ undo, undoTurnId: 'Carol:Kniffel:4' })} />);
+    rerender(<GameControls {...baseProps({ undoTurnId: 'Carol:Kniffel:4' })} />);
 
     expect(
       screen.queryByText('game.controls.undoConfirm'),
@@ -456,29 +466,55 @@ describe('GameControls end/leave game confirmation dialogs', () => {
   it('undo: still undoes the turn it was opened for', () => {
     // The control: the guard above must not simply stop undo working.
     const undo = vi.fn();
-    const { rerender } = render(<GameControls {...baseProps({ undo, undoTurnId: 'Bob:200:4' })} />);
+    setStore({ undo });
+    const { rerender } = render(<GameControls {...baseProps({ undoTurnId: 'Bob:200:4' })} />);
 
     fireEvent.click(screen.getByText('game.controls.undo'));
     // An unrelated re-render — a score tick, another player's colour change —
     // leaves the turn identity alone and must not cancel anything.
-    rerender(<GameControls {...baseProps({ undo, undoTurnId: 'Bob:200:4' })} />);
+    rerender(<GameControls {...baseProps({ undoTurnId: 'Bob:200:4' })} />);
     fireEvent.click(screen.getByText('common.confirm'));
 
     expect(undo).toHaveBeenCalledTimes(1);
   });
 
   it('undo: is disabled when canUndo is false', () => {
-    const undo = vi.fn();
-    render(<GameControls {...baseProps({ undo, canUndo: false })} />);
+    render(<GameControls {...baseProps({ canUndo: false })} />);
     const undoBtn = screen.getByText('game.controls.undo').closest('button');
     expect(undoBtn).toBeDisabled();
+  });
+
+  it('reads undo/endGame/leaveRoom from the store rather than from props', () => {
+    // GameControlsProps carries none of these three any more -- every call
+    // above already exercises this, but this test pins it explicitly: a spy
+    // installed straight on the store (no prop of the same name exists to
+    // shadow it) is still the function every button below invokes.
+    const undo = vi.fn();
+    const endGame = vi.fn();
+    const leaveRoom = vi.fn();
+    setStore({ undo, endGame, leaveRoom, isOnline: false, isHost: true });
+    const { unmount } = render(<GameControls {...baseProps()} />);
+
+    fireEvent.click(screen.getByText('game.controls.endGame'));
+    fireEvent.click(screen.getByText('common.confirm'));
+    expect(endGame).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByText('game.controls.undo'));
+    fireEvent.click(screen.getByText('common.confirm'));
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(leaveRoom).not.toHaveBeenCalled();
+    unmount();
+
+    setStore({ undo, endGame, leaveRoom, isOnline: true, isHost: false });
+    render(<GameControls {...baseProps()} />);
+    fireEvent.click(screen.getByText('game.controls.leaveGame'));
+    fireEvent.click(screen.getByText('common.confirm'));
+    expect(leaveRoom).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('GameControls Stop card while the dice panel is open', () => {
   const stopProps = (overrides: Partial<ComponentProps<typeof GameControls>> = {}) => ({
-    currentCard: 'Stop' as CardType,
-    cardsLength: 5,
     isMyTurn: true,
     diceMode: 'digital' as const,
     setShowDiceGame: vi.fn(),
@@ -488,15 +524,12 @@ describe('GameControls Stop card while the dice panel is open', () => {
     setApplyBonus: vi.fn(),
     handleNextTurn: vi.fn(),
     handleYesNo: vi.fn(),
-    undo: vi.fn(),
     canUndo: true,
-    endGame: vi.fn(),
-    isOnline: false,
-    isHost: true,
-    leaveRoom: vi.fn(),
-    activeTurnState: null,
-    currentPlayer: { name: 'Alice' } as Player,
     ...overrides,
+  });
+
+  beforeEach(() => {
+    setStore({ currentCard: 'Stop' });
   });
 
   it('shows Continue and commits the turn while the dice panel is closed', () => {
@@ -532,7 +565,8 @@ describe('GameControls Stop card while the dice panel is open', () => {
     // Only the stop-controls block is guarded: a non-Stop card behind the
     // panel keeps rendering exactly as before (the panel closes with the
     // turn, and these controls are what the player returns to).
-    render(<GameControls {...stopProps({ currentCard: '200' as CardType, showDiceGame: true })} />);
+    setStore({ currentCard: '200' });
+    render(<GameControls {...stopProps({ showDiceGame: true })} />);
 
     expect(screen.getByText('game.controls.rollDice')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /game.controls.continue/i })).toBeNull();

@@ -2,19 +2,18 @@ import { useState, useEffect } from 'react';
 import { Undo2, ChevronRight, Check, X, Dices, Layers } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
+import { useGameStore } from '../../store/useGameStore';
 import { sortKeptDiceForDisplay, hasScoreInput, isSpecialCard } from '../../utils/diceTurnControls';
 import { CARD_FLIP_MS } from '../../utils/uiTimings';
-import { BONUS_CARDS, DEFAULT_RULESET } from '../../utils/configValidation';
-import type { CardType, DiceMode, DiceSnapshot, Player, Ruleset } from '../../types';
+import { BONUS_CARDS } from '../../utils/configValidation';
+import type { CardType, DiceMode } from '../../types';
 import { DiePips } from './Die';
 import ConfirmModal from '../ConfirmModal';
 
 interface GameControlsProps {
-  currentCard: CardType | null;
-  cardsLength: number;
   isMyTurn: boolean;
   diceMode: DiceMode;
-  ruleset?: Ruleset;
   // Whether the dice panel is up over these controls. It covers the screen
   // but leaves them mounted and focusable (no focus trap — see the ModalShell
   // note in Game.tsx), so the Stop card's committing Continue is reachable
@@ -37,7 +36,6 @@ interface GameControlsProps {
   // A special card's Yes was answered under classic — the yes/no buttons
   // give way to the bank-total input plus the draw button.
   awaitingChainChoice?: boolean;
-  undo: () => void;
   canUndo: boolean;
   /**
    * Identifies the turn Undo would reverse, so the confirm dialog can tell
@@ -45,24 +43,34 @@ interface GameControlsProps {
    * nothing to undo. Opaque here — Game owns what goes into it.
    */
   undoTurnId?: string | null;
-  endGame: () => void;
-  isOnline: boolean;
-  isHost: boolean;
-  leaveRoom: () => void;
-  activeTurnState: DiceSnapshot | null;
-  currentPlayer: Player | null | undefined;
 }
 
 // The manual-score quick-add buttons: fixed point values a player can bank
 // with one tap instead of typing them in.
 const QUICK_ADD_SCORES = [50, 100, 200, 300, 400, 500, 600, 1000];
 
+// Read straight from the store instead of taking these as props from Game —
+// they are the store's own state (or actions), and Game was only ever
+// forwarding them untouched. Same narrowing as Game.tsx's own useGameSlice
+// (and see AdvancedOptionsPanel in LobbyShared.tsx for the pattern this
+// copies): a shallow selector so an unrelated store change (toasts,
+// reactions) doesn't re-render this subtree.
+const useGameControlsSlice = () => useGameStore(useShallow(state => ({
+  currentCard: state.currentCard,
+  cardsLength: state.cards?.length ?? 0,
+  ruleset: state.ruleset,
+  isOnline: state.isOnline,
+  isHost: state.isHost,
+  activeTurnState: state.liveTurnState,
+  currentPlayer: state.currentPlayerIndex !== null ? state.players[state.currentPlayerIndex] : null,
+  undo: state.undo,
+  endGame: state.endGame,
+  leaveRoom: state.leaveRoom,
+})));
+
 export default function GameControls({
-  currentCard,
-  cardsLength,
   isMyTurn,
   diceMode,
-  ruleset = DEFAULT_RULESET,
   showDiceGame = false,
   setShowDiceGame,
   scoreInput,
@@ -74,17 +82,22 @@ export default function GameControls({
   onDrawNextCard,
   onBust,
   awaitingChainChoice = false,
-  undo,
   canUndo,
   undoTurnId = null,
-  endGame,
-  isOnline,
-  isHost,
-  leaveRoom,
-  activeTurnState,
-  currentPlayer,
 }: GameControlsProps) {
   const { t } = useTranslation();
+  const {
+    currentCard,
+    cardsLength,
+    ruleset,
+    isOnline,
+    isHost,
+    activeTurnState,
+    currentPlayer,
+    undo,
+    endGame,
+    leaveRoom,
+  } = useGameControlsSlice();
   const currentCardHasInput = hasScoreInput(currentCard);
   const currentCardHasYesNo = isSpecialCard(currentCard);
   const isStopCard = currentCard === 'Stop';
