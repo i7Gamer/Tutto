@@ -28,7 +28,9 @@ test.describe('Tutto Local Game Flow', () => {
 
     // Verify game screen loads
     await expect(page.getByText(/Current Player/i)).toBeVisible();
-    await expect(page.getByText(/Round/i)).toBeVisible();
+    // Exact: the goal banner now also says "The round is played to the end",
+    // so a /Round/i regex matches two elements and fails strict mode.
+    await expect(page.getByText('Round', { exact: true })).toBeVisible();
     
     // Alice's turn should be active initially
     await expect(page.getByText('Alice', { exact: true }).first()).toBeVisible();
