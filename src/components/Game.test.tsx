@@ -7,7 +7,7 @@ import { useGameStore, _resetTimersForTests } from '../store/useGameStore';
 import { MAX_CHAIN_CARDS, type TurnSummary } from '../types';
 import { STOP_CARD_AUTO_CONTINUE_MS, CARD_FLIP_MS } from '../utils/uiTimings';
 import { vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
-import { makePlayer, makeDiceSnapshot, nonNull } from '../testing/factories';
+import { makePlayer, makeDiceSnapshot, mockFetchJson, nonNull } from '../testing/factories';
 
 vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
@@ -1803,10 +1803,9 @@ describe('Game Component Integration', () => {
 
     it('fetches and stores a pre-game stats snapshot for online games', async () => {
       const setPreGameStats = vi.fn();
-      global.fetch = vi.fn(() => Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null }),
-      })) as unknown as typeof fetch;
+      global.fetch = vi.fn(() => Promise.resolve(mockFetchJson(
+        { highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null },
+      )));
 
       useGameStore.setState({ isOnline: true, deviceId: 'device-1', setPreGameStats });
       render(<Game />);
@@ -1833,10 +1832,9 @@ describe('Game Component Integration', () => {
       // everywhere else; the end screen alone had nothing to compare against,
       // so a classic player's best chain was never announced.
       const setPreGameStats = vi.fn();
-      global.fetch = vi.fn(() => Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ mostCardsInTurn: 4, highestForfeitedTurnScore: 1900 }),
-      })) as unknown as typeof fetch;
+      global.fetch = vi.fn(() => Promise.resolve(mockFetchJson(
+        { mostCardsInTurn: 4, highestForfeitedTurnScore: 1900 },
+      )));
 
       useGameStore.setState({ isOnline: true, deviceId: 'device-1', setPreGameStats });
       render(<Game />);
@@ -1854,10 +1852,7 @@ describe('Game Component Integration', () => {
       // has to happen: a snapshot kept from an earlier game in the same
       // session would be diffed against this game's numbers.
       const setPreGameStats = vi.fn();
-      global.fetch = vi.fn(() => Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ highestTurnScore: 1500 }),
-      })) as unknown as typeof fetch;
+      global.fetch = vi.fn(() => Promise.resolve(mockFetchJson({ highestTurnScore: 1500 })));
 
       useGameStore.setState({
         isOnline: true, deviceId: 'device-1', setPreGameStats,
@@ -1873,13 +1868,10 @@ describe('Game Component Integration', () => {
 
     it('includes highestFeuerwerkTurnScore/highestX2TurnScore in the pre-game stats snapshot when present', async () => {
       const setPreGameStats = vi.fn();
-      global.fetch = vi.fn(() => Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({
-          highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null,
-          highestFeuerwerkTurnScore: 700, highestX2TurnScore: 900,
-        }),
-      })) as unknown as typeof fetch;
+      global.fetch = vi.fn(() => Promise.resolve(mockFetchJson({
+        highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null,
+        highestFeuerwerkTurnScore: 700, highestX2TurnScore: 900,
+      })));
 
       useGameStore.setState({ isOnline: true, deviceId: 'device-1', setPreGameStats });
       render(<Game />);
