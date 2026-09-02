@@ -10,7 +10,8 @@
  *
  * Not imported by any application module — same rule as storageStubs.ts.
  */
-import type { CoreGameState, DiceSnapshot, Player } from '../types';
+import { DEFAULT_GAME_MODE } from '../types';
+import type { CoreGameState, DeviceStatsRow, DiceSnapshot, Player } from '../types';
 import { zeroedPlayerStats } from '../utils/playerStats';
 import type { PreGameStats } from '../store/storeTypes';
 
@@ -103,6 +104,54 @@ export const makePreGameStats = (overrides: Partial<PreGameStats> = {}): PreGame
   fastestLossTurns: null,
   highestFeuerwerkTurnScore: null,
   highestX2TurnScore: null,
+  mostCardsInTurn: null,
+  highestForfeitedTurnScore: null,
+  ...overrides,
+});
+
+/**
+ * A full `DeviceStatsRow` — the row shape both the HTTP and socket stats
+ * paths resolve from the database — every counter zeroed and every record
+ * column `null` (the same "no record yet" default the real column starts
+ * at). Pass `{ currentWinStreak: 5, ... }` to override just what the test
+ * needs, instead of a partial object cast through `as never` to stand in for
+ * the whole interface.
+ */
+export const makeDeviceStatsRow = (overrides: Partial<DeviceStatsRow> = {}): DeviceStatsRow => ({
+  deviceId: 'test-device',
+  mode: DEFAULT_GAME_MODE,
+  gamesPlayed: 0,
+  wins: 0,
+  pointsDeducted: 0,
+  plusMinusCompleted: 0,
+  plusMinusFailed: 0,
+  kniffelCompleted: 0,
+  kniffelFailed: 0,
+  skipped: 0,
+  feuerwerkReceived: 0,
+  kleeblattFailed: 0,
+  kleeblattCompleted: 0,
+  x2Received: 0,
+  totalPlaytime: 0,
+  totalTurns: 0,
+  busts: 0,
+  feuerwerkBusts: 0,
+  x2Busts: 0,
+  feuerwerkPointsScored: 0,
+  x2PointsScored: 0,
+  totalScore: 0,
+  highestTurnScore: null,
+  fastestWinTurns: null,
+  fastestLossTurns: null,
+  currentWinStreak: 0,
+  bestWinStreak: 0,
+  mostPlayersInGame: null,
+  totalPlayersSum: 0,
+  longestGameRounds: null,
+  totalRoundsSum: 0,
+  highestFeuerwerkTurnScore: null,
+  highestX2TurnScore: null,
+  totalTuttos: 0,
   mostCardsInTurn: null,
   highestForfeitedTurnScore: null,
   ...overrides,

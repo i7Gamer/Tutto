@@ -4,7 +4,7 @@ import { registerStatsHandlers } from './socketStatsHandlers';
 import { makeFakeSocket, makeFakeIo, makeServerPlayer } from './socketTestHarness';
 import { rooms, createRoom, deleteRoom, emitRoomState } from './rooms';
 import { summarizeActivity } from './activity';
-import { nonNull } from '../src/testing/factories';
+import { nonNull, makeDeviceStatsRow } from '../src/testing/factories';
 
 vi.mock('./database', () => ({
   getDeviceStats: vi.fn(),
@@ -49,7 +49,7 @@ describe('endGameStats win-streak refresh', () => {
       rooms[roomId].state.players = rooms[roomId].state.players.map(p => ({ ...p }));
       return true;
     });
-    vi.mocked(getDeviceStats).mockResolvedValue({ currentWinStreak: 5 } as never);
+    vi.mocked(getDeviceStats).mockResolvedValue(makeDeviceStatsRow({ currentWinStreak: 5 }));
 
     const { io } = makeFakeIo();
     const fake = makeFakeSocket('alice-sock');
