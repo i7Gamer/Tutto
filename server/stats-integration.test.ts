@@ -4,6 +4,7 @@ process.env.TEST_DB = 'true';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import database from './database';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { nonNull } from '../src/testing/factories';
 
 describe('Statistics Saving - Personal and Global', () => {
   beforeAll(async () => {
@@ -44,9 +45,8 @@ describe('Statistics Saving - Personal and Global', () => {
       };
 
       await database.updateDeviceStats(deviceId, personalStats);
-      const saved = await database.getDeviceStats(deviceId);
+      const saved = nonNull(await database.getDeviceStats(deviceId));
 
-      expect(saved).not.toBeNull();
       expect(saved.deviceId).toBe(deviceId);
       expect(saved.gamesPlayed).toBe(1);
       expect(saved.wins).toBe(1);
@@ -85,7 +85,7 @@ describe('Statistics Saving - Personal and Global', () => {
 
       // First game
       await database.updateDeviceStats(deviceId, game1Stats);
-      let saved = await database.getDeviceStats(deviceId);
+      let saved = nonNull(await database.getDeviceStats(deviceId));
       expect(saved.gamesPlayed).toBe(1);
       expect(saved.wins).toBe(1);
       expect(saved.totalPlaytime).toBe(300);
@@ -94,7 +94,7 @@ describe('Statistics Saving - Personal and Global', () => {
 
       // Second game
       await database.updateDeviceStats(deviceId, game2Stats);
-      saved = await database.getDeviceStats(deviceId);
+      saved = nonNull(await database.getDeviceStats(deviceId));
 
       expect(saved.gamesPlayed).toBe(2);
       expect(saved.wins).toBe(1);
@@ -134,9 +134,8 @@ describe('Statistics Saving - Personal and Global', () => {
       };
 
       await database.updateGlobalStats(globalStats);
-      const saved = await database.getGlobalStats();
+      const saved = nonNull(await database.getGlobalStats());
 
-      expect(saved).not.toBeNull();
       expect(saved.totalGamesPlayed).toBe(1);
       expect(saved.totalPlaytime).toBe(600);
       expect(saved.totalPlusMinus).toBe(2);
@@ -174,12 +173,12 @@ describe('Statistics Saving - Personal and Global', () => {
 
       // Save first game global stats
       await database.updateGlobalStats(game1Global);
-      let saved = await database.getGlobalStats();
+      let saved = nonNull(await database.getGlobalStats());
       const afterGame1 = { ...saved };
 
       // Save second game global stats
       await database.updateGlobalStats(game2Global);
-      saved = await database.getGlobalStats();
+      saved = nonNull(await database.getGlobalStats());
 
       expect(saved.totalGamesPlayed).toBe(afterGame1.totalGamesPlayed + 1);
       expect(saved.totalPlaytime).toBe(afterGame1.totalPlaytime + 350);
@@ -187,7 +186,7 @@ describe('Statistics Saving - Personal and Global', () => {
       expect(saved.totalTurns).toBe(afterGame1.totalTurns + 20);
       expect(saved.totalBusts).toBe(afterGame1.totalBusts + 1);
       // highestTurnScore should be the MAX of the two, which is 550
-      expect(saved.highestTurnScore).toBe(Math.max(afterGame1.highestTurnScore, 550));
+      expect(saved.highestTurnScore).toBe(Math.max(nonNull(afterGame1.highestTurnScore), 550));
     });
   });
 
@@ -243,8 +242,7 @@ describe('Statistics Saving - Personal and Global', () => {
       await database.updateGlobalStats(globalStats);
 
       // Verify personal stats
-      const savedPersonal = await database.getDeviceStats(deviceId);
-      expect(savedPersonal).not.toBeNull();
+      const savedPersonal = nonNull(await database.getDeviceStats(deviceId));
       expect(savedPersonal.gamesPlayed).toBe(1);
       expect(savedPersonal.wins).toBe(1);
       expect(savedPersonal.totalPlaytime).toBe(500);
@@ -252,8 +250,7 @@ describe('Statistics Saving - Personal and Global', () => {
       expect(savedPersonal.feuerwerkPointsScored).toBe(900);
 
       // Verify global stats
-      const savedGlobal = await database.getGlobalStats();
-      expect(savedGlobal).not.toBeNull();
+      const savedGlobal = nonNull(await database.getGlobalStats());
       expect(savedGlobal.totalGamesPlayed).toBeGreaterThanOrEqual(1);
       expect(savedGlobal.totalTurns).toBeGreaterThanOrEqual(20);
       expect(savedGlobal.totalScore).toBeGreaterThanOrEqual(7000);
@@ -297,7 +294,7 @@ describe('Statistics Saving - Personal and Global', () => {
       await database.updateDeviceStats(deviceId, personalCardStats);
       await database.updateGlobalStats(globalCardStats);
 
-      const savedPersonal = await database.getDeviceStats(deviceId);
+      const savedPersonal = nonNull(await database.getDeviceStats(deviceId));
       expect(savedPersonal.plusMinusCompleted).toBe(1);
       expect(savedPersonal.plusMinusFailed).toBe(1);
       expect(savedPersonal.kniffelCompleted).toBe(2);
@@ -305,7 +302,7 @@ describe('Statistics Saving - Personal and Global', () => {
       expect(savedPersonal.kleeblattFailed).toBe(1);
       expect(savedPersonal.kleeblattCompleted).toBe(0);
 
-      const savedGlobal = await database.getGlobalStats();
+      const savedGlobal = nonNull(await database.getGlobalStats());
       expect(savedGlobal.totalPlusMinusCompleted).toBeGreaterThanOrEqual(1);
       expect(savedGlobal.totalKniffelCompleted).toBeGreaterThanOrEqual(2);
       expect(savedGlobal.totalStop).toBeGreaterThanOrEqual(2);
@@ -320,7 +317,7 @@ describe('Statistics Saving - Personal and Global', () => {
       await database.updateDeviceStats(deviceId, {
         gamesPlayed: 1, totalPlayersSum: 3, mostPlayersInGame: 3, totalRoundsSum: 5, longestGameRounds: 5,
       });
-      let saved = await database.getDeviceStats(deviceId);
+      let saved = nonNull(await database.getDeviceStats(deviceId));
       expect(saved.totalPlayersSum).toBe(3);
       expect(saved.mostPlayersInGame).toBe(3);
       expect(saved.totalRoundsSum).toBe(5);
@@ -330,7 +327,7 @@ describe('Statistics Saving - Personal and Global', () => {
       await database.updateDeviceStats(deviceId, {
         gamesPlayed: 1, totalPlayersSum: 6, mostPlayersInGame: 6, totalRoundsSum: 9, longestGameRounds: 9,
       });
-      saved = await database.getDeviceStats(deviceId);
+      saved = nonNull(await database.getDeviceStats(deviceId));
       expect(saved.totalPlayersSum).toBe(9);
       expect(saved.mostPlayersInGame).toBe(6);
       expect(saved.totalRoundsSum).toBe(14);
@@ -340,7 +337,7 @@ describe('Statistics Saving - Personal and Global', () => {
       await database.updateDeviceStats(deviceId, {
         gamesPlayed: 1, totalPlayersSum: 2, mostPlayersInGame: 2, totalRoundsSum: 3, longestGameRounds: 3,
       });
-      saved = await database.getDeviceStats(deviceId);
+      saved = nonNull(await database.getDeviceStats(deviceId));
       expect(saved.totalPlayersSum).toBe(11);
       expect(saved.mostPlayersInGame).toBe(6);
       expect(saved.totalRoundsSum).toBe(17);
@@ -353,7 +350,7 @@ describe('Statistics Saving - Personal and Global', () => {
       await database.updateDeviceStats(deviceId, {
         gamesPlayed: 1, highestFeuerwerkTurnScore: 200, highestX2TurnScore: 300,
       });
-      let saved = await database.getDeviceStats(deviceId);
+      let saved = nonNull(await database.getDeviceStats(deviceId));
       expect(saved.highestFeuerwerkTurnScore).toBe(200);
       expect(saved.highestX2TurnScore).toBe(300);
 
@@ -361,7 +358,7 @@ describe('Statistics Saving - Personal and Global', () => {
       await database.updateDeviceStats(deviceId, {
         gamesPlayed: 1, highestFeuerwerkTurnScore: 100, highestX2TurnScore: 150,
       });
-      saved = await database.getDeviceStats(deviceId);
+      saved = nonNull(await database.getDeviceStats(deviceId));
       expect(saved.highestFeuerwerkTurnScore).toBe(200);
       expect(saved.highestX2TurnScore).toBe(300);
 
@@ -369,7 +366,7 @@ describe('Statistics Saving - Personal and Global', () => {
       await database.updateDeviceStats(deviceId, {
         gamesPlayed: 1, highestFeuerwerkTurnScore: 500, highestX2TurnScore: 600,
       });
-      saved = await database.getDeviceStats(deviceId);
+      saved = nonNull(await database.getDeviceStats(deviceId));
       expect(saved.highestFeuerwerkTurnScore).toBe(500);
       expect(saved.highestX2TurnScore).toBe(600);
     });
@@ -385,7 +382,7 @@ describe('Statistics Saving - Personal and Global', () => {
         gamesPlayed: 1, mostPlayersInGame: null, longestGameRounds: null,
         highestFeuerwerkTurnScore: null, highestX2TurnScore: null,
       });
-      const saved = await database.getDeviceStats(deviceId);
+      const saved = nonNull(await database.getDeviceStats(deviceId));
       expect(saved.mostPlayersInGame).toBe(5);
       expect(saved.longestGameRounds).toBe(10);
       expect(saved.highestFeuerwerkTurnScore).toBe(300);
@@ -395,14 +392,14 @@ describe('Statistics Saving - Personal and Global', () => {
         gamesPlayed: 1, mostPlayersInGame: 5, longestGameRounds: 10,
         highestFeuerwerkTurnScore: 300, highestX2TurnScore: 400,
       });
-      let globalSaved = await database.getGlobalStats();
+      let globalSaved = nonNull(await database.getGlobalStats());
       const beforeNull = { ...globalSaved };
 
       await database.updateGlobalStats({
         gamesPlayed: 1, mostPlayersInGame: null, longestGameRounds: null,
         highestFeuerwerkTurnScore: null, highestX2TurnScore: null,
       });
-      globalSaved = await database.getGlobalStats();
+      globalSaved = nonNull(await database.getGlobalStats());
       expect(globalSaved.mostPlayersInGame).toBe(beforeNull.mostPlayersInGame);
       expect(globalSaved.longestGameRounds).toBe(beforeNull.longestGameRounds);
       expect(globalSaved.highestFeuerwerkTurnScore).toBe(beforeNull.highestFeuerwerkTurnScore);
@@ -416,7 +413,7 @@ describe('Statistics Saving - Personal and Global', () => {
         gamesPlayed: 1, totalPlayersSum: 4, mostPlayersInGame: 4, totalRoundsSum: 8, longestGameRounds: 8,
         isDefaultGame: true,
       });
-      const saved = await database.getGlobalStats();
+      const saved = nonNull(await database.getGlobalStats());
       expect(saved.totalPlayersSum).toBe((before?.totalPlayersSum ?? 0) + 4);
       expect(saved.totalRoundsSum).toBe((before?.totalRoundsSum ?? 0) + 8);
       expect(saved.mostPlayersInGame).toBeGreaterThanOrEqual(4);
@@ -436,7 +433,7 @@ describe('Statistics Saving - Personal and Global', () => {
       };
 
       await database.updateDeviceStats(deviceId, stats);
-      const saved = await database.getDeviceStats(deviceId);
+      const saved = nonNull(await database.getDeviceStats(deviceId));
 
       expect(saved.gamesPlayed).toBe(100);
       expect(saved.totalScore).toBe(600000);
@@ -457,7 +454,7 @@ describe('Statistics Saving - Personal and Global', () => {
       };
 
       await database.updateDeviceStats(deviceId, stats);
-      const saved = await database.getDeviceStats(deviceId);
+      const saved = nonNull(await database.getDeviceStats(deviceId));
 
       expect(saved.gamesPlayed).toBe(1);
       expect(saved.wins).toBe(0);
@@ -475,7 +472,7 @@ describe('Statistics Saving - Personal and Global', () => {
         fastestWinTurns: 15
       });
 
-      let saved = await database.getDeviceStats(deviceId);
+      let saved = nonNull(await database.getDeviceStats(deviceId));
       expect(saved.fastestWinTurns).toBe(15);
 
       // Second game: win in 8 turns (should update to fastest)
@@ -485,7 +482,7 @@ describe('Statistics Saving - Personal and Global', () => {
         fastestWinTurns: 8
       });
 
-      saved = await database.getDeviceStats(deviceId);
+      saved = nonNull(await database.getDeviceStats(deviceId));
       expect(saved.fastestWinTurns).toBe(8);
       expect(saved.wins).toBe(2);
     });
