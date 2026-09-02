@@ -3,11 +3,12 @@ import { describe, it, expect } from 'vitest';
 import { isSpecialCard, hasScoreInput, deriveTurnControls, sortKeptDiceForDisplay, withForcedFeuerwerkSelection, parseScoreInput, clampScoreInputText } from './diceTurnControls';
 import { MAX_SCORE_MAGNITUDE } from './configValidation';
 import { VALID_CARD_TYPES } from './configValidation';
+import type { CardType, Die } from '../types';
 
 describe('diceTurnControls', () => {
   // Sensible defaults for a mid-turn state; override per assertion.
   const base = {
-    currentCard: '300',
+    currentCard: '300' as CardType,
     hasRolled: true,
     bustState: false,
     isMakingTutto: false,
@@ -16,10 +17,10 @@ describe('diceTurnControls', () => {
 
   describe('isSpecialCard', () => {
     it('flags Kniffel, Plus_Minus and Kleeblatt', () => {
-      ['Kniffel', 'Plus_Minus', 'Kleeblatt'].forEach(c => expect(isSpecialCard(c)).toBe(true));
+      (['Kniffel', 'Plus_Minus', 'Kleeblatt'] as CardType[]).forEach(c => expect(isSpecialCard(c)).toBe(true));
     });
     it('treats normal/bonus cards as non-special', () => {
-      ['300', 'x2', 'Feuerwerk', 'Stop'].forEach(c => expect(isSpecialCard(c)).toBe(false));
+      (['300', 'x2', 'Feuerwerk', 'Stop'] as CardType[]).forEach(c => expect(isSpecialCard(c)).toBe(false));
     });
   });
 
@@ -28,11 +29,11 @@ describe('diceTurnControls', () => {
     // control is on screen?) both ask this, and an answer that differed
     // between them would fire an action the player cannot see.
     it('offers a score entry on the cards that are played for points', () => {
-      ['300', 'x2', 'Feuerwerk'].forEach(c => expect(hasScoreInput(c)).toBe(true));
+      (['300', 'x2', 'Feuerwerk'] as CardType[]).forEach(c => expect(hasScoreInput(c)).toBe(true));
     });
 
     it('offers none on Stop, which ends the turn, or on the answered cards', () => {
-      ['Stop', 'Kniffel', 'Plus_Minus', 'Kleeblatt'].forEach(c => expect(hasScoreInput(c)).toBe(false));
+      (['Stop', 'Kniffel', 'Plus_Minus', 'Kleeblatt'] as CardType[]).forEach(c => expect(hasScoreInput(c)).toBe(false));
     });
 
     it('offers one when no card is drawn yet, as the controls did before', () => {
@@ -104,7 +105,10 @@ describe('diceTurnControls', () => {
   });
 
   describe('sortKeptDiceForDisplay', () => {
-    const dice = [{ val: 3 }, { val: 1 }, { val: 2 }];
+    // These tests only ever assert on `val`; `id` just has to be present and
+    // unique within one array of kept dice.
+    const mkDice = (...vals: number[]): Die[] => vals.map((val, i) => ({ id: `d${i}`, val }));
+    const dice = mkDice(3, 1, 2);
 
     it('leaves order untouched for non-Kniffel cards', () => {
       expect(sortKeptDiceForDisplay(dice, '300', []).map(d => d.val)).toEqual([3, 1, 2]);
@@ -115,7 +119,7 @@ describe('diceTurnControls', () => {
     });
 
     it('sorts descending for a Kniffel sequence started at 6', () => {
-      const d = [{ val: 4 }, { val: 6 }, { val: 5 }];
+      const d = mkDice(4, 6, 5);
       expect(sortKeptDiceForDisplay(d, 'Kniffel', [6]).map(x => x.val)).toEqual([6, 5, 4]);
     });
 
@@ -124,7 +128,7 @@ describe('diceTurnControls', () => {
     });
 
     it('returns a new array (does not mutate input)', () => {
-      const input = [{ val: 3 }, { val: 1 }];
+      const input = mkDice(3, 1);
       const out = sortKeptDiceForDisplay(input, 'Kniffel', [1]);
       expect(out).not.toBe(input);
       expect(input.map(d => d.val)).toEqual([3, 1]);
@@ -134,7 +138,7 @@ describe('diceTurnControls', () => {
       // Classic progress is a set — the run-direction heuristic (progress[0]
       // === 1 ? asc : desc) would sort descending here just because the
       // first collected number happened to be a 6.
-      const d = [{ val: 6 }, { val: 3 }, { val: 5 }];
+      const d = mkDice(6, 3, 5);
       expect(sortKeptDiceForDisplay(d, 'Kniffel', [6, 3], 'classic').map(x => x.val)).toEqual([3, 5, 6]);
     });
 
