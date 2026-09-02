@@ -1,5 +1,5 @@
-import { test, expect, type Page, type Locator } from '@playwright/test';
-import { seedLocalDeck, startLocalGame } from './helpers';
+import { test, expect, type Page, type Locator, type TestInfo } from '@playwright/test';
+import { seedLocalDeck, startLocalGame, joinOnlineRoom } from './helpers';
 
 /**
  * Tailwind v4 emits its utilities inside a real `@layer utilities`. Unlayered
@@ -130,6 +130,63 @@ test.describe('the lobby row hover cue survives the cascade', () => {
     await expect.poll(background, {
       message: '.lobby-row-hoverable:hover lost to the unlayered .lobby-row background',
     }).not.toBe(resting);
+  });
+
+  /**
+   * The roster row (LobbyShared.tsx, PlayerList) paired `hover:bg-white` with
+   * a plain (non-hover) `dark:bg-slate-800/50` — white-on-white made the light
+   * hover invisible, and the unconditional dark rule gave no hover cue at all
+   * in dark mode (it wins over the hover rule whether or not the row is
+   * hovered). Fixed to `hover:bg-indigo-50 dark:hover:bg-slate-700/60`.
+   *
+   * Checked on another player's row in a real online lobby, not the local
+   * one: LocalLobby has no concept of "other players" (`isMe` is
+   * unconditionally true there), so every row already carries the always-on
+   * own-row highlight — which differs from any hover colour regardless of
+   * whether the hover utility does anything at all, masking exactly the bug
+   * this guards. This is the case the custom no-conflicting-classnames lint
+   * rule misses: it does not reason about a hover variant fighting an
+   * unscoped dark variant on the same property.
+   */
+  test('hovering another player\'s roster row changes its background in both light and dark mode', async ({ browser }, testInfo: TestInfo) => {
+    const contextA = await browser.newContext();
+    const pageA = await contextA.newPage();
+    const contextB = await browser.newContext();
+    const pageB = await contextB.newPage();
+
+    const roomId = `E2E-HOVER-${testInfo.project.name}-w${testInfo.workerIndex}-${Date.now()}`;
+    await joinOnlineRoom(pageA, roomId, 'AliceHost');
+    await expect(pageA.getByText('AliceHost').first()).toBeVisible({ timeout: 15000 });
+
+    await joinOnlineRoom(pageB, roomId, 'BobGuest');
+    await expect(pageA.getByText('BobGuest').first()).toBeVisible({ timeout: 15000 });
+
+    // BobGuest's row, read from AliceHost's page: not "isMe", so it never
+    // carries the own-row highlight.
+    const row = pageA.locator('.player-name', { hasText: 'BobGuest' }).locator('xpath=..');
+    const background = () => row.evaluate(el => getComputedStyle(el).backgroundColor);
+
+    for (const theme of ['light', 'dark'] as const) {
+      if (theme === 'dark') {
+        await pageA.getByLabel('Toggle theme').click();
+      }
+      // transition-colors animates the background over ~150ms — settle
+      // before sampling, or a resting/hover pair caught mid-animation can
+      // differ by residual interpolation alone and pass for the wrong reason.
+      await pageA.mouse.move(0, 0);
+      await pageA.waitForTimeout(300);
+      const resting = await background();
+
+      await row.hover();
+      await expect.poll(background, {
+        message: `BobGuest's roster row hover had no visible effect in ${theme} mode`,
+      }).not.toBe(resting);
+
+      await pageA.mouse.move(0, 0);
+    }
+
+    await contextA.close();
+    await contextB.close();
   });
 });
 
