@@ -4,6 +4,7 @@ import { rooms, emitRoomState } from './rooms';
 import { statsModeFor } from './roomTypes';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
+import { normalizeRoomId } from '../src/utils/configValidation';
 
 const SUBMIT_GLOBAL_STATS_LIMIT = { windowMs: 10_000, max: 5 };
 const END_GAME_STATS_LIMIT = { windowMs: 10_000, max: 5 };
@@ -49,8 +50,10 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
   safeOn(socket, 'submitGlobalStats', async (data: { roomId?: string; payload?: unknown } | null | undefined) => {
     if (!submitGlobalStatsLimiter()) return;
     if (!data || typeof data !== 'object') return;
-    const { roomId, payload } = data;
-    if (typeof roomId !== 'string') return;
+    const { roomId: rawRoomId, payload } = data;
+    if (typeof rawRoomId !== 'string') return;
+    // Same canonical form joinRoom stores the room under (case and whitespace).
+    const roomId = normalizeRoomId(rawRoomId);
     // Only the room host may submit global stats, authenticated by socket identity.
     // No token needed — the WebSocket session is the credential.
     const room = rooms[roomId];

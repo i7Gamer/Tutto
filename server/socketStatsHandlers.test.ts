@@ -528,6 +528,39 @@ describe('the global row counts the same players the device rows do', () => {
     expect(written!.isDefaultGame, 'the existing override is untouched').toBe(true);
   });
 
+  it('resolves the room from a lower-cased id the way joinRoom now does', async () => {
+    // Three seats started; Carol left before the finish was broadcast, so the
+    // host's own end-screen roster — and the payload built from it — knows
+    // only two.
+    rooms[roomId] = createRoom('alice-sock');
+    rooms[roomId].startRoster = [
+      { deviceId: 'dev-alice', name: 'Alice' },
+      { deviceId: 'dev-bob', name: 'Bob' },
+      { deviceId: 'dev-carol', name: 'Carol' },
+    ];
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null, winningScore: 6000,
+      players: [
+        { ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: 10000 },
+        { ...makePlayer('Bob', 'bob-sock', 'dev-bob'), score: 4000 },
+      ],
+    });
+    emitRoomState(makeFakeIo().io, roomId);
+
+    const fake = makeFakeSocket('alice-sock');
+    registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Alice' } });
+    await fake.handlers['submitGlobalStats']({
+      roomId: roomId.toLowerCase(),
+      payload: { totalGamesPlayed: 1, totalPlayersSum: 2, mostPlayersInGame: 2 },
+    });
+
+    const written = vi.mocked(updateGlobalStats).mock.calls[0]?.[0];
+    expect(written, 'the game is still recorded').toBeDefined();
+    expect(written!.totalPlayersSum, 'three seats started this game').toBe(SEATS_AT_KICKOFF);
+    expect(written!.mostPlayersInGame).toBe(SEATS_AT_KICKOFF);
+    expect(written!.isDefaultGame, 'the existing override is untouched').toBe(true);
+  });
+
   it('leaves the payload alone when the room froze no verdict to correct from', async () => {
     // A room seeded without a start roster still freezes a verdict, but one
     // whose finishedGame is missing entirely (nothing broadcast the finish)
