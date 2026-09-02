@@ -11,6 +11,14 @@
  *
  * Two carve-outs are deliberate, not oversights — see the comments beside
  * NOT_UNDOABLE_HIGH_SCORE_FIELDS and the bare-Stop branch below.
+ *
+ * A third gap is structural rather than a carve-out: applySummaryCounters and
+ * revertSummaryCounters both drive the same CARD_COUNTER_DELTAS table (delta
+ * +1 / -1). A bug in that shared table — the wrong field for a card, say — is
+ * applied identically in both directions, so apply-then-undo still round-trips
+ * back to the exact starting state and this oracle sees nothing wrong. Only
+ * the example-based suite, which asserts a counter's actual value after a
+ * known card, would catch it.
  */
 import { describe, it, expect } from 'vitest';
 import {
