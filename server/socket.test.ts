@@ -1,25 +1,31 @@
 /**
  * @vitest-environment node
  */
+import type { ChildProcess } from 'child_process';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { io } from 'socket.io-client';
-import { startTestServer } from './socketTestHarness';
+import { io, type Socket as ClientSocket } from 'socket.io-client';
+import { startTestServer, type JoinAck } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import type { GameStore } from '../src/store/storeTypes';
+
+// The shape of a 'gameState' broadcast — see pushStateValidation.test.ts's
+// identical copy of this type for why it is not shared via socketTestHarness.ts.
+type GameStatePayload = Partial<GameStore> & { stateVersion?: number };
 
 // Join a room as host and resolve once the server has emitted the initial
 // gameState. Shared by both describes below, which spawn their servers on
 // different ports — hence the explicit port parameter.
-const joinRoom = (port, roomId) =>
+const joinRoom = (port: string, roomId: string): Promise<{ sock: ClientSocket, state: GameStatePayload }> =>
   new Promise((resolve, reject) => {
     const sock = io(`http://127.0.0.1:${port}`, { transports: ['websocket'] });
     sock.on('connect', () => {
       sock.emit(
         'joinRoom',
         { roomId, name: 'Host', deviceId: `dev-${roomId}`, color: '#ff0000' },
-        (res) => {
+        (res: JoinAck) => {
           if (res.error) { sock.disconnect(); return reject(new Error(res.error)); }
-          sock.once('gameState', (state) => resolve({ sock, state }));
+          sock.once('gameState', (state: GameStatePayload) => resolve({ sock, state }));
         }
       );
     });
@@ -27,7 +33,7 @@ const joinRoom = (port, roomId) =>
   });
 
 describe('Socket updateConfig — upper-bound validation', () => {
-  let serverProcess;
+  let serverProcess: ChildProcess | undefined;
   const PORT = TEST_PORTS.socketConfigBounds;
 
   beforeAll(async () => {
@@ -39,7 +45,7 @@ describe('Socket updateConfig — upper-bound validation', () => {
   });
 
   // Send updateConfig and return the resulting gameState.
-  const sendConfig = (sock, roomId, config) =>
+  const sendConfig = (sock: ClientSocket, roomId: string, config: Record<string, number>): Promise<GameStatePayload> =>
     new Promise((resolve) => {
       sock.once('gameState', resolve);
       sock.emit('updateConfig', { roomId, ...config });
@@ -98,7 +104,7 @@ describe('Socket updateConfig — upper-bound validation', () => {
 });
 
 describe('Socket security and timer fixes', () => {
-  let serverProcess;
+  let serverProcess: ChildProcess | undefined;
   const PORT = TEST_PORTS.socketSecurityTimers;
 
   beforeAll(async () => {
@@ -109,14 +115,14 @@ describe('Socket security and timer fixes', () => {
     if (serverProcess) serverProcess.kill();
   });
 
-  const joinAsGuest = (roomId, name = 'Guest') =>
+  const joinAsGuest = (roomId: string, name = 'Guest'): Promise<{ sock: ClientSocket, socketId: string | undefined }> =>
     new Promise((resolve, reject) => {
       const sock = io(`http://127.0.0.1:${PORT}`, { transports: ['websocket'] });
       sock.on('connect', () => {
         sock.emit(
           'joinRoom',
           { roomId, name, deviceId: `dev-${roomId}-${name}`, color: '#00ff00' },
-          (res) => {
+          (res: JoinAck) => {
             if (res.error) { sock.disconnect(); return reject(new Error(res.error)); }
             resolve({ sock, socketId: res.socketId });
           }
@@ -146,7 +152,7 @@ describe('Socket security and timer fixes', () => {
 
     // Immediately follow with a valid reorder so we get a gameState to assert on.
     // Server processes socket events in order, so the exploit fires first.
-    const stateAfterValidReorder = await new Promise(r => {
+    const stateAfterValidReorder = await new Promise<GameStatePayload>(r => {
       hostSock.once('gameState', r);
       hostSock.emit('reorderPlayers', {
         roomId,
@@ -154,9 +160,9 @@ describe('Socket security and timer fixes', () => {
       });
     });
 
-    expect(stateAfterValidReorder.players.length).toBe(2);
-    expect(stateAfterValidReorder.players[0].name).toBe('Guest');
-    expect(stateAfterValidReorder.players[1].name).toBe('Host');
+    expect(stateAfterValidReorder.players?.length).toBe(2);
+    expect(stateAfterValidReorder.players?.[0].name).toBe('Guest');
+    expect(stateAfterValidReorder.players?.[1].name).toBe('Host');
 
     hostSock.disconnect();
     guestSock.disconnect();
@@ -187,7 +193,7 @@ describe('Socket security and timer fixes', () => {
     });
 
     // Start game with guest (index 1) as the active player
-    const playingState = await new Promise(r => {
+    const playingState = await new Promise<GameStatePayload>(r => {
       hostSock.once('gameState', r);
       hostSock.emit('pushState', {
         roomId,
@@ -201,7 +207,7 @@ describe('Socket security and timer fixes', () => {
     await new Promise(r => setTimeout(r, 450));
 
     // Host kicks the active player — fix resets turnStartTime to Date.now()
-    const stateAfterKick = await new Promise(r => {
+    const stateAfterKick = await new Promise<GameStatePayload>(r => {
       hostSock.once('gameState', r);
       hostSock.emit('kickPlayer', guestId);
     });
@@ -226,7 +232,7 @@ describe('Socket security and timer fixes', () => {
     // with remaining<=0 and advance turns in a synchronous loop; NaN and junk
     // initialCards would corrupt win checks and deck rebuilds. All must be
     // dropped while the valid fields in the same push still apply.
-    const next = await new Promise(r => {
+    const next = await new Promise<GameStatePayload>(r => {
       hostSock.once('gameState', r);
       hostSock.emit('pushState', {
         roomId,
@@ -247,7 +253,7 @@ describe('Socket security and timer fixes', () => {
     expect(next.reconnectTimeout).toBe(60);
     expect(next.randomOrder).toBe(true);
     expect(next.status).toBe('lobby');
-    expect(next.initialCards['200']).toBe(5);
+    expect(next.initialCards?.['200']).toBe(5);
     expect(next.round).toBe(2); // the valid field in the same push still applies
 
     hostSock.disconnect();
