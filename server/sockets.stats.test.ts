@@ -5,6 +5,7 @@
  * Split out of the former monolithic sockets.test.ts; see socketTestHarness.ts
  * for why, and for the port allocation rules.
  */
+import type { ChildProcess } from 'child_process';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io } from 'socket.io-client';
 import { startTestServer, testDelay } from './socketTestHarness';
@@ -12,7 +13,8 @@ import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 import { DEFAULT_WINNING_SCORE } from '../src/utils/configValidation';
 import { deviceStatsRequest } from '../src/utils/statsApi';
-import { DEFAULT_GAME_MODE, type GameMode } from '../src/types';
+import { DEFAULT_GAME_MODE, type GameMode, type DeviceStatsRow } from '../src/types';
+import { nonNull } from '../src/testing/factories';
 
 // The per-IP /api/stats GET rate limit (STATS_RATE_LIMIT_MAX in api.ts) is
 // shared by every test below: they all poll from 127.0.0.1 against the one
@@ -56,7 +58,7 @@ describe('assertStatsResponseOk', () => {
 });
 
 describe('Server Socket E2E — statistics persistence', () => {
-  let serverProcess;
+  let serverProcess: ChildProcess | undefined;
 
   const PORT = TEST_PORTS.socketsStats;
 
@@ -92,7 +94,7 @@ describe('Server Socket E2E — statistics persistence', () => {
   const pollDeviceStats = async (
     deviceId: string,
     mode: GameMode,
-    done: (body) => boolean,
+    done: (body: Partial<DeviceStatsRow>) => boolean,
     what: string,
   ) => {
     for (let i = 0; i < STATS_POLL_ATTEMPTS; i++) {
@@ -112,7 +114,7 @@ describe('Server Socket E2E — statistics persistence', () => {
   });
 
   it('gameTimeInSeconds is reset when game returns to lobby', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const roomId = 'GAME_TIME_RESET';
       const s1 = io(`http://127.0.0.1:${PORT}`);
 
@@ -179,7 +181,7 @@ describe('Server Socket E2E — statistics persistence', () => {
   // reason as the monotonic test above.
 
   it('endGameStats accepts a write for the socket\'s own device', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const deviceId = 'dev-egs-self';
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Timed out')); }, 6000);
@@ -190,7 +192,7 @@ describe('Server Socket E2E — statistics persistence', () => {
           // started-and-finished game first (same-socket emits are ordered).
           s1.emit('pushState', { roomId: 'EGS_SELF_ROOM', newState: { status: 'playing', finished: true } });
           s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, wins: 1, totalScore: 1234 } });
-          pollDeviceStats(deviceId, DEFAULT_GAME_MODE, b => b?.gamesPlayed >= 1, 'recorded a game').then((body) => {
+          pollDeviceStats(deviceId, DEFAULT_GAME_MODE, b => (b.gamesPlayed ?? 0) >= 1, 'recorded a game').then((body) => {
             try {
               expect(body.gamesPlayed).toBeGreaterThanOrEqual(1);
               clearTimeout(timeoutId);
@@ -240,7 +242,7 @@ describe('Server Socket E2E — statistics persistence', () => {
             // The client claims it was a default game; the server knows better.
             s1.emit('submitGlobalStats', { roomId, payload: { gamesPlayed: 1, totalScore: 777, isDefaultGame: true } });
 
-            const custom = await pollDeviceStats(deviceId, 'custom', b => b?.gamesPlayed >= 1, 'recorded a game');
+            const custom = await pollDeviceStats(deviceId, 'custom', b => (b.gamesPlayed ?? 0) >= 1, 'recorded a game');
             expect(custom.totalScore).toBe(777);
             expect(custom.mode).toBe('custom');
 
@@ -301,7 +303,7 @@ describe('Server Socket E2E — statistics persistence', () => {
             s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, wins: 1, totalScore: 555, totalTuttos: 3, mostCardsInTurn: 2 } });
             s1.emit('submitGlobalStats', { roomId, payload: { gamesPlayed: 1, totalScore: 555, totalTuttos: 3, isDefaultGame: true } });
 
-            const classic = await pollDeviceStats(deviceId, 'classic', b => b?.gamesPlayed >= 1, 'recorded a game');
+            const classic = await pollDeviceStats(deviceId, 'classic', b => (b.gamesPlayed ?? 0) >= 1, 'recorded a game');
             expect(classic.totalScore).toBe(555);
             expect(classic.totalTuttos).toBe(3);
             expect(classic.mostCardsInTurn).toBe(2);
@@ -331,7 +333,7 @@ describe('Server Socket E2E — statistics persistence', () => {
             s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, wins: 0, totalScore: 111 } });
             s1.emit('submitGlobalStats', { roomId, payload: { gamesPlayed: 1, totalScore: 111, isDefaultGame: true } });
 
-            const classicCustom = await pollDeviceStats(deviceId, 'classic_custom', b => b?.gamesPlayed >= 1, 'recorded a game');
+            const classicCustom = await pollDeviceStats(deviceId, 'classic_custom', b => (b.gamesPlayed ?? 0) >= 1, 'recorded a game');
             expect(classicCustom.totalScore).toBe(111);
 
             const classicGlobalFinal = await poll(async () => {
@@ -356,7 +358,7 @@ describe('Server Socket E2E — statistics persistence', () => {
   }, 15000);
 
   it('ignores a duplicate endGameStats/submitGlobalStats for the same game (e.g. a reconnect after finish), but accepts them again once a new game starts', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const deviceId = 'dev-egs-dedup';
       const roomId = 'EGS_DEDUP_ROOM';
       const s1 = io(`http://127.0.0.1:${PORT}`);
@@ -417,7 +419,7 @@ describe('Server Socket E2E — statistics persistence', () => {
   }, 12000);
 
   it('ignores a duplicate submitGlobalStats for the same game from the host', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const roomId = 'SGS_DEDUP_ROOM';
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Timed out')); }, 10000);
@@ -425,7 +427,7 @@ describe('Server Socket E2E — statistics persistence', () => {
       // global_statistics is a single shared row across every test in this file,
       // so assert on the DELTA this test causes, not an absolute value.
       const getGlobalTotalScore = async () => (await getJson('/api/stats/global')).totalScore ?? 0;
-      const pollGlobalTotalScore = async (expected) => {
+      const pollGlobalTotalScore = async (expected: number) => {
         for (let i = 0; i < 75; i++) {
           if ((await getGlobalTotalScore()) === expected) return;
           await new Promise(r => setTimeout(r, 40));
@@ -487,7 +489,7 @@ describe('Server Socket E2E — statistics persistence', () => {
   }, 12000);
 
   it('endGameStats rejects a write for a device the socket does not own', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const ownDevice = 'dev-egs-owner';
       const foreignDevice = 'dev-egs-foreign';
       const s1 = io(`http://127.0.0.1:${PORT}`);
@@ -544,7 +546,7 @@ describe('Server Socket E2E — statistics persistence', () => {
       const pollDeviceScore = (expected: number) =>
         pollDeviceStats(deviceId, DEFAULT_GAME_MODE, b => b?.totalScore === expected, `reached totalScore ${expected}`);
 
-      let latestState = null;
+      let latestState: { players: { name: string }[]; finished: boolean } | null = null;
       s1.on('gameState', (state) => { latestState = state; });
 
       s1.on('connect', () => {
@@ -579,7 +581,7 @@ describe('Server Socket E2E — statistics persistence', () => {
               await new Promise(r => setTimeout(r, 80));
 
               // The new shuffle must be adopted, not discarded.
-              expect(latestState.players.map((p) => p.name)).toEqual(['Bob', 'Alice']);
+              expect(nonNull(latestState).players.map((p) => p.name)).toEqual(['Bob', 'Alice']);
 
               // Finish game 2 — stats are only accepted for a finished game —
               // then they must be accepted (dedup was reset by the restart).
@@ -618,7 +620,7 @@ describe('Server Socket E2E — statistics persistence', () => {
       const pollDeviceScore = (expected: number) =>
         pollDeviceStats(deviceId, DEFAULT_GAME_MODE, b => b?.totalScore === expected, `reached totalScore ${expected}`);
 
-      let latestState = null;
+      let latestState: { players: { name: string }[]; finished: boolean } | null = null;
       s1.on('gameState', (state) => { latestState = state; });
 
       s1.on('connect', () => {
@@ -648,8 +650,8 @@ describe('Server Socket E2E — statistics persistence', () => {
                 },
               });
               await new Promise(r => setTimeout(r, testDelay(400)));
-              expect(latestState.finished, 'the discarded push must not have started a game').toBe(true);
-              expect(latestState.players.map((p) => p.name)).toEqual(['Alice', 'Bob']);
+              expect(nonNull(latestState).finished, 'the discarded push must not have started a game').toBe(true);
+              expect(nonNull(latestState).players.map((p) => p.name)).toEqual(['Alice', 'Bob']);
 
               // Still the same finished game, so its stats must still be
               // refused. A refusal is a non-event, so nothing about it can be
@@ -716,7 +718,7 @@ describe('Server Socket E2E — statistics persistence', () => {
       const timeoutId = setTimeout(() => { cleanup(); reject(new Error('Test timed out')); }, 16000);
 
       const pollCustomBucket = (deviceId: string) =>
-        pollDeviceStats(deviceId, 'custom', b => b?.gamesPlayed >= 1, 'landed in the custom bucket');
+        pollDeviceStats(deviceId, 'custom', b => (b.gamesPlayed ?? 0) >= 1, 'landed in the custom bucket');
       // pushState has no ack, but it always ends in a broadcast — so the next
       // gameState is the proof that THIS push has been processed, which the
       // steps below need before the next emit may depend on its effect.
