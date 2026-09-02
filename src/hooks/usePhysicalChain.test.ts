@@ -3,27 +3,29 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { usePhysicalChain, readPhysicalChainCache } from './usePhysicalChain';
 import { PHYSICAL_TURN_STATE_KEY, buildTurnKey } from '../utils/diceTurnState';
 import { MAX_CHAIN_CARDS } from '../types';
+import type { CardType, DiceSnapshot, Ruleset } from '../types';
 import { blockStorage, restoreStorage } from '../testing/storageStubs';
+import { nonNull } from '../testing/factories';
 
 // The turn this suite plays in, and its cache key. Anything stamped with a
 // different key belongs to a different turn.
 const ROOM = 'R1';
 const ROUND = 2;
 const SEAT = 1;
-const RULESET = 'classic';
-const keyFor = (card) => buildTurnKey(ROOM, ROUND, SEAT, card, RULESET);
+const RULESET: Ruleset = 'classic';
+const keyFor = (card: CardType) => buildTurnKey(ROOM, ROUND, SEAT, card, RULESET);
 
 const defaultArgs = {
   enabled: true,
   roomId: ROOM,
   round: ROUND,
   currentPlayerIndex: SEAT,
-  currentCard: '200',
+  currentCard: '200' as CardType,
   ruleset: RULESET,
   scoreInput: '',
 };
 
-const mount = (overrides = {}) =>
+const mount = (overrides: Partial<typeof defaultArgs & { onSnapshot: (s: DiceSnapshot | null) => void }> = {}) =>
   renderHook(
     (props) => usePhysicalChain(props),
     { initialProps: { ...defaultArgs, ...overrides } },
@@ -31,7 +33,7 @@ const mount = (overrides = {}) =>
 
 const readCache = () => JSON.parse(localStorage.getItem(PHYSICAL_TURN_STATE_KEY) ?? 'null');
 
-const writeCache = (entry) =>
+const writeCache = (entry: unknown) =>
   localStorage.setItem(PHYSICAL_TURN_STATE_KEY, JSON.stringify(entry));
 
 const validEntry = (overrides = {}) => ({
@@ -247,12 +249,12 @@ describe('usePhysicalChain', () => {
     // never rolled, every earlier card's counter thrown away, all three
     // classic records lost, and no summary for undo to put the cards back.
     it('emits the chain, dice-less, as the turn progresses', () => {
-      const seen = [];
+      const seen: (DiceSnapshot | null)[] = [];
       const { result } = mount({ onSnapshot: (s) => seen.push(s), scoreInput: '2000' });
 
       act(() => { result.current.completeCurrentCard(false); });
 
-      const snapshot = seen[seen.length - 1];
+      const snapshot = nonNull(seen[seen.length - 1]);
       expect(snapshot.cardsThisTurn, 'the chain so far').toEqual(['200']);
       expect(snapshot.turnScore, 'the typed running total is what a timeout forfeits').toBe(2000);
       expect(snapshot.lastCardCompleted, 'they answered Yes; the choice is open').toBe(true);
@@ -263,20 +265,20 @@ describe('usePhysicalChain', () => {
     });
 
     it('carries every card once the chain grows', () => {
-      const seen = [];
+      const seen: (DiceSnapshot | null)[] = [];
       const { result } = mount({ onSnapshot: (s) => seen.push(s), scoreInput: '2000' });
 
       act(() => { result.current.completeCurrentCard(false); });
       act(() => { result.current.recordDraw('400'); });
 
-      const snapshot = seen[seen.length - 1];
+      const snapshot = nonNull(seen[seen.length - 1]);
       expect(snapshot.cardsThisTurn).toEqual(['200', '400']);
       expect(snapshot.lastCardCompleted, 'the new card has not been played yet').toBe(false);
     });
 
     it('clears the server-side snapshot when the turn commits', () => {
-      const seen = [];
-      const onSnapshot = (s) => seen.push(s);
+      const seen: (DiceSnapshot | null)[] = [];
+      const onSnapshot = (s: DiceSnapshot | null) => seen.push(s);
       const { result, rerender } = mount({ onSnapshot, scoreInput: '2000' });
       act(() => { result.current.completeCurrentCard(false); });
 
@@ -289,7 +291,7 @@ describe('usePhysicalChain', () => {
     });
 
     it('stays silent when this is not a classic physical turn', () => {
-      const seen = [];
+      const seen: (DiceSnapshot | null)[] = [];
       const { result } = mount({ onSnapshot: (s) => seen.push(s), enabled: false, scoreInput: '2000' });
 
       act(() => { result.current.completeCurrentCard(false); });
