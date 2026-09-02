@@ -454,6 +454,9 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         name,
         deviceId: get().deviceId,
         color: savedColor,
+        // A reconnect, so a room the server no longer has is refused
+        // (room-gone) instead of being created and immediately deleted.
+        isReconnect: true,
       }, (res: JoinRoomResponse) => {
         if (res?.success) tempSocket.emit('leaveRoom');
         cleanup();

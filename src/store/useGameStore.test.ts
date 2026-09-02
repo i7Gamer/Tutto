@@ -2572,6 +2572,24 @@ describe('useGameStore', () => {
       expect(mockDisconnect).toHaveBeenCalled();
     });
 
+    it('cancelReconnect(roomId, name) marks its throwaway join as a reconnect, so a vanished room is not recreated', async () => {
+      // The probe join exists only to release the seat. Sent as an ordinary
+      // join, a room the server had already lost (a restart) was created
+      // afresh with this client as host and then deleted again by the
+      // leaveRoom that follows — needless churn, and a window in which a
+      // second player could join a phantom lobby. As a reconnect it is
+      // refused with room-gone and nothing is created.
+      const { io } = await import('socket.io-client');
+      io.mockClear();
+      mockEmit.mockClear();
+
+      useGameStore.getState().cancelReconnect('GHOST_ROOM', 'Charlie');
+      mockOnHandlers['connect']();
+
+      const joinRoomCall = mockEmit.mock.calls.find(c => c[0] === 'joinRoom');
+      expect(joinRoomCall[1]).toMatchObject({ roomId: 'GHOST_ROOM', name: 'Charlie', isReconnect: true });
+    });
+
     it('cancelReconnect(roomId, name) does not emit leaveRoom if joinRoom fails', async () => {
       const { io } = await import('socket.io-client');
       io.mockClear();
