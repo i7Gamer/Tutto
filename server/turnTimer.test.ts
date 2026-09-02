@@ -30,6 +30,9 @@ vi.mock('./database', () => ({
 
 import { startInProcessServer, emitJoin, waitFor, type InProcessServer } from './socketTestHarness';
 import { rooms } from './rooms';
+// Rooms are stored under the canonical (trimmed, upper-cased) id since
+// joinRoom started normalising; this file's lower-case ids must follow it.
+import { normalizeRoomId } from '../src/utils/configValidation';
 
 describe('Server-side turn timer', () => {
   let server: InProcessServer;
@@ -89,7 +92,7 @@ describe('Server-side turn timer', () => {
 
   /** Resolves once the server has armed the expiry the test is about to drive. */
   const waitForArmedTimer = (roomId: string) =>
-    waitFor(() => rooms[roomId]?.turnExpireTimer != null);
+    waitFor(() => rooms[normalizeRoomId(roomId)]?.turnExpireTimer != null);
 
   /**
    * Runs a room's pending turn expiry now instead of waiting out its deadline.
@@ -101,7 +104,7 @@ describe('Server-side turn timer', () => {
    * scheduling is not what any of these tests is checking.
    */
   const fireTurnExpiry = (roomId: string) => {
-    const pending = rooms[roomId].turnExpireTimer;
+    const pending = rooms[normalizeRoomId(roomId)].turnExpireTimer;
     expect(pending).not.toBeNull();
     const run = (pending as unknown as { _onTimeout?: () => void })._onTimeout;
     // Guards the reach-around itself: if a Node upgrade renames this, the suite
@@ -118,7 +121,7 @@ describe('Server-side turn timer', () => {
    * enough to be convincing; this reads the timer.
    */
   const expectNoTimerArmed = (roomId: string) =>
-    expect(rooms[roomId].turnExpireTimer).toBeNull();
+    expect(rooms[normalizeRoomId(roomId)].turnExpireTimer).toBeNull();
 
   const twoPlayers = (roomId: string, hostSock, guestSock) => [
     { name: 'Alice', deviceId: `dev-${roomId}-Alice`, socketId: hostSock.id, disconnected: false, score: 0 },
@@ -177,8 +180,8 @@ describe('Server-side turn timer', () => {
     // The disconnect has to be PROCESSED before the expiry runs, or the test
     // proves nothing about a hostless room. It also must not free the expiry:
     // two seats remain (one disconnected), so no abort clears it.
-    await waitFor(() => rooms[roomId].state.players.some(p => p.name === 'Alice' && p.disconnected));
-    expect(rooms[roomId].turnExpireTimer).not.toBeNull();
+    await waitFor(() => rooms[normalizeRoomId(roomId)].state.players.some(p => p.name === 'Alice' && p.disconnected));
+    expect(rooms[normalizeRoomId(roomId)].turnExpireTimer).not.toBeNull();
 
     fireTurnExpiry(roomId);
 
@@ -205,7 +208,7 @@ describe('Server-side turn timer', () => {
 
     hostSock.disconnect();
     guestSock.disconnect();
-    await waitFor(() => rooms[roomId].state.players.every(p => p.disconnected));
+    await waitFor(() => rooms[normalizeRoomId(roomId)].state.players.every(p => p.disconnected));
 
     // The expiry now runs with nothing listening — which is the whole point of
     // the test, and used to be why it could only SAMPLE the result by rejoining
@@ -419,7 +422,7 @@ describe('Server-side turn timer', () => {
       },
     });
     await waitForArmedTimer(roomId);
-    const timerBeforeKick = rooms[roomId].turnExpireTimer;
+    const timerBeforeKick = rooms[normalizeRoomId(roomId)].turnExpireTimer;
 
     // Host kicks Bob mid-turn. Bob wasn't last in turn order (Carol, at index 2,
     // hasn't gone yet this round) so the round must NOT bump — Carol simply
@@ -435,8 +438,8 @@ describe('Server-side turn timer', () => {
     // from a stale timer failing to fire inside a 200ms window: the pending
     // setTimeout was REPLACED, and the window it was replaced with is a full
     // fresh turn rather than the remainder of Bob's.
-    expect(rooms[roomId].turnExpireTimer).not.toBeNull();
-    expect(rooms[roomId].turnExpireTimer).not.toBe(timerBeforeKick);
+    expect(rooms[normalizeRoomId(roomId)].turnExpireTimer).not.toBeNull();
+    expect(rooms[normalizeRoomId(roomId)].turnExpireTimer).not.toBe(timerBeforeKick);
     expect(afterKick.turnTimeRemaining).toBe(TURN_DURATION_S);
 
     // Carol is now last in turn order (2 players remain), so her forced timeout
@@ -543,12 +546,12 @@ describe('Server-side turn timer', () => {
     // lets the orphaned expiry below be run at all — the old version instead
     // slept past the real deadline and inferred from the server still answering
     // that it had fired.
-    const orphaned = (rooms[roomId].turnExpireTimer as unknown as { _onTimeout: () => void })._onTimeout;
+    const orphaned = (rooms[normalizeRoomId(roomId)].turnExpireTimer as unknown as { _onTimeout: () => void })._onTimeout;
 
     // Player explicitly leaves — room.state.players becomes empty and the room
     // is deleted with this expiry still pending.
     sock.emit('leaveRoom');
-    await waitFor(() => rooms[roomId] === undefined);
+    await waitFor(() => rooms[normalizeRoomId(roomId)] === undefined);
     sock.disconnect();
 
     // The orphaned expiry now runs against a room that no longer exists. In the

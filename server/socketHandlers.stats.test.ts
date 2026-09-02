@@ -97,7 +97,7 @@ describe('stats dedup rollback on DB failure', () => {
     await waitFor(() => mockedUpdateDeviceStats.mock.calls.length === 1);
 
     const written = mockedUpdateDeviceStats.mock.calls[0][1] as Record<string, unknown>;
-    expect(written.fastestWinTurns, 'a 0-turn best would be MIN-merged and permanent').toBe(1);
+    expect(written, 'a 0-turn best is dropped, not clamped to the best possible record').not.toHaveProperty('fastestWinTurns');
     expect(written, 'a boolean binds to 0 and pins the record just the same').not.toHaveProperty('fastestLossTurns');
     expect(written, 'a non-numeric record must not reach a MAX merge').not.toHaveProperty('highestTurnScore');
     expect(written.busts, 'counters are floored at 0').toBe(0);
