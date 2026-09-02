@@ -20,6 +20,8 @@
  * share makeFakeSocket, which drives a handler function directly with no
  * network at all.
  */
+import os from 'os';
+import path from 'path';
 import { spawn, type ChildProcess } from 'child_process';
 import { createServer } from 'http';
 import type { AddressInfo } from 'net';
@@ -72,6 +74,13 @@ const CHILD_ENV_ALLOWLIST_KEYS = [
  * suite). Pure and exported so this is unit-testable without spawning
  * anything; see socketTestHarness.test.ts.
  */
+// The child would otherwise load the checkout's own .env (index.ts reads it
+// by path, so stripping the parent env is not enough): a developer's
+// CORS_ORIGIN or TRUST_PROXY would still shape what the server under test
+// does. Pointing TUTTO_ENV_FILE at a path that cannot exist makes dotenv load
+// nothing.
+const NO_ENV_FILE = path.join(os.tmpdir(), 'tutto-test-server-has-no-env-file');
+
 export const buildChildEnv = (
   parentEnv: Record<string, string | undefined>,
   overrides: Record<string, string> = {},
@@ -149,7 +158,7 @@ export const startTestServer = (
       process.execPath,
       ['--require', require.resolve('tsx/cjs'), 'server/index.ts'],
       {
-        env: buildChildEnv(process.env, { PORT: port, FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2', ...env }),
+        env: buildChildEnv(process.env, { PORT: port, FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2', TUTTO_ENV_FILE: NO_ENV_FILE, ...env }),
         stdio: 'pipe',
       },
     );

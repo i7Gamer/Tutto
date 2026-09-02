@@ -2,7 +2,11 @@ import path from 'path';
 import dotenv from 'dotenv';
 // quiet: true suppresses dotenv's startup banner, which is noise in a
 // container where configuration arrives as real env vars and no .env exists.
-dotenv.config({ path: path.join(__dirname, '../.env'), quiet: true });
+// TUTTO_ENV_FILE relocates the file; the test harness points it at a path
+// that does not exist so a spawned server never reads the checkout's own .env
+// (see socketTestHarness.ts). Missing files are silently skipped by dotenv.
+const ENV_FILE_VAR = 'TUTTO_ENV_FILE';
+dotenv.config({ path: process.env[ENV_FILE_VAR] ?? path.join(__dirname, '../.env'), quiet: true });
 
 import express from 'express';
 import http from 'http';
