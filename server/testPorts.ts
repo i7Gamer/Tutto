@@ -14,8 +14,13 @@
  *
  * Adding a suite: append an entry with a name matching its describe block. Do
  * not reuse a value, and do not inline a bare port number in a test file.
+ *
+ * Two checkouts of the repo (a second worktree, a CI matrix on one runner)
+ * running these suites at the same time would collide on the same numbers;
+ * TEST_PORT_OFFSET shifts the whole registry so each checkout gets its own
+ * range. Unset or empty means no shift.
  */
-const PORTS = {
+const BASE_PORTS = {
   // Socket integration suites (see socketTestHarness.ts).
   socketsRoom: '3005',
   socketsConfig: '3014',
@@ -39,6 +44,17 @@ const PORTS = {
   // collide with whichever suite inherited it.
   pushStateValidation: '3011',
 } as const;
+
+const PORT_OFFSET_ENV = 'TEST_PORT_OFFSET';
+const rawOffset = process.env[PORT_OFFSET_ENV];
+const portOffset = rawOffset === undefined || rawOffset === '' ? 0 : Number(rawOffset);
+if (!Number.isInteger(portOffset) || portOffset < 0) {
+  throw new Error(`${PORT_OFFSET_ENV} must be a non-negative integer, got ${JSON.stringify(rawOffset)}`);
+}
+
+const PORTS = Object.fromEntries(
+  Object.entries(BASE_PORTS).map(([suite, port]) => [suite, String(Number(port) + portOffset)]),
+) as Record<keyof typeof BASE_PORTS, string>;
 
 // Runs when any suite imports the registry, so a duplicate fails loudly and
 // names both offenders instead of racing for the socket.
