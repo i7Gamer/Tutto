@@ -5,14 +5,16 @@
  * Split out of the former monolithic sockets.test.ts; see socketTestHarness.ts
  * for why, and for the port allocation rules.
  */
+import type { ChildProcess } from 'child_process';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io } from 'socket.io-client';
-import { startTestServer, testDelay } from './socketTestHarness';
+import { startTestServer, testDelay, type JoinAck } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { nonNull } from '../src/testing/factories';
 
 describe('Server Socket E2E — authorization & payload validation', () => {
-  let serverProcess;
+  let serverProcess: ChildProcess | undefined;
 
   const PORT = TEST_PORTS.socketsAuthorization;
 
@@ -25,7 +27,7 @@ describe('Server Socket E2E — authorization & payload validation', () => {
   });
 
   it('ignores pushState from a player who is neither host nor the active player', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host + active player
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — neither
 
@@ -105,10 +107,15 @@ describe('Server Socket E2E — authorization & payload validation', () => {
     // so a slow connect, a refused join, or an ack that never fired all read
     // as "the attack did not land" — for a security test, the one failure
     // mode worth ruling out.
-    const observed = await new Promise((resolve, reject) => {
+    interface AttackObserved {
+      attackerJoined: boolean;
+      attackerPushed: boolean;
+      foreign: string | null;
+    }
+    const observed = await new Promise<AttackObserved>((resolve, reject) => {
       const victim = io(`http://127.0.0.1:${PORT}`);
       const attacker = io(`http://127.0.0.1:${PORT}`);
-      const seen = { attackerJoined: false, attackerPushed: false, foreign: null };
+      const seen: AttackObserved = { attackerJoined: false, attackerPushed: false, foreign: null };
 
       const giveUp = setTimeout(() => {
         victim.disconnect();
@@ -124,13 +131,13 @@ describe('Server Socket E2E — authorization & payload validation', () => {
       };
 
       victim.on('connect', () => {
-        victim.emit('joinRoom', { roomId: 'E2E_NS_VICTIM', name: 'Victim', deviceId: 'dev-ns-v' }, (ack) => {
+        victim.emit('joinRoom', { roomId: 'E2E_NS_VICTIM', name: 'Victim', deviceId: 'dev-ns-v' }, (ack: JoinAck) => {
           const victimSocketId = ack.socketId;
 
           // Only now: the victim own join broadcast is already delivered, so
           // anything arriving after this point came from the attacker room.
           victim.on('gameState', (state) => {
-            if (state.players?.some(p => p.name === 'Attacker')) {
+            if (state.players?.some((p: { name: string }) => p.name === 'Attacker')) {
               seen.foreign = 'a gameState carrying the attacker roster';
             }
           });
@@ -143,7 +150,7 @@ describe('Server Socket E2E — authorization & payload validation', () => {
           attacker.emit(
             'joinRoom',
             { roomId: victimSocketId, name: 'Attacker', deviceId: 'dev-ns-a' },
-            (attackerAck) => {
+            (attackerAck: JoinAck) => {
               // The join itself may legitimately succeed (the id is just a
               // string); what must not happen is its broadcast reaching the
               // victim. Push too, so a second emit has to stay contained.
@@ -176,10 +183,15 @@ describe('Server Socket E2E — authorization & payload validation', () => {
     // structurally unable to observe true. Both preconditions are asserted too,
     // so a setup that never started the game cannot read as "the push was
     // refused".
-    const observed = await new Promise((resolve, reject) => {
+    interface HostFieldsObserved {
+      gameStarted: boolean;
+      bobPushed: boolean;
+      accepted: string | null;
+    }
+    const observed = await new Promise<HostFieldsObserved>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — active player, not host
-      const seen = { gameStarted: false, bobPushed: false, accepted: null };
+      const seen: HostFieldsObserved = { gameStarted: false, bobPushed: false, accepted: null };
 
       const giveUp = setTimeout(() => {
         s1.disconnect();
@@ -239,7 +251,7 @@ describe('Server Socket E2E — authorization & payload validation', () => {
     // Regression test: a non-host active player can write to the host's row for
     // score and times1000PointsDeducted (PLAYER_CROSS_SEAT_MUTABLE in pushValidation.ts).
     // The Plus_Minus -1000 deduction applies this cross-seat write path.
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host, current leader at 1000 pts
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — non-host, active player, plays Plus_Minus
 
@@ -283,8 +295,8 @@ describe('Server Socket E2E — authorization & payload validation', () => {
       s1.on('gameState', (state) => {
         if (state.status === 'playing' && state.players?.length === 2) gameStarted = true;
         if (!gameStarted) return;
-        const alice = state.players?.find(p => p.name === 'Alice');
-        const bob   = state.players?.find(p => p.name === 'Bob');
+        const alice = state.players?.find((p: { name: string; score: number }) => p.name === 'Alice');
+        const bob   = state.players?.find((p: { name: string; score: number }) => p.name === 'Bob');
         // Deduction accepted: Alice at 0, Bob at 1000
         if (alice && bob && alice.score === 0 && bob.score === 1000) {
           clearTimeout(timeoutId);
@@ -302,7 +314,7 @@ describe('Server Socket E2E — authorization & payload validation', () => {
     // host's row change because of the per-row restriction. Now it must be accepted.
     // Scenario: Alice (host) scored 500, now it's Bob's turn (index 1).
     // Bob clicks undo → Alice's score is reversed from 500 to 0.
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — non-host, current active player
 
@@ -347,8 +359,8 @@ describe('Server Socket E2E — authorization & payload validation', () => {
       s1.on('gameState', (state) => {
         if (state.status === 'playing' && state.players?.length === 2) gameStarted = true;
         if (!gameStarted) return;
-        const alice = state.players?.find(p => p.name === 'Alice');
-        const bob   = state.players?.find(p => p.name === 'Bob');
+        const alice = state.players?.find((p: { name: string; score: number }) => p.name === 'Alice');
+        const bob   = state.players?.find((p: { name: string; score: number }) => p.name === 'Bob');
         // Undo accepted: Alice's score reversed to 0
         if (alice && bob && alice.score === 0 && bob.score === 0 && state.previousCard === null) {
           clearTimeout(timeoutId);
@@ -361,7 +373,7 @@ describe('Server Socket E2E — authorization & payload validation', () => {
   }, 10000);
 
   it('active player can push liveTurnState and it is forwarded to other players', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — active player
 
@@ -416,7 +428,7 @@ describe('Server Socket E2E — authorization & payload validation', () => {
   }, 10000);
 
   it('active player can push liveTurnState via the dedicated event and it is forwarded without a full gameState broadcast', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — active player
 
@@ -476,7 +488,7 @@ describe('Server Socket E2E — authorization & payload validation', () => {
   }, 10000);
 
   it('ignores a liveTurnState push from a socket that is neither host nor the active player', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob — active player
       const s3 = io(`http://127.0.0.1:${PORT}`); // Carol — bystander, neither host nor active
@@ -562,10 +574,15 @@ describe('Server Socket E2E — authorization & payload validation', () => {
     // test green. That is a property of the handlers being well guarded, not
     // a gap here; safeOn's containment needs a handler that genuinely throws,
     // and no client-supplied payload reaches one.
-    const observed = await new Promise((resolve, reject) => {
+    interface MalformedPayloadObserved {
+      nullJoinRefused: boolean;
+      joined: boolean;
+      stillServing: boolean;
+    }
+    const observed = await new Promise<MalformedPayloadObserved>((resolve, reject) => {
       const roomId = 'MALFORMED_PAYLOAD_TEST_ROOM';
       const s1 = io(`http://127.0.0.1:${PORT}`);
-      const seen = { nullJoinRefused: false, joined: false, stillServing: false };
+      const seen: MalformedPayloadObserved = { nullJoinRefused: false, joined: false, stillServing: false };
 
       const giveUp = setTimeout(() => {
         s1.disconnect();
@@ -578,11 +595,11 @@ describe('Server Socket E2E — authorization & payload validation', () => {
 
       s1.on('connect', () => {
         // Emit null to joinRoom
-        s1.emit('joinRoom', null, (res) => {
+        s1.emit('joinRoom', null, (res: JoinAck) => {
           seen.nullJoinRefused = res.success === false;
 
           // Join properly
-          s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-mal-a', color: '#ff0000' }, (res2) => {
+          s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-mal-a', color: '#ff0000' }, (res2: JoinAck) => {
             seen.joined = res2.success === true;
 
             // Send malformed configs, colors, reactions, and pushState
@@ -615,6 +632,6 @@ describe('Server Socket E2E — authorization & payload validation', () => {
     expect(observed.nullJoinRefused, 'a null joinRoom must be refused, not accepted').toBe(true);
     expect(observed.joined, 'the well-formed join never succeeded, so nothing was tested').toBe(true);
     expect(observed.stillServing, 'the server stopped answering after the malformed burst').toBe(true);
-    expect(serverProcess.exitCode, 'the server process died on a malformed payload').toBeNull();
+    expect(nonNull(serverProcess).exitCode, 'the server process died on a malformed payload').toBeNull();
   }, 15000);
 });
