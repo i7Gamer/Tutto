@@ -42,10 +42,19 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
       <div className="flex gap-2 md:gap-4 w-full phone-landscape:contents">
         <motion.div layout className="relative flex-1 min-w-[100px] md:min-w-[120px] phone-landscape:min-w-[75px] bg-white dark:bg-slate-800/80 backdrop-blur-sm border border-white/40 rounded-xl md:rounded-2xl p-2 md:p-4 shadow-xs flex flex-col justify-center items-center">
           <div className="text-[10px] md:text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-0.5 md:mb-1">{t('game.currentPlayer', 'Current Player')}</div>
-          <div className="player-name text-lg md:text-2xl font-extrabold truncate w-full text-center flex flex-col items-center gap-1" style={readableNameVars(currentPlayer.color)}>
-            <span className="flex items-center justify-center gap-2">
-              {isOnline && game.hostId === currentPlayer.socketId && <span title={t('game.host', 'Host')} className="text-xl leading-none">👑</span>}
-              {isOnline && isMyTurn ? t('game.you', 'You ({{name}})', { name: currentPlayer.name }) : currentPlayer.name}
+          <div className="player-name text-lg md:text-2xl font-extrabold w-full text-center flex flex-col items-center gap-1" style={readableNameVars(currentPlayer.color)}>
+            {/* truncate (+ min-w-0, so a flex item can shrink below its
+                content's width at all) belongs on the element that actually
+                holds the text — the row around it has no text node of its
+                own, so putting truncate there did nothing and a long name
+                overflowed and got clipped mid-word with no ellipsis. The
+                crown stays outside the truncated span so it never gets
+                squeezed by the ellipsis. */}
+            <span className="flex items-center justify-center gap-2 min-w-0 max-w-full">
+              {isOnline && game.hostId === currentPlayer.socketId && <span title={t('game.host', 'Host')} className="text-xl leading-none shrink-0">👑</span>}
+              <span className="truncate min-w-0">
+                {isOnline && isMyTurn ? t('game.you', 'You ({{name}})', { name: currentPlayer.name }) : currentPlayer.name}
+              </span>
             </span>
             {currentPlayer.disconnected && <span className="text-red-500 text-[10px] md:text-xs font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50 leading-tight">{t('game.disconnected', 'Disconnected')}</span>}
           </div>

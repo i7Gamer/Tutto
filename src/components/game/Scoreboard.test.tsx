@@ -121,4 +121,33 @@ describe('Scoreboard Component', () => {
     // And no bare inline colour is left behind to fight the stylesheet.
     expect(name.style.color).toBe('');
   });
+
+  // `truncate` (overflow:hidden + white-space:nowrap + ellipsis) only does
+  // anything on the element that actually holds the text. It used to sit on
+  // the flex COLUMN wrapping the whole name row (crown + text), which has no
+  // text node of its own — so a long name overflowed and was clipped
+  // mid-word with no ellipsis, and the crown had nothing to keep it from
+  // being squeezed too.
+  it('truncates the name text itself, not the flex container around crown + name', () => {
+    const longName = 'A'.repeat(60);
+    const game = {
+      players: [{ name: longName, score: 100, socketId: 'abc' }],
+      currentPlayerIndex: 0,
+      isOnline: true,
+      myName: longName,
+      round: 1,
+      winningScore: 1000,
+      hostId: 'abc',
+    };
+
+    render(<Scoreboard game={game as unknown as GameStore} formattedTime="10:00" />);
+
+    const container = screen.getByTitle('game.host').closest('.player-name') as HTMLElement;
+    expect(container).not.toBeNull();
+    expect(container.className).not.toMatch(/\btruncate\b/);
+
+    const nameSpan = screen.getByText('game.you');
+    expect(nameSpan.className).toMatch(/\btruncate\b/);
+    expect(nameSpan.className).toMatch(/\bmin-w-0\b/);
+  });
 });
