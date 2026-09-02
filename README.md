@@ -31,7 +31,7 @@ gracefully, so an older browser gets a broken layout rather than a plain one.
 
 ## How to Play Tutto!
 
-The objective of the game is to be the first player to reach the winning score (default is 6,000 points).
+The objective of the game is to reach the winning score (default is 6,000 points) and be the sole leader when the round ends — the round is always played to the end, so reaching the target first is no guarantee, and a tie plays on.
 
 ### The Basics
 1. On your turn, you must first draw a card from the deck.
@@ -45,6 +45,7 @@ The drawn card dictates specific bonuses or rules for your turn:
 - **Plus/Minus**: If you roll a Tutto, you deduct 1,000 points from the current leader's score while getting 1,000 points  yourself!
 - **Stop**: You cannot roll. Your turn ends immediately.
 - **Feuerwerk**: You must keep rolling as long as you score points! You can't bank your score manually. You only stop when you bust, but you get to keep all points earned before busting.
+- **Kniffel (Straight)**: Roll a straight from 1 through 6 to score a fixed 2,000 points. You can't stop voluntarily — you keep rolling until you complete it or bust.
 - **Kleeblatt**: Roll two Tuttos in a row to instantly win the game!
 - **Bonus Cards (200, 300, 400, 500, 600)**: If you roll a Tutto, you receive these bonus points added to your turn's score.
 

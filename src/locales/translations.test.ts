@@ -11,6 +11,9 @@ const dePath = path.resolve(__dirname, './de/translation.json');
 const readLocaleKeys = (localePath: string): string[] =>
   Object.keys(JSON.parse(fs.readFileSync(localePath, 'utf8')));
 
+const readLocale = (localePath: string): Record<string, string> =>
+  JSON.parse(fs.readFileSync(localePath, 'utf8'));
+
 function getAllFiles(dirPath: string, arrayOfFiles: string[] = []) {
   const files = fs.readdirSync(dirPath);
 
@@ -94,5 +97,58 @@ describe('Join refusal translation keys', () => {
   // map is ordered by the handler's checks, and that order is not the contract.
   it('maps exactly the refusal codes the server can send', () => {
     expect([...JOIN_ERROR_KEYS.keys()].sort()).toEqual([...JOIN_REFUSAL_CODES].sort());
+  });
+});
+
+// The engine only ends the game at the END of a round, for a SOLE leader at
+// or above the winning score (see coreGameEngine.ts) — a player who reaches
+// it first can still lose to someone later in the same round, and a tie
+// plays on. Every place that states the win rule in prose used to say "first
+// to reach" / "exceed" instead, which describes a different (wrong) game.
+// This guards the wording rather than just the keys' existence.
+describe('Win rule wording', () => {
+  const bannedPatterns = [/exceed/i, /überschreit/i, /first to reach/i, /erste/i];
+
+  const winRuleKeys = [
+    // The in-game goal banner (Game.tsx composes goalPrefix + score + goalSuffix).
+    'game.goalPrefix', 'game.goalSuffix',
+    'help.settings.winningScore',
+    'help.general.intro',
+  ];
+
+  it.each(winRuleKeys)('%s (en) states the rule without the old wrong wording', (key) => {
+    const value = readLocale(enPath)[key];
+    bannedPatterns.forEach((pattern) => expect(value).not.toMatch(pattern));
+  });
+
+  it.each(winRuleKeys)('%s (de) states the rule without the old wrong wording', (key) => {
+    const value = readLocale(dePath)[key];
+    bannedPatterns.forEach((pattern) => expect(value).not.toMatch(pattern));
+  });
+
+  it('the en banner states the round-end rule', () => {
+    const en = readLocale(enPath);
+    expect(`${en['game.goalPrefix']} ${en['game.goalSuffix']}`).toMatch(/round/i);
+  });
+
+  it('the de banner states the round-end rule', () => {
+    const de = readLocale(dePath);
+    expect(`${de['game.goalPrefix']} ${de['game.goalSuffix']}`).toMatch(/runde/i);
+  });
+
+  it('help.settings.winningScore (en) states the round-end rule', () => {
+    expect(readLocale(enPath)['help.settings.winningScore']).toMatch(/round/i);
+  });
+
+  it('help.settings.winningScore (de) states the round-end rule', () => {
+    expect(readLocale(dePath)['help.settings.winningScore']).toMatch(/runde/i);
+  });
+
+  it('help.general.intro (en) states the round-end rule', () => {
+    expect(readLocale(enPath)['help.general.intro']).toMatch(/round/i);
+  });
+
+  it('help.general.intro (de) states the round-end rule', () => {
+    expect(readLocale(dePath)['help.general.intro']).toMatch(/runde/i);
   });
 });
