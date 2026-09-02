@@ -282,6 +282,19 @@ describe('pushState acknowledgement and stateVersion', () => {
 
     expect(fake.socket.emit).not.toHaveBeenCalled();
   });
+
+  it('refuses requestState from a socket that still names the room but holds no seat', () => {
+    // A kicked socket, or one superseded by a same-device takeover: neither
+    // path clears the ConnectionSession, so `session.roomId` still names the
+    // room it was thrown out of. Gating on that alone let it keep pulling the
+    // full live gameState — roster, scores, every other seat's socketId — at
+    // the limiter's five calls a second, for as long as it stayed connected.
+    const ghost = seat('kicked-sock', 'Mallory');
+
+    ghost.handlers['requestState']({ roomId });
+
+    expect(ghost.socket.emit, 'no seat, no state').not.toHaveBeenCalled();
+  });
 });
 
 describe('pushState may not leave a running game with nobody to act', () => {

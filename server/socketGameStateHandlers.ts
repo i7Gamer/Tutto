@@ -207,16 +207,26 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
    * emitRoomStateTo) and a client that asks is not penalised with a state its
    * own floor would then drop.
    *
-   * Gated on the session rather than on a client-supplied membership claim,
-   * the same way sendReaction/kickPlayer/endGameStats are: `session.roomId` is
-   * the room this socket is actually seated in.
+   * Gated on a LIVE SEAT, not on a client-supplied membership claim — and not
+   * on `session.roomId` alone either, the way sendReaction and updatePlayerColor
+   * resolve their own senders. Nothing clears a ConnectionSession when a socket
+   * loses its seat: kickPlayer (socketRosterHandlers) splices the player and
+   * tells the socket to leave the channel, and the same-device takeover in
+   * joinRoom (socketRoomHandlers) does the same to the superseded connection —
+   * both leave `session.roomId` still naming the room. A session check alone
+   * therefore let a kicked or superseded socket keep pulling the whole live
+   * gameState (roster, scores, every seat's socketId) at the limiter's five
+   * calls a second, for as long as it stayed connected. The seat lookup is the
+   * thing those two paths actually revoke.
    */
   safeOn(socket, 'requestState', (data: { roomId?: string } | null | undefined) => {
     if (!requestStateLimiter()) return;
     if (!data || typeof data !== 'object') return;
     const { roomId } = data;
     if (typeof roomId !== 'string' || session.roomId !== roomId) return;
-    if (!rooms[roomId]) return;
+    const room = rooms[roomId];
+    if (!room) return;
+    if (!room.state.players.some(p => p.socketId === socket.id)) return;
     emitRoomStateTo(socket, roomId);
   });
 
