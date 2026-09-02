@@ -1,14 +1,16 @@
+import type { ReactNode } from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import Scoreboard from './Scoreboard';
 import type { GameStore } from '../../store/useGameStore';
 import { contrastRatio, LIGHT_SURFACE, DARK_SURFACE, NAME_CONTRAST_TARGET } from '../../utils/contrastColor';
+import { makePlayer } from '../../testing/factories';
 
 // Mock framer-motion
 vi.mock('framer-motion', () => {
   return {
     motion: {
-      div: ({ children, ...props }) => {
+      div: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => {
         const cleanProps = { ...props };
         delete cleanProps.layout;
         delete cleanProps.transition;
@@ -18,24 +20,39 @@ vi.mock('framer-motion', () => {
         return <div {...cleanProps}>{children}</div>;
       },
     },
-    AnimatePresence: ({ children }) => <>{children}</>,
+    AnimatePresence: ({ children }: { children?: ReactNode }) => <>{children}</>,
   };
+});
+
+// Scoreboard only ever reads this slice of the store.
+type ScoreboardGame = Pick<GameStore, 'players' | 'currentPlayerIndex' | 'isOnline' | 'myName' | 'round' | 'winningScore' | 'turnTimeRemaining' | 'hostId'>;
+
+const makeScoreboardGame = (overrides: Partial<ScoreboardGame> = {}): ScoreboardGame => ({
+  players: [],
+  currentPlayerIndex: 0,
+  isOnline: true,
+  myName: null,
+  round: 1,
+  winningScore: 1000,
+  turnTimeRemaining: null,
+  hostId: null,
+  ...overrides,
 });
 
 describe('Scoreboard Component', () => {
   it('renders translation keys correctly', () => {
-    const game = {
-      players: [{ name: 'Player 1', score: 100, socketId: 'abc' }],
+    const game = makeScoreboardGame({
+      players: [makePlayer({ name: 'Player 1', score: 100, socketId: 'abc' })],
       currentPlayerIndex: 0,
       isOnline: true,
       myName: 'Player 1',
       round: 1,
       winningScore: 1000,
       turnTimeRemaining: 30,
-      hostId: 'abc'
-    };
+      hostId: 'abc',
+    });
 
-    render(<Scoreboard game={game as unknown as GameStore} formattedTime="10:00" />);
+    render(<Scoreboard game={game} formattedTime="10:00" />);
 
     expect(screen.getByText('game.currentPlayer')).toBeInTheDocument();
     expect(screen.getByTitle('game.host')).toBeInTheDocument();
@@ -48,43 +65,32 @@ describe('Scoreboard Component', () => {
   });
 
   it('renders translation keys when disconnected', () => {
-    const game = {
-      players: [{ name: 'Player 2', score: 100, socketId: 'def', disconnected: true }],
-      currentPlayerIndex: 0,
-      isOnline: true,
+    const game = makeScoreboardGame({
+      players: [makePlayer({ name: 'Player 2', score: 100, socketId: 'def', disconnected: true })],
       myName: 'Player 1',
-      round: 1,
-      winningScore: 1000,
-    };
+    });
 
-    render(<Scoreboard game={game as unknown as GameStore} formattedTime="10:00" />);
+    render(<Scoreboard game={game} formattedTime="10:00" />);
     expect(screen.getByText('game.disconnected')).toBeInTheDocument();
   });
 
   it('renders regular score translation when offline', () => {
-    const game = {
-      players: [{ name: 'Player 1', score: 100 }],
-      currentPlayerIndex: 0,
+    const game = makeScoreboardGame({
+      players: [makePlayer({ name: 'Player 1', score: 100 })],
       isOnline: false,
       myName: 'Player 1',
-      round: 1,
-      winningScore: 1000,
-    };
+    });
 
-    render(<Scoreboard game={game as unknown as GameStore} formattedTime="10:00" />);
+    render(<Scoreboard game={game} formattedTime="10:00" />);
     expect(screen.getByText('game.score')).toBeInTheDocument();
   });
 
   it('does not render a win streak badge in the current player panel, even for a high winStreak', () => {
-    const game = {
-      players: [{ name: 'StreakPlayer', score: 100, socketId: 'abc', winStreak: 5 }],
-      currentPlayerIndex: 0,
-      isOnline: true,
+    const game = makeScoreboardGame({
+      players: [makePlayer({ name: 'StreakPlayer', score: 100, socketId: 'abc', winStreak: 5 })],
       myName: 'Player 1',
-      round: 1,
-      winningScore: 1000,
-    };
-    render(<Scoreboard game={game as unknown as GameStore} formattedTime="10:00" />);
+    });
+    render(<Scoreboard game={game} formattedTime="10:00" />);
     expect(screen.queryByText('🔥 5')).not.toBeInTheDocument();
   });
 
@@ -95,17 +101,14 @@ describe('Scoreboard Component', () => {
   // (e2e/styling.spec.ts) — this pins the half jsdom can see: the class is
   // present and both values are set and readable.
   it('paints the current player name through the per-theme contrast pair', () => {
-    const game = {
+    const game = makeScoreboardGame({
       // Gold: the palette's worst case on a light background.
-      players: [{ name: 'Goldie', score: 100, socketId: 'abc', color: '#FFD700' }],
-      currentPlayerIndex: 0,
+      players: [makePlayer({ name: 'Goldie', score: 100, socketId: 'abc', color: '#FFD700' })],
       isOnline: false,
       myName: 'Goldie',
-      round: 1,
-      winningScore: 1000,
-    };
+    });
 
-    render(<Scoreboard game={game as unknown as GameStore} formattedTime="10:00" />);
+    render(<Scoreboard game={game} formattedTime="10:00" />);
 
     const name = screen.getByText('Goldie').closest('.player-name') as HTMLElement;
     expect(name, 'the name must carry the class the stylesheet keys on').not.toBeNull();
@@ -130,17 +133,13 @@ describe('Scoreboard Component', () => {
   // being squeezed too.
   it('truncates the name text itself, not the flex container around crown + name', () => {
     const longName = 'A'.repeat(60);
-    const game = {
-      players: [{ name: longName, score: 100, socketId: 'abc' }],
-      currentPlayerIndex: 0,
-      isOnline: true,
+    const game = makeScoreboardGame({
+      players: [makePlayer({ name: longName, score: 100, socketId: 'abc' })],
       myName: longName,
-      round: 1,
-      winningScore: 1000,
       hostId: 'abc',
-    };
+    });
 
-    render(<Scoreboard game={game as unknown as GameStore} formattedTime="10:00" />);
+    render(<Scoreboard game={game} formattedTime="10:00" />);
 
     const container = screen.getByTitle('game.host').closest('.player-name') as HTMLElement;
     expect(container).not.toBeNull();
