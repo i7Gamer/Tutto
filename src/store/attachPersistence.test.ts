@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { attachPersistence } from './persistence';
 import type { GameStore } from './useGameStore';
+import { makeGameState, makePlayer } from '../testing/factories';
 
 describe('attachPersistence', () => {
   // A fake store rather than the real one: this is about the subscriber's own
@@ -16,26 +17,42 @@ describe('attachPersistence', () => {
     // A LIST, not a single handler: attachPersistence registers two
     // subscribers (the local game save and the online config save) and a fake
     // that keeps only the last one silently tests the wrong half.
-    const listeners: Array<(s: GameStore) => void> = [];
+    // Two params, matching zustand's real StoreApi['subscribe'] listener
+    // signature (state, prevState) — attachPersistence only ever reads the
+    // first, but the fake has to accept both to structurally satisfy the
+    // Pick<StoreApi<GameStore>, 'subscribe'> parameter type.
+    const listeners: Array<(s: GameStore, prev: GameStore) => void> = [];
     return {
       store: {
-        subscribe: (fn: (s: GameStore) => void) => {
+        subscribe: (fn: (s: GameStore, prev: GameStore) => void) => {
           listeners.push(fn);
           return () => { listeners.splice(listeners.indexOf(fn), 1); };
         },
       },
       listeners,
-      emit: (state: Partial<GameStore>) => listeners.forEach(fn => fn(state as GameStore)),
+      emit: (state: Partial<GameStore>) => listeners.forEach(fn => fn(state as GameStore, state as GameStore)),
     };
   };
 
-  const localState = (over: Partial<GameStore> = {}) => ({
-    mode: 'local', players: [{ name: 'Alice', score: 0 }], currentPlayerIndex: 0,
-    currentCard: '200', cards: ['300'], round: 1, winningScore: 6000,
-    initialCards: { '200': 1 }, randomOrder: false, turnDuration: 0,
-    reconnectTimeout: 0, ruleset: 'modernized', finished: false,
-    gameTimeInSeconds: 0, ...over,
-  }) as unknown as Partial<GameStore>;
+  const localState = (over: Partial<GameStore> = {}): Partial<GameStore> => ({
+    ...makeGameState({
+      players: [makePlayer({ name: 'Alice' })],
+      currentPlayerIndex: 0,
+      currentCard: '200',
+      cards: ['300'],
+      round: 1,
+      winningScore: 6000,
+      initialCards: { '200': 1 },
+      finished: false,
+      gameTimeInSeconds: 0,
+    }),
+    mode: 'local',
+    randomOrder: false,
+    turnDuration: 0,
+    reconnectTimeout: 0,
+    ruleset: 'modernized',
+    ...over,
+  });
 
   beforeEach(() => {
     localStorage.clear();
