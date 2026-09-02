@@ -755,10 +755,13 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
     previousWasSuccess ?? (previousScore === fixedScore);
 
   if (!canUndoState(gameState)) return null;
-  // canUndoState guarantees currentPlayerIndex is non-null and previousPlayerName
-  // is in the roster — re-asserted here rather than re-checked, so the two
-  // guard lists cannot drift apart.
+  // canUndoState guarantees currentPlayerIndex is non-null, previousCard is
+  // non-null, and previousPlayerName is in the roster — asserted here rather
+  // than re-checked (TS cannot narrow a destructured field across a call to a
+  // plain boolean-returning function), so the two guard lists cannot drift
+  // apart.
   const activeIndex = currentPlayerIndex as number;
+  const definitePreviousCard = previousCard as CardType;
 
   const newPlayers = players.map(p => ({ ...p }));
   const prevIndex = newPlayers.findIndex(p => p.name === previousPlayerName);
@@ -797,7 +800,7 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
       if (actual) actual.times1000PointsDeducted = Math.max(0, (actual.times1000PointsDeducted ?? 0) - 1);
     }
   } else {
-    revertModernizedCounters(newPlayers, p, previousCard, previousScore, previousWasBust, previousLeaders, wasCompleted);
+    revertModernizedCounters(newPlayers, p, definitePreviousCard, previousScore, previousWasBust, previousLeaders, wasCompleted);
   }
 
   if (previousHighestTurnScore !== undefined) p.highestTurnScore = previousHighestTurnScore;
@@ -819,6 +822,6 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
     newDeck: hasChain
       ? [...chainCards.slice(1), ...(currentCard ? [currentCard] : []), ...cards]
       : (currentCard ? [currentCard, ...cards] : [...cards]),
-    drawnCard: hasChain ? chainCards[0] : previousCard as CardType,
+    drawnCard: hasChain ? chainCards[0] : definitePreviousCard,
   };
 };
