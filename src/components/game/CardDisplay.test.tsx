@@ -36,6 +36,26 @@ describe('CardDisplay', () => {
     });
   });
 
+  describe('the auto-continue countdown (Stop card, online, my turn)', () => {
+    // Mirrors the dice summary's own "Continuing in N…" cue (DiceSummary.tsx)
+    // so an online Stop card no longer advances the turn in silence — see
+    // useStopCardAutoContinue, which supplies this prop only while armed.
+    it('shows the countdown text when stopCardCountdown is a number', () => {
+      render(<CardDisplay currentCard="Stop" cards={[]} stopCardCountdown={4} />);
+      expect(screen.getByText('dice.auto_continuing')).toBeInTheDocument();
+    });
+
+    it('renders no countdown text when stopCardCountdown is null (offline, or not armed)', () => {
+      render(<CardDisplay currentCard="Stop" cards={[]} stopCardCountdown={null} />);
+      expect(screen.queryByText('dice.auto_continuing')).not.toBeInTheDocument();
+    });
+
+    it('renders no countdown text when the prop is omitted entirely', () => {
+      render(<CardDisplay currentCard="Stop" cards={[]} />);
+      expect(screen.queryByText('dice.auto_continuing')).not.toBeInTheDocument();
+    });
+  });
+
   describe('announcing the card', () => {
     // CardFace names the card, which makes it inspectable — but a
     // screen-reader user with focus elsewhere has no reason to go and read it,

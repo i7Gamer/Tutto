@@ -1,14 +1,22 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import CardFace from './cards/CardFace';
+import { STOP_CARD_AUTO_CONTINUE_SECONDS } from '../../utils/uiTimings';
 import type { CardType } from '../../types';
 
 interface CardDisplayProps {
   currentCard: CardType | null;
   cards: CardType[];
+  /**
+   * Seconds left before an online Stop card advances the turn on its own —
+   * null (or omitted) whenever that auto-continue isn't armed (offline, not
+   * this player's turn, or the dice panel is open). See
+   * useStopCardAutoContinue, which is the only source of this value.
+   */
+  stopCardCountdown?: number | null;
 }
 
-export default function CardDisplay({ currentCard, cards }: CardDisplayProps) {
+export default function CardDisplay({ currentCard, cards, stopCardCountdown = null }: CardDisplayProps) {
   const { t } = useTranslation();
 
   return (
@@ -49,6 +57,32 @@ export default function CardDisplay({ currentCard, cards }: CardDisplayProps) {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Mirrors the dice summary's own "Continuing in N…" cue (DiceSummary.tsx)
+          — an online Stop card used to advance the turn with no warning at
+          all. aria-hidden: the flip itself is what role="status" above
+          announces, and re-announcing this region on every one-second tick
+          would be the opposite of polite. */}
+      {stopCardCountdown !== null && (
+        <div aria-hidden="true" className="mt-3 flex flex-col items-center gap-2 w-full max-w-[240px]">
+          <p className="font-semibold text-sm text-red-400">
+            {t('dice.auto_continuing', 'Continuing in {{count}}…', { count: stopCardCountdown })}
+          </p>
+          <div className="w-full rounded-full h-2 overflow-hidden bg-red-100 dark:bg-red-900/30">
+            {/* Keyed on cards.length (not the ticking countdown itself), so
+                the drain plays once over the whole duration like the dice
+                summary's bar — restarting only for a genuine second Stop
+                draw, not on every one-second re-render. */}
+            <motion.div
+              key={cards.length}
+              className="h-2 rounded-full bg-red-500"
+              initial={{ width: '100%' }}
+              animate={{ width: '0%' }}
+              transition={{ duration: STOP_CARD_AUTO_CONTINUE_SECONDS, ease: 'linear' }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

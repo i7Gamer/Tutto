@@ -222,6 +222,31 @@ describe('Game Component Integration', () => {
     expect(mockNextTurn).toHaveBeenCalledWith(0, false);
   });
 
+  it('shows the auto-continue countdown on the Stop card once the flip finishes, online on my turn', () => {
+    // Mirrors the dice summary's "Continuing in N…" cue (DiceSummary.tsx) —
+    // this card used to advance the turn in total silence. Wired through
+    // useStopCardAutoContinue -> CardDisplay's stopCardCountdown prop.
+    useGameStore.setState({ currentCard: 'Stop' });
+    render(<Game />);
+
+    expect(screen.queryByText('dice.auto_continuing')).not.toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(CARD_FLIP_MS);
+    });
+    expect(screen.getByText('dice.auto_continuing')).toBeInTheDocument();
+  });
+
+  it('shows no auto-continue countdown on a Stop card in a local (offline) game', () => {
+    useGameStore.setState({ currentCard: 'Stop', isOnline: false });
+    render(<Game />);
+
+    act(() => {
+      vi.advanceTimersByTime(CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS);
+    });
+    expect(screen.queryByText('dice.auto_continuing')).not.toBeInTheDocument();
+  });
+
   it('does NOT automatically advance turn if it is NOT the players turn', () => {
     useGameStore.setState({ currentCard: 'Stop', myName: 'Bob', socketId: 'socket2' });
     

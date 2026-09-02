@@ -100,6 +100,46 @@ describe('useStopCardAutoContinue', () => {
     expect(playBuzzer).toHaveBeenCalledTimes(2);
   });
 
+  it('exposes a countdown for the online active player, starting once the flip finishes', () => {
+    const { result } = renderHook(() => useStopCardAutoContinue(base()));
+
+    expect(result.current, 'nothing to show until the flip finishes').toBeNull();
+
+    act(() => vi.advanceTimersByTime(CARD_FLIP_MS));
+    expect(result.current).toBe(STOP_CARD_AUTO_CONTINUE_MS / 1000);
+
+    act(() => vi.advanceTimersByTime(1000));
+    expect(result.current).toBe(STOP_CARD_AUTO_CONTINUE_MS / 1000 - 1);
+  });
+
+  it('exposes no countdown for a player who is only watching', () => {
+    const { result } = renderHook(() => useStopCardAutoContinue(base({ isMyTurn: false })));
+
+    act(() => vi.advanceTimersByTime(CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS));
+    expect(result.current).toBeNull();
+  });
+
+  it('exposes no countdown for a local (offline) game', () => {
+    const { result } = renderHook(() => useStopCardAutoContinue(base({ isOnline: false })));
+
+    act(() => vi.advanceTimersByTime(CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS));
+    expect(result.current).toBeNull();
+  });
+
+  it('exposes no countdown while the dice panel is open', () => {
+    const { result } = renderHook(() => useStopCardAutoContinue(base({ showDiceGame: true })));
+
+    act(() => vi.advanceTimersByTime(CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS));
+    expect(result.current).toBeNull();
+  });
+
+  it('exposes no countdown for any card other than Stop', () => {
+    const { result } = renderHook(() => useStopCardAutoContinue(base({ currentCard: '300' })));
+
+    act(() => vi.advanceTimersByTime(CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS));
+    expect(result.current).toBeNull();
+  });
+
   it('cancels both timers when the card leaves before they fire', () => {
     const onAutoContinue = vi.fn();
     const { rerender } = renderHook(

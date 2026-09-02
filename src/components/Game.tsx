@@ -280,7 +280,7 @@ export default function Game() {
     onResume: openDiceGame,
   });
 
-  useStopCardAutoContinue({
+  const stopCardCountdown = useStopCardAutoContinue({
     currentCard,
     cardsLength: cards?.length,
     isOnline,
@@ -478,7 +478,7 @@ export default function Game() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col h-full">
-          <CardDisplay currentCard={currentCard} cards={cards} />
+          <CardDisplay currentCard={currentCard} cards={cards} stopCardCountdown={stopCardCountdown} />
         </motion.div>
 
         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col h-full">

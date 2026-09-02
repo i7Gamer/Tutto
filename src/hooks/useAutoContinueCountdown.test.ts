@@ -111,6 +111,27 @@ describe('useAutoContinueCountdown', () => {
     expect(onElapsed).toHaveBeenCalledTimes(1);
   });
 
+  it('starts from a custom `seconds` instead of the 3s default, for a caller with its own duration', () => {
+    // The Stop card's own auto-continue (useStopCardAutoContinue) reuses this
+    // hook for its display countdown but runs on a longer clock than the dice
+    // summary's — `seconds` is what lets one hook serve both without forcing
+    // them to the same pace.
+    const onElapsed = vi.fn();
+    const { result } = renderHook(() => useAutoContinueCountdown({ shouldStart: true, onElapsed, seconds: 5 }));
+
+    expect(result.current).toBe(5);
+
+    for (let i = 0; i < 4; i++) {
+      act(() => vi.advanceTimersByTime(1000));
+    }
+    expect(result.current).toBe(1);
+    expect(onElapsed).not.toHaveBeenCalled();
+
+    act(() => vi.advanceTimersByTime(1000));
+    expect(result.current).toBe(0);
+    expect(onElapsed).toHaveBeenCalledTimes(1);
+  });
+
   it('uses the latest onElapsed without restarting the timer', () => {
     const first = vi.fn();
     const second = vi.fn();

@@ -20,12 +20,19 @@ interface UseAutoContinueCountdownOptions {
    * changes, so it never restarts.
    */
   restartKey?: unknown;
+  /**
+   * How many seconds the countdown starts from. Defaults to
+   * AUTO_CONTINUE_SECONDS (the dice summary's own pace) — a caller with a
+   * different auto-continue duration, such as the Stop card's, passes its own
+   * instead of forcing every user of this hook onto the same clock.
+   */
+  seconds?: number;
 }
 
 /** No start has happened yet — distinct from any restartKey a caller may pass. */
 const NOT_STARTED = Symbol('not-started');
 
-export function useAutoContinueCountdown({ shouldStart, onElapsed, restartKey }: UseAutoContinueCountdownOptions): number | null {
+export function useAutoContinueCountdown({ shouldStart, onElapsed, restartKey, seconds = AUTO_CONTINUE_SECONDS }: UseAutoContinueCountdownOptions): number | null {
   const [countdown, setCountdown] = useState<number | null>(null);
   const startedForRef = useRef<unknown>(NOT_STARTED);
 
@@ -35,8 +42,8 @@ export function useAutoContinueCountdown({ shouldStart, onElapsed, restartKey }:
   useEffect(() => {
     if (!shouldStart || startedForRef.current === restartKey) return;
     startedForRef.current = restartKey;
-    setCountdown(AUTO_CONTINUE_SECONDS);
-  }, [shouldStart, restartKey]);
+    setCountdown(seconds);
+  }, [shouldStart, restartKey, seconds]);
 
   // The countdown reaching 0 is the single source of truth for "time's up" —
   // there used to be a second, independent 3s timer that called onElapsed on

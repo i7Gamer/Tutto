@@ -1,3 +1,5 @@
+import { MS_PER_SECOND } from './time';
+
 // Duration of the card-flip animation that GameControls plays whenever a new
 // card is revealed. Game.tsx delays the Stop-card buzzer and the Feuerwerk
 // confetti by the same amount so they land once the flip has finished — the
@@ -7,6 +9,12 @@ export const CARD_FLIP_MS = 1200;
 // How long the Stop card stays on screen (after the flip) before the turn
 // auto-advances for the active online player.
 export const STOP_CARD_AUTO_CONTINUE_MS = 5000;
+
+// The same duration in whole seconds — useStopCardAutoContinue's own
+// countdown (useAutoContinueCountdown) counts down in seconds, and
+// CardDisplay's "Continuing in N…" bar needs the same total to animate
+// against. One constant instead of two `/ 1000` literals drifting apart.
+export const STOP_CARD_AUTO_CONTINUE_SECONDS = STOP_CARD_AUTO_CONTINUE_MS / MS_PER_SECOND;
 
 // HelpPopup's collapsible sections use framer-motion's default tween (300ms)
 // to animate open. Scrolling a highlighted card into view must wait until
