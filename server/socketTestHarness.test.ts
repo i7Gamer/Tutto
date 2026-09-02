@@ -76,6 +76,16 @@ describe('buildChildEnv', () => {
     expect(child.MAX_ROOMS_PER_ADDRESS).toBe('1000000');
   });
 
+  it('passes through the stats rate-limit override vite.config.ts injects for the test run', () => {
+    // Same shape as SOCKET_CONN_LIMIT_MAX/MAX_ROOMS_PER_ADDRESS above: the
+    // ~3s-per-attempt polling in sockets.stats.test.ts shares one server
+    // process and one 60s window across every test in the file, so a single
+    // failed poll (its full attempt budget) can exhaust the production
+    // default and 429 every test after it.
+    const child = buildChildEnv({ STATS_RATE_LIMIT_MAX: '1000000' });
+    expect(child.STATS_RATE_LIMIT_MAX).toBe('1000000');
+  });
+
   it('passes through both Windows- and POSIX-cased path/system variables', () => {
     const child = buildChildEnv({ Path: 'C:\\Windows\\System32', SystemRoot: 'C:\\Windows' });
     expect(child.Path).toBe('C:\\Windows\\System32');

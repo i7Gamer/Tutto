@@ -45,11 +45,12 @@ import { registerSocketHandlers } from './socketHandlers';
 // Everything else — including a real .env's CORS_ORIGIN, TRUST_PROXY,
 // API_TOKEN, ALLOWED_HOST, DB_PATH, ... — is stripped; a test that needs one
 // of them opts in explicitly via StartTestServerOptions.env instead of
-// inheriting it ambiently. SOCKET_CONN_LIMIT_MAX and MAX_ROOMS_PER_ADDRESS
-// are not "dangerous" the same way: vite.config.ts's `test.env` raises both
-// for the whole suite so bursts of same-address connections/rooms don't trip
-// the production defaults, and several spawned suites rely on that reaching
-// the child (see the comment there) rather than setting it themselves.
+// inheriting it ambiently. SOCKET_CONN_LIMIT_MAX, MAX_ROOMS_PER_ADDRESS and
+// STATS_RATE_LIMIT_MAX are not "dangerous" the same way: vite.config.ts's
+// `test.env` raises all three for the whole suite so a burst of same-address
+// connections/rooms/stats-polling doesn't trip the production defaults, and
+// several spawned suites rely on that reaching the child (see the comment
+// there) rather than setting it themselves.
 const CHILD_ENV_ALLOWLIST_KEYS = [
   // Resolving node/npm/tsx and shared libraries.
   'PATH', 'Path',
@@ -65,7 +66,7 @@ const CHILD_ENV_ALLOWLIST_KEYS = [
   // `test.env` and expected to reach spawned children (see above), some
   // read directly by the harness itself (TEST_TIMER_SCALE, just below).
   'TEST_DB', 'TEST_TIMER_SCALE', 'TEST_PORT_OFFSET',
-  'SOCKET_CONN_LIMIT_MAX', 'MAX_ROOMS_PER_ADDRESS',
+  'SOCKET_CONN_LIMIT_MAX', 'MAX_ROOMS_PER_ADDRESS', 'STATS_RATE_LIMIT_MAX',
 ] as const;
 
 /**

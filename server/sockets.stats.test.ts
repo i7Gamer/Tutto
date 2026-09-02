@@ -14,6 +14,47 @@ import { DEFAULT_WINNING_SCORE } from '../src/utils/configValidation';
 import { deviceStatsRequest } from '../src/utils/statsApi';
 import { DEFAULT_GAME_MODE, type GameMode } from '../src/types';
 
+// The per-IP /api/stats GET rate limit (STATS_RATE_LIMIT_MAX in api.ts) is
+// shared by every test below: they all poll from 127.0.0.1 against the one
+// server process this file spawns, inside the limit's one 60s window. A
+// write that lands slowly (or never, on a genuine regression) used to run
+// pollDeviceStats out to its full ~75-attempt budget — enough on its own to
+// exceed the limit — and every test after it then read a 429 instead of its
+// row, failed `done()` on every attempt, and ALSO ran out its own ~3s budget:
+// one slow test cascaded into several failures that all "never happened",
+// with no hint that the real cause was a spent rate-limit bucket rather than
+// a broken write. Checked on the status alone (cheap enough for every poll
+// attempt) so the real cause surfaces immediately instead of after a second
+// wasted ~3s timeout.
+const RATE_LIMIT_STATUS = 429;
+
+export const assertStatsResponseOk = (res: { status: number }, what: string): void => {
+  if (res.status === RATE_LIMIT_STATUS) {
+    throw new Error(
+      `${what} was rate-limited (429) by the /api/stats per-IP limit (STATS_RATE_LIMIT_MAX) — ` +
+      'stopping immediately instead of retrying for the rest of the polling budget.'
+    );
+  }
+};
+
+// Fast and server-free: the polling helpers below are integration-shaped
+// (they spawn a real server in beforeAll), which makes them the wrong place
+// to prove this mechanism actually fails fast — a genuine 429 there would
+// still cost nothing AFTER this fix, but confirming that costs nothing here.
+describe('assertStatsResponseOk', () => {
+  it('does nothing for an ordinary response', () => {
+    expect(() => assertStatsResponseOk({ status: 200 }, 'GET /api/stats/dev-x')).not.toThrow();
+  });
+
+  it('throws immediately on a 429, instead of leaving the caller to retry it blindly', () => {
+    expect(() => assertStatsResponseOk({ status: 429 }, 'GET /api/stats/dev-x')).toThrow(/rate-limited/);
+  });
+
+  it('names the request that was rate-limited, so the failure points at the real cause', () => {
+    expect(() => assertStatsResponseOk({ status: 429 }, 'GET /api/stats/dev-x')).toThrow(/GET \/api\/stats\/dev-x/);
+  });
+});
+
 describe('Server Socket E2E — statistics persistence', () => {
   let serverProcess;
 
@@ -23,7 +64,11 @@ describe('Server Socket E2E — statistics persistence', () => {
   // URLs; the real implementation is preserved on global.__nativeFetch.
   const realFetch = (globalThis as { __nativeFetch?: typeof fetch }).__nativeFetch ?? fetch;
 
-  const getJson = async (path: string) => (await realFetch(`http://127.0.0.1:${PORT}${path}`)).json();
+  const getJson = async (path: string) => {
+    const res = await realFetch(`http://127.0.0.1:${PORT}${path}`);
+    assertStatsResponseOk(res, `GET ${path}`);
+    return res.json();
+  };
 
   // A device's statistics are not addressed by a path segment: the id rides
   // DEVICE_ID_HEADER instead, percent-encoded (see src/utils/statsApi.ts).
@@ -32,7 +77,9 @@ describe('Server Socket E2E — statistics persistence', () => {
   // shape changes again.
   const readDeviceStats = async (deviceId: string, mode: GameMode = DEFAULT_GAME_MODE) => {
     const [path, init] = deviceStatsRequest(deviceId, mode);
-    return (await realFetch(`http://127.0.0.1:${PORT}${path}`, init)).json();
+    const res = await realFetch(`http://127.0.0.1:${PORT}${path}`, init);
+    assertStatsResponseOk(res, `GET ${path}`);
+    return res.json();
   };
 
   // ~3s of polling: generous for a local SQLite write to land, short enough

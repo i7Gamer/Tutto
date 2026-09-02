@@ -183,6 +183,14 @@ export default defineConfig(({ mode }) => {
         // would refuse the 21st. socketRoomAddressCap.test.ts sets its own
         // low value explicitly, which is where the cap is actually covered.
         MAX_ROOMS_PER_ADDRESS: '1000000',
+        // Same reason again, for the per-IP /api/stats GET rate limit
+        // (api.ts): sockets.stats.test.ts polls that endpoint up to ~75
+        // times per assertion, all from 127.0.0.1 against one spawned server
+        // process, so a single slow-to-land write used to run its polling
+        // helper out to the production default and 429 every test after it
+        // in the same 60s window — all individually passing, but cascading
+        // once one of them was genuinely slow or failing.
+        STATS_RATE_LIMIT_MAX: '1000000',
       }
     }
   }
