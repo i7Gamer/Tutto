@@ -1444,6 +1444,29 @@ describe('Game Component Integration', () => {
     });
   });
 
+  describe('undo eligibility', () => {
+    const undoButton = () => screen.getByText('game.controls.undo').closest('button') as HTMLButtonElement;
+
+    // Bug: hasUndoableTurn used to check only previousCard/previousPlayerName
+    // being non-null, not whether that player was still in the roster. A left
+    // (or kicked, or reconnect-timed-out) previous player left Undo enabled
+    // for a click calculateUndo would then silently refuse — canUndoState
+    // (shared with calculateUndo's own guard) closes that gap.
+    it('disables undo when the previous player left the roster', () => {
+      useGameStore.setState({
+        currentCard: 'x2',
+        currentPlayerIndex: 0,
+        players: [{ name: 'Alice', socketId: 'socket1', score: 0, position: 1 }],
+        previousCard: '300',
+        previousScore: 500,
+        previousPlayerName: 'Bob', // no longer in players
+        finished: false,
+      });
+      render(<Game />);
+      expect(undoButton()).toBeDisabled();
+    });
+  });
+
   describe('the Stop card controls while the dice panel is open', () => {
     // Same exposure as Undo above: the panel covers the screen but the
     // controls behind it stay mounted and reachable. A classic chain that

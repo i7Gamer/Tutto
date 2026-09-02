@@ -670,6 +670,51 @@ const revertModernizedCounters = (
   }
 };
 
+// The subset of CoreGameState canUndoState's guards actually read — narrowed
+// so a caller with only a partial slice of the store (Game.tsx's useShallow
+// selector, which has no reason to carry previousScore/historyLog/etc. just
+// for this check) can pass it straight through instead of assembling a fake
+// full CoreGameState around it.
+type UndoEligibilityState = Pick<
+  CoreGameState,
+  'players' | 'currentPlayerIndex' | 'round' | 'previousCard' | 'previousPlayerName' | 'previousTurnSummary' | 'finished'
+>;
+
+// Whether calculateUndo would succeed on this state, without doing any of the
+// reversal work — the single source of truth for "is there a turn to undo"
+// shared by calculateUndo's own early-outs (below) and any UI eligibility
+// check (Game.tsx's Undo button). The two used to keep separate guard lists;
+// the UI's copy fell behind and could show Undo enabled for a previous player
+// no longer in the roster, which calculateUndo would then silently refuse —
+// a click that does nothing. Kept in perfect sync now because calculateUndo
+// itself calls this instead of re-checking.
+export const canUndoState = (gameState: UndoEligibilityState): boolean => {
+  const { players, currentPlayerIndex, round, previousCard, previousPlayerName, previousTurnSummary } = gameState;
+
+  if (gameState.finished) return false;
+  // A bare Stop turn (type 'skip') commits totalTurns and timesSkipped and stays
+  // un-undoable. A classic chain that ENDED on a drawn Stop, however, forfeited
+  // real points and mutated counters — its summary makes it undoable like any bust.
+  if (!previousCard || (previousCard === 'Stop' && !previousTurnSummary)) return false;
+  if (currentPlayerIndex === null) return false;
+  if (!previousPlayerName) return false;
+
+  // Looked up by name (not "currentPlayerIndex - 1") so a roster change since
+  // that turn — a leave, kick, or reconnect-timeout removal — can't make this
+  // land on the wrong player. If the player who took that turn is no longer in
+  // the game at all, there is no one to safely revert the turn onto.
+  const prevIndex = players.findIndex(p => p.name === previousPlayerName);
+  if (prevIndex === -1) return false;
+
+  // Under normal play the previous player sits right before the current one
+  // (prevIndex === currentPlayerIndex - 1). If instead they're at or after the
+  // current index, turn order must have wrapped since their turn, so the round
+  // that wrap advanced needs to be undone too — impossible before round 1.
+  if (prevIndex >= currentPlayerIndex && round <= 1) return false;
+
+  return true;
+};
+
 export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
   const {
     players, currentPlayerIndex, round, previousCard, previousScore,
@@ -686,30 +731,23 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
   const wasCompleted = (fixedScore: number): boolean =>
     previousWasSuccess ?? (previousScore === fixedScore);
 
-  if (gameState.finished) return null;
-  // A bare Stop turn (type 'skip') commits totalTurns and timesSkipped and stays
-  // un-undoable. A classic chain that ENDED on a drawn Stop, however, forfeited
-  // real points and mutated counters — its summary makes it undoable like any bust.
-  if (!previousCard || (previousCard === 'Stop' && !previousTurnSummary)) return null;
-  if (currentPlayerIndex === null) return null;
-  if (!previousPlayerName) return null;
+  if (!canUndoState(gameState)) return null;
+  // canUndoState guarantees currentPlayerIndex is non-null and previousPlayerName
+  // is in the roster — re-asserted here rather than re-checked, so the two
+  // guard lists cannot drift apart.
+  const activeIndex = currentPlayerIndex as number;
 
   const newPlayers = players.map(p => ({ ...p }));
-  // Looked up by name (not "currentPlayerIndex - 1") so a roster change since
-  // that turn — a leave, kick, or reconnect-timeout removal — can't make this
-  // land on the wrong player. If the player who took that turn is no longer in
-  // the game at all, there is no one to safely revert the turn onto.
   const prevIndex = newPlayers.findIndex(p => p.name === previousPlayerName);
-  if (prevIndex === -1) return null;
 
   let newRound = round;
   let isRoundEndUndo = false;
   // Under normal play the previous player sits right before the current one
   // (prevIndex === currentPlayerIndex - 1). If instead they're at or after the
   // current index, turn order must have wrapped since their turn, so the round
-  // that wrap advanced needs to be undone too.
-  if (prevIndex >= currentPlayerIndex) {
-    if (round <= 1) return null;
+  // that wrap advanced needs to be undone too. canUndoState already refused
+  // this wrap when round <= 1, so a round to unwind is guaranteed here.
+  if (prevIndex >= activeIndex) {
     newRound--;
     isRoundEndUndo = true;
   }

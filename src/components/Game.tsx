@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../store/useGameStore';
 import { vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
-import { computeRankedPlayers } from '../utils/coreGameEngine';
+import { computeRankedPlayers, canUndoState } from '../utils/coreGameEngine';
 import { applyTuttoBonus } from '../utils/diceLogic';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -446,12 +446,11 @@ export default function Game() {
     enter: isMyTurn ? primaryAction : undefined,
   });
 
-  // A turn exists to undo at all... (a classic chain that ended on a drawn
-  // Stop card committed real changes and stays undoable — only the bare
-  // modernized Stop, where nothing happened, is not)
-  const hasUndoableTurn = !game.finished && !!game.previousCard
-    && (game.previousCard !== 'Stop' || !!game.previousTurnSummary)
-    && game.currentPlayerIndex !== null && !!game.previousPlayerName;
+  // A turn exists to undo at all — the exact predicate calculateUndo's own
+  // early-outs use (shared via canUndoState so the two can never drift),
+  // including the guard this component used to be missing: the previous
+  // player must still be in the roster, or Undo would silently no-op.
+  const hasUndoableTurn = canUndoState(game);
   // ...and this client is allowed to act on it (offline, or online as the
   // active player/host).
   const canActOnUndo = !isOnline || isMyTurn || isHost;

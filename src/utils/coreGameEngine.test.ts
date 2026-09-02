@@ -1,6 +1,6 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
-import { getLeaders, buildGlobalStatsPayload, shuffleArray, buildDeck, calculateNextTurn, calculateUndo, computeRankedPlayers, hasPlayableDeck, PLUS_MINUS_SCORE } from './coreGameEngine';
+import { getLeaders, buildGlobalStatsPayload, shuffleArray, buildDeck, calculateNextTurn, calculateUndo, canUndoState, computeRankedPlayers, hasPlayableDeck, PLUS_MINUS_SCORE } from './coreGameEngine';
 // The consumer of the recorded amounts: what the activity log will actually
 // print for an entry is what makes "no amounts here" right or wrong.
 import { summarizeDeductions } from './deductionSummary';
@@ -1332,6 +1332,96 @@ describe('coreGameEngine', () => {
         expect(result.players[0].timesKniffelCompleted).toBe(0);
         expect(result.players[0].timesKniffelFailed).toBe(0);
       });
+    });
+  });
+
+  describe('canUndoState', () => {
+    it('is false when the previous player is no longer in the roster (Undo would silently no-op)', () => {
+      // Same scenario calculateUndo already refuses (prevIndex === -1): Bob
+      // played the previous turn but left/was kicked before this player's own
+      // turn, so there is nobody to revert the turn onto. The UI's eligibility
+      // check must see this coming, not merely find out from a null result
+      // after the Undo button was already clicked.
+      const state = makeState({
+        players: [makePlayer('Alice'), makePlayer('Charlie', { score: 500, totalTurns: 1 })],
+        currentPlayerIndex: 1,
+        previousCard: '200',
+        previousScore: 500,
+        previousPlayerName: 'Bob',
+      });
+      expect(canUndoState(state)).toBe(false);
+    });
+
+    it('is true for a normal, undoable previous turn', () => {
+      const state = makeState({
+        players: [makePlayer('Alice', { score: 300, totalTurns: 1 }), makePlayer('Bob')],
+        currentPlayerIndex: 1,
+        previousCard: '200',
+        previousScore: 300,
+        previousPlayerName: 'Alice',
+      });
+      expect(canUndoState(state)).toBe(true);
+    });
+
+    // The eligibility check and calculateUndo's own early-outs must never
+    // disagree — a mismatch either enables an Undo button that silently
+    // no-ops (canUndoState true, calculateUndo null) or hides one that would
+    // have worked. Exercised across every guard calculateUndo has: no
+    // previous card, a bare Stop, a missing/absent previous player, a
+    // finished game, and the round-wrap boundary (prevIndex >= currentIndex,
+    // both with and without a round to unwind).
+    it('agrees with calculateUndo on whether a turn is undoable, across every guard', () => {
+      const samples: CoreGameState[] = [
+        makeState({ previousCard: null }),
+        makeState({ previousCard: 'Stop' }),
+        makeState({
+          players: [makePlayer('Alice'), makePlayer('Bob')],
+          currentPlayerIndex: 1,
+          previousCard: 'Stop',
+          previousTurnSummary: { cards: [{ card: 'Stop', completed: false }], tuttoCount: 0, plusMinusScores: [], ended: 'stopCard' },
+          previousPlayerName: 'Alice',
+        }),
+        makeState({
+          players: [makePlayer('Alice'), makePlayer('Bob')],
+          currentPlayerIndex: 1,
+          previousCard: '200',
+          previousScore: 300,
+          previousPlayerName: 'Alice',
+        }),
+        makeState({
+          players: [makePlayer('Alice'), makePlayer('Charlie')],
+          currentPlayerIndex: 1,
+          previousCard: '200',
+          previousPlayerName: 'Bob', // left the roster
+        }),
+        makeState({
+          currentPlayerIndex: 1,
+          previousCard: '200',
+          previousPlayerName: 'Alice',
+          finished: true,
+        }),
+        makeState({
+          // prevIndex (0) >= currentPlayerIndex (0): a round wrap, but round
+          // is already 1 so there is no earlier round to unwind into.
+          players: [makePlayer('Alice', { totalTurns: 1 }), makePlayer('Bob')],
+          currentPlayerIndex: 0,
+          round: 1,
+          previousCard: '200',
+          previousPlayerName: 'Alice',
+        }),
+        makeState({
+          // Same wrap, but round 2 exists to unwind into.
+          players: [makePlayer('Alice', { totalTurns: 1 }), makePlayer('Bob')],
+          currentPlayerIndex: 0,
+          round: 2,
+          previousCard: '200',
+          previousPlayerName: 'Alice',
+        }),
+      ];
+
+      for (const state of samples) {
+        expect(canUndoState(state)).toBe(calculateUndo(state) !== null);
+      }
     });
   });
 
