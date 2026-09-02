@@ -404,9 +404,9 @@ describe('coreGameEngine', () => {
         // A game can end mid-round — a completed Kleeblatt wins instantly, and
         // Kleeblatt is in the default deck — leaving players later in the turn
         // order on totalTurns: 0. Reporting that as a 0-turn loss is a record
-        // nobody played: sanitize.ts clamps it up to 1 and the DB merges
-        // fastestLossTurns with MIN, so the bucket is pinned at 1 forever and
-        // the "new record" celebration can never fire for it again.
+        // nobody played: sanitize.ts now DROPS a non-positive fastestLossTurns
+        // value rather than clamping it up to 1, but the payload must still
+        // keep it out (as null) rather than lean on that drop happening later.
         const payload = buildGlobalStatsPayload(
           [makePlayer('Alice', { score: 6000, totalTurns: 4 }), makePlayer('Bob', { score: 0, totalTurns: 0 })],
           90, true, 4,

@@ -177,10 +177,11 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
       // which is also the honest minimum the server's own departed-seat row
       // records (gamesPlayed 1 + the verdict's wins).
       clean.gamesPlayed = GAMES_PER_FINISH;
-      // null, not 0, when there is no record to set: sanitize floors these two
-      // at 1 and the columns are MIN-merged, so a 0 would pin them at 1
-      // forever. A game can end before a seat's turn came round, hence the
-      // turns check on BOTH sides.
+      // null, not 0, when there is no record to set: sanitize.ts now DROPS a
+      // non-positive value for these two rather than clamping it up to 1, but
+      // writing null here still states "no record" rather than leaning on
+      // that drop happening downstream. A game can end before a seat's turn
+      // came round, hence the turns check on BOTH sides.
       clean.fastestWinTurns = won && turns > 0 ? turns : null;
       clean.fastestLossTurns = !won && turns > 0 ? turns : null;
       clean.totalPlayersSum = finishedGame.playerCount;

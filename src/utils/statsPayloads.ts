@@ -39,9 +39,10 @@ export const buildDeviceStatsPayload = (
     fastestWinTurns: didIWin ? (me.totalTurns || 0) : null,
     // null, not 0, when this device never got a turn — a game can end
     // mid-round (a completed Kleeblatt wins instantly), so a player later in
-    // the turn order can finish on 0. sanitize.ts clamps a 0 up to 1 and the
-    // DB merges this column with MIN, which would pin the record at 1
-    // permanently. See buildGlobalStatsPayload for the same rule globally.
+    // the turn order can finish on 0. sanitize.ts now DROPS a non-positive
+    // value for this field rather than clamping it up to 1, so sending 0
+    // would simply vanish instead of stating the "no record" outcome the way
+    // null does. See buildGlobalStatsPayload for the same rule globally.
     fastestLossTurns: !didIWin && (me.totalTurns || 0) > 0 ? me.totalTurns : null,
     totalPlayersSum: finalPlayers.length, mostPlayersInGame: finalPlayers.length,
     totalRoundsSum: finalRound || 0, longestGameRounds: finalRound || 0,
@@ -129,10 +130,11 @@ export const buildGlobalStatsPayload = (
     } else if (p.totalTurns > 0) {
       // Zero turns is not a fast loss, it is no game played: a completed
       // Kleeblatt wins instantly and can end the game mid-round, leaving
-      // players later in the turn order on 0. Reporting that as a record is
-      // permanent damage — sanitize.ts clamps it up to 1 and the DB merges
-      // fastestLossTurns with MIN, so the bucket sticks at 1 forever and the
-      // "new record" celebration can never fire for it again.
+      // players later in the turn order on 0. This `> 0` guard keeps it out of
+      // the running altogether — sanitize.ts would now DROP a 0 sent for
+      // fastestLossTurns anyway (rather than clamping it up to 1), but relying
+      // on that instead of this guard would still let a stray 0 win the `<`
+      // comparison above before ever reaching sanitize.
       if (fastestLossTurns === null || p.totalTurns < fastestLossTurns) {
         fastestLossTurns = p.totalTurns;
       }
