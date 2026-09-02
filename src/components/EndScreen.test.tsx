@@ -82,6 +82,23 @@ describe('EndScreen Component', () => {
     expect(headerCell).toHaveAttribute('title', longName);
   });
 
+  it('gives the red and green accents a dark-mode twin that meets AA contrast', () => {
+    // text-red-500 / text-emerald-500 sit at 2.0-2.4:1 on the dark surfaces
+    // (measured in review round 6); the -600 shade with a dark:-400 twin
+    // clears 4.5:1 in both themes.
+    useGameStore.setState({ isOnline: true, isHost: false });
+    const { getByText } = render(<EndScreen />);
+
+    const leave = getByText('end.leaveGame');
+    expect(leave).toHaveClass('text-red-600', 'dark:text-red-400');
+    expect(leave).not.toHaveClass('text-red-500');
+
+    // Bob: 5000 points over 10 rounds → the "Avg Pts / Round" cell.
+    const avg = getByText('500');
+    expect(avg).toHaveClass('text-emerald-600', 'dark:text-emerald-400');
+    expect(avg).not.toHaveClass('text-emerald-500');
+  });
+
   it('renders flex div structure instead of table to avoid transform bugs', () => {
     const { container } = render(<EndScreen />);
     

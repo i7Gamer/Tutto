@@ -267,7 +267,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                 <div className="w-6 h-6 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
                 {t('end.waitingForHost', 'Waiting for host to restart...')}
               </div>
-              <button className="text-red-500 hover:text-red-700 hover:bg-red-50 px-6 py-2 rounded-lg font-bold transition-colors border border-red-200" onClick={leaveRoom}>
+              <button className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/40 px-6 py-2 rounded-lg font-bold transition-colors border border-red-200 dark:border-red-800" onClick={leaveRoom}>
                 {t('end.leaveGame', 'Leave Game')}
               </button>
             </div>
@@ -362,15 +362,15 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
               <div className="end-stat-label">{t('end.gamesPlayed', 'Games Played')}</div>
             </div>
             <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-4 border border-emerald-100 dark:border-emerald-800 flex flex-col justify-center">
-              <div className="text-3xl sm:text-4xl font-black text-emerald-500 mb-1">{deviceStats.wins}</div>
+              <div className="text-3xl sm:text-4xl font-black text-emerald-600 dark:text-emerald-400 mb-1">{deviceStats.wins}</div>
               <div className="end-stat-label">{t('end.totalWins', 'Total Wins')}</div>
             </div>
             <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border border-red-100 dark:border-red-800 flex flex-col justify-center">
-              <div className="text-3xl sm:text-4xl font-black text-red-500 mb-1">{deviceStats.pointsDeducted}</div>
+              <div className="text-3xl sm:text-4xl font-black text-red-600 dark:text-red-400 mb-1">{deviceStats.pointsDeducted}</div>
               <div className="end-stat-label">{t('end.pointsEaten', '-1000 Pts Eaten')}</div>
             </div>
             <div className="bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-4 border border-amber-100 dark:border-amber-800 flex flex-col justify-center">
-              <div className="text-3xl sm:text-4xl font-black text-amber-500 mb-1">{deviceStats.kniffelCompleted}</div>
+              <div className="text-3xl sm:text-4xl font-black text-amber-600 dark:text-amber-300 mb-1">{deviceStats.kniffelCompleted}</div>
               <div className="end-stat-label">{t('end.kniffelsDone', 'Kniffels Done')}</div>
             </div>
             <div className="bg-orange-50 dark:bg-orange-900/20 rounded-2xl p-4 border border-orange-100 dark:border-orange-800 flex flex-col justify-center">
@@ -408,7 +408,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                 { label: t('end.position', 'Position'), render: (p: Player) => `${p.position}.` },
                 { label: t('end.score', 'Score'), render: (p: Player) => <span className="font-black accent-number">{p.score}</span> },
                 { label: t('end.totalTurns', 'Total Turns'), render: (p: Player) => p.totalTurns },
-                { label: t('end.busts', 'Busts'), render: (p: Player) => <span className="text-red-500 font-bold">{p.busts}</span> },
+                { label: t('end.busts', 'Busts'), render: (p: Player) => <span className="text-red-600 dark:text-red-400 font-bold">{p.busts}</span> },
                 // The chain record of the game that just ended — a classic-only
                 // concept (modernized turns are always exactly one card). A dash
                 // marks a player who never got a turn: the record is genuinely
@@ -416,9 +416,9 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                 ...(game.ruleset === 'classic' ? [
                   { label: t('end.mostCardsInTurn', 'Most Cards in a Turn'), render: (p: Player) => <span className="font-bold text-indigo-500">{p.mostCardsInTurn ?? '–'}</span> },
                 ] : []),
-                { label: t('end.avgPtsPerRound', 'Avg Pts / Round'), render: (p: Player) => <span className="font-bold text-emerald-500">{Math.round(p.score / Math.max(1, round))}</span> },
+                { label: t('end.avgPtsPerRound', 'Avg Pts / Round'), render: (p: Player) => <span className="font-bold text-emerald-600 dark:text-emerald-400">{Math.round(p.score / Math.max(1, round))}</span> },
                 { label: t('end.pointsEatenStat', '-1000 Points Eaten'), render: (p: Player) => p.times1000PointsDeducted },
-                { label: t('end.plusMinusStat', 'Plus/Minus (Success/Fail)'), render: (p: Player) => <span><span className="text-emerald-500">{p.timesPlusMinusCompleted}</span> / <span className="text-red-500">{p.timesPlusMinusFailed}</span></span> },
+                { label: t('end.plusMinusStat', 'Plus/Minus (Success/Fail)'), render: (p: Player) => <span><span className="text-emerald-600 dark:text-emerald-400">{p.timesPlusMinusCompleted}</span> / <span className="text-red-600 dark:text-red-400">{p.timesPlusMinusFailed}</span></span> },
                 { label: t('end.kniffelStat', 'Kniffel (Success/Fail)'), render: (p: Player) => <span><span className="text-emerald-500">{p.timesKniffelCompleted}</span> / <span className="text-red-500">{p.timesKniffelFailed}</span></span> },
                 { label: t('end.skipped', 'Skipped'), render: (p: Player) => p.timesSkipped },
                 // Classic never attributes points to the Feuerwerk card (the
