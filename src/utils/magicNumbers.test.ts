@@ -69,10 +69,14 @@ describe('gameplay thresholds share one constant instead of a duplicated literal
     expect(src).toMatch(/import\s*\{[^}]*TURN_URGENT_SECONDS[^}]*\}\s*from\s*['"]\.\.\/\.\.\/utils\/uiTimings['"]/s);
   });
 
-  it('Game.tsx gates the urgency haptic and the streak badge off named constants', () => {
+  it('Game.tsx gates the urgency haptic off the named threshold', () => {
     const src = read('src/components/Game.tsx');
     expect(src).not.toMatch(/turnTimeRemaining <= 10\)/);
     expect(src).toMatch(/turnTimeRemaining <= TURN_URGENT_SECONDS\)/);
+  });
+
+  it('Leaderboard shows the streak badge off HOT_WIN_STREAK (the badge moved there from Game.tsx)', () => {
+    const src = read('src/components/game/Leaderboard.tsx');
     expect(src).not.toMatch(/streak >= 3\b/);
     expect(src).toMatch(/streak >= HOT_WIN_STREAK/);
   });
