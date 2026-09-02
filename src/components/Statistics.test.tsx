@@ -1,6 +1,7 @@
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import Statistics from './Statistics';
+import { RECORD_FIELDS } from '../utils/statRecords';
 
 describe('Statistics Component', () => {
   beforeAll(() => {
@@ -449,6 +450,65 @@ describe('Statistics Component', () => {
 
     const tile = screen.getByText('statistics.fastestLossTurns').parentElement;
     expect(within(tile).queryByText(/statistics\.globalRecord/)).toBeInTheDocument();
+  });
+
+  // Every MAX/MIN record field, driven from one table instead of one test per
+  // tile — mostPlayersInGame and highestForfeitedTurnScore used to have no
+  // badge at all (holdsRecord was simply never wired to them), while
+  // mostCardsInTurn and fastestLossTurns right next to them did. A record
+  // being a TIE (personal === global) is correct and unrelated to this bug —
+  // see isRecordHolder's own doc comment — the bug was only ever which tiles
+  // bothered to ask.
+  // Label key (and, for the two chain-only records, the ruleset tab that
+  // reveals the tile) for each entry in the component's own RECORD_FIELDS —
+  // driving the field names from that shared list, rather than re-typing
+  // them here, is what keeps this table from drifting out of sync with what
+  // Statistics.tsx actually renders.
+  const RECORD_TILES: Record<typeof RECORD_FIELDS[number], { labelKey: string; ruleset?: 'classic' }> = {
+    highestTurnScore: { labelKey: 'statistics.highestTurn' },
+    fastestWinTurns: { labelKey: 'statistics.fastestWinTurns' },
+    fastestLossTurns: { labelKey: 'statistics.fastestLossTurns' },
+    mostPlayersInGame: { labelKey: 'statistics.mostPlayersInGame' },
+    longestGameRounds: { labelKey: 'statistics.longestGameRounds' },
+    highestFeuerwerkTurnScore: { labelKey: 'statistics.highestFeuerwerkTurn' },
+    highestX2TurnScore: { labelKey: 'statistics.highestX2Turn' },
+    mostCardsInTurn: { labelKey: 'statistics.mostCardsInTurn', ruleset: 'classic' },
+    highestForfeitedTurnScore: { labelKey: 'statistics.highestForfeitedTurn', ruleset: 'classic' },
+  };
+  const RECORD_TABLE = RECORD_FIELDS.map((field) => ({ field, ...RECORD_TILES[field] }));
+
+  const renderWithStats = async (field: string, personalValue: number, globalValue: number, ruleset?: 'classic') => {
+    global.fetch = vi.fn((url: string) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.includes('global')
+        ? { totalGamesPlayed: 5, totalPlaytime: 500, [field]: globalValue }
+        : { gamesPlayed: 1, wins: 1, [field]: personalValue }),
+    }));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+    if (ruleset === 'classic') {
+      fireEvent.click(screen.getByRole('tab', { name: /lobby\.rulesetClassic/i }));
+    }
+  };
+
+  describe('every record tile badges consistently (table-driven)', () => {
+    it.each(RECORD_TABLE)('badges $field when the personal value ties the global one', async ({ field, labelKey, ruleset }) => {
+      await renderWithStats(field, 7, 7, ruleset);
+
+      await waitFor(() => expect(screen.getByText(labelKey)).toBeInTheDocument());
+      const tile = screen.getByText(labelKey).parentElement;
+      expect(within(tile).queryByText(/statistics\.globalRecord/)).toBeInTheDocument();
+    });
+
+    it.each(RECORD_TABLE)('does not badge $field when the personal value falls short of the global one', async ({ field, labelKey, ruleset }) => {
+      await renderWithStats(field, 3, 7, ruleset);
+
+      await waitFor(() => expect(screen.getByText(labelKey)).toBeInTheDocument());
+      const tile = screen.getByText(labelKey).parentElement;
+      expect(within(tile).queryByText(/statistics\.globalRecord/)).not.toBeInTheDocument();
+    });
   });
 
   it('shows the global fastest loss beside the global fastest win', async () => {

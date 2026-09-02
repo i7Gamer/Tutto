@@ -5,6 +5,7 @@ import { parseJsonObject } from '../utils/parseJson';
 import { CARD_EMOJIS } from '../utils/cardVisuals';
 import { STAT_TONES, DEFAULT_STAT_TONE, type StatTone } from '../utils/statTones';
 import { percentageOf } from '../utils/percentage';
+import { isRecordHolder, type RecordField } from '../utils/statRecords';
 import { useDeviceStats, type DeviceStatsStatus } from '../hooks/useDeviceStats';
 import { HOT_WIN_STREAK } from '../utils/playerStats';
 import {
@@ -44,11 +45,6 @@ const getWinLoseRate = (wins: number, fails: number): string => {
   const rate = percentageOf(wins, wins + fails);
   return rate === null ? NO_RATE : `${rate}%`;
 };
-
-// This device (tied-for-)holds the record when its value matches the global
-// max/min exactly — only meaningful once both sides have real data.
-const isRecordHolder = (personal?: number | null, global?: number | null): boolean =>
-  !!(personal && global && personal > 0 && global > 0 && personal === global);
 
 // The two personal buckets, in the order they are offered. Within a ruleset:
 // the classic pair maps onto 'classic'/'classic_custom' (see bucketMode).
@@ -382,6 +378,11 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   const avgPtsPerTurnComparison = isCustomView ? null : compareToGlobal(pAvgPtsPerTurnNum, gAvgPtsPerTurnNum, false);
   const holdsRecord = (personal?: number | null, global?: number | null): boolean =>
     !isCustomView && isRecordHolder(personal, global);
+  // Looks a RECORD_FIELDS entry up on both rows instead of naming it twice at
+  // the call site — the one thing that let two tiles silently go without a
+  // badge while their neighbours had one.
+  const recordBadge = (field: RecordField): React.ReactNode =>
+    holdsRecord(p?.[field], g?.[field]) && <RecordBadge />;
 
   const isOnAHotStreak = (p?.currentWinStreak || 0) >= HOT_WIN_STREAK;
 
@@ -520,15 +521,15 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                     <StatTile icon={<TrendingDown size={32} className="text-red-400" />} value={`${pBustRate}%`} label={t('statistics.bustRate', 'Bust Rate')} tone="red" badge={<ComparisonBadge comparison={bustRateComparison} />} />
                   </div>
                   <div className="stat-grid-4 mb-4">
-                    <StatTile icon={<Zap size={32} className="text-yellow-400" />} value={p.highestTurnScore || 0} label={t('statistics.highestTurn', 'Highest Turn')} tone="yellow" badge={holdsRecord(p.highestTurnScore, g?.highestTurnScore) && <RecordBadge />} />
+                    <StatTile icon={<Zap size={32} className="text-yellow-400" />} value={p.highestTurnScore || 0} label={t('statistics.highestTurn', 'Highest Turn')} tone="yellow" badge={recordBadge('highestTurnScore')} />
                     <StatTile icon={<TrendingUp size={32} className="text-indigo-400" />} value={p.totalTurns ? Math.round((p.totalScore || 0) / p.totalTurns) : 0} label={t('statistics.avgPointsPerTurn', 'Avg Points/Turn')} badge={<ComparisonBadge comparison={avgPtsPerTurnComparison} />} />
-                    <StatTile icon={<FastForward size={32} className="text-green-400" />} value={p.fastestWinTurns || '-'} label={t('statistics.fastestWinTurns', 'Fastest Win (Turns)')} tone="green" badge={holdsRecord(p.fastestWinTurns, g?.fastestWinTurns) && <RecordBadge />} />
-                    <StatTile icon={<Skull size={32} className="text-red-400" />} value={p.fastestLossTurns || '-'} label={t('statistics.fastestLossTurns', 'Fastest Loss (Turns)')} tone="red" badge={holdsRecord(p.fastestLossTurns, g?.fastestLossTurns) && <RecordBadge />} />
+                    <StatTile icon={<FastForward size={32} className="text-green-400" />} value={p.fastestWinTurns || '-'} label={t('statistics.fastestWinTurns', 'Fastest Win (Turns)')} tone="green" badge={recordBadge('fastestWinTurns')} />
+                    <StatTile icon={<Skull size={32} className="text-red-400" />} value={p.fastestLossTurns || '-'} label={t('statistics.fastestLossTurns', 'Fastest Loss (Turns)')} tone="red" badge={recordBadge('fastestLossTurns')} />
                   </div>
                   <div className="stat-grid-4 mb-4">
-                    <StatTile icon={<Hash size={32} className="text-sky-400" />} value={p.mostPlayersInGame || 0} label={t('statistics.mostPlayersInGame', 'Most Players in a Game')} tone="sky" />
+                    <StatTile icon={<Hash size={32} className="text-sky-400" />} value={p.mostPlayersInGame || 0} label={t('statistics.mostPlayersInGame', 'Most Players in a Game')} tone="sky" badge={recordBadge('mostPlayersInGame')} />
                     <StatTile icon={<Hash size={32} className="text-sky-400" />} value={pAvgPlayersPerGame} label={t('statistics.avgPlayersPerGame', 'Avg Players/Game')} tone="sky" />
-                    <StatTile icon={<Repeat size={32} className="text-purple-400" />} value={p.longestGameRounds || 0} label={t('statistics.longestGameRounds', 'Longest Game (Rounds)')} tone="purple" badge={holdsRecord(p.longestGameRounds, g?.longestGameRounds) && <RecordBadge />} />
+                    <StatTile icon={<Repeat size={32} className="text-purple-400" />} value={p.longestGameRounds || 0} label={t('statistics.longestGameRounds', 'Longest Game (Rounds)')} tone="purple" badge={recordBadge('longestGameRounds')} />
                     <StatTile icon={<Repeat size={32} className="text-purple-400" />} value={pAvgRoundsPerGame} label={t('statistics.avgRoundsPerGame', 'Avg Rounds/Game')} tone="purple" />
                   </div>
                   {isClassicView ? (
@@ -536,14 +537,14 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                       {/* The chain records are NULL until a chain happened —
                           a dash, because "0" would misread as a recorded
                           value (Total Tuttos is a counter; zero is honest). */}
-                      <StatTile icon={<Layers size={32} className="text-orange-400" />} value={p.mostCardsInTurn ?? '–'} label={t('statistics.mostCardsInTurn', 'Most Cards in a Turn')} tone="orange" badge={holdsRecord(p.mostCardsInTurn, g?.mostCardsInTurn) && <RecordBadge />} />
+                      <StatTile icon={<Layers size={32} className="text-orange-400" />} value={p.mostCardsInTurn ?? '–'} label={t('statistics.mostCardsInTurn', 'Most Cards in a Turn')} tone="orange" badge={recordBadge('mostCardsInTurn')} />
                       <StatTile icon={<Zap size={32} className="text-yellow-400" />} value={p.totalTuttos || 0} label={t('statistics.totalTuttos', 'Total Tuttos')} tone="yellow" />
-                      <StatTile icon={<Skull size={32} className="text-red-400" />} value={p.highestForfeitedTurnScore ?? '–'} label={t('statistics.highestForfeitedTurn', 'Biggest Turn Thrown Away')} tone="red" />
+                      <StatTile icon={<Skull size={32} className="text-red-400" />} value={p.highestForfeitedTurnScore ?? '–'} label={t('statistics.highestForfeitedTurn', 'Biggest Turn Thrown Away')} tone="red" badge={recordBadge('highestForfeitedTurnScore')} />
                     </div>
                   ) : (
                     <div className="stat-grid-2 mb-8">
-                      <StatTile icon={<Zap size={32} className="text-orange-400" />} value={p.highestFeuerwerkTurnScore || 0} label={t('statistics.highestFeuerwerkTurn', 'Highest Feuerwerk Turn')} tone="orange" badge={holdsRecord(p.highestFeuerwerkTurnScore, g?.highestFeuerwerkTurnScore) && <RecordBadge />} />
-                      <StatTile icon={<Zap size={32} className="text-pink-400" />} value={p.highestX2TurnScore || 0} label={t('statistics.highestX2Turn', 'Highest x2 Turn')} tone="pink" badge={holdsRecord(p.highestX2TurnScore, g?.highestX2TurnScore) && <RecordBadge />} />
+                      <StatTile icon={<Zap size={32} className="text-orange-400" />} value={p.highestFeuerwerkTurnScore || 0} label={t('statistics.highestFeuerwerkTurn', 'Highest Feuerwerk Turn')} tone="orange" badge={recordBadge('highestFeuerwerkTurnScore')} />
+                      <StatTile icon={<Zap size={32} className="text-pink-400" />} value={p.highestX2TurnScore || 0} label={t('statistics.highestX2Turn', 'Highest x2 Turn')} tone="pink" badge={recordBadge('highestX2TurnScore')} />
                     </div>
                   )}
                   <CardBreakdown rows={personalCardBreakdown(p, isClassicView)} />
