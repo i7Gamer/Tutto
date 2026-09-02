@@ -29,7 +29,8 @@ import {
   KNIFFEL_SCORE,
 } from './coreGameEngine';
 import { isSpecialCard } from './diceTurnControls';
-import { makePlayer } from '../testing/factories';
+import { makePlayer, makeGameState, nonNull } from '../testing/factories';
+import type { CardType, Player } from '../types';
 
 // ── PRNG ─────────────────────────────────────────────────────────────────
 // mulberry32: small, fast, deterministic. The seed is fixed so a failure is
@@ -100,10 +101,10 @@ const INITIAL_CARDS = {
 // excluded here so the oracle asserts everything else exactly.
 const NOT_UNDOABLE_HIGH_SCORE_FIELDS = ['highestTurnScore', 'highestFeuerwerkTurnScore', 'highestX2TurnScore'] as const;
 
-const normalizeForUndoComparison = (player: Record<string, unknown>) => {
+const normalizeForUndoComparison = (player: Player) => {
   const normalized = { ...player };
   for (const field of NOT_UNDOABLE_HIGH_SCORE_FIELDS) {
-    normalized[field] = (normalized[field] as number | undefined) ?? 0;
+    normalized[field] = normalized[field] ?? 0;
   }
   return normalized;
 };
@@ -113,7 +114,7 @@ const numericValue = (card: string, rng: ReturnType<typeof makeRng>): number => 
   return Number(card) + rng.nextInt(NUMERIC_BONUS_MAX);
 };
 
-type PlayedCard = { card: string; completed: boolean };
+type PlayedCard = { card: CardType; completed: boolean };
 
 // Adds one COMPLETED card's contribution to the running turn total, pushing
 // a plusMinusScores entry (the total held *before* this card) for a
@@ -139,7 +140,7 @@ const resolveLastCard = (card: string, rng: ReturnType<typeof makeRng>, runningT
   return { completed: true, ended: 'banked' as const, runningTotal: applyCompletedCardValue(card, rng, runningTotal, plusMinusScores) };
 };
 
-const finishClassicTurn = (cards: PlayedCard[], runningTotal: number, ended: 'banked' | 'null' | 'stopCard', plusMinusScores: number[], cardsForState: string[]) => {
+const finishClassicTurn = (cards: PlayedCard[], runningTotal: number, ended: 'banked' | 'null' | 'stopCard', plusMinusScores: number[], cardsForState: CardType[]) => {
   const isSuccess = ended === 'banked';
   const tuttoCount = cards.filter(c => c.completed).length;
   const turnSummary = {
@@ -153,7 +154,7 @@ const finishClassicTurn = (cards: PlayedCard[], runningTotal: number, ended: 'ba
 // mutated) — a 2-card chain's second card is the top of the deck, exactly as
 // a real client would have already drawn it mid-chain before calling
 // calculateNextTurn once at the end of the whole turn.
-const generateClassicTurn = (rng: ReturnType<typeof makeRng>, currentCard: string, cards: string[]) => {
+const generateClassicTurn = (rng: ReturnType<typeof makeRng>, currentCard: CardType, cards: CardType[]) => {
   if (currentCard === 'Stop') {
     // A bare Stop is identical under both rulesets: no dice, no chain,
     // nothing to summarize (see the bare-Stop handling in the turn loop).
@@ -183,7 +184,7 @@ const generateClassicTurn = (rng: ReturnType<typeof makeRng>, currentCard: strin
 // Builds one modernized-ruleset turn — no chaining, no turnSummary; a single
 // card is resolved success/fail exactly the way the modernized branch of
 // calculateNextTurn expects the caller to invoke it.
-const generateModernizedTurn = (rng: ReturnType<typeof makeRng>, currentCard: string) => {
+const generateModernizedTurn = (rng: ReturnType<typeof makeRng>, currentCard: CardType) => {
   if (currentCard === 'Stop') return { scoreInput: 0, isSuccess: false, turnSummary: undefined as undefined, cardsForState: undefined as undefined };
   if (currentCard === 'Kleeblatt') {
     // Excluded: a completed Kleeblatt wins instantly and calculateUndo
@@ -202,7 +203,7 @@ const generateModernizedTurn = (rng: ReturnType<typeof makeRng>, currentCard: st
 // (coreGameEngine.ts ~440, ~485-493), used as a cross-check that the engine's
 // classification of the turn we just generated matches what we intended —
 // catches a generator bug as loudly as an engine bug.
-const expectedModernizedOutcome = (currentCard: string, isSuccess: boolean) => {
+const expectedModernizedOutcome = (currentCard: CardType, isSuccess: boolean) => {
   const wasBust = !isSuccess && !isSpecialCard(currentCard) && currentCard !== 'Stop';
   let historyType: string;
   if (currentCard === 'Stop') historyType = 'skip';
@@ -221,7 +222,7 @@ interface RunTotals {
 const runGame = (ruleset: 'classic' | 'modernized', rng: ReturnType<typeof makeRng>, numPlayers: number, totals: RunTotals) => {
   let players = Array.from({ length: numPlayers }, (_, i) => makePlayer({ name: `P${i + 1}` }));
   let cards = buildDeck(INITIAL_CARDS);
-  let currentCard = cards.shift() as string;
+  let currentCard = nonNull(cards.shift());
   let currentPlayerIndex = 0;
   let round = 1;
 
@@ -245,10 +246,10 @@ const runGame = (ruleset: 'classic' | 'modernized', rng: ReturnType<typeof makeR
     const beforeRound = round;
 
     const result = calculateNextTurn(
-      {
+      makeGameState({
         players, currentPlayerIndex, currentCard, round,
         winningScore: WINNING_SCORE, cards: cardsForCall, initialCards: INITIAL_CARDS,
-      },
+      }),
       gen.scoreInput, gen.isSuccess, gen.turnSummary,
     );
 
@@ -311,7 +312,7 @@ const runGame = (ruleset: 'classic' | 'modernized', rng: ReturnType<typeof makeR
     players = result.players;
     currentPlayerIndex = result.nextIndex as number;
     round = result.nextRound;
-    currentCard = result.drawnCard as string;
+    currentCard = nonNull(result.drawnCard);
     cards = result.newDeck;
     totals.turnsRun++;
   }
