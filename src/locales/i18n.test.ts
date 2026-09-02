@@ -6,11 +6,12 @@ import path from 'path';
 const srcDir = path.join(process.cwd(), 'src');
 const localesDir = path.join(srcDir, 'locales');
 
-const getJsonKeys = (obj, prefix = '') => {
-  let keys = [];
+const getJsonKeys = (obj: Record<string, unknown>, prefix = ''): string[] => {
+  let keys: string[] = [];
   for (const key in obj) {
-    if (typeof obj[key] === 'object' && obj[key] !== null) {
-      keys = keys.concat(getJsonKeys(obj[key], `${prefix}${key}.`));
+    const value = obj[key];
+    if (typeof value === 'object' && value !== null) {
+      keys = keys.concat(getJsonKeys(value as Record<string, unknown>, `${prefix}${key}.`));
     } else {
       keys.push(`${prefix}${key}`);
     }
