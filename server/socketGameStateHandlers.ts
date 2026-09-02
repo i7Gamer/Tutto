@@ -89,12 +89,24 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
 
     const applied = applyPushedState(room.state, newState, { isHost, startingGame, pusherName });
 
+    // Whether a game ACTUALLY started, read off the state applyPushedState
+    // left behind rather than off the push's intent. `startingGame` is decided
+    // before the merge (applyPushedState needs it to allow the kickoff's
+    // config write), and `applied` only says the snapshot was not discarded
+    // wholesale — neither of them sees the coherence repair, which puts a
+    // status back to 'lobby' (or a `finished` back to true) for a push that
+    // named no player to act. All the bookkeeping below then ran for a start
+    // the room had already reverted: the stats dedup was cleared, letting the
+    // still-finished game be submitted a second time, and startRoster/
+    // normalizedGame/ruleset were re-frozen from a game that never began.
+    const startedGame = startingGame && applied && roomPhase(room.state) === 'playing';
+
     // Gated on the push having landed, and therefore only readable AFTER it:
     // applyPushedState discards a whole snapshot whose roster no longer
     // matches the server's, and clearing the dedup for a game that never
     // started let the host submit the still-finished game's statistics a
     // second time.
-    if (startingGame && applied) {
+    if (startedGame) {
       room.statsRecordedForGame = { devices: new Set(), global: false };
       // The only record of who was actually at the table when THIS game
       // began — a seat that leaves, is kicked, or times out before the
@@ -120,13 +132,13 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     // only ever goes one way: restoring the defaults before the end must not
     // relabel a game that ran custom.
     //
-    // Gated on `applied` for the same reason as the dedup reset above: a
-    // discarded push started no game, so re-deriving the label here would read
-    // the STILL-finished game's current config and relabel its statistics
-    // bucket — exactly the upgrade the sticky downgrade below exists to
-    // prevent. The `else if` then keeps the downgrade running, which for an
-    // unchanged state is a no-op.
-    if (startingGame && applied) {
+    // Gated on `startedGame` for the same reason as the dedup reset above: a
+    // push that started no game — discarded, or reverted by the coherence
+    // repair — would have this re-derive the label from the STILL-finished
+    // game's current config and relabel its statistics bucket, exactly the
+    // upgrade the sticky downgrade below exists to prevent. The `else if` then
+    // keeps the downgrade running, which for an unchanged state is a no-op.
+    if (startedGame) {
       room.normalizedGame = isNormalizedConfig(room.state);
       // Frozen for the same reason as normalizedGame: the stats handlers
       // must bucket by the rule set the game actually STARTED with, not by

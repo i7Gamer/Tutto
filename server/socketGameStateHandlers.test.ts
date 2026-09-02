@@ -9,6 +9,10 @@ import { rooms, createRoom, deleteRoom } from './rooms';
 // the shared factory doesn't change what these fixtures build.
 const makePlayer = (name: string, socketId: string) => makeServerPlayer(name, { socketId, position: 1 });
 
+// Stands in for a device whose row the room has already written for the game
+// it is currently sitting on — only that the dedup entry survives matters.
+const PREVIOUS_GAME_DEVICE = 'dev-already-recorded';
+
 describe('pushState turn-timer restarts', () => {
   const roomId = 'TIMER-RESTART-ROOM';
   const TURN_START = 500_000;
@@ -355,12 +359,25 @@ describe('pushState may not leave a running game with nobody to act', () => {
     // to is stranded exactly as above.
     rooms[roomId].state.status = 'lobby';
     rooms[roomId].state.currentPlayerIndex = null;
+    // The previous game's bookkeeping, which a real start would clear and
+    // recapture — and which this push must leave exactly as it found it.
+    const previousGameDevices = new Set([PREVIOUS_GAME_DEVICE]);
+    rooms[roomId].statsRecordedForGame = { devices: previousGameDevices, global: true };
     const hostFake = makeFakeSocket('host-sock');
     registerGameStateHandlers({ io: makeFakeIo().io, socket: hostFake.socket, session: { roomId, username: 'Bob' } });
 
     hostFake.handlers['pushState']({ roomId, newState: { status: 'playing' } });
 
     expect(rooms[roomId].state.status, 'a game cannot start with nobody to act').toBe('lobby');
+    // …and no game started means none of the start-of-game bookkeeping may
+    // run either. It used to, gated on `applied` alone: the dedup was reset
+    // (letting the still-finished game's statistics be submitted a second
+    // time) and the start roster was recaptured for a game the room put
+    // straight back into the lobby.
+    expect(rooms[roomId].startRoster, 'no game started, no roster to capture').toBeNull();
+    expect(rooms[roomId].statsRecordedForGame.devices, 'the previous game stays deduped')
+      .toBe(previousGameDevices);
+    expect(rooms[roomId].statsRecordedForGame.global).toBe(true);
   });
 
   // The third way into the same stranded room, and the one the repair could
