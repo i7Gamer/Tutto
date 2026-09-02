@@ -6,7 +6,7 @@ import { sanitizeStats, sanitizeLogHeaderField, indentLogContinuationLines } fro
 import { createRateLimiter } from './rateLimit';
 import { DEV_DEFAULT_API_TOKEN, validateApiTokenForStartup } from './startupGuards';
 import { DEFAULT_GAME_MODE, GAME_MODES, type GameMode, type Ruleset } from '../src/types';
-import { DEFAULT_RULESET, isValidRuleset, MAX_DEVICE_ID_LENGTH } from '../src/utils/configValidation';
+import { DEFAULT_RULESET, isValidRuleset, RULESETS, MAX_DEVICE_ID_LENGTH } from '../src/utils/configValidation';
 import { DEVICE_ID_HEADER, DEVICE_STATS_PATH } from '../src/utils/statsApi';
 
 // Client crash reports from the ErrorBoundary (see src/utils/crashLog.ts).
@@ -116,6 +116,36 @@ export const registerApiRoutes = (app: express.Express): void => {
   const requestedRuleset = (req: express.Request): Ruleset =>
     isValidRuleset(req.query.ruleset) ? req.query.ruleset : DEFAULT_RULESET;
 
+  /**
+   * Refuses a WRITE that names a bucket which does not exist.
+   *
+   * The two readers above fall back to the default bucket for anything
+   * unrecognised, which is the only answer a read can give. A write cannot
+   * afford it: the numbers land somewhere permanent, and answering
+   * `success: true` after silently putting them in the default row is how a
+   * single typo (`?mode=nomral`) corrupts the row it was never meant to
+   * touch — invisibly, since the caller was told it worked.
+   *
+   * Absent stays the default, exactly as before: every client older than the
+   * split sends no parameter at all. Present-but-empty is a mangled URL, not
+   * an omission, so it is refused with the rest. The accepted values are
+   * named in the answer, which is the whole point of failing loudly here.
+   */
+  const rejectUnknownBucket = (param: string, accepted: readonly string[]) =>
+    (req: express.Request, res: express.Response, next: express.NextFunction): void => {
+      const requested = req.query[param];
+      if (requested === undefined || accepted.some(value => value === requested)) {
+        next();
+        return;
+      }
+      res.status(400).json({ error: `Unknown ${param} — accepted values: ${accepted.join(', ')}` });
+    };
+
+  const MODE_PARAM = 'mode';
+  const RULESET_PARAM = 'ruleset';
+  const rejectUnknownMode = rejectUnknownBucket(MODE_PARAM, GAME_MODES);
+  const rejectUnknownRuleset = rejectUnknownBucket(RULESET_PARAM, RULESETS);
+
   const crashLogRateLimiter = createRateLimiter({
     windowMs: CRASH_LOG_RATE_LIMIT_WINDOW_MS,
     max: CRASH_LOG_RATE_LIMIT_MAX,
@@ -159,7 +189,7 @@ export const registerApiRoutes = (app: express.Express): void => {
     }
   });
 
-  app.post('/api/stats/global', requireToken, async (req: express.Request, res: express.Response) => {
+  app.post('/api/stats/global', requireToken, rejectUnknownRuleset, async (req: express.Request, res: express.Response) => {
     try {
       await updateGlobalStats(sanitizeStats(req.body), requestedRuleset(req));
       res.json({ success: true });
@@ -196,7 +226,7 @@ export const registerApiRoutes = (app: express.Express): void => {
     }
   });
 
-  app.post('/api/stats/:deviceId', requireToken, requireValidDeviceId, async (req: express.Request, res: express.Response) => {
+  app.post('/api/stats/:deviceId', requireToken, requireValidDeviceId, rejectUnknownMode, async (req: express.Request, res: express.Response) => {
     try {
       await updateDeviceStats(req.params.deviceId as string, sanitizeStats(req.body), requestedMode(req));
       res.json({ success: true });

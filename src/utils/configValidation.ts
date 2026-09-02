@@ -136,5 +136,11 @@ export const isValidDiceMode = (v: unknown): v is DiceMode =>
 // NOT part of isNormalizedConfig above: the ruleset selects which stats
 // bucket PAIR a game lands in (modernized vs classic), while normalized vs
 // custom stays a question of winningScore + deck alone.
+// Listed rather than written as two comparisons so callers that must NAME the
+// accepted values (the admin stats POSTs answer a mistyped ?ruleset= with
+// them) read from the same source this validator does — the way GAME_MODES
+// already serves both jobs for the device-statistics buckets.
+export const RULESETS: readonly Ruleset[] = ['modernized', 'classic'];
+
 export const isValidRuleset = (v: unknown): v is Ruleset =>
-  v === 'modernized' || v === 'classic';
+  RULESETS.some(ruleset => ruleset === v);

@@ -253,11 +253,17 @@ describe('API Endpoints Token Protection', () => {
       expect((await read(deviceId, '?mode[]=custom')).gamesPlayed).toBe(1);
     });
 
-    it('writes an unrecognised mode into the normalized row rather than inventing one', async () => {
+    it('refuses to write an unrecognised mode anywhere at all', async () => {
+      // A read can only answer an unknown bucket with the default one. A
+      // write must not: `?mode=bogus` used to land in the normalized row —
+      // the row a player reads as their real record — and answer
+      // `success: true`, so a typo corrupted it invisibly.
       const deviceId = 'api-mode-write-fallback';
-      expect((await write(deviceId, '?mode=bogus', { gamesPlayed: 5 })).status).toBe(200);
+      const refused = await write(deviceId, '?mode=bogus', { gamesPlayed: 5 });
+      expect(refused.status).toBe(400);
+      expect((await refused.json()).error).toContain('normalized');
 
-      expect((await read(deviceId)).gamesPlayed).toBe(5);
+      expect(await read(deviceId)).toEqual({});
       expect(await read(deviceId, '?mode=custom')).toEqual({});
     });
   });

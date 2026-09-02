@@ -157,6 +157,37 @@ describe('api routes in-process', () => {
       expect(res.status).toBe(500);
       expect(await res.json()).toEqual({ error: 'Database error' });
     });
+
+    // A READ that names a row which does not exist can only answer with the
+    // default one. A WRITE cannot: the numbers land somewhere permanent, and
+    // silently putting them in the modernized row while answering
+    // `success: true` is how a typo'd admin call corrupts the row it never
+    // meant to touch.
+    it('refuses a mistyped ruleset instead of writing the default row', async () => {
+      const res = await postJson('/api/stats/global?ruleset=modernised', { gamesPlayed: 1 }, API_TOKEN);
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error, 'the answer names what would have worked').toContain('modernized');
+      expect(body.error).toContain('classic');
+      expect(updateGlobalStats).not.toHaveBeenCalled();
+    });
+
+    it('refuses a ruleset parameter left empty', async () => {
+      const res = await postJson('/api/stats/global?ruleset=', { gamesPlayed: 1 }, API_TOKEN);
+      expect(res.status).toBe(400);
+      expect(updateGlobalStats).not.toHaveBeenCalled();
+    });
+
+    it('still writes the default row when no ruleset is named at all', async () => {
+      const res = await postJson('/api/stats/global', { gamesPlayed: 1 }, API_TOKEN);
+      expect(res.status).toBe(200);
+      expect(updateGlobalStats).toHaveBeenCalledWith({ gamesPlayed: 1 }, DEFAULT_RULESET);
+    });
+
+    it('answers a bad token before it ever looks at the ruleset', async () => {
+      const res = await postJson('/api/stats/global?ruleset=modernised', { gamesPlayed: 1 }, 'wrong-token');
+      expect(res.status).toBe(403);
+    });
   });
 
   describe('GET the device stats route', () => {
@@ -225,6 +256,27 @@ describe('api routes in-process', () => {
       const res = await postJson('/api/stats/in-proc-device?mode=custom', { gamesPlayed: '7' }, API_TOKEN);
       expect(res.status).toBe(200);
       expect(updateDeviceStats).toHaveBeenCalledWith('in-proc-device', { gamesPlayed: 7 }, 'custom');
+    });
+
+    it('refuses a mistyped mode instead of writing the default bucket', async () => {
+      const res = await postJson('/api/stats/in-proc-device?mode=nomral', { gamesPlayed: 1 }, API_TOKEN);
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error, 'the answer names what would have worked').toContain('normalized');
+      expect(body.error).toContain('classic_custom');
+      expect(updateDeviceStats).not.toHaveBeenCalled();
+    });
+
+    it('refuses a mode parameter left empty', async () => {
+      const res = await postJson('/api/stats/in-proc-device?mode=', { gamesPlayed: 1 }, API_TOKEN);
+      expect(res.status).toBe(400);
+      expect(updateDeviceStats).not.toHaveBeenCalled();
+    });
+
+    it('still writes the default bucket when no mode is named at all', async () => {
+      const res = await postJson('/api/stats/in-proc-device', { gamesPlayed: 1 }, API_TOKEN);
+      expect(res.status).toBe(200);
+      expect(updateDeviceStats).toHaveBeenCalledWith('in-proc-device', { gamesPlayed: 1 }, DEFAULT_GAME_MODE);
     });
 
     it('rejects an oversized id with 400 even when the token is valid', async () => {
