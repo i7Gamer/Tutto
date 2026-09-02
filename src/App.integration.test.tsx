@@ -1,15 +1,17 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach, type Mock } from 'vitest';
 import App from './App';
 import * as diceLogic from './utils/diceLogic';
-import { useGameStore, _resetTimersForTests } from './store/useGameStore';
+import { useGameStore, _resetTimersForTests, _resetSocketSliceForTests } from './store/useGameStore';
 import { disconnectSocket } from './store/socketRef';
 import {
   DICE_PANEL_ENTRANCE_MS, TOAST_LIFETIME_MS, JOIN_TIMEOUT_MS,
   DIE_TUMBLE_MS, DIE_STAGGER_MS, ROLL_SETTLE_BUFFER_MS, AUTO_CONTINUE_SECONDS,
 } from './utils/uiTimings';
 import { TOTAL_DICE } from './utils/turnShapes';
+import type { JoinRoomResponse } from './store/storeTypes';
+import { makePlayer, makeDiceSnapshot, nonNull } from './testing/factories';
 
 // Every die in the opening roll tumbles for DIE_TUMBLE_MS, then the dice
 // settle one after another DIE_STAGGER_MS apart, and the roll finalizes
@@ -43,8 +45,17 @@ vi.mock('./utils/soundEffects', () => ({
   vibrateSuccess: vi.fn(),
 }));
 
-// Create a mock for socket.io-client that can be configured per test
-let mockSocketInstance = null;
+// Create a mock for socket.io-client that can be configured per test. Every
+// per-test literal assigned to it below is this same minimal shape (a couple
+// of tests add `off`, which nothing else here uses).
+type MockSocket = {
+  on: Mock<(event: string, handler: (...args: unknown[]) => void) => void>;
+  emit: Mock<(event: string, ...args: unknown[]) => void>;
+  off?: Mock<(...args: unknown[]) => void>;
+  disconnect: Mock<() => void>;
+  id: string;
+};
+let mockSocketInstance: MockSocket | null = null;
 vi.mock('socket.io-client', () => {
   return {
     io: vi.fn(() => mockSocketInstance || {
@@ -66,6 +77,11 @@ describe('App Integration (End-to-End)', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    // connectSocket is a no-op while socketRef already holds a socket, so a
+    // test whose real joinRoom created one otherwise hands its acks to the
+    // next test (mirrors the shared afterEach in store/useGameStore.test.ts).
+    disconnectSocket();
+    _resetSocketSliceForTests();
   });
 
   it('plays a full local game with edge cases (Busts, Tuttos) to the EndScreen', async () => {
@@ -75,9 +91,9 @@ describe('App Integration (End-to-End)', () => {
     Math.random = () => 0.999999; // Deterministic: keeps the player order stable (identity shuffle)
 
     // We will control dice rolls to force specific outcomes
-    let mockRolls = [];
+    const mockRolls: number[] = [];
     vi.spyOn(diceLogic, 'rollDie').mockImplementation(() => {
-      if (mockRolls.length > 0) return mockRolls.shift();
+      if (mockRolls.length > 0) return nonNull(mockRolls.shift());
       return 1; // Default to 1 (valid score, 6 ones = Tutto)
     });
 
@@ -306,7 +322,7 @@ describe('App Integration (End-to-End)', () => {
       act(() => {
         useGameStore.setState({
           pendingReconnectSession: { roomId: 'GHOST_ROOM', myName: 'Charlie' },
-          joinRoom: vi.fn(() => new Promise(() => {})),
+          joinRoom: vi.fn(() => new Promise<JoinRoomResponse>(() => {})),
         });
       });
       render(<App />);
@@ -425,10 +441,9 @@ describe('App Integration (End-to-End)', () => {
     render(<App />);
     expect(screen.queryByText('home.restore.title')).not.toBeInTheDocument();
 
-    // This test's joinRoom really did create a socket, and connectSocket is a
-    // no-op while one exists (socketRef) — leaving it behind hands the next
-    // test that stages its own mockSocketInstance this one's acks instead.
-    disconnectSocket();
+    // This test's joinRoom really did create a socket. The shared afterEach
+    // disconnects it (see the top of this describe block) — only the mock
+    // instance itself needs resetting here.
     mockSocketInstance = null;
   });
 
@@ -536,11 +551,12 @@ describe('App Integration (End-to-End)', () => {
       disconnect: vi.fn(),
       id: 'temp-socket-123',
     };
+    const socket = nonNull(mockSocketInstance);
 
     act(() => {
       useGameStore.setState({
         pendingReconnectSession: { roomId: 'TEST_ROOM_123', myName: 'Alice' },
-        liveTurnState: { turnScore: 50 },
+        liveTurnState: makeDiceSnapshot({ turnScore: 50 }),
       });
     });
     localStorage.setItem('tutto_dice_turn_state', JSON.stringify({ turnScore: 50 }));
@@ -558,28 +574,28 @@ describe('App Integration (End-to-End)', () => {
     // leaveRoom → disconnect. Waiting on the last link rather than on a fixed
     // sleep, which a loaded run can outlast mid-chain — everything below it
     // has necessarily already happened by the time it has.
-    await waitFor(() => expect(mockSocketInstance.disconnect).toHaveBeenCalled());
+    await waitFor(() => expect(socket.disconnect).toHaveBeenCalled());
 
     // Verify temp socket was created
     expect(io).toHaveBeenCalledWith(expect.any(String));
 
     // Verify joinRoom was emitted with correct args
-    const joinRoomCall = mockSocketInstance.emit.mock.calls.find(c => c[0] === 'joinRoom');
+    const joinRoomCall = socket.emit.mock.calls.find(c => c[0] === 'joinRoom');
     expect(joinRoomCall).toBeTruthy();
-    expect(joinRoomCall[1]).toMatchObject({
+    expect(nonNull(joinRoomCall)[1]).toMatchObject({
       roomId: 'TEST_ROOM_123',
       name: 'Alice',
       deviceId: expect.any(String),
     });
 
     // Verify leaveRoom was emitted after successful join
-    expect(mockSocketInstance.emit).toHaveBeenCalledWith('leaveRoom');
+    expect(socket.emit).toHaveBeenCalledWith('leaveRoom');
 
     mockSocketInstance = null;
   });
 
   it('RestoreSessionPopup Cancel button cleans up on socket connect_error', async () => {
-    let connectErrorHandler;
+    let connectErrorHandler: ((...args: unknown[]) => void) | undefined;
 
     mockSocketInstance = {
       on: vi.fn((event, handler) => {
@@ -591,6 +607,7 @@ describe('App Integration (End-to-End)', () => {
       disconnect: vi.fn(),
       id: 'temp-socket-error',
     };
+    const socket = nonNull(mockSocketInstance);
 
     act(() => {
       useGameStore.setState({
@@ -606,15 +623,15 @@ describe('App Integration (End-to-End)', () => {
     // and then call it unconditionally, since an `if` around it would turn a
     // registration that never happened into a silently passing test.
     await waitFor(() => expect(connectErrorHandler).toBeDefined());
-    connectErrorHandler();
+    nonNull(connectErrorHandler)();
 
     // Should still clean up the socket. Asserted first because it is the
     // positive end of the error path: without waiting for something that does
     // happen, the negative below would pass merely by being early.
-    await waitFor(() => expect(mockSocketInstance.disconnect).toHaveBeenCalled());
+    await waitFor(() => expect(socket.disconnect).toHaveBeenCalled());
 
     // Should NOT attempt to join on error
-    expect(mockSocketInstance.emit).not.toHaveBeenCalledWith(
+    expect(socket.emit).not.toHaveBeenCalledWith(
       'joinRoom',
       expect.any(Object)
     );
@@ -686,7 +703,7 @@ describe('App Integration (End-to-End)', () => {
   });
 
   it('RestoreSessionPopup Cancel handles socket timeout gracefully', async () => {
-    let connectErrorHandler;
+    let connectErrorHandler: ((...args: unknown[]) => void) | undefined;
 
     mockSocketInstance = {
       on: vi.fn((event, handler) => {
@@ -698,6 +715,7 @@ describe('App Integration (End-to-End)', () => {
       disconnect: vi.fn(),
       id: 'temp-socket-timeout',
     };
+    const socket = nonNull(mockSocketInstance);
 
     act(() => {
       useGameStore.setState({
@@ -712,12 +730,12 @@ describe('App Integration (End-to-End)', () => {
     // Simulate the connection failing, as a timeout would — once the handler
     // is actually registered rather than after a guess at how long that takes.
     await waitFor(() => expect(connectErrorHandler).toBeDefined());
-    connectErrorHandler();
+    nonNull(connectErrorHandler)();
 
     // Should have called disconnect to clean up
-    await waitFor(() => expect(mockSocketInstance.disconnect).toHaveBeenCalled());
+    await waitFor(() => expect(socket.disconnect).toHaveBeenCalled());
     // Should not have attempted joinRoom
-    const joinRoomCalls = mockSocketInstance.emit.mock.calls.filter(c => c[0] === 'joinRoom');
+    const joinRoomCalls = socket.emit.mock.calls.filter(c => c[0] === 'joinRoom');
     expect(joinRoomCalls.length).toBe(0);
 
     mockSocketInstance = null;
@@ -727,7 +745,7 @@ describe('App Integration (End-to-End)', () => {
     act(() => {
       useGameStore.setState({
         pendingReconnectSession: { roomId: 'CLEANUP_ROOM', myName: 'CleanupUser' },
-        liveTurnState: { turnScore: 75 },
+        liveTurnState: makeDiceSnapshot({ turnScore: 75 }),
       });
     });
 
@@ -777,12 +795,16 @@ describe('App Integration (End-to-End)', () => {
       disconnect: vi.fn(),
       id: 'temp-socket-consistency',
     };
+    const socket = nonNull(mockSocketInstance);
 
     // Set up complex state
     act(() => {
       useGameStore.setState({
         pendingReconnectSession: { roomId: 'CONSISTENCY_ROOM', myName: 'ConsistencyUser' },
-        liveTurnState: { turnScore: 200, keptDice: [1, 2, 3] },
+        liveTurnState: makeDiceSnapshot({
+          turnScore: 200,
+          keptDice: [{ id: 'd1', val: 1 }, { id: 'd2', val: 2 }, { id: 'd3', val: 3 }],
+        }),
         showReconnectPopup: false,
       });
     });
@@ -797,7 +819,7 @@ describe('App Integration (End-to-End)', () => {
 
     // The same chain as the join+leave test above, so wait on the same last
     // link: disconnect. Everything asserted below precedes it.
-    await waitFor(() => expect(mockSocketInstance.disconnect).toHaveBeenCalled());
+    await waitFor(() => expect(socket.disconnect).toHaveBeenCalled());
 
     // All game state should be cleared consistently
     const state = useGameStore.getState();
@@ -807,7 +829,7 @@ describe('App Integration (End-to-End)', () => {
     expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
 
     // Temp socket should have properly left
-    expect(mockSocketInstance.emit).toHaveBeenCalledWith('leaveRoom');
+    expect(socket.emit).toHaveBeenCalledWith('leaveRoom');
 
     mockSocketInstance = null;
   });
@@ -826,10 +848,10 @@ describe('App Integration (End-to-End)', () => {
       disconnect: vi.fn(),
       id: 'socket-reconnect',
     };
-    // connectSocket is a no-op while a socket already exists (socketRef), and
-    // earlier tests in this file leave one behind — without this the handlers
-    // map stays empty and every call below is a TypeError.
-    disconnectSocket();
+    // connectSocket is a no-op while a socket already exists (socketRef) —
+    // the shared afterEach above disconnects it after every test, so this
+    // always sees a clean socketRef and actually creates one from the
+    // instance just staged above.
     act(() => { useGameStore.getState().connectSocket(); });
     return handlers;
   };
@@ -926,7 +948,7 @@ describe('App Integration (End-to-End)', () => {
         currentPlayerIndex: 0,
         myName: 'Alice',
         diceMode: 'digital',
-        players: [{ name: 'Alice', socketId: 'sock-123' }],
+        players: [makePlayer({ name: 'Alice', socketId: 'sock-123' })],
         justReconnected: true,
         liveTurnState: null,  // No saved dice state
         showReconnectPopup: false,
@@ -949,7 +971,7 @@ describe('App Integration (End-to-End)', () => {
         useGameStore.setState({
           mode: 'local',
           isOnline: false,
-          players: [{ name: 'Alice', score: 0 }],
+          players: [makePlayer({ name: 'Alice', score: 0 })],
           status: 'lobby',
         });
       });
@@ -992,7 +1014,7 @@ describe('App Integration (End-to-End)', () => {
     // First sync establishes baseline
     useGameStore.getState().syncOnlineTimers();
     let state = useGameStore.getState();
-    let initialElapsed = Math.floor((Date.now() - state.gameStartTime) / 1000);
+    let initialElapsed = Math.floor((Date.now() - nonNull(state.gameStartTime)) / 1000);
     expect(initialElapsed).toBe(30);
 
     // Server time advances to 35 seconds (e.g., due to network latency or processing)
@@ -1002,7 +1024,7 @@ describe('App Integration (End-to-End)', () => {
     useGameStore.getState().syncOnlineTimers();
 
     state = useGameStore.getState();
-    const resyncElapsed = Math.floor((Date.now() - state.gameStartTime) / 1000);
+    const resyncElapsed = Math.floor((Date.now() - nonNull(state.gameStartTime)) / 1000);
 
     // Should now reflect 35 seconds
     expect(resyncElapsed).toBe(35);
@@ -1015,7 +1037,7 @@ describe('App Integration (End-to-End)', () => {
       });
 
       state = useGameStore.getState();
-      const afterWait = Math.floor((Date.now() - state.gameStartTime) / 1000);
+      const afterWait = Math.floor((Date.now() - nonNull(state.gameStartTime)) / 1000);
       // Should be ~35.5 seconds
       expect(afterWait).toBeGreaterThanOrEqual(35);
     } finally {
@@ -1041,7 +1063,7 @@ describe('App Integration (End-to-End)', () => {
       useGameStore.getState().syncOnlineTimers();
 
       const store = useGameStore.getState();
-      const elapsedMs = Date.now() - store.gameStartTime;
+      const elapsedMs = Date.now() - nonNull(store.gameStartTime);
       const elapsedSeconds = Math.floor(elapsedMs / 1000);
 
       measurements.push({ server: serverTime, local: elapsedSeconds });
@@ -1049,7 +1071,7 @@ describe('App Integration (End-to-End)', () => {
       // Fast-forward simulated time by shifting gameStartTime backward 1000ms
       if (serverTime < 12) {
         act(() => {
-          useGameStore.setState(s => ({ gameStartTime: s.gameStartTime - 1000 }));
+          useGameStore.setState(s => ({ gameStartTime: nonNull(s.gameStartTime) - 1000 }));
         });
       }
     }
@@ -1082,7 +1104,7 @@ describe('App Integration (End-to-End)', () => {
 
       // Nothing was thrown away: the save is still on disk, so picking local
       // play resumes the game exactly where it was left.
-      expect(JSON.parse(localStorage.getItem('tutto_local_game')).players[0].name).toBe('Alice');
+      expect(JSON.parse(nonNull(localStorage.getItem('tutto_local_game'))).players[0].name).toBe('Alice');
     } finally {
       window.history.replaceState({}, '', '/');
     }
@@ -1096,7 +1118,7 @@ describe('App Integration (End-to-End)', () => {
         useGameStore.setState({
           mode: 'local',
           isOnline: false,
-          players: [{ name: 'Alice', score: 0 }],
+          players: [makePlayer({ name: 'Alice', score: 0 })],
           status: 'lobby',
         });
       });

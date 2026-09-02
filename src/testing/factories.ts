@@ -10,7 +10,7 @@
  *
  * Not imported by any application module — same rule as storageStubs.ts.
  */
-import type { CoreGameState, Player } from '../types';
+import type { CoreGameState, DiceSnapshot, Player } from '../types';
 import { zeroedPlayerStats } from '../utils/playerStats';
 import type { PreGameStats } from '../store/storeTypes';
 
@@ -105,6 +105,20 @@ export const makePreGameStats = (overrides: Partial<PreGameStats> = {}): PreGame
   highestX2TurnScore: null,
   mostCardsInTurn: null,
   highestForfeitedTurnScore: null,
+  ...overrides,
+});
+
+/**
+ * A full `DiceSnapshot` (the mid-turn shape stored in `liveTurnState`), every
+ * field zeroed/empty. Pass `{ turnScore: 50, keptDice: [...] }` to override
+ * just what the test cares about — the same idiom as `makeGameState`.
+ */
+export const makeDiceSnapshot = (overrides: Partial<DiceSnapshot> = {}): DiceSnapshot => ({
+  turnScore: 0,
+  keptDice: [],
+  currentRoll: [],
+  kniffelProgress: [],
+  tuttosThisTurn: 0,
   ...overrides,
 });
 
