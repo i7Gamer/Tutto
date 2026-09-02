@@ -35,15 +35,28 @@ const GLOBAL_RECORD_COLS = [
   'highestX2TurnScore',
 ];
 
+// Guarded per column — see 20260622084400_add_advanced_stats for why a bare
+// alterTable breaks on a replay, and why the helper is inlined here. One
+// hasColumn covering all three declared a schema holding only the first of
+// them finished, so the other two were never added and every classic write
+// then threw "no such column: mostCardsInTurn".
+const addColumnIfMissing = async (knex, table, name, define) => {
+  if (await knex.schema.hasColumn(table, name)) return;
+  await knex.schema.alterTable(table, define);
+};
+
 exports.up = async function up(knex) {
-  const hasTotalTuttos = await knex.schema.hasColumn('device_statistics', 'totalTuttos');
-  if (!hasTotalTuttos) {
-    await knex.schema.alterTable('device_statistics', (table) => {
-      table.integer('totalTuttos').notNullable().defaultTo(0);
-      table.integer('mostCardsInTurn');
-      table.integer('highestForfeitedTurnScore');
-    });
-  }
+  await addColumnIfMissing(knex, 'device_statistics', 'totalTuttos', (table) => {
+    table.integer('totalTuttos').notNullable().defaultTo(0);
+  });
+  // Nullable with NO default: a stored 0 would read as "the record is zero"
+  // where NULL means "no record yet" — see the header comment above.
+  await addColumnIfMissing(knex, 'device_statistics', 'mostCardsInTurn', (table) => {
+    table.integer('mostCardsInTurn');
+  });
+  await addColumnIfMissing(knex, 'device_statistics', 'highestForfeitedTurnScore', (table) => {
+    table.integer('highestForfeitedTurnScore');
+  });
 
   const hasRuleset = await knex.schema.hasColumn('global_statistics', 'ruleset');
   if (hasRuleset) return;

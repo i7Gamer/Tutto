@@ -6,6 +6,7 @@ import addAdvancedStats from './migrations/20260622084400_add_advanced_stats';
 import addWinStreak from './migrations/20260704000000_add_win_streak';
 import addGameStats from './migrations/20260707000000_add_game_stats';
 import addDeviceStatsMode from './migrations/20260809000000_add_device_stats_mode';
+import classicStats from './migrations/20260810000000_classic_stats';
 import ensureGlobalStatsRow from './migrations/20260625000000_ensure_global_stats_row';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -116,6 +117,64 @@ describe('migration re-runnability', () => {
     await expect(addWinStreak.up(db)).resolves.not.toThrow();
 
     expect(await db.schema.hasColumn('device_statistics', 'bestWinStreak')).toBe(true);
+  });
+
+  // classic_stats adds THREE device columns, and guarded all three behind a
+  // single hasColumn on the first one. A schema holding only that first
+  // column — an interrupted run, or a hand-applied fix — was therefore
+  // declared done and the other two were never added, after which every
+  // classic write threw "no such column: mostCardsInTurn".
+  describe('20260810000000_classic_stats column guards', () => {
+    /**
+     * device_statistics holding only the first of the three columns, and a
+     * global_statistics already keyed by ruleset — so the table swap in the
+     * second half of the migration early-returns and these tests are about
+     * the column block alone.
+     */
+    const setupHalfAppliedDb = async (existingColumns: readonly string[]): Promise<Knex> => {
+      knex = knexLib({ client: 'sqlite3', connection: { filename: ':memory:' }, useNullAsDefault: true, pool: SINGLE_CONNECTION });
+      await knex.schema.createTable('device_statistics', table => {
+        table.string('deviceId');
+        table.string('mode');
+        for (const column of existingColumns) table.integer(column);
+      });
+      await knex.schema.createTable('global_statistics', table => {
+        table.string('ruleset').primary();
+      });
+      return knex;
+    };
+
+    const CLASSIC_DEVICE_COLUMNS = ['totalTuttos', 'mostCardsInTurn', 'highestForfeitedTurnScore'] as const;
+
+    it('adds the two still missing when only the first of the three exists', async () => {
+      const db = await setupHalfAppliedDb([CLASSIC_DEVICE_COLUMNS[0]]);
+
+      await expect(classicStats.up(db)).resolves.not.toThrow();
+
+      for (const column of CLASSIC_DEVICE_COLUMNS) {
+        expect(await db.schema.hasColumn('device_statistics', column), `device_statistics.${column}`).toBe(true);
+      }
+    });
+
+    it('adds all three to a schema that has none of them', async () => {
+      const db = await setupHalfAppliedDb([]);
+
+      await expect(classicStats.up(db)).resolves.not.toThrow();
+
+      for (const column of CLASSIC_DEVICE_COLUMNS) {
+        expect(await db.schema.hasColumn('device_statistics', column), `device_statistics.${column}`).toBe(true);
+      }
+    });
+
+    it('leaves a schema that already has all three exactly as it found it', async () => {
+      const db = await setupHalfAppliedDb(CLASSIC_DEVICE_COLUMNS);
+      await db('device_statistics').insert({ deviceId: 'd1', mode: 'classic', totalTuttos: 4 });
+
+      await expect(classicStats.up(db)).resolves.not.toThrow();
+
+      const row = await db('device_statistics').where({ deviceId: 'd1' }).first();
+      expect(row.totalTuttos, 'a replay adds nothing and drops nothing').toBe(4);
+    });
   });
 
   // The two migrations that rebuild a table rather than add columns to one.
