@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PropsWithChildren, HTMLAttributes } from 'react';
 import DiceSummary from './DiceSummary';
 import { AUTO_CONTINUE_SECONDS } from '../../utils/uiTimings';
+import type { CardType } from '../../types';
 
 // The shrinking progress bar's transition.duration used to collapse to 0
 // under isTestEnv — now it is unconditionally AUTO_CONTINUE_SECONDS. Real
@@ -31,7 +32,7 @@ describe('DiceSummary', () => {
     summaryData: { won: true, score: 500, isTutto: false },
     continueCountdown: null,
     finishGame: vi.fn(),
-    currentCard: '200',
+    currentCard: '200' as CardType,
   };
 
   beforeEach(() => {
@@ -165,7 +166,7 @@ describe('DiceSummary', () => {
     const chainBank = {
       ...baseProps,
       summaryData: { won: true, score: 2500, isTutto: true },
-      currentCard: 'Kniffel',
+      currentCard: 'Kniffel' as CardType,
       banksChainTotal: true,
     };
 
