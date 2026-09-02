@@ -5,14 +5,16 @@
  * Split out of the former monolithic sockets.test.ts; see socketTestHarness.ts
  * for why, and for the port allocation rules.
  */
+import type { ChildProcess } from 'child_process';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io } from 'socket.io-client';
 import { startTestServer, testDelay, connected } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { nonNull } from '../src/testing/factories';
 
 describe('Server Socket E2E — configuration & player order', () => {
-  let serverProcess;
+  let serverProcess: ChildProcess | undefined;
 
   const PORT = TEST_PORTS.socketsConfig;
 
@@ -33,7 +35,7 @@ describe('Server Socket E2E — configuration & player order', () => {
   // on a valid follow-up through the SAME handler proves the path was live, so
   // the silence being asserted is a rejection rather than an absence.
   it('rejects invalid color strings in updatePlayerColor', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const timeoutId = setTimeout(() => {
         s1.disconnect();
@@ -67,7 +69,7 @@ describe('Server Socket E2E — configuration & player order', () => {
   }, 10000);
 
   it('ignores updateConfig with out-of-bounds values', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const timeoutId = setTimeout(() => {
         s1.disconnect();
@@ -98,7 +100,7 @@ describe('Server Socket E2E — configuration & player order', () => {
   }, 10000);
 
   it('adopts the host-chosen player order when the game starts (online random shuffle)', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob
 
@@ -157,7 +159,7 @@ describe('Server Socket E2E — configuration & player order', () => {
   }, 10000);
 
   it('reorderPlayers preserves server-side player objects, ignoring injected client fields', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
 
       const timeoutId = setTimeout(() => {
@@ -188,7 +190,7 @@ describe('Server Socket E2E — configuration & player order', () => {
   }, 10000);
 
   it('rejects reorderPlayers if new order has different length', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob
       const cleanup = () => { s1.disconnect(); s2.disconnect(); };
@@ -228,7 +230,7 @@ describe('Server Socket E2E — configuration & player order', () => {
   }, 10000);
 
   it('accepts turnDuration=0 and reconnectTimeout=0 to disable timers', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const timeoutId = setTimeout(() => {
         s1.disconnect();
@@ -259,7 +261,7 @@ describe('Server Socket E2E — configuration & player order', () => {
   }, 10000);
 
   it('reorderPlayers is blocked when the game is already playing', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob
 
@@ -321,7 +323,7 @@ describe('Server Socket E2E — configuration & player order', () => {
     // lobby-only concept. Without this, a client could flip the win condition
     // (winningScore) or rebuild the deck (initialCards) out from under an
     // in-progress game.
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
 
       const timeoutId = setTimeout(() => {
@@ -370,7 +372,7 @@ describe('Server Socket E2E — configuration & player order', () => {
     // The lobby updateConfig sets classic; once the game runs, neither
     // updateConfig nor a host pushState may flip it back — a mid-game rules
     // change would desync every client's turn logic.
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
 
       const timeoutId = setTimeout(() => {
@@ -420,7 +422,7 @@ describe('Server Socket E2E — configuration & player order', () => {
   }, 10000);
 
   it('rejects updateConfig with invalid initialCards (unknown type, negative count, non-integer, over limit)', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const timeoutId = setTimeout(() => {
         s1.disconnect();
@@ -442,7 +444,11 @@ describe('Server Socket E2E — configuration & player order', () => {
       });
 
       s1.on('gameState', (state) => {
-        const cards = state.initialCards;
+        // Annotated (rather than inferred from `state`, which is contextually
+        // `any` off an untyped socket listener): Object.values/keys on a bare
+        // `any` infers its generic to `unknown` under this tsconfig, and the
+        // relational checks below need real numbers.
+        const cards: Record<string, number> = state.initialCards;
         if (!cards) return;
         const hasUnknownKey = Object.keys(cards).some(k => !['Kleeblatt','Feuerwerk','Stop','Kniffel','Plus_Minus','x2','200','300','400','500','600'].includes(k));
         const hasNegative = Object.values(cards).some(v => v < 0);
@@ -466,7 +472,7 @@ describe('Server Socket E2E — configuration & player order', () => {
   }, 10000);
 
   it('rejects an all-zero initialCards deck, which would leave currentCard permanently null', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const timeoutId = setTimeout(() => { s1.disconnect(); reject(new Error('Test timed out')); }, 5000);
 
@@ -482,7 +488,8 @@ describe('Server Socket E2E — configuration & player order', () => {
 
       s1.on('gameState', (state) => {
         if (state.winningScore !== 7000) return;
-        const total = Object.values(state.initialCards).reduce((sum, v) => sum + v, 0);
+        const cards: Record<string, number> = state.initialCards;
+        const total = Object.values(cards).reduce((sum, v) => sum + v, 0);
         expect(total).toBeGreaterThan(0);
         clearTimeout(timeoutId);
         s1.disconnect();
@@ -492,7 +499,7 @@ describe('Server Socket E2E — configuration & player order', () => {
   }, 10000);
 
   it('reorderPlayers with a non-array newPlayers payload is ignored without crashing', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
       const s2 = io(`http://127.0.0.1:${PORT}`); // Bob
       const cleanup = () => { s1.disconnect(); s2.disconnect(); };
@@ -532,7 +539,7 @@ describe('Server Socket E2E — configuration & player order', () => {
   }, 10000);
 
   it('accepts updateConfig with a fully valid initialCards configuration', () => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const s1 = io(`http://127.0.0.1:${PORT}`);
       const timeoutId = setTimeout(() => {
         s1.disconnect();
@@ -590,7 +597,7 @@ describe('Server Socket E2E — configuration & player order', () => {
       s1.emit('reorderPlayers', { roomId: 'REORDER_HOSTILE', newPlayers: [42, 'Bob'] });
 
       await new Promise(resolve => setTimeout(resolve, testDelay(1000)));
-      expect(serverProcess.exitCode).toBeNull();
+      expect(nonNull(serverProcess).exitCode).toBeNull();
 
       // Still serving: a legitimate reorder after the hostile ones still applies,
       // and the roster the malformed pushes targeted is untouched.
