@@ -2,9 +2,12 @@
 process.env.TEST_DB = 'true';
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import database, { RECORD_COLUMNS, deviceCols, buildGlobalMapping } from './database';
+import database, {
+  RECORD_COLUMNS, deviceCols, buildGlobalMapping, type DeviceStatsRow, type GlobalStatsRow,
+} from './database';
 import { sanitizeStats } from './sanitize';
 import { DB_INIT_TIMEOUT_MS } from './testTimeouts';
+import { nonNull } from '../src/testing/factories';
 
 // The device_statistics/global_statistics columns that exist for reasons
 // deviceCols/buildGlobalMapping/RECORD_COLUMNS don't cover: primary keys, and
@@ -79,9 +82,8 @@ describe('Database Statistics Integration', () => {
     await database.updateDeviceStats(mockDeviceId, mockStats);
 
     // Retrieve the device stats.
-    const retrievedStats = await database.getDeviceStats(mockDeviceId);
+    const retrievedStats = nonNull(await database.getDeviceStats(mockDeviceId));
 
-    expect(retrievedStats).not.toBeNull();
     expect(retrievedStats.deviceId).toBe(mockDeviceId);
     expect(retrievedStats.gamesPlayed).toBe(1);
     expect(retrievedStats.feuerwerkBusts).toBe(1);
@@ -120,9 +122,8 @@ describe('Database Statistics Integration', () => {
     await database.updateGlobalStats(mockGlobalStats);
 
     // Retrieve global stats.
-    const retrievedStats = await database.getGlobalStats();
+    const retrievedStats = nonNull(await database.getGlobalStats());
 
-    expect(retrievedStats).not.toBeNull();
     expect(retrievedStats.totalGamesPlayed).toBeGreaterThanOrEqual(1);
     expect(typeof retrievedStats.totalTurns).toBe('number');
     expect(typeof retrievedStats.totalScore).toBe('number');
@@ -142,18 +143,18 @@ describe('Database Statistics Integration', () => {
       fastestLossTurns: null
     });
     
-    let stats = await database.getDeviceStats(mockDeviceId);
+    let stats = nonNull(await database.getDeviceStats(mockDeviceId));
     expect(stats.fastestWinTurns).toBe(10);
     expect(stats.fastestLossTurns).toBeNull();
-    
+
     // Then, play another game and lose in 20 turns. fastestWinTurns is passed as null.
     await database.updateDeviceStats(mockDeviceId, {
       gamesPlayed: 1,
       fastestWinTurns: null,
       fastestLossTurns: 20
     });
-    
-    stats = await database.getDeviceStats(mockDeviceId);
+
+    stats = nonNull(await database.getDeviceStats(mockDeviceId));
     // fastestWinTurns should still be 10, not null
     expect(stats.fastestWinTurns).toBe(10);
     expect(stats.fastestLossTurns).toBe(20);
@@ -163,16 +164,16 @@ describe('Database Statistics Integration', () => {
       gamesPlayed: 1,
       fastestWinTurns: 5
     });
-    
-    let globalStats = await database.getGlobalStats();
+
+    let globalStats = nonNull(await database.getGlobalStats());
     const currentFastestGlobal = globalStats.fastestWinTurns;
-    
+
     await database.updateGlobalStats({
       gamesPlayed: 1,
       fastestWinTurns: null
     });
-    
-    globalStats = await database.getGlobalStats();
+
+    globalStats = nonNull(await database.getGlobalStats());
     expect(globalStats.fastestWinTurns).toBe(currentFastestGlobal);
   });
 
@@ -185,16 +186,16 @@ describe('Database Statistics Integration', () => {
     const mockDeviceId = 'test-bool-min-device-' + Date.now();
 
     await database.updateDeviceStats(mockDeviceId, sanitizeStats({ gamesPlayed: 1, fastestWinTurns: 7 }));
-    expect((await database.getDeviceStats(mockDeviceId)).fastestWinTurns).toBe(7);
+    expect(nonNull(await database.getDeviceStats(mockDeviceId)).fastestWinTurns).toBe(7);
 
     await database.updateDeviceStats(mockDeviceId, sanitizeStats({ gamesPlayed: 1, fastestWinTurns: false }));
-    expect((await database.getDeviceStats(mockDeviceId)).fastestWinTurns).toBe(7);
+    expect(nonNull(await database.getDeviceStats(mockDeviceId)).fastestWinTurns).toBe(7);
 
     await database.updateGlobalStats(sanitizeStats({ gamesPlayed: 1, fastestWinTurns: 4 }));
-    const globalBefore = (await database.getGlobalStats()).fastestWinTurns;
+    const globalBefore = nonNull(await database.getGlobalStats()).fastestWinTurns;
 
     await database.updateGlobalStats(sanitizeStats({ gamesPlayed: 1, fastestWinTurns: false }));
-    expect((await database.getGlobalStats()).fastestWinTurns).toBe(globalBefore);
+    expect(nonNull(await database.getGlobalStats()).fastestWinTurns).toBe(globalBefore);
   });
 
   it('should not overwrite highestTurnScore with null in device stats', async () => {
@@ -205,7 +206,7 @@ describe('Database Statistics Integration', () => {
       highestTurnScore: 900,
     });
 
-    let stats = await database.getDeviceStats(mockDeviceId);
+    let stats = nonNull(await database.getDeviceStats(mockDeviceId));
     expect(stats.highestTurnScore).toBe(900);
 
     // A crafted payload with highestTurnScore: null must not wipe the stored
@@ -215,7 +216,7 @@ describe('Database Statistics Integration', () => {
       highestTurnScore: null,
     });
 
-    stats = await database.getDeviceStats(mockDeviceId);
+    stats = nonNull(await database.getDeviceStats(mockDeviceId));
     expect(stats.highestTurnScore).toBe(900);
 
     // A real new maximum still wins.
@@ -224,7 +225,7 @@ describe('Database Statistics Integration', () => {
       highestTurnScore: 1200,
     });
 
-    stats = await database.getDeviceStats(mockDeviceId);
+    stats = nonNull(await database.getDeviceStats(mockDeviceId));
     expect(stats.highestTurnScore).toBe(1200);
   });
 
@@ -234,7 +235,7 @@ describe('Database Statistics Integration', () => {
       highestTurnScore: 900,
     });
 
-    let globalStats = await database.getGlobalStats();
+    let globalStats = nonNull(await database.getGlobalStats());
     const currentHighest = globalStats.highestTurnScore;
     expect(currentHighest).toBeGreaterThanOrEqual(900);
 
@@ -243,7 +244,7 @@ describe('Database Statistics Integration', () => {
       highestTurnScore: null,
     });
 
-    globalStats = await database.getGlobalStats();
+    globalStats = nonNull(await database.getGlobalStats());
     expect(globalStats.highestTurnScore).toBe(currentHighest);
   });
 
@@ -258,9 +259,8 @@ describe('Database Statistics Integration', () => {
 
     const initialStats = await database.getGlobalStats() || { totalKleeblatt: 0, totalKleeblattCompleted: 0 };
     await database.updateGlobalStats(mockGlobalStats);
-    const retrievedStats = await database.getGlobalStats();
+    const retrievedStats = nonNull(await database.getGlobalStats());
 
-    expect(retrievedStats).not.toBeNull();
     // It should increment totalKleeblatt but NOT totalKleeblattCompleted
     expect(retrievedStats.totalKleeblatt).toBe(initialStats.totalKleeblatt + 1);
     expect(retrievedStats.totalKleeblattCompleted).toBe(initialStats.totalKleeblattCompleted);
@@ -269,9 +269,9 @@ describe('Database Statistics Integration', () => {
   it('does not count a default/custom game when the payload lacks isDefaultGame (partial update)', async () => {
     // e.g. an admin POST /api/stats/global adjusting a single counter — must
     // not increment either games-played-by-type column.
-    const before = await database.getGlobalStats();
+    const before = nonNull(await database.getGlobalStats());
     await database.updateGlobalStats({ totalPlaytime: 10 });
-    const after = await database.getGlobalStats();
+    const after = nonNull(await database.getGlobalStats());
 
     expect(after.defaultGamesPlayed).toBe(before.defaultGamesPlayed);
     expect(after.customGamesPlayed).toBe(before.customGamesPlayed);
@@ -279,18 +279,18 @@ describe('Database Statistics Integration', () => {
   });
 
   it('counts exactly one default game when isDefaultGame is true', async () => {
-    const before = await database.getGlobalStats();
+    const before = nonNull(await database.getGlobalStats());
     await database.updateGlobalStats({ gamesPlayed: 1, isDefaultGame: true });
-    const after = await database.getGlobalStats();
+    const after = nonNull(await database.getGlobalStats());
 
     expect(after.defaultGamesPlayed).toBe(before.defaultGamesPlayed + 1);
     expect(after.customGamesPlayed).toBe(before.customGamesPlayed);
   });
 
   it('counts exactly one custom game when isDefaultGame is false', async () => {
-    const before = await database.getGlobalStats();
+    const before = nonNull(await database.getGlobalStats());
     await database.updateGlobalStats({ gamesPlayed: 1, isDefaultGame: false });
-    const after = await database.getGlobalStats();
+    const after = nonNull(await database.getGlobalStats());
 
     expect(after.customGamesPlayed).toBe(before.customGamesPlayed + 1);
     expect(after.defaultGamesPlayed).toBe(before.defaultGamesPlayed);
@@ -303,11 +303,11 @@ describe('Database Statistics Integration', () => {
 
       await database.updateDeviceStats(deviceId, { gamesPlayed: 1, wins: 1, totalScore: 999 }, 'custom');
 
-      const normalized = await database.getDeviceStats(deviceId);
+      const normalized = nonNull(await database.getDeviceStats(deviceId));
       expect(normalized.gamesPlayed).toBe(1);
       expect(normalized.totalScore).toBe(4000);
 
-      const custom = await database.getDeviceStats(deviceId, 'custom');
+      const custom = nonNull(await database.getDeviceStats(deviceId, 'custom'));
       expect(custom.gamesPlayed).toBe(1);
       expect(custom.totalScore).toBe(999);
     });
@@ -317,7 +317,7 @@ describe('Database Statistics Integration', () => {
       const deviceId = 'default-mode-device-' + Date.now();
       await database.updateDeviceStats(deviceId, { gamesPlayed: 3 }, 'normalized');
 
-      expect((await database.getDeviceStats(deviceId)).gamesPlayed).toBe(3);
+      expect(nonNull(await database.getDeviceStats(deviceId)).gamesPlayed).toBe(3);
     });
 
     it('reports nothing for a mode this device has never played', async () => {
@@ -337,8 +337,8 @@ describe('Database Statistics Integration', () => {
 
       await database.updateDeviceStats(deviceId, { gamesPlayed: 1, wins: 0 }, 'custom');
 
-      expect((await database.getDeviceStats(deviceId)).currentWinStreak).toBe(2);
-      expect((await database.getDeviceStats(deviceId, 'custom')).currentWinStreak).toBe(0);
+      expect(nonNull(await database.getDeviceStats(deviceId)).currentWinStreak).toBe(2);
+      expect(nonNull(await database.getDeviceStats(deviceId, 'custom')).currentWinStreak).toBe(0);
     });
 
     it('keeps records apart, so a custom high score is not a personal best', async () => {
@@ -347,8 +347,8 @@ describe('Database Statistics Integration', () => {
 
       await database.updateDeviceStats(deviceId, { gamesPlayed: 1, highestTurnScore: 99999 }, 'custom');
 
-      expect((await database.getDeviceStats(deviceId)).highestTurnScore).toBe(1500);
-      expect((await database.getDeviceStats(deviceId, 'custom')).highestTurnScore).toBe(99999);
+      expect(nonNull(await database.getDeviceStats(deviceId)).highestTurnScore).toBe(1500);
+      expect(nonNull(await database.getDeviceStats(deviceId, 'custom')).highestTurnScore).toBe(99999);
     });
 
     it('accumulates across several games in the same mode', async () => {
@@ -356,7 +356,7 @@ describe('Database Statistics Integration', () => {
       await database.updateDeviceStats(deviceId, { gamesPlayed: 1, busts: 2 }, 'custom');
       await database.updateDeviceStats(deviceId, { gamesPlayed: 1, busts: 3 }, 'custom');
 
-      const custom = await database.getDeviceStats(deviceId, 'custom');
+      const custom = nonNull(await database.getDeviceStats(deviceId, 'custom'));
       expect(custom.gamesPlayed).toBe(2);
       expect(custom.busts).toBe(5);
     });
@@ -364,7 +364,7 @@ describe('Database Statistics Integration', () => {
 
   describe('a custom game contributes nothing but its own count', () => {
     it('leaves every running total untouched', async () => {
-      const before = await database.getGlobalStats();
+      const before = nonNull(await database.getGlobalStats());
 
       await database.updateGlobalStats({
         gamesPlayed: 1, totalPlaytime: 999, totalScore: 50000, totalTurns: 40,
@@ -372,7 +372,7 @@ describe('Database Statistics Integration', () => {
         isDefaultGame: false,
       });
 
-      const after = await database.getGlobalStats();
+      const after = nonNull(await database.getGlobalStats());
       expect(after.totalGamesPlayed).toBe(before.totalGamesPlayed);
       expect(after.totalPlaytime).toBe(before.totalPlaytime);
       expect(after.totalScore).toBe(before.totalScore);
@@ -393,7 +393,7 @@ describe('Database Statistics Integration', () => {
         gamesPlayed: 1, highestTurnScore: 5000, fastestWinTurns: 20,
         longestGameRounds: 30, isDefaultGame: true,
       });
-      const before = await database.getGlobalStats();
+      const before = nonNull(await database.getGlobalStats());
 
       await database.updateGlobalStats({
         gamesPlayed: 1, highestTurnScore: 999999, fastestWinTurns: 1,
@@ -402,7 +402,7 @@ describe('Database Statistics Integration', () => {
         isDefaultGame: false,
       });
 
-      const after = await database.getGlobalStats();
+      const after = nonNull(await database.getGlobalStats());
       expect(after.highestTurnScore).toBe(before.highestTurnScore);
       expect(after.fastestWinTurns).toBe(before.fastestWinTurns);
       expect(after.fastestLossTurns).toBe(before.fastestLossTurns);
@@ -443,19 +443,19 @@ describe('Database Statistics Integration', () => {
 
     // Win #1
     await database.updateDeviceStats(mockDeviceId, { gamesPlayed: 1, wins: 1 });
-    let stats = await database.getDeviceStats(mockDeviceId);
+    let stats = nonNull(await database.getDeviceStats(mockDeviceId));
     expect(stats.currentWinStreak).toBe(1);
     expect(stats.bestWinStreak).toBe(1);
 
     // Win #2 — streak continues
     await database.updateDeviceStats(mockDeviceId, { gamesPlayed: 1, wins: 1 });
-    stats = await database.getDeviceStats(mockDeviceId);
+    stats = nonNull(await database.getDeviceStats(mockDeviceId));
     expect(stats.currentWinStreak).toBe(2);
     expect(stats.bestWinStreak).toBe(2);
 
     // Loss — streak resets, best is preserved
     await database.updateDeviceStats(mockDeviceId, { gamesPlayed: 1, wins: 0 });
-    stats = await database.getDeviceStats(mockDeviceId);
+    stats = nonNull(await database.getDeviceStats(mockDeviceId));
     expect(stats.currentWinStreak).toBe(0);
     expect(stats.bestWinStreak).toBe(2);
 
@@ -463,7 +463,7 @@ describe('Database Statistics Integration', () => {
     await database.updateDeviceStats(mockDeviceId, { gamesPlayed: 1, wins: 1 });
     await database.updateDeviceStats(mockDeviceId, { gamesPlayed: 1, wins: 1 });
     await database.updateDeviceStats(mockDeviceId, { gamesPlayed: 1, wins: 1 });
-    stats = await database.getDeviceStats(mockDeviceId);
+    stats = nonNull(await database.getDeviceStats(mockDeviceId));
     expect(stats.currentWinStreak).toBe(3);
     expect(stats.bestWinStreak).toBe(3);
   });
@@ -480,11 +480,11 @@ describe('Database Statistics Integration', () => {
 
     // First write CREATES the row: the insert path decides the streak.
     await database.updateDeviceStats(deviceId, { gamesPlayed: 1, wins: 2 });
-    const afterInsert = (await database.getDeviceStats(deviceId)).currentWinStreak;
+    const afterInsert = nonNull(await database.getDeviceStats(deviceId)).currentWinStreak;
 
     // Second write MERGES into it: the CASE expression decides.
     await database.updateDeviceStats(deviceId, { gamesPlayed: 1, wins: 2 });
-    const afterMerge = (await database.getDeviceStats(deviceId)).currentWinStreak;
+    const afterMerge = nonNull(await database.getDeviceStats(deviceId)).currentWinStreak;
 
     expect(afterMerge, 'a second win continues the streak the first one started')
       .toBe(afterInsert + 1);
@@ -502,7 +502,7 @@ describe('Database Statistics Integration', () => {
     // actually records a game result may touch it.
     await database.updateDeviceStats(mockDeviceId, { totalPlaytime: 100 });
 
-    const stats = await database.getDeviceStats(mockDeviceId);
+    const stats = nonNull(await database.getDeviceStats(mockDeviceId));
     expect(stats.currentWinStreak).toBe(2);
     expect(stats.bestWinStreak).toBe(2);
     expect(stats.totalPlaytime).toBe(100);
@@ -511,7 +511,7 @@ describe('Database Statistics Integration', () => {
   it('creates a fresh row with a zero streak when the first update is partial', async () => {
     const mockDeviceId = 'partial-first-update-device-' + Date.now();
     await database.updateDeviceStats(mockDeviceId, { totalPlaytime: 50 });
-    const stats = await database.getDeviceStats(mockDeviceId);
+    const stats = nonNull(await database.getDeviceStats(mockDeviceId));
     expect(stats.currentWinStreak).toBe(0);
     expect(stats.bestWinStreak).toBe(0);
   });
@@ -523,8 +523,7 @@ describe('Database Statistics Integration', () => {
     // Should not throw
     await database.updateDeviceStats(mockDeviceId, almostEmptyStats);
 
-    const retrievedStats = await database.getDeviceStats(mockDeviceId);
-    expect(retrievedStats).not.toBeNull();
+    const retrievedStats = nonNull(await database.getDeviceStats(mockDeviceId));
     expect(retrievedStats.gamesPlayed).toBe(0);
     expect(retrievedStats.wins).toBe(0);
     expect(retrievedStats.totalPlaytime).toBe(0);
@@ -540,8 +539,7 @@ describe('Database Statistics Integration', () => {
     // Should not throw
     await database.updateGlobalStats(emptyGlobalStats);
 
-    const retrievedStats = await database.getGlobalStats();
-    expect(retrievedStats).not.toBeNull();
+    const retrievedStats = nonNull(await database.getGlobalStats());
     // Values should remain unchanged because they fall back to 0
     expect(retrievedStats.totalGamesPlayed).toBe(initialStats.totalGamesPlayed);
     expect(retrievedStats.totalScore).toBe(initialStats.totalScore);
@@ -560,7 +558,7 @@ describe('Database Statistics Integration', () => {
       highestX2TurnScore: 400,
     });
 
-    const stats = await database.getDeviceStats(mockDeviceId);
+    const stats = nonNull(await database.getDeviceStats(mockDeviceId));
     expect(stats.totalPlayersSum).toBe(4);
     expect(stats.mostPlayersInGame).toBe(4);
     expect(stats.totalRoundsSum).toBe(12);
@@ -580,7 +578,7 @@ describe('Database Statistics Integration', () => {
       highestX2TurnScore: 350,
     });
 
-    const stats = await database.getGlobalStats();
+    const stats = nonNull(await database.getGlobalStats());
     expect(stats.totalPlayersSum).toBeGreaterThanOrEqual(3);
     expect(stats.mostPlayersInGame).toBeGreaterThanOrEqual(3);
     expect(stats.totalRoundsSum).toBeGreaterThanOrEqual(9);
@@ -603,7 +601,7 @@ describe('Database Statistics Integration', () => {
     // Second update
     await database.updateGlobalStats(incrementalStats);
 
-    const retrievedStats = await database.getGlobalStats();
+    const retrievedStats = nonNull(await database.getGlobalStats());
     expect(retrievedStats.totalGamesPlayed).toBe(initialStats.totalGamesPlayed + 2);
     expect(retrievedStats.totalScore).toBe(initialStats.totalScore + 10000);
     expect(retrievedStats.totalBusts).toBe(initialStats.totalBusts + 4);
@@ -662,7 +660,16 @@ describe('Database Statistics Integration', () => {
   // to one and forgotten in the other simply stopped being a record there, with
   // nothing to say so. These cases are generated FROM the shared list, so a new
   // column is covered in both scopes the moment it is added to it.
-  describe.each(RECORD_COLUMNS)('the %s record is kept by both scopes', (column, aggregate) => {
+  // RECORD_COLUMNS is typed generically in production (readonly [col: string,
+  // agg: 'MAX' | 'MIN'][]) because database.ts only ever loops over it — it
+  // never indexes a row by one of its entries. This test does, so it narrows
+  // the column name to the keys the two row types actually share. This is
+  // still RECORD_COLUMNS itself (same array, same values), just retyped for
+  // this file, so a column added there is still picked up here automatically.
+  type RecordColumnKey = keyof DeviceStatsRow & keyof GlobalStatsRow;
+  const RECORD_COLUMN_CASES = RECORD_COLUMNS as readonly (readonly [RecordColumnKey, 'MAX' | 'MIN'])[];
+
+  describe.each(RECORD_COLUMN_CASES)('the %s record is kept by both scopes', (column, aggregate) => {
     // A worse value than `best` for this aggregate, and a better one.
     const best = aggregate === 'MAX' ? 900 : 3;
     const worse = aggregate === 'MAX' ? 100 : 30;
