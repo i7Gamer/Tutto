@@ -11,7 +11,7 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { formatTime } from '../utils/formatTime';
 import { buildTurnKey, parseSavedDiceState, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
-import { hasScoreInput, isSpecialCard } from '../utils/diceTurnControls';
+import { hasScoreInput, isSpecialCard, parseScoreInput } from '../utils/diceTurnControls';
 import { readableNameVars } from '../utils/contrastColor';
 import { gameModeOf, isCustomGameMode } from '../utils/statsApi';
 import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, DICE_PANEL_ENTRANCE_MS, TURN_URGENT_SECONDS } from '../utils/uiTimings';
@@ -342,7 +342,7 @@ export default function Game() {
     if (currentCard === 'Stop' && !showDiceGame) {
       const commitStop = () => {
         if (isClassic && hasPhysicalChain()) {
-          nextTurn(0, false, buildPhysicalSummary('stopCard', false, Math.max(0, parseInt(scoreInput, 10) || 0)));
+          nextTurn(0, false, buildPhysicalSummary('stopCard', false, parseScoreInput(scoreInput)));
           clearChain();
         } else {
           nextTurn(0, false);
@@ -382,7 +382,7 @@ export default function Game() {
   }, [currentCard, cards?.length]);
 
   const handleNextTurn = useCallback(() => {
-    let parsedScore = Math.max(0, parseInt(scoreInput, 10) || 0);
+    let parsedScore = parseScoreInput(scoreInput);
     if (applyBonus) {
       parsedScore = applyTuttoBonus(parsedScore, currentCard);
     }
@@ -420,13 +420,13 @@ export default function Game() {
         setScoreInput(prev => String((parseInt(prev, 10) || 0) + (isPlusMinus ? PLUS_MINUS_SCORE : KNIFFEL_SCORE)));
         return;
       }
-      nextTurn(0, false, buildPhysicalSummary('null', false, Math.max(0, parseInt(scoreInput, 10) || 0)));
+      nextTurn(0, false, buildPhysicalSummary('null', false, parseScoreInput(scoreInput)));
       clearChain();
       setScoreInput('');
       return;
     }
     if (isClassic && currentCard === 'Kleeblatt') {
-      nextTurn(0, isSuccess, buildPhysicalSummary(isSuccess ? 'banked' : 'null', isSuccess, Math.max(0, parseInt(scoreInput, 10) || 0)));
+      nextTurn(0, isSuccess, buildPhysicalSummary(isSuccess ? 'banked' : 'null', isSuccess, parseScoreInput(scoreInput)));
       clearChain();
       setScoreInput('');
       return;
@@ -434,7 +434,7 @@ export default function Game() {
     if (isClassic && currentCard === 'Stop' && hasPhysicalChain()) {
       // The local Continue button on a mid-chain Stop — same forfeit the
       // online auto-continue commits.
-      nextTurn(0, false, buildPhysicalSummary('stopCard', false, Math.max(0, parseInt(scoreInput, 10) || 0)));
+      nextTurn(0, false, buildPhysicalSummary('stopCard', false, parseScoreInput(scoreInput)));
       clearChain();
       setScoreInput('');
       return;
@@ -464,7 +464,7 @@ export default function Game() {
   // box banked a chain that had just been lost. Same call handleYesNo's No
   // already makes for a special card.
   const handlePhysicalBust = useCallback(() => {
-    nextTurn(0, false, buildPhysicalSummary('null', false, Math.max(0, parseInt(scoreInput, 10) || 0)));
+    nextTurn(0, false, buildPhysicalSummary('null', false, parseScoreInput(scoreInput)));
     clearChain();
     setScoreInput('');
   }, [nextTurn, buildPhysicalSummary, clearChain, scoreInput]);

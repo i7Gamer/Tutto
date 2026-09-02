@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildTurnKey, PHYSICAL_TURN_STATE_KEY } from '../utils/diceTurnState';
 import { MAX_CHAIN_CARDS } from '../types';
 import { isChainScoreList, isTurnCardList } from '../utils/turnShapes';
+import { parseScoreInput } from '../utils/diceTurnControls';
 import type { CardType, DiceSnapshot, Ruleset, TurnCardPlayed, TurnEnd, TurnSummary } from '../types';
 
 /*
@@ -210,7 +211,7 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
     // length, so it renders the running total and the chain position instead
     // of an empty board.
     onSnapshotRef.current?.({
-      turnScore: Math.max(0, parseInt(scoreInputRef.current, 10) || 0),
+      turnScore: parseScoreInput(scoreInputRef.current),
       keptDice: [],
       currentRoll: [],
       kniffelProgress: [],
@@ -253,7 +254,7 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
     // own +1000 to it right after this call — so what it holds now is exactly
     // what the player had when the card resolved, which is what the engine
     // replays each ±1000 against.
-    const scoreBeforeCard = Math.max(0, parseInt(scoreInputRef.current, 10) || 0);
+    const scoreBeforeCard = parseScoreInput(scoreInputRef.current);
     chainRef.current = {
       cards: source.cards.map((c, i) => (i === source.cards.length - 1 ? { ...c, completed: true } : c)),
       plusMinusScores: isPlusMinus ? [...source.plusMinusScores, scoreBeforeCard] : source.plusMinusScores,

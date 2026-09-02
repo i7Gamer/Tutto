@@ -15,6 +15,24 @@ export const isSpecialCard = (card: CardType | null): boolean =>
 export const hasScoreInput = (card: CardType | null): boolean =>
   !isSpecialCard(card) && card !== 'Stop';
 
+const SCORE_INPUT_RADIX = 10;
+// Nothing a player can enter is worth a negative turn score: the box is a
+// number input, but a pasted '-5' (or a browser that lets the minus through)
+// would otherwise subtract from the running total.
+const MIN_PARSED_SCORE = 0;
+
+/**
+ * The number behind whatever is currently in the score box. The box holds a
+ * string that is empty before anything is typed and can hold anything a paste
+ * puts there, so every reader wants the same three rules: leading digits win
+ * ('12abc' is 12, the way the number input's own coercion reads it), anything
+ * with no leading digits is 0, and the result never goes below zero. Shared by
+ * Game.tsx's commit handlers and usePhysicalChain's cache/snapshot writes so
+ * the score a turn commits and the score it broadcasts can never disagree.
+ */
+export const parseScoreInput = (raw: string): number =>
+  Math.max(MIN_PARSED_SCORE, parseInt(raw, SCORE_INPUT_RADIX) || MIN_PARSED_SCORE);
+
 export interface StopButtonText {
   key: string;
   fallback: string;

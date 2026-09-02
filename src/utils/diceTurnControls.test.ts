@@ -1,6 +1,6 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
-import { isSpecialCard, hasScoreInput, deriveTurnControls, sortKeptDiceForDisplay, withForcedFeuerwerkSelection } from './diceTurnControls';
+import { isSpecialCard, hasScoreInput, deriveTurnControls, sortKeptDiceForDisplay, withForcedFeuerwerkSelection, parseScoreInput } from './diceTurnControls';
 import { VALID_CARD_TYPES } from './configValidation';
 
 describe('diceTurnControls', () => {
@@ -162,5 +162,31 @@ describe('withForcedFeuerwerkSelection', () => {
     const stale = [{ id: 'd0', val: 2, selected: true }, { id: 'd1', val: 1, selected: false }];
 
     expect(withForcedFeuerwerkSelection(stale, 'classic').map(d => d.selected)).toEqual([false, true]);
+  });
+});
+
+describe('parseScoreInput', () => {
+  it('reads an untouched box as no score', () => {
+    expect(parseScoreInput('')).toBe(0);
+  });
+
+  it('reads a typed zero as zero', () => {
+    expect(parseScoreInput('0')).toBe(0);
+  });
+
+  it('reads a normal entry as its number', () => {
+    expect(parseScoreInput('350')).toBe(350);
+  });
+
+  it('clamps a negative entry to zero rather than subtracting from the total', () => {
+    expect(parseScoreInput('-5')).toBe(0);
+  });
+
+  it('keeps the leading digits of a part-numeric entry', () => {
+    expect(parseScoreInput('12abc')).toBe(12);
+  });
+
+  it('reads a non-numeric entry as no score instead of NaN', () => {
+    expect(parseScoreInput('abc')).toBe(0);
   });
 });
