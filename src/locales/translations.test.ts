@@ -171,3 +171,13 @@ describe('lobby.customGameNoStats wording', () => {
     expect(value).not.toMatch(/nicht gezählt/i);
   });
 });
+
+// Every other bust string in the German file says "Niete" — game.controls.bust
+// alone said "Fehlwurf", a different word for the same event nowhere else used
+// in the glossary.
+describe('German bust glossary consistency', () => {
+  it('the German file contains no "Fehlwurf"', () => {
+    const de = fs.readFileSync(dePath, 'utf8');
+    expect(de).not.toMatch(/Fehlwurf/);
+  });
+});
