@@ -1,6 +1,7 @@
 /**
  * @vitest-environment node
  */
+import type { ChildProcess } from 'child_process';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
@@ -9,6 +10,14 @@ import { registerApiRoutes } from './api';
 import { startTestServer } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+
+// setupTests.tsx stashes the real fetch here before installing its jsdom-only
+// stub; several describes below restore it explicitly rather than relying on
+// @vitest-environment node (see the comment at each call site).
+const restoreNativeFetch = (): void => {
+  const nativeFetch = (globalThis as { __nativeFetch?: typeof fetch }).__nativeFetch;
+  if (nativeFetch) globalThis.fetch = nativeFetch;
+};
 
 const ensureDistIndexHtml = () => {
   const distDir = path.join(__dirname, '../dist');
@@ -21,7 +30,7 @@ const ensureDistIndexHtml = () => {
 ensureDistIndexHtml();
 
 describe('API Endpoints Token Protection', () => {
-  let serverProcess;
+  let serverProcess: ChildProcess | undefined;
   const PORT = TEST_PORTS.apiTokenProtection;
   const API_TOKEN = 'tutto-local-dev-token';
 
@@ -298,7 +307,7 @@ describe('API Endpoints Token Protection', () => {
 });
 
 describe('POST /api/log/client-error rate limiting', () => {
-  let serverProcess;
+  let serverProcess: ChildProcess | undefined;
   // Was '3008', which server/socket.test.ts's 'Socket updateConfig' describe
   // block also hardcodes — two different test files spawning real server
   // subprocesses on the same port race for the bind whenever vitest runs
@@ -308,9 +317,7 @@ describe('POST /api/log/client-error rate limiting', () => {
   const PORT = TEST_PORTS.apiClientErrorRateLimit;
 
   beforeAll(async () => {
-    if (globalThis.__nativeFetch) {
-      globalThis.fetch = globalThis.__nativeFetch;
-    }
+    restoreNativeFetch();
 
     serverProcess = await startTestServer(PORT, { quietStderr: ['[client-error]'] });
   }, SERVER_BOOT_TIMEOUT_MS);
@@ -338,14 +345,12 @@ describe('POST /api/log/client-error rate limiting', () => {
 });
 
 describe('CORS_ORIGIN configuration', () => {
-  let serverProcess;
+  let serverProcess: ChildProcess | undefined;
   const PORT = TEST_PORTS.apiCorsOrigin;
   const CORS_ORIGIN = 'https://tutto.example.com';
 
   beforeAll(async () => {
-    if (globalThis.__nativeFetch) {
-      globalThis.fetch = globalThis.__nativeFetch;
-    }
+    restoreNativeFetch();
 
     serverProcess = await startTestServer(PORT, { env: { CORS_ORIGIN } });
   }, SERVER_BOOT_TIMEOUT_MS);
@@ -366,14 +371,12 @@ describe('CORS_ORIGIN configuration', () => {
 // no CORS_ORIGIN configured. This used to be a refusal to boot, which meant an
 // unconfigured container crash-looped.
 describe('production CORS defaults to same-origin', () => {
-  let serverProcess;
+  let serverProcess: ChildProcess | undefined;
   const PORT = TEST_PORTS.apiProductionCors;
   const FOREIGN_ORIGIN = 'https://evil.example';
 
   beforeAll(async () => {
-    if (globalThis.__nativeFetch) {
-      globalThis.fetch = globalThis.__nativeFetch;
-    }
+    restoreNativeFetch();
 
     serverProcess = await startTestServer(PORT, {
       env: {
@@ -500,14 +503,12 @@ describe('the SPA fallback when sendFile reports an error', () => {
 describe('STATS_RATE_LIMIT_MAX overrides the stats per-window cap', () => {
   // The test harness raises this for spawned servers so a slow poll cannot
   // 429 the rest of its suite; the override is only real if api.ts reads it.
-  let serverProcess;
+  let serverProcess: ChildProcess | undefined;
   const PORT = TEST_PORTS.apiStatsRateLimitEnv;
   const TINY_CAP = '2';
 
   beforeAll(async () => {
-    if (globalThis.__nativeFetch) {
-      globalThis.fetch = globalThis.__nativeFetch;
-    }
+    restoreNativeFetch();
     serverProcess = await startTestServer(PORT, { env: { STATS_RATE_LIMIT_MAX: TINY_CAP } });
   }, SERVER_BOOT_TIMEOUT_MS);
 
@@ -526,7 +527,7 @@ describe('STATS_RATE_LIMIT_MAX overrides the stats per-window cap', () => {
 });
 
 describe('GET /api/stats/global rate limiting', () => {
-  let serverProcess;
+  let serverProcess: ChildProcess | undefined;
   const PORT = TEST_PORTS.apiGlobalStatsRateLimit;
   // vite.config.ts raises STATS_RATE_LIMIT_MAX for every spawned server so a
   // polling suite cannot 429 itself; this suite is about the production cap,
@@ -534,9 +535,7 @@ describe('GET /api/stats/global rate limiting', () => {
   const PRODUCTION_STATS_CAP = '60';
 
   beforeAll(async () => {
-    if (globalThis.__nativeFetch) {
-      globalThis.fetch = globalThis.__nativeFetch;
-    }
+    restoreNativeFetch();
 
     serverProcess = await startTestServer(PORT, { env: { STATS_RATE_LIMIT_MAX: PRODUCTION_STATS_CAP } });
   }, SERVER_BOOT_TIMEOUT_MS);
