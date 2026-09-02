@@ -388,6 +388,46 @@ describe('App Integration (End-to-End)', () => {
     }
   });
 
+  it('drops the stored session when the restore is refused because the room is gone', async () => {
+    // The room itself is gone, not just this seat, so there is nothing left to
+    // reconnect to — and init() re-reads tutto_online_session on every mount,
+    // so a session left behind here asks the same dead question after every
+    // reload. Driven through the socket rather than by overriding the action,
+    // because the real joinRoom is half of what is under test.
+    mockSocketInstance = {
+      on: vi.fn(),
+      emit: vi.fn((event, ...args) => {
+        if (event === 'joinRoom') {
+          const callback = args[args.length - 1];
+          if (typeof callback === 'function') {
+            callback({ success: false, code: 'room-gone', error: 'That game is no longer on the server.' });
+          }
+        }
+      }),
+      disconnect: vi.fn(),
+      id: 'socket-room-gone',
+    };
+
+    sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'GHOST_ROOM', myName: 'Charlie' }));
+    act(() => {
+      useGameStore.setState({ pendingReconnectSession: { roomId: 'GHOST_ROOM', myName: 'Charlie' } });
+    });
+
+    const { unmount } = render(<App />);
+    await act(async () => { fireEvent.click(screen.getByText('home.restore.yes')); });
+
+    expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+    expect(useGameStore.getState().pendingReconnectSession).toBeNull();
+
+    // And the next page load does not ask again — which is the whole point:
+    // App's init() rebuilds pendingReconnectSession from that stored session.
+    unmount();
+    render(<App />);
+    expect(screen.queryByText('home.restore.title')).not.toBeInTheDocument();
+
+    mockSocketInstance = null;
+  });
+
   it('moves keyboard focus into the reconnect popup when it appears', async () => {
     // Neither of these popups is opened by a click, so nothing puts focus
     // inside them: it stays wherever the player left it, behind the backdrop.
