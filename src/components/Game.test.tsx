@@ -628,6 +628,37 @@ describe('Game Component Integration', () => {
       }));
     });
 
+    // Bug: clearing the pre-filled box after a Yes and pressing Next Turn
+    // (the bank-or-draw choice's own "bank" action, with nothing to bank)
+    // committed ended:'null' — an honest bust — while STILL marking the
+    // just-answered card completed:true, because handleNextTurn passed
+    // physicalAwaitingChoice straight through as lastCardCompleted regardless
+    // of whether anything was actually banked. That double-counted the turn:
+    // busts++ AND timesKniffelCompleted++ AND totalTuttos++ for a turn that
+    // scored 0 and banked nothing — a completed Kniffel that also ended null.
+    it('clearing the pre-filled box after a Yes and committing is an honest bust, not a completed tutto', () => {
+      useGameStore.setState({ currentCard: 'Kniffel' });
+      render(<Game />);
+
+      fireEvent.click(screen.getByRole('button', { name: /game.controls.yes/i }));
+      const scoreInput = screen.getByPlaceholderText('game.controls.scorePlaceholder') as HTMLInputElement;
+      expect(scoreInput.value).toBe('2000');
+
+      fireEvent.change(scoreInput, { target: { value: '' } });
+      fireEvent.click(screen.getByText('game.controls.nextTurn'));
+
+      expect(mockNextTurn).toHaveBeenCalledWith(0, false, expect.objectContaining({
+        cards: [{ card: 'Kniffel', completed: false }],
+        ended: 'null',
+        tuttoCount: 0,
+      }));
+      // Nothing was typed at commit time, so there is nothing to record as
+      // forfeited either — the summary must not claim a completed card AND a
+      // forfeit AND a tutto all from the same zero-value turn.
+      const summary = mockNextTurn.mock.calls[0][2];
+      expect(summary.forfeitedScore).toBeUndefined();
+    });
+
     it('a bust forfeits the chain and records what it cost', () => {
       // Physical mode had no way to SAY "I rolled a null". The only exit from
       // a scoring card was Next Turn, which reads banked-or-not from whether

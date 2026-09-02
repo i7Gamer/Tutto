@@ -340,6 +340,26 @@ describe('usePhysicalChain', () => {
         ended: 'null',
       });
     });
+
+    // Bug: completeCurrentCard (a special card's Yes) flags the chain
+    // awaitingChoice=true before the player decides to bank or draw. If the
+    // score box is then cleared and Next Turn pressed — the bank-or-draw
+    // choice's own "bank" action, with nothing typed — Game.tsx used to pass
+    // that stale awaitingChoice straight through as lastCompleted, so a
+    // caller could ask this for `ended: 'null', lastCompleted: true` even
+    // though completing a card is what BANKS its award. This is the single
+    // choke point that must refuse the contradiction regardless of what any
+    // caller passes.
+    it('never marks the last card completed when the turn ends null, whatever the caller asks for', () => {
+      writeCache(validEntry({
+        cards: [{ card: 'Kniffel', completed: true }], // completeCurrentCard already flagged it
+      }));
+      const { result } = mount();
+
+      const summary = result.current.buildSummary('null', true, 0);
+      expect(summary.cards).toEqual([{ card: 'Kniffel', completed: false }]);
+      expect(summary.tuttoCount).toBe(0);
+    });
   });
 
   describe('the cached entry follows the turn', () => {

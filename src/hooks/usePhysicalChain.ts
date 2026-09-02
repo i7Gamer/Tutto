@@ -302,8 +302,16 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
   // this is a floor under that number and never above it.
   const buildSummary = useCallback((ended: TurnEnd, lastCompleted: boolean, forfeitedScore = 0): TurnSummary => {
     const source = chainOrCurrentCard();
+    // Completing a card is what BANKS its award — a chain that ends 'null'
+    // banked nothing, so its last card can never also be "completed", no
+    // matter what the caller passes. Without this, clearing the score box
+    // after a special card's Yes (its bank-or-draw choice still open) and
+    // pressing Next Turn passed the stale awaitingChoice=true straight
+    // through as lastCompleted, recording a Kniffel that was simultaneously
+    // busted AND completed AND worth a tutto for a turn that banked 0.
+    const lastCardCompleted = ended === 'null' ? false : lastCompleted;
     const cards = source.cards.map((c, i) =>
-      i === source.cards.length - 1 ? { ...c, completed: lastCompleted } : { ...c });
+      i === source.cards.length - 1 ? { ...c, completed: lastCardCompleted } : { ...c });
     return {
       cards,
       tuttoCount: cards.reduce((n, c) => n + (c.completed ? (TUTTOS_PER_COMPLETION[c.card] ?? DEFAULT_TUTTOS_PER_COMPLETION) : 0), 0),
