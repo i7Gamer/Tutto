@@ -1,5 +1,5 @@
 import { getDeviceStats, updateDeviceStats, updateGlobalStats } from './database';
-import { sanitizeStats } from './sanitize';
+import { sanitizeStats, type SanitizedStats } from './sanitize';
 import { rooms, emitRoomState } from './rooms';
 import { statsModeFor } from './roomTypes';
 import { createSocketEventLimiter } from './rateLimit';
@@ -57,7 +57,7 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // from the config the game started with (frozen in pushState) and
     // written over whatever the payload claimed. The ruleset picks which
     // global row the numbers land in — frozen at kickoff the same way.
-    const globalStats = { ...sanitizeStats(payload), isDefaultGame: room.normalizedGame };
+    const globalStats: SanitizedStats = { ...sanitizeStats(payload), isDefaultGame: room.normalizedGame };
     // And so is how many people played it, for exactly the reason endGameStats
     // overrides the same pair on the device rows: the host's snapshot is its
     // own roster, which is missing anyone who left before the finish. Taking
