@@ -2,13 +2,19 @@ import { render, screen, waitFor, fireEvent, within } from '@testing-library/rea
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import Statistics from './Statistics';
 import { RECORD_FIELDS } from '../utils/statRecords';
+import { mockFetchJson, nonNull } from '../testing/factories';
 
 describe('Statistics Component', () => {
   beforeAll(() => {
-    class MockIntersectionObserver {
+    class MockIntersectionObserver implements IntersectionObserver {
+      root: Element | Document | null = null;
+      rootMargin = '';
+      scrollMargin = '';
+      thresholds: number[] = [];
       observe() {}
       unobserve() {}
       disconnect() {}
+      takeRecords(): IntersectionObserverEntry[] { return []; }
     }
     window.IntersectionObserver = MockIntersectionObserver;
   });
@@ -34,7 +40,7 @@ describe('Statistics Component', () => {
 
 
   it('renders loading state initially', () => {
-    global.fetch = vi.fn(() => new Promise(() => {})); // Never resolves
+    global.fetch = vi.fn(() => new Promise<Response>(() => {})); // Never resolves
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     expect(screen.getByText('statistics.loading')).toBeInTheDocument();
   });
@@ -42,7 +48,7 @@ describe('Statistics Component', () => {
   it('keeps the way back open while the statistics are still loading', () => {
     // A request that never settles (server down mid-fetch) used to leave the
     // spinner as the whole page, with a browser reload the only way out.
-    global.fetch = vi.fn(() => new Promise(() => {})); // Never resolves
+    global.fetch = vi.fn(() => new Promise<Response>(() => {})); // Never resolves
     const onBackMock = vi.fn();
     render(<Statistics deviceId="test-device" onBack={onBackMock} />);
 
@@ -93,18 +99,12 @@ describe('Statistics Component', () => {
       totalScore: 400000
     };
 
-    global.fetch = vi.fn((url) => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
       if (url.includes('global')) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve(mockGlobalStats)
-        });
+        return Promise.resolve(mockFetchJson(mockGlobalStats));
       }
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve(mockPersonalStats)
-      });
-    });
+      return Promise.resolve(mockFetchJson(mockPersonalStats));
+    }));
 
     const onBackMock = vi.fn();
     render(<Statistics deviceId="test-device" onBack={onBackMock} />);
@@ -141,23 +141,20 @@ describe('Statistics Component', () => {
   it('names the device in a header rather than in the URL', async () => {
     // A path segment is written into every fronting proxy's access.log, and
     // this id is what lets a client reclaim its seat — see deviceStatsRequest.
-    const fetchMock = vi.fn((url: string) => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(
-        url.includes('global')
-          ? { totalGamesPlayed: 1, totalPlaytime: 1 }
-          : { gamesPlayed: 1, wins: 1, totalPlaytime: 100 },
-      ),
-    }));
-    global.fetch = fetchMock;
+    const fetchMock = vi.fn((url: string, _init?: unknown) => Promise.resolve(mockFetchJson(
+      url.includes('global')
+        ? { totalGamesPlayed: 1, totalPlaytime: 1 }
+        : { gamesPlayed: 1, wins: 1, totalPlaytime: 100 },
+    )));
+    vi.stubGlobal('fetch', fetchMock);
 
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
 
     const personalCall = fetchMock.mock.calls.find(([url]) => !url.includes('global'));
     expect(personalCall).toBeDefined();
-    expect(personalCall[0]).not.toContain('test-device');
-    expect(personalCall[1]).toEqual({ headers: { 'x-tutto-device': 'test-device' } });
+    expect(nonNull(personalCall)[0]).not.toContain('test-device');
+    expect(nonNull(personalCall)[1]).toEqual({ headers: { 'x-tutto-device': 'test-device' } });
   });
 
   // The ruleset and normal/custom rows used to be small grey-on-white pills,
@@ -165,10 +162,7 @@ describe('Statistics Component', () => {
   // above them even though all three do the same job.
   describe('every tab row shares one selected/unselected treatment', () => {
     const renderTabs = async () => {
-      global.fetch = vi.fn(() => Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ gamesPlayed: 1, wins: 1, totalPlaytime: 100 }),
-      }));
+      global.fetch = vi.fn(() => Promise.resolve(mockFetchJson({ gamesPlayed: 1, wins: 1, totalPlaytime: 100 })));
       render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
       await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
       return {
@@ -218,10 +212,7 @@ describe('Statistics Component', () => {
       totalKniffelCompleted: 5,
     };
 
-    global.fetch = vi.fn((url) => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : { gamesPlayed: 1, wins: 1, totalPlaytime: 100 }),
-    }));
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global') ? mockGlobalStats : { gamesPlayed: 1, wins: 1, totalPlaytime: 100 }))));
 
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
@@ -243,10 +234,7 @@ describe('Statistics Component', () => {
       totalScore: 1500,
     };
 
-    global.fetch = vi.fn((url) => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(url.includes('global') ? {} : mockPersonalStats),
-    }));
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global') ? {} : mockPersonalStats))));
 
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
@@ -269,10 +257,7 @@ describe('Statistics Component', () => {
       totalScore: 0,
     };
 
-    global.fetch = vi.fn((url) => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(url.includes('global') ? {} : mockPersonalStats),
-    }));
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global') ? {} : mockPersonalStats))));
 
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
@@ -308,10 +293,7 @@ describe('Statistics Component', () => {
       bestWinStreak: 5,
     };
 
-    global.fetch = vi.fn((url) => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(url.includes('global') ? {} : mockPersonalStats),
-    }));
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global') ? {} : mockPersonalStats))));
 
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
@@ -344,10 +326,7 @@ describe('Statistics Component', () => {
       highestX2TurnScore: 1200,
     };
 
-    global.fetch = vi.fn((url) => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : mockPersonalStats),
-    }));
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global') ? mockGlobalStats : mockPersonalStats))));
 
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
@@ -385,10 +364,7 @@ describe('Statistics Component', () => {
       longestGameRounds: 0,
     };
 
-    global.fetch = vi.fn((url) => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : mockPersonalStats),
-    }));
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global') ? mockGlobalStats : mockPersonalStats))));
 
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
@@ -419,10 +395,7 @@ describe('Statistics Component', () => {
       highestX2TurnScore: 900,
     };
 
-    global.fetch = vi.fn((url) => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : mockPersonalStats),
-    }));
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global') ? mockGlobalStats : mockPersonalStats))));
 
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
@@ -440,16 +413,13 @@ describe('Statistics Component', () => {
     const mockPersonalStats = { gamesPlayed: 1, wins: 0, fastestLossTurns: 4 };
     const mockGlobalStats = { totalGamesPlayed: 5, totalPlaytime: 500, fastestLossTurns: 4 };
 
-    global.fetch = vi.fn((url) => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : mockPersonalStats),
-    }));
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global') ? mockGlobalStats : mockPersonalStats))));
 
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
 
     const tile = screen.getByText('statistics.fastestLossTurns').parentElement;
-    expect(within(tile).queryByText(/statistics\.globalRecord/)).toBeInTheDocument();
+    expect(within(nonNull(tile)).queryByText(/statistics\.globalRecord/)).toBeInTheDocument();
   });
 
   // Every MAX/MIN record field, driven from one table instead of one test per
@@ -478,12 +448,9 @@ describe('Statistics Component', () => {
   const RECORD_TABLE = RECORD_FIELDS.map((field) => ({ field, ...RECORD_TILES[field] }));
 
   const renderWithStats = async (field: string, personalValue: number, globalValue: number, ruleset?: 'classic') => {
-    global.fetch = vi.fn((url: string) => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(url.includes('global')
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global')
         ? { totalGamesPlayed: 5, totalPlaytime: 500, [field]: globalValue }
-        : { gamesPlayed: 1, wins: 1, [field]: personalValue }),
-    }));
+        : { gamesPlayed: 1, wins: 1, [field]: personalValue }))));
 
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
@@ -499,7 +466,7 @@ describe('Statistics Component', () => {
 
       await waitFor(() => expect(screen.getByText(labelKey)).toBeInTheDocument());
       const tile = screen.getByText(labelKey).parentElement;
-      expect(within(tile).queryByText(/statistics\.globalRecord/)).toBeInTheDocument();
+      expect(within(nonNull(tile)).queryByText(/statistics\.globalRecord/)).toBeInTheDocument();
     });
 
     it.each(RECORD_TABLE)('does not badge $field when the personal value falls short of the global one', async ({ field, labelKey, ruleset }) => {
@@ -507,7 +474,7 @@ describe('Statistics Component', () => {
 
       await waitFor(() => expect(screen.getByText(labelKey)).toBeInTheDocument());
       const tile = screen.getByText(labelKey).parentElement;
-      expect(within(tile).queryByText(/statistics\.globalRecord/)).not.toBeInTheDocument();
+      expect(within(nonNull(tile)).queryByText(/statistics\.globalRecord/)).not.toBeInTheDocument();
     });
   });
 
@@ -516,10 +483,7 @@ describe('Statistics Component', () => {
       totalGamesPlayed: 5, totalPlaytime: 500, fastestWinTurns: 6, fastestLossTurns: 4,
     };
 
-    global.fetch = vi.fn((url) => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : { gamesPlayed: 1 }),
-    }));
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global') ? mockGlobalStats : { gamesPlayed: 1 }))));
 
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
@@ -528,7 +492,7 @@ describe('Statistics Component', () => {
     // Retried: the personal panel is still mid-exit for a tick after the click.
     await waitFor(() => {
       const tile = screen.getByText('statistics.fastestLossTurns').parentElement;
-      expect(within(tile).queryByText('4'), 'the global minimum loss length has no tile').toBeInTheDocument();
+      expect(within(nonNull(tile)).queryByText('4'), 'the global minimum loss length has no tile').toBeInTheDocument();
     });
   });
 
@@ -548,10 +512,7 @@ describe('Statistics Component', () => {
       totalScore: 90000,
     };
 
-    global.fetch = vi.fn((url) => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : mockPersonalStats),
-    }));
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global') ? mockGlobalStats : mockPersonalStats))));
 
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
@@ -576,10 +537,7 @@ describe('Statistics Component', () => {
       totalScore: 500000, // avg 500/turn — personal is worse (lower)
     };
 
-    global.fetch = vi.fn((url) => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : mockPersonalStats),
-    }));
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global') ? mockGlobalStats : mockPersonalStats))));
 
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
@@ -600,10 +558,7 @@ describe('Statistics Component', () => {
     };
     const mockGlobalStats = {}; // no games recorded globally yet
 
-    global.fetch = vi.fn((url) => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(url.includes('global') ? mockGlobalStats : mockPersonalStats),
-    }));
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global') ? mockGlobalStats : mockPersonalStats))));
 
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
@@ -619,10 +574,7 @@ describe('Statistics Component', () => {
       currentWinStreak: 2,
     };
 
-    global.fetch = vi.fn((url) => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve(url.includes('global') ? {} : mockPersonalStats),
-    }));
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global') ? {} : mockPersonalStats))));
 
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
@@ -633,22 +585,20 @@ describe('Statistics Component', () => {
   describe('switching the personal tab between normal and custom games', () => {
     // One row per mode, told apart by gamesPlayed so the rendered numbers say
     // which bucket is on screen.
-    const serveByMode = (byMode: Record<string, Record<string, number> | undefined>) =>
-      vi.fn((url: string) => Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve(
-          url.includes('global')
-            ? { totalGamesPlayed: 50, totalPlaytime: 1000, highestTurnScore: 3000, totalTurns: 100, totalScore: 40000 }
-            : byMode[new URL(url, 'http://localhost').searchParams.get('mode') ?? 'normalized'] ?? {},
-        ),
-      }));
+    const serveByMode = (byMode: Record<string, Record<string, number> | undefined>) => {
+      vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(
+        url.includes('global')
+          ? { totalGamesPlayed: 50, totalPlaytime: 1000, highestTurnScore: 3000, totalTurns: 100, totalScore: 40000 }
+          : byMode[new URL(url, 'http://localhost').searchParams.get('mode') ?? 'normalized'] ?? {},
+      ))));
+    };
 
     const showCustom = async () => {
       fireEvent.click(screen.getByRole('tab', { name: /statistics\.customGames/i }));
     };
 
     it('starts on the normal bucket', async () => {
-      global.fetch = serveByMode({ normalized: { gamesPlayed: 11, wins: 5 }, custom: { gamesPlayed: 77, wins: 70 } });
+      serveByMode({ normalized: { gamesPlayed: 11, wins: 5 }, custom: { gamesPlayed: 77, wins: 70 } });
       render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
       await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
 
@@ -657,7 +607,7 @@ describe('Statistics Component', () => {
     });
 
     it('shows the custom bucket once switched', async () => {
-      global.fetch = serveByMode({ normalized: { gamesPlayed: 11, wins: 5 }, custom: { gamesPlayed: 77, wins: 70 } });
+      serveByMode({ normalized: { gamesPlayed: 11, wins: 5 }, custom: { gamesPlayed: 77, wins: 70 } });
       render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
       await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
 
@@ -668,7 +618,7 @@ describe('Statistics Component', () => {
     });
 
     it('has its own empty state for a device that has played no custom game', async () => {
-      global.fetch = serveByMode({ normalized: { gamesPlayed: 11, wins: 5 }, custom: {} });
+      serveByMode({ normalized: { gamesPlayed: 11, wins: 5 }, custom: {} });
       render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
       await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
 
@@ -682,7 +632,7 @@ describe('Statistics Component', () => {
       // The global row holds no custom games at all, so "better than global
       // average" and "global record" would be measuring against a different
       // population entirely.
-      global.fetch = serveByMode({
+      serveByMode({
         normalized: { gamesPlayed: 5, wins: 1, totalTurns: 10, busts: 9, totalScore: 100, highestTurnScore: 3000 },
         custom: { gamesPlayed: 5, wins: 1, totalTurns: 10, busts: 9, totalScore: 100, highestTurnScore: 3000 },
       });
@@ -700,7 +650,7 @@ describe('Statistics Component', () => {
     });
 
     it('leaves the global tab alone', async () => {
-      global.fetch = serveByMode({ normalized: { gamesPlayed: 11 }, custom: { gamesPlayed: 77 } });
+      serveByMode({ normalized: { gamesPlayed: 11 }, custom: { gamesPlayed: 77 } });
       render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
       await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
 
@@ -719,25 +669,22 @@ describe('Statistics Component', () => {
       const requestedUrls: string[] = [];
       const fetchMock = vi.fn((url: string) => {
         requestedUrls.push(url);
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve(
-            url.includes('global')
-              ? { totalGamesPlayed: 50, totalPlaytime: 1000, totalTuttos: 40, mostCardsInTurn: 4, highestForfeitedTurnScore: 2500 }
-              : ({
-                normalized: { gamesPlayed: 11, wins: 5, highestFeuerwerkTurnScore: 800 },
-                classic: { gamesPlayed: 33, wins: 30, totalTuttos: 12, mostCardsInTurn: 3, highestForfeitedTurnScore: 1800 },
-                classic_custom: { gamesPlayed: 44, wins: 40 },
-              } as Record<string, Record<string, number>>)[new URL(url, 'http://localhost').searchParams.get('mode') ?? 'normalized'] ?? {},
-          ),
-        });
+        return Promise.resolve(mockFetchJson(
+          url.includes('global')
+            ? { totalGamesPlayed: 50, totalPlaytime: 1000, totalTuttos: 40, mostCardsInTurn: 4, highestForfeitedTurnScore: 2500 }
+            : ({
+              normalized: { gamesPlayed: 11, wins: 5, highestFeuerwerkTurnScore: 800 },
+              classic: { gamesPlayed: 33, wins: 30, totalTuttos: 12, mostCardsInTurn: 3, highestForfeitedTurnScore: 1800 },
+              classic_custom: { gamesPlayed: 44, wins: 40 },
+            } as Record<string, Record<string, number>>)[new URL(url, 'http://localhost').searchParams.get('mode') ?? 'normalized'] ?? {},
+        ));
       });
       return { fetchMock, requestedUrls };
     };
 
     it('fetches the classic bucket and the classic global row once switched', async () => {
       const { fetchMock, requestedUrls } = serveBuckets();
-      global.fetch = fetchMock;
+      vi.stubGlobal('fetch', fetchMock);
       render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
       await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
 
@@ -751,7 +698,7 @@ describe('Statistics Component', () => {
 
     it('maps the custom tab to the classic_custom bucket under classic', async () => {
       const { fetchMock } = serveBuckets();
-      global.fetch = fetchMock;
+      vi.stubGlobal('fetch', fetchMock);
       render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
       await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
 
@@ -763,7 +710,7 @@ describe('Statistics Component', () => {
 
     it('swaps the per-card turn records for the chain records in the classic view', async () => {
       const { fetchMock } = serveBuckets();
-      global.fetch = fetchMock;
+      vi.stubGlobal('fetch', fetchMock);
       render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
       await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
 
@@ -785,16 +732,13 @@ describe('Statistics Component', () => {
       // if the load FAILS those numbers would sit under the new tab's label
       // and read as that bucket's data.
       let failNext = false;
-      global.fetch = vi.fn((url: string) => Promise.resolve(
+      vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(
         failNext
-          ? { ok: false, status: 500, json: () => Promise.resolve({}) }
-          : {
-            ok: true,
-            json: () => Promise.resolve(url.includes('global')
-              ? { totalGamesPlayed: 50 }
-              : { gamesPlayed: 11, wins: 5 }),
-          },
-      ));
+          ? mockFetchJson({}, { ok: false, status: 500 })
+          : mockFetchJson(url.includes('global')
+            ? { totalGamesPlayed: 50 }
+            : { gamesPlayed: 11, wins: 5 }),
+      )));
       render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
       await waitFor(() => expect(screen.getByText('11')).toBeInTheDocument());
 
@@ -813,7 +757,7 @@ describe('Statistics Component', () => {
 
     it('shows a dash, not a zero, for classic records that do not exist yet', async () => {
       const { fetchMock } = serveBuckets();
-      global.fetch = fetchMock;
+      vi.stubGlobal('fetch', fetchMock);
       render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
       await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
 
@@ -830,7 +774,7 @@ describe('Statistics Component', () => {
 
     it('shows the Feuerwerk/x2 breakdown rows as draw counts only under classic', async () => {
       const { fetchMock } = serveBuckets();
-      global.fetch = fetchMock;
+      vi.stubGlobal('fetch', fetchMock);
       render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
       await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
 
@@ -859,10 +803,7 @@ describe('Statistics Component', () => {
 
   describe('custom games on the global tab', () => {
     const showGlobalTab = async (globalStats: Record<string, number>) => {
-      global.fetch = vi.fn((url) => Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve(url.includes('global') ? globalStats : { gamesPlayed: 1, wins: 1, totalPlaytime: 100 }),
-      }));
+      vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global') ? globalStats : { gamesPlayed: 1, wins: 1, totalPlaytime: 100 }))));
       render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
       await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
       fireEvent.click(screen.getByRole('tab', { name: /statistics\.globalCommunity/i }));
