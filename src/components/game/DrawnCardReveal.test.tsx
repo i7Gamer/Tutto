@@ -1,10 +1,11 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import DrawnCardReveal from './DrawnCardReveal';
+import type { CardType } from '../../types';
 
 describe('DrawnCardReveal', () => {
   const baseProps = {
-    card: '500',
+    card: '500' as CardType,
     chainCardCount: 2,
     turnScore: 1800,
     onContinue: vi.fn(),
