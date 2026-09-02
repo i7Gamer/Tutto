@@ -80,6 +80,7 @@ export default function LocalLobby() {
             whileTap={{ scale: 0.95 }}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-3 rounded-lg font-semibold flex items-center gap-2 transition-colors"
             onClick={handleAddPlayer}
+            aria-label={t('lobby.addPlayerButton', 'Add')}
           >
             <UserPlus size={18} /> <span className="hidden sm:inline">{t('lobby.addPlayerButton', 'Add')}</span>
           </motion.button>

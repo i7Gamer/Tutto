@@ -522,14 +522,10 @@ test.describe('HUD vs dice panel, help button z-order (A9)', () => {
     a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 
   const openDicePanelOnPhone = async (page: Page) => {
-    // The lobby's own "Add" button label is `hidden sm:inline`
-    // (LocalLobby.tsx) — icon-only, with no aria-label, below the sm
-    // breakpoint — so the phone viewport is applied only after the local
-    // game is under way, not before the lobby form is used.
+    await page.setViewportSize({ width: 375, height: 812 });
     await seedLocalDeck(page);
     await page.goto('/');
     await startLocalGame(page);
-    await page.setViewportSize({ width: 375, height: 812 });
     await page.getByRole('button', { name: /Roll Dice/i }).click();
     await expect(page.getByRole('button', { name: /Stop & Score/i })).toBeVisible({ timeout: 15000 });
   };

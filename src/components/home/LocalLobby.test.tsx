@@ -66,6 +66,12 @@ describe('LocalLobby', () => {
     expect(screen.getByText('lobby.addPlayerButton')).toBeInTheDocument();
   });
 
+  it('gives the Add-player button an explicit aria-label, since its text label is hidden below sm', () => {
+    render(<LocalLobby />);
+    const button = screen.getByRole('button', { name: 'lobby.addPlayerButton' });
+    expect(button).toHaveAttribute('aria-label', 'lobby.addPlayerButton');
+  });
+
   it('disables StartGameButton when player count is less than 2', () => {
     useGameStore.setState({ players: [] });
     render(<LocalLobby />);
