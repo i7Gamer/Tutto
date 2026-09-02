@@ -267,6 +267,46 @@ describe('HistoryLog', () => {
     expect(screen.getByText('history.chainBust')).toBeInTheDocument();
   });
 
+  // A classic chain forfeited by the server clock arrives as historyType
+  // 'timeout' but still carries `cards` (see coreGameEngine's calculateNextTurn),
+  // so it used to fall through to the chain branch's default return —
+  // history.chainBust — and claim a bust that was never charged.
+  it('reports a chain forfeited by the clock as a timeout, not a bust', () => {
+    const entry: HistoryEntry = {
+      id: '6-Alice-1',
+      round: 6,
+      playerName: 'Alice',
+      card: '200',
+      type: 'timeout',
+      score: 0,
+      cards: ['200', 'Kniffel'],
+    };
+    useGameStore.setState({ historyLog: [entry] });
+    render(<HistoryLog />);
+
+    expect(screen.getByText('history.chainTimeout')).toBeInTheDocument();
+    expect(screen.queryByText('history.chainBust')).not.toBeInTheDocument();
+  });
+
+  // A genuine multi-card bust (a real dice bust, not a clock forfeit) must
+  // still land on chainBust — the new timeout branch must not swallow it.
+  it('still reports a genuine multi-card bust as chainBust, not chainTimeout', () => {
+    const entry: HistoryEntry = {
+      id: '6-Alice-2',
+      round: 6,
+      playerName: 'Alice',
+      card: '200',
+      type: 'bust',
+      score: 0,
+      cards: ['200', 'x2'],
+    };
+    useGameStore.setState({ historyLog: [entry] });
+    render(<HistoryLog />);
+
+    expect(screen.getByText('history.chainBust')).toBeInTheDocument();
+    expect(screen.queryByText('history.chainTimeout')).not.toBeInTheDocument();
+  });
+
   // What the classic 0-floor really took. The engine records it per hit
   // (historyEntry.deductedAmounts); this log is the only thing that shows it,
   // and it used to re-derive a flat PLUS_MINUS_SCORE instead — so a leader on

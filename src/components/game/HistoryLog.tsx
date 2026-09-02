@@ -61,6 +61,14 @@ export default function HistoryLog() {
         }
         return t('history.chainSuccess', { name, score: entry.score, chain, defaultValue: `${name} scored ${entry.score} pts (${chain})` });
       }
+      // The server clock can forfeit a classic chain mid-draw or at the
+      // bank-or-draw choice — historyType 'timeout' — and that entry still
+      // carries `cards` (see coreGameEngine's calculateNextTurn), so without
+      // this check it fell through to chainBust and claimed a bust that was
+      // never charged.
+      if (entry.type === 'timeout') {
+        return t('history.chainTimeout', { name, chain, defaultValue: `${name} ran out of time (${chain})` });
+      }
       return t('history.chainBust', { name, chain, defaultValue: `${name} lost everything (${chain})` });
     }
 

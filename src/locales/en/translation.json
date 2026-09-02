@@ -426,6 +426,7 @@
   "history.chainSuccess": "{{name}} scored {{score}} pts ({{chain}})",
   "history.chainSuccessDeducted": "{{name}} scored {{score}} pts ({{chain}}) — {{deducted}}",
   "history.chainBust": "{{name}} lost everything ({{chain}})",
+  "history.chainTimeout": "{{name}} ran out of time ({{chain}})",
   "history.chainKleeblatt": "{{name}} completed Kleeblatt and won! ({{chain}})",
   "history.fail": "{{name}} failed {{card}}",
   "history.success": "{{name}} scored {{score}} pts on {{card}}",
