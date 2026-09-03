@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { UserPlus } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -7,10 +7,17 @@ import { DiceModeSelector, RulesetSelector, AdvancedOptionsToggle, AdvancedOptio
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
 import { MAX_PLAYER_NAME_LENGTH } from '../../utils/configValidation';
 import { useGameStore } from '../../store/useGameStore';
+import { setHasFormDraft } from '../../utils/uiBusyState';
 
 export default function LocalLobby() {
   const { t } = useTranslation();
   const [newPlayerName, setNewPlayerName] = useState('');
+  // A half-typed name is state a service-worker reload would drop, so it
+  // counts as a form draft for the update idle check — the online lobby
+  // reports its join form the same way. Cleared on unmount: a lobby that is
+  // not mounted holds no draft.
+  useEffect(() => { setHasFormDraft(newPlayerName.trim().length > 0); }, [newPlayerName]);
+  useEffect(() => () => setHasFormDraft(false), []);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const advancedOptionsPanelId = useId();
   // Selects only what this lobby renders — the whole store used to arrive as

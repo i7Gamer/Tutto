@@ -1,6 +1,7 @@
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import LocalLobby from './LocalLobby';
+import { uiBusyState, _resetUiBusyStateForTests } from '../../utils/uiBusyState';
 import { useGameStore } from '../../store/useGameStore';
 import type { Player } from '../../types';
 
@@ -248,5 +249,27 @@ describe('LocalLobby wiring into the shared components', () => {
     render(<LocalLobby />);
 
     expect(screen.getByTestId('start-game-button')).toHaveAttribute('data-disabled-message', '');
+  });
+});
+
+// A half-typed player name is component state that a service-worker reload
+// would drop, exactly like the online lobby's join form (round 7, item 33).
+describe('LocalLobby reports a name draft to the update idle check', () => {
+  afterEach(() => { _resetUiBusyStateForTests(); });
+
+  it('is busy while a name is typed, idle again once it is cleared or the lobby unmounts', () => {
+    const { unmount } = render(<LocalLobby />);
+    const input = screen.getByPlaceholderText('lobby.newPlayerPlaceholder');
+    expect(uiBusyState.getState().hasFormDraft).toBe(false);
+
+    fireEvent.change(input, { target: { value: 'Ali' } });
+    expect(uiBusyState.getState().hasFormDraft).toBe(true);
+
+    fireEvent.change(input, { target: { value: '   ' } });
+    expect(uiBusyState.getState().hasFormDraft, 'whitespace is not a draft').toBe(false);
+
+    fireEvent.change(input, { target: { value: 'Alice' } });
+    unmount();
+    expect(uiBusyState.getState().hasFormDraft).toBe(false);
   });
 });
