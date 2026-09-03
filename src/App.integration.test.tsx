@@ -13,11 +13,30 @@ import { TOTAL_DICE } from './utils/turnShapes';
 import type { JoinRoomResponse } from './store/storeTypes';
 import { makePlayer, makeDiceSnapshot, nonNull } from './testing/factories';
 
+// The full-game test below runs the dice panel's real timers — Game.tsx's
+// entrance delay, DiceGame's tumble/stagger/settle chain and the summary's
+// auto-continue countdown — as genuine setTimeouts, twice over (one turn
+// each for Alice and Bob). At production pace that is ~10 s of pure waiting
+// in a test that is about the wiring, not the choreography, so the durations
+// are shortened here while staying real: nothing in this file fakes the
+// clock for that test, the waits below still elapse on their own. The
+// countdown is the floor — useAutoContinueCountdown ticks in whole seconds,
+// so 1 is as short as it goes.
+const FAST_TIMINGS = vi.hoisted(() => ({
+  DICE_PANEL_ENTRANCE_MS: 20,
+  DIE_TUMBLE_MS: 20,
+  DIE_STAGGER_MS: 5,
+  ROLL_SETTLE_BUFFER_MS: 5,
+  AUTO_CONTINUE_SECONDS: 1,
+}));
+vi.mock('./utils/uiTimings', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./utils/uiTimings')>()),
+  ...FAST_TIMINGS,
+}));
+
 // Every die in the opening roll tumbles for DIE_TUMBLE_MS, then the dice
 // settle one after another DIE_STAGGER_MS apart, and the roll finalizes
 // ROLL_SETTLE_BUFFER_MS after the last one settles (see DiceGame.tsx's roll()).
-// This file never mocks uiTimings, so — unlike DiceGame's own unit tests —
-// these are real setTimeouts that only fire once real wall-clock time passes.
 // Game.tsx's own DICE_PANEL_ENTRANCE_MS timeout has to elapse first (it is
 // what flips panelReady, which is what starts the roll), so the wait below
 // covers both in sequence. A small margin on top keeps it past the deadline
@@ -27,9 +46,9 @@ const FULL_ROLL_ANIMATION_MS =
   DICE_PANEL_ENTRANCE_MS + DIE_TUMBLE_MS + (TOTAL_DICE - 1) * DIE_STAGGER_MS + ROLL_SETTLE_BUFFER_MS + ROLL_ANIMATION_MARGIN_MS;
 
 // The dice summary auto-continues to the next player only after a real
-// AUTO_CONTINUE_SECONDS countdown (useAutoContinueCountdown) — no test-env
-// shortcut collapses it anymore, so a wait for that transition needs a
-// timeout comfortably past the countdown's real wall-clock length.
+// AUTO_CONTINUE_SECONDS countdown (useAutoContinueCountdown), so a wait for
+// that transition needs a timeout comfortably past the countdown's real
+// wall-clock length.
 const AUTO_CONTINUE_WAIT_MS = AUTO_CONTINUE_SECONDS * 1000 + 2000;
 
 // Mock confetti
