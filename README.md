@@ -156,6 +156,8 @@ All configuration is environment variables — the image contains no `.env` file
 
 Statistics live in a SQLite database at `/data/stats.db`, which the examples above keep in a named volume. Pulling a new image or recreating the container does not lose them; deleting the volume does.
 
+A named volume like `tutto-data` needs no extra setup — Docker gives it to the `node` user automatically. A bind mount (`-v ./data:/data`) is different: the container runs as `node` (uid/gid 1000), and a host directory it does not own fails to open the database at startup. Before first use, run `chown -R 1000:1000 ./data` on the host.
+
 To copy the database out for backup:
 
 ```bash
@@ -249,7 +251,7 @@ Rooms live in the server's memory, so restarting ends every game in progress. Wi
 [activity] 1 finished game awaiting stats — DO NOT RESTART
 ```
 
-A restart is called unsafe while a game is being played, and while a finished game's statistics have not been submitted yet (each client sends its own device stats after the game ends, and the server also records departed seats; stats are lost if the server goes away first). Set the variable on the one command you watch — `TUTTO_STATUS_LINE=1 npm run start:prod`, or `set TUTTO_STATUS_LINE=1` before it on Windows — rather than in `.env`, which every other start reads too.
+A restart is called unsafe while a game is being played, and while a finished game's statistics have not been submitted yet (each client sends its own device stats after the game ends, the host also sends the global stats, and the server writes a verdict-only row for any seat that left or was disconnected at the finish; stats are lost if the server goes away first). Set the variable on the one command you watch — `TUTTO_STATUS_LINE=1 npm run start:prod`, or `set TUTTO_STATUS_LINE=1` before it on Windows — rather than in `.env`, which every other start reads too.
 
 On a terminal the line is rewritten in place, so it never scrolls; redirected to a file it prints one line per change instead. The variable is off by default, so Docker, CI and development servers log exactly as they otherwise would.
 
