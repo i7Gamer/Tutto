@@ -48,27 +48,29 @@ export interface UpdateIdleState {
 /**
  * Whether reloading right now would interrupt nothing.
  *
- * `seated` is deliberately not split into "playing" vs "finished" vs "still
- * in the lobby assembling a roster" the way App.tsx's own routing is (it only
- * needs currentPlayerIndex/finished to choose between <Game/>, <EndScreen/>
- * and <Home/>). A local roster the player is still building in <LocalLobby/>
- * survives a reload just as well — attachPersistence (persistence.ts) saves
- * `players` on every change — but reloading anyway still costs the same
- * flash-free continuity an in-progress or just-finished game would lose, so
- * any non-empty roster counts as busy regardless of which of those three
- * screens it is currently rendering.
+ * `seated` means a game actually under way — App.tsx renders <Game/> once
+ * `currentPlayerIndex` is set, and <EndScreen/> while `finished` with a
+ * roster still on it (the stats submission may still be in flight there).
+ * A LOCAL roster with neither — still being assembled in <LocalLobby/>, or
+ * left over from the last game (endGame never clears `players`, so "play
+ * again" has it ready) — is deliberately NOT busy: attachPersistence
+ * (persistence.ts) saves `players` on every change and restores it on the
+ * next load, so nothing here is lost to a reload. Treating any non-empty
+ * roster as busy made a device that had ever played a local game seated
+ * forever, and it would never again pick up a waiting worker.
  *
  * An online seat (`roomId`) survives a reload too (the session is persisted
  * and the client rejoins), but costs a reconnect round trip and a visible
  * flash to everyone at the table — busy at any point in the room, lobby
- * included, for the same reason.
+ * included, for that reason alone (no roster/currentPlayerIndex condition
+ * needed on top of it).
  *
  * `hasFormDraft` and `statsScreenOpen` cover the two screens that hold state
  * a reload would simply drop on the floor because it was never in the store
  * to begin with — see their doc comments on UpdateIdleState above.
  */
 export const isSafeToApplyUpdate = (state: UpdateIdleState): boolean => {
-  const seated = state.players.length > 0;
+  const seated = state.players.length > 0 && (state.currentPlayerIndex !== null || state.finished);
   return !seated && state.roomId === null && !state.hasFormDraft && !state.statsScreenOpen;
 };
 

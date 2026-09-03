@@ -55,15 +55,15 @@ describe('isSafeToApplyUpdate', () => {
   });
 
   // A local roster the player is still assembling in <LocalLobby/> — nobody
-  // has pressed Start Game, so App.tsx renders <Home/>, not <Game/> — is
-  // exactly the state this predicate used to wave through: currentPlayerIndex
-  // is null, finished is false, roomId is null. attachPersistence does save
-  // the roster on every change, so a reload would not lose it, but it would
-  // still cost the player the flash-free continuity of the screen they were
-  // just building, the same cost an online seat pays below. So any non-empty
-  // local roster counts as busy, whether or not a game is under way.
-  it('refuses while a local lobby has players configured but no game started', () => {
-    expect(isSafeToApplyUpdate({ ...idle, players: { length: 2 } })).toBe(false);
+  // has pressed Start Game, so App.tsx renders <Home/>, not <Game/>. Unlike
+  // the online seat above, this roster is attachPersistence's own state: it
+  // is written on every change and restored on the next load, and nothing
+  // ever clears it (endGame keeps it, ready for "play again"). So a device
+  // that had ever played a local game would be seated forever, and would
+  // never again pick up a waiting worker — treating it as busy is the
+  // regression, not the fix.
+  it('is safe with a local lobby roster configured but no game started', () => {
+    expect(isSafeToApplyUpdate({ ...idle, players: { length: 2 } })).toBe(true);
   });
 
   // The online join form's room-code/name inputs and its QR scanner all live
