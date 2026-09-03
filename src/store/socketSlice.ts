@@ -858,7 +858,16 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     get().setMode('local');
   };
 
+  // Guarded like every other room broadcast, and for a sharper reason than
+  // most: surrenderSeat clears the room state and flips to local mode, and the
+  // local persistence subscriber writes on any set() made while mode is
+  // 'local' — so a kick that lands after this client already left would empty
+  // a RESTORED LOCAL GAME and overwrite its save on disk, unrecoverably. The
+  // window is real: leaveRoom does not disconnect the socket, and Home and
+  // OnlineLobby both do leaveRoom() then setMode('local'), which restores that
+  // saved game synchronously.
   sock.on('kicked', () => {
+    if (!inRoom(get)) return;
     surrenderSeat(i18n.t('game.kickedByHost', 'You were kicked by the host'));
   });
 
@@ -867,11 +876,13 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
   // the superseded tab kept a full-looking room whose every action silently
   // did nothing.
   sock.on('seatTakenOver', () => {
+    if (!inRoom(get)) return;
     surrenderSeat(i18n.t('game.seatTakenOver',
       'This device joined the room from somewhere else, so this window left it.'));
   });
 
   sock.on('gameAborted', () => {
+    if (!inRoom(get)) return;
     get().addToast(i18n.t('game.aborted'));
   });
 

@@ -1578,6 +1578,10 @@ describe('useGameStore', () => {
 
     it('gameAborted adds a toast', () => {
       expect(mockOnHandlers['gameAborted']).toBeTypeOf('function');
+      // Seated first: like every other room broadcast, this one is dropped for
+      // a client that no longer holds the room, so driving the handler from a
+      // bare store would exercise the guard rather than the toast.
+      useGameStore.setState({ roomId: 'ROOM1', mode: 'online', isOnline: true });
       mockOnHandlers['gameAborted']();
 
       const toasts = useGameStore.getState().toasts;
@@ -2558,8 +2562,14 @@ describe('useGameStore', () => {
         ['cancelReconnect', () => useGameStore.getState().cancelReconnect()],
         ['reset', () => useGameStore.getState().reset()],
         // surrenderSeat inlines its own teardown instead of calling leaveRoom,
-        // so it has to invalidate the attempt itself.
-        ['a kick', () => mockOnHandlers['kicked']()],
+        // so it has to invalidate the attempt itself. Seated first because a
+        // kick is only reachable for a client that holds a seat — the handler
+        // now drops one addressed to a room this store never entered, which is
+        // what stops a straggling kick from clearing a local game.
+        ['a kick', () => {
+          useGameStore.setState({ roomId: 'PREVIOUS_ROOM', mode: 'online', isOnline: true });
+          mockOnHandlers['kicked']();
+        }],
       ];
 
       it.each(abandonPaths)('%s invalidates an attempt still in flight', async (_name, abandon) => {
@@ -3094,8 +3104,36 @@ describe('useGameStore', () => {
     it('clears sessionStorage when leaving a room intentionally', () => {
       sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'TEST_ROOM', myName: 'Alice' }));
       useGameStore.getState().leaveRoom();
-      
+
       expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+    });
+
+    it('a kick that arrives after the client already left leaves the local game alone', () => {
+      // leaveRoom does not disconnect the socket, so anything the server
+      // emitted during the leave round trip still arrives. Home and
+      // OnlineLobby both follow leaveRoom() with setMode('local'), which
+      // restores the saved local game synchronously — so an unguarded kick
+      // landing a moment later ran surrenderSeat over that restored game, and
+      // because the local persistence subscriber writes on any set() made in
+      // local mode, the emptied roster went straight to disk on top of the
+      // save. Unrecoverable, from a room the player had already left.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().leaveRoom();
+      useGameStore.setState({
+        mode: 'local', isOnline: false, roomId: null,
+        players: [makeOnlinePlayer('Alice', { score: 2400 }), makeOnlinePlayer('Bob', { score: 1500 })],
+        status: 'playing', currentPlayerIndex: 1, round: 4,
+      });
+
+      mockOnHandlers['kicked']();
+
+      const after = useGameStore.getState();
+      expect(after.players.map(p => p.name), 'the local roster survived the stray kick').toEqual(['Alice', 'Bob']);
+      expect(after.players[0].score).toBe(2400);
+      expect(after.status).toBe('playing');
+      expect(after.round).toBe(4);
+      expect(after.currentPlayerIndex).toBe(1);
+      expect(after.toasts, 'and no kick toast for a room the player already left').toEqual([]);
     });
 
     it('clears session/room state, toasts, and returns to local mode when kicked from a room', () => {
