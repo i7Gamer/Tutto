@@ -2,6 +2,9 @@
   "name": "tutto",
   "private": true,
   "version": "1.5.4",
+  "engines": {
+    "node": ">=22 <25"
+  },
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {

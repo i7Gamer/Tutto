@@ -1,6 +1,9 @@
 {
   "name": "server",
   "version": "1.5.4",
+  "engines": {
+    "node": ">=22 <25"
+  },
   "description": "",
   "scripts": {
     "test": "cd .. && vitest run server"

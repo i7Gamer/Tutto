@@ -661,22 +661,34 @@ describe('the Node runtime is pinned consistently', () => {
     expect(Number(nvmrc)).toBe(readCiNodeVersionMajor());
   });
 
-  // Still red until the main session adds `engines` to both manifests and
-  // regenerates the lockfile (this branch does not touch package.json or any
-  // lockfile). Left in so the gap is visible in the suite rather than only in
-  // a plan document.
-  it('declares engines.node in both package.json manifests, consistent with the pinned major', () => {
-    const expectedMajor = readCiNodeVersionMajor();
+  // The oldest major the app is known to run on: the production host runs
+  // Node 22 (tsx import hook, better-sqlite3 binding), while CI and the image
+  // are on 24. engines.node therefore names a RANGE that starts here and
+  // admits the CI major — an exact pin to 24 would make `npm install` refuse
+  // the very machine the live server runs from (.npmrc sets engine-strict).
+  const OLDEST_SUPPORTED_NODE_MAJOR = 22;
+  const ENGINE_RANGE_PATTERN = /^>=(\d+)(?:\s+<(\d+))?$/;
 
-    for (const manifestPath of [path.join(REPO_ROOT, 'package.json'), path.join(SERVER_DIR, 'package.json')]) {
+  it('declares the same engines.node range in both manifests, from the oldest supported major up to the CI major', () => {
+    const ciMajor = readCiNodeVersionMajor();
+    const ranges = [path.join(REPO_ROOT, 'package.json'), path.join(SERVER_DIR, 'package.json')].map(manifestPath => {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { engines?: { node?: string } };
       const engineRange = manifest.engines?.node;
-
       expect(engineRange, `${toRepoRelative(manifestPath)} is missing engines.node`).toBeDefined();
-      expect(
-        extractMajor(engineRange ?? ''),
-        `${toRepoRelative(manifestPath)}'s engines.node (${engineRange}) does not match major ${expectedMajor}`,
-      ).toBe(expectedMajor);
-    }
+      return engineRange ?? '';
+    });
+
+    expect(new Set(ranges).size, 'root and server must agree').toBe(1);
+    const match = ENGINE_RANGE_PATTERN.exec(ranges[0]);
+    expect(match, `engines.node (${ranges[0]}) must read ">=<major>" or ">=<major> <<major>"`).not.toBeNull();
+    const [, lower, upper] = match!;
+    expect(Number(lower)).toBe(OLDEST_SUPPORTED_NODE_MAJOR);
+    expect(ciMajor).toBeGreaterThanOrEqual(Number(lower));
+    if (upper !== undefined) expect(ciMajor).toBeLessThan(Number(upper));
+  });
+
+  it('makes npm enforce that range locally', () => {
+    const npmrc = fs.readFileSync(path.join(REPO_ROOT, '.npmrc'), 'utf8');
+    expect(npmrc).toMatch(/^engine-strict\s*=\s*true$/m);
   });
 });

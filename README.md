@@ -206,7 +206,7 @@ docker build -t tutto:local .
    ```bash
    npm install
    ```
-   Requires Node 24, pinned in `.nvmrc`; `engine-strict` makes `npm install` refuse any other major version.
+   Requires Node 22 or newer (24 recommended and pinned in `.nvmrc`); `engine-strict` makes `npm install` refuse an older major.
 
 3. **Configure environment variables:**
    ```bash
