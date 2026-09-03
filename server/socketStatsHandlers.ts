@@ -120,11 +120,19 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // leaves the room) makes the client think "finished just became true" again,
     // re-submitting for the same game. Recorded per game, reset when a new one
     // starts (see pushState's startingGame branch).
-    if (room.statsRecordedForGame.global) return refuse('duplicate');
+    //
+    // Captured once, here, rather than read again after the await below:
+    // startingGame replaces room.statsRecordedForGame wholesale (a new object)
+    // when the next game starts, which can land while updateGlobalStats is
+    // still in flight for THIS one. Rolling back through `room.statsRecordedForGame`
+    // at that point would write into the NEXT game's dedup instead of this
+    // one's — see the `dedup === room.statsRecordedForGame` check in the catch.
+    const dedup = room.statsRecordedForGame;
+    if (dedup.global) return refuse('duplicate');
     // Marked BEFORE the await so a concurrent duplicate can't slip through,
     // but rolled back on failure — otherwise a transient DB error would
     // permanently swallow this game's stats (the dedup would reject a retry).
-    room.statsRecordedForGame.global = true;
+    dedup.global = true;
     // isDefaultGame decides whether this game's numbers join the global
     // totals at all, so it is the server's call, not the sender's: taken
     // from the config the game started with (frozen in pushState) and
@@ -153,7 +161,11 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     try {
       await updateGlobalStats(globalStats, room.ruleset);
     } catch (err) {
-      room.statsRecordedForGame.global = false;
+      // Only if `dedup` is still the room's CURRENT dedup object — a Play
+      // Again landing during the await above already gave the room a fresh
+      // one (see the capture above), and this game's rollback must not
+      // reach into that unrelated, already-in-progress next game.
+      if (room.statsRecordedForGame === dedup) dedup.global = false;
       console.error('submitGlobalStats error:', err);
       // The rollback above is what makes this reason retryable: the client
       // resends the identical payload (see the bounded retry in
@@ -199,13 +211,25 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // which live in the very client now submitting them. Refusing that
     // submission as a duplicate lost them for good, so it is accepted as a
     // MERGE instead. Only a full row already in makes a submission a no-op.
-    const recordedLevel = room.statsRecordedForGame.devices.get(deviceId);
+    //
+    // Captured once, here, rather than read again after the await below:
+    // startingGame (socketGameStateHandlers.ts) replaces
+    // room.statsRecordedForGame wholesale (a new object, new Map) when the
+    // next game starts, which can land while updateDeviceStats is still in
+    // flight for THIS game (e.g. a fast Play Again). Rolling back through
+    // `room.statsRecordedForGame` at that point would write this game's
+    // recordedLevel into the NEXT game's dedup map instead of this one's —
+    // silently treating that device's next submission as a merge and never
+    // counting the game this rollback actually belongs to. See the
+    // `dedup === room.statsRecordedForGame` check in the catch below.
+    const dedup = room.statsRecordedForGame;
+    const recordedLevel = dedup.devices.get(deviceId);
     if (recordedLevel === 'full') return refuse('duplicate');
     const isMerge = recordedLevel === 'verdict-only';
     // See submitGlobalStats: pre-marking blocks concurrent duplicates,
     // rollback on failure keeps a retry possible instead of losing the game's
     // stats.
-    room.statsRecordedForGame.devices.set(deviceId, 'full');
+    dedup.devices.set(deviceId, 'full');
     // Recorded in full either way — a custom game just lands in its own
     // bucket, where it cannot move the totals or the records a player reads
     // as theirs. Which bucket is the server's call, taken from the config
@@ -266,8 +290,14 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
       // recorded": a merge whose write failed still leaves the server's
       // verdict row committed, and reopening the dedup outright would let the
       // retry count the same game a second time.
-      if (recordedLevel) room.statsRecordedForGame.devices.set(deviceId, recordedLevel);
-      else room.statsRecordedForGame.devices.delete(deviceId);
+      //
+      // Only if `dedup` is still the room's CURRENT dedup object — see the
+      // capture above for why a Play Again mid-await means this rollback
+      // must not touch whatever `room.statsRecordedForGame` points to now.
+      if (room.statsRecordedForGame === dedup) {
+        if (recordedLevel) dedup.devices.set(deviceId, recordedLevel);
+        else dedup.devices.delete(deviceId);
+      }
       console.error('[endGameStats] error:', err);
       // The rollback above is what makes this reason retryable: the client
       // resends the identical payload (see the bounded retry in

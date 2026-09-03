@@ -226,6 +226,39 @@ describe('endGameStats dedup rollback', () => {
     // And the handler must not have gone on to the refresh at all.
     expect(getDeviceStats).not.toHaveBeenCalled();
   });
+
+  // If a Play Again (socketGameStateHandlers.ts's startingGame branch) lands
+  // WHILE this write is still in flight, it replaces room.statsRecordedForGame
+  // wholesale — a brand-new object for the NEXT game — before this game's own
+  // write has settled. An unconditional rollback reading `room.statsRecordedForGame`
+  // AFTER the await would then write into that new object instead of the one
+  // this submission actually marked, planting a stale 'verdict-only' entry in
+  // the next game's dedup map and making the next game read as a merge that
+  // can never be counted.
+  it('does not write into the next game\'s dedup map when Play Again replaces it mid-write', async () => {
+    stageFinishedGame();
+    // The seat already has a server-recorded verdict-only row (e.g. it left
+    // before the finish and rejoined) — recordedLevel is 'verdict-only', so a
+    // failed write's rollback restores that string, not merely deletes a key,
+    // which is what actually plants an entry in the swapped-in map.
+    rooms[roomId].statsRecordedForGame.devices.set(deviceId, 'verdict-only');
+
+    let nextGameDedup!: typeof rooms[typeof roomId]['statsRecordedForGame'];
+    vi.mocked(updateDeviceStats).mockImplementation(async () => {
+      // Simulates startingGame's wholesale replacement, landing mid-await.
+      nextGameDedup = { devices: new Map(), global: false };
+      rooms[roomId].statsRecordedForGame = nextGameDedup;
+      throw new Error('write failed');
+    });
+
+    submitStats();
+
+    await vi.waitFor(() =>
+      expect(errorSpy).toHaveBeenCalledWith('[endGameStats] error:', expect.anything()));
+
+    expect(nextGameDedup.devices.has(deviceId),
+      "the next game's dedup map must be untouched by the previous game's rollback").toBe(false);
+  });
 });
 
 describe('a seat that left before the finish is recorded by the server itself', () => {
@@ -1217,6 +1250,30 @@ describe('submitGlobalStats acks what it did with the submission', () => {
 
     expect(second).toEqual({ ok: true });
     expect(updateGlobalStats).toHaveBeenCalledTimes(2);
+  });
+
+  // Same race as endGameStats' — see socketStatsHandlers.test.ts's "does not
+  // write into the next game's dedup map" test. startingGame replaces
+  // room.statsRecordedForGame wholesale, which can land while
+  // updateGlobalStats is still in flight for the game just finished.
+  it('does not reopen the next game\'s dedup when Play Again replaces it mid-write', async () => {
+    stageFinishedGame();
+    let nextGameDedup!: typeof rooms[typeof roomId]['statsRecordedForGame'];
+    vi.mocked(updateGlobalStats).mockImplementation(async () => {
+      // Simulates startingGame's wholesale replacement, landing mid-await.
+      // Pre-set to true, as a real next game's dedup would read once its own
+      // submission (or a stray retry) marks it — the bug would instead see
+      // this get stomped back to false by the PREVIOUS game's rollback.
+      nextGameDedup = { devices: new Map(), global: true };
+      rooms[roomId].statsRecordedForGame = nextGameDedup;
+      throw new Error('SQLITE_BUSY');
+    });
+
+    const ack = await submitWithAck(handlerFor(), globalSubmission);
+
+    expect(ack).toEqual({ ok: false, reason: 'write-failed' });
+    expect(nextGameDedup.global,
+      "the next game's dedup must be untouched by the previous game's rollback").toBe(true);
   });
 
   it('acks duplicate for a repeat of a submission that already landed', async () => {
