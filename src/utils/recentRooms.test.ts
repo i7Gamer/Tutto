@@ -146,4 +146,23 @@ describe('parseRecentRooms', () => {
     ];
     expect(parseRecentRooms(asRaw(stored))).toEqual([room('SAME', 1000), room('OTHER', 500)]);
   });
+
+  it('folds an entry stored before room ids were canonicalised onto its upper-case form', () => {
+    // Room ids are case-insensitive everywhere now (normalizeRoomId), but a
+    // list written before that fix still holds whatever case the player
+    // typed. Rendered as-is, "abc1" and "ABC1" are two rows for one room, and
+    // the stale one would be joined under its stale key.
+    const stored = [room('ABC1', 3000), room('abc1', 2000), room(' abc1 ', 1000)];
+    expect(parseRecentRooms(asRaw(stored))).toEqual([room('ABC1', 3000)]);
+  });
+
+  it('canonicalises a lone legacy entry rather than dropping it', () => {
+    expect(parseRecentRooms(asRaw([room('abc1', 2000)]))).toEqual([room('ABC1', 2000)]);
+  });
+
+  it('drops an entry whose room id is nothing but whitespace', () => {
+    // Plausible by length before trimming, empty after — and an empty id is
+    // not a room anything can join.
+    expect(parseRecentRooms(asRaw([room('   ', 2000)]))).toEqual([]);
+  });
 });
