@@ -350,7 +350,9 @@ describe('GameControls physical dice interactions', () => {
     const setScoreInput = vi.fn();
     render(<GameControls {...baseProps({ scoreInput: '', setScoreInput })} />);
 
-    fireEvent.click(screen.getByText('+1000'));
+    // Labelled "+1,000" (en-US grouping — see formatNumber.ts), even though
+    // the value it actually adds is the raw 1000.
+    fireEvent.click(screen.getByText('+1,000'));
 
     const updater = setScoreInput.mock.calls[0][0] as (prev: string) => string;
     expect(updater('not-a-number')).toBe('1000');
@@ -380,7 +382,7 @@ describe('GameControls physical dice interactions', () => {
     const setScoreInput = vi.fn();
     render(<GameControls {...baseProps({ scoreInput: String(MAX_SCORE_MAGNITUDE - 10), setScoreInput })} />);
 
-    fireEvent.click(screen.getByText('+1000'));
+    fireEvent.click(screen.getByText('+1,000'));
 
     const updater = setScoreInput.mock.calls[0][0] as (prev: string) => string;
     expect(updater(String(MAX_SCORE_MAGNITUDE - 10))).toBe(String(MAX_SCORE_MAGNITUDE));

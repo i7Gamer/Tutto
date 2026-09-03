@@ -506,6 +506,30 @@ describe('EndScreen Component', () => {
       expect(queryByText('end.lifetimeStats')).not.toBeInTheDocument();
     });
 
+    // C67: this tile used to be (busts / gamesPlayed).toFixed(1) directly —
+    // native toFixed, not the locale-aware formatFixed — while Statistics'
+    // own Avg Busts/Game tile rounded to a whole number for the very same
+    // kind of average. Both now go through formatFixed(x, AVG_DECIMALS, lang),
+    // so this still renders to one decimal place.
+    it('renders the lifetime Avg Busts/Game tile to one decimal place', async () => {
+      vi.useFakeTimers();
+      global.fetch = vi.fn(() => Promise.resolve(mockFetchJson({
+        gamesPlayed: 3, wins: 1, pointsDeducted: 0, kniffelCompleted: 0, busts: 7, // 7/3 = 2.33... -> "2.3"
+      })));
+      useGameStore.setState({ isOnline: true });
+
+      const { getByText } = render(<EndScreen theme="light" deviceId="device-avg-busts-1" />);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(getByText('2.3')).toBeInTheDocument();
+      vi.useRealTimers();
+    });
+
     it('still fetches device stats for online games', async () => {
       vi.useFakeTimers();
       global.fetch = vi.fn(() => Promise.resolve(mockFetchJson({ gamesPlayed: 3, wins: 1, pointsDeducted: 0, kniffelCompleted: 2 })));

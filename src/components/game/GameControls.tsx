@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../../store/useGameStore';
 import { sortKeptDiceForDisplay, hasScoreInput, isSpecialCard, clampScoreInputText } from '../../utils/diceTurnControls';
+import { formatInt } from '../../utils/formatNumber';
 import { CARD_FLIP_MS } from '../../utils/uiTimings';
 import { BONUS_CARDS, MAX_SCORE_MAGNITUDE } from '../../utils/configValidation';
 import type { CardType, DiceMode } from '../../types';
@@ -85,7 +86,7 @@ export default function GameControls({
   canUndo,
   undoTurnId = null,
 }: GameControlsProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const {
     currentCard,
     cardsLength,
@@ -233,7 +234,7 @@ export default function GameControls({
                         data-testid={`quick-add-${val}`}
                         onClick={() => addScore(val)}
                       >
-                        +{val}
+                        +{formatInt(val, i18n.language)}
                       </motion.button>
                     ))}
                   </div>

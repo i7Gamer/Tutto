@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Trophy, Clock, Hash, FastForward, BarChart2, Globe, User, TrendingDown, TrendingUp, Zap, Repeat, Skull, XCircle, ArrowLeft, Layers } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
+import { formatInt, formatFixed, AVG_DECIMALS } from '../utils/formatNumber';
 import { parseJsonObject } from '../utils/parseJson';
 import { CARD_EMOJIS } from '../utils/cardVisuals';
 import { STAT_TONES, DEFAULT_STAT_TONE, type StatTone } from '../utils/statTones';
@@ -96,14 +97,24 @@ interface StatTileProps {
   badge?: React.ReactNode;
 }
 
-const StatTile = ({ icon, value, label, tone = DEFAULT_STAT_TONE, badge }: StatTileProps) => (
-  <div className={`p-6 rounded-2xl border relative text-left overflow-hidden shadow-xs ${STAT_TONES[tone].surface}`}>
-    <div className="absolute top-4 right-4 opacity-50">{icon}</div>
-    <div className={`text-3xl font-black mt-2 ${STAT_TONES[tone].text}`}>{value}</div>
-    <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-1 pr-8">{label}</div>
-    {badge && <div className="text-xs font-bold mt-2">{badge}</div>}
-  </div>
-);
+// A bare number is formatted here, once, so every tile's grouping/decimal
+// rules stay consistent by construction; a caller that has already formatted
+// its own value (a "45%" rate string, a formatTime() duration, a dash for
+// "no record yet") passes a string or other node straight through unchanged.
+const displayStatValue = (value: React.ReactNode, lang: string): React.ReactNode =>
+  typeof value === 'number' ? formatInt(value, lang) : value;
+
+const StatTile = ({ icon, value, label, tone = DEFAULT_STAT_TONE, badge }: StatTileProps) => {
+  const { i18n } = useTranslation();
+  return (
+    <div className={`p-6 rounded-2xl border relative text-left overflow-hidden shadow-xs ${STAT_TONES[tone].surface}`}>
+      <div className="absolute top-4 right-4 opacity-50">{icon}</div>
+      <div className={`text-3xl font-black mt-2 ${STAT_TONES[tone].text}`}>{displayStatValue(value, i18n.language)}</div>
+      <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mt-1 pr-8">{label}</div>
+      {badge && <div className="text-xs font-bold mt-2">{badge}</div>}
+    </div>
+  );
+};
 
 const RecordBadge = () => {
   const { t } = useTranslation();
@@ -128,12 +139,15 @@ interface BigStatTileProps {
   tone?: StatTone;
 }
 
-const BigStatTile = ({ value, label, tone = DEFAULT_STAT_TONE }: BigStatTileProps) => (
-  <div className={`p-8 rounded-2xl border text-center shadow-xs ${STAT_TONES[tone].surface}`}>
-    <div className={`text-5xl font-black mb-2 ${STAT_TONES[tone].text}`}>{value}</div>
-    <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{label}</div>
-  </div>
-);
+const BigStatTile = ({ value, label, tone = DEFAULT_STAT_TONE }: BigStatTileProps) => {
+  const { i18n } = useTranslation();
+  return (
+    <div className={`p-8 rounded-2xl border text-center shadow-xs ${STAT_TONES[tone].surface}`}>
+      <div className={`text-5xl font-black mb-2 ${STAT_TONES[tone].text}`}>{displayStatValue(value, i18n.language)}</div>
+      <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{label}</div>
+    </div>
+  );
+};
 
 interface CardRowProps {
   label: string;
@@ -282,7 +296,7 @@ interface StatisticsProps {
 }
 
 export default function Statistics({ deviceId, onBack }: StatisticsProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [tab, setTab] = useState<'personal' | 'global'>('personal');
   // Which personal bucket is on screen. Games with a changed winning score or
   // deck are recorded separately and never counted anywhere else, so they need
@@ -500,7 +514,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                   <div className="stat-grid-2 mb-4">
                     <StatTile
                       icon={<Zap size={32} className={`text-amber-500 ${isOnAHotStreak ? 'animate-pulse' : ''}`} />}
-                      value={isOnAHotStreak ? `🔥 ${p.currentWinStreak}` : (p.currentWinStreak || 0)}
+                      value={isOnAHotStreak ? `🔥 ${formatInt(p.currentWinStreak || 0, i18n.language)}` : (p.currentWinStreak || 0)}
                       label={t('statistics.currentWinStreak', 'Current Win Streak')}
                       tone={isOnAHotStreak ? 'amberHot' : 'amber'}
                     />
@@ -512,12 +526,12 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                     />
                   </div>
                   <div className="stat-grid-2 mb-4">
-                    <StatTile icon={<XCircle size={32} className="text-red-400" />} value={p.pointsDeducted || 0} label={t('statistics.ptsEaten', '-1000 Pts Eaten')} tone="red" />
+                    <StatTile icon={<XCircle size={32} className="text-red-400" />} value={p.pointsDeducted || 0} label={t('statistics.ptsEaten', 'Hit by −1000')} tone="red" />
                     <StatTile icon={<Clock size={32} className="text-gray-400" />} value={formatTime(p.totalPlaytime)} label={t('statistics.totalPlaytime', 'Total Playtime')} tone="neutral" />
                   </div>
                   <div className="stat-grid-3 mb-4">
                     <StatTile icon={<Hash size={32} className="text-red-400" />} value={p.busts || 0} label={t('statistics.totalBusts', 'Total Busts')} tone="red" />
-                    <StatTile icon={<Hash size={32} className="text-red-400" />} value={p.gamesPlayed ? Math.round((p.busts || 0) / p.gamesPlayed) : 0} label={t('statistics.avgBustsPerGame', 'Avg Busts / Game')} tone="red" />
+                    <StatTile icon={<Hash size={32} className="text-red-400" />} value={formatFixed(p.gamesPlayed ? (p.busts || 0) / p.gamesPlayed : 0, AVG_DECIMALS, i18n.language)} label={t('statistics.avgBustsPerGame', 'Avg Busts / Game')} tone="red" />
                     <StatTile icon={<TrendingDown size={32} className="text-red-400" />} value={`${pBustRate}%`} label={t('statistics.bustRate', 'Bust Rate')} tone="red" badge={<ComparisonBadge comparison={bustRateComparison} />} />
                   </div>
                   <div className="stat-grid-4 mb-4">
@@ -609,7 +623,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                   )}
                   <div className="stat-grid-3 mb-8">
                     <StatTile icon={<Hash size={32} className="text-red-400" />} value={g.totalBusts || 0} label={t('statistics.totalBusts', 'Total Busts')} tone="red" />
-                    <StatTile icon={<Hash size={32} className="text-red-400" />} value={g.totalGamesPlayed ? Math.round((g.totalBusts || 0) / g.totalGamesPlayed) : 0} label={t('statistics.avgBustsPerGame', 'Avg Busts / Game')} tone="red" />
+                    <StatTile icon={<Hash size={32} className="text-red-400" />} value={formatFixed(g.totalGamesPlayed ? (g.totalBusts || 0) / g.totalGamesPlayed : 0, AVG_DECIMALS, i18n.language)} label={t('statistics.avgBustsPerGame', 'Avg Busts / Game')} tone="red" />
                     <StatTile icon={<TrendingDown size={32} className="text-red-400" />} value={`${gBustRate}%`} label={t('statistics.globalBustRate', 'Global Bust Rate')} tone="red" />
                   </div>
                   <CardBreakdown rows={globalCardBreakdown(g, isClassicView)} />

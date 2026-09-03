@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import type { GameStore } from '../../store/useGameStore';
 import { readableNameVars } from '../../utils/contrastColor';
+import { formatInt } from '../../utils/formatNumber';
 import { TURN_URGENT_SECONDS } from '../../utils/uiTimings';
 
 interface ScoreboardProps {
@@ -10,7 +11,7 @@ interface ScoreboardProps {
 }
 
 export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const {
     players,
     currentPlayerIndex,
@@ -63,7 +64,7 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
         <motion.div layout className="flex-1 min-w-[100px] md:min-w-[120px] phone-landscape:min-w-[75px] bg-white dark:bg-slate-800/80 backdrop-blur-sm border border-white/40 rounded-xl md:rounded-2xl p-2 md:p-4 shadow-xs flex flex-col justify-center items-center relative overflow-hidden">
           <motion.div className="absolute bottom-0 left-0 w-full bg-emerald-500/15" initial={{ height: 0 }} animate={{ height: `${scoreProgress}%` }} transition={{ type: 'spring', stiffness: 50 }} />
           <div className="text-[10px] md:text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-0.5 md:mb-1 z-10">{isOnline ? t('game.yourScore', 'Your Score') : t('game.score', 'Score')}</div>
-          <div className="text-xl md:text-3xl font-black text-gray-800 dark:text-gray-100 z-10">{displayScore}</div>
+          <div className="text-xl md:text-3xl font-black text-gray-800 dark:text-gray-100 z-10">{formatInt(displayScore, i18n.language)}</div>
         </motion.div>
       </div>
 
@@ -71,7 +72,7 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
         <motion.div layout className="flex-1 min-w-[100px] md:min-w-[120px] phone-landscape:min-w-[75px] bg-white dark:bg-slate-800/80 backdrop-blur-sm border border-white/40 rounded-xl md:rounded-2xl p-2 md:p-4 shadow-xs flex flex-col justify-center items-center relative overflow-hidden">
           <motion.div className="absolute bottom-0 left-0 w-full bg-indigo-500/15" animate={{ height: `${roundProgress}%` }} transition={{ type: 'spring', stiffness: 50 }} />
           <div className="text-[10px] md:text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-0.5 md:mb-1 z-10">{t('game.round', 'Round')}</div>
-          <div className="text-xl md:text-3xl font-black text-gray-800 dark:text-gray-100 z-10">{round}</div>
+          <div className="text-xl md:text-3xl font-black text-gray-800 dark:text-gray-100 z-10">{formatInt(round, i18n.language)}</div>
         </motion.div>
 
         <AnimatePresence>

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { isSpecialCard } from '../../utils/diceTurnControls';
+import { formatInt } from '../../utils/formatNumber';
 import { AUTO_CONTINUE_SECONDS } from '../../utils/uiTimings';
 import type { CardType } from '../../types';
 
@@ -25,7 +26,7 @@ interface DiceSummaryProps {
 }
 
 export default function DiceSummary({ summaryData, continueCountdown, finishGame, currentCard, banksChainTotal = false }: DiceSummaryProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   // Focus has to be caught here or it is lost. This panel replaces the dice
   // table, so whatever held focus — a die, Roll, Stop & Score — unmounts at
@@ -66,7 +67,7 @@ export default function DiceSummary({ summaryData, continueCountdown, finishGame
         summaryData.score > 0 && (
           <p className="text-2xl text-gray-700 dark:text-gray-200">
             {t('dice.points_gained', 'Points gained: ')}
-            <strong className="accent-number font-black">{summaryData.score}</strong>
+            <strong className="accent-number font-black">{formatInt(summaryData.score, i18n.language)}</strong>
           </p>
         )}
 
@@ -92,7 +93,7 @@ export default function DiceSummary({ summaryData, continueCountdown, finishGame
           onClick={finishGame}
         >
           {banksChainTotal
-            ? t('dice.bank_points', 'Bank {{score}} points', { score: summaryData.score })
+            ? t('dice.bank_points', 'Bank {{score}} points', { score: formatInt(summaryData.score, i18n.language) })
             : t('dice.continue', 'Continue to Next Player')} <Check size={22} />
         </button>
       </div>

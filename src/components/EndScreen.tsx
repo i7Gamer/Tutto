@@ -15,6 +15,7 @@ import {
 } from 'chart.js';
 import { Trophy, RotateCcw, Settings, Award, Zap, TrendingDown, Layers, Skull } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
+import { formatInt, formatFixed, AVG_DECIMALS } from '../utils/formatNumber';
 import { gameModeOf, isCustomGameMode } from '../utils/statsApi';
 import { MIN_ONLINE_PLAYERS } from '../utils/configValidation';
 import { computeRankedPlayers, getLeaders } from '../utils/coreGameEngine';
@@ -63,7 +64,7 @@ interface EndScreenProps {
 }
 
 export default function EndScreen({ theme, deviceId }: EndScreenProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // Narrowed to only the fields this screen reads, with shallow equality —
   // EndScreen only mounts briefly at game-over, but a whole-store subscription
   // would still re-render it (and re-run confetti-adjacent effects) on every
@@ -233,7 +234,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
         <div className="flex flex-wrap justify-center gap-6 mb-10">
           <div className="bg-black/5 dark:bg-white/5 border border-gray-200 dark:border-slate-600 rounded-2xl p-6 min-w-[180px] shadow-xs">
             <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('end.playedRounds', 'Played Rounds')}</div>
-            <div className="text-4xl font-black accent-number">{round}</div>
+            <div className="text-4xl font-black accent-number">{formatInt(round, i18n.language)}</div>
           </div>
           <div className="bg-black/5 dark:bg-white/5 border border-gray-200 dark:border-slate-600 rounded-2xl p-6 min-w-[180px] shadow-xs">
             <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('end.playtime', 'Playtime')}</div>
@@ -283,7 +284,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
               <div className="flex items-center gap-4 bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-4 border border-amber-100 dark:border-amber-800">
                 <Award size={36} className="text-amber-500 shrink-0" />
                 <div>
-                  <div className="text-2xl font-black text-amber-600 dark:text-amber-400">{me?.highestTurnScore}</div>
+                  <div className="text-2xl font-black text-amber-600 dark:text-amber-400">{formatInt(me?.highestTurnScore ?? 0, i18n.language)}</div>
                   <div className="end-record-label">{t('end.newPersonalBestTurnScore', 'New Personal Best Turn Score!')}</div>
                 </div>
               </div>
@@ -292,7 +293,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
               <div className="flex items-center gap-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-4 border border-emerald-100 dark:border-emerald-800">
                 <Zap size={36} className="text-emerald-500 shrink-0" />
                 <div>
-                  <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{me?.totalTurns}</div>
+                  <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{formatInt(me?.totalTurns ?? 0, i18n.language)}</div>
                   <div className="end-record-label">{t('end.newFastestWin', 'New Fastest Win (turns)!')}</div>
                 </div>
               </div>
@@ -301,7 +302,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
               <div className="flex items-center gap-4 bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border border-red-100 dark:border-red-800">
                 <TrendingDown size={36} className="text-red-500 shrink-0" />
                 <div>
-                  <div className="text-2xl font-black text-red-600 dark:text-red-400">{me?.totalTurns}</div>
+                  <div className="text-2xl font-black text-red-600 dark:text-red-400">{formatInt(me?.totalTurns ?? 0, i18n.language)}</div>
                   <div className="end-record-label">{t('end.newFastestLoss', 'New Fastest Loss (turns) — ouch!')}</div>
                 </div>
               </div>
@@ -310,7 +311,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
               <div className="flex items-center gap-4 bg-orange-50 dark:bg-orange-900/20 rounded-2xl p-4 border border-orange-100 dark:border-orange-800">
                 <Award size={36} className="text-orange-500 shrink-0" />
                 <div>
-                  <div className="text-2xl font-black text-orange-600 dark:text-orange-400">{me?.highestFeuerwerkTurnScore}</div>
+                  <div className="text-2xl font-black text-orange-600 dark:text-orange-400">{formatInt(me?.highestFeuerwerkTurnScore ?? 0, i18n.language)}</div>
                   <div className="end-record-label">{t('end.newHighestFeuerwerk', 'New Personal Best Feuerwerk Turn!')}</div>
                 </div>
               </div>
@@ -319,7 +320,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
               <div className="flex items-center gap-4 bg-pink-50 dark:bg-pink-900/20 rounded-2xl p-4 border border-pink-100 dark:border-pink-800">
                 <Award size={36} className="text-pink-500 shrink-0" />
                 <div>
-                  <div className="text-2xl font-black text-pink-600 dark:text-pink-400">{me?.highestX2TurnScore}</div>
+                  <div className="text-2xl font-black text-pink-600 dark:text-pink-400">{formatInt(me?.highestX2TurnScore ?? 0, i18n.language)}</div>
                   <div className="end-record-label">{t('end.newHighestX2', 'New Personal Best x2 Turn!')}</div>
                 </div>
               </div>
@@ -328,7 +329,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
               <div className="flex items-center gap-4 bg-orange-50 dark:bg-orange-900/20 rounded-2xl p-4 border border-orange-100 dark:border-orange-800">
                 <Layers size={36} className="text-orange-500 shrink-0" />
                 <div>
-                  <div className="text-2xl font-black text-orange-600 dark:text-orange-400">{me?.mostCardsInTurn}</div>
+                  <div className="text-2xl font-black text-orange-600 dark:text-orange-400">{formatInt(me?.mostCardsInTurn ?? 0, i18n.language)}</div>
                   <div className="end-record-label">{t('end.newMostCardsInTurn', 'New Longest Chain (cards)!')}</div>
                 </div>
               </div>
@@ -337,7 +338,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
               <div className="flex items-center gap-4 bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border border-red-100 dark:border-red-800">
                 <Skull size={36} className="text-red-500 shrink-0" />
                 <div>
-                  <div className="text-2xl font-black text-red-600 dark:text-red-400">{me?.highestForfeitedTurnScore}</div>
+                  <div className="text-2xl font-black text-red-600 dark:text-red-400">{formatInt(me?.highestForfeitedTurnScore ?? 0, i18n.language)}</div>
                   <div className="end-record-label">{t('end.newHighestForfeitedTurn', 'Biggest Turn Ever Thrown Away — ouch!')}</div>
                 </div>
               </div>
@@ -358,35 +359,35 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
           )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 text-center max-w-3xl mx-auto">
             <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl p-4 border border-indigo-100 dark:border-indigo-800 flex flex-col justify-center">
-              <div className="text-3xl sm:text-4xl font-black accent-number mb-1">{deviceStats.gamesPlayed}</div>
+              <div className="text-3xl sm:text-4xl font-black accent-number mb-1">{formatInt(deviceStats.gamesPlayed, i18n.language)}</div>
               <div className="end-stat-label">{t('end.gamesPlayed', 'Games Played')}</div>
             </div>
             <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-4 border border-emerald-100 dark:border-emerald-800 flex flex-col justify-center">
-              <div className="text-3xl sm:text-4xl font-black text-emerald-600 dark:text-emerald-400 mb-1">{deviceStats.wins}</div>
+              <div className="text-3xl sm:text-4xl font-black text-emerald-600 dark:text-emerald-400 mb-1">{formatInt(deviceStats.wins, i18n.language)}</div>
               <div className="end-stat-label">{t('end.totalWins', 'Total Wins')}</div>
             </div>
             <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border border-red-100 dark:border-red-800 flex flex-col justify-center">
-              <div className="text-3xl sm:text-4xl font-black text-red-600 dark:text-red-400 mb-1">{deviceStats.pointsDeducted}</div>
-              <div className="end-stat-label">{t('end.pointsEaten', '-1000 Pts Eaten')}</div>
+              <div className="text-3xl sm:text-4xl font-black text-red-600 dark:text-red-400 mb-1">{formatInt(deviceStats.pointsDeducted, i18n.language)}</div>
+              <div className="end-stat-label">{t('end.pointsEaten', 'Hit by −1000')}</div>
             </div>
             <div className="bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-4 border border-amber-100 dark:border-amber-800 flex flex-col justify-center">
-              <div className="text-3xl sm:text-4xl font-black text-amber-600 dark:text-amber-300 mb-1">{deviceStats.kniffelCompleted}</div>
+              <div className="text-3xl sm:text-4xl font-black text-amber-600 dark:text-amber-300 mb-1">{formatInt(deviceStats.kniffelCompleted, i18n.language)}</div>
               <div className="end-stat-label">{t('end.kniffelsDone', 'Kniffels Done')}</div>
             </div>
             <div className="bg-orange-50 dark:bg-orange-900/20 rounded-2xl p-4 border border-orange-100 dark:border-orange-800 flex flex-col justify-center">
-              <div className="text-3xl sm:text-4xl font-black text-orange-500 mb-1">{deviceStats.busts || 0}</div>
+              <div className="text-3xl sm:text-4xl font-black text-orange-500 mb-1">{formatInt(deviceStats.busts || 0, i18n.language)}</div>
               <div className="end-stat-label">{t('end.totalBusts', 'Total Busts')}</div>
             </div>
             <div className="bg-orange-50 dark:bg-orange-900/20 rounded-2xl p-4 border border-orange-100 dark:border-orange-800 flex flex-col justify-center">
-              <div className="text-3xl sm:text-4xl font-black text-orange-500 mb-1">{((deviceStats.busts || 0) / Math.max(1, deviceStats.gamesPlayed)).toFixed(1)}</div>
+              <div className="text-3xl sm:text-4xl font-black text-orange-500 mb-1">{formatFixed((deviceStats.busts || 0) / Math.max(1, deviceStats.gamesPlayed), AVG_DECIMALS, i18n.language)}</div>
               <div className="end-stat-label">{t('end.avgBustsPerGame', 'Avg Busts/Game')}</div>
             </div>
             <div className="bg-violet-50 dark:bg-violet-900/20 rounded-2xl p-4 border border-violet-100 dark:border-violet-800 flex flex-col justify-center">
-              <div className="text-3xl sm:text-4xl font-black text-violet-500 mb-1">{deviceStats.currentWinStreak || 0}</div>
+              <div className="text-3xl sm:text-4xl font-black text-violet-500 mb-1">{formatInt(deviceStats.currentWinStreak || 0, i18n.language)}</div>
               <div className="end-stat-label">{t('end.currentWinStreak', 'Current Win Streak')}</div>
             </div>
             <div className="bg-violet-50 dark:bg-violet-900/20 rounded-2xl p-4 border border-violet-100 dark:border-violet-800 flex flex-col justify-center">
-              <div className="text-3xl sm:text-4xl font-black text-violet-500 mb-1">{deviceStats.bestWinStreak || 0}</div>
+              <div className="text-3xl sm:text-4xl font-black text-violet-500 mb-1">{formatInt(deviceStats.bestWinStreak || 0, i18n.language)}</div>
               <div className="end-stat-label">{t('end.bestWinStreak', 'Best Win Streak')}</div>
             </div>
           </div>
@@ -406,28 +407,28 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
             <div className="flex flex-col">
               {[
                 { label: t('end.position', 'Position'), render: (p: Player) => `${p.position}.` },
-                { label: t('end.score', 'Score'), render: (p: Player) => <span className="font-black accent-number">{p.score}</span> },
-                { label: t('end.totalTurns', 'Total Turns'), render: (p: Player) => p.totalTurns },
-                { label: t('end.busts', 'Busts'), render: (p: Player) => <span className="text-red-600 dark:text-red-400 font-bold">{p.busts}</span> },
+                { label: t('end.score', 'Score'), render: (p: Player) => <span className="font-black accent-number">{formatInt(p.score, i18n.language)}</span> },
+                { label: t('end.totalTurns', 'Total Turns'), render: (p: Player) => formatInt(p.totalTurns, i18n.language) },
+                { label: t('end.busts', 'Busts'), render: (p: Player) => <span className="text-red-600 dark:text-red-400 font-bold">{formatInt(p.busts, i18n.language)}</span> },
                 // The chain record of the game that just ended — a classic-only
                 // concept (modernized turns are always exactly one card). A dash
                 // marks a player who never got a turn: the record is genuinely
                 // absent there, not zero.
                 ...(game.ruleset === 'classic' ? [
-                  { label: t('end.mostCardsInTurn', 'Most Cards in a Turn'), render: (p: Player) => <span className="font-bold text-indigo-500">{p.mostCardsInTurn ?? '–'}</span> },
+                  { label: t('end.mostCardsInTurn', 'Most Cards in a Turn'), render: (p: Player) => <span className="font-bold text-indigo-500">{p.mostCardsInTurn == null ? '–' : formatInt(p.mostCardsInTurn, i18n.language)}</span> },
                 ] : []),
-                { label: t('end.avgPtsPerRound', 'Avg Pts / Round'), render: (p: Player) => <span className="font-bold text-emerald-600 dark:text-emerald-400">{Math.round(p.score / Math.max(1, round))}</span> },
-                { label: t('end.pointsEatenStat', '-1000 Points Eaten'), render: (p: Player) => p.times1000PointsDeducted },
-                { label: t('end.plusMinusStat', 'Plus/Minus (Success/Fail)'), render: (p: Player) => <span><span className="text-emerald-600 dark:text-emerald-400">{p.timesPlusMinusCompleted}</span> / <span className="text-red-600 dark:text-red-400">{p.timesPlusMinusFailed}</span></span> },
-                { label: t('end.kniffelStat', 'Kniffel (Success/Fail)'), render: (p: Player) => <span><span className="text-emerald-500">{p.timesKniffelCompleted}</span> / <span className="text-red-500">{p.timesKniffelFailed}</span></span> },
-                { label: t('end.skipped', 'Skipped'), render: (p: Player) => p.timesSkipped },
+                { label: t('end.avgPtsPerRound', 'Avg Pts / Round'), render: (p: Player) => <span className="font-bold text-emerald-600 dark:text-emerald-400">{formatInt(Math.round(p.score / Math.max(1, round)), i18n.language)}</span> },
+                { label: t('end.pointsEatenStat', 'Hit by −1000'), render: (p: Player) => formatInt(p.times1000PointsDeducted, i18n.language) },
+                { label: t('end.plusMinusStat', 'Plus/Minus (Success/Fail)'), render: (p: Player) => <span><span className="text-emerald-600 dark:text-emerald-400">{formatInt(p.timesPlusMinusCompleted, i18n.language)}</span> / <span className="text-red-600 dark:text-red-400">{formatInt(p.timesPlusMinusFailed, i18n.language)}</span></span> },
+                { label: t('end.kniffelStat', 'Kniffel (Success/Fail)'), render: (p: Player) => <span><span className="text-emerald-500">{formatInt(p.timesKniffelCompleted, i18n.language)}</span> / <span className="text-red-500">{formatInt(p.timesKniffelFailed, i18n.language)}</span></span> },
+                { label: t('end.skipped', 'Skipped'), render: (p: Player) => formatInt(p.timesSkipped, i18n.language) },
                 // Classic never attributes points to the Feuerwerk card (the
                 // engine's summary path skips it, same as the Statistics
                 // breakdown) — the row shows draws only instead of an
                 // invented "0 points".
                 game.ruleset === 'classic'
-                  ? { label: t('end.feuerwerkReceivedStat', 'Feuerwerk (Received)'), render: (p: Player) => p.timesFeuerwerkReceived ?? 0 }
-                  : { label: t('end.feuerwerkStat', 'Feuerwerk (Received/Pts)'), render: (p: Player) => <span>{p.timesFeuerwerkReceived} / <span className="text-amber-500 font-bold">{p.feuerwerkPointsScored || 0}</span></span> },
+                  ? { label: t('end.feuerwerkReceivedStat', 'Feuerwerk (Received)'), render: (p: Player) => formatInt(p.timesFeuerwerkReceived ?? 0, i18n.language) }
+                  : { label: t('end.feuerwerkStat', 'Feuerwerk (Received/Pts)'), render: (p: Player) => <span>{formatInt(p.timesFeuerwerkReceived, i18n.language)} / <span className="text-amber-500 font-bold">{formatInt(p.feuerwerkPointsScored || 0, i18n.language)}</span></span> },
               ].map(({ label, render }) => (
                 <div key={label} className="flex border-b border-gray-100 dark:border-slate-700/50 last:border-0 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                   <div className="p-4 w-56 shrink-0 font-medium text-gray-600 dark:text-gray-300">{label}</div>

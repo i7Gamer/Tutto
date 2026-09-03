@@ -247,13 +247,18 @@ describe('Statistics Component', () => {
     expect(screen.queryByText('23.3%')).not.toBeInTheDocument();
   });
 
-  it('rounds avg busts per game to nearest integer rather than one decimal', async () => {
+  // C67: Avg Busts/Game used to round to a whole number here while EndScreen's
+  // own Avg Busts/Game tile showed one decimal for the very same kind of
+  // average — the two screens disagreed about how precise the stat is.
+  // Both now go through formatFixed(x, AVG_DECIMALS, lang), so this renders
+  // the one-decimal form instead of Math.round's integer.
+  it('renders avg busts per game to one decimal place, not rounded to an integer', async () => {
     const mockPersonalStats = {
       gamesPlayed: 3,
       wins: 0,
       totalPlaytime: 0,
       totalTurns: 0,
-      busts: 7,  // 7/3 = 2.33 → Math.round → 2 (toFixed(1) would give '2.3')
+      busts: 7, // 7/3 = 2.33... -> "2.3" to one decimal; Math.round would give "2"
       totalScore: 0,
     };
 
@@ -262,7 +267,8 @@ describe('Statistics Component', () => {
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
     await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
 
-    expect(screen.queryByText('2.3')).not.toBeInTheDocument();
+    expect(screen.getByText('2.3')).toBeInTheDocument();
+    expect(screen.queryByText('2')).not.toBeInTheDocument();
   });
 
   it('handles fetch errors gracefully', async () => {

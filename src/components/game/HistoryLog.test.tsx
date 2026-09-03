@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import HistoryLog from './HistoryLog';
 import { useGameStore } from '../../store/useGameStore';
 import { PLUS_MINUS_SCORE } from '../../utils/coreGameEngine';
+import { formatInt } from '../../utils/formatNumber';
 import type { HistoryEntry } from '../../types';
 
 // The shared setup mock (src/setupTests.tsx) renders every message as its bare
@@ -332,7 +333,7 @@ describe('HistoryLog', () => {
       expect(screen.getByText('history.plusMinusDeducted')).toBeInTheDocument();
       expect(translate).toHaveBeenCalledWith(
         'history.deductedEntry',
-        expect.objectContaining({ name: 'Bob', amount: CLAMPED_DEDUCTION }),
+        expect.objectContaining({ name: 'Bob', amount: formatInt(CLAMPED_DEDUCTION, 'en') }),
       );
     });
 
@@ -356,7 +357,7 @@ describe('HistoryLog', () => {
       expect(screen.getByText('history.chainSuccessDeducted')).toBeInTheDocument();
       expect(translate).toHaveBeenCalledWith(
         'history.deductedEntry',
-        expect.objectContaining({ name: 'Bob', amount: CLAMPED_DEDUCTION }),
+        expect.objectContaining({ name: 'Bob', amount: formatInt(CLAMPED_DEDUCTION, 'en') }),
       );
     });
 
@@ -376,7 +377,7 @@ describe('HistoryLog', () => {
 
       expect(translate).toHaveBeenCalledWith(
         'history.deductedEntry',
-        expect.objectContaining({ name: 'Bob', amount: PLUS_MINUS_SCORE }),
+        expect.objectContaining({ name: 'Bob', amount: formatInt(PLUS_MINUS_SCORE, 'en') }),
       );
     });
 
@@ -399,7 +400,7 @@ describe('HistoryLog', () => {
       expect(screen.getByText('history.plusMinusDeducted')).toBeInTheDocument();
       expect(translate).toHaveBeenCalledWith(
         'history.deductedEntry',
-        expect.objectContaining({ name: 'Bob', amount: PLUS_MINUS_SCORE }),
+        expect.objectContaining({ name: 'Bob', amount: formatInt(PLUS_MINUS_SCORE, 'en') }),
       );
     });
   });

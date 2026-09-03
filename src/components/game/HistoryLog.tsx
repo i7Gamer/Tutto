@@ -4,9 +4,10 @@ import { useGameStore } from '../../store/useGameStore';
 import type { HistoryEntry } from '../../types';
 import { CARD_EMOJIS, UNKNOWN_CARD_EMOJI } from '../../utils/cardVisuals';
 import { summarizeDeductions } from '../../utils/deductionSummary';
+import { formatInt } from '../../utils/formatNumber';
 
 export default function HistoryLog() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const historyLog = useGameStore(state => state.historyLog) || [];
 
   const getCardName = (cardType: string) => {
@@ -34,12 +35,16 @@ export default function HistoryLog() {
   // summarizeDeductions' per-index fallback.
   const deductionList = (deductedPlayers: readonly string[], deductedAmounts?: readonly number[]) =>
     summarizeDeductions(deductedPlayers, deductedAmounts)
-      .map(({ name, amount }) => t('history.deductedEntry', { name, amount, defaultValue: `${name} lost ${amount}` }))
+      .map(({ name, amount }) => {
+        const formattedAmount = formatInt(amount, i18n.language);
+        return t('history.deductedEntry', { name, amount: formattedAmount, defaultValue: `${name} lost ${formattedAmount}` });
+      })
       .join(', ');
 
   const getLogMessage = (entry: HistoryEntry) => {
     const cardName = getCardName(entry.card);
     const name = entry.playerName;
+    const score = formatInt(entry.score, i18n.language);
 
     // A classic chain shows every card of the turn, in draw order.
     if (entry.cards && entry.cards.length > 1) {
@@ -57,9 +62,9 @@ export default function HistoryLog() {
         // the deducted player watched 1000 disappear with no explanation.
         if (entry.deductedPlayers?.length) {
           const deducted = deductionList(entry.deductedPlayers, entry.deductedAmounts);
-          return t('history.chainSuccessDeducted', { name, score: entry.score, chain, deducted, defaultValue: `${name} scored ${entry.score} pts (${chain}) — ${deducted}` });
+          return t('history.chainSuccessDeducted', { name, score, chain, deducted, defaultValue: `${name} scored ${score} pts (${chain}) — ${deducted}` });
         }
-        return t('history.chainSuccess', { name, score: entry.score, chain, defaultValue: `${name} scored ${entry.score} pts (${chain})` });
+        return t('history.chainSuccess', { name, score, chain, defaultValue: `${name} scored ${score} pts (${chain})` });
       }
       // The server clock can forfeit a classic chain mid-draw or at the
       // bank-or-draw choice — historyType 'timeout' — and that entry still
@@ -95,9 +100,9 @@ export default function HistoryLog() {
       }
       if (entry.card === 'Plus_Minus' && entry.deductedPlayers && entry.deductedPlayers.length > 0) {
         const deducted = deductionList(entry.deductedPlayers, entry.deductedAmounts);
-        return t('history.plusMinusDeducted', { name, score: entry.score, deducted, defaultValue: `${name} scored ${entry.score} pts (${deducted})` });
+        return t('history.plusMinusDeducted', { name, score, deducted, defaultValue: `${name} scored ${score} pts (${deducted})` });
       }
-      return t('history.success', { name, score: entry.score, card: cardName, defaultValue: `${name} scored ${entry.score} pts on ${cardName}` });
+      return t('history.success', { name, score, card: cardName, defaultValue: `${name} scored ${score} pts on ${cardName}` });
     }
     return '';
   };

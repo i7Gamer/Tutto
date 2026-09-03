@@ -334,7 +334,9 @@ describe('DiceGame restored-state bust rendering', () => {
     expect(screen.getByText('dice.success')).toBeInTheDocument();
     // All six dice put aside IS the tutto — the restored summary keeps saying so.
     expect(screen.getByText('dice.tutto')).toBeInTheDocument();
-    expect(screen.getByText('1800')).toBeInTheDocument();
+    // DiceSummary's points line — grouped (en-US default in tests, see
+    // formatNumber.ts), unlike TurnScoreHeader's raw '1800' elsewhere in this file.
+    expect(screen.getByText('1,800')).toBeInTheDocument();
     expect(screen.queryByText('dice.roll_again')).not.toBeInTheDocument();
     expect(screen.queryByText('dice.stop_and_score')).not.toBeInTheDocument();
   });

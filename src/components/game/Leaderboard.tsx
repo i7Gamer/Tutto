@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import ConfirmModal from '../ConfirmModal';
 import { readableNameVars } from '../../utils/contrastColor';
+import { formatInt } from '../../utils/formatNumber';
 import { HOT_WIN_STREAK } from '../../utils/playerStats';
 import type { Player } from '../../types';
 
@@ -44,7 +45,7 @@ export default function Leaderboard({
   winningScore,
   kickPlayer,
 }: LeaderboardProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // Kicking a disconnected player mid-game is not reversible, so the pill
   // opens the same confirm dialog End Game/Leave/Undo use (ConfirmModal,
   // see GameControls.tsx) instead of kicking on the tap itself.
@@ -110,7 +111,7 @@ export default function Leaderboard({
                       </>
                     )}
                   </div>
-                  <div className="w-24 font-bold text-gray-800 dark:text-gray-100 text-right">{p.score}</div>
+                  <div className="w-24 font-bold text-gray-800 dark:text-gray-100 text-right">{formatInt(p.score, i18n.language)}</div>
                 </motion.div>
               );
             })}
@@ -118,7 +119,7 @@ export default function Leaderboard({
         </div>
         {winningScore > 0 && (
           <div className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400 bg-black/5 dark:bg-white/5 p-3 rounded-xl border border-gray-100 dark:border-slate-700">
-            {t('game.goalPrefix', 'Goal:')} <strong className="accent-number">{winningScore}</strong> {t('game.goalSuffix', 'points. The round is played to the end; a tie plays on.')}
+            {t('game.goalPrefix', 'Goal:')} <strong className="accent-number">{formatInt(winningScore, i18n.language)}</strong> {t('game.goalSuffix', 'points. The round is played to the end; a tie plays on.')}
             <span className="mx-1">·</span>
             {t('game.rulesetBadge', {
               defaultValue: '{{value}} rules',

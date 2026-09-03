@@ -295,3 +295,72 @@ describe('Card-name vocabulary and spelling policy', () => {
     expect(hitsIn(de)).toEqual([]);
   });
 });
+
+// C67: every runtime score/count (Scoreboard, Leaderboard, EndScreen,
+// Statistics, the dice summary, quick-add chips, the history log) now renders
+// through formatInt/formatFixed (src/utils/formatNumber.ts), so a literal
+// grouped number baked into a locale string can only be a REGRESSION back to
+// "-1000 Pts Eaten"-style hardcoding, or a fresh string that skipped the
+// formatter — either way as wrong for a German reader as an English one is
+// for the reverse.
+//
+// The allow-list below is not that: every entry is static rules/help prose
+// that quotes a fixed GAME CONSTANT (the winning-score default and range, a
+// Tutto's fixed point value) — never a value pulled from live state — and
+// each already spells the number in ITS OWN language's grouping (1,000/6,000
+// vs. 1.000/6.000). Turning these into interpolated numbers would be a help-
+// text rewrite, not a number-formatting fix, and is out of scope here.
+describe('No hard-coded grouped numbers outside the help-text allow-list', () => {
+  const GROUPED_NUMBER = /\d[,.]\d{3}\b/;
+
+  // Each of these describes a fixed rule constant (the winning-score default/
+  // range, or a Tutto's flat point value) in prose, not a rendered game
+  // number — see the block comment above.
+  const ALLOWED_KEYS = new Set([
+    'help.general.intro', // "the target Winning Score (default: 6,000)"
+    'help.cards.kniffelDesc', // "awards exactly 2,000 points"
+    'help.cards.kniffelDescClassic', // "adds exactly 2,000 points"
+    'help.cards.plusMinusDesc', // "exactly 1,000 points" / "loses 1,000 points"
+    'help.cards.plusMinusDescClassic', // "+1,000" / "loses 1,000 points"
+    'help.settings.winningScore', // "Range: 1,000 to 99,999 (default: 6,000)"
+    // Describes the OLD label wording ("-1000 Pts Eaten") this same change
+    // renamed to "Hit by -1000" — the label no longer says this, but the
+    // wording of help text is reserved for a separate pass (see the PR
+    // notes), so the stale reference stays until that pass updates it.
+    'help.statistics.s3',
+  ]);
+
+  const flaggedIn = (locale: Record<string, string>): string[] =>
+    Object.entries(locale)
+      .filter(([key, value]) => !ALLOWED_KEYS.has(key) && GROUPED_NUMBER.test(value))
+      .map(([key]) => key);
+
+  it('en: no unlisted key contains a hard-coded grouped number', () => {
+    const flagged = flaggedIn(readLocale(enPath));
+    expect(flagged, `Unexpected hard-coded grouped number(s) in: ${flagged.join(', ')}`).toEqual([]);
+  });
+
+  it('de: no unlisted key contains a hard-coded grouped number', () => {
+    const flagged = flaggedIn(readLocale(dePath));
+    expect(flagged, `Unexpected hard-coded grouped number(s) in: ${flagged.join(', ')}`).toEqual([]);
+  });
+
+  // Every allow-listed key must still exist and still actually need the
+  // exemption — an entry that no longer matches is stale and should be
+  // dropped, or its number should have been formatted instead.
+  it('every allow-listed key still exists and still contains a grouped number', () => {
+    const en = readLocale(enPath);
+    const de = readLocale(dePath);
+    ALLOWED_KEYS.forEach((key) => {
+      expect(GROUPED_NUMBER.test(en[key] ?? ''), `${key} (en) no longer needs the allow-list entry`).toBe(true);
+      expect(GROUPED_NUMBER.test(de[key] ?? ''), `${key} (de) no longer needs the allow-list entry`).toBe(true);
+    });
+  });
+
+  it('is a real oracle: catches a fresh hard-coded number outside the allow-list', () => {
+    expect(GROUPED_NUMBER.test('You scored 6,000 points!')).toBe(true);
+    expect(GROUPED_NUMBER.test('Du hast 6.000 Punkte erzielt!')).toBe(true);
+    expect(GROUPED_NUMBER.test('You scored {{score}} points!')).toBe(false);
+    expect(GROUPED_NUMBER.test('Skipped')).toBe(false);
+  });
+});

@@ -3,6 +3,7 @@ import '@testing-library/jest-dom';
 import { describe, it, expect, vi } from 'vitest';
 import Leaderboard, { type LeaderboardProps } from './Leaderboard';
 import { HOT_WIN_STREAK } from '../../utils/playerStats';
+import { formatInt } from '../../utils/formatNumber';
 import type { Player } from '../../types';
 
 const HOST_SOCKET = 'socket-host';
@@ -140,7 +141,8 @@ describe('Leaderboard', () => {
     const { container } = render(<Leaderboard {...props()} />);
 
     expect(container.textContent).toContain('game.goalPrefix');
-    expect(screen.getByText(String(WINNING_SCORE))).toBeInTheDocument();
+    // Grouped (en-US default in tests — see formatNumber.ts), not the raw digits.
+    expect(screen.getByText(formatInt(WINNING_SCORE, 'en'))).toBeInTheDocument();
     expect(container.textContent).toContain('game.rulesetBadge');
   });
 

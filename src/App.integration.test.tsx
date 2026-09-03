@@ -192,8 +192,9 @@ describe('App Integration (End-to-End)', () => {
     const stopButton = await screen.findByText(/dice.stop_and_score/i);
     fireEvent.click(stopButton);
 
-    // Auto-advance to Bob's turn; Alice's 2200 is recorded on the leaderboard.
-    // Waiting on visible text alone is a false-positive trap here: "2200" can
+    // Auto-advance to Bob's turn; Alice's 2200 is recorded on the leaderboard,
+    // rendered grouped ("2,200" — en-US default in tests, see formatNumber.ts).
+    // Waiting on visible text alone is a false-positive trap here: "2,200" can
     // show up transiently inside Alice's OWN still-open summary, and "Bob" is
     // always in the leaderboard regardless of whose turn it is — neither
     // implies the turn actually advanced. currentPlayerIndex flipping to 1
@@ -201,7 +202,7 @@ describe('App Integration (End-to-End)', () => {
     await waitFor(() => {
       expect(useGameStore.getState().currentPlayerIndex).toBe(1);
     }, { timeout: AUTO_CONTINUE_WAIT_MS });
-    expect(screen.getAllByText(/2200/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/2,200/).length).toBeGreaterThan(0);
 
     // Bob's card is automatically drawn due to nextTurn logic.
     // It should be '200'.
@@ -228,10 +229,11 @@ describe('App Integration (End-to-End)', () => {
     fireEvent.click(stopBob);
 
     // Bob's turn auto-continues too. Round is over! Alice has 2200, Bob has 100.
-    // Winning score is 1000, so the End Screen should be shown!
+    // Winning score is 1000, so the End Screen should be shown! EndScreen's
+    // own score cell renders it grouped ("2,200" — en-US default in tests).
     await waitFor(() => {
       expect(screen.getByText(/end.winner Alice/i)).toBeTruthy();
-      expect(screen.getAllByText(/2200/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/2,200/).length).toBeGreaterThan(0);
     }, { timeout: AUTO_CONTINUE_WAIT_MS });
 
     Math.random = originalRandom;

@@ -172,7 +172,8 @@ describe('DiceSummary', () => {
 
     it('still shows the banked points for a special card', () => {
       render(<DiceSummary {...chainBank} />);
-      expect(screen.getByText('2500')).toBeInTheDocument();
+      // Grouped (en-US default in tests — see formatNumber.ts), not the raw digits.
+      expect(screen.getByText('2,500')).toBeInTheDocument();
     });
 
     it('still labels the button as banking that total', () => {
