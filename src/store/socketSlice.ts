@@ -779,6 +779,15 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
       // from a superseded attempt must not disarm the live attempt's deadline
       // (same identity check pendingCancelReconnectCleanup's cleanup makes).
       if (rejoinWatchdogTimer === watchdog) rejoinWatchdogTimer = null;
+      // leaveRoom and cancelReconnect don't disconnect the socket, so this
+      // ack can still land after either has already run set(clearRoomState())
+      // and put the store back in local mode. clearRoomState is what makes
+      // that room-departure structural (see its own comment): it always
+      // clears roomId, so a mismatch here means this ack no longer has a
+      // room to speak for — a late success must not re-seat the store, and a
+      // late failure must not toast or force local mode over a leave the
+      // player already completed on their own.
+      if (get().roomId !== roomId) return;
       if (res.success) {
         // The floor goes with the connection: the room may have been
         // recreated under the same id while this client was away, and its

@@ -1941,6 +1941,52 @@ describe('useGameStore', () => {
         }
       });
 
+      it('a late success ack after leaveRoom leaves the store untouched', () => {
+        // leaveRoom doesn't disconnect the socket, so the in-flight rejoin's
+        // ack can still land afterwards. Only the watchdog had a relevance
+        // guard; the ack callback itself did not, and would happily re-seat a
+        // store already back in local mode.
+        vi.useFakeTimers();
+        try {
+          stageSeatedReconnect();
+          mockEmit.mockClear();
+
+          mockOnHandlers['connect']();
+          const rejoinAck = nonNull(mockEmit.mock.calls.find(([event]) => event === 'joinRoom'))[2];
+
+          useGameStore.getState().leaveRoom();
+          rejoinAck({ success: true, isHost: true, name: 'Alice' });
+
+          const s = useGameStore.getState();
+          expect(s.roomId, 'the leave must stick').toBeNull();
+          expect(s.isHost, 'a late success must not re-seat this client as host').toBe(false);
+          expect(s.myName).toBeNull();
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('a late failure ack after leaveRoom produces no toast', () => {
+        vi.useFakeTimers();
+        try {
+          stageSeatedReconnect();
+          mockEmit.mockClear();
+
+          mockOnHandlers['connect']();
+          const rejoinAck = nonNull(mockEmit.mock.calls.find(([event]) => event === 'joinRoom'))[2];
+
+          useGameStore.getState().leaveRoom();
+          const toastsBefore = useGameStore.getState().toasts.length;
+
+          rejoinAck({ success: false, error: 'Room no longer exists' });
+
+          expect(useGameStore.getState().toasts.length, 'a leave already handled has nothing left to say')
+            .toBe(toastsBefore);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
       it('arms no watchdog when there is no seat to rejoin', () => {
         vi.useFakeTimers();
         try {
