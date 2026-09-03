@@ -49,11 +49,12 @@ const isClientAbort = (err: unknown): boolean =>
   CLIENT_ABORT_ERROR_CODES.includes((err as { code?: string }).code ?? '');
 
 // What tells an asset-shaped request (a JS chunk, a stale HTML import, a
-// probed .ico) apart from a client-side route: the app has no router that
-// names a path ending in something like ".js" or ".ico", so any request
-// whose last segment carries one is not a navigation this SPA can possibly
-// answer with its shell. Anchored to the final segment, not the whole path,
-// so a client route with a dot in it (a room code, say) is unaffected.
+// probed .ico) apart from a client-side route: the app has no router at all —
+// rooms travel as a `?room=` query param (see src/utils/roomLink.ts), never a
+// path segment — so the only navigation this SPA ever answers with its shell
+// is "/". Anchored to the final segment, not the whole path, on the chance a
+// future route's last segment carries a dot of its own; that route would need
+// this regex revisited.
 const ASSET_LIKE_PATH_RE = /\.[a-z0-9]+$/i;
 
 const isAssetShapedPath = (requestPath: string): boolean => {
