@@ -18,6 +18,8 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
 import type { AddressInfo } from 'net';
 import type http from 'http';
 import { registerApiRoutes, DEFAULT_STATS_RATE_LIMIT_MAX } from './api';
@@ -87,6 +89,32 @@ const globalRow = (overrides: Partial<GlobalStatsRow> = {}): GlobalStatsRow => (
   highestForfeitedTurnScore: null,
   ...overrides,
 });
+
+/**
+ * The handler registerApiRoutes mounts for one exact GET path, captured off a
+ * stub app.
+ *
+ * The real app below answers over HTTP, which is the right level for anything
+ * a client can observe — but sendFile's OPTIONS are not one of those things (a
+ * wrong `root` and a missing file both surface as the same plain 404), so the
+ * one assertion that needs them drives the handler directly instead.
+ */
+const registeredGetHandler = (routePath: string): express.RequestHandler => {
+  let found: express.RequestHandler | undefined;
+  const app = {
+    get: (mountedAt: unknown, ...handlers: unknown[]) => {
+      // The last argument, so a route mounted behind a rate limiter still
+      // yields its own handler rather than the middleware in front of it.
+      if (mountedAt === routePath) found = handlers[handlers.length - 1] as express.RequestHandler;
+    },
+    post: () => {},
+    use: () => {},
+  } as unknown as express.Express;
+
+  registerApiRoutes(app);
+  if (!found) throw new Error(`registerApiRoutes mounts no GET ${routePath}`);
+  return found;
+};
 
 describe('api routes in-process', () => {
   let server: http.Server;
@@ -425,6 +453,59 @@ describe('api routes in-process', () => {
 
     it('answers 404 for an unmatched /api path', async () => {
       const res = await fetch(url('/api/does-not-exist'));
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: 'Not found' });
+    });
+  });
+
+  /**
+   * AGPL-3.0 §13: the licence and the attribution have to be reachable from
+   * the running app, not just present in the image. Both routes shipped with
+   * no test of any kind — neither that they answer at all, nor that they
+   * answer with the real file.
+   */
+  describe('the AGPL licence and attribution routes', () => {
+    // api.ts serves them from path.join(__dirname, '..'), which is this
+    // directory's parent — the repo root, where both files live.
+    const REPO_ROOT = path.join(__dirname, '..');
+    const LEGAL_FILES = ['COPYING', 'NOTICE'];
+
+    it.each(LEGAL_FILES)('serves the real %s from the repo root', async (name) => {
+      const res = await fetch(url(`/${name}`));
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe(fs.readFileSync(path.join(REPO_ROOT, name), 'utf8'));
+    });
+
+    it.each(LEGAL_FILES)('answers %s as text a browser displays, not a download', async (name) => {
+      // Neither name has an extension, so send's own type sniffing gives up
+      // and falls back to application/octet-stream — which browsers offer as
+      // a file download. The whole point of an AGPL source/licence link is
+      // that a visitor can READ it where they clicked it.
+      const res = await fetch(url(`/${name}`));
+      expect(res.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+    });
+
+    it.each(LEGAL_FILES)('serves %s by name under a root, never by absolute path', (name) => {
+      // Invisible over HTTP — a wrong root just 404s, exactly as a missing
+      // file does — so it is asserted on the sendFile call itself. sendFile's
+      // dotfiles policy defaults to "ignore" and judges EVERY segment of an
+      // un-rooted path, so a checkout under any dot-directory (~/.apps/tutto,
+      // a .claude/worktrees probe) would 404 both files.
+      const sendFile = vi.fn();
+      registeredGetHandler(`/${name}`)(
+        {} as express.Request,
+        { set: vi.fn(), sendFile } as unknown as express.Response,
+        (() => {}) as express.NextFunction,
+      );
+
+      expect(sendFile).toHaveBeenCalledWith(name, { root: REPO_ROOT }, expect.any(Function));
+    });
+
+    it.each(LEGAL_FILES)('does not serve %s under a name it does not have', async (name) => {
+      // The routes are exact names, not a prefix: anything else is a probe,
+      // and one carrying an extension is asset-shaped, so it gets the SPA
+      // fallback's 404 rather than a licence body under the wrong URL.
+      const res = await fetch(url(`/${name}.txt`));
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({ error: 'Not found' });
     });

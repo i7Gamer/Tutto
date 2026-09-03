@@ -590,6 +590,42 @@ describe('joinRoom repairs a room whose host socket is gone', () => {
     expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: true, isHost: true }));
   });
 
+  it('hands the room to a brand-new player, not only to a reconnecting one', async () => {
+    // The repair used to live inside the `if (existingPlayer)` rejoin branch
+    // only. A room whose host seat drained is a LOBBY that still shows up in
+    // the room list, so the next person through the door is often someone who
+    // has never been in it — and they could not pick it up: the room stayed
+    // owned by a dead socket, with nobody able to change config, kick a ghost
+    // or start the game, until the last reconnect window ran out.
+    vi.useFakeTimers();
+    const roomId = 'HOST-REPAIR-FRESH-ROOM';
+    const { io } = makeFakeIo();
+
+    const alice = seatOf(roomId, 'alice-sock', 'Alice', 'dev-hf-a', io);
+    await alice.join();
+    const bob = seatOf(roomId, 'bob-sock', 'Bob', 'dev-hf-b', io);
+    await bob.join();
+
+    rooms[roomId].state.reconnectTimeout = SHORT_RECONNECT_S;
+    alice.fake.handlers['disconnect']();
+    rooms[roomId].state.reconnectTimeout = LONG_RECONNECT_S;
+    bob.fake.handlers['disconnect']();
+
+    vi.advanceTimersByTime(scaledTimerMs(SHORT_RECONNECT_S) + 1);
+
+    const room = rooms[roomId];
+    expect(room.state.players.map(p => p.name), 'the host seat drained').toEqual(['Bob']);
+    expect(room.state.players.some(p => p.socketId === room.host)).toBe(false);
+
+    // A device this room has never seen, so nothing about the rejoin path can
+    // account for the outcome.
+    const dave = seatOf(roomId, 'dave-sock', 'Dave', 'dev-hf-d', io);
+    const ack = await dave.join();
+
+    expect(rooms[roomId].host, 'the newcomer could not pick up the abandoned room').toBe('dave-sock');
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: true, isHost: true }));
+  });
+
   it('leaves the room with a host who is merely mid-reconnect', async () => {
     // The blink case, and the reason the repair is not simply "no connected
     // seat holds it": the host's own reconnect window is still open, and

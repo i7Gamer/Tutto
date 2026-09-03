@@ -453,6 +453,15 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       winStreakClassic,
     };
     room.state.players.push(newPlayer);
+    // The same repair the rejoin branch above runs, and for the same reason —
+    // it used to live there ALONE, which missed the commonest way back into an
+    // abandoned room. A room whose host seat drained is still a lobby in the
+    // room list, so the next person through the door is usually someone who
+    // has never been in it; without this they joined a room owned by a dead
+    // socket, unable to change config, kick a ghost or start the game until
+    // the last reconnect window ran out. Runs after the push, so this player
+    // is a candidate, and before the ack below, which reports isHost.
+    promoteHostAfterLoss(room);
     // Joined only now that the player is already in room.state.players — a
     // socket must never be in the Socket.IO room while absent from the
     // roster, or a concurrent broadcast (e.g. another player's pushState)

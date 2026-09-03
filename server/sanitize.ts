@@ -1,4 +1,7 @@
-import { MAX_CHAIN_CARDS } from '../src/types';
+import {
+  MAX_CHAIN_CARDS,
+  type AssertNever, type DeviceStatsPayload, type GlobalStatsPayload,
+} from '../src/types';
 import {
   MAX_SCORE_MAGNITUDE, MAX_ROUNDS, MAX_GAME_SECONDS, MAX_PLAYERS_PER_ROOM,
 } from '../src/utils/configValidation';
@@ -69,7 +72,11 @@ export const indentLogContinuationLines = (value: string): string =>
 // below: a huge value never poisons a MIN column — it just loses the merge —
 // so dropping one would buy nothing, and raising it toward MIN_RECORD_TURNS
 // would write the very unbeatable record this drop exists to prevent.
-const MIN_RECORD_STATS_FIELDS = new Set(['fastestWinTurns', 'fastestLossTurns']);
+const MIN_RECORD_STATS_FIELD_LIST = ['fastestWinTurns', 'fastestLossTurns'] as const;
+
+// Exported so sanitize.test.ts can hold it against RECORD_COLUMNS' MIN
+// entries, the same way RECORD_STATS_BOUNDS is held against the MAX ones.
+export const MIN_RECORD_STATS_FIELDS: ReadonlySet<string> = new Set(MIN_RECORD_STATS_FIELD_LIST);
 
 // The smallest turn count either of those records can honestly hold.
 const MIN_RECORD_TURNS = 1;
@@ -88,7 +95,8 @@ const NEGATIVE_ALLOWED_STATS_FIELDS = new Set(['totalScore']);
 // path back short of editing the database. Dropped rather than coerced to 0/1,
 // on the same reasoning as the array case below: no legitimate client sends a
 // boolean for a counter, so one arriving is a malformed payload.
-const BOOLEAN_STATS_FIELDS = new Set(['isDefaultGame']);
+const BOOLEAN_STATS_FIELD_LIST = ['isDefaultGame'] as const;
+const BOOLEAN_STATS_FIELDS: ReadonlySet<string> = new Set(BOOLEAN_STATS_FIELD_LIST);
 
 /**
  * The MAX-merged record columns, and the largest value each can honestly hold.
@@ -114,7 +122,7 @@ const BOOLEAN_STATS_FIELDS = new Set(['isDefaultGame']);
  * database.test.ts generates its record-column cases from RECORD_COLUMNS: a
  * column added here arrives already covered.
  */
-export const RECORD_STATS_BOUNDS: ReadonlyMap<string, number> = new Map([
+const RECORD_STATS_BOUND_LIST = [
   ['highestTurnScore', MAX_SCORE_MAGNITUDE],
   ['highestFeuerwerkTurnScore', MAX_SCORE_MAGNITUDE],
   ['highestX2TurnScore', MAX_SCORE_MAGNITUDE],
@@ -122,32 +130,132 @@ export const RECORD_STATS_BOUNDS: ReadonlyMap<string, number> = new Map([
   ['mostPlayersInGame', MAX_PLAYERS_PER_ROOM],
   ['longestGameRounds', MAX_ROUNDS],
   ['mostCardsInTurn', MAX_CHAIN_CARDS],
-]);
+] as const;
+
+export const RECORD_STATS_BOUNDS: ReadonlyMap<string, number> = new Map(RECORD_STATS_BOUND_LIST);
 
 /**
- * The most one player can add to an additive counter over a single game.
+ * The additive counters, split by the family whose ceiling each one's own
+ * source already enforces.
  *
- * Those counters come in three families with different natural ceilings — a
- * duration (totalPlaytime, bounded by MAX_GAME_SECONDS), a score (totalScore,
- * MAX_SCORE_MAGNITUDE) and a count (totalTurns and the per-turn tallies, none
- * of which can outrun MAX_ROUNDS) — and one shared bound has to clear the
- * largest of them or it would silently truncate a legitimate submission.
- * Derived from all three rather than picked, so raising any one of them
- * carries through without anyone having to remember this line.
+ * There used to be ONE bound, `Math.max(MAX_GAME_SECONDS, MAX_SCORE_MAGNITUDE,
+ * MAX_ROUNDS)`, because a shared bound has to clear the largest family or it
+ * truncates a legitimate submission. Two things followed, and both were bugs:
+ * the two smaller families got the largest one's ceiling (a device row took a
+ * totalScore ten times MAX_SCORE_MAGNITUDE), and — 1e7 times
+ * MAX_PLAYERS_PER_ROOM being EXACTLY STATS_VALUE_CAP — the global bound
+ * degenerated into the general cap, so `Math.min` against it was the identity
+ * and a host could write `totalScore: 1e9` straight into the public
+ * per-ruleset row. Nothing caught it: the paired test restated the
+ * multiplication the source line already made, and both sides were the same
+ * number. sanitize.test.ts now asserts every bound is strictly BELOW
+ * STATS_VALUE_CAP instead.
+ *
+ * Bounds are taken from the constants the values' own sources enforce, never
+ * restated, so a loosened bound upstream carries through here:
+ *
+ *  - a duration by MAX_GAME_SECONDS (pushValidation refuses a larger
+ *    gameTimeInSeconds),
+ *  - a score by MAX_SCORE_MAGNITUDE (the same refusal on every pushed score),
+ *  - a count by MAX_ROUNDS, which no per-player tally can outrun: a seat takes
+ *    at most one turn per round, and every card counter is a subset of that.
  */
-export const MAX_ADDITIVE_PER_PLAYER = Math.max(MAX_GAME_SECONDS, MAX_SCORE_MAGNITUDE, MAX_ROUNDS);
+const ADDITIVE_DURATION_KEYS = ['totalPlaytime'] as const;
+
+const ADDITIVE_SCORE_KEYS = [
+  'totalScore', 'feuerwerkPointsScored', 'x2PointsScored',
+  'totalFeuerwerkPoints', 'totalx2Points',
+] as const;
+
+const ADDITIVE_COUNT_KEYS = [
+  // DeviceStatsPayload
+  'gamesPlayed', 'wins', 'pointsDeducted', 'plusMinusCompleted', 'plusMinusFailed',
+  'kniffelCompleted', 'kniffelFailed', 'skipped', 'feuerwerkReceived',
+  'kleeblattFailed', 'kleeblattCompleted', 'x2Received', 'totalTurns', 'busts',
+  'feuerwerkBusts', 'x2Busts', 'totalTuttos', 'totalPlayersSum', 'totalRoundsSum',
+  // GlobalStatsPayload's own names for the same shape
+  'totalPlusMinus', 'totalKniffel', 'totalStop', 'totalFeuerwerk', 'totalKleeblatt',
+  'totalKleeblattCompleted', 'totalx2', 'totalPlusMinusCompleted', 'totalKniffelCompleted',
+  'totalFeuerwerkBusts', 'totalx2Busts', 'totalBusts',
+] as const;
 
 /**
- * The same counters on a global row are a sum over every seat that played, so
- * an identical key legitimately holds up to MAX_PLAYERS_PER_ROOM times as
- * much there. One shared cap across both shapes is either useless on a device
- * row or lossy on a global one, which is why sanitizeStats has to be told
- * which it is sanitizing for.
+ * Every key of either payload that is not a record column and not the one
+ * boolean — i.e. exactly what the three lists above have to cover between
+ * them, read off the payload types rather than guessed at.
  */
-export const MAX_ADDITIVE_PER_GLOBAL_ROW = MAX_ADDITIVE_PER_PLAYER * MAX_PLAYERS_PER_ROOM;
+type AdditiveStatsKey = Exclude<
+  keyof DeviceStatsPayload | keyof GlobalStatsPayload,
+  (typeof RECORD_STATS_BOUND_LIST)[number][0]
+  | (typeof MIN_RECORD_STATS_FIELD_LIST)[number]
+  | (typeof BOOLEAN_STATS_FIELD_LIST)[number]
+>;
+
+type ClassifiedAdditiveKey =
+  (typeof ADDITIVE_DURATION_KEYS)[number]
+  | (typeof ADDITIVE_SCORE_KEYS)[number]
+  | (typeof ADDITIVE_COUNT_KEYS)[number];
+
+/**
+ * The three lists must partition the additive keys of both payloads: together
+ * they cover every one, and no key sits in two families. A key missing from
+ * all three would silently fall to the unclassified bound below — the value
+ * that goes nowhere — while its real column kept taking whatever that allowed.
+ * Now it refuses to build, naming the key.
+ *
+ * Exported only so noUnusedLocals sees a use; nothing imports it. Same device
+ * as PushFieldLock in server/pushValidation.ts.
+ */
+export type AdditiveStatsFieldLock = [
+  AssertNever<Exclude<AdditiveStatsKey, ClassifiedAdditiveKey>>,
+  AssertNever<Exclude<ClassifiedAdditiveKey, AdditiveStatsKey>>,
+  AssertNever<Extract<(typeof ADDITIVE_DURATION_KEYS)[number], (typeof ADDITIVE_SCORE_KEYS)[number] | (typeof ADDITIVE_COUNT_KEYS)[number]>>,
+  AssertNever<Extract<(typeof ADDITIVE_SCORE_KEYS)[number], (typeof ADDITIVE_COUNT_KEYS)[number]>>,
+];
+
+/**
+ * What a key of each family may add in ONE submission, per row shape.
+ *
+ * A global row's counts and scores are sums over every seat that played
+ * (buildGlobalStatsPayload adds each player's up), so an identical key
+ * legitimately holds up to MAX_PLAYERS_PER_ROOM times as much there — which is
+ * why sanitizeStats has to be told which row it is sanitizing for. The
+ * duration does NOT get that multiplier in either scope: totalPlaytime is the
+ * game's own elapsed time in both payloads, passed straight through from
+ * gameTimeInSeconds, never a per-seat sum. Multiplying it anyway is what
+ * produced the degenerate global bound above.
+ */
+const additiveBoundsFor = (scope: StatsScope): ReadonlyMap<string, number> => {
+  const perSeatSum = scope === 'global' ? MAX_PLAYERS_PER_ROOM : 1;
+  return new Map<string, number>([
+    ...ADDITIVE_DURATION_KEYS.map(key => [key, MAX_GAME_SECONDS] as const),
+    ...ADDITIVE_SCORE_KEYS.map(key => [key, MAX_SCORE_MAGNITUDE * perSeatSum] as const),
+    ...ADDITIVE_COUNT_KEYS.map(key => [key, MAX_ROUNDS * perSeatSum] as const),
+  ]);
+};
+
+/**
+ * Exported for the strictly-below-STATS_VALUE_CAP check in sanitize.test.ts —
+ * the assertion that stops this table degenerating back into the general cap.
+ */
+export const ADDITIVE_STATS_BOUNDS: Readonly<Record<StatsScope, ReadonlyMap<string, number>>> = {
+  device: additiveBoundsFor('device'),
+  global: additiveBoundsFor('global'),
+};
+
+/**
+ * The bound for a numeric key none of the three lists above names.
+ *
+ * The tightest of them, because an unrecognised key reaches no column at all —
+ * updateDeviceStats writes only the columns it knows and buildGlobalMapping
+ * only the fields it maps — so nothing a real submission carries is lost by
+ * it. A key that SHOULD have a column cannot end up here by accident:
+ * AdditiveStatsFieldLock above refuses to build until it is classified.
+ */
+const UNCLASSIFIED_ADDITIVE_BOUND = MAX_ROUNDS;
 
 // The two additive counters left at the general STATS_VALUE_CAP instead of the
-// per-game bound above. The token-gated admin route (POST /api/stats/:deviceId)
+// per-game bounds above. The token-gated admin route (POST /api/stats/:deviceId)
 // legitimately corrects a miscount in one multi-game call rather than one game
 // at a time, and api.routes.test.ts + api.test.ts pin that. Safe to exempt
 // precisely because both are plain running sums: nothing they carry is
@@ -165,7 +273,7 @@ export type StatsScope = 'device' | 'global';
 
 export const sanitizeStats = (raw: unknown, scope: StatsScope): SanitizedStats => {
   if (!raw || typeof raw !== 'object') return {};
-  const additiveCap = scope === 'global' ? MAX_ADDITIVE_PER_GLOBAL_ROW : MAX_ADDITIVE_PER_PLAYER;
+  const additiveBounds = ADDITIVE_STATS_BOUNDS[scope];
   const clean: SanitizedStats = {};
   for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof val === 'boolean') {
@@ -209,7 +317,9 @@ export const sanitizeStats = (raw: unknown, scope: StatsScope): SanitizedStats =
     // sums, so nothing a clamp writes is permanent — the token-gated route can
     // subtract it again — while dropping one would silently lose the honest
     // part of a real game's submission.
-    const maxAllowed = MULTI_GAME_ADDITIVE_STATS_FIELDS.has(key) ? STATS_VALUE_CAP : additiveCap;
+    const maxAllowed = MULTI_GAME_ADDITIVE_STATS_FIELDS.has(key)
+      ? STATS_VALUE_CAP
+      : (additiveBounds.get(key) ?? UNCLASSIFIED_ADDITIVE_BOUND);
     // totalScore's negative bound deliberately stays the wider
     // STATS_VALUE_CAP: it is the only field not floored at 0, which makes it
     // the only way an operator can subtract a poisoned total back out. Bounding

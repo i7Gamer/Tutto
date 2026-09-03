@@ -438,6 +438,10 @@ const PLAYER_CROSS_SEAT_MUTABLE: (keyof ServerPlayer)[] = ['score', 'times1000Po
  * `position` and `color` are the only PLAYER_MUTABLE entries left out: no undo
  * path writes either, and they are presentation rather than the turn
  * bookkeeping an undo has to reverse.
+ *
+ * Handed out only on a push SHAPED like an undo — see looksLikeUndo in
+ * applyPlayers. Granting it unconditionally let EVERY push from the active
+ * seat rewrite one other seat's whole stat row.
  */
 const PLAYER_UNDO_SEAT_MUTABLE: (keyof ServerPlayer)[] = [
   ...PLAYER_STAT_FIELDS,
@@ -487,6 +491,13 @@ type ApplyContext = {
   // See applyPushedState's own parameter doc below: the seat the sender
   // occupies, captured before this push touched anything.
   pusherName: string | null;
+  // The RAW snapshot this push carries, so a handler can read a sibling field
+  // as the sender SENT it. ctx.state is not a substitute: by the time a late
+  // handler runs, an earlier one has already written its field onto the state
+  // — or silently dropped it for failing its own check — so reading it back
+  // there answers "what the room now holds", not "what this push claimed".
+  // applyPlayers needs the latter to tell an undo from an ordinary turn.
+  pushedState: Record<string, unknown>;
 };
 
 // A field's whole accept-or-drop rule: validate `value` and, if it passes,
@@ -527,11 +538,35 @@ const applyPlayers: FieldHandler = (value, ctx) => {
     // the pusher themselves, which grants nothing they did not already have.
     const undoSeatIdx = pusherIdx === -1 ? -1 : (pusherIdx - 1 + seats.length) % seats.length;
 
+    // Whether this push is even claiming to BE an undo. Nothing used to ask:
+    // the wider set was handed to the predecessor's seat on every push from
+    // the active player, so — twenty times a second, under PUSH_STATE_LIMIT —
+    // that player could rewrite one other seat's score, busts, totalTurns,
+    // every per-card counter and every per-turn record. In a two-player game
+    // the predecessor is always the opponent, and the poisoned row is finally
+    // committed by that opponent's OWN unmodified client at game end.
+    //
+    // The two halves are what src/store/gameSlice.ts's `undo` writes together:
+    // calculateUndo hands the turn back to the seat that played it
+    // (currentPlayerIndex becomes that seat), and Object.assign(state,
+    // noUndoableTurn()) nulls previousCard in the same set. pushState always
+    // sends the whole synced field set, so both reach the server on any real
+    // undo. Read off the PUSH rather than off ctx.state: applyCurrentPlayerIndex
+    // and the previousCard handler have already run by the time this does, and
+    // either may have dropped its value — which would silently re-widen this.
+    //
+    // A narrowing, not a seal. An attacker can still satisfy the shape; what
+    // it costs them is the turn (handed to the very seat they are writing) and
+    // their own undo state, on every push that carries the wider set. That
+    // turns an unlimited free-running write into one that gives up the table.
+    const looksLikeUndo = ctx.pushedState.currentPlayerIndex === undoSeatIdx
+      && ctx.pushedState.previousCard === null;
+
     ctx.state.players = seats.map((existing, i) =>
       mergeMutable(existing, pushed.find(q => q.name === existing.name), {
         writable: ctx.isHost || i === pusherIdx
           ? PLAYER_MUTABLE
-          : (i === undoSeatIdx ? PLAYER_UNDO_SEAT_MUTABLE : PLAYER_CROSS_SEAT_MUTABLE),
+          : (looksLikeUndo && i === undoSeatIdx ? PLAYER_UNDO_SEAT_MUTABLE : PLAYER_CROSS_SEAT_MUTABLE),
       }),
     );
   }
@@ -894,7 +929,8 @@ export const applyPushedState = (
     // PLAYER_UNDO_SEAT_MUTABLE for the one seat before it), and a defaulted
     // value would fail open. null means "no seat", which is treated as
     // strictly as a foreign one — and names no predecessor either. The host
-    // path ignores it.
+    // path ignores it. (The predecessor only gets the wider set on a push
+    // shaped like an undo; see looksLikeUndo in applyPlayers.)
     pusherName: string | null;
   },
 ): boolean => {
@@ -929,7 +965,7 @@ export const applyPushedState = (
     return false;
   }
 
-  const ctx: ApplyContext = { state, isHost, startingGame, pusherName };
+  const ctx: ApplyContext = { state, isHost, startingGame, pusherName, pushedState: newState };
   for (const key of allowedFields) {
     if (!(key in newState)) continue;
     // One check for the whole config set rather than a condition repeated in

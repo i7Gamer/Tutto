@@ -324,6 +324,17 @@ const hostSeatIsLost = (room: Room): boolean => {
 };
 
 /**
+ * What `room.host` holds when no seat owns the room.
+ *
+ * No socket id is ever the empty string, so nothing matches it and every
+ * host-gated event (`updateConfig`, `kickPlayer`, `submitGlobalStats`,
+ * pushState's host branch) is simply refused until someone claims the room —
+ * which hostSeatIsLost above reads as a lost host seat, so the next
+ * promoteHostAfterLoss hands it to the first connected player.
+ */
+export const UNCLAIMED_HOST = '';
+
+/**
  * Hands the room to a connected player when nothing that can still act on it
  * holds `room.host`, and reports whether it did.
  *

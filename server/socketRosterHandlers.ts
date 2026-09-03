@@ -1,4 +1,4 @@
-import { rooms, deleteRoom, handleActivePlayerRemoved, emitRoomState, promoteHostAfterLoss, roomChannel, isAbandonedRoom } from './rooms';
+import { rooms, deleteRoom, handleActivePlayerRemoved, emitRoomState, promoteHostAfterLoss, roomChannel, isAbandonedRoom, UNCLAIMED_HOST } from './rooms';
 import { startServerTurnTimer, abortGameIfLowPlayers } from './turnTimers';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
@@ -135,7 +135,18 @@ export const registerRosterHandlers = ({ io, socket, session }: SocketContext): 
       // to `?? room.state.players[0]` and so pinned the room on whichever
       // DISCONNECTED seat happened to sit first — worse than leaving it
       // unclaimed, which joinRoom repairs for the first player back.
-      promoteHostAfterLoss(room);
+      if (!promoteHostAfterLoss(room) && room.host === targetSocketId) {
+        // Nobody connected to promote to, and the id still on the room is the
+        // socket this kick just unseated. promoteHostAfterLoss deliberately
+        // leaves an unpromotable room UNCLAIMED rather than pinning it on a
+        // ghost — but "leave it alone" is the wrong outcome when the holder is
+        // a live socket with no seat: it would keep updateConfig, kickPlayer
+        // and submitGlobalStats over a room it is no longer in, and joinRoom's
+        // repair (which only fires while the host seat is lost) could never
+        // hand the room to a player who came back. Clearing it is what makes
+        // the first client back the new host.
+        room.host = UNCLAIMED_HOST;
+      }
       const aborted = abortGameIfLowPlayers(io, room, roomId);
       // If the kicked player was mid-turn, handleActivePlayerRemoved already
       // reset turnStartTime for the player now in their slot — resync the timer.

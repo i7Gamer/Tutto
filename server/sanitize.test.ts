@@ -4,11 +4,14 @@
 import { describe, it, expect } from 'vitest';
 import {
   sanitizeStats, sanitizeLogHeaderField, indentLogContinuationLines,
-  STATS_VALUE_CAP, RECORD_STATS_BOUNDS,
-  MAX_ADDITIVE_PER_PLAYER, MAX_ADDITIVE_PER_GLOBAL_ROW,
+  STATS_VALUE_CAP, RECORD_STATS_BOUNDS, MIN_RECORD_STATS_FIELDS,
+  ADDITIVE_STATS_BOUNDS,
   type StatsScope,
 } from './sanitize';
-import { MAX_PLAYERS_PER_ROOM } from '../src/utils/configValidation';
+import { RECORD_COLUMNS } from './database';
+import {
+  MAX_PLAYERS_PER_ROOM, MAX_GAME_SECONDS, MAX_SCORE_MAGNITUDE, MAX_ROUNDS,
+} from '../src/utils/configValidation';
 
 // Most of what sanitizeStats does is the same in both scopes (the type
 // guards, the floors, the record-column drops), so those cases are written
@@ -85,7 +88,7 @@ describe('sanitizeStats', () => {
   });
 
   it('caps absurdly large numbers', () => {
-    expect(sanitizeStats({ totalScore: 1e15 }, DEVICE)).toEqual({ totalScore: MAX_ADDITIVE_PER_PLAYER });
+    expect(sanitizeStats({ totalScore: 1e15 }, DEVICE)).toEqual({ totalScore: MAX_SCORE_MAGNITUDE });
   });
 
   it('coerces numeric strings', () => {
@@ -172,25 +175,59 @@ describe('sanitizeStats', () => {
     });
   });
 
-  it('bounds an additive counter per player on a device row and per room on a global one', () => {
-    // The same key means different things per row shape: totalPlaytime is one
-    // player's on a device row, but a sum over every seat that played on a
-    // global one. One shared cap is either useless on the first or lossy on
-    // the second, which is why the scope has to be passed in.
-    expect(sanitizeStats({ totalPlaytime: 1e15 }, DEVICE))
-      .toEqual({ totalPlaytime: MAX_ADDITIVE_PER_PLAYER });
-    expect(sanitizeStats({ totalPlaytime: 1e15 }, GLOBAL))
-      .toEqual({ totalPlaytime: MAX_ADDITIVE_PER_GLOBAL_ROW });
-    // A full room's summed playtime is legitimately far past one player's own,
-    // so the global row must not inherit the device bound.
-    expect(sanitizeStats({ totalPlaytime: MAX_ADDITIVE_PER_PLAYER * 2 }, GLOBAL))
-      .toEqual({ totalPlaytime: MAX_ADDITIVE_PER_PLAYER * 2 });
+  it('bounds each additive family by its own source ceiling, not one shared maximum', () => {
+    // One max-over-all-three bound had to clear the largest family, so the two
+    // smaller ones were bounded by the largest one's ceiling — a device row
+    // accepted a totalScore ten times MAX_SCORE_MAGNITUDE and a totalTurns a
+    // hundred times MAX_ROUNDS, neither of which any game can produce.
+    expect(sanitizeStats({ totalPlaytime: 1e15 }, DEVICE)).toEqual({ totalPlaytime: MAX_GAME_SECONDS });
+    expect(sanitizeStats({ totalScore: 1e15 }, DEVICE)).toEqual({ totalScore: MAX_SCORE_MAGNITUDE });
+    expect(sanitizeStats({ totalTurns: 1e15 }, DEVICE)).toEqual({ totalTurns: MAX_ROUNDS });
   });
 
-  it('derives the global bound from the per-player one and the room cap', () => {
-    // Stated as the multiplication rather than as a literal: a change to
-    // either factor must carry through instead of leaving a stale number here.
-    expect(MAX_ADDITIVE_PER_GLOBAL_ROW).toBe(MAX_ADDITIVE_PER_PLAYER * MAX_PLAYERS_PER_ROOM);
+  it('multiplies only the genuinely per-seat families by the room cap on a global row', () => {
+    // A global row's counts and scores ARE sums over every seat that played
+    // (buildGlobalStatsPayload adds each player's up), so an identical key
+    // legitimately holds up to MAX_PLAYERS_PER_ROOM times as much there.
+    expect(sanitizeStats({ totalScore: 1e15 }, GLOBAL))
+      .toEqual({ totalScore: MAX_SCORE_MAGNITUDE * MAX_PLAYERS_PER_ROOM });
+    expect(sanitizeStats({ totalTurns: 1e15 }, GLOBAL))
+      .toEqual({ totalTurns: MAX_ROUNDS * MAX_PLAYERS_PER_ROOM });
+    // A full room's summed score is legitimately far past one player's own, so
+    // the global row must not inherit the device bound.
+    expect(sanitizeStats({ totalScore: MAX_SCORE_MAGNITUDE * 2 }, GLOBAL))
+      .toEqual({ totalScore: MAX_SCORE_MAGNITUDE * 2 });
+    // The duration is the exception, and the reason the multiplier is not
+    // applied family-blind: totalPlaytime is the GAME's own elapsed time in
+    // both payloads (buildGlobalStatsPayload passes finalTime straight
+    // through), never a per-seat sum, so multiplying it by the room cap would
+    // buy a hundredfold headroom no submission can use — and it is exactly
+    // that product that reached STATS_VALUE_CAP and made the whole global
+    // bound a no-op.
+    expect(sanitizeStats({ totalPlaytime: 1e15 }, GLOBAL)).toEqual({ totalPlaytime: MAX_GAME_SECONDS });
+  });
+
+  it('keeps every additive bound strictly below the general cap', () => {
+    // The bound this replaced was arithmetically an identity on the global
+    // path: max(MAX_GAME_SECONDS, MAX_SCORE_MAGNITUDE, MAX_ROUNDS) is 1e7 and
+    // 1e7 * MAX_PLAYERS_PER_ROOM is EXACTLY STATS_VALUE_CAP, so
+    // Math.min(maxAllowed, capped) changed nothing and a host could still
+    // write `totalScore: 1e9` into the public per-ruleset row. The test that
+    // stood here could not see it, because it restated the multiplication the
+    // source line already made and both sides were the same number. Asserting
+    // the inequality instead is what makes the degeneration visible.
+    for (const scope of [DEVICE, GLOBAL]) {
+      for (const [key, bound] of ADDITIVE_STATS_BOUNDS[scope]) {
+        expect(bound, `${scope}/${key}`).toBeLessThan(STATS_VALUE_CAP);
+      }
+    }
+  });
+
+  it('refuses a whole-cap totalScore on the public per-ruleset row', () => {
+    // The concrete write the no-op above left open: a host plays a real game
+    // to a legitimate finish and submits 1e9 as the room's summed score.
+    expect(sanitizeStats({ totalScore: STATS_VALUE_CAP }, GLOBAL))
+      .toEqual({ totalScore: MAX_SCORE_MAGNITUDE * MAX_PLAYERS_PER_ROOM });
   });
 
   it('leaves gamesPlayed and wins out of the additive bound', () => {
@@ -199,11 +236,48 @@ describe('sanitizeStats', () => {
     // time, and api.routes.test.ts + api.test.ts pin that. Both are plain
     // additive columns — nothing they carry is permanent, so the same route
     // can subtract it again — which is what makes the exemption safe.
-    expect(sanitizeStats({ gamesPlayed: MAX_ADDITIVE_PER_PLAYER * 2 }, DEVICE))
-      .toEqual({ gamesPlayed: MAX_ADDITIVE_PER_PLAYER * 2 });
-    expect(sanitizeStats({ wins: MAX_ADDITIVE_PER_PLAYER * 2 }, DEVICE))
-      .toEqual({ wins: MAX_ADDITIVE_PER_PLAYER * 2 });
+    const pastEveryAdditiveBound = MAX_GAME_SECONDS * MAX_PLAYERS_PER_ROOM;
+    expect(sanitizeStats({ gamesPlayed: pastEveryAdditiveBound }, DEVICE))
+      .toEqual({ gamesPlayed: pastEveryAdditiveBound });
+    expect(sanitizeStats({ wins: pastEveryAdditiveBound }, DEVICE))
+      .toEqual({ wins: pastEveryAdditiveBound });
     expect(sanitizeStats({ gamesPlayed: 1e15 }, DEVICE)).toEqual({ gamesPlayed: STATS_VALUE_CAP });
+  });
+});
+
+/**
+ * The bound tables against the columns they are supposed to be bounding.
+ *
+ * sanitize.ts never imported RECORD_COLUMNS, and the generated cases above run
+ * off RECORD_STATS_BOUNDS — the side that would be MISSING a new entry. Adding
+ * a MAX column to RECORD_COLUMNS and forgetting this table left the new
+ * permanent record on the general 1e9 ceiling with every test still green,
+ * which is the hand-maintained-key-list failure this repo locks everywhere
+ * else. Checked here rather than as a compile-time lock because sanitize.ts is
+ * on server/api.ts's module graph and database.ts builds a knex instance at
+ * import: the type-level version would drag that in for a check a test makes
+ * just as loudly.
+ */
+describe('the record bound tables cover every record column', () => {
+  const columnsMergedWith = (agg: 'MAX' | 'MIN'): string[] =>
+    RECORD_COLUMNS.filter(([, columnAgg]) => columnAgg === agg).map(([col]) => col);
+
+  it('gives every MAX-merged column an honest ceiling', () => {
+    const unbounded = columnsMergedWith('MAX').filter(col => !RECORD_STATS_BOUNDS.has(col));
+    expect(unbounded).toEqual([]);
+  });
+
+  it('gives every MIN-merged column the drop-below-one rule', () => {
+    const unguarded = columnsMergedWith('MIN').filter(col => !MIN_RECORD_STATS_FIELDS.has(col));
+    expect(unguarded).toEqual([]);
+  });
+
+  it('bounds nothing that is not a record column at all', () => {
+    // The other direction: a bound left behind for a column that has since
+    // been dropped or turned additive reads like protection and is inert.
+    const columns = new Set(RECORD_COLUMNS.map(([col]) => col));
+    expect([...RECORD_STATS_BOUNDS.keys()].filter(key => !columns.has(key))).toEqual([]);
+    expect([...MIN_RECORD_STATS_FIELDS].filter(key => !columns.has(key))).toEqual([]);
   });
 });
 

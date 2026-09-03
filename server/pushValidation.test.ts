@@ -400,18 +400,27 @@ describe('applyPushedState', () => {
      * submits the doubled row for its own device at game end.
      *
      * The seat is derived from the ROSTER (the pusher's immediate predecessor),
-     * never from previousPlayerName, which is itself pushable.
+     * never from previousPlayerName, which is itself pushable — and the grant
+     * only stands on a push SHAPED like an undo, see UNDO_SHAPE below.
      */
     describe('the seat an undo hands the turn back to', () => {
       // Alice pushes; Bob sits between her and Carol. Alice's predecessor is
       // therefore Carol (the wrap), and Bob stays an ordinary foreign seat.
       const alicePushes = { isHost: false, startingGame: false, pusherName: 'Alice' };
 
+      // What gameSlice.undo actually puts on the wire, and what the wider grant
+      // is now gated on: the turn goes BACK to the predecessor's seat (Carol,
+      // index 2, for Alice at index 0) and noUndoableTurn() nulls previousCard
+      // in the same set. pushState always sends the whole synced field set, so
+      // a real undo carries both.
+      const UNDO_SHAPE = { currentPlayerIndex: 2, previousCard: null };
+
       it('takes back the counters and records an undo restores', () => {
         const state = makeState(['Alice', 'Bob', 'Carol']);
         Object.assign(state.players[2], { totalTurns: 4, busts: 3, totalTuttos: 6, highestTurnScore: 900 });
 
         applyPushedState(state, {
+          ...UNDO_SHAPE,
           players: [
             { name: 'Alice' },
             { name: 'Bob' },
@@ -426,6 +435,52 @@ describe('applyPushedState', () => {
         expect(state.players[2].mostCardsInTurn).toBe(2);
       });
 
+      // The regression this gate closes: the wider set used to be handed out on
+      // EVERY push from the active seat, undo or not. PLAYER_UNDO_SEAT_MUTABLE
+      // is PLAYER_MUTABLE minus position/color, so the active player could
+      // rewrite one other seat's score, busts, totalTurns, every per-card
+      // counter and every per-turn record — at PUSH_STATE_LIMIT, and in a
+      // two-player game that seat is always the opponent, whose own client then
+      // submits the poisoned row for its own deviceId at game end.
+      it('refuses those same counters on a push that is not an undo', () => {
+        const state = makeState(['Alice', 'Bob', 'Carol']);
+        Object.assign(state.players[2], { totalTurns: 3, busts: 1 });
+
+        applyPushedState(state, {
+          // The turn stays with the pusher and a turn is still on the books:
+          // the exact opposite of what an undo pushes.
+          currentPlayerIndex: 0,
+          previousCard: 'Feuerwerk',
+          players: [
+            { name: 'Alice' },
+            { name: 'Bob' },
+            { name: 'Carol', totalTurns: 42, busts: 99, totalTuttos: 7, highestTurnScore: 500 },
+          ],
+        }, alicePushes);
+
+        expect(state.players[2].totalTurns).toBe(3);
+        expect(state.players[2].busts).toBe(1);
+        expect(state.players[2].totalTuttos).toBe(0);
+        expect(state.players[2].highestTurnScore).toBeUndefined();
+      });
+
+      it('refuses them on a push that hands the turn back but keeps its undo state', () => {
+        // Half the shape is not the shape: currentPlayerIndex alone moves on
+        // an ordinary turn change too, so previousCard has to be cleared with
+        // it — which is what makes satisfying the gate cost the attacker their
+        // own undo state.
+        const state = makeState(['Alice', 'Bob', 'Carol']);
+        state.players[2].busts = 1;
+
+        applyPushedState(state, {
+          currentPlayerIndex: 2,
+          previousCard: 'Kniffel',
+          players: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Carol', busts: 99 }],
+        }, alicePushes);
+
+        expect(state.players[2].busts).toBe(1);
+      });
+
       it('wraps to the last seat for the first player, which is the round-end undo', () => {
         // Carol played the last turn of the previous round; Alice, at index 0,
         // is undoing across the round boundary.
@@ -433,6 +488,7 @@ describe('applyPushedState', () => {
         state.players[2].busts = 5;
 
         applyPushedState(state, {
+          ...UNDO_SHAPE,
           players: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Carol', busts: 4 }],
         }, alicePushes);
 
@@ -444,6 +500,7 @@ describe('applyPushedState', () => {
         Object.assign(state.players[2], { position: 2 });
 
         applyPushedState(state, {
+          ...UNDO_SHAPE,
           players: [
             { name: 'Alice' },
             { name: 'Bob' },
@@ -455,7 +512,13 @@ describe('applyPushedState', () => {
         expect(state.players[2].color).toBe('#ff0000');
       });
 
-      it('grants nothing extra at a single seat, where the predecessor is the pusher', () => {
+      // A DOCUMENTATION case, not a discriminating one: at a single seat
+      // `i === pusherIdx` matches first, so PLAYER_MUTABLE is selected however
+      // the undo-seat branch behaves — including if the wrapping arithmetic
+      // were dropped and undoSeatIdx came out as -1. It is here to state what
+      // the wrap resolves to at length 1 (the pusher's own seat, granting
+      // nothing new), and it cannot fail on a change to that branch.
+      it('documents that a single seat is its own predecessor, so nothing extra is granted', () => {
         const state = makeState(['Alice']);
         applyPushedState(state, { players: [{ name: 'Alice', busts: 7 }] }, alicePushes);
         expect(state.players[0].busts, 'the pusher\'s own seat was always writable').toBe(7);
@@ -465,13 +528,16 @@ describe('applyPushedState', () => {
         // The bypass an earlier audit confirmed over the wire: previousPlayerName
         // is a pushable field, so keying the wider grant off it lets an attacker
         // plant a victim's name in push #1 and write their counters in push #2 —
-        // twenty times a second, under PUSH_STATE_LIMIT. Bob is neither the
-        // pusher's seat nor her predecessor, and naming him changes nothing.
+        // twenty times a second, under PUSH_STATE_LIMIT. Push #2 is a genuine
+        // undo, so the gate is satisfied and the roster-derived seat (Carol) is
+        // the only thing left deciding: Bob is neither the pusher's seat nor her
+        // predecessor, and naming him changes nothing.
         const state = makeState(['Alice', 'Bob', 'Carol']);
         state.players[1].busts = 1;
 
         applyPushedState(state, { previousPlayerName: 'Bob' }, alicePushes);
         applyPushedState(state, {
+          ...UNDO_SHAPE,
           players: [
             { name: 'Alice' },
             { name: 'Bob', busts: 99, totalTurns: 42 },

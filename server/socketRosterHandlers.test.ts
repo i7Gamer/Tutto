@@ -116,6 +116,30 @@ describe('kickPlayer never leaves the room owned by a disconnected seat', () => 
     ).not.toBe(true);
   });
 
+  it('takes the room away from the self-kicking host when nobody can be promoted', () => {
+    // The half the inline `?? players[0]` fallback used to cover by accident.
+    // promoteHostAfterLoss reports false and leaves room.host ALONE when there
+    // is no connected seat to hand it to — and the one socket that is still
+    // connected here is the host's own, which has just kicked itself out of
+    // the roster. It kept updateConfig, kickPlayer and submitGlobalStats over
+    // a room it no longer sits in, and no reconnecting player could take the
+    // room back (joinRoom's repair only fires while the host seat is lost).
+    const room = rooms[roomId];
+    room.state.players = [
+      makeServerPlayer('Alice', { socketId: 'alice-sock' }),
+      makeServerPlayer('Bob', { socketId: 'bob-sock', disconnected: true }),
+      makeServerPlayer('Carol', { socketId: 'carol-sock', disconnected: true }),
+    ];
+    room.disconnectTimers['dev-Bob'] = setTimeout(() => {}, 600_000);
+    room.disconnectTimers['dev-Carol'] = setTimeout(() => {}, 600_000);
+
+    const alice = seat(roomId, 'alice-sock', 'Alice');
+    alice.handlers['kickPlayer']('alice-sock');
+
+    expect(rooms[roomId], 'the room was torn down instead of held open').toBeDefined();
+    expect(rooms[roomId].host, 'the kicked host kept the room').not.toBe('alice-sock');
+  });
+
   it('still promotes a connected seat when the kick leaves one', () => {
     // The control: without it the assertion above would also hold for a
     // handler that never reassigns the host at all.

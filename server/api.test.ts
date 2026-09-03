@@ -493,25 +493,37 @@ const ERROR_HANDLER_ARITY = 4;
 // The path-less handlers registerApiRoutes mounts, split the way express
 // itself splits them. The unmatched-/api 404 sitting between the two is
 // mounted on '/api', so it appears in neither list.
+//
+// `mountOrder` is the relative order the split throws away. Without it, "the
+// error handler is mounted after the SPA fallback" could only be asserted as
+// two lengths — which says nothing about which came first, and would hold just
+// as well for a handler registered before it.
 const pathlessHandlers = (): {
   requestHandlers: express.RequestHandler[];
   errorHandlers: express.ErrorRequestHandler[];
+  mountOrder: ('request' | 'error')[];
 } => {
   const requestHandlers: express.RequestHandler[] = [];
   const errorHandlers: express.ErrorRequestHandler[] = [];
+  const mountOrder: ('request' | 'error')[] = [];
   const app = {
     get: () => {},
     post: () => {},
     use: (...args: unknown[]) => {
       const handler = args[0];
       if (typeof handler !== 'function') return;
-      if (handler.length < ERROR_HANDLER_ARITY) requestHandlers.push(handler as express.RequestHandler);
-      else errorHandlers.push(handler as express.ErrorRequestHandler);
+      if (handler.length < ERROR_HANDLER_ARITY) {
+        requestHandlers.push(handler as express.RequestHandler);
+        mountOrder.push('request');
+      } else {
+        errorHandlers.push(handler as express.ErrorRequestHandler);
+        mountOrder.push('error');
+      }
     },
   } as unknown as express.Express;
 
   registerApiRoutes(app);
-  return { requestHandlers, errorHandlers };
+  return { requestHandlers, errorHandlers, mountOrder };
 };
 
 describe('the SPA fallback when sendFile reports an error', () => {
@@ -629,7 +641,23 @@ describe('the terminal error handler once the response has started', () => {
     // Registered inside registerApiRoutes rather than in index.ts, where
     // api.routes.test.ts — which builds its own express app around this very
     // function — could never reach it.
-    expect(pathlessHandlers().errorHandlers).toHaveLength(1);
+    //
+    // The "after" half is the load-bearing one and used to go unasserted: the
+    // helper returns request and error handlers in two separate lists, so a
+    // length alone holds however they are ordered. Express only reaches a
+    // four-parameter handler for an error raised by middleware registered
+    // BEFORE it, and the SPA fallback is the one that streams a file — mount
+    // this first and a sendFile failure falls through to finalhandler and its
+    // stack trace, with every other assertion in this file still green.
+    const { errorHandlers, mountOrder } = pathlessHandlers();
+
+    expect(errorHandlers).toHaveLength(1);
+    expect(mountOrder.filter(kind => kind === 'request').length,
+      'the SPA fallback is a path-less request handler, so there must be one to be after')
+      .toBeGreaterThan(0);
+    expect(mountOrder.indexOf('error'),
+      'the terminal error handler is not the last path-less mount')
+      .toBe(mountOrder.length - 1);
   });
 
   it('delegates to express instead of answering a second time', () => {

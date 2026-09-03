@@ -67,8 +67,16 @@ COPY --from=builder     --chown=node:node /app/dist                ./dist
 # Also what puts tsx on the resolution path for the CMD below.
 # server/packaging.test.ts asserts this destination.
 COPY --from=server-deps --chown=node:node /app/server/node_modules ./node_modules
-COPY --chown=node:node server/*.ts server/package.json ./server/
-COPY --chown=node:node server/migrations ./server/migrations
+# The whole directory, not `server/*.ts server/package.json`: that glob was
+# SHALLOW (`*` never crosses a '/'), while tsconfig.server.json compiles
+# `server/**/*.ts` — so the first module under a server subdirectory would
+# type-check and pass every suite, then be absent from the image and kill the
+# container at startup with "Cannot find module". Copying the directory also
+# subsumes the separate migrations line this replaced. The test files and
+# test-only helpers that would otherwise come with it are held out by
+# .dockerignore, which server/packaging.test.ts checks; that suite also pins
+# this line against tsconfig.server.json's own depth.
+COPY --chown=node:node server ./server/
 # The server imports shared game logic from src/ and playerColors.json from the
 # repo root. server/packaging.test.ts asserts this list stays complete — if it
 # fails, update these COPY lines and IMAGE_EXTERNAL_PATHS together.

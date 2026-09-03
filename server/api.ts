@@ -21,6 +21,11 @@ const CRASH_FIELD_MAX = 2000;
 const CRASH_LOG_RATE_LIMIT_WINDOW_MS = 60_000;
 const CRASH_LOG_RATE_LIMIT_MAX = 20;
 
+// What /COPYING and /NOTICE answer as. Both are plain UTF-8 text with no
+// extension to sniff a type from — see the routes near the bottom of
+// registerApiRoutes.
+const LEGAL_FILE_CONTENT_TYPE = 'text/plain; charset=utf-8';
+
 const STATS_RATE_LIMIT_WINDOW_MS = 60_000;
 // The production default, pinned by name (not just the literal 60 inlined
 // below) so a test can assert on it directly — the rate-limit e2e in
@@ -388,6 +393,12 @@ export const registerApiRoutes = (app: express.Express): void => {
   const REPO_ROOT_DIR = path.join(__dirname, '..');
   for (const legalFile of ['COPYING', 'NOTICE']) {
     app.get(`/${legalFile}`, (_req: express.Request, res: express.Response) => {
+      // Stated rather than sniffed, and BEFORE sendFile, whose own type step
+      // leaves an existing Content-Type alone. Neither name has an extension,
+      // so that sniffing gave up and fell back to application/octet-stream —
+      // which a browser offers as a file DOWNLOAD, for a link whose entire
+      // purpose is that a visitor can read the licence where they clicked it.
+      res.set('Content-Type', LEGAL_FILE_CONTENT_TYPE);
       res.sendFile(legalFile, { root: REPO_ROOT_DIR }, (err) => {
         if (!err) return;
         if (res.headersSent || isClientAbort(err)) return;

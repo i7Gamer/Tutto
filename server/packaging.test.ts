@@ -180,6 +180,20 @@ const readDockerfileCopySources = (): string[] =>
 const readDockerfile = (): string => fs.readFileSync(path.join(REPO_ROOT, 'Dockerfile'), 'utf8');
 
 /**
+ * One glob array out of tsconfig.server.json.
+ *
+ * Matched out of the raw text rather than JSON.parse'd: the file is JSONC (its
+ * compilerOptions carry block comments), while `include` and `exclude` are
+ * each plain JSON on a line of their own.
+ */
+const readServerTsconfigGlobs = (key: 'include' | 'exclude'): string[] => {
+  const raw = fs.readFileSync(path.join(REPO_ROOT, 'tsconfig.server.json'), 'utf8');
+  const declaration = new RegExp(`"${key}"\\s*:\\s*(\\[[^\\]]*\\])`).exec(raw);
+  if (!declaration) throw new Error(`tsconfig.server.json declares no "${key}"`);
+  return JSON.parse(declaration[1] as string) as string[];
+};
+
+/**
  * The container's entrypoint, as the argv array of the exec-form `CMD`.
  *
  * Only the exec form is considered: HEALTHCHECK carries its own shell-form
@@ -243,7 +257,7 @@ describe('production import graph', () => {
     // The oracle the other two assertions lack. Both the leak check above and
     // the .dockerignore check below derive from TEST_ONLY_HELPERS, so a helper
     // MISSING from that list is invisible to both — which is how
-    // testTimeouts.ts came to be shipped by `COPY server/*.ts` and enrolled as
+    // testTimeouts.ts came to be shipped by the server COPY line and enrolled as
     // a production graph root. This derives the same fact from the imports
     // instead: a non-test server file whose importers are all test files (or
     // themselves test-only) is test-only, whatever the list happens to say.
@@ -366,11 +380,12 @@ describe('files the Docker image must copy', () => {
     );
 
   it('copies every production file inside server/, subdirectories included', () => {
-    // The server is copied by `COPY server/*.ts`, and that glob is SHALLOW:
-    // a module moved into server/anything/ is silently left out of the image
-    // and the container dies at startup with "Cannot find module". The
-    // cross-boundary check below would not notice — the file is still inside
-    // server/ — so nothing else in this suite covers it.
+    // A module moved into server/anything/ that the COPY glob does not reach
+    // is silently left out of the image and the container dies at startup with
+    // "Cannot find module". The cross-boundary check below would not notice —
+    // the file is still inside server/ — so nothing else in this suite covers
+    // it. This one only sees a file that already exists, though; the tsconfig
+    // pairing below is what fails BEFORE the first such file is written.
     const sources = readDockerfileCopySources();
     const uncopied = graph.files
       .map(toRepoRelative)
@@ -379,6 +394,32 @@ describe('files the Docker image must copy', () => {
       .sort();
 
     expect(uncopied).toEqual([]);
+  });
+
+  it('copies server sources at every depth tsconfig.server.json compiles', () => {
+    // The two used to disagree, silently and in the one direction that hurts:
+    // tsconfig.server.json compiles `server/**/*.ts`, where `**` crosses
+    // directory separators, while the Dockerfile copied `server/*.ts`, whose
+    // `*` never does. The first module under a server subdirectory would
+    // type-check, pass every suite in this repo, and then simply not be in the
+    // image — "Cannot find module" at container startup, with a green CI
+    // behind it. Pinned against a path no file has yet, because the check has
+    // to fail BEFORE someone writes that module, not after.
+    const NESTED_SERVER_MODULE = 'server/nested/module.ts';
+
+    const serverIncludes = readServerTsconfigGlobs('include').filter(glob => glob.startsWith('server/'));
+    expect(serverIncludes, 'tsconfig.server.json compiles nothing under server/').not.toEqual([]);
+    // Derived rather than compared to the pattern text: what matters is that
+    // the type-checker reaches DOWN, whatever spelling it uses to say so.
+    expect(
+      serverIncludes.some(glob => glob.includes('**')),
+      'tsconfig.server.json stopped compiling server subdirectories — this pairing moved with it',
+    ).toBe(true);
+
+    expect(
+      readDockerfileCopySources().filter(source => matchesCopySource(source, NESTED_SERVER_MODULE)),
+      'no Dockerfile COPY line reaches a server module one directory down',
+    ).not.toEqual([]);
   });
 
   it('imports nothing outside server/ that the image does not copy', () => {
@@ -404,7 +445,7 @@ describe('files the Docker image must copy', () => {
   });
 
   it('keeps test-only helpers out of the build context', () => {
-    // The .dockerignore is what stops them being copied by `COPY server/*.ts`.
+    // The .dockerignore is what stops them being copied by `COPY server`.
     const entries = dockerignoreEntries();
     const unignored = TEST_ONLY_HELPERS.filter(helper => !entries.includes(`server/${helper}`));
     expect(unignored).toEqual([]);
