@@ -2,6 +2,48 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Sets data-theme on <html> before first paint, mirroring
+      // src/utils/themePreference.ts's rule (a stored choice always wins;
+      // otherwise fall back to the OS preference). App.tsx only applies that
+      // attribute in an effect AFTER the first successful render, which
+      // leaves two gaps this closes: every cold start briefly paints the
+      // light palette before React mounts, and a crash during that very
+      // first render (ErrorBoundary.tsx, which also reads data-theme) shows
+      // the light palette regardless of what was actually stored or
+      // preferred. Deliberately separate from the stale-bundle recovery
+      // script below (src/indexHtmlRecovery.test.ts) — unrelated concerns,
+      // and this one has to run first, before anything paints. Plain ES5,
+      // same as that script, for the same reason: no build step touches it.
+      (function () {
+        try {
+          var STORAGE_KEY = 'tutto-theme';
+          var stored = null;
+          try {
+            stored = localStorage.getItem(STORAGE_KEY);
+          } catch (storageReadError) {
+            stored = null;
+          }
+
+          var theme;
+          if (stored === 'light' || stored === 'dark') {
+            theme = stored;
+          } else {
+            var prefersDark = false;
+            try {
+              prefersDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            } catch (matchMediaError) {
+              prefersDark = false;
+            }
+            theme = prefersDark ? 'dark' : 'light';
+          }
+
+          document.documentElement.setAttribute('data-theme', theme);
+        } catch (e) {
+          // Never block the page load over a theme guess.
+        }
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png" />
     <!-- Matches src/index.css's `color-scheme` (light on :root, dark under

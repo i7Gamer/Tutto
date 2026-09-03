@@ -19,15 +19,20 @@ const EXPECTED_INLINE_SCRIPTS = 1;
 
 type ErrorHandler = (e: { message?: string; target?: unknown }) => void;
 
-/** The one inline <script> in a page — index.html's module tag carries a src. */
+/**
+ * The one inline <script> in a page's <body> — index.html's module tag
+ * carries a src, and the pre-paint theme script (see indexHtmlTheme.test.ts)
+ * lives in <head>, so scoping to <body> keeps this file's parser pointed at
+ * the recovery script alone.
+ */
 const parseInlineScript = (html: string): string => {
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  const inline = Array.from(doc.querySelectorAll('script')).filter(
+  const inline = Array.from(doc.body.querySelectorAll('script')).filter(
     script => !script.hasAttribute('src')
   );
   if (inline.length !== EXPECTED_INLINE_SCRIPTS) {
     throw new Error(
-      `index.html should have ${EXPECTED_INLINE_SCRIPTS} inline <script>, found ${inline.length}`
+      `index.html <body> should have ${EXPECTED_INLINE_SCRIPTS} inline <script>, found ${inline.length}`
     );
   }
   return inline[0].textContent ?? '';
