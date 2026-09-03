@@ -524,6 +524,69 @@ describe('turnTimers', () => {
       expect(rooms[roomId].state.previousTurnSummary?.ended).toBe('timeout');
     });
 
+    it('counts no bust when the timer fires on a still-tumbling classic Feuerwerk null', () => {
+      // The same banks-on-null as the case above, caught one debounce earlier:
+      // the snapshot was written while the dice were still rolling, so
+      // finalizeRoll never got to stamp `busted`. The dice themselves hold no
+      // scoring combination, and the shared isBust predicate — the one
+      // DiceGame's own restore re-derives this verdict with — says so, which
+      // is why a reload of this snapshot banks it. The timer must classify it
+      // the same way: the Feuerwerk was COMPLETED by its null, so no bust is
+      // charged and the chain's last card is not booked as a failure.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: 'Feuerwerk', cards: ['300'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')], ruleset: 'classic',
+        liveTurnState: {
+          turnScore: 1500, keptDice: [],
+          // No 1, no 5, no triple — a null against a Feuerwerk.
+          currentRoll: [{ id: 'r1', val: 2, selected: false }, { id: 'r2', val: 3, selected: false }],
+          rollingDiceIds: ['r1', 'r2'],
+          kniffelProgress: [], tuttosThisTurn: 1,
+          cardsThisTurn: ['300', 'Feuerwerk'], plusMinusScores: [], chainTuttoCount: 1,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const alice = rooms[roomId].state.players[0];
+      expect(alice.busts).toBe(0);
+      expect(alice.timesFeuerwerkReceived).toBe(1);
+      expect(rooms[roomId].state.previousTurnSummary?.ended).toBe('timeout');
+      expect(rooms[roomId].state.previousTurnSummary?.cards).toEqual([
+        { card: '300', completed: true },
+        { card: 'Feuerwerk', completed: true },
+      ]);
+      const lastEntry = rooms[roomId].state.historyLog[rooms[roomId].state.historyLog.length - 1];
+      expect(lastEntry.type).toBe('timeout');
+    });
+
+    it('still counts the dice null when a tumbling classic roll can still score', () => {
+      // The mirror case: the same never-finalized snapshot, but the dice hold
+      // a 5 — isBust says no null, so nothing banks and the unresolved roll
+      // stays the forfeit it always was.
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', currentPlayerIndex: 0, currentCard: 'Feuerwerk', cards: ['300'],
+        round: 1, players: [makePlayer('Alice'), makePlayer('Bob')], ruleset: 'classic',
+        liveTurnState: {
+          turnScore: 1500, keptDice: [],
+          currentRoll: [{ id: 'r1', val: 5, selected: false }, { id: 'r2', val: 3, selected: false }],
+          rollingDiceIds: ['r1', 'r2'],
+          kniffelProgress: [], tuttosThisTurn: 1,
+          cardsThisTurn: ['300', 'Feuerwerk'], plusMinusScores: [], chainTuttoCount: 1,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+
+      const alice = rooms[roomId].state.players[0];
+      expect(alice.busts).toBe(1);
+      expect(rooms[roomId].state.previousTurnSummary?.ended).toBe('null');
+      expect(rooms[roomId].state.previousTurnSummary?.cards).toEqual([
+        { card: '300', completed: true },
+        { card: 'Feuerwerk', completed: false },
+      ]);
+    });
+
     it('classifies a timeout during a drawn-Stop summary as the Stop forfeit, not a dice bust', () => {
       rooms[roomId] = createRoom('host-1');
       Object.assign(rooms[roomId].state, {

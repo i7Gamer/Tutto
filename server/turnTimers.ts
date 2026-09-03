@@ -2,6 +2,7 @@ import type { Server } from 'socket.io';
 import { MAX_HISTORY_LOG_SIZE, type CoreGameState, type TurnSummary } from '../src/types';
 import { TOTAL_DICE } from '../src/utils/turnShapes';
 import { calculateNextTurn } from '../src/utils/coreGameEngine';
+import { isBust } from '../src/utils/diceLogic';
 import { hasScoreInput } from '../src/utils/diceTurnControls';
 import { roomPhase } from '../src/utils/roomPhase';
 import type { Room, ServerPlayer } from './roomTypes';
@@ -134,7 +135,18 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       const asideCount = snapshot.keptDice.length
         + snapshot.currentRoll.filter(d => d.selected).length;
       const atBankChoice = !snapshot.busted && asideCount === TOTAL_DICE;
-      const feuerwerkBanked = !!snapshot.busted && lastCard === 'Feuerwerk' && snapshot.turnScore > 0;
+      // A snapshot taken while the dice were still tumbling carries no verdict:
+      // `busted` is written by finalizeRoll once every die has settled, while
+      // the live snapshot is debounced from the moment the roll starts. Trusting
+      // that unwritten flag charged a classic Feuerwerk whose null was still in
+      // the air as a forfeiting dice null, while a reload of the very same
+      // snapshot banked it — DiceGame's restore re-derives the verdict from the
+      // dice (diceTurnRestore.ts's rollBusts) instead. Re-derive it here with
+      // the same shared predicate so both authorities answer alike.
+      const rollBusts = !snapshot.busted && !snapshot.stopped
+        && (snapshot.rollingDiceIds?.length ?? 0) > 0 && snapshot.currentRoll.length > 0
+        && isBust(snapshot.currentRoll.map(d => d.val), lastCard, snapshot.kniffelProgress, room.state.ruleset);
+      const feuerwerkBanked = (!!snapshot.busted || rollBusts) && lastCard === 'Feuerwerk' && snapshot.turnScore > 0;
       const stoppedBanked = !snapshot.busted && !!snapshot.stopped;
       const atDrawWindow = !snapshot.busted && !snapshot.stopped
         && snapshot.keptDice.length === 0 && snapshot.currentRoll.length === 0;
