@@ -77,10 +77,32 @@ server.on('error', (err: ErrnoException) => {
   console.error(describeListenError(err, PORT));
   process.exit(1);
 });
+// Upper bound on one incoming Engine.IO packet's raw byte size, checked
+// BEFORE it is ever decoded — the only defence at that layer; everything
+// pushState carries is validated field-by-field afterward in
+// pushValidation.ts, with its own per-field caps (MAX_HISTORY_LOG_SIZE,
+// MAX_CHAIN_CARDS, MAX_DECK_SIZE, ...), but decoding a many-megabyte packet
+// to reach those checks is itself a cost a client can otherwise inflict for
+// free. Previously left unset (the engine.io library default), which
+// happened to be big enough for legitimate traffic but was never actually
+// chosen for that reason and could silently shrink or grow on a socket.io
+// upgrade.
+//
+// Sized to comfortably fit the largest state a real pushState legitimately
+// carries: a full MAX_PLAYERS_PER_ROOM (100) roster, historyLog trimmed to
+// MAX_HISTORY_LOG_SIZE (50) entries each holding a maximal MAX_CHAIN_CARDS
+// (100) classic chain and deduction list, and a fully-drawn 1,089-card deck
+// (MAX_CARD_COUNT × 11 card types) — measured at ~335 KiB worst case (see
+// server/pushStateValidation.test.ts), so this leaves comfortable headroom
+// for a longer game's chart history too, while still cutting off a flood of
+// gibberish well short of the multi-megabyte range.
+const MAX_PUSHED_STATE_BYTES = 512 * 1024; // 512 KiB
+
 const io = new Server(server, {
   cors: { origin: CORS_ORIGIN },
   pingInterval: 4000,
   pingTimeout: 6000,
+  maxHttpBufferSize: MAX_PUSHED_STATE_BYTES,
 });
 
 registerSocketHandlers(io);

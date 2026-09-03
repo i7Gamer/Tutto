@@ -583,7 +583,12 @@ describe('the global row counts the same players the device rows do', () => {
     expect(written!.isDefaultGame, 'the existing override is untouched').toBe(true);
   });
 
-  it('resolves the room from a lower-cased id the way joinRoom now does', async () => {
+  it('resolves the room correctly even when the payload names it in a different case', async () => {
+    // submitGlobalStats resolves the room from session.roomId (already
+    // canonical — see the describe block above), not from this payload's
+    // roomId, so a lower-cased id here changes nothing; kept as a regression
+    // guard against that resolution ever going back to trusting the payload.
+    //
     // Three seats started; Carol left before the finish was broadcast, so the
     // host's own end-screen roster — and the payload built from it — knows
     // only two.
@@ -663,6 +668,70 @@ describe('the global row counts the same players the device rows do', () => {
     const written = vi.mocked(updateGlobalStats).mock.calls[0]?.[0];
     expect(written!.totalPlayersSum).toBe(2);
     expect(written!.mostPlayersInGame).toBe(2);
+  });
+});
+
+// submitGlobalStats used to resolve the room from the client-supplied
+// `roomId` in the wire payload (normalized and looked up directly), safe
+// only because of the host check that follows — unlike endGameStats, which
+// has always resolved from session.roomId, the room this socket is actually
+// seated in. A stale or forged roomId in the payload could otherwise name
+// some OTHER room, and the host check alone doesn't stop that: this same
+// socket could legitimately be the host of more than one room across its
+// connection's lifetime (leave one, host another), so a roomId left over
+// from an earlier room — or simply a client bug — would still pass it.
+describe('submitGlobalStats resolves the room from the session, not the wire payload', () => {
+  const seatedRoomId = 'SESSION-ROOM-SEATED';
+  const otherRoomId = 'SESSION-ROOM-OTHER';
+
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.mocked(updateGlobalStats).mockReset().mockResolvedValue(1);
+  });
+
+  afterEach(() => { for (const id of Object.keys(rooms)) deleteRoom(id); });
+
+  it('writes to the session room, ignoring a different roomId named in the payload', async () => {
+    // The room this socket is actually seated in (and hosts) — untouched
+    // ruleset, so it stays 'modernized' (createRoom's default).
+    rooms[seatedRoomId] = createRoom('alice-sock');
+    Object.assign(rooms[seatedRoomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null,
+      players: [makePlayer('Alice', 'alice-sock', 'dev-alice')],
+    });
+
+    // A different room this same socket also happens to host (e.g. left and
+    // re-hosted elsewhere earlier in the connection's lifetime) — given a
+    // distinct ruleset so a write landing here instead is unambiguous.
+    rooms[otherRoomId] = createRoom('alice-sock');
+    rooms[otherRoomId].ruleset = 'classic';
+    Object.assign(rooms[otherRoomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null,
+      players: [makePlayer('Alice', 'alice-sock', 'dev-alice')],
+    });
+
+    const fake = makeFakeSocket('alice-sock');
+    registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId: seatedRoomId, username: 'Alice' } });
+    await fake.handlers['submitGlobalStats']({ roomId: otherRoomId, payload: { totalGamesPlayed: 1 } });
+
+    expect(updateGlobalStats).toHaveBeenCalledTimes(1);
+    const [, ruleset] = vi.mocked(updateGlobalStats).mock.calls[0]!;
+    expect(ruleset, "the session's own room, not the payload's").toBe('modernized');
+    expect(rooms[otherRoomId].statsRecordedForGame.global, "the other room's dedup is untouched").toBe(false);
+  });
+
+  it('does nothing when the socket has no current room in its session', async () => {
+    rooms[seatedRoomId] = createRoom('alice-sock');
+    Object.assign(rooms[seatedRoomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null,
+      players: [makePlayer('Alice', 'alice-sock', 'dev-alice')],
+    });
+
+    const fake = makeFakeSocket('alice-sock');
+    registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId: null, username: 'Alice' } });
+    await fake.handlers['submitGlobalStats']({ roomId: seatedRoomId, payload: { totalGamesPlayed: 1 } });
+
+    expect(updateGlobalStats).not.toHaveBeenCalled();
   });
 });
 

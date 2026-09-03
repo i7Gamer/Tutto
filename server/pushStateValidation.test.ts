@@ -222,4 +222,49 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
       })().catch((err) => { clearTimeout(timeoutId); reject(err); });
     });
   }, 12000);
+
+  // Regression coverage for server/index.ts's Server constructor: previously
+  // left at the engine.io library default (undocumented, and could change on
+  // a socket.io upgrade), maxHttpBufferSize is now an explicit, named
+  // constant. This proves it is actually wired up and bounds one incoming
+  // packet's raw size BEFORE it ever reaches pushValidation.ts's field
+  // checks — a client that ignores the cap gets its connection dropped
+  // rather than served.
+  describe('maxHttpBufferSize bounds an oversized socket packet', () => {
+    // Mirrors MAX_PUSHED_STATE_BYTES in server/index.ts.
+    const MAX_HTTP_BUFFER_SIZE = 512 * 1024;
+
+    const connectRawSocket = (): Promise<ClientSocket> =>
+      new Promise((resolve, reject) => {
+        const s = io(`http://127.0.0.1:${PORT}`, { transports: ['websocket'] });
+        const timeoutId = setTimeout(() => reject(new Error('connect timed out')), 5000);
+        s.on('connect', () => { clearTimeout(timeoutId); resolve(s); });
+      });
+
+    it('drops the connection when a client sends a packet over the configured cap', async () => {
+      const sock = await connectRawSocket();
+      const disconnectedReason = new Promise<string>(resolve => sock.once('disconnect', resolve));
+
+      // The content doesn't matter — the cap is enforced on the raw packet
+      // bytes before any field is ever parsed or validated.
+      sock.emit('pushState', { roomId: 'OVERSIZED-PACKET-ROOM', newState: { junk: 'x'.repeat(MAX_HTTP_BUFFER_SIZE + 1024) } });
+
+      await disconnectedReason;
+      expect(sock.connected).toBe(false);
+      sock.close();
+    }, 10000);
+
+    it('keeps the connection open for a packet safely under the cap', async () => {
+      const sock = await connectRawSocket();
+      let disconnected = false;
+      sock.on('disconnect', () => { disconnected = true; });
+
+      sock.emit('pushState', { roomId: 'UNDERSIZED-PACKET-ROOM', newState: { junk: 'x'.repeat(1024) } });
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      expect(disconnected).toBe(false);
+      expect(sock.connected).toBe(true);
+      sock.close();
+    }, 10000);
+  });
 });

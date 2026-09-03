@@ -4,7 +4,6 @@ import { rooms, emitRoomState } from './rooms';
 import { statsModeFor } from './roomTypes';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
-import { normalizeRoomId } from '../src/utils/configValidation';
 import type { EndGameStatsAck, StatsRefusalReason } from '../src/types';
 
 /**
@@ -64,13 +63,18 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
   safeOn(socket, 'submitGlobalStats', async (data: { roomId?: string; payload?: unknown } | null | undefined) => {
     if (!submitGlobalStatsLimiter()) return;
     if (!data || typeof data !== 'object') return;
-    const { roomId: rawRoomId, payload } = data;
-    if (typeof rawRoomId !== 'string') return;
-    // Same canonical form joinRoom stores the room under (case and whitespace).
-    const roomId = normalizeRoomId(rawRoomId);
+    const { payload } = data;
+    // Resolved from the session — the room this socket is actually seated
+    // in — the same source endGameStats uses, rather than the roomId in the
+    // wire payload above (kept there for older clients, but no longer
+    // trusted): the host check below alone doesn't stop a stale or forged
+    // payload roomId from naming some OTHER room this same socket also
+    // happens to host (e.g. having left one room and hosted another earlier
+    // in its connection's lifetime).
+    const roomId = session.roomId;
     // Only the room host may submit global stats, authenticated by socket identity.
     // No token needed — the WebSocket session is the credential.
-    const room = rooms[roomId];
+    const room = roomId ? rooms[roomId] : null;
     if (!room || room.host !== socket.id) return;
     // Stats only exist for a game that actually reached its end — without
     // this gate, a host could submit fabricated stats straight from the
