@@ -476,7 +476,19 @@ export default function Game() {
     <div className="container mx-auto px-2 md:px-4 pt-2 md:pt-4 pb-20 max-w-3xl flex flex-col gap-2 md:gap-4">
       <Scoreboard game={game} formattedTime={formattedTime} />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
+      {/* overflow-x-clip: the two columns below slide in from +-20px
+          (CardDisplay from the left, GameControls from the right), and
+          nothing was clipping that transient horizontal excursion — at
+          375px wide it pushed document.documentElement.scrollWidth past the
+          viewport for the ~300ms the tween runs, jiggling in a horizontal
+          scrollbar on phones. `-x-clip` rather than `-hidden`: it clips only
+          the horizontal axis, so it can sit on this stable (untransformed)
+          wrapper without touching vertical overflow anywhere inside it —
+          CardDisplay's own countdown ring, GameControls' content — and
+          without affecting the dice panel's ModalShell, which is `fixed`
+          and rendered as this component's own sibling below, outside this
+          grid entirely. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4 overflow-x-clip">
         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col h-full">
           <CardDisplay currentCard={currentCard} cards={cards} stopCardCountdown={stopCardCountdown} />
         </motion.div>
