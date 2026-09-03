@@ -82,26 +82,56 @@ describe('attachPersistence', () => {
   // The whole reason the stability key exists: the 1s game clock mutates
   // gameTimeInSeconds every tick, and writing the snapshot each time would
   // rewrite localStorage once a second for the length of a game.
+  //
+  // These tests spread from a single `state` object rather than calling
+  // localState() again for each emit: zustand/immer only mints a new
+  // reference for the slice a `set` actually touches, so an untouched field
+  // (players, cards, ...) keeps its old reference across ticks. Rebuilding
+  // the whole fixture from scratch each time (as makeGameState/makePlayer do)
+  // would give every field a fresh-but-equal-content reference and defeat the
+  // reference/shallow-equality check this subscriber uses to detect a real
+  // change cheaply.
   it('does not rewrite when only the game clock ticked', () => {
     const { store, emit } = makeStore();
     attachPersistence(store);
-    emit(localState());
+    const state = localState();
+    emit(state);
 
     const writeSpy = vi.spyOn(Storage.prototype, 'setItem');
-    emit(localState({ gameTimeInSeconds: 1 }));
-    emit(localState({ gameTimeInSeconds: 2 }));
+    emit({ ...state, gameTimeInSeconds: 1 });
+    emit({ ...state, gameTimeInSeconds: 2 });
 
     expect(writeSpy).not.toHaveBeenCalled();
     writeSpy.mockRestore();
   });
 
+  // Proves the detection is cheap, not just correct: an update to a field
+  // that was never part of the save (toasts) must not even serialise the
+  // state to compare it, let alone write it.
+  it('does not stringify or write for a change outside the saved fields, e.g. a toast', () => {
+    const { store, emit } = makeStore();
+    attachPersistence(store);
+    const state = localState();
+    emit(state);
+
+    const writeSpy = vi.spyOn(Storage.prototype, 'setItem');
+    const stringifySpy = vi.spyOn(JSON, 'stringify');
+    emit({ ...state, toasts: [{ id: 1, message: 'hi' }] });
+
+    expect(writeSpy).not.toHaveBeenCalled();
+    expect(stringifySpy).not.toHaveBeenCalled();
+    writeSpy.mockRestore();
+    stringifySpy.mockRestore();
+  });
+
   it('carries the latest clock value along the next real change', () => {
     const { store, emit } = makeStore();
     attachPersistence(store);
-    emit(localState());
-    emit(localState({ gameTimeInSeconds: 42 }));
+    const state = localState();
+    emit(state);
+    emit({ ...state, gameTimeInSeconds: 42 });
 
-    emit(localState({ gameTimeInSeconds: 42, round: 2 }));
+    emit({ ...state, gameTimeInSeconds: 42, round: 2 });
 
     expect(saved()).toMatchObject({ round: 2, gameTimeInSeconds: 42 });
   });
@@ -109,15 +139,16 @@ describe('attachPersistence', () => {
   it('ignores online state entirely, and writes once on returning to local', () => {
     const { store, emit } = makeStore();
     attachPersistence(store);
-    emit(localState({ round: 3 }));
+    const state = localState({ round: 3 });
+    emit(state);
     localStorage.clear();
 
-    emit(localState({ mode: 'online', round: 99 }));
+    emit({ ...state, mode: 'online', round: 99 });
     expect(saved(), 'an online snapshot must never reach the local save').toBeNull();
 
     // Same stable content as before the online detour — it still has to write,
     // because leaving local mode reset the key.
-    emit(localState({ round: 3 }));
+    emit(state);
     expect(saved()).toMatchObject({ round: 3 });
   });
 

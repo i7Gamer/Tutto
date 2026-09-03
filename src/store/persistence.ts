@@ -325,20 +325,30 @@ export const attachPersistence = (store: Pick<StoreApi<GameStore>, 'subscribe'>)
   // snapshot on each tick would rewrite localStorage once per second for the entire
   // game. We therefore skip the write unless something other than the timer changed
   // — the current gameTimeInSeconds still rides along whenever a real change is saved.
-  let lastLocalPersistKey: string | null = null;
+  //
+  // Change detection compares the STABLE_LOCAL_GAME_KEYS fields by reference
+  // (===) against the last-seen values instead of JSON.stringify-ing the whole
+  // snapshot on every store update. This is only cheap because immer only
+  // mints a new reference for the slice a `set` call actually touches — an
+  // unrelated update (e.g. a toast being added) leaves every one of these
+  // fields pointing at the same object/array/primitive it already held, so
+  // the comparison below is a handful of `===` checks with no serialisation
+  // at all. JSON.stringify only ever runs once real fields have changed, and
+  // then only to build the string actually being written.
+  let lastLocalStable: Record<string, unknown> | null = null;
   store.subscribe((state) => {
     if (state.mode !== 'local') {
-      lastLocalPersistKey = null; // re-entering local mode should write once
+      lastLocalStable = null; // re-entering local mode should write once
       return;
     }
-    // Everything except the per-second timer field forms the "stability key" —
-    // built from the same field list pickLocalGameState reads back with, so
+    // Built from the same field list pickLocalGameState reads back with, so
     // the two can never drift apart.
     const stable: Record<string, unknown> = {};
     for (const key of STABLE_LOCAL_GAME_KEYS) stable[key] = state[key];
-    const persistKey = JSON.stringify(stable);
-    if (persistKey === lastLocalPersistKey) return;
-    lastLocalPersistKey = persistKey;
+    const changed = lastLocalStable === null ||
+      STABLE_LOCAL_GAME_KEYS.some((key) => stable[key] !== lastLocalStable![key]);
+    if (!changed) return;
+    lastLocalStable = stable;
     // The latest gameTimeInSeconds still rides along whenever a real change is saved.
     const localStateToSave = {
       ...stable,
