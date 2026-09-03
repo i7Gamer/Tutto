@@ -944,3 +944,36 @@ test.describe('tap targets ≥ 44px on game-time controls (C65)', () => {
     await contextA.close();
   });
 });
+
+/**
+ * C69.2 — the two-tab and three-tab rows (personal/global, ruleset,
+ * normal/custom) used to be a plain `flex ... justify-center` row, which
+ * wraps onto a second line once the pills no longer fit a phone's width.
+ * Statistics.tsx now makes each one `flex-nowrap overflow-x-auto` with
+ * `shrink-0` pills, so a row that cannot fit scrolls horizontally instead of
+ * wrapping — asserted here as "one line tall", since jsdom (the unit suite)
+ * never lays out real widths and so cannot see wrapping happen at all.
+ */
+test.describe('Statistics tabs stay a single scrollable row on phones (C69.2)', () => {
+  test('each tablist is exactly one pill tall at 375x812, not wrapped onto a second line', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'View Statistics' }).click();
+    await expect(page.getByTestId('statistics-page')).toBeVisible();
+
+    // The personal tab is selected by default, so all three tablists — the
+    // top-level pair, the ruleset pair, and the personal/custom mode pair —
+    // are on screen together.
+    const tablists = page.getByRole('tablist');
+    await expect(tablists).toHaveCount(3);
+
+    const count = await tablists.count();
+    for (let i = 0; i < count; i++) {
+      const tablist = tablists.nth(i);
+      const pillHeight = (await tablist.getByRole('tab').first().boundingBox())!.height;
+      const scrollHeight = await tablist.evaluate((el) => el.scrollHeight);
+
+      expect(Math.abs(scrollHeight - pillHeight)).toBeLessThanOrEqual(2);
+    }
+  });
+});

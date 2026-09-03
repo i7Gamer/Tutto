@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useId, useState, useEffect } from 'react';
 import { Trophy, Clock, Hash, FastForward, BarChart2, Globe, User, TrendingDown, TrendingUp, Zap, Repeat, Skull, XCircle, ArrowLeft, Layers } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
 import { formatInt, formatFixed, AVG_DECIMALS } from '../utils/formatNumber';
@@ -8,6 +8,7 @@ import { STAT_TONES, DEFAULT_STAT_TONE, type StatTone } from '../utils/statTones
 import { percentageOf } from '../utils/percentage';
 import { isRecordHolder, type RecordField } from '../utils/statRecords';
 import { useDeviceStats, type DeviceStatsStatus } from '../hooks/useDeviceStats';
+import { useRovingTabs } from '../hooks/useRovingTabs';
 import { HOT_WIN_STREAK } from '../utils/playerStats';
 import {
   DEFAULT_GAME_MODE, type CardType, type GameMode, type Ruleset,
@@ -63,8 +64,12 @@ const RULESET_TABS: readonly { value: Ruleset; labelKey: string; labelFallback: 
 // The ruleset and normal/custom rows share the personal/global row's look —
 // one selected/unselected treatment for every tab on this screen, a step down
 // in size from the top-level pair so the hierarchy still reads.
+// shrink-0: without it a flex-nowrap row squeezes its pills to fit instead
+// of overflowing into the scrollbar C69.2 adds below. The smaller size below
+// `sm:` keeps a three-tab row (the widest case) to one line at 375px; `sm:`
+// and up restore the original size unchanged.
 const subTabClass = (selected: boolean): string =>
-  `px-5 py-2.5 rounded-xl font-semibold transition-all ${selected
+  `shrink-0 px-3 py-2 text-sm sm:px-5 sm:py-2.5 sm:text-base rounded-xl font-semibold transition-all ${selected
     ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30'
     : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-black/5 border border-gray-200 dark:border-slate-600'}`;
 
@@ -305,6 +310,40 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   // Which ruleset's buckets are on screen — classic games play by different
   // rules (card chains), so their numbers and records live apart.
   const [statsRuleset, setStatsRuleset] = useState<Ruleset>('modernized');
+
+  // One useId() per mount rather than per tablist: three tablists, each
+  // needing tab/panel ids that stay stable and never collide with another
+  // Statistics instance (there is only ever one, but nothing here relies on
+  // that). ArrowLeft/ArrowRight/Home/End are the same handler for all three
+  // (useRovingTabs) — three near-identical keydown handlers would have been
+  // the alternative.
+  const baseId = useId();
+  const topTabId = (index: 0 | 1) => `${baseId}-top-tab-${index}`;
+  const topPanelId = (index: 0 | 1) => `${baseId}-top-panel-${index}`;
+  const topTabs = useRovingTabs({
+    count: 2,
+    selectedIndex: tab === 'personal' ? 0 : 1,
+    onSelect: (index) => setTab(index === 0 ? 'personal' : 'global'),
+  });
+
+  const rulesetTabId = (index: number) => `${baseId}-ruleset-tab-${index}`;
+  const rulesetPanelId = `${baseId}-ruleset-panel`;
+  const rulesetSelectedIndex = RULESET_TABS.findIndex(r => r.value === statsRuleset);
+  const rulesetTabs = useRovingTabs({
+    count: RULESET_TABS.length,
+    selectedIndex: rulesetSelectedIndex,
+    onSelect: (index) => setStatsRuleset(RULESET_TABS[index].value),
+  });
+
+  const modeTabId = (index: number) => `${baseId}-mode-tab-${index}`;
+  const modePanelId = `${baseId}-mode-panel`;
+  const modeSelectedIndex = MODE_TABS.findIndex(m => m.value === mode);
+  const modeTabs = useRovingTabs({
+    count: MODE_TABS.length,
+    selectedIndex: modeSelectedIndex,
+    onSelect: (index) => setMode(MODE_TABS[index].value),
+  });
+
   // The personal bucket: deviceId + the selected ruleset/mode pair, via the
   // shared device-stats hook (Game.tsx's pre-game snapshot and EndScreen's
   // lifetime stats fetch the same shape the same way).
@@ -431,27 +470,52 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
           </div>
         ) : (
         <>
-        <div className="flex gap-4 mb-10 justify-center" role="tablist">
-          <motion.button role="tab" aria-selected={tab === 'personal'} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-            className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${tab === 'personal' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-black/5 border border-gray-200 dark:border-slate-600'}`}
+        {/* flex-nowrap + overflow-x-auto: below `sm:` this becomes a single
+            scrollable row instead of wrapping onto a second line (C69.2) —
+            `sm:justify-center` alone (no bare justify-center) keeps the
+            un-scrolled desktop layout exactly as it was. */}
+        <div className="flex flex-nowrap overflow-x-auto gap-2 sm:gap-4 mb-10 sm:justify-center" role="tablist">
+          <motion.button
+            ref={topTabs.setTabRef(0)}
+            id={topTabId(0)}
+            role="tab"
+            aria-selected={tab === 'personal'}
+            aria-controls={topPanelId(0)}
+            tabIndex={topTabs.getTabIndex(0)}
+            onKeyDown={(e) => topTabs.onKeyDown(e, 0)}
+            whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+            className={`shrink-0 flex items-center gap-2 px-4 py-2.5 text-sm sm:px-6 sm:py-3 sm:text-base rounded-xl font-semibold transition-all ${tab === 'personal' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-black/5 border border-gray-200 dark:border-slate-600'}`}
             onClick={() => setTab('personal')}
           >
             <User size={18} /> {t('statistics.personal', 'Personal')}
           </motion.button>
-          <motion.button role="tab" aria-selected={tab === 'global'} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-            className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${tab === 'global' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-black/5 border border-gray-200 dark:border-slate-600'}`}
+          <motion.button
+            ref={topTabs.setTabRef(1)}
+            id={topTabId(1)}
+            role="tab"
+            aria-selected={tab === 'global'}
+            aria-controls={topPanelId(1)}
+            tabIndex={topTabs.getTabIndex(1)}
+            onKeyDown={(e) => topTabs.onKeyDown(e, 1)}
+            whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+            className={`shrink-0 flex items-center gap-2 px-4 py-2.5 text-sm sm:px-6 sm:py-3 sm:text-base rounded-xl font-semibold transition-all ${tab === 'global' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-black/5 border border-gray-200 dark:border-slate-600'}`}
             onClick={() => setTab('global')}
           >
             <Globe size={18} /> {t('statistics.globalCommunity', 'Global Community')}
           </motion.button>
         </div>
 
-        <div className="flex gap-3 mb-8 justify-center" role="tablist" data-testid="ruleset-tabs">
-          {RULESET_TABS.map(({ value, labelKey, labelFallback }) => (
+        <div className="flex flex-nowrap overflow-x-auto gap-2 sm:gap-3 mb-8 sm:justify-center" role="tablist" data-testid="ruleset-tabs">
+          {RULESET_TABS.map(({ value, labelKey, labelFallback }, index) => (
             <motion.button
               key={value}
+              ref={rulesetTabs.setTabRef(index)}
+              id={rulesetTabId(index)}
               role="tab"
               aria-selected={statsRuleset === value}
+              aria-controls={rulesetPanelId}
+              tabIndex={rulesetTabs.getTabIndex(index)}
+              onKeyDown={(e) => rulesetTabs.onKeyDown(e, index)}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               className={subTabClass(statsRuleset === value)}
@@ -462,6 +526,11 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
           ))}
         </div>
 
+        {/* Nested tabpanel: the ruleset choice is a dimension above the
+            personal/global tabs it wraps (both re-fetch/re-derive off
+            statsRuleset), so its own tabpanel legitimately contains theirs
+            rather than sitting beside them. */}
+        <div id={rulesetPanelId} role="tabpanel" aria-labelledby={rulesetTabId(rulesetSelectedIndex)}>
         {fetchFailed ? (
           <div role="alert" className="text-center text-red-500 py-10 bg-red-50 dark:bg-red-900/20 rounded-2xl border border-red-100 dark:border-red-900/50">
             {t('statistics.loadFailed', "Couldn't load these statistics — check your connection and switch tabs to retry.")}
@@ -469,15 +538,20 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
         ) : (
         <AnimatePresence mode="wait">
           {tab === 'personal' && (
-            <motion.div key="personal" role="tabpanel" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="flex flex-col w-full">
+            <motion.div key="personal" id={topPanelId(0)} role="tabpanel" aria-labelledby={topTabId(0)} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="flex flex-col w-full">
               <h3 className="text-xl font-bold mb-6 text-center text-gray-700 dark:text-gray-200">{t('statistics.onlineLifetimeRecord', 'Online Lifetime Record (This Device)')}</h3>
 
-              <div className="flex gap-3 mb-6 justify-center" role="tablist">
-                {MODE_TABS.map(({ value, labelKey, labelFallback }) => (
+              <div className="flex flex-nowrap overflow-x-auto gap-2 sm:gap-3 mb-6 sm:justify-center" role="tablist">
+                {MODE_TABS.map(({ value, labelKey, labelFallback }, index) => (
                   <motion.button
                     key={value}
+                    ref={modeTabs.setTabRef(index)}
+                    id={modeTabId(index)}
                     role="tab"
                     aria-selected={mode === value}
+                    aria-controls={modePanelId}
+                    tabIndex={modeTabs.getTabIndex(index)}
+                    onKeyDown={(e) => modeTabs.onKeyDown(e, index)}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     className={subTabClass(mode === value)}
@@ -487,6 +561,10 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                   </motion.button>
                 ))}
               </div>
+              {/* Nested tabpanel, same reasoning as the ruleset one above:
+                  normal/custom picks a bucket within the ALREADY-selected
+                  ruleset and top-level tab, so it owns a panel inside theirs. */}
+              <div id={modePanelId} role="tabpanel" aria-labelledby={modeTabId(modeSelectedIndex)}>
               {isCustomView && (
                 <p className="text-sm text-center text-gray-500 dark:text-gray-400 mb-6 max-w-xl mx-auto">
                   {t('statistics.customGamesExplainer', 'Games with a changed winning score or deck. They are kept separately and never count toward your normal record or the global statistics.')}
@@ -564,11 +642,12 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                   <CardBreakdown rows={personalCardBreakdown(p, isClassicView)} />
                 </div>
               )}
+              </div>
             </motion.div>
           )}
 
           {tab === 'global' && (
-            <motion.div key="global" role="tabpanel" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="flex flex-col w-full">
+            <motion.div key="global" id={topPanelId(1)} role="tabpanel" aria-labelledby={topTabId(1)} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="flex flex-col w-full">
               <div className="text-center mb-8">
                 <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">{t('statistics.globalCommunityTitle', 'Global Community Statistics')}</h3>
                 <p className="text-gray-500 dark:text-gray-400 font-medium">{t('statistics.globalDescription', 'Aggregated across all normal online games played.')}</p>
@@ -633,6 +712,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
           )}
         </AnimatePresence>
         )}
+        </div>
         </>
         )}
       </motion.div>

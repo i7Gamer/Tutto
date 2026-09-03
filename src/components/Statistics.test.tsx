@@ -195,8 +195,10 @@ describe('Statistics Component', () => {
         expect(tab).toHaveAttribute('aria-selected', 'false');
         expect(tab.className).toContain('text-gray-600');
         expect(tab.className).toContain('border-gray-200');
-        // The old pills were text-sm; the sub-tabs now read at body size.
-        expect(tab.className).not.toContain('text-sm');
+        // C69.2: the sub-tabs now read at body size from `sm:` up (the old
+        // fix this test pinned), but smaller below it — a `sm:text-base`
+        // override is how a bare `text-sm` stays mobile-only.
+        expect(tab.className).toContain('sm:text-base');
       }
     });
   });
@@ -881,6 +883,122 @@ describe('Statistics Component', () => {
 
       expect(screen.getByText('42'), 'the superseded response overwrote the current bucket').toBeInTheDocument();
       expect(screen.queryByText('7')).not.toBeInTheDocument();
+    });
+  });
+
+  // C66 — useRovingTabs wires ArrowLeft/ArrowRight/Home/End into all three
+  // tablists identically, so one representative tablist (the ruleset pair)
+  // stands in for the mechanism and the others get a narrower check that
+  // they are wired up at all.
+  describe('roving tabs keyboard navigation', () => {
+    const renderReady = async () => {
+      global.fetch = vi.fn(() => Promise.resolve(mockFetchJson({ gamesPlayed: 1, wins: 1, totalPlaytime: 100 })));
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+    };
+
+    it('ArrowRight moves selection and focus to the next tab, wrapping past the end', async () => {
+      await renderReady();
+      const modernized = screen.getByRole('tab', { name: /lobby\.rulesetModernized/i });
+      const classic = screen.getByRole('tab', { name: /lobby\.rulesetClassic/i });
+
+      modernized.focus();
+      fireEvent.keyDown(modernized, { key: 'ArrowRight' });
+      expect(classic).toHaveAttribute('aria-selected', 'true');
+      expect(classic).toHaveFocus();
+
+      fireEvent.keyDown(classic, { key: 'ArrowRight' });
+      expect(modernized).toHaveAttribute('aria-selected', 'true');
+      expect(modernized).toHaveFocus();
+    });
+
+    it('ArrowLeft moves selection and focus to the previous tab, wrapping before the start', async () => {
+      await renderReady();
+      const modernized = screen.getByRole('tab', { name: /lobby\.rulesetModernized/i });
+      const classic = screen.getByRole('tab', { name: /lobby\.rulesetClassic/i });
+
+      modernized.focus();
+      fireEvent.keyDown(modernized, { key: 'ArrowLeft' });
+      expect(classic).toHaveAttribute('aria-selected', 'true');
+      expect(classic).toHaveFocus();
+    });
+
+    it('Home and End jump to the first and last tab', async () => {
+      await renderReady();
+      const modernized = screen.getByRole('tab', { name: /lobby\.rulesetModernized/i });
+      const classic = screen.getByRole('tab', { name: /lobby\.rulesetClassic/i });
+
+      modernized.focus();
+      fireEvent.keyDown(modernized, { key: 'End' });
+      expect(classic).toHaveAttribute('aria-selected', 'true');
+      expect(classic).toHaveFocus();
+
+      fireEvent.keyDown(classic, { key: 'Home' });
+      expect(modernized).toHaveAttribute('aria-selected', 'true');
+      expect(modernized).toHaveFocus();
+    });
+
+    // Roving tabIndex: only the selected tab is a Tab stop, so keyboard users
+    // don't tab through every pill to get past the group.
+    it('gives only the selected tab in each tablist a 0 tabIndex', async () => {
+      await renderReady();
+      const selected = [
+        screen.getByRole('tab', { name: /statistics\.personal/i }),
+        screen.getByRole('tab', { name: /lobby\.rulesetModernized/i }),
+        screen.getByRole('tab', { name: /statistics\.normalGames/i }),
+      ];
+      const unselected = [
+        screen.getByRole('tab', { name: /statistics\.globalCommunity/i }),
+        screen.getByRole('tab', { name: /lobby\.rulesetClassic/i }),
+        screen.getByRole('tab', { name: /statistics\.customGames/i }),
+      ];
+
+      selected.forEach(tab => expect(tab).toHaveAttribute('tabindex', '0'));
+      unselected.forEach(tab => expect(tab).toHaveAttribute('tabindex', '-1'));
+    });
+
+    it('moves the personal/global tablist selection with the arrow keys too', async () => {
+      await renderReady();
+      const personal = screen.getByRole('tab', { name: /statistics\.personal/i });
+      const globalTab = screen.getByRole('tab', { name: /statistics\.globalCommunity/i });
+
+      personal.focus();
+      fireEvent.keyDown(personal, { key: 'ArrowRight' });
+      expect(globalTab).toHaveAttribute('aria-selected', 'true');
+      expect(globalTab).toHaveFocus();
+    });
+
+    it('moves the personal/custom mode tablist selection with the arrow keys too', async () => {
+      await renderReady();
+      const normal = screen.getByRole('tab', { name: /statistics\.normalGames/i });
+      const custom = screen.getByRole('tab', { name: /statistics\.customGames/i });
+
+      normal.focus();
+      fireEvent.keyDown(normal, { key: 'ArrowRight' });
+      expect(custom).toHaveAttribute('aria-selected', 'true');
+      expect(custom).toHaveFocus();
+    });
+  });
+
+  // Each tab gets an id its panel can point aria-labelledby at, and each
+  // panel gets role="tabpanel" — without ids, aria-controls/aria-labelledby
+  // would have nothing to reference.
+  describe('tab/panel wiring', () => {
+    it('gives every tab an id and every panel an aria-labelledby pointing back at it', async () => {
+      global.fetch = vi.fn(() => Promise.resolve(mockFetchJson({ gamesPlayed: 1, wins: 1, totalPlaytime: 100 })));
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+      const personalTab = screen.getByRole('tab', { name: /statistics\.personal/i });
+      expect(personalTab).toHaveAttribute('id');
+
+      const panels = screen.getAllByRole('tabpanel');
+      expect(panels.length).toBeGreaterThan(0);
+      panels.forEach(panel => {
+        const labelledBy = panel.getAttribute('aria-labelledby');
+        expect(labelledBy).toBeTruthy();
+        expect(document.getElementById(labelledBy as string)).not.toBeNull();
+      });
     });
   });
 });
