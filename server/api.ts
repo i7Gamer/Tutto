@@ -40,6 +40,19 @@ const CLIENT_ABORT_ERROR_CODES = ['ECONNABORTED', 'ECONNRESET'];
 const isClientAbort = (err: unknown): boolean =>
   CLIENT_ABORT_ERROR_CODES.includes((err as { code?: string }).code ?? '');
 
+// What tells an asset-shaped request (a JS chunk, a stale HTML import, a
+// probed .ico) apart from a client-side route: the app has no router that
+// names a path ending in something like ".js" or ".ico", so any request
+// whose last segment carries one is not a navigation this SPA can possibly
+// answer with its shell. Anchored to the final segment, not the whole path,
+// so a client route with a dot in it (a room code, say) is unaffected.
+const ASSET_LIKE_PATH_RE = /\.[a-z0-9]+$/i;
+
+const isAssetShapedPath = (requestPath: string): boolean => {
+  const lastSegment = requestPath.slice(requestPath.lastIndexOf('/') + 1);
+  return ASSET_LIKE_PATH_RE.test(lastSegment);
+};
+
 // Reads env at call time (not import time) so it runs after index.ts has
 // loaded .env via dotenv — module bodies are hoisted above that statement.
 export const registerApiRoutes = (app: express.Express): void => {
@@ -292,7 +305,19 @@ export const registerApiRoutes = (app: express.Express): void => {
   });
 
   // SPA fallback — must be registered last so it doesn't shadow the API routes.
-  app.use((_req: express.Request, res: express.Response) => {
+  app.use((req: express.Request, res: express.Response) => {
+    // Asset-shaped paths (a missing/renamed JS chunk, a probed favicon.ico,
+    // a stale HTML page's old asset URL) must 404 rather than get the shell:
+    // express.static above already serves every REAL file under dist/, so
+    // reaching this point at all means the asset does not exist. Answering
+    // 200 + index.html instead used to mask a missing chunk as a "successful"
+    // navigation and hand back an HTML document from what a script tag or
+    // fetch() expected to be JS/CSS/JSON. Deliberately not gated on Accept —
+    // curl and health probes omit it, and would then get the shell too.
+    if (isAssetShapedPath(req.path)) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
     // Rooted at dist/ rather than handed the absolute path: sendFile's
     // dotfiles policy ("ignore" by default) judges every path segment it is
     // given, so without a root a checkout under any dot-directory

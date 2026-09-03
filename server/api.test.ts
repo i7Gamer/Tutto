@@ -189,6 +189,27 @@ describe('API Endpoints Token Protection', () => {
     expect(res.headers.get('content-type')).toContain('text/html');
   });
 
+  it('still serves the SPA fallback for a deeply nested client route', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/deep/nested/link`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+  });
+
+  it('404s an asset-shaped path instead of serving the shell', async () => {
+    // Not a real file under dist/, so express.static already missed it —
+    // this is the fallback's own asset-shape check, not a redirect to a
+    // stubbed file.
+    const res = await fetch(`http://127.0.0.1:${PORT}/game/assets/app.js`);
+    expect(res.status).toBe(404);
+    expect(res.headers.get('content-type')).not.toContain('text/html');
+  });
+
+  it('404s a missing favicon.ico instead of serving the shell', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/favicon.ico`);
+    expect(res.status).toBe(404);
+    expect(res.headers.get('content-type')).not.toContain('text/html');
+  });
+
   it('GET the device stats route rejects an oversized device id with 400', async () => {
     // Same 200-char cap the socket path enforces in joinRoom, measured on the
     // decoded id rather than the escaping around it.
@@ -451,6 +472,10 @@ describe('the SPA fallback when sendFile reports an error', () => {
 
   const errorWithCode = (code: string): SendFileError => Object.assign(new Error(code), { code });
 
+  // Navigation-shaped: no extension on the last segment, so these drive the
+  // sendFile branch rather than the asset-shaped 404 short-circuit.
+  const navigationRequest = { path: '/some/client/route' } as express.Request;
+
   // What the handler writes once sendFile hands it `error`, with the response
   // either already started or not.
   const responseTo = (error: SendFileError | undefined, headersSent: boolean) => {
@@ -463,7 +488,7 @@ describe('the SPA fallback when sendFile reports an error', () => {
       sendFile: (_file: string, _options: unknown, callback: (err?: SendFileError) => void): void => callback(error),
     } as unknown as express.Response;
 
-    spaFallback()({} as express.Request, res, (() => {}) as express.NextFunction);
+    spaFallback()(navigationRequest, res, (() => {}) as express.NextFunction);
     return { status, send };
   };
 
@@ -476,12 +501,33 @@ describe('the SPA fallback when sendFile reports an error', () => {
     const sendFile = vi.fn();
     const res = { sendFile } as unknown as express.Response;
 
-    spaFallback()({} as express.Request, res, (() => {}) as express.NextFunction);
+    spaFallback()(navigationRequest, res, (() => {}) as express.NextFunction);
 
     expect(sendFile).toHaveBeenCalledTimes(1);
     const [file, options] = sendFile.mock.calls[0] as [string, { root: string }];
     expect(file).toBe('index.html');
     expect(options.root).toBe(path.join(__dirname, '../dist'));
+  });
+
+  it('answers 404 without touching sendFile for an asset-shaped path', () => {
+    // Reaching the fallback at all means express.static already failed to
+    // find a real file there — so a request whose last segment looks like a
+    // filename (a missing JS chunk, a probed favicon.ico) must not get the
+    // HTML shell, which is what used to mask a 404 as a "successful" fetch.
+    const sendFile = vi.fn();
+    const json = vi.fn();
+    const status = vi.fn(() => ({ json }));
+    const res = { sendFile, status, json } as unknown as express.Response;
+
+    spaFallback()(
+      { path: '/game/assets/app.js' } as express.Request,
+      res,
+      (() => {}) as express.NextFunction,
+    );
+
+    expect(sendFile).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalledWith(404);
+    expect(json).toHaveBeenCalledWith({ error: 'Not found' });
   });
 
   it('writes nothing when the client aborts after the response has started', () => {

@@ -46,7 +46,16 @@ export default defineConfig(({ mode }) => {
   const socketTarget = apiTarget.replace(/^http/, 'ws')
 
   return {
-    base: './',
+    // Absolute, not relative: the app is always served from the origin root
+    // (the README's Docker examples, `npm run preview`, production) — never
+    // from a subpath. A relative base only matters for a subpath deploy this
+    // app doesn't do, and the app has no client-side router (see roomLink.ts)
+    // that would ever need one. It was actively misleading combined with the
+    // SPA fallback in server/api.ts, which serves index.html for ANY
+    // unmatched path: a direct visit to a path other than "/" resolved that
+    // shell's asset URLs relative to the visited path instead of the actual
+    // root.
+    base: '/',
     define: {
       __APP_VERSION__: JSON.stringify(appVersion),
     },
