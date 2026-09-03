@@ -6,11 +6,12 @@ import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../../store/useGameStore';
 import { sortKeptDiceForDisplay, hasScoreInput, isSpecialCard, clampScoreInputText } from '../../utils/diceTurnControls';
 import { formatInt } from '../../utils/formatNumber';
-import { CARD_FLIP_MS } from '../../utils/uiTimings';
+import { CARD_FLIP_MS, SPECTATOR_LIVE_STATE_GRACE_MS } from '../../utils/uiTimings';
 import { BONUS_CARDS, MAX_SCORE_MAGNITUDE } from '../../utils/configValidation';
 import type { CardType, DiceMode } from '../../types';
 import { DiePips } from './Die';
 import ConfirmModal from '../ConfirmModal';
+import { useSpectatorGrace } from '../../hooks/useSpectatorGrace';
 
 interface GameControlsProps {
   isMyTurn: boolean;
@@ -64,6 +65,10 @@ const useGameControlsSlice = () => useGameStore(useShallow(state => ({
   isHost: state.isHost,
   activeTurnState: state.liveTurnState,
   currentPlayer: state.currentPlayerIndex !== null ? state.players[state.currentPlayerIndex] : null,
+  // Identifies the turn a spectator is waiting on (useSpectatorGrace's
+  // turnKey below) — currentPlayerIndex alone repeats every round.
+  currentPlayerIndex: state.currentPlayerIndex,
+  round: state.round,
   // The host-enforced dice mode is the only signal a spectator ever gets
   // about how the ACTIVE player is rolling — an individual player's own
   // dice-mode preference is local-only and never leaves their device (see
@@ -104,12 +109,28 @@ export default function GameControls({
     isHost,
     activeTurnState,
     currentPlayer,
+    currentPlayerIndex,
+    round,
     enforcedDiceMode,
     turnTimeRemaining,
     undo,
     endGame,
     leaveRoom,
   } = useGameControlsSlice();
+
+  // A spectator online, not on their own turn, with no live turn state yet:
+  // in an enforced-physical room that state is permanent (see the branch
+  // below), but in an UNENFORCED room it may just be that the active
+  // player's first roll hasn't arrived. diceMode is per-device and never
+  // networked, so nothing else here can tell the two apart — after this
+  // grace period with still nothing, treat it the same as enforced-physical
+  // rather than spinning for the rest of that player's turn.
+  const waitingOnUnenforcedLiveState = isOnline && !isMyTurn && !activeTurnState && enforcedDiceMode !== 'physical';
+  const spectatorGraceElapsed = useSpectatorGrace({
+    active: waitingOnUnenforcedLiveState,
+    turnKey: `${currentPlayerIndex}-${round}`,
+    graceMs: SPECTATOR_LIVE_STATE_GRACE_MS,
+  });
   const currentCardHasInput = hasScoreInput(currentCard);
   const currentCardHasYesNo = isSpecialCard(currentCard);
   const isStopCard = currentCard === 'Stop';
@@ -414,14 +435,16 @@ export default function GameControls({
                     </div>
                   )}
                 </div>
-              ) : isOnline && enforcedDiceMode === 'physical' ? (
-                // Physical dice push no liveTurnState — enforcedDiceMode is
-                // the only way a spectator can tell that the "waiting"
-                // spinner above would never resolve, and would otherwise spin
-                // for the whole real-world duration of the active player's
-                // turn. A static notice instead, with the room's own turn
-                // countdown (Scoreboard shows it too, but not next to this
-                // message) when a turn timer is running.
+              ) : isOnline && (enforcedDiceMode === 'physical' || spectatorGraceElapsed) ? (
+                // Physical dice push no liveTurnState. In an enforced-physical
+                // room that is permanent, so the notice below shows at once;
+                // in an unenforced room it may just be an ordinary wait for
+                // the active player's first roll, so it only shows once
+                // useSpectatorGrace's grace period runs out with still
+                // nothing (see the comment on waitingOnUnenforcedLiveState
+                // above). A static notice either way, with the room's own
+                // turn countdown (Scoreboard shows it too, but not next to
+                // this message) when a turn timer is running.
                 <div className="w-full">
                   <h4 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">
                     {t('game.physicalTurnNotice', '{{name}} is rolling real dice', { name: currentPlayer?.name ?? '' })}

@@ -146,3 +146,17 @@ export const REORDER_PRESS_RELEASE_MS = 50;
 // shared by both so the visual cue and the buzz always agree on when the turn
 // is running out.
 export const TURN_URGENT_SECONDS = 10;
+
+// How long a spectator's "waiting" spinner (GameControls) is allowed to spin
+// with no live turn state before useSpectatorGrace gives up on it arriving
+// and shows the physical-dice notice instead.
+//
+// diceMode is per-device and never networked (see roomTypes.ts), so in an
+// UNENFORCED room nothing tells a spectator that the active player happens to
+// be rolling physical dice on their own device — physical dice push no
+// liveTurnState, so the spinner would otherwise spin for the whole real-world
+// duration of that player's turn. Long enough that a digital player's own
+// first roll (which does arrive as liveTurnState) comfortably lands inside
+// it; short enough that a genuinely physical turn doesn't leave the
+// spectator staring at a bare spinner for long.
+export const SPECTATOR_LIVE_STATE_GRACE_MS = 4000;

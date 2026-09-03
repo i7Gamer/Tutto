@@ -4,9 +4,9 @@ import type { ComponentProps } from 'react';
 import GameControls from './GameControls';
 import { useGameStore, type GameStore } from '../../store/useGameStore';
 import type { CardType, DiceSnapshot } from '../../types';
-import { CARD_FLIP_MS } from '../../utils/uiTimings';
+import { CARD_FLIP_MS, SPECTATOR_LIVE_STATE_GRACE_MS } from '../../utils/uiTimings';
 import { MAX_SCORE_MAGNITUDE } from '../../utils/configValidation';
-import { makePlayer } from '../../testing/factories';
+import { makePlayer, makeDiceSnapshot } from '../../testing/factories';
 
 // GameControls now reads currentCard, cards, ruleset, isOnline, isHost,
 // liveTurnState and currentPlayer (plus the undo/endGame/leaveRoom actions)
@@ -384,10 +384,11 @@ describe('GameControls spectator view when the active player rolls physical dice
     expect(screen.queryByText('game.timeSeconds')).toBeNull();
   });
 
-  it('leaves the digital-active-player-without-a-snapshot-yet spinner unchanged', () => {
+  it('leaves the digital-active-player-without-a-snapshot-yet spinner unchanged, before the grace period elapses', () => {
     // The control: an active player on digital (or an unenforced room, where
     // a spectator has no way to know the other player's own preference) still
-    // gets the generic spinner while waiting for their first liveTurnState.
+    // gets the generic spinner while waiting for their first liveTurnState —
+    // at least until SPECTATOR_LIVE_STATE_GRACE_MS runs out (see below).
     setStore({
       isOnline: true, isHost: false, liveTurnState: null, enforcedDiceMode: null,
       currentPlayerIndex: 0,
@@ -398,6 +399,108 @@ describe('GameControls spectator view when the active player rolls physical dice
     expect(screen.getByText('game.controls.waiting')).toBeInTheDocument();
     expect(screen.queryByText('game.physicalTurnNotice')).toBeNull();
     expect(container.querySelector('.animate-spin')).not.toBeNull();
+  });
+
+  // diceMode is per-device and never networked (roomTypes.ts) — in an
+  // UNENFORCED room a spectator has no way to know the active player's own
+  // device happens to be on physical dice, which pushes no liveTurnState at
+  // all. Without a grace period the spinner above spun for that player's
+  // entire real-world turn.
+  describe('unenforced room, no live state yet', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('keeps showing the spinner until SPECTATOR_LIVE_STATE_GRACE_MS elapses', () => {
+      setStore({
+        isOnline: true, isHost: false, liveTurnState: null, enforcedDiceMode: null,
+        currentPlayerIndex: 0, round: 1,
+        players: [makePlayer({ name: 'Bob', socketId: 'socket1', position: 1 })],
+      });
+      const { container } = renderAsSpectator();
+
+      act(() => { vi.advanceTimersByTime(SPECTATOR_LIVE_STATE_GRACE_MS - 1); });
+
+      expect(screen.getByText('game.controls.waiting')).toBeInTheDocument();
+      expect(screen.queryByText('game.physicalTurnNotice')).toBeNull();
+      expect(container.querySelector('.animate-spin')).not.toBeNull();
+    });
+
+    it('shows the physical-dice notice once the grace period elapses', () => {
+      setStore({
+        isOnline: true, isHost: false, liveTurnState: null, enforcedDiceMode: null,
+        currentPlayerIndex: 0, round: 1,
+        players: [makePlayer({ name: 'Bob', socketId: 'socket1', position: 1 })],
+      });
+      renderAsSpectator();
+
+      act(() => { vi.advanceTimersByTime(SPECTATOR_LIVE_STATE_GRACE_MS); });
+
+      expect(screen.getByText('game.physicalTurnNotice')).toBeInTheDocument();
+      expect(screen.queryByText('game.controls.waiting')).toBeNull();
+    });
+
+    it('cancels the wait once live turn state arrives, showing the mirrored view instead of the notice', () => {
+      setStore({
+        isOnline: true, isHost: false, liveTurnState: null, enforcedDiceMode: null,
+        currentPlayerIndex: 0, round: 1,
+        players: [makePlayer({ name: 'Bob', socketId: 'socket1', position: 1 })],
+      });
+      renderAsSpectator();
+
+      act(() => { vi.advanceTimersByTime(SPECTATOR_LIVE_STATE_GRACE_MS - 500); });
+      act(() => {
+        useGameStore.setState({ liveTurnState: makeDiceSnapshot({ turnScore: 250 }) });
+      });
+      act(() => { vi.advanceTimersByTime(1000); });
+
+      expect(screen.queryByText('game.physicalTurnNotice')).toBeNull();
+      expect(screen.getByText('250')).toBeInTheDocument();
+    });
+
+    it('restarts the grace period for a new turn instead of inheriting what was left of the previous one', () => {
+      setStore({
+        isOnline: true, isHost: false, liveTurnState: null, enforcedDiceMode: null,
+        currentPlayerIndex: 0, round: 1,
+        players: [
+          makePlayer({ name: 'Bob', socketId: 'socket1', position: 1 }),
+          makePlayer({ name: 'Carol', socketId: 'socket2', position: 2 }),
+        ],
+      });
+      renderAsSpectator();
+
+      act(() => { vi.advanceTimersByTime(SPECTATOR_LIVE_STATE_GRACE_MS - 500); });
+      expect(screen.queryByText('game.physicalTurnNotice')).toBeNull();
+
+      // The turn moves on to a new player before the old grace period ran out.
+      act(() => { useGameStore.setState({ currentPlayerIndex: 1 }); });
+
+      act(() => { vi.advanceTimersByTime(500); });
+      expect(screen.queryByText('game.physicalTurnNotice'), 'the new turn only just started waiting').toBeNull();
+
+      act(() => { vi.advanceTimersByTime(SPECTATOR_LIVE_STATE_GRACE_MS - 500); });
+      expect(screen.getByText('game.physicalTurnNotice')).toBeInTheDocument();
+    });
+  });
+
+  it('shows the physical-dice notice immediately (no grace period) when the room enforces physical dice', () => {
+    vi.useFakeTimers();
+    try {
+      setStore({
+        isOnline: true, isHost: false, liveTurnState: null, enforcedDiceMode: 'physical',
+        currentPlayerIndex: 0,
+        players: [makePlayer({ name: 'Bob', socketId: 'socket1', position: 1 })],
+      });
+      renderAsSpectator();
+
+      expect(screen.getByText('game.physicalTurnNotice')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
