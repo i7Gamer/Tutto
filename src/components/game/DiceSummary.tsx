@@ -46,7 +46,15 @@ export default function DiceSummary({ summaryData, continueCountdown, finishGame
       animate={{ opacity: 1, scale: 1 }}
       className="text-center py-10"
     >
-      <h2 className={`text-4xl font-extrabold mb-4 ${summaryData.won ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+      {/* Mounts once per turn (this panel replaces the dice table fresh each
+          time), so role="status" announces the outcome exactly once — no
+          separate live region needed for a heading that never updates in
+          place. */}
+      <h2
+        role="status"
+        aria-live="polite"
+        className={`text-4xl font-extrabold mb-4 ${summaryData.won ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}
+      >
         {summaryData.won ? t('dice.success', 'Success!') : t('dice.bust', 'Bust!')}
       </h2>
       {summaryData.isTutto && (

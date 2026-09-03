@@ -20,6 +20,7 @@ import type { DiceSnapshot, TurnEnd, TurnSummary } from '../types';
 import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../utils/coreGameEngine';
 import { usePhysicalChain, readPhysicalChainCache } from '../hooks/usePhysicalChain';
 import { useReconnectResume } from '../hooks/useReconnectResume';
+import { useTurnAnnouncement } from '../hooks/useTurnAnnouncement';
 import { useStopCardAutoContinue } from '../hooks/useStopCardAutoContinue';
 import { useFeuerwerkFanfare } from '../hooks/useFeuerwerkFanfare';
 
@@ -119,6 +120,7 @@ export default function Game() {
   const sortedPlayers = useMemo(() => computeRankedPlayers(players), [players]);
 
   const isMyTurn = !isOnline || (currentPlayer && currentPlayer.name === myName);
+  useTurnAnnouncement({ isOnline, isMyTurn: !!isMyTurn, addToast });
   const isClassic = game.ruleset === 'classic';
   // Classic PHYSICAL chains live in usePhysicalChain (digital chains live
   // inside DiceGame). The typed running total restores from the same cache

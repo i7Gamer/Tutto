@@ -49,6 +49,16 @@ describe('DiceSummary', () => {
       render(<DiceSummary {...baseProps} summaryData={{ won: false, score: 0, isTutto: false }} />);
       expect(screen.getByText('dice.bust')).toBeInTheDocument();
     });
+
+    // Mounts fresh once per turn, so a role="status" heading announces the
+    // outcome exactly once, through the browser's own polite live-region
+    // handling — no separate announcer needed for text that never updates.
+    it('announces itself as a polite status region', () => {
+      render(<DiceSummary {...baseProps} />);
+      const status = screen.getByRole('status');
+      expect(status).toHaveTextContent('dice.success');
+      expect(status).toHaveAttribute('aria-live', 'polite');
+    });
   });
 
   describe('Tutto banner', () => {
