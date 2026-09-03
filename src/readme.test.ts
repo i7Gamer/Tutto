@@ -24,9 +24,12 @@ describe('README win rule', () => {
 // that awards a fixed 2,000 points for completing a straight. Descriptions
 // live in src/locales/*/translation.json under cards.kniffel / help.cards.kniffel.
 describe('README cards list', () => {
-  it('mentions the Kniffel/Straight card', () => {
-    expect(readme).toContain('Kniffel');
-    expect(readme).toContain('Straight');
+  it('mentions the Kniffel card under its German name, never as "Straight"', () => {
+    // The card names are proper nouns in English too (round 7, C70); the
+    // lower-case word "straight" may still describe the dice run itself.
+    expect(readme).toContain('**Kniffel**');
+    expect(readme).not.toContain('Kniffel (Straight)');
+    expect(readme).not.toMatch(/the Straight/);
   });
 });
 

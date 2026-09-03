@@ -45,7 +45,7 @@ The drawn card dictates specific bonuses or rules for your turn:
 - **Plus/Minus**: If you roll a Tutto, you deduct 1,000 points from the current leader's score while getting 1,000 points  yourself!
 - **Stop**: You cannot roll. Your turn ends immediately.
 - **Feuerwerk**: You must keep rolling as long as you score points! You can't bank your score manually. You only stop when you bust, but you get to keep all points earned before busting.
-- **Kniffel (Straight)**: Roll a straight from 1 through 6 to score a fixed 2,000 points. You can't stop voluntarily — you keep rolling until you complete it or bust.
+- **Kniffel**: Roll a straight from 1 through 6 to score a fixed 2,000 points. You can't stop voluntarily — you keep rolling until you complete it or bust.
 - **Kleeblatt**: Roll two Tuttos in a row to instantly win the game!
 - **Bonus Cards (200, 300, 400, 500, 600)**: If you roll a Tutto, you receive these bonus points added to your turn's score.
 
@@ -53,8 +53,8 @@ The drawn card dictates specific bonuses or rules for your turn:
 
 The host picks one of two rule sets in the lobby. They differ in what happens after a Tutto:
 
-- **Modernized** (the default — the app's original house rules): a completed card ends your turn immediately and banks the points. On Feuerwerk you choose which scoring dice to keep, and the Straight (Kniffel) must be built as a consecutive run from 1 upward or 6 downward.
-- **Classic** (the official Abacusspiele rules): after any Tutto you may reveal the next card and keep rolling — points accumulate without limit, but a bust or a drawn Stop card forfeits the **whole** turn. A classic x2 doubles the entire accumulated total, a successful Plus/Minus adds exactly +1,000 (its leader deduction only applies if the turn actually banks, and never drops anyone below 0), Feuerwerk keeps every scoring die automatically and its ending null banks the entire accumulated turn, and any still-missing number counts toward the Straight — no consecutive order required.
+- **Modernized** (the default — the app's original house rules): a completed card ends your turn immediately and banks the points. On Feuerwerk you choose which scoring dice to keep, and the Kniffel must be built as a consecutive run from 1 upward or 6 downward.
+- **Classic** (the official Abacusspiele rules): after any Tutto you may reveal the next card and keep rolling — points accumulate without limit, but a bust or a drawn Stop card forfeits the **whole** turn. A classic x2 doubles the entire accumulated total, a successful Plus/Minus adds exactly +1,000 (its leader deduction only applies if the turn actually banks, and never drops anyone below 0), Feuerwerk keeps every scoring die automatically and its ending null banks the entire accumulated turn, and any still-missing number counts toward the Kniffel — no consecutive order required.
 
 Each rule set keeps its own statistics, records and win streaks (see below).
 
