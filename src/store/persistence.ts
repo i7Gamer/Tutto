@@ -79,6 +79,11 @@ export type LocalSaveFieldLock = [
   AssertNever<Exclude<NeverSavedLocally, SyncedGameStateKey>>,
 ];
 
+// The three arrays that make up the score chart, named once so the all-or-
+// nothing restore rule in pickLocalGameState cannot list a different set than
+// the one it checks.
+const CHART_KEYS = ['chartValues', 'chartNames', 'chartLabels'] as const satisfies readonly (keyof GameStore)[];
+
 // A fully-loaded deck holds at most MAX_CARD_COUNT of each card type — same
 // bound the server enforces on pushed decks (see server/pushValidation.ts).
 const MAX_SAVED_DECK_SIZE = MAX_CARD_COUNT * VALID_CARD_TYPES.length;
@@ -253,16 +258,34 @@ export const pickLocalGameState = (parsed: unknown): Partial<GameStore> => {
       (!players || out.currentPlayerIndex >= players.length)) {
     delete out.currentPlayerIndex;
   }
-  // chartValues/chartNames are player-indexed (one row per player) — same
-  // cross-field rule as the index above. Restoring rows for a roster of a
-  // different size would make nextTurn's round-end bookkeeping index
-  // players[i] past the end of the roster (a crash) or chart the wrong
-  // player. Normal saves always match (startGame sizes the rows from the
-  // roster), so this only ever drops hand-edited/corrupted data.
-  for (const key of ['chartValues', 'chartNames'] as const) {
-    if (key in out && (!players || (out[key] as unknown[]).length !== players.length)) {
-      delete out[key];
-    }
+  // The score chart is three arrays that only mean anything together, so they
+  // are restored together or not at all — same cross-field rule as the index
+  // above, applied to the whole trio.
+  //
+  // chartValues/chartNames are player-indexed (one row per player): rows for a
+  // roster of a different size would make nextTurn's round-end bookkeeping
+  // index players[i] past the end of the roster (a crash) or chart the wrong
+  // player. chartLabels is round-indexed, and every chartValues row holds
+  // exactly one score per label — EndScreen hands the two to chart.js as
+  // `labels` and `datasets[i].data`, which are zipped by index, so a longer
+  // row is charted against no round at all.
+  //
+  // Dropping them per key let a partial chart through in both directions: a
+  // roster mismatch took the rows and left the labels behind, and a save
+  // carrying rows and names but no labels restored a chart with no x-axis.
+  // Either orphan was then written straight back out by the local persistence
+  // subscriber, so it outlived the reload that produced it. Normal saves
+  // always agree (startGame sizes all three from the roster), so this only
+  // ever drops hand-edited/corrupted data.
+  const chartRows = out.chartValues as unknown[][] | undefined;
+  const chartLabels = out.chartLabels as unknown[] | undefined;
+  const chartIsWhole = !!players && !!chartRows && !!chartLabels &&
+    !!out.chartNames &&
+    chartRows.length === players.length &&
+    (out.chartNames as unknown[]).length === players.length &&
+    chartRows.every(row => row.length === chartLabels.length);
+  if (!chartIsWhole) {
+    for (const key of CHART_KEYS) delete out[key];
   }
   return out as Partial<GameStore>;
 };

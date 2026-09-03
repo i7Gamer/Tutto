@@ -188,22 +188,66 @@ describe('pickLocalGameState', () => {
     // chartValues/chartNames are player-indexed (one row per player) —
     // restoring rows for a bigger roster makes nextTurn's round-end
     // bookkeeping index players[i] past the end of the restored roster and
-    // crash on the next round end.
+    // crash on the next round end. The labels go with them: the three are one
+    // chart, and a lone label array draws nothing (see the trio test below).
     const players = [{ name: 'A', score: 0 }, { name: 'B', score: 0 }];
     expect(pickLocalGameState({
       players,
       chartValues: [[10], [20], [30]],
       chartNames: ['A', 'B', 'C'],
       chartLabels: [1],
-    })).toEqual({ players, chartLabels: [1] });
+    })).toEqual({ players });
 
     // Matching lengths restore unchanged.
     expect(pickLocalGameState({
-      players, chartValues: [[1], [2]], chartNames: ['A', 'B'],
-    })).toEqual({ players, chartValues: [[1], [2]], chartNames: ['A', 'B'] });
+      players, chartValues: [[1], [2]], chartNames: ['A', 'B'], chartLabels: [1],
+    })).toEqual({ players, chartValues: [[1], [2]], chartNames: ['A', 'B'], chartLabels: [1] });
 
     // No roster restored at all — the rows have nothing to align to.
-    expect(pickLocalGameState({ chartValues: [[1]], chartNames: ['A'] })).toEqual({});
+    expect(pickLocalGameState({ chartValues: [[1]], chartNames: ['A'], chartLabels: [1] })).toEqual({});
+  });
+
+  // chartValues, chartNames and chartLabels are one chart in three arrays, and
+  // each was dropped on its own: a roster mismatch took the rows and the names
+  // and left the labels, and a save carrying only rows and names restored a
+  // chart with no x-axis at all. Whatever survived alone was then written
+  // straight back out by the local persistence subscriber, so the orphan
+  // outlived the reload that produced it.
+  it('drops the whole chart trio whenever one of the three cannot be restored', () => {
+    const players = [{ name: 'A', score: 0 }, { name: 'B', score: 0 }];
+    const rows = { chartValues: [[10], [20]], chartNames: ['A', 'B'], chartLabels: [1] };
+
+    // A partner missing entirely — in BOTH directions, which is the half the
+    // per-key rule could never see.
+    expect(pickLocalGameState({ players, chartLabels: [1] })).toEqual({ players });
+    expect(pickLocalGameState({
+      players, chartValues: rows.chartValues, chartNames: rows.chartNames,
+    })).toEqual({ players });
+
+    // A partner present but rejected by its own validator.
+    expect(pickLocalGameState({ ...rows, players, chartNames: 'not-an-array' })).toEqual({ players });
+    expect(pickLocalGameState({ ...rows, players, chartLabels: ['1'] })).toEqual({ players });
+
+    // And a consistent trio still restores whole.
+    expect(pickLocalGameState({ ...rows, players })).toEqual({ ...rows, players });
+  });
+
+  // The one mismatch both validators let through: each array is well formed
+  // and player-indexed correctly, but a row holds a different number of scores
+  // than there are labels to plot them against. EndScreen hands the two to
+  // chart.js as `labels` and `datasets[i].data`, which are zipped by index —
+  // so the surplus points are charted against no round at all.
+  it('drops the trio when a series does not hold exactly one score per label', () => {
+    const players = [{ name: 'A', score: 0 }, { name: 'B', score: 0 }];
+    expect(pickLocalGameState({
+      players, chartValues: [[10, 20], [30]], chartNames: ['A', 'B'], chartLabels: [1, 2],
+    })).toEqual({ players });
+
+    expect(pickLocalGameState({
+      players, chartValues: [[10, 20], [30, 40]], chartNames: ['A', 'B'], chartLabels: [1, 2],
+    })).toEqual({
+      players, chartValues: [[10, 20], [30, 40]], chartNames: ['A', 'B'], chartLabels: [1, 2],
+    });
   });
 
   // tutto_diceMode is where the per-device preference lives, and init()

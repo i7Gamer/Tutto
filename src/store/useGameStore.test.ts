@@ -4,10 +4,10 @@ import { disconnectSocket } from './socketRef';
 import { DEFAULT_INITIAL_CARDS } from '../utils/configValidation';
 import { blockStorage, failStorageMethods, restoreStorage } from '../testing/storageStubs';
 import { JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS, STATS_SUBMIT_ACK_TIMEOUT_MS } from '../utils/uiTimings';
-import { STATS_SUBMIT_MAX_ATTEMPTS, statsSubmitRetryDelayMs, isRetryableStatsRefusal } from './socketSlice';
-import { STATS_REFUSAL_REASONS } from '../types';
+import { STATS_SUBMIT_MAX_ATTEMPTS, statsSubmitRetryDelayMs, isRetryableStatsRefusal, PARKED_EMIT_MAX_AGE_MS } from './socketSlice';
+import { STATS_REFUSAL_REASONS, MAX_HISTORY_LOG_SIZE } from '../types';
 import type { DiceSnapshot, StatsSubmitAck, Player } from '../types';
-import type { GameStore } from './storeTypes';
+import type { GameStore, JoinRoomResponse } from './storeTypes';
 import { makePlayer as makeFullPlayer, mockFetchJson, nonNull } from '../testing/factories';
 
 let mockEmit = vi.fn();
@@ -44,6 +44,12 @@ vi.mock('socket.io-client', () => {
 // that matcher compares the full argument list, so it silently starts passing
 // the moment an emit grows an argument (an ack callback, say).
 const emittedEvents = (): unknown[] => mockEmit.mock.calls.map(([event]) => event);
+
+// What socketSlice's `inRoom` guard requires before ANY server->client handler
+// will apply its event: a room, in online mode. Tests that drive a handler
+// directly have to look like a seated client, or the guard drops the event the
+// same way it drops a broadcast that lands after a leave.
+const seatedInRoom = { mode: 'online' as const, isOnline: true, roomId: 'ROOM1' };
 
 // Minimal player stand-ins for tests that only ever read `name`.
 const namedPlayers = (...names: string[]): Player[] =>
@@ -868,6 +874,44 @@ describe('useGameStore', () => {
     expect(state.historyLog[49].id).toBe('1-P1-1');
   });
 
+  // Pins the known asymmetry between the two ends of a full log: nextTurn
+  // shifts the oldest entry off to stay under the cap, and undo only pops the
+  // newest, so the shifted one cannot come back. Accepted rather than fixed —
+  // see the comments at both sites (gameSlice's nextTurn and undo). The log is
+  // rendered and never read back into game logic, and the next capped turn
+  // re-establishes the same window, so the loss is display-only and
+  // self-correcting. Raising MAX_HISTORY_LOG_SIZE is NOT the fix: it is one of
+  // the dimensions MAX_PUSHED_STATE_BYTES was measured against.
+  it('undo cannot bring back the history entry the cap already shifted off', () => {
+    const log = Array.from({ length: MAX_HISTORY_LOG_SIZE }, (_, i) => ({
+      id: `old-${i}`,
+      round: 1,
+      playerName: 'P1',
+      card: '300' as const,
+      type: 'success' as const,
+      score: 100,
+    }));
+    useGameStore.getState().addPlayer('P1');
+    useGameStore.getState().addPlayer('P2');
+    useGameStore.setState({
+      status: 'playing', currentPlayerIndex: 0, round: 1, currentCard: '300', historyLog: log,
+    });
+
+    useGameStore.getState().nextTurn(500, true);
+    expect(useGameStore.getState().historyLog[0].id, 'the cap shifted the oldest entry off').toBe('old-1');
+
+    useGameStore.setState({
+      previousCard: '300', previousScore: 500, previousLeaders: [], previousPlayerName: 'P1',
+      currentPlayerIndex: 1, round: 1,
+      players: [makeOnlinePlayer('P1', { score: 500 }), makeOnlinePlayer('P2')],
+    });
+    useGameStore.getState().undo();
+
+    const restored = useGameStore.getState().historyLog;
+    expect(restored).toHaveLength(MAX_HISTORY_LOG_SIZE - 1);
+    expect(restored.some(entry => entry.id === 'old-0'), 'undo pops the newest, never the shifted one').toBe(false);
+  });
+
   it('undo clears the current player\'s live dice snapshot and cache, not just the previous-turn bookkeeping', () => {
     // Undo can be triggered while the CURRENT player is mid-roll (digital dice).
     // Without clearing liveTurnState/the localStorage cache too, spectators keep
@@ -1543,6 +1587,7 @@ describe('useGameStore', () => {
     it('playerReaction appends to reactions and self-prunes after the display window', () => {
       vi.useFakeTimers();
       try {
+        useGameStore.setState(seatedInRoom);
         expect(mockOnHandlers['playerReaction']).toBeTypeOf('function');
         mockOnHandlers['playerReaction']({ id: 1, emoji: '🔥', senderName: 'Alice', senderColor: '#ff0000' });
         expect(useGameStore.getState().reactions).toEqual([{ id: 1, emoji: '🔥', senderName: 'Alice', senderColor: '#ff0000' }]);
@@ -1555,6 +1600,7 @@ describe('useGameStore', () => {
     });
 
     it('hostId updates isHost and hostId state', () => {
+      useGameStore.setState(seatedInRoom);
       expect(mockOnHandlers['hostId']).toBeTypeOf('function');
       mockOnHandlers['hostId']('socket-123'); // matches mock socket id
       expect(useGameStore.getState().isHost).toBe(true);
@@ -2016,7 +2062,7 @@ describe('useGameStore', () => {
     // dropped without a word, and the rejoin broadcast then overwrote the turn
     // the player had already committed locally. The parked slot below, the
     // ack, and the version floor are the three halves of the fix.
-    describe('pushState parking, the refusal ack and the stateVersion floor', () => {
+    describe('pushState/stats parking, the refusal ack and the stateVersion floor', () => {
       const STAGED_ROUND = 4;
       const LATER_ROUND = 5;
 
@@ -2323,10 +2369,263 @@ describe('useGameStore', () => {
 
         expect(useGameStore.getState().lastAppliedStateVersion).toBeNull();
       });
+
+      // The stats emits had no `connected` check at all, and socket.io's own
+      // buffer is no substitute: it flushes BEFORE 'connect' fires, so a
+      // buffered submission reaches the server ahead of this client's rejoin,
+      // is refused 'no-room' (terminal — the resend logic ignores it) and the
+      // row is lost. They are parked behind the rejoin ack like the push.
+      describe('stats submissions parked across the same drop', () => {
+        const stageFinishedGame = () => {
+          useGameStore.setState({
+            mode: 'online', isOnline: true,
+            roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice', isHost: true,
+            players: [makeOnlinePlayer('Alice', { score: 6000, totalTurns: 9 }), makeOnlinePlayer('Bob')],
+            status: 'playing', finished: true, round: STAGED_ROUND,
+          });
+          mockEmit.mockClear();
+        };
+
+        const emitsOf = (event: string) => mockEmit.mock.calls.filter(([e]) => e === event);
+
+        // The rejoin under test is not always the first one in the log — the
+        // re-park case below drives two of them.
+        const ackLatestRejoin = (res: { success: boolean; isHost?: boolean; name?: string }) => {
+          const joins = mockEmit.mock.calls.filter(([event]) => event === 'joinRoom');
+          nonNull(joins.at(-1), 'the reconnect must have attempted a rejoin')[2](res);
+        };
+
+        it('parks both submissions made on a dead socket and sends them once the rejoin is acked', () => {
+          stageFinishedGame();
+          mockSocketConnected = false;
+
+          useGameStore.getState().sendOnlineStats();
+          expect(emitsOf('endGameStats'), 'nothing may go out over a dead transport').toHaveLength(0);
+          expect(emitsOf('submitGlobalStats')).toHaveLength(0);
+
+          mockSocketConnected = true;
+          mockOnHandlers['connect']();
+          ackLatestRejoin({ success: true, isHost: true, name: 'Alice' });
+
+          // One park per EVENT: sendOnlineStats fires the two back to back, so
+          // a single shared slot would silently drop this device's own row.
+          expect(emitsOf('endGameStats')).toHaveLength(1);
+          expect(emitsOf('submitGlobalStats')).toHaveLength(1);
+        });
+
+        it('flushes the parked push first — the server refuses stats until it has seen finished=true', () => {
+          stageFinishedGame();
+          mockSocketConnected = false;
+
+          useGameStore.getState().pushState();
+          useGameStore.getState().sendOnlineStats();
+
+          mockSocketConnected = true;
+          mockOnHandlers['connect']();
+          ackLatestRejoin({ success: true, isHost: true, name: 'Alice' });
+
+          const order = mockEmit.mock.calls.map(([event]) => event).filter(event => event !== 'joinRoom');
+          expect(order, "'not-finished' is terminal, so the winning push has to land first").toEqual(
+            ['pushState', 'endGameStats', 'submitGlobalStats'],
+          );
+        });
+
+        it('re-parks a submission the flush finds the socket down for again, instead of firing it into the void', () => {
+          stageFinishedGame();
+          mockSocketConnected = false;
+          useGameStore.getState().sendOnlineStats();
+
+          // The rejoin acks, but the transport is gone again by the time it is
+          // processed. A flush that emitted a captured payload would hand it
+          // straight back to the dead socket; re-entering the sender parks it
+          // again, so the retry schedule stays live.
+          mockSocketConnected = true;
+          mockOnHandlers['connect']();
+          mockSocketConnected = false;
+          ackLatestRejoin({ success: true, isHost: true, name: 'Alice' });
+          expect(emitsOf('endGameStats')).toHaveLength(0);
+
+          mockSocketConnected = true;
+          mockOnHandlers['connect']();
+          ackLatestRejoin({ success: true, isHost: true, name: 'Alice' });
+          expect(emitsOf('endGameStats'), 'the park must survive to the next rejoin').toHaveLength(1);
+        });
+
+        it('forgets a submission parked for a room the client then left', () => {
+          stageFinishedGame();
+          mockSocketConnected = false;
+          useGameStore.getState().sendOnlineStats();
+
+          useGameStore.getState().leaveRoom();
+
+          // A different room, a different game: the finished game's row must
+          // not ride in on the next rejoin and be recorded against it.
+          mockSocketConnected = true;
+          useGameStore.setState({ mode: 'online', isOnline: true, roomId: 'ROOM2', myName: 'Alice' });
+          mockOnHandlers['connect']();
+          ackLatestRejoin({ success: true, isHost: true, name: 'Alice' });
+
+          expect(emitsOf('endGameStats')).toHaveLength(0);
+          expect(emitsOf('submitGlobalStats')).toHaveLength(0);
+        });
+
+        // Nothing else bounds the wait: socket.io retries forever, so a
+        // suspended tab can rejoin long after the room moved on — and Play
+        // Again resets the server's per-game stats dedup, so a submission
+        // flushed then is recorded against the NEXT game.
+        describe('a park does not outlive the game it was made in', () => {
+          beforeEach(() => { vi.useFakeTimers(); });
+          afterEach(() => { vi.useRealTimers(); });
+
+          const rejoinAfter = (ageMs: number) => {
+            vi.advanceTimersByTime(ageMs);
+            mockSocketConnected = true;
+            mockOnHandlers['connect']();
+            ackLatestRejoin({ success: true, isHost: true, name: 'Alice' });
+          };
+
+          it('drops a push parked for longer than the bound', () => {
+            stageSeatedGame();
+            mockSocketConnected = false;
+            useGameStore.getState().pushState();
+
+            rejoinAfter(PARKED_EMIT_MAX_AGE_MS + 1);
+
+            expect(pushes(), 'a stale snapshot overwrites a room that has moved on').toHaveLength(0);
+          });
+
+          it('still flushes one that is only just inside it', () => {
+            stageSeatedGame();
+            mockSocketConnected = false;
+            useGameStore.getState().pushState();
+
+            rejoinAfter(PARKED_EMIT_MAX_AGE_MS - 1);
+
+            expect(pushes()).toHaveLength(1);
+          });
+
+          it('drops stale parked stats for the same reason', () => {
+            stageFinishedGame();
+            mockSocketConnected = false;
+            useGameStore.getState().sendOnlineStats();
+
+            rejoinAfter(PARKED_EMIT_MAX_AGE_MS + 1);
+
+            expect(emitsOf('endGameStats')).toHaveLength(0);
+            expect(emitsOf('submitGlobalStats')).toHaveLength(0);
+          });
+        });
+      });
+    });
+
+    // A join ack is the one message that arrives with no room attached: it is
+    // what SETS roomId/mode, so it cannot be checked against them. Without a
+    // per-attempt epoch, a late ack from an abandoned join rewrote a live local
+    // game into `mode: 'online'` under a foreign name, and rewrote the stored
+    // session key with it.
+    describe('a join this client walked away from', () => {
+      const startJoin = () => {
+        const pending = useGameStore.getState().joinRoom('ROOM1', 'Alice');
+        const join = nonNull(mockEmit.mock.calls.find(([event]) => event === 'joinRoom'));
+        return { pending, ack: join[2] as (res: JoinRoomResponse) => void };
+      };
+
+      it('leaves the game the client moved on to untouched, and still settles its promise', async () => {
+        const { pending, ack } = startJoin();
+
+        // The player gives up on the join and plays locally instead.
+        useGameStore.getState().leaveRoom();
+        useGameStore.setState({ mode: 'local', isOnline: false, players: namedPlayers('Ann', 'Ben') });
+        mockEmit.mockClear();
+
+        ack({ success: true, isHost: true, name: 'Alice', roomId: 'ROOM1' });
+
+        const state = useGameStore.getState();
+        expect(state.mode, 'a stale ack must not drag a local game online').toBe('local');
+        expect(state.roomId).toBeNull();
+        expect(state.myName).toBeNull();
+        expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+        // Never: the server's leaveRoom takes no room argument and vacates
+        // whatever the session points at, so tidying up this way would eject
+        // the player from the room they are legitimately in.
+        expect(mockEmit).not.toHaveBeenCalledWith('leaveRoom');
+        // Resolved, not abandoned — OnlineLobby and App.tsx both await it.
+        await expect(pending).resolves.toMatchObject({ success: true });
+      });
+
+      const abandonPaths: [string, () => void][] = [
+        ['leaveRoom', () => useGameStore.getState().leaveRoom()],
+        ['cancelReconnect', () => useGameStore.getState().cancelReconnect()],
+        ['reset', () => useGameStore.getState().reset()],
+        // surrenderSeat inlines its own teardown instead of calling leaveRoom,
+        // so it has to invalidate the attempt itself.
+        ['a kick', () => mockOnHandlers['kicked']()],
+      ];
+
+      it.each(abandonPaths)('%s invalidates an attempt still in flight', async (_name, abandon) => {
+        const { pending, ack } = startJoin();
+
+        abandon();
+        ack({ success: true, isHost: true, name: 'Alice', roomId: 'ROOM1' });
+
+        expect(useGameStore.getState().roomId).toBeNull();
+        expect(useGameStore.getState().mode).toBe('local');
+        await expect(pending).resolves.toMatchObject({ success: true });
+      });
+
+      it('does not fire on a legitimate first join, whose ack is what sets the room', async () => {
+        const { pending, ack } = startJoin();
+
+        ack({ success: true, isHost: true, name: 'Alice', roomId: 'ROOM1' });
+
+        expect(useGameStore.getState().roomId).toBe('ROOM1');
+        expect(useGameStore.getState().mode).toBe('online');
+        await expect(pending).resolves.toMatchObject({ success: true });
+      });
+    });
+
+    // The window the gameState guard already existed for: leaveRoom and the
+    // kicked/seatTakenOver surrender flip the store out of the room before the
+    // server has processed the leave, so everything it emitted during that
+    // round trip still arrives. Five of the six handlers applied it anyway —
+    // one shared `inRoom` guard is what stops them drifting apart again.
+    describe('every room handler is gated on actually holding a room', () => {
+      const roomOnlyHandlers: [string, () => void, () => void][] = [
+        ['gameState', () => mockOnHandlers['gameState']({ round: 9, players: namedPlayers('Stranger') }), () => {
+          expect(useGameStore.getState().round).toBe(1);
+          expect(useGameStore.getState().players).toEqual([]);
+        }],
+        ['hostId', () => mockOnHandlers['hostId']('socket-123'), () => {
+          expect(useGameStore.getState().isHost).toBe(false);
+          expect(useGameStore.getState().hostId).toBeNull();
+        }],
+        ['liveTurnState', () => mockOnHandlers['liveTurnState']({ liveTurnState: makeSnapshot({ turnScore: 500 }) }), () => {
+          expect(useGameStore.getState().liveTurnState).toBeNull();
+        }],
+        ['playerReaction', () => mockOnHandlers['playerReaction']({ id: 1, emoji: '🔥', senderName: 'Stranger', senderColor: '#fff' }), () => {
+          expect(useGameStore.getState().reactions).toEqual([]);
+        }],
+        ['playerDisconnected', () => mockOnHandlers['playerDisconnected']('Stranger'), () => {
+          expect(useGameStore.getState().toasts).toEqual([]);
+        }],
+        ['nameConflictWithDisconnected', () => mockOnHandlers['nameConflictWithDisconnected']('Stranger'), () => {
+          expect(useGameStore.getState().toasts).toEqual([]);
+        }],
+      ];
+
+      it.each(roomOnlyHandlers)('%s does nothing once the room is gone', (_name, drive, expectUntouched) => {
+        // Still online — this is the leave that keeps the user on the join
+        // form, which the mode check alone cannot see.
+        useGameStore.setState({ mode: 'online', isOnline: true, roomId: null });
+
+        drive();
+
+        expectUntouched();
+      });
     });
 
     it('playerDisconnected adds a toast with reconnectTimeout', () => {
-      useGameStore.setState({ reconnectTimeout: 45 });
+      useGameStore.setState({ ...seatedInRoom, reconnectTimeout: 45 });
       expect(mockOnHandlers['playerDisconnected']).toBeTypeOf('function');
       mockOnHandlers['playerDisconnected']('Alice');
 
@@ -2338,7 +2637,7 @@ describe('useGameStore', () => {
       // reconnectTimeout: 0 means the server never auto-kicks a disconnected
       // player (see server/socketHandlers.ts) — a "N seconds to reconnect"
       // message would invent a deadline that doesn't exist.
-      useGameStore.setState({ reconnectTimeout: 0 });
+      useGameStore.setState({ ...seatedInRoom, reconnectTimeout: 0 });
       expect(mockOnHandlers['playerDisconnected']).toBeTypeOf('function');
       mockOnHandlers['playerDisconnected']('Alice');
 
@@ -2348,6 +2647,7 @@ describe('useGameStore', () => {
     });
 
     it('nameConflictWithDisconnected adds a warning toast', () => {
+      useGameStore.setState(seatedInRoom);
       expect(mockOnHandlers['nameConflictWithDisconnected']).toBeTypeOf('function');
       mockOnHandlers['nameConflictWithDisconnected']('Bob');
 
@@ -4458,7 +4758,7 @@ describe('useGameStore', () => {
     it('the liveTurnState socket event merges into the store without touching other fields', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.setState({
-        isOnline: true, roomId: 'ROOM1', myName: 'Alice',
+        ...seatedInRoom, myName: 'Alice',
         players: [makeOnlinePlayer('Alice'), makeOnlinePlayer('Bob')],
         round: 3, historyLog: [],
       });
@@ -4646,7 +4946,7 @@ describe('useGameStore', () => {
     it('includes the reconnect countdown in the toast', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
-      useGameStore.setState({ reconnectTimeout: 45 });
+      useGameStore.setState({ ...seatedInRoom, reconnectTimeout: 45 });
 
       mockOnHandlers['playerDisconnected']('Bob');
 
@@ -4659,6 +4959,7 @@ describe('useGameStore', () => {
     it('tells the host which disconnected player\'s name was contested', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
+      useGameStore.setState(seatedInRoom);
 
       mockOnHandlers['nameConflictWithDisconnected']('Bob');
 

@@ -204,6 +204,12 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
   endGame: () => {
     if (get().isOnline && !get().isHost) return;
     get().stopLocalTimers();
+    // And the online pair, which stopLocalTimers does not cover: the turn
+    // countdown is a second interval, and it re-derives turnTimeRemaining from
+    // turnDeadline on its next tick — silently undoing the `turnTimeRemaining:
+    // null` below one second after this call, and leaving a live countdown
+    // ticking over the lobby the game just ended into.
+    get().stopOnlineTimers();
     set({
       finished: false,
       status: 'lobby',
@@ -213,6 +219,9 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       currentCard: null,
       cards: [],
       turnTimeRemaining: null,
+      // Cleared with the value derived from it: a deadline belongs to the turn
+      // it was set for, and the game that turn was part of is over.
+      turnDeadline: null,
       liveTurnState: null,
       ...noUndoableTurn(),
       chartValues: [],
@@ -308,6 +317,15 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.liveTurnState = null;
       state.historyLog.push(result.historyEntry);
       if (state.historyLog.length > MAX_HISTORY_LOG_SIZE) {
+        // Known and accepted asymmetry with undo, which pops only the newest
+        // entry (see the matching note there): once the log is full, undoing
+        // the turn this shift made room for leaves the log one entry short,
+        // and the shifted entry is gone for good. The activity log is
+        // rendered, never read back into game logic, and the next capped turn
+        // re-establishes the same window — so the loss is display-only and
+        // self-correcting. Raising MAX_HISTORY_LOG_SIZE is NOT the fix: it is
+        // one of the dimensions MAX_PUSHED_STATE_BYTES was measured against,
+        // and changing it would require re-running that measurement.
         state.historyLog.shift();
       }
     });
@@ -350,6 +368,11 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       // and the turn reassigned, so it must not keep showing to spectators.
       state.liveTurnState = null;
       if (state.historyLog) {
+        // The newest entry only — the counterpart to nextTurn's shift (see
+        // the note there): on a log already at MAX_HISTORY_LOG_SIZE the entry
+        // that shift dropped off the front cannot be restored from here, so
+        // this undo leaves the log one short until the next capped turn
+        // refills it. Deliberate: the log is display-only.
         state.historyLog.pop();
       }
     });

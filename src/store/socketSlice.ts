@@ -4,7 +4,8 @@ import { buildDeviceStatsPayload, noUndoableTurn } from '../utils/coreGameEngine
 import i18n from '../i18n';
 import { ONLINE_SESSION_KEY } from '../utils/reconnectSession';
 import { formatInt } from '../utils/formatNumber';
-import { areInitialCardsEqual, normalizeRoomId } from '../utils/configValidation';
+import { areInitialCardsEqual, normalizeRoomId, DEFAULT_RECONNECT_TIMEOUT } from '../utils/configValidation';
+import { MS_PER_SECOND } from '../utils/time';
 import { validateOnlineConfig } from './persistence';
 import { getSocket, setSocket } from './socketRef';
 import { REACTION_DISPLAY_MS } from '../utils/reactions';
@@ -127,6 +128,34 @@ export type ClearRoomStateLock = [
 // alongside a new one.
 let pendingCancelReconnectCleanup: (() => void) | null = null;
 
+/**
+ * How old an emit parked for the rejoin (see parkedPush and the stats parks
+ * below) may be when that rejoin finally acks. Past it the park is dropped
+ * unsent.
+ *
+ * Nothing else bounds the wait: socket.io-client retries forever, so a tab
+ * suspended mid-turn can reconnect an hour later and flush a full-state
+ * snapshot into a room that has long since moved on — or, since Play Again
+ * resets the server's per-game stats dedup, get the finished game's stats
+ * recorded against the NEXT one. A room only holds a disconnected seat for its
+ * own kick timer, so past the DEFAULT one the rejoin doing the flushing is far
+ * more likely to be a fresh seat than the one the emit was made for. Written
+ * as that expression rather than a number so the two cannot drift apart.
+ */
+export const PARKED_EMIT_MAX_AGE_MS = DEFAULT_RECONNECT_TIMEOUT * MS_PER_SECOND;
+
+/**
+ * An emit held for the rejoin, with the moment it was parked.
+ *
+ * The stamp rides with the payload rather than being taken at flush time so a
+ * park that has to be re-parked — the transport dropped again before the flush
+ * could send it — keeps accruing age instead of starting over.
+ */
+interface ParkedEmit<T> {
+  payload: T;
+  parkedAt: number;
+}
+
 /** The exact bytes pushState puts on the wire — see the action at the bottom. */
 interface PushStatePayload {
   roomId: string | null;
@@ -147,7 +176,7 @@ interface PushStatePayload {
  * One slot, latest wins: every push is a full snapshot of the synced keys, so
  * an older parked one describes a state the newer one already supersedes.
  */
-let parkedPush: PushStatePayload | null = null;
+let parkedPush: ParkedEmit<PushStatePayload> | null = null;
 
 // The single retry armed for a push refused as 'unauthorized' right after a
 // reconnect (see emitPushState). Held so every teardown path can cancel it.
@@ -220,6 +249,33 @@ export const clearPendingPush = (): void => {
   // out from a socket that no longer holds the seat. Cleared here rather than
   // at each of those five call sites so the two cannot drift apart.
   clearPendingStatsSubmit();
+};
+
+/**
+ * Which joinRoom attempt this client is actually waiting on.
+ *
+ * A join ack is the one message that arrives with no room attached — it is
+ * what SETS roomId/mode/myName — so unlike every other handler it cannot be
+ * validated against them (see inRoom): that check would reject every
+ * legitimate first join, whose ack is exactly what fills those fields in. This
+ * counter is the discriminator instead: joinRoom takes the next number before
+ * it emits, and applies its ack only if that number is still current.
+ *
+ * Without it, an ack from a join the user had already walked away from rewrote
+ * a live LOCAL game into `mode: 'online'` under a foreign myName and a room
+ * nobody was in, and wrote that room into the stored session key with it.
+ */
+let joinEpoch = 0;
+
+/**
+ * Invalidates whatever join is in flight, so its ack lands as a no-op.
+ *
+ * Called by every path that walks away from a join or a room: leaveRoom,
+ * cancelReconnect, useGameStore's reset, and surrenderSeat — which inlines its
+ * own teardown rather than calling leaveRoom, and so has to say this itself.
+ */
+export const abandonJoinAttempt = (): void => {
+  joinEpoch++;
 };
 
 // Test-only escape hatch, the socket twin of timers.ts's _resetTimersForTests:
@@ -307,11 +363,17 @@ type PendingStatsSubmit = {
   // free to have its own late ack call clearStatsSubmit again, cancelling the
   // NEW attempt's ack deadline out from under it.
   epoch: number;
+  // The submission that could not be sent because the transport was down,
+  // held until this client's rejoin lands — see emitStatsSubmission. One park
+  // PER EVENT for the same reason the timers above are per event: a host owes
+  // both and sends them back to back, so a single shared park would keep only
+  // the second and silently lose this device's own row.
+  parked: ParkedEmit<{ payload: EndGameStatsPayload | GlobalStatsSubmission; attempt: number }> | null;
 };
 
 const pendingStatsSubmits: Record<StatsSubmitEvent, PendingStatsSubmit> = {
-  endGameStats: { resendTimer: null, ackDeadline: null, epoch: 0 },
-  submitGlobalStats: { resendTimer: null, ackDeadline: null, epoch: 0 },
+  endGameStats: { resendTimer: null, ackDeadline: null, epoch: 0, parked: null },
+  submitGlobalStats: { resendTimer: null, ackDeadline: null, epoch: 0, parked: null },
 };
 
 /** Forgets whatever one of the two submissions still owes. */
@@ -326,6 +388,12 @@ const clearStatsSubmit = (event: StatsSubmitEvent): void => {
     clearTimeout(pending.ackDeadline);
     pending.ackDeadline = null;
   }
+  // The park is owed to the room this attempt was made in just as much as the
+  // timers are: left behind, a submission for a room this client has left
+  // would be flushed into whatever room the next rejoin finds it in, where the
+  // server — its per-game dedup reset by the Play Again in between — records
+  // the finished game's row against the new game.
+  pending.parked = null;
 };
 
 /** Forgets every stats attempt this client still owes. */
@@ -364,15 +432,34 @@ type GlobalStatsSubmission = { payload: GlobalStatsPayload };
  *
  * Every other refusal is terminal, 'duplicate' most of all: the row is in, and
  * resending would be asking the server to count the same game twice.
+ *
+ * None of that can start over a dead transport, which is why the `connected`
+ * check comes first. socket.io-client would happily buffer the emit itself,
+ * and that is the bug: its Socket#onconnect flushes the send buffer BEFORE it
+ * fires 'connect', so a buffered submission reaches the server ahead of this
+ * client's rejoin, from a socket holding no seat, and is refused 'no-room' —
+ * terminal, so nothing above resends it and the row is simply lost. Parking it
+ * puts it behind the rejoin ack instead (same mechanism as parkedPush).
+ *
+ * `parkedAt` is threaded through rather than re-stamped so a submission that
+ * has to be parked a second time keeps its original age — see ParkedEmit.
  */
 const emitStatsSubmission = (
   event: StatsSubmitEvent,
   payload: EndGameStatsPayload | GlobalStatsSubmission,
   attempt: number,
+  parkedAt: number = Date.now(),
 ): void => {
   const socket = getSocket();
   if (!socket) return;
   const pending = pendingStatsSubmits[event];
+  if (!socket.connected) {
+    // Parked BEFORE the ack deadline is armed: nothing is in flight to answer
+    // it, so arming one here would burn this submission's whole retry budget
+    // against a socket that cannot carry it.
+    pending.parked = { payload: { payload, attempt }, parkedAt };
+    return;
+  }
   // The generation this attempt owns the slot under. clearStatsSubmit bumps
   // it on every cancellation — leaveRoom/cancelReconnect abandoning the room,
   // and a fresher attempt starting — so settle() below can tell a slot it no
@@ -495,15 +582,61 @@ const emitPushState = (
  * Sends the push held for a transport drop, now that the rejoin has been acked.
  *
  * Cleared before the emit, not after: the flush must be one-shot even if the
- * emit itself throws.
+ * emit itself throws. A park older than PARKED_EMIT_MAX_AGE_MS is dropped
+ * instead of sent — it describes a game the room has moved on from, and a push
+ * is a FULL snapshot, so landing it would overwrite live play with a dead turn.
  */
 const flushParkedPush = (get: SocketSliceGet): void => {
-  const payload = parkedPush;
+  const parked = parkedPush;
   parkedPush = null;
-  if (!payload) return;
+  if (!parked) return;
+  if (Date.now() - parked.parkedAt > PARKED_EMIT_MAX_AGE_MS) return;
   const sock = getSocket();
-  if (sock) emitPushState(sock, payload, get, true);
+  if (sock) emitPushState(sock, parked.payload, get, true);
 };
+
+/**
+ * Sends the stats submissions held for a transport drop, now that the rejoin
+ * has been acked. Same age bound, and for the second of the two reasons given
+ * on PARKED_EMIT_MAX_AGE_MS.
+ *
+ * Re-enters emitStatsSubmission rather than emitting the payload from here:
+ * that is what re-reads the live socket AND this slot's epoch at send time, so
+ * a transport that dropped again between the ack and this call parks the
+ * submission afresh instead of firing it into a dead socket — the exact
+ * failure the park exists to prevent — and the ack deadline and resend budget
+ * are armed by the one function that owns them. Each slot is emptied before
+ * its send, so the flush is one-shot even if the emit throws.
+ */
+const flushParkedStats = (): void => {
+  for (const event of STATS_SUBMIT_EVENTS) {
+    const parked = pendingStatsSubmits[event].parked;
+    pendingStatsSubmits[event].parked = null;
+    if (!parked) continue;
+    if (Date.now() - parked.parkedAt > PARKED_EMIT_MAX_AGE_MS) continue;
+    emitStatsSubmission(event, parked.payload.payload, parked.payload.attempt, parked.parkedAt);
+  }
+};
+
+/**
+ * Whether this client currently holds a seat a room broadcast may be applied to.
+ *
+ * Every server->client handler is gated on this, not just the ones carrying
+ * game state: a broadcast can land after this client has already left, because
+ * leaveRoom and the kicked/seatTakenOver surrender flip the store out of the
+ * room while the server is still processing the leave, so anything it emitted
+ * during that round trip still arrives.
+ *
+ * roomId as well as mode, because the mode check alone cannot see a leave that
+ * stays online: clearRoomState contains neither `mode` nor `isOnline`, and four
+ * of leaveRoom's five call sites deliberately keep the user in online mode on
+ * the join form. One helper rather than six copies of the expression, so the
+ * handlers cannot drift apart again — five of them carried no guard at all.
+ *
+ * NOT usable for the joinRoom ack, which is what sets these fields in the first
+ * place — joinEpoch is that side's answer.
+ */
+const inRoom = (get: SocketSliceGet): boolean => get().mode === 'online' && !!get().roomId;
 
 // Wires every server->client event for one socket connection. Extracted out of
 // connectSocket (which just creates the socket and delegates here) so the
@@ -520,20 +653,14 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     // Applying it would inject the online room into local state — which the
     // local persistence subscriber would immediately write to disk. Every
     // teardown path upholds this invariant on its own; the guard makes it
-    // structural instead of distributed.
-    //
-    // roomId as well as mode, because the mode check alone cannot see a leave
-    // that stays online: clearRoomState contains neither `mode` nor
-    // `isOnline`, and four of leaveRoom's five call sites deliberately keep
-    // the user in online mode on the join form. The server only drops the
-    // socket from the channel when it processes the leave, so a broadcast
-    // emitted during that round trip still arrives — and restoring
-    // players/finished/currentPlayerIndex is enough for App.tsx to route back
-    // into Game/EndScreen over a store with no room, where every action
-    // silently no-ops and syncOnlineTimers restarts the countdown that was
-    // just stopped. roomId is set in the same tick as mode on the way in (the
-    // joinRoom ack), so this closes a window rather than opening one.
-    if (get().mode !== 'online' || !get().roomId) return;
+    // structural instead of distributed. Restoring players/finished/
+    // currentPlayerIndex is enough for App.tsx to route back into
+    // Game/EndScreen over a store with no room, where every action silently
+    // no-ops and syncOnlineTimers restarts the countdown that was just
+    // stopped. See inRoom for why roomId is checked as well as mode; it is set
+    // in the same tick as mode on the way in (the joinRoom ack), so this closes
+    // a window rather than opening one.
+    if (!inRoom(get)) return;
 
     // A straggler from before something this client has already applied — a
     // broadcast that overtook a newer one, or the room's own pre-push state
@@ -638,6 +765,9 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
   });
 
   sock.on('playerDisconnected', (name: string) => {
+    // Same guard as every other room event (see inRoom): a disconnect notice
+    // for a room this client has left is a toast about strangers.
+    if (!inRoom(get)) return;
     const seconds = get().reconnectTimeout;
     // 0 = the kick timer is disabled for this room (see configValidation.ts)
     // — there is no deadline, so a message inventing one is misleading.
@@ -656,6 +786,9 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
   });
 
   sock.on('nameConflictWithDisconnected', (name: string) => {
+    // Host-only advice about a room this client may no longer be in — and it
+    // ends with "Kick them below", pointing at a lobby that is gone.
+    if (!inRoom(get)) return;
     get().addToast(i18n.t('game.nameConflictWithDisconnected', {
       defaultValue: 'Someone tried to join as "{{name}}", which belongs to a disconnected player. Kick them below to free up the name.',
       name,
@@ -663,6 +796,9 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
   });
 
   sock.on('playerReaction', (reaction: Reaction) => {
+    // A reaction from the room this client just left would otherwise float
+    // over the local game (or the join form) that replaced it.
+    if (!inRoom(get)) return;
     set((state) => { state.reactions.push(reaction); });
     // Self-pruning, like toasts — the sender only needs the id/timing
     // contract, not a per-reaction cleanup call from the UI layer.
@@ -670,6 +806,11 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
   });
 
   sock.on('hostId', (hostSocketId: string) => {
+    // emitRoomState only ever sends this alongside a gameState, so guarding it
+    // identically keeps the pair from being applied by halves: a client that
+    // has left would otherwise be told it is host of the room it left, and the
+    // promotion branch below would submit that game's global stats from it.
+    if (!inRoom(get)) return;
     const wasHost = get().isHost;
     const isNowHost = hostSocketId === sock.id;
     set({ isHost: isNowHost, hostId: hostSocketId });
@@ -691,6 +832,9 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
   // re-run its toast-diffing/justReconnected/timer-sync/stats side
   // effects, none of which apply here.
   sock.on('liveTurnState', (payload: { liveTurnState: DiceSnapshot | null }) => {
+    // Guarded like its heavyweight sibling: a spectator frame applied after
+    // the leave leaves someone else's dice on the table of the next game.
+    if (!inRoom(get)) return;
     set({ liveTurnState: payload.liveTurnState });
   });
 
@@ -706,6 +850,10 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     clearTurnCaches();
     clearPendingPush();
     clearRejoinWatchdog();
+    // Spelled out here because this teardown is inlined rather than delegated
+    // to leaveRoom: a join in flight when the seat is lost must not be able to
+    // re-seat the store on its way in (see abandonJoinAttempt).
+    abandonJoinAttempt();
     set(clearRoomState());
     get().setMode('local');
   };
@@ -796,6 +944,11 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
         // Only now: the seat is this socket's again, so the push made during
         // the drop can finally pass the server's authorization gate.
         flushParkedPush(get);
+        // Strictly after the push, never before: the server refuses end-game
+        // stats until it has seen finished=true, with 'not-finished' — a
+        // terminal refusal — so the winning push has to land first. Same order
+        // nextTurn sends the two in, for the same reason.
+        flushParkedStats();
         return;
       }
       // The seat is unrecoverable (room deleted after the reconnect
@@ -831,6 +984,9 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     clearTurnCaches();
     clearPendingPush();
     clearRejoinWatchdog();
+    // This is the "no, don't reconnect me" answer — whatever join is still in
+    // flight is exactly what is being declined.
+    abandonJoinAttempt();
     sessionStore.remove(ONLINE_SESSION_KEY);
     set({ pendingReconnectSession: null, liveTurnState: null, showReconnectPopup: false });
 
@@ -843,6 +999,14 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     // page load (store roomId never set — the roomId argument here identifies
     // the room to leave server-side) must not wipe a restored local game.
     if (get().roomId) {
+      // Inside the same guard, and for the same reason: stopOnlineTimers owns
+      // the ONE interval handle both clocks run on, so calling it with no room
+      // to abandon would freeze the local game init() had just restarted. With
+      // a room, it is required — clearRoomState cannot reach module state, so
+      // the game clock would otherwise keep ticking gameTimeInSeconds into
+      // whatever game comes next (the turn countdown retires itself once
+      // turnDeadline is cleared below, but the game clock has no such check).
+      get().stopOnlineTimers();
       set(clearRoomState());
     }
 
@@ -887,6 +1051,11 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
   },
 
   joinRoom: (room, name, isReconnect = false) => {
+    // First, before anything else this action does and long before the emit:
+    // this attempt supersedes any earlier one, whose ack must from here on be
+    // ignored rather than allowed to seat the store in a room this client
+    // asked to leave (see joinEpoch).
+    const attempt = ++joinEpoch;
     // The single choke point every caller of joinRoom goes through (the
     // lobby's typed input, a scanned QR code, a shared invite link already
     // normalizes its own parse, and the automatic reconnect-on-connect
@@ -924,6 +1093,17 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         return;
       }
       socket.emit('joinRoom', { roomId: normalizedRoom, name, deviceId: get().deviceId, color: savedColor, initialConfig, isReconnect }, (res: JoinRoomResponse) => {
+        // An ack for an attempt this client has walked away from (see
+        // joinEpoch). It is resolved, not dropped: OnlineLobby and App.tsx
+        // both await this promise, and a "return early" here would leave them
+        // waiting on it forever. And deliberately WITHOUT emitting a leave:
+        // the server's 'leaveRoom' takes no room argument and vacates whatever
+        // the session points at, so tidying up room A this way would eject the
+        // player from room B — the room they are legitimately in.
+        if (attempt !== joinEpoch) {
+          resolve(res);
+          return;
+        }
         if (res.success) {
           // Adopt the name the server seated us under — a mid-game rejoin with
           // a different name keeps the seat's original name (see JoinRoomResponse).
@@ -960,6 +1140,9 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     clearTurnCaches();
     clearPendingPush();
     clearRejoinWatchdog();
+    // A join whose ack has not landed yet is abandoned by this leave as surely
+    // as the room is — see abandonJoinAttempt.
+    abandonJoinAttempt();
     set(clearRoomState());
   },
 
@@ -1023,9 +1206,11 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       };
 
       // Park rather than let socket.io buffer it — see parkedPush for why
-      // the library's own buffering is the bug and not the fix.
+      // the library's own buffering is the bug and not the fix. Stamped so
+      // the flush can tell a snapshot worth sending from one the room has
+      // long since moved past (PARKED_EMIT_MAX_AGE_MS).
       if (!socket.connected) {
-        parkedPush = payload;
+        parkedPush = { payload, parkedAt: Date.now() };
         return;
       }
       emitPushState(socket, payload, get, true);

@@ -294,5 +294,101 @@ describe('timer slice', () => {
     it('clearRoomState clears turnDeadline', () => {
       expect(clearRoomState().turnDeadline).toBeNull();
     });
+
+    // The countdown's only self-stop used to sit BELOW the `deadline === null`
+    // early-out, so the one thing that branch means — there is nothing left to
+    // count — was also the one thing that could not stop the 1 Hz interval.
+    // Every writer that nulls turnDeadline without clearing first (endGame,
+    // clearRoomState via leaveRoom/kicked/reset) therefore stranded a
+    // permanent interval that re-entered this callback once a second for the
+    // rest of the session.
+    it('clears its own interval when the deadline is taken away underneath it', () => {
+      useGameStore.setState(startedOnlineTurnState);
+      useGameStore.getState().syncOnlineTimers(60);
+      const withCountdown = vi.getTimerCount();
+      expect(withCountdown).toBeGreaterThan(0);
+
+      useGameStore.setState({ turnDeadline: null });
+      vi.advanceTimersByTime(1000);
+
+      expect(vi.getTimerCount(), 'the countdown must retire itself').toBe(withCountdown - 1);
+
+      // And stay retired — a handle that survives one tick survives forever.
+      vi.advanceTimersByTime(10_000);
+      expect(vi.getTimerCount()).toBe(withCountdown - 1);
+    });
+  });
+
+  describe('endGame', () => {
+    // endGame stopped only the LOCAL timers and left turnDeadline set, so the
+    // surviving 1 Hz countdown re-derived turnTimeRemaining from that deadline
+    // one second later — silently undoing endGame's own `turnTimeRemaining:
+    // null` and leaving a live countdown ticking over the lobby.
+    it('stops the online countdown instead of letting it re-derive the time it just cleared', () => {
+      useGameStore.setState({ ...startedOnlineTurnState, isHost: true });
+      useGameStore.getState().syncOnlineTimers(60);
+      expect(useGameStore.getState().turnTimeRemaining).toBe(60);
+
+      useGameStore.getState().endGame();
+
+      expect(useGameStore.getState().turnTimeRemaining).toBeNull();
+      expect(useGameStore.getState().turnDeadline, 'a deadline outlives the game it belonged to').toBeNull();
+
+      vi.advanceTimersByTime(5000);
+      expect(
+        useGameStore.getState().turnTimeRemaining,
+        'a surviving interval undoes endGame one tick later',
+      ).toBeNull();
+    });
+  });
+
+  // stopOnlineTimers owns BOTH module handles; the turn countdown's own
+  // self-stop (above) covers only one of them. A teardown path that skips it
+  // therefore leaks the game clock, which writes gameTimeInSeconds with no
+  // mode check at all — straight into whatever game comes next.
+  describe('teardown paths stop the online game clock', () => {
+    // Puts a game clock in front of a leaked interval: gameTimeInSeconds is
+    // only written while gameStartTime is set, so the leak is invisible until
+    // the next game anchors one.
+    const nextGameStartsTicking = () => {
+      useGameStore.setState({ gameStartTime: Date.now() - 30_000 });
+      vi.advanceTimersByTime(2000);
+    };
+
+    it('reset() stops it, so it cannot write into the fresh state', () => {
+      useGameStore.setState(startedOnlineTurnState);
+      useGameStore.getState().syncOnlineTimers(45);
+
+      useGameStore.getState().reset();
+      nextGameStartsTicking();
+
+      expect(useGameStore.getState().gameTimeInSeconds, 'a leaked interval keeps writing the clock').toBe(0);
+    });
+
+    it('cancelReconnect stops it when it abandons a joined room', () => {
+      useGameStore.setState({ ...startedOnlineTurnState, roomId: 'ROOM1', myName: 'Alice' });
+      useGameStore.getState().syncOnlineTimers(45);
+
+      useGameStore.getState().cancelReconnect();
+      nextGameStartsTicking();
+
+      expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
+    });
+
+    // The other side of that stop: declining the restore prompt on a fresh
+    // page load calls cancelReconnect with no room in the store, and the local
+    // game init() just restored is running on the very same handle. Stopping
+    // unconditionally would freeze its clock.
+    it('cancelReconnect leaves a restored local game running when there is no room to abandon', () => {
+      useGameStore.setState({
+        mode: 'local', currentPlayerIndex: 0, finished: false, gameStartTime: Date.now(),
+      });
+      useGameStore.getState().startLocalTimers();
+
+      useGameStore.getState().cancelReconnect(null, null);
+      vi.advanceTimersByTime(2000);
+
+      expect(useGameStore.getState().gameTimeInSeconds).toBe(2);
+    });
   });
 });

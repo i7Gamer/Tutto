@@ -60,7 +60,18 @@ export const createTimerSlice: ImmerStateCreator<TimerSlice> = (set, get) => {
   // it (or the visibility listener) runs again.
   const tickTurnCountdown = () => {
     const deadline = get().turnDeadline;
-    if (deadline === null) return;
+    if (deadline === null) {
+      // The interval's own kill switch, and the reason this branch clears
+      // rather than merely returns: a null deadline means there is nothing
+      // left to count, but only syncOnlineTimers clears the interval on its
+      // way to nulling it. Every other writer (gameSlice.endGame, and
+      // clearRoomState through leaveRoom/kicked/reset) nulls the value alone,
+      // and the early-out then left a 1 Hz interval running for the rest of
+      // the session — re-entering this callback once a second forever, over a
+      // store that may since have moved on to a completely different game.
+      clearTurnTimer();
+      return;
+    }
     const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / MS_PER_SECOND));
     set({ turnTimeRemaining: remaining });
     if (remaining <= 0) {
