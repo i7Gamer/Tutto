@@ -166,6 +166,35 @@ describe('Scoreboard Component', () => {
       render(<Scoreboard game={game} formattedTime="10:00" />);
       expect(screen.queryByText('game.leader')).not.toBeInTheDocument();
     });
+
+    // getLeaders() returns every player tied for the top score, and at 0-0
+    // (before anyone has scored) that is everyone — the current player would
+    // otherwise show as "leading" a game that hasn't started.
+    it('does not show "game.leader" when two players are tied at 0', () => {
+      const game = makeScoreboardGame({
+        players: [
+          makePlayer({ name: 'First', score: 0, socketId: 'a' }),
+          makePlayer({ name: 'Second', score: 0, socketId: 'b' }),
+        ],
+        currentPlayerIndex: 0,
+        myName: 'First',
+      });
+      render(<Scoreboard game={game} formattedTime="10:00" />);
+      expect(screen.queryByText('game.leader')).not.toBeInTheDocument();
+    });
+
+    it('shows "game.leader" once the current player is actually ahead, 100 to 0', () => {
+      const game = makeScoreboardGame({
+        players: [
+          makePlayer({ name: 'Ahead', score: 100, socketId: 'a' }),
+          makePlayer({ name: 'Behind', score: 0, socketId: 'b' }),
+        ],
+        currentPlayerIndex: 0,
+        myName: 'Ahead',
+      });
+      render(<Scoreboard game={game} formattedTime="10:00" />);
+      expect(screen.getByText('game.leader')).toBeInTheDocument();
+    });
   });
 
   // `truncate` (overflow:hidden + white-space:nowrap + ellipsis) only does

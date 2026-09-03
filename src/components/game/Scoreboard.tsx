@@ -29,7 +29,11 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
 
   const currentPlayer = currentPlayerIndex !== null && players?.length ? players[currentPlayerIndex] : null;
   const isMyTurn = !isOnline || (currentPlayer && currentPlayer.name === myName);
+  // getLeaders() returns every player tied for the top score, and before
+  // anyone has scored that is everyone at 0 — nobody is "leading" a game
+  // that hasn't started, so the badge also requires a positive top score.
   const isLeader = !!currentPlayer && (players?.length ?? 0) >= MIN_PLAYERS_FOR_LEADER_BADGE
+    && currentPlayer.score > 0
     && getLeaders(players).some(p => p.name === currentPlayer.name);
 
   let displayPlayer = currentPlayer;
