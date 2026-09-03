@@ -995,7 +995,9 @@ describe('endGameStats acks what it did with the submission', () => {
   };
 
   /** The handler, bound to a socket seated as Alice unless told otherwise. */
-  const handlerFor = (socketId = 'alice-sock', sessionRoomId: string | undefined = roomId) => {
+  // `null`, not `undefined`, for "no room": undefined would take the default
+  // parameter and quietly name the room after all.
+  const handlerFor = (socketId = 'alice-sock', sessionRoomId: string | null = roomId) => {
     const fake = makeFakeSocket(socketId);
     registerStatsHandlers({
       io: makeFakeIo().io, socket: fake.socket,
@@ -1069,7 +1071,7 @@ describe('endGameStats acks what it did with the submission', () => {
   });
 
   it('acks no-room when the session holds no room at all', async () => {
-    const ack = await submitWithAck(handlerFor('alice-sock', undefined), { deviceId, stats: {} });
+    const ack = await submitWithAck(handlerFor('alice-sock', null), { deviceId, stats: {} });
 
     expect(ack).toEqual({ ok: false, reason: 'no-room' });
   });

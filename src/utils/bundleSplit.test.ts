@@ -27,7 +27,10 @@ import path from 'path';
 
 const DIST = path.resolve(__dirname, '..', '..', 'dist');
 const INDEX_HTML = path.join(DIST, 'index.html');
-const built = fs.existsSync(INDEX_HTML);
+// A real build, not the bare dist/index.html stub server/api.test.ts writes
+// for its SPA-fallback probes: that stub used to read as "built" and fail the
+// self-oracle below in any checkout without a build.
+const built = fs.existsSync(INDEX_HTML) && fs.existsSync(path.join(DIST, 'assets'));
 
 // A chart.js internal that survives minification and appears nowhere else.
 const CHARTJS_FINGERPRINT = '_metasets';
