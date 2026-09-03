@@ -46,6 +46,8 @@ const sourceFiles = (dir: string): string[] => {
 
 // `from 'pkg'`, `from 'pkg/sub'`, `import('pkg')`, `require('pkg')` — the
 // package name is the first segment (two for a scoped package).
+const BLOCK_COMMENT = /\/\*[\s\S]*?\*\//g;
+const LINE_COMMENT = /^\s*\/\/.*$/gm;
 const IMPORT_SPECIFIER = /(?:\bfrom\s+|\bimport\(\s*|\brequire\(\s*)['"]([^'".][^'"]*)['"]/g;
 const packageOf = (specifier: string): string => {
   const parts = specifier.split('/');
@@ -56,7 +58,9 @@ const importedPackages = (): Set<string> => {
   const seen = new Set<string>();
   for (const dir of SOURCE_DIRS) {
     for (const file of sourceFiles(path.join(REPO_ROOT, dir))) {
-      const text = fs.readFileSync(file, 'utf8');
+      // Comments stripped first: a `from 'pkg'` inside prose must not count
+      // as an import, or a comment could keep a dead dependency alive.
+      const text = fs.readFileSync(file, 'utf8').replace(BLOCK_COMMENT, '').replace(LINE_COMMENT, '');
       for (const match of text.matchAll(IMPORT_SPECIFIER)) seen.add(packageOf(match[1]));
     }
   }

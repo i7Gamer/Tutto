@@ -687,8 +687,12 @@ describe('the Node runtime is pinned consistently', () => {
     if (upper !== undefined) expect(ciMajor).toBeLessThan(Number(upper));
   });
 
-  it('makes npm enforce that range locally', () => {
-    const npmrc = fs.readFileSync(path.join(REPO_ROOT, '.npmrc'), 'utf8');
-    expect(npmrc).toMatch(/^engine-strict\s*=\s*true$/m);
+  it('makes npm enforce that range locally, in both workspaces', () => {
+    // npm reads only the .npmrc of the directory it runs in — no ancestor
+    // lookup — and server/ is installed with `npm ci` from inside server/.
+    for (const dir of [REPO_ROOT, SERVER_DIR]) {
+      const npmrc = fs.readFileSync(path.join(dir, '.npmrc'), 'utf8');
+      expect(npmrc, `${toRepoRelative(dir)}/.npmrc`).toMatch(/^engine-strict\s*=\s*true$/m);
+    }
   });
 });

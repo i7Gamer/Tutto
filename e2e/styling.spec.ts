@@ -791,24 +791,27 @@ test.describe('safe-area viewport (B58)', () => {
     expect(content).toContain('viewport-fit=cover');
   });
 
-  test('the HUD reads a safe-area-inset padding, not a plain length', async ({ page }) => {
-    // A real cutout can't be simulated here, so this only proves the
-    // declaration is env()-driven at all (any positive value it resolved to
-    // in a real Safari would come from device chrome, not this test) — the
-    // regression this guards against is the padding utility being dropped
-    // from App.tsx's className entirely, which env(safe-area-inset-top)
-    // resolving to 0 everywhere else would otherwise hide.
+  test('the HUD declares its padding from the safe-area inset', async ({ page }) => {
+    // A real cutout cannot be simulated here, and a computed padding-top is
+    // "0px" both with the env() rule (inset 0 on this hardware) and with no
+    // rule at all — so the value proves nothing. What can regress is the
+    // declaration: the utility being dropped from App.tsx, or Tailwind no
+    // longer emitting a rule for it. Check both.
     await page.goto('/');
 
-    const themeToggle = page.getByLabel('Toggle theme');
-    const paddingTop = await themeToggle.locator('xpath=..').evaluate(
-      el => getComputedStyle(el).paddingTop,
-    );
+    const hud = page.getByLabel('Toggle theme').locator('xpath=..');
+    const className = await hud.evaluate(el => el.className);
+    expect(className).toContain('pt-[env(safe-area-inset-top)]');
 
-    // 0px with no device inset is the correct, expected value — this only
-    // fails if the property comes back unset (empty string) rather than
-    // resolved to a length, which is what "no such rule at all" looks like.
-    expect(paddingTop).toMatch(/^-?\d+(\.\d+)?px$/);
+    const declared = await page.evaluate(() =>
+      Array.from(document.styleSheets).some(sheet => {
+        try {
+          return Array.from(sheet.cssRules).some(rule => rule.cssText.includes('env(safe-area-inset-top)'));
+        } catch {
+          return false;
+        }
+      }));
+    expect(declared, 'no stylesheet rule mentions env(safe-area-inset-top)').toBe(true);
   });
 });
 
@@ -920,35 +923,39 @@ test.describe('tap targets ≥ 44px on game-time controls (C65)', () => {
     const contextA = await browser.newContext();
     const pageA = await contextA.newPage();
     const contextB = await browser.newContext();
-    const pageB = await contextB.newPage();
+    try {
+      const pageB = await contextB.newPage();
 
-    const roomId = `E2E-KICKSIZE-${testInfo.project.name}-w${testInfo.workerIndex}-${Date.now()}`;
-    await joinOnlineRoom(pageA, roomId, 'AliceHost');
-    await expect(pageA.getByText('AliceHost').first()).toBeVisible({ timeout: 15000 });
-    await joinOnlineRoom(pageB, roomId, 'BobGuest');
-    await expect(pageA.getByText('BobGuest').first()).toBeVisible({ timeout: 15000 });
+      const roomId = `E2E-KICKSIZE-${testInfo.project.name}-w${testInfo.workerIndex}-${Date.now()}`;
+      await joinOnlineRoom(pageA, roomId, 'AliceHost');
+      await expect(pageA.getByText('AliceHost').first()).toBeVisible({ timeout: 15000 });
+      await joinOnlineRoom(pageB, roomId, 'BobGuest');
+      await expect(pageA.getByText('BobGuest').first()).toBeVisible({ timeout: 15000 });
 
-    await pageA.getByRole('button', { name: /Start Game!/i }).click();
-    await expect(pageA.getByText(/Current Player/i).first()).toBeVisible({ timeout: 15000 });
+      await pageA.getByRole('button', { name: /Start Game!/i }).click();
+      await expect(pageA.getByText(/Current Player/i).first()).toBeVisible({ timeout: 15000 });
 
-    // The Kick pill (Leaderboard.tsx) only renders for the host, next to a
-    // player the server has marked disconnected — closing Bob's context
-    // drops his socket's transport, which the server treats as an immediate
-    // disconnect (socketRoomHandlers.ts sets `disconnected = true` and
-    // broadcasts right away; it does not wait out the reconnect timeout).
-    await contextB.close();
+      // The Kick pill (Leaderboard.tsx) only renders for the host, next to a
+      // player the server has marked disconnected — closing Bob's context
+      // drops his socket's transport, which the server treats as an immediate
+      // disconnect (socketRoomHandlers.ts sets `disconnected = true` and
+      // broadcasts right away; it does not wait out the reconnect timeout).
+      await contextB.close();
 
-    await pageA.setViewportSize({ width: 375, height: 812 });
+      await pageA.setViewportSize({ width: 375, height: 812 });
 
-    const kickButton = pageA.getByRole('button', { name: 'Kick' });
-    await expect(kickButton).toBeVisible({ timeout: 20000 });
-    // The leaderboard row scales in (framer-motion), so a one-shot box read
-    // can land mid-tween a few px short; poll until the layout has settled.
-    const boxSide = (side: 'height' | 'width') => async () => (await kickButton.boundingBox())?.[side] ?? 0;
-    await expect.poll(boxSide('height')).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
-    await expect.poll(boxSide('width')).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+      const kickButton = pageA.getByRole('button', { name: 'Kick' });
+      await expect(kickButton).toBeVisible({ timeout: 20000 });
+      // The leaderboard row scales in (framer-motion), so a one-shot box read
+      // can land mid-tween a few px short; poll until the layout has settled.
+      const boxSide = (side: 'height' | 'width') => async () => (await kickButton.boundingBox())?.[side] ?? 0;
+      await expect.poll(boxSide('height')).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+      await expect.poll(boxSide('width')).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
 
-    await contextA.close();
+    } finally {
+      await contextA.close();
+      await contextB.close();
+    }
   });
 });
 
