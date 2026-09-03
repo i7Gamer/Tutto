@@ -278,10 +278,18 @@ export const registerApiRoutes = (app: express.Express): void => {
 
   // SPA fallback — must be registered last so it doesn't shadow the API routes.
   app.use((_req: express.Request, res: express.Response) => {
-    // Left to contextual typing rather than annotated: express's Errback has
-    // already changed shape once (Error | null -> Error | undefined, in
-    // @types/express-serve-static-core 5.1.3) and broke the build.
-    res.sendFile(path.join(__dirname, '../dist/index.html'), (err) => {
+    // Rooted at dist/ rather than handed the absolute path: sendFile's
+    // dotfiles policy ("ignore" by default) judges every path segment it is
+    // given, so without a root a checkout under any dot-directory
+    // (~/.apps/tutto, a .claude/worktrees probe) answered 404 for every
+    // client route while express.static, which is rooted, served the assets
+    // fine. With a root, only "index.html" is judged.
+    //
+    // The callback is left to contextual typing rather than annotated:
+    // express's Errback has already changed shape once (Error | null ->
+    // Error | undefined, in @types/express-serve-static-core 5.1.3) and
+    // broke the build.
+    res.sendFile('index.html', { root: path.join(__dirname, '../dist') }, (err) => {
       if (!err) return;
       // An abort is not a missing file, and once the response has started
       // there is nothing that can be said anyway: answering again throws

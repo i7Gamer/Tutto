@@ -459,12 +459,29 @@ describe('the SPA fallback when sendFile reports an error', () => {
       headersSent,
       status,
       send,
-      sendFile: (_filePath: string, callback: (err?: SendFileError) => void): void => callback(error),
+      sendFile: (_file: string, _options: unknown, callback: (err?: SendFileError) => void): void => callback(error),
     } as unknown as express.Response;
 
     spaFallback()({} as express.Request, res, (() => {}) as express.NextFunction);
     return { status, send };
   };
+
+  it('sends index.html relative to dist/ as its root, not by absolute path', () => {
+    // sendFile's dotfiles policy defaults to "ignore", and without a `root`
+    // it inspects EVERY segment of the absolute path — so a checkout under
+    // any dot-directory (~/.apps/tutto, a .claude/worktrees probe) answered
+    // 404 for every client route while express.static, which is rooted,
+    // served the assets fine. Rooted at dist/, only "index.html" is judged.
+    const sendFile = vi.fn();
+    const res = { sendFile } as unknown as express.Response;
+
+    spaFallback()({} as express.Request, res, (() => {}) as express.NextFunction);
+
+    expect(sendFile).toHaveBeenCalledTimes(1);
+    const [file, options] = sendFile.mock.calls[0] as [string, { root: string }];
+    expect(file).toBe('index.html');
+    expect(options.root).toBe(path.join(__dirname, '../dist'));
+  });
 
   it('writes nothing when the client aborts after the response has started', () => {
     // The headers are already on the wire, so answering anyway throws
