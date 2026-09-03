@@ -322,7 +322,7 @@ export const registerApiRoutes = (app: express.Express): void => {
 
   app.post('/api/stats/global', requireToken, rejectForeignBucketParam(RULESET_PARAM, MODE_PARAM), rejectUnknownRuleset, async (req: express.Request, res: express.Response) => {
     try {
-      await updateGlobalStats(sanitizeStats(req.body, 'global'), requestedRuleset(req));
+      await updateGlobalStats(sanitizeStats(req.body, 'global', 'lifetime'), requestedRuleset(req));
       res.json({ success: true });
     } catch (err) {
       console.error(err);
@@ -359,7 +359,7 @@ export const registerApiRoutes = (app: express.Express): void => {
 
   app.post('/api/stats/:deviceId', requireToken, requireValidDeviceId, rejectForeignBucketParam(MODE_PARAM, RULESET_PARAM), rejectUnknownMode, async (req: express.Request, res: express.Response) => {
     try {
-      await updateDeviceStats(req.params.deviceId as string, sanitizeStats(req.body, 'device'), requestedMode(req));
+      await updateDeviceStats(req.params.deviceId as string, sanitizeStats(req.body, 'device', 'lifetime'), requestedMode(req));
       res.json({ success: true });
     } catch (err) {
       console.error(err);

@@ -230,18 +230,51 @@ describe('sanitizeStats', () => {
       .toEqual({ totalScore: MAX_SCORE_MAGNITUDE * MAX_PLAYERS_PER_ROOM });
   });
 
-  it('leaves gamesPlayed and wins out of the additive bound', () => {
-    // The token-gated admin route (POST /api/stats/:deviceId) legitimately
-    // corrects a miscount in one multi-game call rather than one game at a
-    // time, and api.routes.test.ts + api.test.ts pin that. Both are plain
-    // additive columns — nothing they carry is permanent, so the same route
-    // can subtract it again — which is what makes the exemption safe.
-    const pastEveryAdditiveBound = MAX_GAME_SECONDS * MAX_PLAYERS_PER_ROOM;
-    expect(sanitizeStats({ gamesPlayed: pastEveryAdditiveBound }, DEVICE))
-      .toEqual({ gamesPlayed: pastEveryAdditiveBound });
-    expect(sanitizeStats({ wins: pastEveryAdditiveBound }, DEVICE))
-      .toEqual({ wins: pastEveryAdditiveBound });
-    expect(sanitizeStats({ gamesPlayed: 1e15 }, DEVICE)).toEqual({ gamesPlayed: STATS_VALUE_CAP });
+  it('holds a lifetime submission to the general cap, not to a single game', () => {
+    // The token-gated admin routes carry totals accumulated over many games --
+    // a restored backup, or a corrected miscount -- so the per-game bounds do
+    // not apply to them. They used to, for 21 of the 23 additive columns:
+    // only gamesPlayed and wins were exempt, and everything else was clamped
+    // to one game's worth and answered `{ success: true }`, quietly losing
+    // most of a long-lived player's row.
+    // A real 500-game player, every figure past the bound for ONE game.
+    const lifetimeTotals = {
+      gamesPlayed: 500, wins: 210,
+      totalScore: 2_700_000,        // ~5,400/game, past MAX_SCORE_MAGNITUDE
+      totalTurns: 4_000_000,        // ~8,000/game, past MAX_ROUNDS
+      totalPlaytime: 15_000_000,    // ~8h20m of play, past MAX_GAME_SECONDS
+    };
+
+    expect(sanitizeStats(lifetimeTotals, DEVICE, 'lifetime')).toEqual(lifetimeTotals);
+  });
+
+  it('still holds a per-game submission to the per-game bound', () => {
+    // The default, and every socket path: the allowance is opt-in so a caller
+    // that forgets it truncates a repair rather than opening the general cap
+    // to an unauthenticated route.
+    expect(sanitizeStats({ totalTurns: 4_000_000 }, DEVICE)).toEqual({ totalTurns: MAX_ROUNDS });
+    expect(sanitizeStats({ gamesPlayed: MAX_GAME_SECONDS * MAX_PLAYERS_PER_ROOM }, DEVICE))
+      .toEqual({ gamesPlayed: MAX_ROUNDS });
+  });
+
+  it('never lifts a record column, whatever the allowance', () => {
+    // A record is MAX-merged: one write is permanent and no later call takes
+    // it back down, so 'lifetime' must not become a way to pin one.
+    expect(sanitizeStats({ highestTurnScore: 1e8 }, DEVICE, 'lifetime')).toEqual({});
+    expect(sanitizeStats({ mostCardsInTurn: 1e8 }, DEVICE, 'lifetime')).toEqual({});
+  });
+
+  it('bounds a numeric key none of the families name', () => {
+    // AdditiveStatsFieldLock stops a REAL payload key reaching this branch, so
+    // only an invented one does -- and such a key reaches no column at all
+    // (updateDeviceStats writes only the columns it knows). Bounded at the
+    // tightest of the families anyway, and nothing pinned that: raising it to
+    // STATS_VALUE_CAP left the whole file green.
+    expect(sanitizeStats({ notAColumn: 1e8 }, DEVICE)).toEqual({ notAColumn: MAX_ROUNDS });
+  });
+
+  it('caps even a lifetime submission at STATS_VALUE_CAP', () => {
+    expect(sanitizeStats({ gamesPlayed: 1e15 }, DEVICE, 'lifetime')).toEqual({ gamesPlayed: STATS_VALUE_CAP });
   });
 });
 

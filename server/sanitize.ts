@@ -157,8 +157,11 @@ export const RECORD_STATS_BOUNDS: ReadonlyMap<string, number> = new Map(RECORD_S
  *  - a duration by MAX_GAME_SECONDS (pushValidation refuses a larger
  *    gameTimeInSeconds),
  *  - a score by MAX_SCORE_MAGNITUDE (the same refusal on every pushed score),
- *  - a count by MAX_ROUNDS, which no per-player tally can outrun: a seat takes
- *    at most one turn per round, and every card counter is a subset of that.
+ *  - a count by MAX_ROUNDS. A seat takes at most one turn per round, so most
+ *    of these are bounded by that directly. The exception is totalTuttos,
+ *    whose source permits up to MAX_CHAIN_CARDS per turn — still four orders
+ *    of magnitude under MAX_ROUNDS in practice, so the family bound holds it
+ *    comfortably, but it is not the strict per-round subset the rest are.
  */
 const ADDITIVE_DURATION_KEYS = ['totalPlaytime'] as const;
 
@@ -254,14 +257,30 @@ export const ADDITIVE_STATS_BOUNDS: Readonly<Record<StatsScope, ReadonlyMap<stri
  */
 const UNCLASSIFIED_ADDITIVE_BOUND = MAX_ROUNDS;
 
-// The two additive counters left at the general STATS_VALUE_CAP instead of the
-// per-game bounds above. The token-gated admin route (POST /api/stats/:deviceId)
-// legitimately corrects a miscount in one multi-game call rather than one game
-// at a time, and api.routes.test.ts + api.test.ts pin that. Safe to exempt
-// precisely because both are plain running sums: nothing they carry is
-// permanent, so the same route can subtract it again — unlike a record column,
-// where a single write is forever.
-const MULTI_GAME_ADDITIVE_STATS_FIELDS = new Set(['gamesPlayed', 'wins']);
+/**
+ * How much ONE submission is allowed to carry.
+ *
+ *  - 'per-game'  — a single game's worth, the bounds above. Every socket path.
+ *  - 'lifetime'  — a running total spanning many games, bounded only by the
+ *    general STATS_VALUE_CAP.
+ *
+ * The token-gated admin routes are the only 'lifetime' callers: restoring a
+ * backup, or correcting a miscount, is one POST carrying totals accumulated
+ * over hundreds of games. Under the per-game bounds those were silently
+ * truncated and answered `{ success: true }` — a 500-game player's honest
+ * totalScore of 2.7e6 clamped to MAX_SCORE_MAGNITUDE, losing most of it.
+ *
+ * This lifts the bound on ADDITIVE counters only. Record columns keep theirs
+ * in both allowances: they are MAX-merged, so one write is permanent and no
+ * later call takes it back down, while an additive counter can always be
+ * corrected by subtracting again.
+ *
+ * Optional, and defaulting to the strict side on purpose — unlike `scope`,
+ * which is required because either of its values can be the wrong one. Here a
+ * caller that forgets truncates a repair, which is recoverable; a caller that
+ * wrongly opted in would hand an unauthenticated path the general cap.
+ */
+export type StatsAllowance = 'per-game' | 'lifetime';
 
 export type SanitizedStats = Record<string, number | boolean | null>;
 
@@ -271,7 +290,7 @@ export type SanitizedStats = Record<string, number | boolean | null>;
 // neither failure says anything at the time it happens.
 export type StatsScope = 'device' | 'global';
 
-export const sanitizeStats = (raw: unknown, scope: StatsScope): SanitizedStats => {
+export const sanitizeStats = (raw: unknown, scope: StatsScope, allowance: StatsAllowance = 'per-game'): SanitizedStats => {
   if (!raw || typeof raw !== 'object') return {};
   const additiveBounds = ADDITIVE_STATS_BOUNDS[scope];
   const clean: SanitizedStats = {};
@@ -317,7 +336,7 @@ export const sanitizeStats = (raw: unknown, scope: StatsScope): SanitizedStats =
     // sums, so nothing a clamp writes is permanent — the token-gated route can
     // subtract it again — while dropping one would silently lose the honest
     // part of a real game's submission.
-    const maxAllowed = MULTI_GAME_ADDITIVE_STATS_FIELDS.has(key)
+    const maxAllowed = allowance === 'lifetime'
       ? STATS_VALUE_CAP
       : (additiveBounds.get(key) ?? UNCLASSIFIED_ADDITIVE_BOUND);
     // totalScore's negative bound deliberately stays the wider
