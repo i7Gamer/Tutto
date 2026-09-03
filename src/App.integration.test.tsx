@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { vi, describe, it, expect, beforeEach, afterEach, type Mock } from 'vitest';
+import { vi, describe, it, expect, beforeEach, beforeAll, afterEach, type Mock } from 'vitest';
 import App from './App';
 import * as diceLogic from './utils/diceLogic';
 import { useGameStore, _resetTimersForTests, _resetSocketSliceForTests } from './store/useGameStore';
@@ -12,6 +12,7 @@ import {
 import { TOTAL_DICE } from './utils/turnShapes';
 import type { JoinRoomResponse } from './store/storeTypes';
 import { makePlayer, makeDiceSnapshot, nonNull } from './testing/factories';
+import { uiBusyState, _resetUiBusyStateForTests } from './utils/uiBusyState';
 
 // The full-game test below runs the dice panel's real timers — Game.tsx's
 // entrance delay, DiceGame's tumble/stagger/settle chain and the summary's
@@ -1177,5 +1178,57 @@ describe('App Integration (End-to-End)', () => {
       _resetTimersForTests();
       vi.useRealTimers();
     }
+  });
+
+  // swUpdate.ts (isSafeToApplyUpdate) refuses to apply a waiting update while
+  // this is true: `showStats` below is plain component state, never
+  // persisted, so a reload lands back on Home rather than reopening
+  // Statistics — there is no "same screen" to resume reading on. See
+  // uiBusyState.ts.
+  describe('reporting the Statistics screen to uiBusyState', () => {
+    // Statistics.tsx observes chart elements into view with framer-motion's
+    // viewport feature, which jsdom has no native IntersectionObserver for —
+    // see Statistics.test.tsx's own copy of this stub.
+    beforeAll(() => {
+      class MockIntersectionObserver implements IntersectionObserver {
+        root: Element | Document | null = null;
+        rootMargin = '';
+        scrollMargin = '';
+        thresholds: number[] = [];
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+        takeRecords(): IntersectionObserverEntry[] { return []; }
+      }
+      window.IntersectionObserver = MockIntersectionObserver;
+    });
+
+    afterEach(() => {
+      _resetUiBusyStateForTests();
+    });
+
+    it('goes busy on opening Statistics and idle again on going back', async () => {
+      render(<App />);
+      expect(uiBusyState.getState().statsScreenOpen).toBe(false);
+
+      fireEvent.click(screen.getByText(/home.viewStats/i));
+      await waitFor(() => expect(uiBusyState.getState().statsScreenOpen).toBe(true));
+
+      const backButton = await screen.findByRole('button', { name: /common.back/i });
+      fireEvent.click(backButton);
+
+      expect(uiBusyState.getState().statsScreenOpen).toBe(false);
+    });
+
+    it('clears the flag on unmount so a closed app cannot leave an update stuck', async () => {
+      const { unmount } = render(<App />);
+
+      fireEvent.click(screen.getByText(/home.viewStats/i));
+      await waitFor(() => expect(uiBusyState.getState().statsScreenOpen).toBe(true));
+
+      unmount();
+
+      expect(uiBusyState.getState().statsScreenOpen).toBe(false);
+    });
   });
 });

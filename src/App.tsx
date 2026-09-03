@@ -23,6 +23,7 @@ import ModalShell from './components/ModalShell';
 import ReactionOverlay from './components/ReactionOverlay';
 import IOSHapticProxy from './components/IOSHapticProxy';
 import { joinErrorMessage } from './utils/joinErrors';
+import { setStatsScreenOpen } from './utils/uiBusyState';
 import './index.css';
 import type { Toast } from './types';
 
@@ -202,6 +203,16 @@ export default function App() {
   });
 
   const [showStats, setShowStats] = useState(false);
+
+  // Reported to swUpdate.ts (via isSafeToApplyUpdate): `showStats` is plain
+  // component state, never persisted, so a reload would land back on <Home/>
+  // rather than reopening Statistics — there is no "same screen" to resume
+  // reading on. Cleared on unmount for the same reason OnlineLobby's draft
+  // flag is: the app not being mounted at all is never itself "busy".
+  useEffect(() => {
+    setStatsScreenOpen(showStats);
+  }, [showStats]);
+  useEffect(() => () => setStatsScreenOpen(false), []);
 
   useEffect(() => {
     useGameStore.getState().init(deviceId);

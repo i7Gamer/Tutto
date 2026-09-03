@@ -8,6 +8,7 @@ import { TOUCH_FIRST_POINTER_QUERY } from '../../utils/shareSupport';
 import { useGameStore } from '../../store/useGameStore';
 import type { GameStore } from '../../store/useGameStore';
 import type { Player } from '../../types';
+import { uiBusyState, _resetUiBusyStateForTests } from '../../utils/uiBusyState';
 
 // OnlineLobby subscribes to the store itself (no more `game` prop), so tests
 // stage state/action-spies with setState and restore the pristine snapshot
@@ -1370,6 +1371,91 @@ describe('OnlineLobby recent rooms history', () => {
     expect(joinRoom).toHaveBeenCalledWith('ROOM123', 'Alice');
     expect(localStorage.getItem('tutto_last_room')).toBe('ROOM123');
     expect(localStorage.getItem('tutto_last_name')).toBe('Alice');
+  });
+});
+
+// swUpdate.ts (isSafeToApplyUpdate) refuses to apply a waiting update while
+// this is true — a reload would silently drop whatever is typed here or
+// close a camera the player opened on purpose, neither of which is
+// persisted anywhere. See uiBusyState.ts.
+describe('OnlineLobby reporting a form draft to uiBusyState', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    _resetUiBusyStateForTests();
+  });
+
+  afterEach(() => {
+    _resetUiBusyStateForTests();
+  });
+
+  it('starts clear on a fresh, empty form', () => {
+    render(<OnlineLobby />);
+
+    expect(uiBusyState.getState().hasFormDraft).toBe(false);
+  });
+
+  it('goes busy the moment either field is typed into', () => {
+    render(<OnlineLobby />);
+
+    act(() => {
+      fireEvent.change(screen.getByPlaceholderText('lobby.online.roomCodePlaceholder'), { target: { value: 'ROOM' } });
+    });
+
+    expect(uiBusyState.getState().hasFormDraft).toBe(true);
+  });
+
+  it('goes idle again once the typed text is cleared', () => {
+    render(<OnlineLobby />);
+    const roomInput = screen.getByPlaceholderText('lobby.online.roomCodePlaceholder');
+
+    act(() => {
+      fireEvent.change(roomInput, { target: { value: 'ROOM' } });
+    });
+    expect(uiBusyState.getState().hasFormDraft).toBe(true);
+
+    act(() => {
+      fireEvent.change(roomInput, { target: { value: '' } });
+    });
+    expect(uiBusyState.getState().hasFormDraft).toBe(false);
+  });
+
+  // A returning player's remembered room/name pre-fill the fields on mount —
+  // that is already-saved data, not a draft that would be lost, so it must
+  // not itself count as busy.
+  it('does not count a prefilled remembered room/name as a draft', () => {
+    localStorage.setItem('tutto_last_room', 'OLDROOM');
+    localStorage.setItem('tutto_last_name', 'Bob');
+
+    render(<OnlineLobby />);
+
+    expect(uiBusyState.getState().hasFormDraft).toBe(false);
+  });
+
+  it('goes busy while the QR scanner is open, and idle once it closes', () => {
+    render(<OnlineLobby />);
+
+    act(() => {
+      fireEvent.click(screen.getByTitle('lobby.online.scanQr'));
+    });
+    expect(uiBusyState.getState().hasFormDraft).toBe(true);
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('scan-close'));
+    });
+    expect(uiBusyState.getState().hasFormDraft).toBe(false);
+  });
+
+  it('clears the flag on unmount so a closed lobby cannot leave an update stuck', () => {
+    const { unmount } = render(<OnlineLobby />);
+
+    act(() => {
+      fireEvent.change(screen.getByPlaceholderText('lobby.online.roomCodePlaceholder'), { target: { value: 'ROOM' } });
+    });
+    expect(uiBusyState.getState().hasFormDraft).toBe(true);
+
+    unmount();
+
+    expect(uiBusyState.getState().hasFormDraft).toBe(false);
   });
 });
 

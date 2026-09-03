@@ -33,23 +33,41 @@ export interface UpdateIdleState {
   currentPlayerIndex: number | null;
   finished: boolean;
   roomId: string | null;
+  // Component state that has no home in the store — see uiBusyState.ts.
+  // OnlineLobby's join-form inputs (room code / name) hold unsaved text, or
+  // its QR scanner is open. Neither is persisted, so a reload drops it.
+  hasFormDraft: boolean;
+  // App.tsx's `showStats`, likewise plain component state and never
+  // persisted: a reload lands back on <Home/>, not <Statistics/>, so there is
+  // no "same screen" to reopen the player on.
+  statsScreenOpen: boolean;
 }
 
 /**
  * Whether reloading right now would interrupt nothing.
  *
- * The first two conditions mirror App.tsx's own routing exactly — they are
- * what makes it render <Game/> and <EndScreen/> rather than <Home/>. The third
- * is this module's own: an online seat survives a reload (the session is
- * persisted and the client rejoins), but it costs a reconnect round trip and a
- * visible flash to everyone at the table, and an update is never urgent enough
- * to be worth that.
+ * `seated` is deliberately not split into "playing" vs "finished" vs "still
+ * in the lobby assembling a roster" the way App.tsx's own routing is (it only
+ * needs currentPlayerIndex/finished to choose between <Game/>, <EndScreen/>
+ * and <Home/>). A local roster the player is still building in <LocalLobby/>
+ * survives a reload just as well — attachPersistence (persistence.ts) saves
+ * `players` on every change — but reloading anyway still costs the same
+ * flash-free continuity an in-progress or just-finished game would lose, so
+ * any non-empty roster counts as busy regardless of which of those three
+ * screens it is currently rendering.
+ *
+ * An online seat (`roomId`) survives a reload too (the session is persisted
+ * and the client rejoins), but costs a reconnect round trip and a visible
+ * flash to everyone at the table — busy at any point in the room, lobby
+ * included, for the same reason.
+ *
+ * `hasFormDraft` and `statsScreenOpen` cover the two screens that hold state
+ * a reload would simply drop on the floor because it was never in the store
+ * to begin with — see their doc comments on UpdateIdleState above.
  */
 export const isSafeToApplyUpdate = (state: UpdateIdleState): boolean => {
   const seated = state.players.length > 0;
-  const isPlaying = state.currentPlayerIndex !== null && seated;
-  const hasWinner = state.finished && seated;
-  return !isPlaying && !hasWinner && state.roomId === null;
+  return !seated && state.roomId === null && !state.hasFormDraft && !state.statsScreenOpen;
 };
 
 interface ApplyUpdateOptions<S extends UpdateIdleState> {

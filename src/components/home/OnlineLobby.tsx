@@ -15,6 +15,7 @@ import { parseRecentRooms, MAX_RECENT_ROOMS, type RecentRoom } from '../../utils
 import { buildRoomLink } from '../../utils/roomLink';
 import { supportsNativeShare } from '../../utils/shareSupport';
 import { localStore } from '../../utils/storage';
+import { setHasFormDraft } from '../../utils/uiBusyState';
 import { useGameStore } from '../../store/useGameStore';
 import ConfirmModal from '../ConfirmModal';
 import RoomQrCode from './RoomQrCode';
@@ -97,6 +98,27 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
   // One join attempt reports its outcome twice (the raced result and the late
   // ack behind it), and only the first success may be recorded.
   const joinRecordedRef = useRef(false);
+
+  // What the two fields started from — a remembered room/name (or a followed
+  // invite link) is already-saved data, not a draft that a reload could lose,
+  // so it must not itself count as busy. Only a value the player has since
+  // typed differs from these.
+  const initialRoomCodeRef = useRef(inputRoomCode);
+  const initialNameRef = useRef(inputName);
+
+  // Reported to swUpdate.ts (via isSafeToApplyUpdate) so a waiting update
+  // never reloads mid-typing or with the camera open — neither the room-code/
+  // name fields nor the scanner's open/closed state lives in the store, so
+  // this is the only signal that either is happening. Cleared on unmount:
+  // this lobby not being mounted at all is never itself "busy".
+  useEffect(() => {
+    setHasFormDraft(
+      showScanner ||
+      inputRoomCode !== initialRoomCodeRef.current ||
+      inputName !== initialNameRef.current,
+    );
+  }, [inputRoomCode, inputName, showScanner]);
+  useEffect(() => () => setHasFormDraft(false), []);
 
   // Selects only what this lobby renders — the whole store used to arrive as
   // a prop from Home, re-rendering the entire lobby tree on any store change.

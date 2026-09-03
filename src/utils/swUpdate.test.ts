@@ -13,6 +13,8 @@ const idle: UpdateIdleState = {
   currentPlayerIndex: null,
   finished: false,
   roomId: null,
+  hasFormDraft: false,
+  statsScreenOpen: false,
 };
 
 beforeEach(() => {
@@ -50,6 +52,33 @@ describe('isSafeToApplyUpdate', () => {
     // App.tsx requires both.
     expect(isSafeToApplyUpdate({ ...idle, currentPlayerIndex: 0 })).toBe(true);
     expect(isSafeToApplyUpdate({ ...idle, finished: true })).toBe(true);
+  });
+
+  // A local roster the player is still assembling in <LocalLobby/> — nobody
+  // has pressed Start Game, so App.tsx renders <Home/>, not <Game/> — is
+  // exactly the state this predicate used to wave through: currentPlayerIndex
+  // is null, finished is false, roomId is null. attachPersistence does save
+  // the roster on every change, so a reload would not lose it, but it would
+  // still cost the player the flash-free continuity of the screen they were
+  // just building, the same cost an online seat pays below. So any non-empty
+  // local roster counts as busy, whether or not a game is under way.
+  it('refuses while a local lobby has players configured but no game started', () => {
+    expect(isSafeToApplyUpdate({ ...idle, players: { length: 2 } })).toBe(false);
+  });
+
+  // The online join form's room-code/name inputs and its QR scanner all live
+  // as plain component state in OnlineLobby.tsx — none of it is persisted,
+  // so a reload silently drops it. hasFormDraft is OnlineLobby's own signal
+  // (see uiBusyState.ts) that either is true.
+  it('refuses while the online join form holds a draft or its scanner is open', () => {
+    expect(isSafeToApplyUpdate({ ...idle, hasFormDraft: true })).toBe(false);
+  });
+
+  // App.tsx's `showStats` is plain component state, never persisted — a
+  // reload lands back on <Home/>, not <Statistics/>, so there is no "same
+  // screen" for the player to resume reading on.
+  it('refuses while the Statistics screen is open', () => {
+    expect(isSafeToApplyUpdate({ ...idle, statsScreenOpen: true })).toBe(false);
   });
 });
 

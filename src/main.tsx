@@ -6,7 +6,35 @@ import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { registerSW } from 'virtual:pwa-register';
 import { useGameStore } from './store/useGameStore';
-import { applyUpdateWhenIdle, reloadOnceForUpdate } from './utils/swUpdate';
+import { applyUpdateWhenIdle, reloadOnceForUpdate, type UpdateIdleState } from './utils/swUpdate';
+import { uiBusyState } from './utils/uiBusyState';
+
+// isSafeToApplyUpdate's fields come from two independent sources: the four
+// game-state ones live in useGameStore, and hasFormDraft/statsScreenOpen have
+// no home there (see uiBusyState.ts) — they are component state OnlineLobby
+// and App.tsx report directly. Both onNeedRefresh and onNeedReload below need
+// the same composed view, so it is built once here.
+const getIdleState = (): UpdateIdleState => ({
+  players: useGameStore.getState().players,
+  currentPlayerIndex: useGameStore.getState().currentPlayerIndex,
+  finished: useGameStore.getState().finished,
+  roomId: useGameStore.getState().roomId,
+  hasFormDraft: uiBusyState.getState().hasFormDraft,
+  statsScreenOpen: uiBusyState.getState().statsScreenOpen,
+});
+
+// A plain listener on both sources, not a selector subscription: the
+// predicate reads six fields total across the two stores and each watch
+// fires at most once, so there is nothing to gain from narrowing either and a
+// stale field to lose.
+const subscribeIdleState = (listener: () => void): (() => void) => {
+  const unsubscribeStore = useGameStore.subscribe(listener);
+  const unsubscribeUi = uiBusyState.subscribe(listener);
+  return () => {
+    unsubscribeStore();
+    unsubscribeUi();
+  };
+};
 
 // The worker installs and then WAITS (src/sw.js has no unconditional
 // skipWaiting any more), so a new build never takes over at a moment nobody
@@ -19,11 +47,8 @@ const updateServiceWorker = registerSW({
   onNeedRefresh() {
     applyUpdateWhenIdle({
       apply: () => { void updateServiceWorker(); },
-      getState: useGameStore.getState,
-      // A plain listener, not a selector subscription: the predicate reads
-      // four fields and this fires at most once, so there is nothing to gain
-      // from narrowing it and a stale field to lose.
-      subscribe: (listener) => useGameStore.subscribe(listener),
+      getState: getIdleState,
+      subscribe: subscribeIdleState,
     });
   },
   // Replaces the register template's own unguarded window.location.reload(),
