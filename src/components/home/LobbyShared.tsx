@@ -344,7 +344,9 @@ interface AudioSettingSelectorProps {
 export function AudioSettingSelector({ audioEnabled, setAudioEnabled, nameSuffix = 'Lobby' }: AudioSettingSelectorProps) {
   const { t } = useTranslation();
   return (
-    <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 bg-white dark:bg-slate-800/50 px-4 py-3 sm:px-6 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px]">
+    <fieldset className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 bg-white dark:bg-slate-800/50 px-4 py-3 sm:px-6 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px] min-w-0 m-0">
+      {/* sr-only legend: names the pair as one group, as DiceModeSelector does. */}
+      <legend className="sr-only">{t('lobby.soundSetting', 'Sound')}</legend>
       <label className="radio-wrapper lobby-radio">
         <input type="radio" name={`audioSetting${nameSuffix}`} checked={audioEnabled === true} onChange={() => setAudioEnabled(true)} />
         <span className="font-medium">{t('lobby.soundOn', 'Sound On')}</span>
@@ -353,7 +355,7 @@ export function AudioSettingSelector({ audioEnabled, setAudioEnabled, nameSuffix
         <input type="radio" name={`audioSetting${nameSuffix}`} checked={audioEnabled === false} onChange={() => setAudioEnabled(false)} />
         <span className="font-medium">{t('lobby.muted', 'Muted')}</span>
       </label>
-    </div>
+    </fieldset>
   );
 }
 
@@ -375,7 +377,8 @@ export function HapticsSettingSelector({ hapticsEnabled, setHapticsEnabled, name
   if (!hasVibrationSupport && !supportsIOSSwitchHaptic()) return null;
 
   return (
-    <div className="flex sm:hidden flex-wrap items-center justify-center gap-2 sm:gap-6 bg-white dark:bg-slate-800/50 px-3 py-2 sm:px-6 sm:py-3 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px]">
+    <fieldset className="flex sm:hidden flex-wrap items-center justify-center gap-2 sm:gap-6 bg-white dark:bg-slate-800/50 px-3 py-2 sm:px-6 sm:py-3 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px] min-w-0 m-0">
+      <legend className="sr-only">{t('lobby.hapticsSetting', 'Vibration')}</legend>
       <label className="radio-wrapper lobby-radio">
         <input type="radio" name={`hapticsSetting${nameSuffix}`} checked={hapticsEnabled === true} onChange={() => setHapticsEnabled(true)} />
         <span className="font-medium">{t('lobby.hapticsOn', 'Vibration On')}</span>
@@ -384,7 +387,7 @@ export function HapticsSettingSelector({ hapticsEnabled, setHapticsEnabled, name
         <input type="radio" name={`hapticsSetting${nameSuffix}`} checked={hapticsEnabled === false} onChange={() => setHapticsEnabled(false)} />
         <span className="font-medium">{t('lobby.hapticsOff', 'Vibration Off')}</span>
       </label>
-    </div>
+    </fieldset>
   );
 }
 
@@ -616,7 +619,7 @@ export function AdvancedOptionsPanel({
           ) : (
             <div className="bg-white dark:bg-slate-800/40 p-3 sm:p-6 rounded-xl border border-gray-200 dark:border-slate-600">
               <div className="flex items-center justify-between mb-4">
-                <h4 className="font-bold text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-slate-600 pb-2 mb-0 flex-1">{t('lobby.generalSettings', 'General Settings')}</h4>
+                <h4 className="font-bold text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-slate-600 pb-2 flex-1">{t('lobby.generalSettings', 'General Settings')}</h4>
                 {onResetGeneralSettings && (
                   <button
                     onClick={onResetGeneralSettings}
@@ -711,7 +714,7 @@ export function AdvancedOptionsPanel({
               </div>
 
               <div className="flex items-center justify-between mb-4">
-                <h4 className="font-bold text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-slate-600 pb-2 mb-0 flex-1">{t('lobby.cardsInDeck', 'Cards in Deck')}</h4>
+                <h4 className="font-bold text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-slate-600 pb-2 flex-1">{t('lobby.cardsInDeck', 'Cards in Deck')}</h4>
                 {onResetCards && (
                   <button
                     onClick={onResetCards}

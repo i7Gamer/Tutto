@@ -621,6 +621,12 @@ describe('AdvancedOptionsPanel', () => {
 });
 
 describe('HapticsSettingSelector', () => {
+  it('exposes itself as a named group', () => {
+    Object.defineProperty(navigator, 'vibrate', { value: vi.fn(), configurable: true });
+    render(<HapticsSettingSelector hapticsEnabled={true} setHapticsEnabled={vi.fn()} />);
+    expect(screen.getByRole('group', { name: 'lobby.hapticsSetting' })).toBeInTheDocument();
+  });
+
   afterEach(() => {
     // @ts-expect-error test-only cleanup of a jsdom-absent API
     delete navigator.vibrate;
@@ -982,6 +988,11 @@ describe('DiceModeSelector', () => {
 });
 
 describe('AudioSettingSelector', () => {
+  it('exposes itself as a named group', () => {
+    render(<AudioSettingSelector audioEnabled={true} setAudioEnabled={vi.fn()} nameSuffix="Test" />);
+    expect(screen.getByRole('group', { name: 'lobby.soundSetting' })).toBeInTheDocument();
+  });
+
   it('switches between sound on and muted', () => {
     const setAudioEnabled = vi.fn();
     const { rerender } = render(<AudioSettingSelector audioEnabled={true} setAudioEnabled={setAudioEnabled} nameSuffix="Test" />);
