@@ -394,7 +394,7 @@
   "help.statistics.title": "Statistiken erklärt",
   "help.statistics.s1": "Gespielte Spiele / Siege / Gewinnrate: Verfolge deine gesamten Spielergebnisse.",
   "help.statistics.s2": "Nieten / Durchschnittliche Nieten pro Spiel: Anzahl und Rate der Würfe ohne wertbare Würfel.",
-  "help.statistics.s3": "-1000 Pkt. gefressen: Wie oft dir durch Plus/Minus-Erfolge anderer Spieler 1.000 Punkte abgezogen wurden.",
+  "help.statistics.s3": "Von −1000 getroffen: Wie oft dir durch Plus/Minus-Erfolge anderer Spieler 1.000 Punkte abgezogen wurden.",
   "help.statistics.s4": "Höchste Zugpunktzahl: Die maximalen Punkte, die du in einem einzigen Zug erzielt hast.",
   "help.statistics.s5": "Schnellster Sieg (Züge): Die wenigsten Züge, die du für einen Sieg benötigt hast.",
   "help.statistics.s6": "Erfolg vs. Fehlschlag: Zählt die Ausgänge für Kniffel-, Plus/Minus- und Kleeblatt-Karten.",

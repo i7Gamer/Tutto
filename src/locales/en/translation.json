@@ -394,7 +394,7 @@
   "help.statistics.title": "Statistics Explained",
   "help.statistics.s1": "Games Played / Wins / Win Rate: Track your overall game results.",
   "help.statistics.s2": "Busts / Average Busts per Game: The count and rate of rolling no scoring dice on a turn.",
-  "help.statistics.s3": "-1000 Pts Eaten: The number of times you had 1,000 points deducted due to another player's Plus/Minus success.",
+  "help.statistics.s3": "Hit by −1000: The number of times you had 1,000 points deducted due to another player's Plus/Minus success.",
   "help.statistics.s4": "Highest Turn Score: The maximum points you've scored in a single turn.",
   "help.statistics.s5": "Fastest Win (turns): The minimum number of turns you took to win a game.",
   "help.statistics.s6": "Success vs Failures: Tracks outcomes for Kniffel, Plus/Minus, and Kleeblatt cards.",
