@@ -452,10 +452,12 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
             the container rather than the heading giving way. */}
         <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
           <div className="flex items-center gap-1 min-w-0">
-            {/* mb-0 overrides the global `h3 { margin-bottom: 1rem }` base rule
-                (index.css) — left in place, that stray bottom margin is what
-                pushed this heading's centered content above the copy/leave
-                buttons it shares this items-center row with. */}
+            {/* mb-0 is belt-and-suspenders: index.css's base heading margin
+                already excludes a heading that is a flex/grid item (this h3
+                is one, its parent being the `flex items-center` row above),
+                but that scoping is easy to miss from here — left explicit so
+                nobody re-adds vertical drift against the copy/leave buttons
+                this heading shares the row with. */}
             <h3 className="text-2xl font-bold text-indigo-900 dark:text-indigo-200 mb-0 truncate min-w-0">{t('lobby.online.room', 'Room: {{roomId}}', { roomId })}</h3>
             <button
               className="shrink-0 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 p-2 rounded-lg transition-colors"

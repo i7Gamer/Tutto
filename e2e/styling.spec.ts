@@ -102,6 +102,49 @@ test.describe('stylesheet cascade', () => {
 });
 
 /**
+ * Finding 38 — the base `margin-bottom: 1rem` on h1-h4 (index.css) used to
+ * apply unconditionally, including to a heading sharing a flex row with a
+ * sibling control: the extra space below the heading's content grows its own
+ * margin box, so `align-items: center` centres that taller box instead of the
+ * text inside it, and the heading's visible content lands above the row's
+ * true centre. index.css now excludes a heading that is itself a flex/grid
+ * item from that rule (`:not(:where(.flex, .inline-flex, .grid, .inline-grid)
+ * > *)`) — CurrentRollBoard's "Current Roll" h4, sharing a
+ * `flex items-center justify-between` row with the "Select all" button, is
+ * one of three sites this fixed (the other two are HelpPopup's dialog title,
+ * centred against its close button, and OnlineLobby's "Recent Rooms"
+ * heading). All three need a real browser to lay the row out and resolve
+ * the `@layer`/`:where()` cascade — jsdom does neither — so this one probe
+ * stands in for the shape of bug all three shared.
+ */
+test.describe('base heading margin does not leak into a flex row (finding 38)', () => {
+  test('CurrentRollBoard\'s "Current Roll" heading has no bottom margin and centres with Select all', async ({ page }) => {
+    await seedLocalDeck(page);
+    await page.goto('/');
+    await startLocalGame(page);
+
+    await page.getByRole('button', { name: /Roll Dice/i }).click();
+    const heading = page.getByText('Current Roll', { exact: true });
+    const selectAll = page.getByRole('button', { name: /Select all/i });
+    await expect(selectAll).toBeVisible({ timeout: 15000 });
+    await expect(heading).toBeVisible();
+
+    expect(await heading.evaluate(el => getComputedStyle(el).marginBottom)).toBe('0px');
+
+    const headingBox = await heading.boundingBox();
+    const buttonBox = await selectAll.boundingBox();
+    expect(headingBox).not.toBeNull();
+    expect(buttonBox).not.toBeNull();
+
+    const headingCentre = headingBox!.y + headingBox!.height / 2;
+    const buttonCentre = buttonBox!.y + buttonBox!.height / 2;
+    // A leaked 1rem bottom margin used to push the heading's visible centre
+    // roughly 8px above the button's — well outside this tolerance.
+    expect(Math.abs(headingCentre - buttonCentre)).toBeLessThanOrEqual(2);
+  });
+});
+
+/**
  * The same trap, caught on a real element rather than a probe: `.lobby-row`
  * sets background-color from OUTSIDE any layer, so it outranks `@layer
  * utilities` however specific the utility is — a `hover:bg-gray-50` on the row
