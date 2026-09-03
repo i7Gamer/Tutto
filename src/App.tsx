@@ -296,7 +296,7 @@ export default function App() {
           </Suspense>
         ) : hasWinner ? (
           <Suspense fallback={<RouteSpinner />}>
-            <EndScreen theme={theme} deviceId={deviceId} />
+            <EndScreen theme={theme} deviceId={deviceId} onShowStats={() => setShowStats(true)} />
           </Suspense>
         ) : isPlaying ? (
           <Game />

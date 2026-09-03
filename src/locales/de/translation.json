@@ -44,6 +44,7 @@
   "end.playedRounds": "Gespielte Runden",
   "end.playtime": "Spielzeit",
   "end.playAgain": "Nochmal spielen",
+  "end.viewStatistics": "Statistiken ansehen",
   "end.tooFewPlayers": "Nicht genug Spieler für eine Revanche",
   "end.newConfig": "Neue Konfiguration",
   "end.waitingForHost": "Warte auf Host für Neustart…",

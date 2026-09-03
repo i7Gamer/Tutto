@@ -1276,4 +1276,59 @@ describe('App Integration (End-to-End)', () => {
       expect(uiBusyState.getState().statsScreenOpen).toBe(false);
     });
   });
+
+  describe('EndScreen -> View Statistics -> Back', () => {
+    // Same jsdom gap as the describe above — Statistics renders regardless of
+    // which screen opened it.
+    beforeAll(() => {
+      class MockIntersectionObserver implements IntersectionObserver {
+        root: Element | Document | null = null;
+        rootMargin = '';
+        scrollMargin = '';
+        thresholds: number[] = [];
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+        takeRecords(): IntersectionObserverEntry[] { return []; }
+      }
+      window.IntersectionObserver = MockIntersectionObserver;
+    });
+
+    it('opens Statistics without clearing the finished game, and Back returns to the same winner', async () => {
+      useGameStore.setState({
+        finished: true,
+        currentPlayerIndex: null,
+        players: [
+          makePlayer({ name: 'Alice', score: 10000, position: 1 }),
+          makePlayer({ name: 'Bob', score: 5000, position: 2 }),
+        ],
+        round: 5,
+      });
+
+      render(<App />);
+
+      // The end screen is up first, with Alice as the winner (highest score).
+      // A generous timeout, not the RTL default: EndScreen is lazy-loaded
+      // (see App.tsx), and the very first dynamic import a test file makes
+      // can outlast the 1s default under a cold/loaded transform.
+      expect(await screen.findByText('Alice', {}, { timeout: 5000 })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText(/end.viewStatistics/i));
+
+      // Statistics is showing now (its own Back button), and the end screen
+      // — including the winner's name — is off-screen, not just covered.
+      const backButton = await screen.findByRole('button', { name: /common.back/i }, { timeout: 5000 });
+      expect(screen.queryByText('Alice')).toBeNull();
+
+      fireEvent.click(backButton);
+
+      // Back lands on the SAME finished game, not a cleared one — no restart,
+      // no return to Home, no toggling `finished`.
+      // A generous timeout, not the RTL default: EndScreen is lazy-loaded
+      // (see App.tsx), and the very first dynamic import a test file makes
+      // can outlast the 1s default under a cold/loaded transform.
+      expect(await screen.findByText('Alice', {}, { timeout: 5000 })).toBeInTheDocument();
+      expect(useGameStore.getState().finished).toBe(true);
+    });
+  });
 });

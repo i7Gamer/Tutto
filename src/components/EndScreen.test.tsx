@@ -1,4 +1,4 @@
-import { render, act, cleanup } from '@testing-library/react';
+import { render, act, cleanup, fireEvent, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import EndScreen, {
@@ -52,9 +52,28 @@ describe('EndScreen Component', () => {
     const confetti = await import('canvas-confetti').then(m => m.default);
     vi.clearAllMocks();
 
-    render(<EndScreen theme="light" deviceId="" />);
+    render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
     expect(confetti).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onShowStats when View Statistics is clicked (host/local)', () => {
+    const onShowStats = vi.fn();
+    render(<EndScreen theme="light" deviceId="" onShowStats={onShowStats} />);
+
+    fireEvent.click(screen.getByText('end.viewStatistics'));
+
+    expect(onShowStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onShowStats when View Statistics is clicked (online non-host, waiting for the host)', () => {
+    const onShowStats = vi.fn();
+    useGameStore.setState({ isOnline: true, isHost: false });
+    render(<EndScreen theme="light" deviceId="" onShowStats={onShowStats} />);
+
+    fireEvent.click(screen.getByText('end.viewStatistics'));
+
+    expect(onShowStats).toHaveBeenCalledTimes(1);
   });
 
   it('wraps a long winner name instead of widening the page', () => {
@@ -70,7 +89,7 @@ describe('EndScreen Component', () => {
     ];
     useGameStore.setState({ players });
 
-    const { getByText, getAllByText } = render(<EndScreen theme="light" deviceId="" />);
+    const { getByText, getAllByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
     expect(getByText(`end.winner ${longName}`)).toHaveClass('break-words');
     const headerCell = getAllByText(longName).find(el => el.classList.contains('player-name'));
@@ -84,7 +103,7 @@ describe('EndScreen Component', () => {
     // (measured in review round 6); the -600 shade with a dark:-400 twin
     // clears 4.5:1 in both themes.
     useGameStore.setState({ isOnline: true, isHost: false });
-    const { getByText } = render(<EndScreen theme="light" deviceId="" />);
+    const { getByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
     const leave = getByText('end.leaveGame');
     expect(leave).toHaveClass('text-red-600', 'dark:text-red-400');
@@ -97,7 +116,7 @@ describe('EndScreen Component', () => {
   });
 
   it('renders flex div structure instead of table to avoid transform bugs', () => {
-    const { container } = render(<EndScreen theme="light" deviceId="" />);
+    const { container } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
     
     // Ensure there is no table element, only divs
     expect(container.querySelector('table')).toBeNull();
@@ -107,7 +126,7 @@ describe('EndScreen Component', () => {
   });
 
   it('reflects updated scores when the same number of players push a late gameState packet', () => {
-    const { getByText } = render(<EndScreen theme="light" deviceId="" />);
+    const { getByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
     // Initially, Alice is the winner (score 10000 > 5000)
     expect(getByText('end.winner Alice')).toBeInTheDocument();
@@ -127,7 +146,7 @@ describe('EndScreen Component', () => {
   });
 
   it('keeps the original winner when a player leaves the room after game-over', () => {
-    const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="" />);
+    const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
     // Initially, Alice is the winner (score 10000 > 5000)
     expect(getByText('end.winner Alice')).toBeInTheDocument();
@@ -154,7 +173,7 @@ describe('EndScreen Component', () => {
         makePlayer({ name: 'Bob', score: 5000 })
       ]
     });
-    const { getByText } = render(<EndScreen theme="light" deviceId="" />);
+    const { getByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
     
     // The EndScreen component should render the positions based on sorting by score
     expect(getByText('1.')).toBeInTheDocument();
@@ -170,7 +189,7 @@ describe('EndScreen Component', () => {
         makePlayer({ name: 'Charlie', score: 5000 })
       ]
     });
-    const { getAllByText, queryByText } = render(<EndScreen theme="light" deviceId="" />);
+    const { getAllByText, queryByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
     expect(getAllByText('1.')).toHaveLength(2);
     expect(queryByText('2.')).toBeNull();
@@ -186,7 +205,7 @@ describe('EndScreen Component', () => {
     chartCapture.data = null;
     useGameStore.setState({ chartLabels: [] });
 
-    render(<EndScreen theme="light" deviceId="" />);
+    render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
     expect(chartCapture.data, 'the chart rendered with no rounds to plot').toBeNull();
   });
@@ -204,7 +223,7 @@ describe('EndScreen Component', () => {
       chartValues: [[100, 10000], [200, 5000]],
       chartLabels: [1, 2],
     });
-    render(<EndScreen theme="light" deviceId="" />);
+    render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
     act(() => {
       // Bob leaves the room after game over.
@@ -231,7 +250,7 @@ describe('EndScreen Component', () => {
         isOnline: true, isHost: true,
         players: [makePlayer({ name: 'Alice', score: 10000, position: 1 })],
       });
-      const { getByText } = render(<EndScreen theme="light" deviceId="" />);
+      const { getByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
       expect(getByText('end.tooFewPlayers').closest('button')).toBeDisabled();
     });
@@ -244,7 +263,7 @@ describe('EndScreen Component', () => {
           makePlayer({ name: 'Bob', score: 5000, position: 2 }),
         ],
       });
-      const { getByText } = render(<EndScreen theme="light" deviceId="" />);
+      const { getByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
       expect(getByText('end.playAgain').closest('button')).not.toBeDisabled();
     });
@@ -261,7 +280,7 @@ describe('EndScreen Component', () => {
           makePlayer({ name: 'Bob', score: 5000, position: 2 }),
         ],
       });
-      const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="" />);
+      const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
       expect(getByText('end.mostCardsInTurn')).toBeInTheDocument();
       expect(getByText('3')).toBeInTheDocument();
@@ -273,7 +292,7 @@ describe('EndScreen Component', () => {
     });
 
     it('keeps the modernized table unchanged (no chain row, Feuerwerk with points)', () => {
-      const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="" />);
+      const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
       expect(queryByText('end.mostCardsInTurn')).not.toBeInTheDocument();
       expect(queryByText('end.feuerwerkReceivedStat')).not.toBeInTheDocument();
@@ -297,7 +316,7 @@ describe('EndScreen Component', () => {
       round: 2,
     });
 
-    render(<EndScreen theme="light" deviceId="" />);
+    render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
     const datasets = (chartCapture.data as { datasets: ChartDataset[] }).datasets;
 
@@ -313,7 +332,7 @@ describe('EndScreen Component', () => {
   });
 
   it('maintains snapshot when players array shrinks multiple times', () => {
-    const { getByText } = render(<EndScreen theme="light" deviceId="" />);
+    const { getByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
     // Initially: Alice (10k) > Bob (5k)
     expect(getByText('end.winner Alice')).toBeInTheDocument();
@@ -342,7 +361,7 @@ describe('EndScreen Component', () => {
   });
 
   it('uses snapshot for rankings even when new higher-scored player arrives', () => {
-    const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="" />);
+    const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
     // Snapshot frozen: Alice (10k) wins
     expect(getByText('end.winner Alice')).toBeInTheDocument();
@@ -364,7 +383,7 @@ describe('EndScreen Component', () => {
   });
 
   it('updates snapshot only when players array grows (high-water mark)', () => {
-    const { getByText } = render(<EndScreen theme="light" deviceId="" />);
+    const { getByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
     // Initial: Alice (10k), Bob (5k) - Alice is winner
     expect(getByText('end.winner Alice')).toBeInTheDocument();
@@ -396,7 +415,7 @@ describe('EndScreen Component', () => {
           makePlayer({ name: 'Bob', score: 5000, position: 2, disconnected: true }),
         ],
       });
-      const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="" />);
+      const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
       const btn = getByText('lobby.waitingForPlayersToReconnect').closest('button');
       expect(btn).toBeDisabled();
@@ -412,7 +431,7 @@ describe('EndScreen Component', () => {
           makePlayer({ name: 'Bob', score: 5000, position: 2, disconnected: true }),
         ],
       });
-      const { getByText } = render(<EndScreen theme="light" deviceId="" />);
+      const { getByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
       expect(getByText('lobby.waitingForPlayersToReconnect').closest('button')).toBeDisabled();
 
       act(() => {
@@ -429,7 +448,7 @@ describe('EndScreen Component', () => {
 
     it('never disables Play Again for local games', () => {
       useGameStore.setState({ isOnline: false });
-      const { getByText } = render(<EndScreen theme="light" deviceId="" />);
+      const { getByText } = render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
       expect(getByText('end.playAgain').closest('button')).toBeEnabled();
     });
   });
@@ -452,7 +471,7 @@ describe('EndScreen Component', () => {
       global.fetch = vi.fn();
       useGameStore.setState({ isOnline: false });
 
-      render(<EndScreen theme="light" deviceId="device-local-1" />);
+      render(<EndScreen theme="light" deviceId="device-local-1" onShowStats={vi.fn()} />);
 
       // Nothing fetches synchronously anyway — the first request is debounced by
       // STATS_FETCH_INITIAL_DELAY_MS — so the whole window in which a request
@@ -484,7 +503,7 @@ describe('EndScreen Component', () => {
       }) as typeof fetch);
       useGameStore.setState({ isOnline: true });
 
-      const { unmount } = render(<EndScreen theme="light" deviceId="device-abort-1" />);
+      const { unmount } = render(<EndScreen theme="light" deviceId="device-abort-1" onShowStats={vi.fn()} />);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(STATS_FETCH_INITIAL_DELAY_MS);
       });
@@ -501,7 +520,7 @@ describe('EndScreen Component', () => {
 
     it('does not render the lifetime stats block for local games', () => {
       useGameStore.setState({ isOnline: false });
-      const { queryByText } = render(<EndScreen theme="light" deviceId="device-local-2" />);
+      const { queryByText } = render(<EndScreen theme="light" deviceId="device-local-2" onShowStats={vi.fn()} />);
 
       expect(queryByText('end.lifetimeStats')).not.toBeInTheDocument();
     });
@@ -535,7 +554,7 @@ describe('EndScreen Component', () => {
       global.fetch = vi.fn(() => Promise.resolve(mockFetchJson({ gamesPlayed: 3, wins: 1, pointsDeducted: 0, kniffelCompleted: 2 })));
       useGameStore.setState({ isOnline: true });
 
-      render(<EndScreen theme="light" deviceId="device-online-1" />);
+      render(<EndScreen theme="light" deviceId="device-online-1" onShowStats={vi.fn()} />);
 
       // The effect debounces the first fetch by 500ms; flush microtasks after
       // so the fetch/json chain (real Promises, unaffected by fake timers)
@@ -561,7 +580,7 @@ describe('EndScreen Component', () => {
       global.fetch = vi.fn(() => Promise.resolve(mockFetchJson({ gamesPlayed: 3, wins: 1, pointsDeducted: 0, kniffelCompleted: 2 })));
       useGameStore.setState({ isOnline: true, winningScore: 1000 });
 
-      render(<EndScreen theme="light" deviceId="device-online-2" />);
+      render(<EndScreen theme="light" deviceId="device-online-2" onShowStats={vi.fn()} />);
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(500);
@@ -583,7 +602,7 @@ describe('EndScreen Component', () => {
       global.fetch = vi.fn(() => Promise.resolve(mockFetchJson({ gamesPlayed: 3, wins: 1, pointsDeducted: 0, kniffelCompleted: 2 })));
       useGameStore.setState({ isOnline: true, winningScore: 1000 });
 
-      const { getByText } = render(<EndScreen theme="light" deviceId="device-online-3" />);
+      const { getByText } = render(<EndScreen theme="light" deviceId="device-online-3" onShowStats={vi.fn()} />);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(500);
         await Promise.resolve();
@@ -599,7 +618,7 @@ describe('EndScreen Component', () => {
       global.fetch = vi.fn(() => Promise.resolve(mockFetchJson({ gamesPlayed: 3, wins: 1, pointsDeducted: 0, kniffelCompleted: 2 })));
       useGameStore.setState({ isOnline: true });
 
-      const { queryByText } = render(<EndScreen theme="light" deviceId="device-online-4" />);
+      const { queryByText } = render(<EndScreen theme="light" deviceId="device-online-4" onShowStats={vi.fn()} />);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(500);
         await Promise.resolve();
@@ -627,7 +646,7 @@ describe('EndScreen Component', () => {
         chartNames: ['Alice'],
       });
 
-      render(<EndScreen theme="light" deviceId="device-online-memo" />);
+      render(<EndScreen theme="light" deviceId="device-online-memo" onShowStats={vi.fn()} />);
       const firstData = chartCapture.data;
       expect(firstData).not.toBeNull();
 
@@ -664,7 +683,7 @@ describe('EndScreen Component', () => {
 
     it('does not render the panel when there is no pre-game snapshot', () => {
       setupOnlineGame({ preGameStats: null });
-      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" />);
+      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" onShowStats={vi.fn()} />);
       expect(queryByText('end.newRecordsTitle')).not.toBeInTheDocument();
     });
 
@@ -672,7 +691,7 @@ describe('EndScreen Component', () => {
       setupOnlineGame({
         preGameStats: makePreGameStats({ highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null }),
       });
-      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" />);
+      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" onShowStats={vi.fn()} />);
       expect(queryByText('end.newRecordsTitle')).not.toBeInTheDocument();
     });
 
@@ -682,7 +701,7 @@ describe('EndScreen Component', () => {
         // improvement — isolating the assertion to the high-score record only.
         preGameStats: makePreGameStats({ highestTurnScore: 1000, fastestWinTurns: 8, fastestLossTurns: null }),
       });
-      const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="d1" />);
+      const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="d1" onShowStats={vi.fn()} />);
       expect(getByText('end.newRecordsTitle')).toBeInTheDocument();
       expect(getByText('end.newPersonalBestTurnScore')).toBeInTheDocument();
       expect(queryByText('end.newFastestWin')).not.toBeInTheDocument();
@@ -697,7 +716,7 @@ describe('EndScreen Component', () => {
         winningScore: 1000,
         preGameStats: makePreGameStats({ highestTurnScore: 100, fastestWinTurns: 99, fastestLossTurns: 99 }),
       });
-      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" />);
+      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" onShowStats={vi.fn()} />);
 
       expect(queryByText('end.newRecordsTitle')).not.toBeInTheDocument();
       expect(queryByText('end.newPersonalBestTurnScore')).not.toBeInTheDocument();
@@ -710,7 +729,7 @@ describe('EndScreen Component', () => {
       setupOnlineGame({
         preGameStats: makePreGameStats({ highestTurnScore: 100, fastestWinTurns: 99, fastestLossTurns: 99 }),
       });
-      const { getByText } = render(<EndScreen theme="light" deviceId="d1" />);
+      const { getByText } = render(<EndScreen theme="light" deviceId="d1" onShowStats={vi.fn()} />);
 
       expect(getByText('end.newRecordsTitle')).toBeInTheDocument();
     });
@@ -729,7 +748,7 @@ describe('EndScreen Component', () => {
         ],
         preGameStats: makePreGameStats({ highestTurnScore: 800, fastestWinTurns: 20, fastestLossTurns: 20 }),
       });
-      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" />);
+      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" onShowStats={vi.fn()} />);
 
       expect(queryByText('end.newFastestLoss')).not.toBeInTheDocument();
       expect(queryByText('end.newFastestWin')).not.toBeInTheDocument();
@@ -739,7 +758,7 @@ describe('EndScreen Component', () => {
       setupOnlineGame({
         preGameStats: makePreGameStats({ highestTurnScore: 1500, fastestWinTurns: 10, fastestLossTurns: null }),
       });
-      const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="d1" />);
+      const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="d1" onShowStats={vi.fn()} />);
       expect(getByText('end.newFastestWin')).toBeInTheDocument();
       expect(queryByText('end.newFastestLoss')).not.toBeInTheDocument();
     });
@@ -754,7 +773,7 @@ describe('EndScreen Component', () => {
         ],
         preGameStats: makePreGameStats({ highestTurnScore: 800, fastestWinTurns: null, fastestLossTurns: 20 }),
       });
-      const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="d1" />);
+      const { getByText, queryByText } = render(<EndScreen theme="light" deviceId="d1" onShowStats={vi.fn()} />);
       expect(getByText('end.newFastestLoss')).toBeInTheDocument();
       expect(queryByText('end.newFastestWin')).not.toBeInTheDocument();
       expect(queryByText('end.newPersonalBestTurnScore')).not.toBeInTheDocument();
@@ -768,7 +787,7 @@ describe('EndScreen Component', () => {
       setupOnlineGame({
         preGameStats: makePreGameStats({ highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null }),
       });
-      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" />);
+      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" onShowStats={vi.fn()} />);
       expect(queryByText('end.newPersonalBestTurnScore')).not.toBeInTheDocument();
       expect(queryByText('end.newFastestWin')).not.toBeInTheDocument();
     });
@@ -783,7 +802,7 @@ describe('EndScreen Component', () => {
         ],
         preGameStats: makePreGameStats({ highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null, highestFeuerwerkTurnScore: 500, highestX2TurnScore: 600 }),
       });
-      const { getByText } = render(<EndScreen theme="light" deviceId="d1" />);
+      const { getByText } = render(<EndScreen theme="light" deviceId="d1" onShowStats={vi.fn()} />);
       expect(getByText('end.newHighestFeuerwerk')).toBeInTheDocument();
       expect(getByText('end.newHighestX2')).toBeInTheDocument();
     });
@@ -801,7 +820,7 @@ describe('EndScreen Component', () => {
           mostCardsInTurn: 4, highestForfeitedTurnScore: 1900,
         }),
       });
-      const { getByText } = render(<EndScreen theme="light" deviceId="d1" />);
+      const { getByText } = render(<EndScreen theme="light" deviceId="d1" onShowStats={vi.fn()} />);
       expect(getByText('end.newMostCardsInTurn')).toBeInTheDocument();
       expect(getByText('end.newHighestForfeitedTurn')).toBeInTheDocument();
     });
@@ -819,7 +838,7 @@ describe('EndScreen Component', () => {
           mostCardsInTurn: 4, highestForfeitedTurnScore: 1900,
         }),
       });
-      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" />);
+      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" onShowStats={vi.fn()} />);
       expect(queryByText('end.newMostCardsInTurn')).not.toBeInTheDocument();
       expect(queryByText('end.newHighestForfeitedTurn')).not.toBeInTheDocument();
       expect(queryByText('end.newRecordsTitle'), 'a tie is not a record').not.toBeInTheDocument();
@@ -841,7 +860,7 @@ describe('EndScreen Component', () => {
           mostCardsInTurn: 4, highestForfeitedTurnScore: 1900,
         }),
       });
-      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" />);
+      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" onShowStats={vi.fn()} />);
       expect(queryByText('end.newMostCardsInTurn')).not.toBeInTheDocument();
       expect(queryByText('end.newHighestForfeitedTurn')).not.toBeInTheDocument();
     });
@@ -856,7 +875,7 @@ describe('EndScreen Component', () => {
         ],
         preGameStats: makePreGameStats({ highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null, highestFeuerwerkTurnScore: 500, highestX2TurnScore: 600 }),
       });
-      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" />);
+      const { queryByText } = render(<EndScreen theme="light" deviceId="d1" onShowStats={vi.fn()} />);
       expect(queryByText('end.newHighestFeuerwerk')).not.toBeInTheDocument();
       expect(queryByText('end.newHighestX2')).not.toBeInTheDocument();
     });
@@ -875,7 +894,7 @@ describe('EndScreen Component', () => {
         })));
       useGameStore.setState({ isOnline: true });
 
-      const { getByText } = render(<EndScreen theme="light" deviceId="device-streak-1" />);
+      const { getByText } = render(<EndScreen theme="light" deviceId="device-streak-1" onShowStats={vi.fn()} />);
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(500);
@@ -898,7 +917,7 @@ describe('EndScreen Component', () => {
       global.fetch = fetchMock;
       useGameStore.setState({ isOnline: true });
 
-      const { unmount } = render(<EndScreen theme="light" deviceId="device-retry-unmount" />);
+      const { unmount } = render(<EndScreen theme="light" deviceId="device-retry-unmount" onShowStats={vi.fn()} />);
 
       // The initial delayed fetch fires and resolves — with gamesPlayed 0 the
       // next retry is now pending.

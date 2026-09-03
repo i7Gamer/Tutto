@@ -13,7 +13,7 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
-import { Trophy, RotateCcw, Settings, Award, Zap, TrendingDown, Layers, Skull } from 'lucide-react';
+import { Trophy, RotateCcw, Settings, Award, Zap, TrendingDown, Layers, Skull, BarChart2 } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
 import { formatInt, formatFixed, AVG_DECIMALS } from '../utils/formatNumber';
 import { gameModeOf, isCustomGameMode } from '../utils/statsApi';
@@ -61,9 +61,10 @@ const LIFETIME_STATS_RETRY: DeviceStatsRetryOptions<DeviceStats> = {
 interface EndScreenProps {
   theme: string;
   deviceId: string;
+  onShowStats: () => void;
 }
 
-export default function EndScreen({ theme, deviceId }: EndScreenProps) {
+export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenProps) {
   const { t, i18n } = useTranslation();
   // Narrowed to only the fields this screen reads, with shallow equality —
   // EndScreen only mounts briefly at game-over, but a whole-store subscription
@@ -244,22 +245,27 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
 
         <div className="flex justify-center">
           {(!game.isOnline || game.isHost) ? (
-            <div className="flex flex-col sm:flex-row gap-4 w-full max-w-md">
-              <motion.button
-                whileHover={!playAgainBlocked ? { scale: 1.05 } : {}}
-                whileTap={!playAgainBlocked ? { scale: 0.95 } : {}}
-                className={`flex-1 py-4 px-6 rounded-2xl text-xl font-bold flex justify-center items-center gap-2 transition-colors ${playAgainBlocked ? 'bg-gray-400 text-gray-200 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'}`}
-                onClick={startGame}
-                disabled={playAgainBlocked}
-              >
-                <RotateCcw size={24} /> {waitingForReconnect
-                  ? t('lobby.waitingForPlayersToReconnect', 'Waiting for players to reconnect…')
-                  : tooFewForRematch
-                    ? t('end.tooFewPlayers', 'Not enough players to play again')
-                    : t('end.playAgain', 'Play Again')}
-              </motion.button>
-              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="flex-1 bg-white dark:bg-slate-800 hover:bg-black/5 text-gray-700 dark:text-gray-200 border-2 border-gray-200 dark:border-slate-600 py-4 px-6 rounded-2xl text-lg font-bold flex justify-center items-center gap-2 shadow-xs transition-colors" onClick={endGame}>
-                <Settings size={20} /> {t('end.newConfig', 'New Config')}
+            <div className="flex flex-col items-center gap-4 w-full max-w-md">
+              <div className="flex flex-col sm:flex-row gap-4 w-full">
+                <motion.button
+                  whileHover={!playAgainBlocked ? { scale: 1.05 } : {}}
+                  whileTap={!playAgainBlocked ? { scale: 0.95 } : {}}
+                  className={`flex-1 py-4 px-6 rounded-2xl text-xl font-bold flex justify-center items-center gap-2 transition-colors ${playAgainBlocked ? 'bg-gray-400 text-gray-200 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'}`}
+                  onClick={startGame}
+                  disabled={playAgainBlocked}
+                >
+                  <RotateCcw size={24} /> {waitingForReconnect
+                    ? t('lobby.waitingForPlayersToReconnect', 'Waiting for players to reconnect…')
+                    : tooFewForRematch
+                      ? t('end.tooFewPlayers', 'Not enough players to play again')
+                      : t('end.playAgain', 'Play Again')}
+                </motion.button>
+                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="flex-1 bg-white dark:bg-slate-800 hover:bg-black/5 text-gray-700 dark:text-gray-200 border-2 border-gray-200 dark:border-slate-600 py-4 px-6 rounded-2xl text-lg font-bold flex justify-center items-center gap-2 shadow-xs transition-colors" onClick={endGame}>
+                  <Settings size={20} /> {t('end.newConfig', 'New Config')}
+                </motion.button>
+              </div>
+              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="w-full bg-transparent hover:bg-black/5 dark:hover:bg-white/5 text-gray-600 dark:text-gray-300 py-2 px-6 rounded-xl text-base font-bold flex justify-center items-center gap-2 transition-colors" onClick={onShowStats}>
+                <BarChart2 size={18} /> {t('end.viewStatistics', 'View statistics')}
               </motion.button>
             </div>
           ) : (
@@ -268,9 +274,14 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                 <div className="w-6 h-6 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
                 {t('end.waitingForHost', 'Waiting for host to restart…')}
               </div>
-              <button className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/40 px-6 py-2 rounded-lg font-bold transition-colors border border-red-200 dark:border-red-800" onClick={leaveRoom}>
-                {t('end.leaveGame', 'Leave Game')}
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3 w-full justify-center">
+                <button className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/40 px-6 py-2 rounded-lg font-bold transition-colors border border-red-200 dark:border-red-800" onClick={leaveRoom}>
+                  {t('end.leaveGame', 'Leave Game')}
+                </button>
+                <button className="text-gray-600 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5 px-6 py-2 rounded-lg font-bold transition-colors border border-gray-200 dark:border-slate-600 flex items-center justify-center gap-2" onClick={onShowStats}>
+                  <BarChart2 size={18} /> {t('end.viewStatistics', 'View statistics')}
+                </button>
+              </div>
             </div>
           )}
         </div>
