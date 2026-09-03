@@ -169,6 +169,9 @@ describe('Game Component Integration', () => {
 
     const submitBtn = screen.getByRole('button', { name: /game.controls.nextTurn/i });
     fireEvent.click(submitBtn);
+    // A zero-score physical Next Turn now confirms before committing (see the
+    // bust-confirm describe block below) — answer it to reach the assertion.
+    fireEvent.click(screen.getByText('game.confirmBustYes'));
 
     expect(mockNextTurn).toHaveBeenCalledWith(0, false);
   });
@@ -182,6 +185,7 @@ describe('Game Component Integration', () => {
 
     const submitBtn = screen.getByRole('button', { name: /game.controls.nextTurn/i });
     fireEvent.click(submitBtn);
+    fireEvent.click(screen.getByText('game.confirmBustYes'));
 
     expect(mockNextTurn).toHaveBeenCalledWith(0, false);
   });
@@ -298,6 +302,7 @@ describe('Game Component Integration', () => {
 
     const submitBtn = screen.getByRole('button', { name: /game.controls.nextTurn/i });
     fireEvent.click(submitBtn);
+    fireEvent.click(screen.getByText('game.confirmBustYes'));
 
     // Score is 0, so it's a bust (isSuccess = false)
     expect(mockNextTurn).toHaveBeenCalledWith(0, false);
@@ -312,6 +317,7 @@ describe('Game Component Integration', () => {
 
     const submitBtn = screen.getByRole('button', { name: /game.controls.nextTurn/i });
     fireEvent.click(submitBtn);
+    fireEvent.click(screen.getByText('game.confirmBustYes'));
 
     expect(mockNextTurn).toHaveBeenCalledWith(0, false);
   });
@@ -327,6 +333,62 @@ describe('Game Component Integration', () => {
     fireEvent.click(submitBtn);
 
     expect(mockNextTurn).toHaveBeenCalledWith(500, true);
+  });
+
+  describe('modernized physical Next Turn on an empty box confirms the bust', () => {
+    // Modernized physical has no explicit Bust button (that's classic-only —
+    // see the "classic physical chains" describe below, which uses
+    // game.controls.bust directly) — Next Turn with nothing typed used to
+    // record a bust outright, with no chance to notice a fat-fingered submit.
+    it('shows a confirm dialog instead of committing immediately', () => {
+      render(<Game />);
+
+      fireEvent.click(screen.getByRole('button', { name: /game.controls.nextTurn/i }));
+
+      expect(screen.getByText('game.confirmBustTitle')).toBeInTheDocument();
+      expect(mockNextTurn).not.toHaveBeenCalled();
+    });
+
+    it('cancel keeps the turn going — no commit, dialog closes', () => {
+      render(<Game />);
+
+      fireEvent.click(screen.getByRole('button', { name: /game.controls.nextTurn/i }));
+      fireEvent.click(screen.getByText('game.confirmBustNo'));
+
+      expect(mockNextTurn).not.toHaveBeenCalled();
+      expect(screen.queryByText('game.confirmBustTitle')).not.toBeInTheDocument();
+      // The score box and turn are untouched — Next Turn is still there to
+      // press again once the player has actually entered something.
+      expect(screen.getByRole('button', { name: /game.controls.nextTurn/i })).toBeInTheDocument();
+    });
+
+    it('confirm advances the turn, recording the bust', () => {
+      render(<Game />);
+
+      fireEvent.click(screen.getByRole('button', { name: /game.controls.nextTurn/i }));
+      fireEvent.click(screen.getByText('game.confirmBustYes'));
+
+      expect(mockNextTurn).toHaveBeenCalledWith(0, false);
+      expect(screen.queryByText('game.confirmBustTitle')).not.toBeInTheDocument();
+    });
+
+    it('does not confirm when the score is positive', () => {
+      render(<Game />);
+
+      const scoreInput = screen.getByPlaceholderText('game.controls.scorePlaceholder');
+      fireEvent.change(scoreInput, { target: { value: '250' } });
+      fireEvent.click(screen.getByRole('button', { name: /game.controls.nextTurn/i }));
+
+      expect(screen.queryByText('game.confirmBustTitle')).not.toBeInTheDocument();
+      expect(mockNextTurn).toHaveBeenCalledWith(250, true);
+    });
+
+    it('does not gate digital mode, which has no score box to fat-finger', () => {
+      useGameStore.setState({ diceMode: 'digital' });
+      render(<Game />);
+
+      expect(screen.queryByRole('button', { name: /game.controls.nextTurn/i })).not.toBeInTheDocument();
+    });
   });
 
   it('hides Roll Dice button when diceMode is physical', () => {

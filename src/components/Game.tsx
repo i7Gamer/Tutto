@@ -24,6 +24,7 @@ import { useStopCardAutoContinue } from '../hooks/useStopCardAutoContinue';
 import { useFeuerwerkFanfare } from '../hooks/useFeuerwerkFanfare';
 
 import ModalShell from './ModalShell';
+import ConfirmModal from './ConfirmModal';
 import Scoreboard from './game/Scoreboard';
 import CardDisplay from './game/CardDisplay';
 import GameControls from './game/GameControls';
@@ -291,7 +292,7 @@ export default function Game() {
 
   useFeuerwerkFanfare(currentCard, cards?.length);
 
-  const handleNextTurn = useCallback(() => {
+  const commitNextTurn = useCallback(() => {
     let parsedScore = parseScoreInput(scoreInput);
     // A bonus multiplies or adds to a SCORED turn — applyTuttoBonus(0, '400')
     // is 400, so applying it to an empty box used to bank the bonus alone
@@ -321,6 +322,32 @@ export default function Game() {
     setScoreInput('');
     setApplyBonus(false);
   }, [scoreInput, applyBonus, currentCard, nextTurn, isClassic, buildPhysicalSummary, physicalAwaitingChoice, clearChain]);
+
+  // Whether Next Turn is about to record a bust with nobody having said so on
+  // purpose — modernized physical play has no explicit Bust button (that's
+  // classic-only, see canBustOnThisCard/handlePhysicalBust below), so an
+  // empty or zero score box committed here silently cost the whole turn. Gated
+  // on the SAME parsedScore commitNextTurn would use, not on scoreInput's raw
+  // text, so a bonus-checkbox-only submit (parses to 0 before the bonus is
+  // even considered) is caught the same way a truly empty box is.
+  const [pendingBustConfirm, setPendingBustConfirm] = useState(false);
+
+  const handleNextTurn = useCallback(() => {
+    if (!isClassic && effectiveDiceMode === 'physical' && parseScoreInput(scoreInput) === 0) {
+      setPendingBustConfirm(true);
+      return;
+    }
+    commitNextTurn();
+  }, [isClassic, effectiveDiceMode, scoreInput, commitNextTurn]);
+
+  const confirmBust = useCallback(() => {
+    setPendingBustConfirm(false);
+    commitNextTurn();
+  }, [commitNextTurn]);
+
+  const cancelBust = useCallback(() => {
+    setPendingBustConfirm(false);
+  }, []);
 
   // Every classic-physical turn that ends on ZERO banked points — a special
   // card's No, a Kleeblatt answered either way, a mid-chain Stop, a declared
@@ -582,6 +609,16 @@ export default function Game() {
           />
         </ModalShell>
       )}
+
+      <ConfirmModal
+        open={pendingBustConfirm}
+        danger
+        message={t('game.confirmBustTitle', 'Record this turn as a bust with no points?')}
+        confirmLabel="game.confirmBustYes"
+        cancelLabel="game.confirmBustNo"
+        onCancel={cancelBust}
+        onConfirm={confirmBust}
+      />
     </div>
   );
 }
