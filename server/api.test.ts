@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import type express from 'express';
-import { registerApiRoutes } from './api';
+import { registerApiRoutes, STATS_DEVICES_PER_IP } from './api';
 import { startTestServer } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
@@ -616,11 +616,14 @@ describe('STATS_RATE_LIMIT_MAX overrides the stats per-window cap', () => {
 
   it('rejects the request after the overridden cap, not after the production 60', async () => {
     const get = () => fetch(`http://127.0.0.1:${PORT}/api/stats/global`);
+    // The global route's effective cap is STATS_RATE_LIMIT_MAX * STATS_DEVICES_PER_IP
+    // (see api.ts) — still driven by the override, just not 1:1 with it.
+    const ipCap = Number(TINY_CAP) * STATS_DEVICES_PER_IP;
     const statuses = [];
-    for (let i = 0; i < Number(TINY_CAP) + 1; i++) statuses.push((await get()).status);
+    for (let i = 0; i < ipCap + 1; i++) statuses.push((await get()).status);
 
-    expect(statuses.slice(0, Number(TINY_CAP))).toEqual([200, 200]);
-    expect(statuses[Number(TINY_CAP)]).toBe(429);
+    expect(statuses.slice(0, ipCap)).toEqual(Array(ipCap).fill(200));
+    expect(statuses[ipCap]).toBe(429);
   }, 15000);
 });
 
@@ -645,13 +648,18 @@ describe('GET /api/stats/global rate limiting', () => {
   it('starts rejecting with 429 once a client exceeds the stats per-window request cap', async () => {
     const get = () => fetch(`http://127.0.0.1:${PORT}/api/stats/global`);
 
-    // The endpoint's limit is 60/window; fire 65 requests.
-    const responses = await Promise.all(Array.from({ length: 65 }, () => get()));
-    const statuses = responses.map(r => r.status);
+    // This route is governed by the IP-wide bucket alone (see
+    // STATS_DEVICES_PER_IP in api.ts), sized for several devices reading
+    // behind one NAT rather than just 60/window; fire past that effective cap.
+    // Sequential, not Promise.all — several hundred concurrent connections
+    // exceed what a plain fetch pool reliably opens against localhost.
+    const ipCap = Number(PRODUCTION_STATS_CAP) * STATS_DEVICES_PER_IP;
+    const statuses: number[] = [];
+    for (let i = 0; i < ipCap + 5; i++) statuses.push((await get()).status);
 
     expect(statuses.some(s => s === 200)).toBe(true);
     expect(statuses.some(s => s === 429)).toBe(true);
-  }, 15000);
+  }, 30000);
 });
 
 // Regression coverage for the fix keying GET /api/stats/device by device id:
@@ -659,6 +667,16 @@ describe('GET /api/stats/global rate limiting', () => {
 // so several devices finishing behind the same NAT/proxy IP (the end-screen
 // retry loop in useDeviceStats.ts fires several reads per finishing device)
 // could exhaust it and 429 a device that never made a request of its own.
+//
+// That per-device key was itself the follow-up finding fixed here: it came
+// straight off the client-supplied header, so a caller that simply rotated
+// the header got a fresh 60/min bucket on every request — unlimited reads
+// from one IP against two unauthenticated DB-reading routes. The fix keeps
+// the per-device bucket (so one chatty device can't starve its neighbours)
+// but adds it ON TOP OF an IP-wide bucket both stats GET routes share, sized
+// for several devices behind one NAT rather than one one IP. Each describe
+// below spawns its own server so the shared IP bucket in one doesn't leak
+// into another's assertions.
 describe('GET /api/stats/device rate limiting is keyed per device', () => {
   let serverProcess: ChildProcess | undefined;
   const PORT = TEST_PORTS.apiDeviceStatsRateLimit;
@@ -690,9 +708,59 @@ describe('GET /api/stats/device rate limiting is keyed per device', () => {
     const deviceBRes = await getDevice('device-b');
     expect(deviceBRes.status).toBe(200);
   }, 15000);
+});
+
+describe('GET /api/stats/device rate limiting: rotating the device header cannot escape the shared IP cap', () => {
+  let serverProcess: ChildProcess | undefined;
+  const PORT = TEST_PORTS.apiDeviceStatsRateLimit;
+  const TINY_CAP = '2';
+  const IP_CAP = Number(TINY_CAP) * STATS_DEVICES_PER_IP;
+
+  beforeAll(async () => {
+    restoreNativeFetch();
+    serverProcess = await startTestServer(PORT, { env: { STATS_RATE_LIMIT_MAX: TINY_CAP } });
+  }, SERVER_BOOT_TIMEOUT_MS);
+
+  afterAll(() => {
+    if (serverProcess) serverProcess.kill();
+  });
+
+  const getDevice = (deviceId: string) => fetch(`http://127.0.0.1:${PORT}${DEVICE_STATS_PATH}`, {
+    headers: { [DEVICE_ID_HEADER]: encodeURIComponent(deviceId) },
+  });
+
+  it('is 429\'d once the IP cap is spent, even though every request uses a fresh device id', async () => {
+    const capExceedingRequestCount = IP_CAP + 1;
+    const statuses: number[] = [];
+    // A brand-new device id every request means the per-device bucket never
+    // repeats a key and never itself rejects — only the IP-wide bucket,
+    // shared across every device id behind this address, can still reject.
+    for (let i = 0; i < capExceedingRequestCount; i++) {
+      statuses.push((await getDevice(`rotating-device-${i}`)).status);
+    }
+
+    expect(statuses.slice(0, IP_CAP)).toEqual(Array(IP_CAP).fill(200));
+    expect(statuses[IP_CAP]).toBe(429);
+  }, 15000);
+});
+
+describe('GET /api/stats/device rate limiting: a header-less caller is bounded by the IP cap', () => {
+  let serverProcess: ChildProcess | undefined;
+  const PORT = TEST_PORTS.apiDeviceStatsRateLimit;
+  const TINY_CAP = '2';
+  const IP_CAP = Number(TINY_CAP) * STATS_DEVICES_PER_IP;
+
+  beforeAll(async () => {
+    restoreNativeFetch();
+    serverProcess = await startTestServer(PORT, { env: { STATS_RATE_LIMIT_MAX: TINY_CAP } });
+  }, SERVER_BOOT_TIMEOUT_MS);
+
+  afterAll(() => {
+    if (serverProcess) serverProcess.kill();
+  });
 
   it('still rate-limits by IP a caller with no device header at all', async () => {
-    const capExceedingRequestCount = Number(TINY_CAP) + 1;
+    const capExceedingRequestCount = IP_CAP + 1;
     const get = () => fetch(`http://127.0.0.1:${PORT}${DEVICE_STATS_PATH}`);
     const statuses: number[] = [];
     for (let i = 0; i < capExceedingRequestCount; i++) statuses.push((await get()).status);
@@ -700,8 +768,46 @@ describe('GET /api/stats/device rate limiting is keyed per device', () => {
     // Every request here is missing the device header, so the route answers
     // 400 for each one it doesn't rate-limit away first — but once the
     // shared IP bucket is exhausted, the rate limiter runs before that
-    // validation and answers 429 instead.
-    expect(statuses.slice(0, Number(TINY_CAP))).toEqual([400, 400]);
-    expect(statuses[Number(TINY_CAP)]).toBe(429);
+    // validation and answers 429 instead. A header-less caller only ever
+    // touches the IP-wide bucket (the per-device layer applies only when a
+    // valid device id is present), so the cap here is the bigger IP one.
+    expect(statuses.slice(0, IP_CAP)).toEqual(Array(IP_CAP).fill(400));
+    expect(statuses[IP_CAP]).toBe(429);
+  }, 15000);
+});
+
+describe('GET /api/stats/global ignores the device header, unlike GET /api/stats/device', () => {
+  let serverProcess: ChildProcess | undefined;
+  const PORT = TEST_PORTS.apiDeviceStatsRateLimit;
+  const TINY_CAP = '2';
+  const IP_CAP = Number(TINY_CAP) * STATS_DEVICES_PER_IP;
+
+  beforeAll(async () => {
+    restoreNativeFetch();
+    serverProcess = await startTestServer(PORT, { env: { STATS_RATE_LIMIT_MAX: TINY_CAP } });
+  }, SERVER_BOOT_TIMEOUT_MS);
+
+  afterAll(() => {
+    if (serverProcess) serverProcess.kill();
+  });
+
+  const getGlobalWithHeader = (deviceId: string) => fetch(`http://127.0.0.1:${PORT}/api/stats/global`, {
+    headers: { [DEVICE_ID_HEADER]: encodeURIComponent(deviceId) },
+  });
+  const getGlobalWithoutHeader = () => fetch(`http://127.0.0.1:${PORT}/api/stats/global`);
+
+  it('counts requests against the same IP bucket whether or not a device header rides along', async () => {
+    const statuses: number[] = [];
+    // Alternate carrying a (rotating, so it can't hit a per-device cap that
+    // doesn't apply to this route anyway) device header and carrying none —
+    // both must draw from the one shared IP bucket, since the global route
+    // never keys by device.
+    for (let i = 0; i < IP_CAP + 1; i++) {
+      const res = i % 2 === 0 ? await getGlobalWithHeader(`device-${i}`) : await getGlobalWithoutHeader();
+      statuses.push(res.status);
+    }
+
+    expect(statuses.slice(0, IP_CAP)).toEqual(Array(IP_CAP).fill(200));
+    expect(statuses[IP_CAP]).toBe(429);
   }, 15000);
 });

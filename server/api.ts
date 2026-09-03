@@ -32,6 +32,14 @@ export const DEFAULT_STATS_RATE_LIMIT_MAX = 60;
 // production, so the default stands there.
 const STATS_RATE_LIMIT_MAX = envLimitOr(process.env.STATS_RATE_LIMIT_MAX, DEFAULT_STATS_RATE_LIMIT_MAX);
 
+// How many devices behind one IP the shared IP-wide stats bucket (below) must
+// tolerate at once. Not env-tunable: unlike STATS_RATE_LIMIT_MAX this isn't a
+// per-deployment traffic knob, just the shape of one client behaviour — the
+// end-screen retry loop (useDeviceStats.ts) fires up to ~6 reads per finishing
+// device, so a NAT with several devices finishing together needs headroom
+// for a handful of them, not just one.
+export const STATS_DEVICES_PER_IP = 8;
+
 // How a client walking away mid-response reaches an express callback: the
 // player hit stop or reload, or the connection dropped, while a file was
 // streaming. Not an error anyone can be told about — see the SPA fallback.
@@ -194,25 +202,48 @@ export const registerApiRoutes = (app: express.Express): void => {
     max: CRASH_LOG_RATE_LIMIT_MAX,
   });
 
-  // Keys a stats GET by device id when the request carries a valid one,
-  // rather than by IP: the end-screen retry loop (useDeviceStats.ts) can
-  // fire several reads per finishing device, and several devices finishing
-  // behind the same NAT/proxy IP would otherwise share — and blow through —
-  // one 60/min bucket, 429ing a device that never made a request of its own.
-  // GET /api/stats/global never carries this header (see statsApi.ts), so it
-  // keeps the previous IP-keyed behaviour untouched; an anonymous scraper
-  // hitting the device route with no header, or an invalid one, also falls
-  // back to the IP key, so it stays bounded exactly as before.
-  const statsRateLimitKey = (req: express.Request): string => {
-    const deviceId = deviceIdFromHeader(req);
-    return deviceId !== null ? `device:${deviceId}` : `ip:${req.ip ?? 'unknown'}`;
-  };
+  // Two layers, both needed. Keying the stats GETs by the client-supplied
+  // device header alone (the first version of this fix) solved the NAT
+  // problem that motivated it — several devices behind one IP no longer
+  // shared one bucket — but opened a worse one: isValidDeviceId accepts any
+  // non-empty string up to MAX_DEVICE_ID_LENGTH, so a caller that simply
+  // rotated the header got a fresh 60/min bucket on every single request —
+  // unlimited reads from one IP against two unauthenticated, DB-reading
+  // routes.
+  //
+  // Layer 1 — shared by both stats GET routes, keyed by IP alone (default
+  // keyFn) so a rotated header cannot buy a fresh bucket. Sized for several
+  // devices reading at once behind one NAT/proxy IP (STATS_DEVICES_PER_IP),
+  // not just one, so genuine same-IP traffic isn't punished for the NAT.
+  const statsIpRateLimiter = createRateLimiter({
+    windowMs: STATS_RATE_LIMIT_WINDOW_MS,
+    max: STATS_RATE_LIMIT_MAX * STATS_DEVICES_PER_IP,
+  });
 
-  const statsRateLimiter = createRateLimiter({
+  // Layer 2 — device route only, keyed by `${ip}|${deviceId}` and capped at
+  // the ordinary per-caller max, so one chatty device behind a NAT can't
+  // starve its neighbours' share of layer 1's bucket. Applied only when the
+  // request carries a valid device id: a header-less caller is already fully
+  // governed by layer 1, and folding it into this layer too would give every
+  // header-less caller behind one IP a single small shared bucket instead of
+  // the larger IP-wide one.
+  const statsDeviceRateLimiter = createRateLimiter({
     windowMs: STATS_RATE_LIMIT_WINDOW_MS,
     max: STATS_RATE_LIMIT_MAX,
-    keyFn: statsRateLimitKey,
+    keyFn: (req: express.Request): string => `${req.ip ?? 'unknown'}|${deviceIdFromHeader(req) ?? ''}`,
   });
+
+  const statsDeviceRateLimit = (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ): void => {
+    if (deviceIdFromHeader(req) === null) {
+      next();
+      return;
+    }
+    statsDeviceRateLimiter(req, res, next);
+  };
 
   app.post('/api/log/client-error', crashLogRateLimiter, (req: express.Request, res: express.Response) => {
     const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
@@ -237,7 +268,7 @@ export const registerApiRoutes = (app: express.Express): void => {
     res.json({ status: 'ok' });
   });
 
-  app.get('/api/stats/global', statsRateLimiter, async (req: express.Request, res: express.Response) => {
+  app.get('/api/stats/global', statsIpRateLimiter, async (req: express.Request, res: express.Response) => {
     try {
       const stats = await getGlobalStats(requestedRuleset(req));
       res.json(stats ?? {});
@@ -262,7 +293,7 @@ export const registerApiRoutes = (app: express.Express): void => {
   // would be written into every fronting proxy's access.log — where anyone
   // who can read logs would then hold the id that lets a client reclaim its
   // seat. No path-param fallback, or the leak would simply stay available.
-  app.get(DEVICE_STATS_PATH, statsRateLimiter, async (req: express.Request, res: express.Response) => {
+  app.get(DEVICE_STATS_PATH, statsIpRateLimiter, statsDeviceRateLimit, async (req: express.Request, res: express.Response) => {
     const deviceId = deviceIdFromHeader(req);
     if (deviceId === null) {
       res.status(400).json({ error: 'Invalid device id' });
