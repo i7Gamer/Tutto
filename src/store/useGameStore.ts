@@ -3,13 +3,14 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { parseJsonString } from '../utils/parseJson';
 import { parseSavedDiceState, DICE_TURN_STATE_KEY } from '../utils/diceTurnState';
+import { parseReconnectSession } from '../utils/reconnectSession';
 import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
   DEFAULT_DICE_MODE, DEFAULT_RULESET, isValidDiceMode,
 } from '../utils/configValidation';
 import { roomPhase } from '../utils/roomPhase';
 import type { CoreGameState, DiceSnapshot, DiceMode, Ruleset } from '../types';
-import type { GameStore, GameStatus, ReconnectSession, PreGameStats, FinishedGameSnapshot } from './storeTypes';
+import type { GameStore, GameStatus, PreGameStats, FinishedGameSnapshot } from './storeTypes';
 import { validateOnlineConfig, reanchorLocalClock, attachPersistence, pickLocalGameState } from './persistence';
 import { createTimerSlice } from './timers';
 import { createConfigSlice } from './configSlice';
@@ -153,13 +154,21 @@ export const useGameStore = create<GameStore>()(
       // runs it through setMode('local') instead.
       const savedGamePostponed = !!parsed && get().mode !== 'local';
 
+      // Validated rather than cast: RestoreSessionPopup renders this room id
+      // into its prose and hands both fields to joinRoom on "Yes", so a
+      // corrupted entry used to ask about "room (undefined)" and then join a
+      // room by that name. Dropped when unusable — left in place it would be
+      // re-read, and re-prompted for, on every mount.
+      const rawSession = sessionStore.read('tutto_online_session');
+      const session = parseReconnectSession(rawSession);
+      if (rawSession !== null && session === null) sessionStore.remove('tutto_online_session');
+
       set((state) => {
         state.deviceId = deviceId;
         if (parsed && !savedGamePostponed) {
           Object.assign(state, pickLocalGameState(parsed));
           reanchorLocalClock(state);
         }
-        const session = parseJsonString<ReconnectSession>(sessionStore.read('tutto_online_session'));
         if (session) state.pendingReconnectSession = session;
       });
 

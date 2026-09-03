@@ -1,4 +1,5 @@
 import type { StateCreator } from 'zustand';
+import type { ReconnectSession } from '../utils/reconnectSession';
 import type { ConfigKeys } from '../types';
 import type {
   InitialCards,
@@ -25,10 +26,9 @@ export interface FinishedGameSnapshot {
   gameTimeInSeconds: number;
 }
 
-export interface ReconnectSession {
-  roomId: string;
-  myName: string;
-}
+// Owned by its parser (utils/reconnectSession.ts), the way RecentRoom is owned
+// by recentRooms.ts — re-exported here so the store keeps one types module.
+export type { ReconnectSession } from '../utils/reconnectSession';
 
 export interface JoinRoomResponse {
   success: boolean;

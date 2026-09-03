@@ -2253,6 +2253,32 @@ describe('useGameStore', () => {
       expect(state.pendingReconnectSession).toEqual({ roomId: 'TEST_ROOM', myName: 'Alice' });
     });
 
+    // The stored session was the one entry read back with a bare cast: a
+    // half-written or corrupted value reached the restore prompt intact and
+    // asked whether to reconnect to "room (undefined)" — and answering yes
+    // then joined a room named `undefined`.
+    it.each([
+      ['an object missing both fields', '{}'],
+      ['a name without a room', JSON.stringify({ myName: 'Alice' })],
+      ['a non-string room id', JSON.stringify({ roomId: 7, myName: 'Alice' })],
+      ['a non-JSON value', 'not json'],
+    ])('drops %s instead of prompting for it', (_label, stored) => {
+      sessionStorage.setItem('tutto_online_session', stored);
+      useGameStore.getState().init('dev-123');
+
+      expect(useGameStore.getState().pendingReconnectSession).toBeFalsy();
+      // Removed, so the next mount does not re-read the same broken value.
+      expect(sessionStorage.getItem('tutto_online_session')).toBeNull();
+    });
+
+    it('normalises a lower-case stored room id on init', () => {
+      sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'test_room', myName: 'Alice' }));
+      useGameStore.getState().init('dev-123');
+
+      expect(useGameStore.getState().pendingReconnectSession).toEqual({ roomId: 'TEST_ROOM', myName: 'Alice' });
+      expect(sessionStorage.getItem('tutto_online_session'), 'a usable session stays put').not.toBeNull();
+    });
+
     it('clears sessionStorage when leaving a room intentionally', () => {
       sessionStorage.setItem('tutto_online_session', JSON.stringify({ roomId: 'TEST_ROOM', myName: 'Alice' }));
       useGameStore.getState().leaveRoom();
