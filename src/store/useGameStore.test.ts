@@ -2069,6 +2069,8 @@ describe('useGameStore', () => {
     describe('pushState/stats parking, the refusal ack and the stateVersion floor', () => {
       const STAGED_ROUND = 4;
       const LATER_ROUND = 5;
+      /** The attempt number a first send carries — socketSlice's FIRST_STATS_ATTEMPT. */
+      const FIRST_ATTEMPT = 1;
 
       const stageSeatedGame = () => {
         useGameStore.setState({
@@ -2516,6 +2518,79 @@ describe('useGameStore', () => {
             rejoinAfter(PARKED_EMIT_MAX_AGE_MS + 1);
 
             expect(emitsOf('endGameStats')).toHaveLength(0);
+            expect(emitsOf('submitGlobalStats')).toHaveLength(0);
+          });
+
+          // Half the window: far enough in that a stamp taken at that moment
+          // would still look fresh a full window later, and comfortably
+          // inside the bound at the moment it is taken.
+          const HALF_PARK_WINDOW_MS = PARKED_EMIT_MAX_AGE_MS / 2;
+
+          it('keeps the original stamp when a park has to be re-parked', () => {
+            // The stamp rides with the payload (ParkedEmit) precisely so age
+            // keeps accruing across a second park instead of starting over —
+            // otherwise a transport that drops on every rejoin renews the
+            // submission indefinitely and it is eventually flushed into
+            // whatever game the room is playing by then.
+            stageFinishedGame();
+            mockSocketConnected = false;
+            useGameStore.getState().sendOnlineStats();
+
+            // The rejoin lands, but the transport is gone again by the time
+            // the flush runs, so the submission is parked a second time.
+            vi.advanceTimersByTime(HALF_PARK_WINDOW_MS);
+            mockSocketConnected = true;
+            mockOnHandlers['connect']();
+            mockSocketConnected = false;
+            ackLatestRejoin({ success: true, isHost: true, name: 'Alice' });
+            expect(emitsOf('endGameStats'), 'nothing may go out over a dead transport').toHaveLength(0);
+
+            // Past the bound counted from the FIRST park, still inside it
+            // counted from the second.
+            rejoinAfter(HALF_PARK_WINDOW_MS + 1);
+
+            expect(
+              emitsOf('endGameStats'),
+              'a re-park restarted the age, so a submission older than the bound was sent',
+            ).toHaveLength(0);
+            expect(emitsOf('submitGlobalStats')).toHaveLength(0);
+          });
+
+          it('keeps it across an ack timeout and its backoff too', () => {
+            // The resend is the other place the stamp can be lost, and it is
+            // the more expensive one: a flushed submission that gets no ack
+            // burns STATS_SUBMIT_ACK_TIMEOUT_MS plus a backoff before the
+            // retry runs, and a retry that then finds the socket down parks
+            // again. Re-stamped there, the submission comes back looking
+            // newer than the game it belongs to and rides the next rejoin
+            // into a room that has since started another one — where Play
+            // Again has reset the server's per-game dedup and the row is
+            // recorded against the wrong game.
+            stageFinishedGame();
+            mockSocketConnected = false;
+            useGameStore.getState().sendOnlineStats();
+
+            // Flushed halfway through the window, onto a socket that answers
+            // nothing.
+            rejoinAfter(HALF_PARK_WINDOW_MS);
+            expect(emitsOf('endGameStats'), 'the flush must actually have sent it').toHaveLength(1);
+
+            // Ack deadline, then the backoff — and the transport is gone by
+            // the time the resend fires, so it parks.
+            vi.advanceTimersByTime(STATS_SUBMIT_ACK_TIMEOUT_MS);
+            mockSocketConnected = false;
+            vi.advanceTimersByTime(statsSubmitRetryDelayMs(FIRST_ATTEMPT));
+
+            mockEmit.mockClear();
+            rejoinAfter(
+              PARKED_EMIT_MAX_AGE_MS + 1
+              - HALF_PARK_WINDOW_MS - STATS_SUBMIT_ACK_TIMEOUT_MS - statsSubmitRetryDelayMs(FIRST_ATTEMPT),
+            );
+
+            expect(
+              emitsOf('endGameStats'),
+              'the resend re-stamped the submission, so it outlived the bound',
+            ).toHaveLength(0);
             expect(emitsOf('submitGlobalStats')).toHaveLength(0);
           });
         });

@@ -39,6 +39,22 @@ const built = fs.existsSync(INDEX_HTML)
 // A chart.js internal that survives minification and appears nowhere else.
 const CHARTJS_FINGERPRINT = '_metasets';
 
+// chart.js's own sole dependency, and the half a single chart.js fingerprint
+// cannot see. It is a TRANSITIVE package: nothing in this app's source imports
+// it, so it has no call site of its own to make lazy and nothing about the
+// dynamic imports moves it — it ships on every load unless vite.config.ts
+// names it in LAZY_PACKAGES, which is exactly the regression this file exists
+// to catch and could not. Taken from @kurkle/color's HUE_RE because a regex
+// literal is not rewritten by the minifier, and this alternation appears in no
+// other package.
+const KURKLE_COLOR_FINGERPRINT = 'hsla?|hwb|hsv';
+
+/** Both halves of the charting bundle, each with the string that proves it. */
+const CHART_FINGERPRINTS = [
+  ['chart.js', CHARTJS_FINGERPRINT],
+  ['@kurkle/color', KURKLE_COLOR_FINGERPRINT],
+] as const;
+
 describe.skipIf(!built)('the charts bundle stays off the critical path', () => {
   /** Every script the browser fetches before it can render anything. */
   const criticalPathScripts = (): string[] => {
@@ -56,21 +72,32 @@ describe.skipIf(!built)('the charts bundle stays off the critical path', () => {
     expect(criticalPathScripts().length).toBeGreaterThan(0);
   });
 
-  it('has the charting library somewhere in the build', () => {
-    // The other half of the oracle: if chart.js were dropped entirely, the
-    // check below would pass for the wrong reason.
-    const carriers = fs.readdirSync(path.join(DIST, 'assets'))
+  it('has the charting library and its dependency somewhere in the build', () => {
+    // The other half of the oracle: if either package were dropped entirely —
+    // or a version bump renamed the string being looked for — the check below
+    // would pass for the wrong reason.
+    const bundles = fs.readdirSync(path.join(DIST, 'assets'))
       .filter(file => file.endsWith('.js'))
-      .filter(file => fs.readFileSync(path.join(DIST, 'assets', file), 'utf8').includes(CHARTJS_FINGERPRINT));
+      .map(file => fs.readFileSync(path.join(DIST, 'assets', file), 'utf8'));
 
-    expect(carriers.length).toBeGreaterThan(0);
+    for (const [pkg, fingerprint] of CHART_FINGERPRINTS) {
+      expect(
+        bundles.filter(source => source.includes(fingerprint)).length,
+        `${pkg} is nowhere in the build — its fingerprint has gone stale`,
+      ).toBeGreaterThan(0);
+    }
   });
 
-  it('does not put it in anything the first paint waits for', () => {
-    const onCriticalPath = criticalPathScripts()
-      .filter(file => fs.readFileSync(file, 'utf8').includes(CHARTJS_FINGERPRINT))
-      .map(file => path.basename(file));
+  it('does not put either of them in anything the first paint waits for', () => {
+    const scripts = criticalPathScripts()
+      .map(file => [path.basename(file), fs.readFileSync(file, 'utf8')] as const);
 
-    expect(onCriticalPath, 'every player downloads a charting library before the home screen paints').toEqual([]);
+    for (const [pkg, fingerprint] of CHART_FINGERPRINTS) {
+      const onCriticalPath = scripts
+        .filter(([, source]) => source.includes(fingerprint))
+        .map(([name]) => name);
+
+      expect(onCriticalPath, `every player downloads ${pkg} before the home screen paints`).toEqual([]);
+    }
   });
 });

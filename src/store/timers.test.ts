@@ -8,6 +8,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useGameStore, _resetTimersForTests } from './useGameStore';
 import { clearRoomState } from './socketSlice';
 
+// What syncOnlineTimers leaves running for a started online turn: the game
+// clock and the turn countdown. stopOnlineTimers owns both, and endGame has to
+// take both down in one go — see its test below.
+const ONLINE_TIMER_HANDLES = 2;
+
 const startedOnlineTurnState = {
   mode: 'online' as const,
   isOnline: true,
@@ -328,8 +333,34 @@ describe('timer slice', () => {
       useGameStore.setState({ ...startedOnlineTurnState, isHost: true });
       useGameStore.getState().syncOnlineTimers(60);
       expect(useGameStore.getState().turnTimeRemaining).toBe(60);
+      const withCountdown = vi.getTimerCount();
+      expect(withCountdown, 'both online handles must be running before this means anything').toBe(ONLINE_TIMER_HANDLES);
 
       useGameStore.getState().endGame();
+      // endGame flips the store to `status: 'lobby'`, which is exactly the
+      // transition the online-config persistence subscriber writes on — and
+      // jsdom's localStorage.setItem schedules its storage-event dispatch as a
+      // 0 ms task (see the beforeEach). Draining that costs nothing here: a
+      // 1 Hz interval cannot fire in zero milliseconds, so a countdown that
+      // survived endGame is still standing after this line.
+      vi.advanceTimersByTime(0);
+
+      // The handle count, not the state, is what this call actually buys.
+      // Every turnTimeRemaining/turnDeadline assertion below passes with
+      // endGame's stopOnlineTimers() deleted, because the countdown's own kill
+      // switch (tested above) retires the survivor when it finds turnDeadline
+      // null on its next tick — so the state is identical one second later
+      // either way, and only the handle count can see the second in between.
+      // What lives in that second is more than a stray handle: clearTurnTimer
+      // is also the only thing that forgets turnTimerPlayerIndex/
+      // turnTimerDeckSize, so a game started inside it reaches
+      // syncOnlineTimers with the ENDED game's turn tracking still in place —
+      // same player index, same deck size, so neither playerChanged nor
+      // deckChanged fires and the new game's first turn gets no countdown at
+      // all before the stale interval clears itself.
+      expect(vi.getTimerCount(), 'the countdown must stop now, not on its next tick').toBe(
+        withCountdown - ONLINE_TIMER_HANDLES,
+      );
 
       expect(useGameStore.getState().turnTimeRemaining).toBeNull();
       expect(useGameStore.getState().turnDeadline, 'a deadline outlives the game it belonged to').toBeNull();

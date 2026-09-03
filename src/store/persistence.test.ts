@@ -198,6 +198,17 @@ describe('pickLocalGameState', () => {
       chartLabels: [1],
     })).toEqual({ players });
 
+    // The names alone out of step, with rows and labels both consistent —
+    // the one shape that reaches the chartNames clause on its own. Every case
+    // above mismatches chartValues too, which an earlier clause already
+    // rejects, so deleting the names check left the whole suite green while a
+    // restored chart labelled every series with the wrong player's name (or,
+    // with fewer names than rows, EndScreen read `chartNames[i]` off the end
+    // and charted a dataset with no name at all).
+    expect(pickLocalGameState({
+      players, chartValues: [[1], [2]], chartNames: ['A'], chartLabels: [1],
+    })).toEqual({ players });
+
     // Matching lengths restore unchanged.
     expect(pickLocalGameState({
       players, chartValues: [[1], [2]], chartNames: ['A', 'B'], chartLabels: [1],

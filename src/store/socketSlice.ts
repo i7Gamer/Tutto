@@ -142,6 +142,23 @@ let pendingCancelReconnectCleanup: (() => void) | null = null;
  * own kick timer, so past the DEFAULT one the rejoin doing the flushing is far
  * more likely to be a fresh seat than the one the emit was made for. Written
  * as that expression rather than a number so the two cannot drift apart.
+ *
+ * It NARROWS that window; it does not close it. Everything above is still
+ * reachable inside the bound: the host drops, another player is promoted and
+ * starts a new game, and the original host rejoins forty seconds later with a
+ * park the server happily records against the game now running. Widening the
+ * fix would mean carrying a game identity on the emit and having the server
+ * check it, which is a protocol change; this is the cheap half of it, and the
+ * remaining exposure is one kick-timer's worth rather than unbounded.
+ *
+ * flushParkedPush and flushParkedStats also evaluate the bound independently,
+ * against their own park stamps, so the two halves of one finished game can
+ * disagree: a push parked a little earlier expires while the stats parked
+ * moments later do not. The stats then arrive at a server that never saw
+ * finished=true and are refused 'not-finished' — terminal (see
+ * isRetryableStatsRefusal), so nothing resends them and the row is lost. The
+ * ordering in the rejoin handler is what keeps the common case safe; it
+ * cannot help once one of the two has aged out.
  */
 export const PARKED_EMIT_MAX_AGE_MS = DEFAULT_RECONNECT_TIMEOUT * MS_PER_SECOND;
 
@@ -442,8 +459,10 @@ type GlobalStatsSubmission = { payload: GlobalStatsPayload };
  * terminal, so nothing above resends it and the row is simply lost. Parking it
  * puts it behind the rejoin ack instead (same mechanism as parkedPush).
  *
- * `parkedAt` is threaded through rather than re-stamped so a submission that
- * has to be parked a second time keeps its original age — see ParkedEmit.
+ * `parkedAt` is threaded through rather than re-stamped — by flushParkedStats
+ * on its way back in here, and by the resend below — so neither a second park
+ * nor an ack timeout plus backoff restarts the clock on a submission that has
+ * been waiting since the first one. See ParkedEmit.
  */
 const emitStatsSubmission = (
   event: StatsSubmitEvent,
@@ -479,7 +498,17 @@ const emitStatsSubmission = (
     if (!resend || attempt >= STATS_SUBMIT_MAX_ATTEMPTS) return;
     pending.resendTimer = setTimeout(() => {
       pending.resendTimer = null;
-      emitStatsSubmission(event, payload, attempt + 1);
+      // Carrying this attempt's stamp, for the same reason flushParkedStats
+      // carries the park's: it dates the SUBMISSION, not the send. A resend
+      // that let it default re-stamped the row as brand new, so a retry that
+      // then found the transport down parked at now() — and the age bound
+      // that drops a submission for a game the room has moved on from was
+      // measured from the resend rather than from the original park. An
+      // attempt that runs out its ack deadline and backs off adds
+      // STATS_SUBMIT_ACK_TIMEOUT_MS plus a backoff to the true age per
+      // attempt, so a park already close to the bound came back looking fresh
+      // and was flushed into the NEXT game's dedup window.
+      emitStatsSubmission(event, payload, attempt + 1, parkedAt);
     }, statsSubmitRetryDelayMs(attempt));
   };
 

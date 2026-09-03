@@ -18,6 +18,9 @@ vi.mock('react-i18next', async (importOriginal) => {
 // Mock scrollIntoView
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
 
+/** Where the AGPL §13 source offer in the footer has to point. */
+const SOURCE_URL = 'https://github.com/i7Gamer/Tutto';
+
 describe('HelpPopup', () => {
   // 'defaults to cards section...' and 'scrolls the specific highlighted
   // card...' below both set status/currentCard on the shared store and never
@@ -73,6 +76,25 @@ describe('HelpPopup', () => {
     fireEvent.click(screen.getByTitle('help.buttonTitle'));
 
     expect(screen.getByTestId('help-app-version')).toHaveTextContent(APP_VERSION);
+  });
+
+  it('offers the source, which AGPL-3.0 obliges a network-facing copy to do', () => {
+    // §13: whoever deploys a modified copy has to point its users at the
+    // source, and this footer link is the app's only pointer — a fork that
+    // never reads the README it did not ship has nothing else. It carried a
+    // data-testid that nothing referenced, so the link, its destination and
+    // its rel could all have been dropped by a footer refactor in silence.
+    render(<HelpPopup />);
+    fireEvent.click(screen.getByTitle('help.buttonTitle'));
+
+    const link = screen.getByTestId('help-source-link');
+    expect(link).toHaveAttribute('href', SOURCE_URL);
+    // target="_blank" without both tokens hands the opened tab a live
+    // window.opener back into this one, and leaks the URL as a referrer.
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link.getAttribute('rel')?.split(/\s+/)).toEqual(
+      expect.arrayContaining(['noopener', 'noreferrer']),
+    );
   });
 
   it('documents how to get someone else into your room', () => {

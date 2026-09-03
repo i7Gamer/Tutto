@@ -198,13 +198,13 @@ describe('service worker install', () => {
     await loadSw({
       manifest: [
         { url: 'index.html', revision: 'r1' },
-        { url: 'assets/icon-512.png', revision: null },
-        { url: 'assets/icon-512.png', revision: 'r3' },
+        { url: 'icons/icon-512.png', revision: null },
+        { url: 'icons/icon-512.png', revision: 'r3' },
       ],
     });
     const cacheName = await runInstall();
 
-    const icon = `${ORIGIN}/assets/icon-512.png`;
+    const icon = `${ORIGIN}/icons/icon-512.png`;
     expect(fetchMock.mock.calls.filter(([u]) => String(u) === icon)).toHaveLength(1);
     expect([...cacheStorage.stores.get(cacheName).keys()].sort()).toEqual([icon, SHELL]);
   });
@@ -347,12 +347,12 @@ describe('service worker install', () => {
       // entry comes first, so a naive "keep the first occurrence" map would
       // treat the icon as immutable and copy it forward even when its bytes
       // changed.
-      const icon = `${ORIGIN}/assets/icon-512.png`;
+      const icon = `${ORIGIN}/icons/icon-512.png`;
       const plainAsset = `${ORIGIN}/assets/index-aaa111.js`;
       await loadSw({
         manifest: [
-          { url: 'assets/icon-512.png', revision: null },
-          { url: 'assets/icon-512.png', revision: 'icon-hash' },
+          { url: 'icons/icon-512.png', revision: null },
+          { url: 'icons/icon-512.png', revision: 'icon-hash' },
           { url: 'assets/index-aaa111.js', revision: null },
         ],
       });
@@ -470,6 +470,91 @@ describe('service worker activate', () => {
 
     expect(handled).toBe(true);
     expect(response.body).toBe(`network:${ORIGIN}/assets/index-new777.js`);
+  });
+
+  // Which directories the cross-generation fallback above is allowed to cover
+  // is decided by ASSET_PREFIXES, and only a `null`-revision entry may
+  // contribute one: a null revision is the manifest saying the filename
+  // already encodes the content, which is the whole reason an old
+  // generation's copy is safe to serve unchanged. Every fixture in this file
+  // happens to contain an `assets/*.js` with `revision: null`, so dropping
+  // that filter entirely still produced ['/assets/'] and left all 35 tests
+  // green.
+  describe('only hashed build output counts as an asset directory', () => {
+    /** A build that ships hashed chunks and stable-named icons — the real shape. */
+    const MIXED_MANIFEST = [
+      { url: 'index.html', revision: 'r1' },
+      { url: 'assets/index-aaa111.js', revision: null },
+      { url: 'icons/icon-512.png', revision: 'icon-hash' },
+    ];
+
+    it('does not make a revisioned entry\'s directory one', async () => {
+      // The icons keep their URL across builds while their bytes change (a
+      // real revision string, not null — see MANIFEST_REVISIONS), so /icons/
+      // carries none of that guarantee. Derived from every precache entry
+      // instead of the null-revision ones, it would put the whole directory
+      // under the asset handler, which answers from a RETAINED OLD generation
+      // ahead of the network — and an icon this deploy replaced would keep
+      // serving its previous bytes for as long as that generation lives.
+      await loadSw({ manifest: MIXED_MANIFEST });
+      cacheStorage.stores.set('tutto-precache-previous', new Map([
+        [`${ORIGIN}/icons/icon-192.png`, makeResponse('previous build icon')],
+      ]));
+      await runInstall();
+      await runActivate();
+
+      const icon = await runFetch(makeRequest(`${ORIGIN}/icons/icon-192.png`));
+      expect(icon.handled, 'a stable-named URL must not be answered out of an old generation').toBe(false);
+
+      // The oracle: the hashed output directory of the SAME manifest still is
+      // a prefix, so the assertion above is about the revision, not about the
+      // fallback having stopped working.
+      const chunk = await runFetch(makeRequest(`${ORIGIN}/assets/index-old999.js`));
+      expect(chunk.handled).toBe(true);
+    });
+
+    it('ends up with none at all when every entry carries a revision', async () => {
+      // The degenerate end of deriving them: no null-revision entry means no
+      // prefix, isBuildAsset answers false for everything, and a tab still
+      // running the PREVIOUS build asks the network for a hashed chunk this
+      // deploy removed — exactly the failure RETAINED_CACHE_GENERATIONS keeps
+      // the old generation around to absorb. It fails silently, because a
+      // worker with no prefixes looks identical to one whose prefixes simply
+      // did not match.
+      //
+      // Deliberately left unguarded in sw.js: the only manifest that reaches
+      // this state has no hashed build output in it at all — no entry chunk,
+      // so no app — and any guard would have to name a fallback directory,
+      // which is the one thing deriving the prefixes exists to avoid. A
+      // hardcoded '/assets/' that outlived a change to Vite's assetsDir would
+      // be worse than empty: it would answer live paths out of a stale cache.
+      await loadSw({
+        manifest: [
+          { url: 'index.html', revision: 'r1' },
+          { url: 'manifest.webmanifest', revision: 'r2' },
+          { url: 'icons/icon-512.png', revision: 'icon-hash' },
+        ],
+      });
+      cacheStorage.stores.set('tutto-precache-previous', new Map([
+        [`${ORIGIN}/assets/index-old999.js`, makeResponse('previous build chunk')],
+        [`${ORIGIN}/icons/icon-192.png`, makeResponse('previous build icon')],
+      ]));
+      await runInstall();
+      await runActivate();
+
+      // The documented cost: the old build's own chunk is left to a network
+      // that no longer serves it.
+      const chunk = await runFetch(makeRequest(`${ORIGIN}/assets/index-old999.js`));
+      expect(chunk.handled, 'no prefix can match, so nothing claims it').toBe(false);
+
+      // And the revisioned directory does NOT step in to fill the gap.
+      const icon = await runFetch(makeRequest(`${ORIGIN}/icons/icon-192.png`));
+      expect(icon.handled, 'an empty prefix list, not a list of the wrong directories').toBe(false);
+
+      // Still a working worker: what this manifest does list is served.
+      const precached = await runFetch(makeRequest(`${ORIGIN}/icons/icon-512.png`));
+      expect(precached.handled).toBe(true);
+    });
   });
 
   it('repairs a precache hole left by a partially failed install', async () => {
