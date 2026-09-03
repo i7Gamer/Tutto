@@ -614,3 +614,69 @@ describe('the image runs the server as PID 1', () => {
     expect(startProd).toContain('node --import tsx server/index.ts');
   });
 });
+
+/**
+ * The runtime version has to agree across four independent places — the
+ * Dockerfile's base image, .nvmrc (what a contributor's version manager
+ * selects), ci.yml's setup-node step, and each package.json's engines field
+ * (what npm itself refuses to install under) — because nothing forces them to
+ * move together. A Dependabot docker-ecosystem PR that bumps the Dockerfile
+ * alone would otherwise leave a contributor on .nvmrc's stale major with no
+ * signal until something that only breaks on the new runtime ships.
+ */
+describe('the Node runtime is pinned consistently', () => {
+  const NVMRC_FILE = path.join(REPO_ROOT, '.nvmrc');
+  const CI_WORKFLOW_FILE = path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml');
+  const NODE_VERSION_ARG_PATTERN = /^ARG\s+NODE_VERSION=(\S+)\s*$/m;
+  const FULL_VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
+  // ci.yml declares its node-version twice (ci and e2e jobs); both must read
+  // the same thing, so matching the first occurrence is enough.
+  const CI_NODE_VERSION_PATTERN = /node-version:\s*(\d+)/;
+
+  /** The major version ci.yml's setup-node steps ask for. The anchor every other check here compares against. */
+  const readCiNodeVersionMajor = (): number => {
+    const yaml = fs.readFileSync(CI_WORKFLOW_FILE, 'utf8');
+    const match = CI_NODE_VERSION_PATTERN.exec(yaml);
+    expect(match, 'expected ci.yml to declare a node-version').not.toBeNull();
+    return Number(match![1]);
+  };
+
+  /** The leading integer of a version or a semver-ish range (">=24 <25", "^24.0.0", "24.x", ...). */
+  const extractMajor = (versionOrRange: string): number | null => {
+    const match = /(\d+)/.exec(versionOrRange);
+    return match ? Number(match[1]) : null;
+  };
+
+  it('pins the Dockerfile to a full major.minor.patch release', () => {
+    const argMatch = NODE_VERSION_ARG_PATTERN.exec(readDockerfile());
+    expect(argMatch, 'no ARG NODE_VERSION=<version> found in the Dockerfile').not.toBeNull();
+
+    const version = argMatch![1] as string;
+    expect(version, 'expected a full major.minor.patch, not a bare major').toMatch(FULL_VERSION_PATTERN);
+    expect(extractMajor(version)).toBe(readCiNodeVersionMajor());
+  });
+
+  it('matches .nvmrc\'s major version to ci.yml\'s node-version', () => {
+    const nvmrc = fs.readFileSync(NVMRC_FILE, 'utf8').trim();
+    expect(Number(nvmrc)).toBe(readCiNodeVersionMajor());
+  });
+
+  // Still red until the main session adds `engines` to both manifests and
+  // regenerates the lockfile (this branch does not touch package.json or any
+  // lockfile). Left in so the gap is visible in the suite rather than only in
+  // a plan document.
+  it('declares engines.node in both package.json manifests, consistent with the pinned major', () => {
+    const expectedMajor = readCiNodeVersionMajor();
+
+    for (const manifestPath of [path.join(REPO_ROOT, 'package.json'), path.join(SERVER_DIR, 'package.json')]) {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { engines?: { node?: string } };
+      const engineRange = manifest.engines?.node;
+
+      expect(engineRange, `${toRepoRelative(manifestPath)} is missing engines.node`).toBeDefined();
+      expect(
+        extractMajor(engineRange ?? ''),
+        `${toRepoRelative(manifestPath)}'s engines.node (${engineRange}) does not match major ${expectedMajor}`,
+      ).toBe(expectedMajor);
+    }
+  });
+});

@@ -9,7 +9,11 @@
 # error and then fails to dlopen at container start. Alpine uses the musl
 # prebuild, which is published for both x64 and arm64.
 
-ARG NODE_VERSION=24
+# Full major.minor.patch, matching .nvmrc's major (24) and ci.yml's
+# node-version. Dependabot's docker ecosystem (.github/dependabot.yml) bumps
+# this on a new release; server/packaging.test.ts pins the format and the
+# major-version match.
+ARG NODE_VERSION=24.20.0
 # Pinned: tsx runs the TypeScript server directly. Installed with the server
 # dependencies so the runtime CMD can load it as a node import hook.
 ARG TSX_VERSION=4.23.13
