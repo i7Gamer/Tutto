@@ -112,23 +112,27 @@ export default defineConfig(({ mode }) => {
           // default — JSON.stringify then drops it from the generated file.
           lang: undefined,
           // Rendered from public/favicon.svg — see scripts/generate-icons.mjs.
+          // Under public/icons/, NOT public/assets/: Vite copies public/ files
+          // verbatim, and the server caches everything under /assets/ as
+          // immutable for a year on the promise that it is content-hashed —
+          // which these stable-named files are not.
           // The previous config declared the 200x200 logo.png as both the 192
           // and 512 icon, so installed-app icons rendered upscaled and blurry.
           icons: [
             {
-              src: 'assets/icon-192.png',
+              src: 'icons/icon-192.png',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any'
             },
             {
-              src: 'assets/icon-512.png',
+              src: 'icons/icon-512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any'
             },
             {
-              src: 'assets/icon-512-maskable.png',
+              src: 'icons/icon-512-maskable.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable'

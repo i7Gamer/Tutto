@@ -1,20 +1,20 @@
 /**
  * Renders the PWA icon set from public/favicon.svg (the only vector source —
- * public/assets/logo.png is a 200x200 raster and too small to upscale).
+ * public/icons/logo.png is a 200x200 raster and too small to upscale).
  *
  * Usage (sharp is not a project dependency; install it ad hoc):
  *   npm install --no-save sharp
  *   node scripts/generate-icons.mjs
  *
  * Outputs, referenced by the manifest in vite.config.ts:
- *   public/assets/icon-192.png           192x192, purpose "any"
- *   public/assets/icon-512.png           512x512, purpose "any"
- *   public/assets/icon-512-maskable.png  512x512, purpose "maskable"
+ *   public/icons/icon-192.png           192x192, purpose "any"
+ *   public/icons/icon-512.png           512x512, purpose "any"
+ *   public/icons/icon-512-maskable.png  512x512, purpose "maskable"
  */
 import sharp from 'sharp';
 
 const SRC = 'public/favicon.svg';
-const OUT_DIR = 'public/assets';
+const OUT_DIR = 'public/icons';
 
 // Rasterization density for the 48px-wide SVG so the largest target stays crisp.
 const SVG_DENSITY = 800;

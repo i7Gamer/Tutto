@@ -113,3 +113,16 @@ describe('the home-screen icon for iOS', () => {
     expect(fs.existsSync(path.join(REPO_ROOT, 'public', href.replace(/^\//, '')))).toBe(true);
   });
 });
+
+// Everything under public/ is copied into dist/ verbatim, and server/index.ts
+// serves dist/assets/ as immutable for a year on the promise that Vite named
+// every file there by a content hash. A stable-named file under public/assets/
+// would inherit that header and stay stale for a year after it changed — the
+// icons lived there once. Keep public/assets/ empty (or absent).
+describe('public/assets/ holds no stable-named files', () => {
+  it('is empty or absent', () => {
+    const dir = path.join(REPO_ROOT, 'public', 'assets');
+    const entries = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+    expect(entries).toEqual([]);
+  });
+});
