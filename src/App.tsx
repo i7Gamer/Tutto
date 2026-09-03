@@ -229,6 +229,22 @@ export default function App() {
   const hasWinner = finished && players.length > 0;
   const isPlaying = currentPlayerIndex !== null && players.length > 0;
 
+  // A player who opened Statistics from the end screen (or Home) must not
+  // silently stay on it once a game actually starts underneath them — an
+  // online host starting the next round would otherwise cost that player
+  // their turn with no indication anything changed. Keyed on `isPlaying`
+  // alone (not `hasWinner`) so a game merely finishing while Statistics is
+  // already open — no `isPlaying` transition — leaves the screen as-is.
+  // This syncs local UI state to an external system (the game store)
+  // reacting to a change nothing else here observes, not state derivable at
+  // render time — the same shape as the disabled cases in Statistics.tsx.
+  useEffect(() => {
+    if (isPlaying) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- see above
+      setShowStats(false);
+    }
+  }, [isPlaying]);
+
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStore.write('tutto-theme', theme);

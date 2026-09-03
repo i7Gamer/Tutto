@@ -1331,4 +1331,90 @@ describe('App Integration (End-to-End)', () => {
       expect(useGameStore.getState().finished).toBe(true);
     });
   });
+
+  describe('closing Statistics when a game starts', () => {
+    // Same jsdom gap as the describes above — Statistics renders regardless
+    // of which screen opened it.
+    beforeAll(() => {
+      class MockIntersectionObserver implements IntersectionObserver {
+        root: Element | Document | null = null;
+        rootMargin = '';
+        scrollMargin = '';
+        thresholds: number[] = [];
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+        takeRecords(): IntersectionObserverEntry[] { return []; }
+      }
+      window.IntersectionObserver = MockIntersectionObserver;
+    });
+
+    it('leaves Statistics open when a game only finishes', async () => {
+      // Finishing while already on Statistics (e.g. a slow-to-load Statistics
+      // screen racing the final gameState broadcast) must not be treated the
+      // same as a new game starting — no `isPlaying` transition happened, so
+      // nothing should close the screen out from under the reader.
+      useGameStore.setState({
+        finished: true,
+        currentPlayerIndex: null,
+        players: [
+          makePlayer({ name: 'Alice', score: 10000, position: 1 }),
+          makePlayer({ name: 'Bob', score: 5000, position: 2 }),
+        ],
+        round: 5,
+      });
+
+      render(<App />);
+
+      expect(await screen.findByText('Alice', {}, { timeout: 5000 })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText(/end.viewStatistics/i));
+      await screen.findByRole('button', { name: /common.back/i }, { timeout: 5000 });
+
+      act(() => {
+        useGameStore.setState({ finished: true, round: 6 });
+      });
+
+      expect(screen.getByRole('button', { name: /common.back/i })).toBeInTheDocument();
+    });
+
+    it('closes Statistics and shows the running game when the host starts the next round', async () => {
+      // A player who opened Statistics from the end screen must not stay on
+      // it silently while an online game starts under them — they would
+      // otherwise miss their turn with no indication anything changed.
+      useGameStore.setState({
+        finished: true,
+        currentPlayerIndex: null,
+        players: [
+          makePlayer({ name: 'Alice', score: 10000, position: 1 }),
+          makePlayer({ name: 'Bob', score: 5000, position: 2 }),
+        ],
+        round: 5,
+      });
+
+      render(<App />);
+
+      expect(await screen.findByText('Alice', {}, { timeout: 5000 })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText(/end.viewStatistics/i));
+      await screen.findByRole('button', { name: /common.back/i }, { timeout: 5000 });
+
+      // The host starts the next game while this player is still reading
+      // Statistics — isPlaying flips true out from under them.
+      act(() => {
+        useGameStore.setState({
+          finished: false,
+          currentPlayerIndex: 0,
+          players: [
+            makePlayer({ name: 'Alice', score: 0, position: 1 }),
+            makePlayer({ name: 'Bob', score: 0, position: 2 }),
+          ],
+          round: 1,
+        });
+      });
+
+      expect(screen.queryByRole('button', { name: /common.back/i })).toBeNull();
+      expect(await screen.findByText('game.currentPlayer')).toBeInTheDocument();
+    });
+  });
 });
