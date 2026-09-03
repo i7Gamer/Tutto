@@ -145,10 +145,16 @@ export const deriveRestoredTurn = ({ restored, currentCard, ruleset }: {
     : restored?.currentRoll ?? [];
 
   // The classic chain this turn continues. Cards before the last are completed
-  // by definition; the last one only by the tutto that banked it.
+  // by definition; the last one by the tutto that banked it — or by a
+  // Feuerwerk null that banked points, which is how a Feuerwerk ENDS (`bust.won`,
+  // the same condition that makes `ended` 'banked' below). The server records
+  // that card completed too (feuerwerkBanked -> lastCompleted in
+  // server/turnTimers.ts), so a restore that called it uncompleted would commit
+  // a chain disagreeing with the authority.
+  const lastCardCompleted = !!tutto || !!bust?.won;
   const cardList = restored?.cardsThisTurn ?? (currentCard ? [currentCard] : []);
   const initialChain: RestoredChain = {
-    cards: cardList.map((card, i) => ({ card, completed: i < cardList.length - 1 || (i === cardList.length - 1 && !!tutto) })),
+    cards: cardList.map((card, i) => ({ card, completed: i < cardList.length - 1 || lastCardCompleted })),
     tuttoCount: restored?.chainTuttoCount ?? 0,
     plusMinusScores: restored?.plusMinusScores ?? [],
     ended: stoppedByCard ? 'stopCard' : bust ? (bust.won ? 'banked' : 'null') : 'banked',

@@ -62,6 +62,27 @@ describe('deriveRestoredTurn', () => {
     expect(r.initialChain.forfeitedScore).toBeUndefined();
   });
 
+  it('marks the last chain card completed when a classic Feuerwerk null banks it', () => {
+    // The null is how a Feuerwerk ENDS in classic, so the card WAS completed —
+    // which is exactly what the server records for the same chain (see
+    // feuerwerkBanked -> lastCompleted in server/turnTimers.ts). Restoring it
+    // as uncompleted would commit a chain the server disagrees with.
+    const r = deriveRestoredTurn({
+      restored: snapshot({
+        busted: true, turnScore: 1500,
+        cardsThisTurn: ['300', 'Feuerwerk'], chainTuttoCount: 1,
+      }),
+      currentCard: 'Feuerwerk',
+      ruleset: 'classic',
+    });
+
+    expect(r.initialChain.ended).toBe('banked');
+    expect(r.initialChain.cards).toEqual([
+      { card: '300', completed: true },
+      { card: 'Feuerwerk', completed: true },
+    ]);
+  });
+
   it('re-derives the bust for a mid-tumble snapshot whose verdict was never written', () => {
     // rollingDiceIds present = finalizeRoll never ran; the dice themselves bust.
     const r = deriveRestoredTurn({
