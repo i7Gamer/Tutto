@@ -336,6 +336,30 @@ export const registerApiRoutes = (app: express.Express): void => {
     res.status(404).json({ error: 'Not found' });
   });
 
+  // AGPL-3.0 §13: served alongside the app, not left as image-only files —
+  // the Dockerfile already copies both into the image root (see its COPY
+  // step's comment) but nothing served them over HTTP. Neither name is
+  // asset-shaped (no dot in the last path segment — see ASSET_LIKE_PATH_RE),
+  // so without an explicit route here both fell through to the SPA fallback
+  // below and got a 200 + index.html instead of their own content.
+  //
+  // Rooted at the repo root, not handed an absolute path: sendFile's
+  // dotfiles policy ("ignore" by default) judges every segment of an
+  // un-rooted path, so a checkout under a dot-directory (~/.apps/tutto, a
+  // .claude/worktrees probe) would 404 both files — the same trap the SPA
+  // fallback's own sendFile call below already documents. With a root, only
+  // "COPYING"/"NOTICE" themselves are judged, and neither is a dotfile.
+  const REPO_ROOT_DIR = path.join(__dirname, '..');
+  for (const legalFile of ['COPYING', 'NOTICE']) {
+    app.get(`/${legalFile}`, (_req: express.Request, res: express.Response) => {
+      res.sendFile(legalFile, { root: REPO_ROOT_DIR }, (err) => {
+        if (!err) return;
+        if (res.headersSent || isClientAbort(err)) return;
+        res.status(404).send('Not found');
+      });
+    });
+  }
+
   // SPA fallback — must be registered last so it doesn't shadow the API routes.
   app.use((req: express.Request, res: express.Response) => {
     // Asset-shaped paths (a missing/renamed JS chunk, a probed favicon.ico,

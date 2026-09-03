@@ -384,6 +384,21 @@ export default function HelpPopup() {
                 <span data-testid="help-app-version" className="text-xs text-gray-500 dark:text-gray-400">
                   {t('help.version', 'Version')} {APP_VERSION}
                 </span>
+                {' · '}
+                {/* AGPL-3.0 §13: a network-facing modified copy must offer its
+                    users a way to get the source. The app's own source is
+                    already public, but nothing in the UI pointed there — this
+                    is that pointer, for whoever forks the published image and
+                    never reads the footer of a README they didn't ship. */}
+                <a
+                  href="https://github.com/i7Gamer/Tutto"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="help-source-link"
+                  className="text-xs text-gray-500 dark:text-gray-400 underline hover:text-gray-700 dark:hover:text-gray-300"
+                >
+                  {t('help.sourceLink', 'Source & License')}
+                </a>
               </footer>
       </ModalShell>
     </>

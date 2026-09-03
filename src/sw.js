@@ -60,20 +60,29 @@ for (const entry of MANIFEST) {
 }
 
 /**
- * The directories the build emits hashed assets into, derived from the manifest
- * rather than hardcoded.
+ * The directories the build emits HASHED assets into, derived from the
+ * manifest rather than hardcoded.
  *
- * A URL under one of these is build output by construction, which is what makes
- * it safe to answer from a cache generation other than this worker's own (see
- * the fetch handler). Root-level entries — index.html, the icons, the
- * webmanifest — yield "/" and are dropped: that prefix matches the API and the
- * socket too, and those must never be served from a cache.
+ * A URL under one of these is build output by construction, which is what
+ * makes it safe to answer from a cache generation other than this worker's
+ * own (see the fetch handler) — a stale tab's old hashed chunk is simply not
+ * in this manifest, so PRECACHED alone would send it to a server that no
+ * longer has it. Only a `null`-revision href qualifies: its URL already
+ * encodes its content, which is the guarantee that makes an old generation's
+ * copy safe to serve as-is. index.html, the webmanifest and the icons keep
+ * the same URL across builds even when their content changes (a real
+ * revision string, not `null` — see MANIFEST_REVISIONS above), so their
+ * directory buys none of that guarantee and is excluded here. Root-level
+ * entries yield "/" and are dropped regardless: that prefix matches the API
+ * and the socket too, and those must never be served from a cache.
  */
 const ASSET_PREFIXES = [...new Set(
-  PRECACHE_URLS.map(href => {
-    const { pathname } = new URL(href);
-    return pathname.slice(0, pathname.lastIndexOf('/') + 1);
-  }),
+  PRECACHE_URLS
+    .filter(href => MANIFEST_REVISIONS.get(href) === null)
+    .map(href => {
+      const { pathname } = new URL(href);
+      return pathname.slice(0, pathname.lastIndexOf('/') + 1);
+    }),
 )].filter(prefix => prefix !== '/');
 
 const isBuildAsset = url => ASSET_PREFIXES.some(prefix => url.pathname.startsWith(prefix));

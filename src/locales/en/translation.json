@@ -401,6 +401,7 @@
   "help.shortcuts.drawNextCard": "Draw the next card instead of banking, on the roll that completes a Tutto (Classic rules).",
   "help.shortcuts.note": "Shortcuts stay out of the way while you are typing in a field and while a dialog is open, and a key does nothing when its button is grayed out.",
   "help.version": "Version",
+  "help.sourceLink": "Source & License",
   "help.statistics.title": "Statistics Explained",
   "help.statistics.s1": "Games Played / Wins / Win Rate: Track your overall game results.",
   "help.statistics.s2": "Busts / Average Busts per Game: The count and rate of rolling no scoring dice on a turn.",

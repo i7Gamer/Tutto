@@ -304,7 +304,9 @@ describe('Card-name vocabulary and spelling policy', () => {
   });
 
   it('no EN string uses a British spelling', () => {
-    const britishPattern = /\b(colour|favourite|customise|organise|analyse|centre|grey)\w*\b/i;
+    // -ence/-ise nouns join the -our/-ise/-yse forms above: "licence" reached
+    // the EN file with the AGPL source link and this pattern did not catch it.
+    const britishPattern = /\b(colour|favourite|customise|organise|analyse|centre|grey|licence|defence|practise)\w*\b/i;
     const hits = Object.entries(en)
       .filter(([, value]) => britishPattern.test(value))
       .map(([key]) => key);

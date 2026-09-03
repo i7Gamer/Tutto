@@ -586,3 +586,53 @@ describe('docker-publish.yml verify job also runs the e2e suite', () => {
     expect(e2eStep?.run).toContain(CHROMIUM_PROJECT_FLAG);
   });
 });
+
+/**
+ * ci.yml also gates on two checks `verify` never ran: `type-check:test` (the
+ * test suites' own tsconfig.test.json project — see 'the test suites are
+ * type-checked in CI' above) and `test:publish-cleanup` (this same workflow's
+ * Hub-cleanup steps, exercised against a stubbed API — see
+ * scripts/test-publish-cleanup/run.sh). Neither needs anything verify lacks:
+ * type-check:test is a local tsc invocation, and test:publish-cleanup
+ * fabricates its own dummy Docker Hub credentials and stubs curl/jq so it
+ * never reaches the real registry — it does not need the secrets `build`
+ * holds and `verify` does not (M-10).
+ */
+describe('docker-publish.yml verify job runs every check ci.yml gates on (M-10)', () => {
+  const CI_WORKFLOW = 'ci.yml';
+  const DOCKER_PUBLISH_WORKFLOW = 'docker-publish.yml';
+  const CI_JOB = 'ci';
+  const VERIFY_JOB = 'verify';
+
+  const loadWorkflow = (file: string): Workflow =>
+    parseWorkflow(fs.readFileSync(path.join(WORKFLOWS_DIR, file), 'utf8'));
+
+  const stepsOf = (file: string, job: string): WorkflowStep[] => loadWorkflow(file).jobs?.[job]?.steps ?? [];
+
+  const hasRunStep = (steps: WorkflowStep[], script: string): boolean =>
+    steps.some(step => step.run?.trim() === `npm run ${script}` || step.run?.trim().startsWith(`npm run ${script} `));
+
+  // The two checks ci.yml gates on that verify was found to be missing.
+  const GATES_MISSING_FROM_VERIFY = ['type-check:test', 'test:publish-cleanup'];
+
+  it('finds both jobs it is meant to be comparing', () => {
+    // The self-oracle every check in this file carries: matching nothing must
+    // not read as everything passing.
+    expect(stepsOf(CI_WORKFLOW, CI_JOB).length).toBeGreaterThan(0);
+    expect(stepsOf(DOCKER_PUBLISH_WORKFLOW, VERIFY_JOB).length).toBeGreaterThan(0);
+  });
+
+  it.each(GATES_MISSING_FROM_VERIFY)('ci.yml runs npm run %s — sanity check on the check itself', script => {
+    expect(
+      hasRunStep(stepsOf(CI_WORKFLOW, CI_JOB), script),
+      `expected ci.yml's ${CI_JOB} job to run npm run ${script}`,
+    ).toBe(true);
+  });
+
+  it.each(GATES_MISSING_FROM_VERIFY)('docker-publish.yml verify job also runs npm run %s', script => {
+    expect(
+      hasRunStep(stepsOf(DOCKER_PUBLISH_WORKFLOW, VERIFY_JOB), script),
+      `verify is missing npm run ${script}, which ci.yml gates on — an image can publish without it`,
+    ).toBe(true);
+  });
+});

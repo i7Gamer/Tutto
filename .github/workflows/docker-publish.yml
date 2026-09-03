@@ -184,10 +184,37 @@ jobs:
       - name: Run End-to-End Tests (chromium)
         run: npm run test:e2e -- --project=chromium
 
+      # Appended after every other verify step on purpose, not placed next to
+      # "Type Check" the way ci.yml orders it: each `run:` step here is its own
+      # CodeQL actions/cache-poisoning/poisonable-step finding (see the note
+      # above "Resolve and vet the commit under test"), and every one of those
+      # alerts is line-anchored — moving an existing step's line re-raises it
+      # under a new alert number that needs its own manual dismissal. Adding
+      # both steps at the end only ever creates two new alerts for these two
+      # new lines; inserting either one earlier would additionally re-raise
+      # every alert on every step pushed downward.
+      - name: Type Check (test suites)
+        run: npm run type-check:test
+
+      # See ci.yml's own step of the same name: exercises the Hub-cleanup
+      # steps against a stubbed API, never the real registry. Needs no Docker
+      # Hub credentials of its own — it fabricates DOCKERHUB_USERNAME/TOKEN
+      # fixture values and stubs curl/jq via PATH, and refuses to run at all
+      # if either resolves to anything but its own stub.
+      - name: Test the publish workflow's cleanup steps
+        run: npm run test:publish-cleanup
+
   build:
     name: Build ${{ matrix.platform }}
     needs: verify
     runs-on: ${{ matrix.runner }}
+    # contents: read is already the workflow-wide default (see top of file).
+    # security-events: write is scoped to this job alone, not the workflow,
+    # so `verify` and `merge` do not gain it — it is needed only to upload
+    # the Trivy scan's SARIF file below.
+    permissions:
+      contents: read
+      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -308,6 +335,46 @@ jobs:
           echo "exited cleanly (0)"
 
           docker rm -f smoke
+
+      # N1: npm audit (verify job, and audit.yml) only ever sees this
+      # project's own two lockfiles — it has no visibility into the Alpine OS
+      # packages the base image brings in, or into Node's own bundled npm CLI
+      # and ITS vendored dependencies. A real scan of node:24.20.0-alpine
+      # (2026-09-03) found exactly that gap: 1 HIGH in libcrypto3/libssl3 (the
+      # OS layer) and 4 more HIGH across brace-expansion, ip-address and tar
+      # inside npm's own node_modules — none of which npm audit, run against
+      # THIS repo's lockfiles, can ever see.
+      #
+      # ignore-unfixed + exit-code: '0' is deliberate, not a placeholder: a
+      # Trivy failure on an Alpine CVE with no upstream fix yet would block
+      # every release until Alpine ships one, on a timeline this repo does
+      # not control — the same shape of false alarm docker-publish.yml's own
+      # CodeQL notes above already describe for a different scanner. Every
+      # finding in the run above had a fix available (0 unfixed, at least on
+      # this date), but that is not guaranteed to stay true, so the policy
+      # must not depend on it. Findings still surface: uploaded as SARIF to
+      # the Security tab (informational, dismissible, same review flow as the
+      # existing CodeQL alerts) rather than only living in a build log nobody
+      # reads unless something already failed. Only amd64 scans — the OS
+      # layer does not meaningfully differ by architecture, and scanning both
+      # legs would just double the upload with no new information.
+      - name: Scan the image for vulnerabilities
+        if: matrix.arch == 'amd64'
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: tutto-smoke:${{ matrix.arch }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '0'
+
+      - name: Upload vulnerability scan results
+        if: matrix.arch == 'amd64'
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-image
 
       # Pushed without a tag: each architecture publishes only its digest, and
       # the merge job below is what creates the tagged multi-arch manifest.

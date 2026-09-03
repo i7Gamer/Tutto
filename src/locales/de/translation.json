@@ -401,6 +401,7 @@
   "help.shortcuts.drawNextCard": "Statt zu sichern die nächste Karte ziehen — beim Wurf, der ein Tutto vollendet (Klassische Regeln).",
   "help.shortcuts.note": "Die Kürzel halten sich zurück, während du in ein Feld tippst oder ein Dialog offen ist, und eine Taste tut nichts, wenn ihr Knopf ausgegraut ist.",
   "help.version": "Version",
+  "help.sourceLink": "Quellcode & Lizenz",
   "help.statistics.title": "Statistiken erklärt",
   "help.statistics.s1": "Gespielte Spiele / Siege / Gewinnrate: Verfolge deine gesamten Spielergebnisse.",
   "help.statistics.s2": "Nieten / Durchschnittliche Nieten pro Spiel: Anzahl und Rate der Würfe ohne wertbare Würfel.",

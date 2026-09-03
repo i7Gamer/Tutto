@@ -17,7 +17,12 @@ const { version: appVersion } = JSON.parse(
 
 // Packages reached only through a dynamic import. Kept out of the manual chunk
 // assignment below so the split actually happens — see the note there.
-const LAZY_PACKAGES = ['qrcode-generator', 'jsqr', 'chart.js', 'react-chartjs-2']
+// @kurkle/color is chart.js's own sole dependency (see its package.json) — a
+// transitive package never imported directly by this app's source, so it has
+// no import site of its own to make lazy. Without it here it fell through to
+// the vendor catch-all below and shipped on every load regardless of whether
+// chart.js itself was ever reached.
+const LAZY_PACKAGES = ['qrcode-generator', 'jsqr', 'chart.js', 'react-chartjs-2', '@kurkle/color']
 
 // Coverage gate for `npm run test:coverage` (which CI runs): five points
 // under the lowest of the four metrics actually measured over the whole
