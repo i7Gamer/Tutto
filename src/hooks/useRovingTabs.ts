@@ -31,6 +31,10 @@ export const useRovingTabs = ({ count, selectedIndex, onSelect }: UseRovingTabsO
   const tabRefs = useRef<(HTMLElement | null)[]>([]);
 
   const focusAndSelect = (index: number) => {
+    // An empty tablist (e.g. rendered before its data has loaded) has nothing
+    // to wrap into — the modulo below is NaN for count 0, which would call
+    // onSelect(NaN) and try to focus a tab that doesn't exist.
+    if (count === 0) return;
     // Wraps in both directions regardless of how far index over/undershoots
     // — only ArrowLeft/ArrowRight from an end ever pass anything other than
     // +-1, but the modulo arithmetic is correct for any offset.

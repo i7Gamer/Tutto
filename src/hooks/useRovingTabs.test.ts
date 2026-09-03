@@ -64,6 +64,19 @@ describe('useRovingTabs', () => {
     expect(document.activeElement).toBe(tabs[3]);
   });
 
+  it('does nothing on an empty tablist instead of selecting NaN', () => {
+    // ((index % count) + count) % count is NaN for count 0 — an empty group
+    // (e.g. Statistics rendered before its data has loaded) must not call
+    // onSelect(NaN) or throw trying to focus a non-existent tab.
+    const onSelect = vi.fn();
+    const { result } = renderHook(() => useRovingTabs({ count: 0, selectedIndex: 0, onSelect }));
+
+    const preventDefault = vi.fn();
+    expect(() => result.current.onKeyDown(fakeKeyDown('ArrowRight', preventDefault), 0)).not.toThrow();
+
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
   it('ignores keys it does not handle', () => {
     const onSelect = vi.fn();
     const { result } = renderHook(() => useRovingTabs({ count: 3, selectedIndex: 0, onSelect }));
