@@ -32,7 +32,17 @@ export default function CurrentRollBoard({
       <div className="flex items-center justify-between mb-2 sm:mb-3">
         <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('dice.current_roll', 'Current Roll')}</h4>
         {hasRolled && !isRolling && !bustState && (
-          <button className="text-xs font-bold px-2.5 py-1 rounded-md border border-indigo-300 dark:border-indigo-600 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors" onClick={onSelectAllValid}>
+          <button
+            // min-h-11 grows the tap target to 44px (MIN_TAP_TARGET_PX,
+            // e2e/styling.spec.ts) without inflating the chip itself — the
+            // -my-2 gives back the extra height as negative margin, so the
+            // row still lays out at its old height and the heading stays
+            // centred against this button (see the finding-38 test above:
+            // symmetric negative margins don't move the button's own visual
+            // centre, only how much space it reserves in flow).
+            className="text-xs font-bold px-2.5 py-1 rounded-md border border-indigo-300 dark:border-indigo-600 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors min-h-11 flex items-center justify-center -my-2"
+            onClick={onSelectAllValid}
+          >
             {t('dice.select_all_valid', 'Select all')}
           </button>
         )}

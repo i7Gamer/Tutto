@@ -805,3 +805,142 @@ test.describe('safe-area viewport (B58)', () => {
     expect(paddingTop).toMatch(/^-?\d+(\.\d+)?px$/);
   });
 });
+
+/**
+ * C65 — a handful of game-time controls had tap targets well under the 44px
+ * WCAG 2.5.5 minimum at 375px: "Select all" (72×26), the quick-add score
+ * chips (~32px tall), the local lobby's reorder/kick icon buttons (32×32),
+ * the in-game Kick pill on a disconnected player's row (~20px tall), and the
+ * HUD's language buttons (~28px tall). Each grew its own hit area — via
+ * min-h-11/min-w-11 plus, wherever the control shares a row with other
+ * content whose spacing must not shift, a symmetric negative vertical margin
+ * that hands the added height back (see the comments at each call site) —
+ * without enlarging the visible chip itself. Only a real browser lays these
+ * rows out to measure; jsdom cannot.
+ */
+test.describe('tap targets ≥ 44px on game-time controls (C65)', () => {
+  const MIN_TAP_TARGET_PX = 44;
+
+  test('the quick-add score chips are at least 44px tall on phone', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await seedLocalDeck(page);
+    await page.goto('/');
+    // Physical dice mode is what renders the manual score entry row and its
+    // quick-add chips (GameControls.tsx) — the digital path never shows them.
+    await page.getByLabel(/Physical Dice/i).click();
+    await startLocalGame(page);
+
+    // The chips share one class string, so the first and last of the eight
+    // stand in for the whole row (same reasoning the rest of this file uses
+    // for a shared class: one representative element, not all of them).
+    for (const val of [50, 1000]) {
+      const chip = page.getByTestId(`quick-add-${val}`);
+      await expect(chip).toBeVisible({ timeout: 15000 });
+      const box = await chip.boundingBox();
+      expect(box, `+${val} chip has no box`).not.toBeNull();
+      expect(box!.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    }
+  });
+
+  test('"Select all" is at least 44px in both dimensions on phone', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await seedLocalDeck(page);
+    await page.goto('/');
+    await startLocalGame(page);
+
+    await page.getByRole('button', { name: /Roll Dice/i }).click();
+    const selectAll = page.getByRole('button', { name: /Select all/i });
+    await expect(selectAll).toBeVisible({ timeout: 15000 });
+
+    const box = await selectAll.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    expect(box!.width).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+  });
+
+  test('the language switcher buttons are at least 44px in both dimensions on phone', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+
+    for (const label of ['Switch to English', 'Switch to German']) {
+      const box = await page.getByLabel(label).boundingBox();
+      expect(box, `${label} has no box`).not.toBeNull();
+      expect(box!.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+      expect(box!.width).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    }
+  });
+
+  test('the local lobby\'s reorder/kick controls are at least 44px tall on phone, and a 5-player roster still fits without new scrolling', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+
+    const playerInput = page.getByPlaceholder(/Player name/i);
+    const names = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'];
+    for (const name of names) {
+      await playerInput.fill(name);
+      await page.getByRole('button', { name: /^Add$/i }).click();
+      await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
+    }
+
+    // Only these two utilities changed size (LobbyShared.tsx keeps the
+    // buttons' width at 32px on phone — see the PR notes); height is what
+    // was under 44px and what this checks.
+    const moveDown = page.getByRole('button', { name: /Move down: Alice/i });
+    const remove = page.getByRole('button', { name: /Remove: Bob/i });
+    const moveDownBox = await moveDown.boundingBox();
+    const removeBox = await remove.boundingBox();
+    expect(moveDownBox).not.toBeNull();
+    expect(removeBox).not.toBeNull();
+    expect(moveDownBox!.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    expect(removeBox!.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+
+    // The taller tap targets must not have grown the ROW itself — that's what
+    // the negative margin on each button is for, and it's what keeps a
+    // 5-player roster fitting the same footprint it always did (asserting on
+    // total page scrollHeight instead would be measuring Home's title and
+    // mode tabs above the roster too, which this change never touched).
+    // Pre-fix this row was ~56px tall (p-3's 24px of padding plus a 32px-tall
+    // button); min-h-11 without the compensating margin would have pushed it
+    // to ~68px. 64px draws the line well clear of either number as noise but
+    // well short of the regression.
+    const aliceRow = page.locator('.player-name', { hasText: 'Alice' }).locator('xpath=..');
+    const rowBox = await aliceRow.boundingBox();
+    expect(rowBox).not.toBeNull();
+    expect(rowBox!.height).toBeLessThanOrEqual(64);
+  });
+
+  test('the in-game Kick pill on a disconnected player is at least 44px in both dimensions on phone', async ({ browser }, testInfo: TestInfo) => {
+    test.setTimeout(60000);
+    const contextA = await browser.newContext();
+    const pageA = await contextA.newPage();
+    const contextB = await browser.newContext();
+    const pageB = await contextB.newPage();
+
+    const roomId = `E2E-KICKSIZE-${testInfo.project.name}-w${testInfo.workerIndex}-${Date.now()}`;
+    await joinOnlineRoom(pageA, roomId, 'AliceHost');
+    await expect(pageA.getByText('AliceHost').first()).toBeVisible({ timeout: 15000 });
+    await joinOnlineRoom(pageB, roomId, 'BobGuest');
+    await expect(pageA.getByText('BobGuest').first()).toBeVisible({ timeout: 15000 });
+
+    await pageA.getByRole('button', { name: /Start Game!/i }).click();
+    await expect(pageA.getByText(/Current Player/i).first()).toBeVisible({ timeout: 15000 });
+
+    // The Kick pill (Leaderboard.tsx) only renders for the host, next to a
+    // player the server has marked disconnected — closing Bob's context
+    // drops his socket's transport, which the server treats as an immediate
+    // disconnect (socketRoomHandlers.ts sets `disconnected = true` and
+    // broadcasts right away; it does not wait out the reconnect timeout).
+    await contextB.close();
+
+    await pageA.setViewportSize({ width: 375, height: 812 });
+
+    const kickButton = pageA.getByRole('button', { name: 'Kick' });
+    await expect(kickButton).toBeVisible({ timeout: 20000 });
+    const box = await kickButton.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    expect(box!.width).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+
+    await contextA.close();
+  });
+});

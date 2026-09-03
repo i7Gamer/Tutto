@@ -218,7 +218,19 @@ export default function GameControls({
                         key={val}
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
-                        className="bg-(--card-bg) hover:bg-indigo-50 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-white font-bold py-1.5 md:py-2 text-sm md:text-base rounded-lg md:rounded-xl border border-indigo-100 dark:border-indigo-800 transition-colors shadow-xs"
+                        // min-h-11: the visible chip stays its usual small
+                        // size (py-1.5/py-2 + text-sm/text-base), but the
+                        // tappable box grows to the 44px WCAG target — a
+                        // quick-add tap is exactly the kind of repeated,
+                        // rushed input where a too-small hit area causes
+                        // mis-taps (MIN_TAP_TARGET_PX, e2e/styling.spec.ts).
+                        className="bg-(--card-bg) hover:bg-indigo-50 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-white font-bold py-1.5 md:py-2 text-sm md:text-base rounded-lg md:rounded-xl border border-indigo-100 dark:border-indigo-800 transition-colors shadow-xs min-h-11 flex items-center justify-center"
+                        // data-testid rather than an accessible-name lookup:
+                        // "+{val}" is two adjacent JSX text nodes, and its
+                        // exact rendered whitespace isn't worth pinning a
+                        // test to (see physical-bust/physical-draw-next-card
+                        // above for the same reasoning).
+                        data-testid={`quick-add-${val}`}
                         onClick={() => addScore(val)}
                       >
                         +{val}

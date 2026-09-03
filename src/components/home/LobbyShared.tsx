@@ -138,8 +138,18 @@ export function PlayerList({
                           {/* disabled accompanies aria-hidden: an aria-hidden element
                               must not stay focusable (WCAG) — without it, a keyboard
                               user can Tab onto an invisible (opacity-0) button. */}
+                          {/* min-h-11 (phone only — sm:h-8 reverts to the fixed
+                              32px square a mouse pointer needs no larger) grows
+                              the tap target to the 44px WCAG minimum
+                              (MIN_TAP_TARGET_PX, e2e/styling.spec.ts); these
+                              were 32px. -my-1.5 (cancelled by sm:my-0 on larger
+                              screens) gives the added height back as negative
+                              margin so a 5-player lobby still fits at 375x812
+                              without new scrolling — the row's own height is
+                              unchanged, only the overflow into its existing
+                              padding grows. */}
                           <button
-                            className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded-sm transition-colors ${idx === 0 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
+                            className={`text-gray-500 dark:text-gray-400 w-8 min-h-11 sm:h-8 -my-1.5 sm:my-0 flex items-center justify-center rounded-sm transition-colors ${idx === 0 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
                             onClick={(e) => { e.currentTarget.blur(); if (idx > 0) handleMoveUp(idx); }}
                             aria-label={`${t('lobby.movePlayerUp', 'Move up:')} ${p.name}`}
                             title={`${t('lobby.movePlayerUp', 'Move up:')} ${p.name}`}
@@ -149,7 +159,7 @@ export function PlayerList({
                             <ChevronUp size={18} />
                           </button>
                           <button
-                            className={`text-gray-500 dark:text-gray-400 w-8 h-8 flex items-center justify-center rounded-sm transition-colors ${idx === players.length - 1 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
+                            className={`text-gray-500 dark:text-gray-400 w-8 min-h-11 sm:h-8 -my-1.5 sm:my-0 flex items-center justify-center rounded-sm transition-colors ${idx === players.length - 1 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
                             onClick={(e) => { e.currentTarget.blur(); if (idx < players.length - 1) handleMoveDown(idx); }}
                             aria-label={`${t('lobby.movePlayerDown', 'Move down:')} ${p.name}`}
                             title={`${t('lobby.movePlayerDown', 'Move down:')} ${p.name}`}
@@ -160,7 +170,11 @@ export function PlayerList({
                           </button>
                         </div>
                       )}
-                      <div className="w-8 h-8 flex items-center justify-center ml-1">
+                      {/* Same phone-only min-h-11 / -my-1.5 treatment as the
+                          reorder buttons above — the button below is
+                          w-full h-full of this wrapper, so sizing it here is
+                          enough. */}
+                      <div className="w-8 min-h-11 sm:h-8 -my-1.5 sm:my-0 flex items-center justify-center ml-1">
                         {(!isOnline || (isHost && p.socketId !== hostId)) && (
                           <button
                             className="text-red-500 hover:bg-red-100 active:bg-red-200 dark:hover:bg-red-900/40 dark:active:bg-red-900/60 w-full h-full flex items-center justify-center rounded-sm transition-colors"
