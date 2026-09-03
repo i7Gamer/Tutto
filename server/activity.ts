@@ -41,11 +41,12 @@ const PART_SEPARATOR = ' · ';
  * A seated player who never returns no longer holds this, even though the
  * predicate below still says they could submit: the server writes that seat's
  * row itself the moment the verdict is frozen (recordDepartedSeatsStats in
- * rooms.ts now treats a DISCONNECTED seat as departed), and it does so through
- * the very dedup set checked beside this — so `devices.has` is already true
- * for them and the `||` never reaches here. What is left for this predicate is
- * the honest case it was written for: a seat that is still connected, or one
- * whose room froze no verdict to record from (no startRoster).
+ * rooms.ts now treats a DISCONNECTED seat as departed). That row is only
+ * 'verdict-only', though — the seat's per-turn counters are still owed, and a
+ * device that does come back MERGES them into it and marks it 'full'. So the
+ * check beside this asks for 'full', not mere presence in the dedup map, and
+ * this predicate decides whether anyone is left to complete the row: a seat
+ * still connected, or one whose reconnect timer has not yet drained.
  *
  * Unless there is no timer to drain. reconnectTimeout: 0 is a supported lobby
  * option and arms nothing at all — on that path a seat is removed only if
@@ -61,7 +62,7 @@ const canStillSubmit = (room: Room, player: ServerPlayer): boolean =>
 const statsFullyRecorded = (room: Room): boolean =>
   room.statsRecordedForGame.global
   && room.state.players.every(p =>
-    room.statsRecordedForGame.devices.has(p.deviceId) || !canStillSubmit(room, p));
+    room.statsRecordedForGame.devices.get(p.deviceId) === 'full' || !canStillSubmit(room, p));
 
 export const summarizeActivity = (rooms: Record<string, Room>): ActivitySnapshot => {
   const snapshot: ActivitySnapshot = {

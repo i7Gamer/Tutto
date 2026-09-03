@@ -498,16 +498,33 @@ describe('a seat that left before the finish is recorded by the server itself', 
         .toBe(BOB_BUSTS_HELD);
     });
 
-    it('stops the status line calling the game "awaiting stats" for that seat', () => {
-      // activity.ts counts a disconnected seat with a pending reconnect timer
-      // as one that can still submit — which held the room in `awaiting` (and
-      // the console at DO NOT RESTART) for a row nothing would ever write.
-      // The server's own write closes it through the shared dedup.
+    it('keeps the status line at "awaiting stats" while the seat may still return with its counters', () => {
+      // The server's verdict-only row closes the VERDICT, not the row: if Bob
+      // reconnects before his timer drains, his per-turn counters merge into
+      // it (the test above). Until then something is still owed that a
+      // restart would lose, so the room stays in `awaiting` — and resolves on
+      // its own either way, when the timer splices the seat or the merge
+      // marks the row 'full'.
       stageBobDisconnectedAtFinish(BOB_LOST, ALICE_WON);
       rooms[roomId].statsRecordedForGame.global = true;
       rooms[roomId].statsRecordedForGame.devices.set('dev-alice', 'full');
 
       emitRoomState(makeFakeIo().io, roomId);
+
+      expect(summarizeActivity(rooms).awaitingStats).toBe(1);
+    });
+
+    it('stops calling the game "awaiting stats" once the seat can no longer return', () => {
+      stageBobDisconnectedAtFinish(BOB_LOST, ALICE_WON);
+      rooms[roomId].statsRecordedForGame.global = true;
+      rooms[roomId].statsRecordedForGame.devices.set('dev-alice', 'full');
+      emitRoomState(makeFakeIo().io, roomId);
+
+      // The reconnect timer drained (a reconnectTimeout of 0 arms none at
+      // all): nothing is left that could complete the verdict-only row, so it
+      // is as recorded as it will ever be.
+      clearTimeout(rooms[roomId].disconnectTimers['dev-bob']);
+      delete rooms[roomId].disconnectTimers['dev-bob'];
 
       expect(summarizeActivity(rooms).awaitingStats).toBe(0);
     });

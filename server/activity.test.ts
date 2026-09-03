@@ -172,6 +172,31 @@ describe('summarizeActivity', () => {
     expect(summarizeActivity(registry(room)).awaitingStats).toBe(1);
   });
 
+  it('keeps waiting on a connected seat whose row is still the server-written verdict', () => {
+    // A seat that was disconnected at the finish gets a 'verdict-only' row
+    // from the server; when that device comes back its own per-turn counters
+    // are still owed and MERGE into that row. Presence in the dedup map is
+    // therefore not "recorded" — only 'full' is.
+    const room = roomWith({ status: 'playing', finished: true, connected: 2 });
+    room.statsRecordedForGame.global = true;
+    room.statsRecordedForGame.devices.set(room.state.players[0].deviceId, 'full');
+    room.statsRecordedForGame.devices.set(room.state.players[1].deviceId, 'verdict-only');
+
+    expect(summarizeActivity(registry(room)).awaitingStats).toBe(1);
+  });
+
+  it('stops waiting on a gone seat that holds only the server-written verdict', () => {
+    // The control: verdict-only AND nothing left that could ever complete
+    // it (disconnected, no reconnect timer). Its row is as recorded as it
+    // will ever be, so the room must not hold the operator hostage.
+    const room = roomWith({ status: 'playing', finished: true, connected: 1, disconnected: 1 });
+    room.statsRecordedForGame.global = true;
+    room.statsRecordedForGame.devices.set(room.state.players[0].deviceId, 'full');
+    room.statsRecordedForGame.devices.set(room.state.players[1].deviceId, 'verdict-only');
+
+    expect(summarizeActivity(registry(room)).awaitingStats).toBe(0);
+  });
+
   it('does not count a finished game as active once its statistics are recorded', () => {
     const snapshot = summarizeActivity(registry(
       roomWith({ status: 'playing', finished: true, statsRecorded: true, connected: 4 }),
