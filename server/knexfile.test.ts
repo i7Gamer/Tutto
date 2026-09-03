@@ -1,7 +1,8 @@
 /** @vitest-environment node */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import path from 'path';
-import knexConfig, { resolveDbFilename } from './knexfile';
+import knexConfig, { resolveDbFilename, SQLITE_BUSY_TIMEOUT_MS } from './knexfile';
+import { nonNull } from '../src/testing/factories';
 
 // The historical location, still where a production server looks, so existing
 // bare-metal installs keep finding the database they already have. Only a
@@ -116,6 +117,57 @@ describe('knex configuration', () => {
   });
 
   it('keeps the single-connection pool sqlite needs', () => {
-    expect(knexConfig.pool).toEqual({ min: 1, max: 1 });
+    // Not toEqual on the whole object any more: the pool also carries the
+    // afterCreate hook the pragma suite below drives.
+    expect(knexConfig.pool).toMatchObject({ min: 1, max: 1 });
+  });
+});
+
+describe('sqlite connection pragmas', () => {
+  // Every connection the pool opens has to be configured, not just the first:
+  // knex clones the config per connection, and a pragma is per-connection
+  // state in sqlite. pool.afterCreate is the only hook that runs at that
+  // moment, so it is what these cases drive directly.
+  /** What node-sqlite3's Database looks like to the hook: one `run`. */
+  type FakeSqliteConnection = { run: ReturnType<typeof vi.fn> };
+  const afterCreate = nonNull(knexConfig.pool).afterCreate as
+    (conn: FakeSqliteConnection, done: (err: Error | null, conn: unknown) => void) => void;
+
+  /** The two `run` calls node-sqlite3 would receive, in order. */
+  const makeConnection = (fail?: { onSql: string; err: Error }) => {
+    const run = vi.fn((sql: string, cb: (err: Error | null) => void) => {
+      cb(fail && fail.onSql === sql ? fail.err : null);
+    });
+    return { run };
+  };
+
+  it('puts every new connection into WAL with a busy timeout', () => {
+    // Without busy_timeout, a second writer (the API process's own pool, a
+    // backup reader, litestream) makes sqlite fail the write instantly with
+    // SQLITE_BUSY instead of waiting — and a lost endGameStats write is a
+    // device's row for that game, gone. WAL keeps readers from blocking the
+    // writer in the first place.
+    const conn = makeConnection();
+    const done = vi.fn();
+
+    afterCreate(conn, done);
+
+    expect(conn.run.mock.calls.map(call => call[0])).toEqual([
+      `PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`,
+      'PRAGMA journal_mode = WAL',
+    ]);
+    expect(done).toHaveBeenCalledWith(null, conn);
+  });
+
+  it('hands the pool a pragma failure rather than a half-configured connection', () => {
+    const boom = new Error('disk I/O error');
+    const conn = makeConnection({ onSql: `PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`, err: boom });
+    const done = vi.fn();
+
+    afterCreate(conn, done);
+
+    // Stopped at the first failure — the second pragma is never attempted.
+    expect(conn.run).toHaveBeenCalledTimes(1);
+    expect(done).toHaveBeenCalledWith(boom, conn);
   });
 });
