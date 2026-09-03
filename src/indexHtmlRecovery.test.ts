@@ -176,4 +176,50 @@ describe('index.html stale-bundle recovery', () => {
 
     expect(reload).not.toHaveBeenCalled();
   });
+
+  // A privacy mode, a full quota, or a policy can make every localStorage
+  // call throw rather than merely return null. Raw calls inside the handler
+  // would propagate that throw straight out of the 'error' listener,
+  // aborting the recovery before it ever reaches the cache/unregister/reload
+  // chain — silently disabling the one path meant to recover a broken deploy.
+  it('still recovers when reading the last-reload timestamp throws', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('blocked');
+    });
+
+    loadHandler()({ message: CHUNK_ERROR_MESSAGE });
+    await settle();
+
+    expect(reload).toHaveBeenCalled();
+  });
+
+  // Same failure mode on the write side: recording the cooldown timestamp is
+  // best-effort bookkeeping for the NEXT error, not a precondition for
+  // recovering from THIS one.
+  it('still recovers when writing the last-reload timestamp throws', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('blocked');
+    });
+
+    loadHandler()({ message: CHUNK_ERROR_MESSAGE });
+    await settle();
+
+    expect(cacheDelete).toHaveBeenCalled();
+    expect(unregister).toHaveBeenCalled();
+    expect(reload).toHaveBeenCalled();
+  });
+
+  // A hand-edited or corrupted value parses to NaN. `NaN > RELOAD_COOLDOWN_MS`
+  // is always false, so the old unguarded comparison fell into "too soon"
+  // forever — the recovery path would never fire again until something else
+  // cleared the key. A garbage timestamp must count as "no previous reload",
+  // the same as the key being absent.
+  it('treats a non-numeric stored timestamp as no previous reload, not "too soon" forever', async () => {
+    localStorage.setItem(RELOAD_KEY, 'not-a-number');
+
+    loadHandler()({ message: CHUNK_ERROR_MESSAGE });
+    await settle();
+
+    expect(reload).toHaveBeenCalled();
+  });
 });

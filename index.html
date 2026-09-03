@@ -50,21 +50,45 @@
             return;
           }
 
-          var lastReload = localStorage.getItem('tutto_last_reload');
+          // Raw localStorage calls throw in a blocked/private context (Safari
+          // ITP, a locked-down embed, dom.storage.enabled=false) — letting
+          // either propagate would abort this listener before it ever reaches
+          // the cache/unregister/reload chain below, silently disabling the
+          // one path meant to recover a broken deploy. Read failure falls back
+          // to "no previous reload"; write failure just means the NEXT error
+          // cannot be throttled against this one, not that THIS recovery must
+          // not happen.
+          var lastReloadRaw = null;
+          try {
+            lastReloadRaw = localStorage.getItem('tutto_last_reload');
+          } catch (storageReadError) {
+            lastReloadRaw = null;
+          }
           var now = Date.now();
+          // A hand-edited or corrupted value parses to NaN, and NaN compares
+          // false against everything — the unguarded version below fell into
+          // "too soon" forever rather than ever recovering again. Number
+          // .isFinite is the guard that makes a garbage value count as "no
+          // previous reload" instead.
+          var lastReloadTime = lastReloadRaw === null ? NaN : parseInt(lastReloadRaw, 10);
+          var hasLastReload = Number.isFinite(lastReloadTime);
 
           console.warn('[Auto-reload Check]', {
             message: e.message,
             src: e.target?.src,
             isChunkError: isChunkError,
             isScriptError: isScriptError,
-            lastReload: lastReload ? new Date(parseInt(lastReload)).toISOString() : null,
-            timeSinceLastReload: lastReload ? (now - parseInt(lastReload)) + 'ms' : 'never'
+            lastReload: hasLastReload ? new Date(lastReloadTime).toISOString() : null,
+            timeSinceLastReload: hasLastReload ? (now - lastReloadTime) + 'ms' : 'never'
           });
 
-          if (!lastReload || (now - parseInt(lastReload)) > RELOAD_COOLDOWN_MS) {
+          if (!hasLastReload || (now - lastReloadTime) > RELOAD_COOLDOWN_MS) {
             console.error('[Auto-reloading] Triggering reload due to:', e.message || e.target?.src);
-            localStorage.setItem('tutto_last_reload', now.toString());
+            try {
+              localStorage.setItem('tutto_last_reload', now.toString());
+            } catch (storageWriteError) {
+              // Best-effort throttle bookkeeping — see the comment above.
+            }
             // Unregistering matters as much as deleting, and this was the one
             // recovery path that skipped it. src/sw.js only fills the precache
             // from its `install` event, and an unchanged worker never installs
