@@ -183,12 +183,21 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
 
   // The chain so far, or — before any chain action this turn — just the
   // current card, still unresolved.
-  const chainOrCurrentCard = useCallback((): PhysicalChainState => (
-    chainRef.current ?? {
-      cards: currentCardRef.current ? [{ card: currentCardRef.current, completed: false }] : [],
+  //
+  // `seedCard` overrides which card that is, for the one caller that can no
+  // longer trust the ref: recordDraw. The ref tracks the card in play, and the
+  // draw that calls recordDraw MOVES it — online the card is now dealt by the
+  // server, so the draw is a round trip, and by the time it answers React has
+  // long since re-rendered on the new card and refreshed the ref. Seeding a
+  // brand-new chain off the ref then recorded the drawn card as the card it
+  // was drawn FROM, so the first card of every chain was lost.
+  const chainOrCurrentCard = useCallback((seedCard?: CardType | null): PhysicalChainState => {
+    const seed = seedCard === undefined ? currentCardRef.current : seedCard;
+    return chainRef.current ?? {
+      cards: seed ? [{ card: seed, completed: false }] : [],
       plusMinusScores: [],
-    }
-  ), []);
+    };
+  }, []);
 
   const writeCache = useCallback((turnKey: string, awaiting: boolean) => {
     if (!enabledRef.current) return;
@@ -271,8 +280,14 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
   // Continuing means the current card's goal was reached; the drawn card
   // joins the chain unresolved. Stamped with the POST-draw key — the store
   // already holds the new card, this render's prop just hasn't caught up.
-  const recordDraw = useCallback((drawn: CardType) => {
-    const source = chainOrCurrentCard();
+  //
+  // `drawnFrom` is the card the chain is being continued from, read by the
+  // caller BEFORE it asked for the draw. Required rather than optional: the
+  // draw is asynchronous now (the server deals the card), so the ref this used
+  // to seed off has already moved on to `drawn` by the time this runs — see
+  // chainOrCurrentCard.
+  const recordDraw = useCallback((drawn: CardType, drawnFrom: CardType | null) => {
+    const source = chainOrCurrentCard(drawnFrom);
     chainRef.current = {
       cards: [...source.cards.map((c, i) => (i === source.cards.length - 1 ? { ...c, completed: true } : c)), { card: drawn, completed: false }],
       plusMinusScores: source.plusMinusScores,

@@ -134,6 +134,17 @@ describe('Server-side turn timer', () => {
   const expectNoTimerArmed = (roomId: string) =>
     expect(rooms[normalizeRoomId(roomId)].turnExpireTimer).toBeNull();
 
+  /**
+   * A deck of one card type, so a test can know what the server will deal.
+   *
+   * The kickoff push no longer chooses the card: `cards` and `currentCard` are
+   * written by the server alone (server/deckAuthority.ts), which builds the
+   * deck from `initialCards` and deals its top card. Pinning the config is the
+   * only way left to pin the card — and it is the honest one, since the whole
+   * point of the change is that no client picks it.
+   */
+  const ONLY_200 = { '200': 5 };
+
   const twoPlayers = (roomId: string, hostSock: ClientSocket, guestSock: ClientSocket) => [
     { name: 'Alice', deviceId: `dev-${roomId}-Alice`, socketId: hostSock.id, disconnected: false, score: 0 },
     { name: 'Bob', deviceId: `dev-${roomId}-Bob`, socketId: guestSock.id, disconnected: false, score: 0 },
@@ -148,7 +159,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
-        currentPlayerIndex: 0, currentCard: '200', cards: ['300'], round: 1, turnDuration: TURN_DURATION_S,
+        currentPlayerIndex: 0, round: 1, turnDuration: TURN_DURATION_S, initialCards: ONLY_200,
       },
     });
     await waitForArmedTimer(roomId);
@@ -213,7 +224,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
-        currentPlayerIndex: 0, currentCard: '200', cards: ['300'], round: 1, turnDuration: TURN_DURATION_S,
+        currentPlayerIndex: 0, round: 1, turnDuration: TURN_DURATION_S, initialCards: ONLY_200,
       },
     });
     await waitForArmedTimer(roomId);
@@ -255,7 +266,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
-        currentPlayerIndex: 0, currentCard: 'Feuerwerk', cards: ['300'], round: 1, turnDuration: TURN_DURATION_S,
+        currentPlayerIndex: 0, round: 1, turnDuration: TURN_DURATION_S, initialCards: { Feuerwerk: 5 },
       },
     });
 
@@ -286,7 +297,7 @@ describe('Server-side turn timer', () => {
       roomId,
       newState: {
         players: twoPlayers(roomId, hostSock, guestSock), status: 'playing',
-        currentPlayerIndex: 0, currentCard: 'Kleeblatt', cards: ['300'], round: 1, turnDuration: TURN_DURATION_S,
+        currentPlayerIndex: 0, round: 1, turnDuration: TURN_DURATION_S, initialCards: { Kleeblatt: 5 },
       },
     });
 

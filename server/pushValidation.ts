@@ -270,7 +270,7 @@ const HOST_ONLY_FIELDS: ReadonlySet<SyncedGameStateKey> =
   Object.freeze(new Set<SyncedGameStateKey>(HOST_ONLY_FIELD_LIST));
 
 const ACTIVE_PLAYER_FIELD_LIST = [
-  'currentCard', 'cards', 'currentPlayerIndex', 'round',
+  'currentPlayerIndex', 'round',
   'previousCard', 'previousScore', 'previousLeaders',
   'previousWasBust', 'previousWasSuccess',
   'previousHighestTurnScore', 'previousHighestFeuerwerkTurnScore',
@@ -286,10 +286,30 @@ const ACTIVE_PLAYER_FIELD_LIST = [
 const ACTIVE_PLAYER_FIELDS: ReadonlySet<SyncedGameStateKey> =
   Object.freeze(new Set<SyncedGameStateKey>(ACTIVE_PLAYER_FIELD_LIST));
 
-// The two lists must partition the synced game state: together they cover
-// every synced field, and no field sits in both. A field missing from both
-// was this codebase's most common defect — applyPushedState loops the
-// allowlist, not the payload, so the field was silently stripped from every
+/**
+ * The synced fields NO push may write, because the server produces them
+ * itself — see applyServerOwnedField below for what that buys and why an
+ * arriving value is dropped rather than refused.
+ *
+ * A third list rather than "just leave them out of both": PushFieldLock has
+ * always forced every synced field onto an allowlist precisely so that one
+ * silently missing from both fails the build instead of being silently
+ * stripped from every push. Making the exception a WRITTEN list keeps that
+ * guarantee — the same shape BROADCAST_EXCLUDED_FIELDS (server/rooms.ts) and
+ * NeverSavedLocally (src/store/persistence.ts) already have on their sides.
+ *
+ * Exported so this file's own tests can assert the property over the LIST
+ * rather than over two field names hard-coded beside it, which would not grow
+ * with it — the same reason BROADCAST_EXCLUDED_FIELDS is exported.
+ */
+export const SERVER_OWNED_FIELD_LIST = [
+  'currentCard', 'cards',
+] as const satisfies readonly SyncedGameStateKey[];
+
+// The three lists must partition the synced game state: together they cover
+// every synced field, and no field sits in more than one. A field missing from
+// all of them was this codebase's most common defect — applyPushedState loops
+// the allowlist, not the payload, so the field was silently stripped from every
 // push with nothing failing. Now it refuses to build, naming the key.
 //
 // Membership is only half of it, and this lock used to be described as if it
@@ -298,8 +318,13 @@ const ACTIVE_PLAYER_FIELDS: ReadonlySet<SyncedGameStateKey> =
 // covered by the chain's terminal `else` (assertHandled), not here.
 // Exported only so noUnusedLocals sees a use; nothing imports it.
 export type PushFieldLock = [
-  AssertNever<Exclude<SyncedGameStateKey, (typeof HOST_ONLY_FIELD_LIST)[number] | (typeof ACTIVE_PLAYER_FIELD_LIST)[number]>>,
+  AssertNever<Exclude<SyncedGameStateKey,
+    (typeof HOST_ONLY_FIELD_LIST)[number] | (typeof ACTIVE_PLAYER_FIELD_LIST)[number] | (typeof SERVER_OWNED_FIELD_LIST)[number]>>,
   AssertNever<Extract<(typeof HOST_ONLY_FIELD_LIST)[number], (typeof ACTIVE_PLAYER_FIELD_LIST)[number]>>,
+  // A server-owned field in either writable set would hand the deck straight
+  // back to the client this whole split exists to take it from.
+  AssertNever<Extract<(typeof SERVER_OWNED_FIELD_LIST)[number],
+    (typeof HOST_ONLY_FIELD_LIST)[number] | (typeof ACTIVE_PLAYER_FIELD_LIST)[number]>>,
 ];
 
 const ALL_FIELDS: ReadonlySet<SyncedGameStateKey> =
@@ -610,81 +635,40 @@ const applyRandomOrder: FieldHandler = (value, ctx) => {
   if (typeof value === 'boolean') ctx.state.randomOrder = value;
 };
 
-// Shared by currentCard/previousCard: identical rule, only the target field
-// differs. The double cast matches the chain's own workaround for writing
-// through a key that is only known to be one of two fields of the same type.
-const cardFieldHandler = (field: 'currentCard' | 'previousCard'): FieldHandler => (value, ctx) => {
+// previousCard only, now that currentCard is dealt by the server and no longer
+// writable from a push. It stays a bookkeeping field: which card the turn that
+// can still be undone was played on.
+const applyPreviousCard: FieldHandler = (value, ctx) => {
   if (value === null || VALID_CARD_TYPES.includes(value as CardType)) {
-    (ctx.state as unknown as Record<string, unknown>)[field] = value;
+    ctx.state.previousCard = value as CardType | null;
   }
 };
 
 /**
- * The most cards one push may hand BACK to the deck.
+ * The two fields the SERVER deals, ignored wherever they arrive.
  *
- * An undo returns two chains at once (calculateUndo's newDeck): the turn it is
- * rewinding gives back everything but the card it re-deals
- * (previousTurnSummary.cards), and the in-progress turn it is discarding gives
- * back everything IT drew (liveTurnState.cardsThisTurn — see
- * inProgressChainCards). Both lists are capped at MAX_CHAIN_CARDS where they
- * enter this file, so two of them is the ceiling.
+ * `cards` is the ordered undrawn deck and `currentCard` is the card in play.
+ * A client that can write either one picks its own next card — which in the
+ * classic rule set is the entire game, since the decision the whole turn turns
+ * on is "bank what you are holding, or reveal the next card and risk it". Both
+ * are dealt by server/deckAuthority.ts now, from the move a merged push
+ * implies, so the card is chosen AFTER the player has committed to drawing.
  *
- * Exported so the tests push exactly one card past the bound rather than
- * hard-coding a number that would drift away from it.
+ * Kept as entries in FIELD_HANDLERS rather than deleted, because that table is
+ * locked to the canonical synced-field set (`satisfies Record<SyncedGameStateKey,
+ * FieldHandler>`) — a synced field with no entry fails the build. They are
+ * unreachable in practice: neither field is in HOST_ONLY_FIELDS or
+ * ACTIVE_PLAYER_FIELDS, and applyPushedState loops those sets rather than the
+ * payload. This is the belt to that braces, and it is what documents at the
+ * dispatch table itself why the two keys look absent from both allowlists.
+ *
+ * Ignoring rather than REFUSING the push that carries them is deliberate and
+ * is what lets this ship on its own: there is no protocol version here, an
+ * in-room client is never updated across a redeploy (swUpdate.ts), and every
+ * client predating this change sends both fields on every single push.
+ * Refusing those would end every game in progress.
  */
-export const MAX_DECK_GIVE_BACK = MAX_CHAIN_CARDS * 2;
-
-/**
- * Whether a pushed deck is one a game could actually have moved to.
- *
- * Read off applyCards' only real callers — the client store's own pushes
- * (gameSlice.ts) and the engine behind them (coreGameEngine.ts) — the deck has
- * exactly four legitimate mid-game moves:
- *
- *   - unchanged. pushState relays the sender's WHOLE store, so every push that
- *     is neither a draw nor an undo simply re-sends the deck it last synced.
- *   - one card off the top: a draw. calculateNextTurn's advance and
- *     drawCardMidTurn both `shift()` the deck they were handed.
- *   - up to MAX_DECK_GIVE_BACK cards back ON the top: an undo, which leaves
- *     the rest of the deck untouched underneath what it returns.
- *   - anything at all, but only out of an EXHAUSTED deck: a draw from an empty
- *     deck rebuilds a fresh one first (buildDeck). That is the one legitimate
- *     wholesale replacement, and there is nothing left to conserve when it
- *     happens.
- *
- * Nothing else — and in particular nothing that shrinks the deck by more than
- * the single card a draw takes, and nothing that swaps the deck's contents out
- * from under the room while keeping its length. Without the rule, any accepted
- * push installed its own `cards` outright, and the push most likely to do so
- * is an honest one: a client that has never drawn sits on whatever deck it
- * last synced, so a host's own undo / endGame / startGame could wipe the deck
- * the table was mid-way through and every later draw came off a silently
- * restarted one.
- */
-const isReachableDeckMove = (next: readonly CardType[], current: readonly CardType[]): boolean => {
-  if (current.length === 0) return true;
-  if (next.length === current.length - 1) return next.every((c, i) => c === current[i + 1]);
-  const givenBack = next.length - current.length;
-  if (givenBack < 0 || givenBack > MAX_DECK_GIVE_BACK) return false;
-  return current.every((c, i) => c === next[givenBack + i]);
-};
-
-const applyCards: FieldHandler = (value, ctx) => {
-  if (!(Array.isArray(value) && value.length <= MAX_DECK_SIZE && value.every(c => VALID_CARD_TYPES.includes(c as CardType)))) {
-    return;
-  }
-  // A game start installs the deck it has just built, so it is exempt; outside
-  // a running game there is no deck to conserve at all. `ctx.state.status` is
-  // the POST-push value on the host path ('status' is the first entry of
-  // ALL_FIELDS — the same ordering applyPushedState's own coherence check
-  // documents), which is exactly what keeps endGame's `cards: []` legal: it
-  // carries the return to the lobby in the same snapshot.
-  if (!ctx.startingGame && ctx.state.status === 'playing' &&
-      !isReachableDeckMove(value as CardType[], ctx.state.cards)) {
-    return;
-  }
-  ctx.state.cards = value as CardType[];
-};
+const applyServerOwnedField: FieldHandler = () => {};
 
 const applyCurrentPlayerIndex: FieldHandler = (value, ctx) => {
   if (value === null || (Number.isInteger(value) && (value as number) >= 0 && (value as number) < ctx.state.players.length)) {
@@ -877,11 +861,11 @@ const FIELD_HANDLERS = {
   reconnectTimeout: applyReconnectTimeout,
   enforcedDiceMode: applyEnforcedDiceMode,
   ruleset: applyRuleset,
-  currentCard: cardFieldHandler('currentCard'),
-  cards: applyCards,
+  currentCard: applyServerOwnedField,
+  cards: applyServerOwnedField,
   currentPlayerIndex: applyCurrentPlayerIndex,
   round: applyRound,
-  previousCard: cardFieldHandler('previousCard'),
+  previousCard: applyPreviousCard,
   previousScore: applyPreviousScore,
   previousLeaders: applyPreviousLeaders,
   previousWasBust: applyPreviousWasBust,

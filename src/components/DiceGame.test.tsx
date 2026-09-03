@@ -112,6 +112,27 @@ const flushRoll = async () => {
 // a later, unrelated deadline deterministically). For those, the same
 // zero-mocked roll settles on a small fake-timer advance rather than a real
 // macrotask flush — see the cascading-timer note on FAKE_FLUSH_MS's usage.
+/**
+ * Ask for the next chain card, and let the request settle before reading the DOM.
+ *
+ * The draw stopped being a local shift off the client's own deck: online the
+ * card is dealt by the SERVER, because a client holding the undrawn deck knows
+ * the answer to the very question a classic turn asks ("bank, or reveal the
+ * next card and risk everything"). onDrawCard therefore hands back a promise,
+ * and the reveal, the chain entry and the deferred roll all land a microtask
+ * after the click rather than inside it — so every test that presses Draw has
+ * to yield here first.
+ */
+const settleDraw = () => act(async () => { await Promise.resolve(); });
+const clickDraw = async () => {
+  fireEvent.click(screen.getByTestId('draw-next-card'));
+  await settleDraw();
+};
+const pressDrawKey = async () => {
+  fireEvent.keyDown(window, { key: 'd' });
+  await settleDraw();
+};
+
 const FAKE_FLUSH_MS = 5;
 const flushRollFake = () => act(() => { vi.advanceTimersByTime(FAKE_FLUSH_MS); });
 
@@ -1035,7 +1056,7 @@ describe('DiceGame roll-again mid-animation button stability', () => {
     localStorage.clear();
   });
 
-  it('disables Roll Again and Stop & Score in place mid-reroll, instead of unmounting Stop & Score', () => {
+  it('disables Roll Again and Stop & Score in place mid-reroll, instead of unmounting Stop & Score', async () => {
     queueRoll([1, 2, 3, 4, 6, 6]);
     render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
 
@@ -1097,20 +1118,28 @@ describe('DiceGame chain draw the server discards', () => {
 
   const selectAllValid = () => fireEvent.click(screen.getByText('dice.select_all_valid'));
 
-  const drawAndDismiss = () => {
+  /**
+   * Draw, then dismiss the reveal it puts up.
+   *
+   * Awaited throughout this file because the draw is a round trip now: online
+   * the card is dealt by the SERVER (the deck is not the client's to draw
+   * from), so onDrawCard hands back a promise and the panel does not react
+   * within the click that started it.
+   */
+  const drawAndDismiss = async () => {
     selectAllValid();
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    await clickDraw();
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
   };
 
-  it('banks the committed tutto when the drawn card never arrives, instead of stranding the roll', () => {
+  it('banks the committed tutto when the drawn card never arrives, instead of stranding the roll', async () => {
     const onComplete = vi.fn();
-    const onDrawCard = vi.fn(() => '500' as const);
+    const onDrawCard = vi.fn(async () => '500' as const);
     queueRoll([1, 1, 1, 5, 5, 5]); // 1500 dice + 300 card = 1800
     render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
     flushRollFake();
 
-    drawAndDismiss();
+    await drawAndDismiss();
     // currentCard is never re-rendered as '500': the push was discarded, so
     // the store still says '300'.
     act(() => { vi.advanceTimersByTime(PAST_RECOVERY_DEADLINE_MS); });
@@ -1127,21 +1156,21 @@ describe('DiceGame chain draw the server discards', () => {
     }));
   });
 
-  it('recovers on the contradiction itself, without stranding the reveal or waiting out the deadline', () => {
+  it('recovers on the contradiction itself, without stranding the reveal or waiting out the deadline', async () => {
     // The real sequence: drawCardMidTurn sets the drawn card locally before the
     // push is even sent, so the reveal goes up on a card that IS current — and
     // the discarded push's revert lands while the player is still reading it.
     // Arming the deadline only on dismissal put them in front of an empty table
     // with every button disabled for the whole of it.
     const onComplete = vi.fn();
-    const onDrawCard = vi.fn(() => '500' as const);
+    const onDrawCard = vi.fn(async () => '500' as const);
     queueRoll([1, 1, 1, 5, 5, 5]); // 1500 dice + 300 card = 1800
     const props = { ruleset: 'classic' as const, onDrawCard, onComplete };
     const { rerender } = render(<DiceGame currentCard="300" {...props} />);
     flushRollFake();
 
     selectAllValid();
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    await clickDraw();
     rerender(<DiceGame currentCard="500" {...props} />); // the store's own optimistic set...
     rerender(<DiceGame currentCard="300" {...props} />); // ...reverted by the next room state
 
@@ -1159,9 +1188,9 @@ describe('DiceGame chain draw the server discards', () => {
     }));
   });
 
-  it('leaves the accepted draw alone: the card arrives, the roll is released, nothing is banked', () => {
+  it('leaves the accepted draw alone: the card arrives, the roll is released, nothing is banked', async () => {
     const onComplete = vi.fn();
-    const onDrawCard = vi.fn(() => '500' as const);
+    const onDrawCard = vi.fn(async () => '500' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     const { rerender } = render(
       <DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />,
@@ -1169,7 +1198,7 @@ describe('DiceGame chain draw the server discards', () => {
     flushRollFake();
 
     selectAllValid();
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    await clickDraw();
     queueRoll([1, 5, 2, 3, 4, 6]); // the fresh roll on the new card
     rerender(<DiceGame currentCard="500" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
@@ -1181,18 +1210,18 @@ describe('DiceGame chain draw the server discards', () => {
     expect(onComplete).not.toHaveBeenCalled();
   });
 
-  it('does not mistake a second card of the same type for a discarded draw', () => {
+  it('does not mistake a second card of the same type for a discarded draw', async () => {
     // currentCard cannot change when the drawn card matches the current one,
     // so this draw looks exactly like a reverted one from the outside — the
     // reveal being dismissed is what releases it.
     const onComplete = vi.fn();
-    const onDrawCard = vi.fn(() => '300' as const);
+    const onDrawCard = vi.fn(async () => '300' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
     flushRollFake();
 
     selectAllValid();
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    await clickDraw();
     queueRoll([1, 5, 2, 3, 4, 6]);
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
 
@@ -1204,19 +1233,19 @@ describe('DiceGame chain draw the server discards', () => {
     expect(onComplete).not.toHaveBeenCalled();
   });
 
-  it('recovers a discarded Stop draw while its reveal is still up', () => {
+  it('recovers a discarded Stop draw while its reveal is still up', async () => {
     // A drawn Stop never arms the deferred roll, so none of the recovery above
     // watches it — yet its push can be discarded exactly like any other draw.
     // Committing the forfeit anyway logs a Stop the server's deck still holds.
     const onComplete = vi.fn();
-    const onDrawCard = vi.fn(() => 'Stop' as const);
+    const onDrawCard = vi.fn(async () => 'Stop' as const);
     queueRoll([1, 1, 1, 5, 5, 5]); // 1500 dice + 300 card = 1800
     const props = { ruleset: 'classic' as const, onDrawCard, onComplete };
     const { rerender } = render(<DiceGame currentCard="300" {...props} />);
     flushRollFake();
 
     selectAllValid();
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    await clickDraw();
     rerender(<DiceGame currentCard="Stop" {...props} />); // the store's own optimistic set...
     rerender(<DiceGame currentCard="300" {...props} />); // ...reverted by the next room state
 
@@ -1235,18 +1264,18 @@ describe('DiceGame chain draw the server discards', () => {
     }));
   });
 
-  it('recovers when the revert lands after the Stop reveal was dismissed', () => {
+  it('recovers when the revert lands after the Stop reveal was dismissed', async () => {
     // The forfeit summary runs a countdown before it commits — a revert
     // landing inside that window must still convert the turn to its bank.
     const onComplete = vi.fn();
-    const onDrawCard = vi.fn(() => 'Stop' as const);
+    const onDrawCard = vi.fn(async () => 'Stop' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     const props = { ruleset: 'classic' as const, onDrawCard, onComplete };
     const { rerender } = render(<DiceGame currentCard="300" {...props} />);
     flushRollFake();
 
     selectAllValid();
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    await clickDraw();
     rerender(<DiceGame currentCard="Stop" {...props} />);
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
     expect(screen.getByText('dice.stop_card_drawn')).toBeInTheDocument();
@@ -1264,18 +1293,18 @@ describe('DiceGame chain draw the server discards', () => {
     }));
   });
 
-  it('leaves a Stop the store does hold alone — the forfeit is real', () => {
+  it('leaves a Stop the store does hold alone — the forfeit is real', async () => {
     // The optimistic set makes currentCard 'Stop' and nothing reverts it: the
     // recovery must not fire on the interim renders around the reveal.
     const onComplete = vi.fn();
-    const onDrawCard = vi.fn(() => 'Stop' as const);
+    const onDrawCard = vi.fn(async () => 'Stop' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     const props = { ruleset: 'classic' as const, onDrawCard, onComplete };
     const { rerender } = render(<DiceGame currentCard="300" {...props} />);
     flushRollFake();
 
     selectAllValid();
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    await clickDraw();
     rerender(<DiceGame currentCard="Stop" {...props} />);
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
 
@@ -1453,7 +1482,7 @@ describe('DiceGame classic chains', () => {
 
   it('drawing an x2 mid-chain doubles the whole accumulated total on its tutto', async () => {
     const onComplete = vi.fn();
-    const onDrawCard = vi.fn(() => 'x2' as const);
+    const onDrawCard = vi.fn(async () => 'x2' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     const { rerender } = render(
       <DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />,
@@ -1462,7 +1491,7 @@ describe('DiceGame classic chains', () => {
 
     selectAllValid();
     queueRoll([1, 1, 1, 5, 5, 5]); // the fresh 6-dice roll on the x2 card
-    fireEvent.click(screen.getByTestId('draw-next-card')); // tutto → 1800, drawn on
+    await clickDraw(); // tutto → 1800, drawn on
     expect(onDrawCard).toHaveBeenCalled();
 
     // The new card arrives through the prop, and the roll waits for the reveal
@@ -1485,13 +1514,13 @@ describe('DiceGame classic chains', () => {
 
   it('a Stop card drawn mid-chain forfeits the entire turn', async () => {
     const onComplete = vi.fn();
-    const onDrawCard = vi.fn(() => 'Stop' as const);
+    const onDrawCard = vi.fn(async () => 'Stop' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="500" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
     await flushRoll();
 
     selectAllValid();
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    await clickDraw();
 
     // The Stop is revealed like any other drawn card; the forfeit summary
     // follows once the player has seen it.
@@ -1590,7 +1619,7 @@ describe('DiceGame classic chains', () => {
     // resolved, so a Plus/Minus drawn onto 1800 must report 1800 — not 0, which
     // would deduct from a leader this chain had already overtaken.
     const onComplete = vi.fn();
-    const onDrawCard = vi.fn(() => 'Plus_Minus' as const);
+    const onDrawCard = vi.fn(async () => 'Plus_Minus' as const);
     queueRoll([1, 1, 1, 5, 5, 5]); // 300 card: 1500 dice + 300 = 1800
     const { rerender } = render(
       <DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />,
@@ -1599,7 +1628,7 @@ describe('DiceGame classic chains', () => {
 
     selectAllValid();
     queueRoll([1, 1, 1, 5, 5, 5]);
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    await clickDraw();
     rerender(<DiceGame currentCard="Plus_Minus" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
     await flushRoll();
@@ -1616,7 +1645,7 @@ describe('DiceGame classic chains', () => {
 
   it('a classic Feuerwerk null banks the whole accumulated chain', async () => {
     const onComplete = vi.fn();
-    const onDrawCard = vi.fn(() => 'Feuerwerk' as const);
+    const onDrawCard = vi.fn(async () => 'Feuerwerk' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     const { rerender } = render(
       <DiceGame currentCard="200" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />,
@@ -1624,7 +1653,7 @@ describe('DiceGame classic chains', () => {
     await flushRoll();
     selectAllValid();
     queueRoll([1, 2, 3, 4, 6, 6]); // the forced keep takes the 1...
-    fireEvent.click(screen.getByTestId('draw-next-card')); // tutto → 1700, drawn on
+    await clickDraw(); // tutto → 1700, drawn on
     rerender(<DiceGame currentCard="Feuerwerk" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} />);
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
     await flushRoll();
@@ -1697,7 +1726,7 @@ describe('DiceGame classic chains', () => {
   });
 
   it('shows the drawn card and holds the fresh roll until it is dismissed', async () => {
-    const onDrawCard = vi.fn(() => '500' as const);
+    const onDrawCard = vi.fn(async () => '500' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     const { rerender } = render(
       <DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />,
@@ -1705,7 +1734,7 @@ describe('DiceGame classic chains', () => {
     await flushRoll();
 
     selectAllValid();
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    await clickDraw();
     rerender(<DiceGame currentCard="500" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />);
 
     // The reveal names the drawn card, which card of the chain it is, and the
@@ -1733,11 +1762,11 @@ describe('DiceGame classic chains', () => {
     // summary — not on a decided table with nothing left to press.
     const onComplete = vi.fn();
     queueRoll([1, 1, 1, 5, 5, 5]);
-    render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={() => null} onComplete={onComplete} />);
+    render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={async () => null} onComplete={onComplete} />);
     await flushRoll();
 
     selectAllValid();
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    await clickDraw();
 
     expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(1800, true, expect.objectContaining({
@@ -1749,13 +1778,13 @@ describe('DiceGame classic chains', () => {
   it('draws a second card of the same type without waiting for a prop that never changes', async () => {
     // currentCard does not change when the drawn card matches the current one,
     // so the deferred roll can only be released by the reveal being dismissed.
-    const onDrawCard = vi.fn(() => '300' as const);
+    const onDrawCard = vi.fn(async () => '300' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />);
     await flushRoll();
 
     selectAllValid();
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    await clickDraw();
     expect(screen.getByTestId('drawn-card-continue')).toBeInTheDocument();
 
     queueRoll([1, 5, 2, 3, 4, 6]);
@@ -1767,13 +1796,13 @@ describe('DiceGame classic chains', () => {
   });
 
   it('D draws the next card, the same as the button', async () => {
-    const onDrawCard = vi.fn(() => '500' as const);
+    const onDrawCard = vi.fn(async () => '500' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />);
     await flushRoll();
 
     selectAllValid();
-    fireEvent.keyDown(window, { key: 'd' });
+    await pressDrawKey();
 
     expect(onDrawCard).toHaveBeenCalled();
     expect(screen.getByTestId('drawn-card-continue')).toBeInTheDocument();
@@ -2024,7 +2053,7 @@ describe('machine transitions the DOM suite left to unit tests', () => {
   });
 
   it('counts the drawn card into the chain badge', async () => {
-    const onDrawCard = vi.fn(() => '300' as const);
+    const onDrawCard = vi.fn(async () => '300' as const);
     queueRoll([1, 1, 1, 5, 5, 5]);
     render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />);
     await flushRoll();
@@ -2034,7 +2063,7 @@ describe('machine transitions the DOM suite left to unit tests', () => {
 
     selectAllValid();
     queueRoll([1, 2, 3, 4, 6, 6]);
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    await clickDraw();
     // Drawing the SAME card type: currentCard never changes, so no rerender
     // is needed — dismissing the reveal releases the deferred roll.
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
@@ -2047,14 +2076,14 @@ describe('machine transitions the DOM suite left to unit tests', () => {
   });
 
   it('starts a freshly drawn Kniffel with an empty run', async () => {
-    const onDrawCard = vi.fn(() => 'Kniffel' as const);
+    const onDrawCard = vi.fn(async () => 'Kniffel' as const);
     queueRoll([1, 2, 3, 4, 5, 6]); // classic Kniffel: the whole straight at once
     render(<DiceGame currentCard="Kniffel" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />);
     await flushRoll();
 
     selectAllValid();
     queueRoll([1, 2, 2, 3, 3, 4]);
-    fireEvent.click(screen.getByTestId('draw-next-card'));
+    await clickDraw();
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
     await flushRoll();
 

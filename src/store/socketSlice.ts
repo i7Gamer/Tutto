@@ -12,7 +12,7 @@ import { REACTION_DISPLAY_MS } from '../utils/reactions';
 import { roomPhase } from '../utils/roomPhase';
 import { SYNCED_GAME_STATE_KEYS } from '../types';
 import type {
-  Reaction, DiceSnapshot, AssertNever, SyncedGameStateKey, PushStateAck,
+  Reaction, CardType, DiceSnapshot, AssertNever, SyncedGameStateKey, DrawCardAck, PushStateAck,
   StatsSubmitAck, StatsRefusalReason, DeviceStatsPayload, GlobalStatsPayload,
 } from '../types';
 import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from './storeTypes';
@@ -20,13 +20,14 @@ import { finishedGameSnapshotOf, makeToast } from './gameSlice';
 import { clearTurnCaches } from '../utils/diceTurnState';
 import { joinErrorMessage } from '../utils/joinErrors';
 import {
+  DRAW_CARD_ACK_TIMEOUT_MS,
   JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS, CANCEL_RECONNECT_FAILSAFE_MS,
   STATS_SUBMIT_ACK_TIMEOUT_MS, STATS_SUBMIT_RETRY_BASE_MS,
 } from '../utils/uiTimings';
 
 type SocketSlice = Pick<GameStore,
   | 'connectSocket' | 'joinRoom' | 'leaveRoom' | 'kickPlayer'
-  | 'cancelReconnect' | 'pushState' | 'pushLiveTurnState' | 'sendOnlineStats'
+  | 'cancelReconnect' | 'pushState' | 'pushLiveTurnState' | 'requestServerDraw' | 'sendOnlineStats'
 >;
 
 // Fields the server's 'gameState' broadcast is allowed to overwrite on the
@@ -1174,6 +1175,63 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       socket.emit('liveTurnState', { roomId: s.roomId, liveTurnState: snapshot });
     }
   },
+
+  /**
+   * "I have committed to drawing — which card do I get?"
+   *
+   * The only way an online classic chain reveals a card. It used to be a local
+   * `cards.shift()` pushed back as a fait accompli, which meant the answer was
+   * sitting in the store — readable in devtools — at the moment the player was
+   * deciding whether to risk everything on it. The server holds the deck now
+   * and deals from it here (server/socketGameStateHandlers.ts's drawCard).
+   *
+   * Resolves null rather than rejecting for every way of not getting a card —
+   * refused, no socket, or no answer at all. The caller has already committed
+   * the tutto by the time it asks, and null is the outcome DiceGame has always
+   * known how to take: bank that tutto instead of playing on.
+   *
+   * The deadline is what makes "no answer at all" an outcome rather than a
+   * hang. Without it a dropped ack parks the turn on a decided table with
+   * every button disabled, behind a panel that is deliberately
+   * non-dismissible — the same dead end DISCARDED_DRAW_RECOVERY_MS exists to
+   * get the deferred roll out of.
+   */
+  requestServerDraw: () => new Promise<CardType | null>(resolve => {
+    const s = get();
+    const socket = getSocket();
+    // `connected`, not just "there is a socket": socket.io BUFFERS an emit made
+    // while the transport is down and delivers it on reconnect. For a full
+    // snapshot that is merely the wrong recovery (see parkedPush); for a draw
+    // it is worse than useless — the panel would have given up and banked the
+    // tutto seconds earlier, and the buffered request would then spend a card
+    // off the room's deck for a turn that had already ended.
+    if (!s.isOnline || !socket || !socket.connected) return resolve(null);
+
+    // One-shot: whichever of the ack and the deadline lands first wins, and
+    // the loser must not resolve a promise that has already been answered —
+    // a late ack settling a draw the panel has already banked would leave the
+    // chain and the room disagreeing about whether a card was ever dealt.
+    let settled = false;
+    const settle = (card: CardType | null): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      resolve(card);
+    };
+    const deadline = setTimeout(() => settle(null), DRAW_CARD_ACK_TIMEOUT_MS);
+
+    socket.emit('drawCard', { roomId: s.roomId }, (ack?: DrawCardAck) => {
+      if (!ack || !ack.ok) return settle(null);
+      // Adopted locally as well as handed back, so the panel does not have to
+      // wait for the broadcast to be applied before it can act on the card.
+      // The room's own gameState carries the same card AND the deck it came
+      // off, and the server sends it before this ack — so this write is
+      // normally a no-op, and is only load-bearing if the two ever land the
+      // other way round.
+      set({ currentCard: ack.card });
+      settle(ack.card);
+    });
+  }),
 
   pushState: () => {
     // A newer full snapshot supersedes any retry still queued for an older

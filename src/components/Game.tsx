@@ -402,15 +402,21 @@ export default function Game() {
   // reveals the next card, keeping the running total in the score input.
   // A drawn Stop resolves through the Stop-card flow (auto online, the
   // Continue button locally), which commits the chain forfeit.
-  const handlePhysicalDrawNextCard = useCallback(() => {
+  const handlePhysicalDrawNextCard = useCallback(async () => {
     if (!currentCard) return;
     // The chain caps at MAX_CHAIN_CARDS (see canDrawAnotherCard) — refused
     // BEFORE drawCardMidTurn, or the drawn card would leave the deck without
     // ever entering the chain.
     if (!canDrawAnotherCard()) return;
-    const drawn = drawCardMidTurn();
+    // Awaited: online the card is dealt by the server (the deck is not this
+    // client's to draw from), so this is a round trip. `currentCard` is read
+    // here, BEFORE the ask, because it is the card the chain is being
+    // continued from and the store has moved on to the new one by the time the
+    // answer lands — see recordDraw.
+    const drawnFrom = currentCard;
+    const drawn = await drawCardMidTurn();
     if (!drawn) return;
-    recordDraw(drawn);
+    recordDraw(drawn, drawnFrom);
   }, [currentCard, canDrawAnotherCard, drawCardMidTurn, recordDraw]);
 
   // Classic physical: the player rolled a null. Said outright instead of being

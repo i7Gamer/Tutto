@@ -349,6 +349,46 @@ export type PushStateAck =
   | { ok: false; reason: PushRefusalReason };
 
 /**
+ * Why the server did not deal a mid-turn chain card.
+ *
+ * The classic chain's draw used to be a purely local shift off the client's
+ * own copy of `cards` — which is exactly the decision that must not be made by
+ * anything holding the deck, since "bank, or reveal the next card and risk
+ * everything" is the whole turn. The card is asked for and answered over the
+ * wire now (server/socketGameStateHandlers.ts), so the refusals need names.
+ *
+ * Deliberately NOT PushRefusalReason: three of these mean the same thing there
+ * and 'not-playing' has no pushState counterpart, and a shared union would
+ * quietly invite the client's push-refusal recovery (a toast, a requestState)
+ * onto a path whose only honest answer is to bank the tutto instead.
+ */
+export const DRAW_REFUSAL_REASONS = [
+  // Not the seat whose turn it is. Unlike pushState, the host is NOT exempt:
+  // there is no legitimate reason for anyone but the active player to spend a
+  // card off the deck, and doing so restarts the victim's own clock.
+  'unauthorized',
+  // No such room (deleted while the request was in flight).
+  'no-room',
+  // The room is in the lobby, or the game has already been won.
+  'not-playing',
+  // The per-socket draw rate limit.
+  'rate-limited',
+  // The payload itself was not a usable drawCard request.
+  'refused',
+] as const;
+
+export type DrawRefusalReason = (typeof DRAW_REFUSAL_REASONS)[number];
+
+/**
+ * What the server answers a drawCard with. `card` is the card the player has
+ * just been dealt — it is already `currentCard` in the room by the time this
+ * is sent, and the same broadcast carries it to every other client.
+ */
+export type DrawCardAck =
+  | { ok: true; card: CardType }
+  | { ok: false; reason: DrawRefusalReason };
+
+/**
  * Why the server did not record a stats submission — endGameStats (the
  * submitting device's own row) or submitGlobalStats (the host's row for the
  * whole game). One vocabulary for both: the two handlers refuse for the same

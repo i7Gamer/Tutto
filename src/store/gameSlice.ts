@@ -236,12 +236,31 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
   },
 
   // Classic chains only: the active player reveals the next card mid-turn
-  // after a tutto. Same reshuffle rule as calculateNextTurn's next-player
-  // draw. The server side already works — the active player may push
-  // currentCard/cards, and the timer restarts on the deck change.
-  drawCardMidTurn: (): CardType | null => {
+  // after a tutto.
+  //
+  // ONLINE the card is not this client's to pick. `cards` is the ordered list
+  // of cards not yet dealt, so drawing from the local copy — which is what
+  // this used to do, then push back — meant the next card was sitting in the
+  // store, readable in devtools, at the very moment the player was deciding
+  // whether to risk the whole chain on it. The server deals it instead
+  // (requestServerDraw) and this adopts the answer.
+  //
+  // LOCAL play is untouched and still draws here: there is no server, no
+  // opponent to hide the deck from, and the same reshuffle rule as
+  // calculateNextTurn's next-player draw.
+  drawCardMidTurn: async (): Promise<CardType | null> => {
     const s = get();
     if (s.finished || s.currentPlayerIndex === null) return null;
+
+    if (s.isOnline) {
+      const drawn = await get().requestServerDraw();
+      // No pushState: the request IS the move, and the server broadcasts the
+      // card and the deck it came off to the whole room itself. Pushing after
+      // it would only re-send a snapshot whose deck the server now ignores.
+      if (drawn) get().syncOnlineTimers();
+      return drawn;
+    }
+
     let deck = [...s.cards];
     if (deck.length === 0) deck = buildDeck(s.initialCards);
     const drawn = deck.shift() ?? null;
@@ -250,10 +269,6 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.cards = deck;
       state.currentCard = drawn;
     });
-    if (get().isOnline) {
-      get().pushState();
-      get().syncOnlineTimers();
-    }
     return drawn;
   },
 

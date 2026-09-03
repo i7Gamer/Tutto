@@ -15,6 +15,12 @@ const SEAT = 1;
 const RULESET: Ruleset = 'classic';
 const keyFor = (card: CardType) => buildTurnKey(ROOM, ROUND, SEAT, card, RULESET);
 
+// The card a draw is made FROM, which recordDraw now has to be told rather
+// than reading off its own ref: the draw is asynchronous (online the server
+// deals it), so by the time recordDraw runs the ref names the card that was
+// just drawn. Same value defaultArgs mounts with.
+const DRAWN_FROM = '200' as CardType;
+
 const defaultArgs = {
   enabled: true,
   roomId: ROOM,
@@ -189,7 +195,7 @@ describe('usePhysicalChain', () => {
       // the assertion passed no matter what recordDraw had done.
       const { result } = mount();
 
-      act(() => result.current.recordDraw('Kniffel'));
+      act(() => result.current.recordDraw('Kniffel', DRAWN_FROM));
 
       expect(readCache().turnKey).toBe(keyFor('Kniffel'));
       expect(readCache().cards).toEqual([
@@ -203,7 +209,7 @@ describe('usePhysicalChain', () => {
 
       act(() => result.current.completeCurrentCard(false));
       act(() => {
-        result.current.recordDraw('Kniffel');
+        result.current.recordDraw('Kniffel', DRAWN_FROM);
         rerender({ ...defaultArgs, currentCard: 'Kniffel' });
       });
 
@@ -215,9 +221,26 @@ describe('usePhysicalChain', () => {
       expect(readCache().turnKey).toBe(keyFor('Kniffel'));
     });
 
+    it('seeds a fresh chain from the card drawn FROM, not from a prop that has caught up', () => {
+      // The draw is asynchronous — online the SERVER deals the card — so by
+      // the time recordDraw runs, the store and this hook's own currentCard
+      // ref have already moved on to the drawn card. Reading the ref, as this
+      // used to, recorded the drawn card as the card it was drawn from: every
+      // chain's first card was replaced by its second.
+      const { result, rerender } = mount();
+      rerender({ ...defaultArgs, currentCard: 'Kniffel' });
+
+      act(() => result.current.recordDraw('Kniffel', DRAWN_FROM));
+
+      expect(result.current.buildSummary('banked', false).cards).toEqual([
+        { card: '200', completed: true },
+        { card: 'Kniffel', completed: false },
+      ]);
+    });
+
     it('records a draw even before any chain action — the current card is the chain so far', () => {
       const { result } = mount();
-      act(() => result.current.recordDraw('600'));
+      act(() => result.current.recordDraw('600', DRAWN_FROM));
       expect(result.current.buildSummary('banked', false).cards).toEqual([
         { card: '200', completed: true },
         { card: '600', completed: false },
@@ -269,7 +292,7 @@ describe('usePhysicalChain', () => {
       const { result } = mount({ onSnapshot: (s) => seen.push(s), scoreInput: '2000' });
 
       act(() => { result.current.completeCurrentCard(false); });
-      act(() => { result.current.recordDraw('400'); });
+      act(() => { result.current.recordDraw('400', DRAWN_FROM); });
 
       const snapshot = nonNull(seen[seen.length - 1]);
       expect(snapshot.cardsThisTurn).toEqual(['200', '400']);
@@ -397,7 +420,7 @@ describe('usePhysicalChain', () => {
     it('survives a card change WITHIN the same turn — that is a chain draw, not a new turn', () => {
       const { result, rerender } = mount();
       act(() => result.current.completeCurrentCard(false));
-      act(() => result.current.recordDraw('Kniffel'));
+      act(() => result.current.recordDraw('Kniffel', DRAWN_FROM));
 
       rerender({ ...defaultArgs, currentCard: 'Kniffel' });
 

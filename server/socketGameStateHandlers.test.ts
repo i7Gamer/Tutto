@@ -1,8 +1,9 @@
 /** @vitest-environment node */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { registerGameStateHandlers, MAX_TIMER_RESTARTS_PER_TURN } from './socketGameStateHandlers';
+import { registerGameStateHandlers, MAX_TIMER_RESTARTS_PER_TURN, DRAW_CARD_LIMIT } from './socketGameStateHandlers';
 import { makeFakeSocket, makeFakeIo, makeServerPlayer, type Handler } from './socketTestHarness';
 import { rooms, createRoom, deleteRoom } from './rooms';
+import type { RoomState } from './roomTypes';
 
 // This file's players default to position: 1 (rather than makeServerPlayer's
 // own default of 0) — kept as an explicit override below so converting to
@@ -44,29 +45,12 @@ describe('pushState turn-timer restarts', () => {
     vi.useRealTimers();
   });
 
-  it('restarts the timer when a mid-chain draw deals the SAME card type (deck shrank)', () => {
-    // A classic '300' chain drawing another '300': the card value is
-    // identical, but the deck lost a card — the fresh card must get a fresh
-    // deadline instead of inheriting the dying one.
-    pushState({ roomId, newState: { currentCard: '300', cards: ['200'] } });
-
-    expect(rooms[roomId].state.turnStartTime).toBe(PUSH_TIME);
-    expect(rooms[roomId].turnTimerState?.restartsThisTurn).toBe(1);
-  });
-
   it('does not restart for a card flip that changes neither player nor deck', () => {
     // The counter-abuse: a patched active player flipping currentCard back
     // and forth used to reset the deadline indefinitely, defeating the
-    // server-authoritative expiry.
+    // server-authoritative expiry. (Since the deck became server-owned the
+    // flip is not even applied — but the deadline is what this pins.)
     pushState({ roomId, newState: { currentCard: '400' } });
-
-    expect(rooms[roomId].state.turnStartTime).toBe(TURN_START);
-  });
-
-  it('stops granting deck-triggered restarts past the per-turn budget', () => {
-    rooms[roomId].turnTimerState!.restartsThisTurn = MAX_TIMER_RESTARTS_PER_TURN;
-
-    pushState({ roomId, newState: { currentCard: '300', cards: ['200'] } });
 
     expect(rooms[roomId].state.turnStartTime).toBe(TURN_START);
   });
@@ -74,16 +58,18 @@ describe('pushState turn-timer restarts', () => {
   it('a player change always restarts and resets the budget', () => {
     rooms[roomId].turnTimerState!.restartsThisTurn = MAX_TIMER_RESTARTS_PER_TURN;
 
-    // A real turn hand-over: the next player's draw takes exactly the top card
-    // off the deck. (A `cards: []` here would be refused by the deck-
-    // conservation rule in pushValidation and leave only the player change —
-    // still enough to pass, which is precisely how it would stop testing what
-    // it says.)
-    pushState({ roomId, newState: { currentPlayerIndex: 1, currentCard: '300', cards: ['200'] } });
+    // A real turn hand-over, which is also what makes the server deal the
+    // next seat its card (see the deck-authority suite below).
+    pushState({ roomId, newState: { currentPlayerIndex: 1, previousCard: '300', previousPlayerName: 'Alice' } });
 
     expect(rooms[roomId].state.turnStartTime).toBe(PUSH_TIME);
     expect(rooms[roomId].turnTimerState?.restartsThisTurn).toBe(0);
   });
+
+  // The mid-chain draw used to arrive here, as a pushed deck one card shorter,
+  // and this suite pinned the restart and the per-turn budget it earned. It
+  // takes the drawCard event now — a push can no longer write the deck at all
+  // — so both live in the 'drawCard' suite at the bottom of this file.
 });
 
 describe('pushState authorization', () => {
@@ -742,5 +728,263 @@ describe('liveTurnState authorization', () => {
 
     expect(rooms[roomId].state.liveTurnState).toEqual(snapshot(400));
     expect(bob.emit).toHaveBeenCalledWith('liveTurnState', { liveTurnState: snapshot(400) });
+  });
+});
+
+/**
+ * The server deals every card a running game reveals.
+ *
+ * `cards` is the ordered undrawn deck, so a client that can write it chooses
+ * its own next card — and in the classic rule set that IS the game. Both
+ * `cards` and `currentCard` left every writable field set (server/pushValidation.ts);
+ * these are the paths that replaced them.
+ */
+describe('the server deals the cards a pushState implies', () => {
+  const roomId = 'DECK-AUTHORITY-ROOM';
+  const DECK = ['300', '200', 'Stop', 'x2'];
+  let pushState: Handler;
+
+  const seat = (socketId: string, username: string) => {
+    const fake = makeFakeSocket(socketId);
+    registerGameStateHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username } });
+    return fake.handlers['pushState'];
+  };
+
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    rooms[roomId] = createRoom('host-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: false, currentPlayerIndex: 0, currentCard: 'Kniffel',
+      cards: [...DECK], round: 1, turnDuration: 60, turnStartTime: Date.now(),
+      players: [makePlayer('Alice', 'host-sock'), makePlayer('Bob', 'other-sock')],
+    });
+    pushState = seat('host-sock', 'Alice');
+  });
+
+  afterEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+  });
+
+  it('deals the next seat the top card, not the one the push named', () => {
+    // The exploit in one push: read cards[0] out of the store, then push a
+    // different card as the one you drew.
+    pushState({
+      roomId,
+      newState: {
+        currentPlayerIndex: 1, previousCard: 'Kniffel', previousPlayerName: 'Alice',
+        currentCard: 'Kleeblatt', cards: ['Kleeblatt', 'Kleeblatt'],
+      },
+    });
+
+    expect(rooms[roomId].state.currentCard).toBe('300');
+    expect(rooms[roomId].state.cards).toEqual(['200', 'Stop', 'x2']);
+  });
+
+  it('leaves the deck alone for a push that did not move the turn', () => {
+    pushState({ roomId, newState: { currentPlayerIndex: 0, cards: [], currentCard: 'Stop' } });
+
+    expect(rooms[roomId].state.currentCard).toBe('Kniffel');
+    expect(rooms[roomId].state.cards).toEqual(DECK);
+  });
+
+  it('builds its own deck for a game start, so the host cannot stack it', () => {
+    const room = rooms[roomId];
+    Object.assign(room.state, {
+      status: 'lobby', currentPlayerIndex: null, currentCard: null, cards: [],
+      initialCards: { '300': 2, '400': 2 },
+    });
+
+    pushState({
+      roomId,
+      newState: {
+        status: 'playing', currentPlayerIndex: 0, finished: false,
+        cards: ['Kleeblatt', 'Kleeblatt', 'Kleeblatt'], currentCard: 'Kleeblatt',
+      },
+    });
+
+    expect(room.state.cards).not.toContain('Kleeblatt');
+    expect([...room.state.cards, room.state.currentCard].sort()).toEqual(['300', '300', '400', '400']);
+  });
+
+  it('clears the deck when the host ends the game into the lobby', () => {
+    pushState({ roomId, newState: { status: 'lobby', currentPlayerIndex: null, finished: false } });
+
+    expect(rooms[roomId].state.cards).toEqual([]);
+    expect(rooms[roomId].state.currentCard).toBeNull();
+  });
+
+  it('gives an undone turn its card back rather than dealing a fresh one', () => {
+    const room = rooms[roomId];
+    Object.assign(room.state, {
+      currentPlayerIndex: 1, currentCard: 'x2',
+      previousCard: 'Kniffel', previousPlayerName: 'Alice', previousTurnSummary: null,
+    });
+
+    pushState({
+      roomId,
+      newState: {
+        currentPlayerIndex: 0, previousCard: null, previousPlayerName: null, previousTurnSummary: null,
+      },
+    });
+
+    expect(room.state.currentCard, 'the undone turn is replayed on its own card').toBe('Kniffel');
+    expect(room.state.cards, 'and the discarded turn gives its card back').toEqual(['x2', ...DECK]);
+  });
+});
+
+/**
+ * The mid-turn chain draw: a classic tutto lets the active player reveal
+ * another card and keep the whole running total at risk.
+ *
+ * It used to be entirely client-side — gameSlice.drawCardMidTurn shifted the
+ * client's own copy of the deck and pushed the result — which is precisely the
+ * decision the deck must not be readable for. The card is chosen here now,
+ * after the player has committed to drawing.
+ */
+describe('drawCard', () => {
+  const roomId = 'DRAW-CARD-ROOM';
+  const DECK = ['300', '200'];
+
+  const seat = (socketId: string, username: string) => {
+    const fake = makeFakeSocket(socketId);
+    const { io, emit } = makeFakeIo();
+    registerGameStateHandlers({ io, socket: fake.socket, session: { roomId, username } });
+    return { drawCard: fake.handlers['drawCard'], emit };
+  };
+
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    rooms[roomId] = createRoom('host-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: false, currentPlayerIndex: 1, currentCard: 'Kniffel',
+      cards: [...DECK], round: 1, turnDuration: 60, turnStartTime: Date.now(),
+      players: [makePlayer('Alice', 'host-sock'), makePlayer('Bob', 'active-sock')],
+    });
+  });
+
+  afterEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+  });
+
+  it('answers the active player with the top card and takes it off the deck', () => {
+    const bob = seat('active-sock', 'Bob');
+    const ack = vi.fn();
+
+    bob.drawCard({ roomId }, ack);
+
+    expect(ack).toHaveBeenCalledWith({ ok: true, card: '300' });
+    expect(rooms[roomId].state.currentCard).toBe('300');
+    expect(rooms[roomId].state.cards).toEqual(['200']);
+  });
+
+  it('broadcasts the drawn card, so spectators see the same chain', () => {
+    const bob = seat('active-sock', 'Bob');
+
+    bob.drawCard({ roomId }, vi.fn());
+
+    expect(bob.emit).toHaveBeenCalledWith('gameState', expect.objectContaining({ currentCard: '300' }));
+  });
+
+  it('refuses the HOST, who is not the one playing', () => {
+    // pushState's own gate is `isHost || isActivePlayer`; this one is not.
+    // Drawing on someone else's turn burns their card and restarts their clock.
+    const alice = seat('host-sock', 'Alice');
+    const ack = vi.fn();
+
+    alice.drawCard({ roomId }, ack);
+
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'unauthorized' });
+    expect(rooms[roomId].state.cards).toEqual(DECK);
+    expect(rooms[roomId].state.currentCard).toBe('Kniffel');
+  });
+
+  it('refuses a socket with no seat in the room', () => {
+    const stranger = seat('nobody-sock', 'Mallory');
+    const ack = vi.fn();
+
+    stranger.drawCard({ roomId }, ack);
+
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'unauthorized' });
+    expect(rooms[roomId].state.cards).toEqual(DECK);
+  });
+
+  it('refuses a draw once the game is over', () => {
+    rooms[roomId].state.finished = true;
+    const bob = seat('active-sock', 'Bob');
+    const ack = vi.fn();
+
+    bob.drawCard({ roomId }, ack);
+
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'not-playing' });
+    expect(rooms[roomId].state.cards).toEqual(DECK);
+  });
+
+  it('names a room that is gone rather than answering nothing', () => {
+    const bob = seat('active-sock', 'Bob');
+    const ack = vi.fn();
+
+    bob.drawCard({ roomId: 'NO-SUCH-ROOM' }, ack);
+
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'no-room' });
+  });
+
+  it('reshuffles rather than answering null when the deck runs out', () => {
+    rooms[roomId].state.cards = [];
+    rooms[roomId].state.initialCards = { '300': 2 } as RoomState['initialCards'];
+    const bob = seat('active-sock', 'Bob');
+    const ack = vi.fn();
+
+    bob.drawCard({ roomId }, ack);
+
+    expect(ack).toHaveBeenCalledWith({ ok: true, card: '300' });
+    expect(rooms[roomId].state.cards).toEqual(['300']);
+  });
+
+  it('cuts a client off past the per-second budget', () => {
+    // A chain draws one card per tutto; anything faster is a client walking
+    // the deck. Without a limiter this event re-serializes and broadcasts the
+    // whole room on every call.
+    const bob = seat('active-sock', 'Bob');
+    rooms[roomId].state.cards = Array(DRAW_CARD_LIMIT.max + 1).fill('300');
+
+    for (let i = 0; i < DRAW_CARD_LIMIT.max; i++) bob.drawCard({ roomId }, vi.fn());
+    const ack = vi.fn();
+    bob.drawCard({ roomId }, ack);
+
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'rate-limited' });
+  });
+
+  it('stops restarting the clock past the per-turn budget', () => {
+    // The bound that used to sit on pushState's deck-triggered restarts, now
+    // that the draw is the only thing that can shrink the deck mid-turn: a
+    // client drawing in a loop to hold its turn open runs out and expires.
+    const room = rooms[roomId];
+    room.state.cards = Array(3).fill('300');
+    room.state.turnStartTime = 1;
+    room.turnTimerState = {
+      lastCard: 'Kniffel', lastPlayerIndex: 1, lastDeckSize: 3,
+      restartsThisTurn: MAX_TIMER_RESTARTS_PER_TURN,
+    };
+    const bob = seat('active-sock', 'Bob');
+    const ack = vi.fn();
+
+    bob.drawCard({ roomId }, ack);
+
+    expect(ack, 'the card is still dealt — only the deadline is not refreshed')
+      .toHaveBeenCalledWith({ ok: true, card: '300' });
+    expect(room.state.turnStartTime).toBe(1);
+  });
+
+  it('restarts the turn clock for the fresh card', () => {
+    // The new card is a new deadline: without this a chain drawn late in a
+    // turn gets whatever seconds the previous card had left. pushState grants
+    // the same restart off the deck shrinking; this path never pushes.
+    const room = rooms[roomId];
+    room.state.turnStartTime = 1;
+    const bob = seat('active-sock', 'Bob');
+
+    bob.drawCard({ roomId }, vi.fn());
+
+    expect(room.state.turnStartTime).toBeGreaterThan(1);
   });
 });

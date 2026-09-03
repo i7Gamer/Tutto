@@ -132,10 +132,12 @@ test.describe('Tutto Online Ghost Lobbies', () => {
 /**
  * The one browser-level test that actually PLAYS a classic turn. Everything
  * else stops at the lobby: the ruleset radio, and the guest's badge following
- * the host's choice. So gameSlice.drawCardMidTurn — the app's only mid-turn
- * deck mutation, and the reason the server restarts a turn timer without the
- * player changing — was never exercised through a real browser and a real
- * socket at all.
+ * the host's choice. So the mid-turn chain draw — the app's only mid-turn deck
+ * move, and the reason the server restarts a turn timer without the player
+ * changing — was never exercised through a real browser and a real socket at
+ * all. It is also the one flow that is a genuine ROUND TRIP now: the card is
+ * dealt by the server (server/deckAuthority.ts), so nothing short of a real
+ * socket exercises it end to end.
  *
  * With real dice the player declares their own Tutto by drawing the next card,
  * so this reaches the chain on a click rather than on a roll no test can force.
@@ -250,10 +252,11 @@ test.describe('Online classic chain', () => {
       message: "the spectator's turn timer never counted down",
     }).toBeLessThanOrEqual(TICKED_DOWN_TO_S);
 
-    // The mid-chain draw. drawCardMidTurn takes a card off the deck and pushes
-    // it; the shrinking deck is what tells the server a new card was drawn
-    // WITHIN the turn (see socketGameStateHandlers — the card value can't, a
-    // chain routinely draws the same type again), so it restarts the deadline.
+    // The mid-chain draw. drawCardMidTurn asks the SERVER for the card — the
+    // deck is not the client's to draw from, or the next card would be
+    // readable at the moment the player decides whether to risk the chain on
+    // it — and the drawCard handler deals it, restarting the deadline for the
+    // fresh card as it does (see socketGameStateHandlers).
     await drawButton.click();
 
     // What the spectator sees of a chain advancing: the countdown jumps back

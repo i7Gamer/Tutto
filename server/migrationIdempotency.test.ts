@@ -4,6 +4,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import knexLib from 'knex';
 import type { Knex } from 'knex';
 import path from 'node:path';
+import { DB_INIT_TIMEOUT_MS } from './testTimeouts';
 import { fileURLToPath } from 'node:url';
 
 // These migrations are untyped CJS (no allowJs in tsconfig.test.json). A
@@ -248,7 +249,13 @@ describe('migration re-runnability', () => {
       await db('knex_migrations').del();
 
       await expect(db.migrate.latest({ directory: MIGRATIONS_DIR })).resolves.not.toThrow();
-    });
+      // Runs the whole migration chain twice against a real sqlite file, which
+      // is database work of the kind DB_INIT_TIMEOUT_MS exists to budget for --
+      // and it is the only test here that does. Vitest's default was enough on
+      // an idle machine and missed it once the suite grew, which is exactly the
+      // "a loaded machine reads as a broken suite" failure testTimeouts.ts
+      // documents; nothing about the migrations had changed.
+    }, DB_INIT_TIMEOUT_MS);
   });
 
   // The backfill is an UPDATE over every row, so replaying it must not double

@@ -78,6 +78,21 @@ export const STATS_SUBMIT_ACK_TIMEOUT_MS = 5_000;
 // is to let whatever held the lock finish rather than to pace a flood.
 export const STATS_SUBMIT_RETRY_BASE_MS = 1_000;
 
+// How long an online mid-chain draw waits for the server to name the card
+// before the turn gives up on it.
+//
+// The classic chain's draw is a round trip now (the server owns the deck — see
+// server/deckAuthority.ts), and the panel has already committed the tutto by
+// the time it asks: a request that never comes back would strand the turn on a
+// decided table with nothing left to press. Timing out resolves it as "no card
+// came", which is the outcome the panel has always known how to take — it
+// banks the committed tutto, exactly as it does for a draw the store refuses
+// outright.
+//
+// Same scale as the stats ack for the same reasons: far longer than a socket
+// round trip, short enough to land well inside the shortest configurable turn.
+export const DRAW_CARD_ACK_TIMEOUT_MS = 5_000;
+
 // How long a resolved dice turn's summary counts down before auto-continuing
 // to the next player. The countdown logic (useAutoContinueCountdown) and the
 // summary's shrinking progress bar (DiceSummary) both derive from this one

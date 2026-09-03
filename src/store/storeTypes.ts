@@ -170,6 +170,10 @@ export interface GameStore extends CoreGameState {
   setLiveTurnState: (snapshot: DiceSnapshot | null) => void;
   pushState: () => void;
   pushLiveTurnState: (snapshot: DiceSnapshot | null) => void;
+  // Asks the SERVER for the next card of a classic chain and resolves what it
+  // dealt, or null if it dealt nothing (refused, or no answer at all). Online
+  // only — see drawCardMidTurn, which is what callers use.
+  requestServerDraw: () => Promise<CardType | null>;
   startLocalTimers: () => void;
   stopLocalTimers: () => void;
   syncOnlineTimers: (serverRemaining?: number | null) => void;
@@ -177,9 +181,14 @@ export interface GameStore extends CoreGameState {
   startGame: () => void;
   endGame: () => void;
   nextTurn: (scoreInput: number, isSuccess?: boolean, turnSummary?: TurnSummary) => void;
-  // Classic chains: reveal the next card mid-turn after a tutto. Returns the
-  // drawn card (or null when nothing could be drawn).
-  drawCardMidTurn: () => CardType | null;
+  // Classic chains: reveal the next card mid-turn after a tutto. Resolves the
+  // drawn card, or null when nothing could be drawn.
+  //
+  // A promise because ONLINE the card is the server's to choose and has to be
+  // asked for (requestServerDraw): a client that draws from its own copy of
+  // the deck has already read the answer to the question the turn is asking.
+  // Local play still draws locally and resolves immediately.
+  drawCardMidTurn: () => Promise<CardType | null>;
   undo: () => void;
   setPreGameStats: (stats: PreGameStats | null) => void;
   buildGlobalStatsPayload: () => GlobalStatsPayload;

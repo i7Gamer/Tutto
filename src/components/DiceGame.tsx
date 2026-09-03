@@ -45,7 +45,13 @@ interface DiceGameProps {
   ruleset?: Ruleset;
   // Classic only: reveals the next card mid-turn (store drawCardMidTurn).
   // The chain choice is offered only when this is provided.
-  onDrawCard?: () => CardType | null;
+  //
+  // A promise because online the card is dealt by the SERVER and has to be
+  // asked for — the deck is not this client's to draw from, or the next card
+  // would be readable at the moment the player decides whether to risk the
+  // whole chain on it. Resolving null still means "no card came", which is
+  // what drawNextCard below already falls back on.
+  onDrawCard?: () => Promise<CardType | null>;
 }
 
 /**
@@ -115,6 +121,11 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // currentCard prop yet — roll() must not fire until it has, or its closure
   // would judge the fresh roll against the previous card's rules.
   const pendingChainRollRef = useRef<{ card: CardType; base: number } | null>(null);
+  // A draw already asked for and not yet answered. Online the ask is a round
+  // trip, so without this a second press (or a keyboard 'd') during the wait
+  // would spend a second card off the deck for one tutto — and the chain, which
+  // only records the card drawNextCard returns, would never account for it.
+  const drawInFlightRef = useRef(false);
   // The card just drawn, held on screen until the player dismisses it. It is
   // the only place they see it: this modal covers the board, and the very next
   // thing to happen is a roll judged by the new card's rules.
@@ -242,7 +253,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     return () => clearInterval(interval);
   }, [rollingDiceIndices, currentRoll]);
 
-  const handleAction = (action: 'roll' | 'stop' | 'draw') => {
+  const handleAction = async (action: 'roll' | 'stop' | 'draw') => {
     if (!validation.valid) return;
 
     let newTurnScore = turnScore + (countsDicePoints ? validation.score : 0);
@@ -301,7 +312,12 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         // Bank or draw was decided by which button was pressed — the summary
         // no longer asks a second time (it used to, under a heading that said
         // the turn had stopped). A draw the store refuses banks instead.
-        if (action === 'draw' && drawNextCard(newTurnScore)) return;
+        // Awaited: online this is a round trip to the server, which is the
+        // only thing that knows what the next card is. Re-entry while it is
+        // in flight is refused by the `validation.valid` guard at the top —
+        // the table has just been committed, so there is no valid selection
+        // left to act on — and by drawNextCard's own in-flight check.
+        if (action === 'draw' && await drawNextCard(newTurnScore)) return;
         dispatch({ type: 'TURN_BANKED', summary: { won: true, score: newTurnScore, isTutto: true } });
         return;
       } else if (currentCard !== 'Feuerwerk') {
@@ -367,9 +383,16 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // finished game or an empty deck, and the caller has already committed the
   // tutto by then — so a refusal has to fall back to banking it rather than
   // leave the panel on a decided turn with nothing left to press.
-  const drawNextCard = useCallback((base: number): boolean => {
+  const drawNextCard = useCallback(async (base: number): Promise<boolean> => {
     if (!onDrawCard) return false;
-    const newCard = onDrawCard();
+    if (drawInFlightRef.current) return false;
+    drawInFlightRef.current = true;
+    let newCard: CardType | null;
+    try {
+      newCard = await onDrawCard();
+    } finally {
+      drawInFlightRef.current = false;
+    }
     if (!newCard) return false;
     chainRef.current.cards.push({ card: newCard, completed: false });
     dispatch({ type: 'CHAIN_DRAWN', card: newCard, base });
@@ -630,10 +653,10 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // top still silences them).
   const panelRef = useRef<HTMLDivElement>(null);
   useKeyboardShortcuts({
-    r: canSubmitSelection && isRollAgainApplicable ? () => handleAction('roll') : undefined,
-    s: canSubmitSelection && canStop ? () => handleAction('stop') : undefined,
+    r: canSubmitSelection && isRollAgainApplicable ? () => void handleAction('roll') : undefined,
+    s: canSubmitSelection && canStop ? () => void handleAction('stop') : undefined,
     a: canAct ? selectAllValid : undefined,
-    d: canSubmitSelection && canDrawAfterTutto ? () => handleAction('draw') : undefined,
+    d: canSubmitSelection && canDrawAfterTutto ? () => void handleAction('draw') : undefined,
   }, { ownerRef: panelRef });
 
   return (
@@ -694,7 +717,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
               canStop={canStop}
               stopButtonText={stopButtonText}
               canDrawAfterTutto={canDrawAfterTutto}
-              onAction={handleAction}
+              onAction={(action) => void handleAction(action)}
             />
           </>
         )}

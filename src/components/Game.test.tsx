@@ -23,6 +23,21 @@ vi.mock('canvas-confetti', () => ({
 // The mock stands in for the whole dice panel, but it must still be able to
 // DO the one thing the panel exists to do -- report a finished turn through
 // onComplete. Without that, a test could only call a handler it wrote itself.
+
+/**
+ * Press the physical-dice "draw next card" button and let the draw settle.
+ *
+ * drawCardMidTurn is asynchronous now: online the card is dealt by the SERVER,
+ * because a client holding the undrawn deck already knows what the next card
+ * is when it decides whether to risk the chain on it. The chain is only
+ * recorded once the promise resolves, so a test that reads straight after the
+ * click sees the state from before the draw.
+ */
+const drawNextPhysicalCard = async () => {
+  fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+  await act(async () => { await Promise.resolve(); });
+};
+
 const diceComplete = vi.hoisted(() => (
   { score: 0, isSuccess: true, summary: undefined as unknown }
 ));
@@ -864,8 +879,8 @@ describe('Game Component Integration', () => {
       }));
     });
 
-    it('drawing the next card records the chain, and the final bank carries every card', () => {
-      const mockDraw = vi.fn(() => {
+    it('drawing the next card records the chain, and the final bank carries every card', async () => {
+      const mockDraw = vi.fn(async () => {
         useGameStore.setState({ currentCard: '400' });
         return '400' as const;
       });
@@ -874,7 +889,7 @@ describe('Game Component Integration', () => {
 
       const scoreInput = screen.getByPlaceholderText('game.controls.scorePlaceholder');
       fireEvent.change(scoreInput, { target: { value: '350' } });
-      fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+      await drawNextPhysicalCard();
       expect(mockDraw).toHaveBeenCalled();
       expect(mockNextTurn).not.toHaveBeenCalled();
       // The running total stays in the input across the draw.
@@ -949,8 +964,8 @@ describe('Game Component Integration', () => {
       }));
     });
 
-    it('keeps a Feuerwerk drawn onto a chain out of the tutto count', () => {
-      const mockDraw = vi.fn(() => {
+    it('keeps a Feuerwerk drawn onto a chain out of the tutto count', async () => {
+      const mockDraw = vi.fn(async () => {
         useGameStore.setState({ currentCard: 'Feuerwerk' });
         return 'Feuerwerk' as const;
       });
@@ -958,7 +973,7 @@ describe('Game Component Integration', () => {
       render(<Game />);
 
       fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '1300' } });
-      fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+      await drawNextPhysicalCard();
       // Let the card-flip GameControls plays on the card change finish before
       // editing the score input again (see the matching comment above).
       act(() => { vi.advanceTimersByTime(CARD_FLIP_MS); });
@@ -974,15 +989,15 @@ describe('Game Component Integration', () => {
       }));
     });
 
-    it('a Stop card drawn mid-chain auto-forfeits the whole chain (online)', () => {
-      const mockDraw = vi.fn(() => {
+    it('a Stop card drawn mid-chain auto-forfeits the whole chain (online)', async () => {
+      const mockDraw = vi.fn(async () => {
         useGameStore.setState({ currentCard: 'Stop' });
         return 'Stop' as const;
       });
       useGameStore.setState({ currentCard: '300', drawCardMidTurn: mockDraw });
       render(<Game />);
 
-      fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+      await drawNextPhysicalCard();
       // The online Stop auto-continue commits the chain forfeit, once the
       // buzzer's own card-flip wait plus the auto-continue delay both elapse.
       act(() => { vi.advanceTimersByTime(CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS); });
@@ -1059,12 +1074,12 @@ describe('Game Component Integration', () => {
         expect((screen.getByPlaceholderText('game.controls.scorePlaceholder') as HTMLInputElement).value).toBe('2000');
       });
 
-      it('refuses to draw past the chain-card cap, and the bank still carries the capped chain', () => {
+      it('refuses to draw past the chain-card cap, and the bank still carries the capped chain', async () => {
         // Every validator that carries a chain (this cache, the pushed
         // snapshot, the turn summary) refuses anything past MAX_CHAIN_CARDS
         // wholesale — and the refusal must land BEFORE drawCardMidTurn, or
         // the drawn card would vanish from both the chain and the deck.
-        const mockDraw = vi.fn(() => '400' as const);
+        const mockDraw = vi.fn(async () => '400' as const);
         useGameStore.setState({ currentCard: '300', round: 1, drawCardMidTurn: mockDraw });
         localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
           turnKey: 'local:1:0:300:classic',
@@ -1078,7 +1093,7 @@ describe('Game Component Integration', () => {
         }));
         render(<Game />);
 
-        fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+        await drawNextPhysicalCard();
         expect(mockDraw).not.toHaveBeenCalled();
 
         fireEvent.click(screen.getByText('game.controls.nextTurn'));
@@ -1086,8 +1101,8 @@ describe('Game Component Integration', () => {
         expect(nonNull(mockNextTurn.mock.calls[0][2]).cards).toHaveLength(MAX_CHAIN_CARDS);
       });
 
-      it('allows the draw right up to the cap, then refuses', () => {
-        const mockDraw = vi.fn(() => {
+      it('allows the draw right up to the cap, then refuses', async () => {
+        const mockDraw = vi.fn(async () => {
           useGameStore.setState({ currentCard: '400' });
           return '400' as const;
         });
@@ -1104,9 +1119,9 @@ describe('Game Component Integration', () => {
         }));
         render(<Game />);
 
-        fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+        await drawNextPhysicalCard();
         expect(mockDraw).toHaveBeenCalledTimes(1); // MAX_CHAIN_CARDS - 1 → the cap
-        fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+        await drawNextPhysicalCard();
         expect(mockDraw).toHaveBeenCalledTimes(1); // at the cap → refused
       });
 
@@ -1188,8 +1203,8 @@ describe('Game Component Integration', () => {
         expect(localStorage.getItem('tutto_physical_turn_state')).toBeNull();
       });
 
-      it('writes the cache as the chain grows and clears it on commit', () => {
-        const mockDraw = vi.fn(() => {
+      it('writes the cache as the chain grows and clears it on commit', async () => {
+        const mockDraw = vi.fn(async () => {
           useGameStore.setState({ currentCard: '400' });
           return '400' as const;
         });
@@ -1204,7 +1219,7 @@ describe('Game Component Integration', () => {
           awaitingChoice: true,
         });
 
-        fireEvent.click(screen.getByTestId('physical-draw-next-card'));
+        await drawNextPhysicalCard();
         cached = JSON.parse(localStorage.getItem('tutto_physical_turn_state') ?? 'null');
         expect(cached).toMatchObject({
           // Stamped with the POST-draw card, the same key a reload will build.

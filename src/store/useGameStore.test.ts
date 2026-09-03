@@ -3,7 +3,7 @@ import { useGameStore, _resetTimersForTests, _resetSocketSliceForTests } from '.
 import { disconnectSocket } from './socketRef';
 import { DEFAULT_INITIAL_CARDS } from '../utils/configValidation';
 import { blockStorage, failStorageMethods, restoreStorage } from '../testing/storageStubs';
-import { JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS, STATS_SUBMIT_ACK_TIMEOUT_MS } from '../utils/uiTimings';
+import { DRAW_CARD_ACK_TIMEOUT_MS, JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS, STATS_SUBMIT_ACK_TIMEOUT_MS } from '../utils/uiTimings';
 import { STATS_SUBMIT_MAX_ATTEMPTS, statsSubmitRetryDelayMs, isRetryableStatsRefusal, PARKED_EMIT_MAX_AGE_MS } from './socketSlice';
 import { STATS_REFUSAL_REASONS, MAX_HISTORY_LOG_SIZE } from '../types';
 import type { DiceSnapshot, StatsSubmitAck, Player } from '../types';
@@ -5007,7 +5007,7 @@ describe('useGameStore', () => {
   });
 
   describe('drawCardMidTurn (classic chains)', () => {
-    it('pops the deck, sets the drawn card as current, and returns it', () => {
+    it('pops the deck, sets the drawn card as current, and returns it', async () => {
       useGameStore.setState({
         currentPlayerIndex: 0,
         players: [{ name: 'Alice', score: 0 } as never],
@@ -5015,14 +5015,14 @@ describe('useGameStore', () => {
         cards: ['x2', 'Stop'],
         finished: false,
       });
-      const drawn = useGameStore.getState().drawCardMidTurn();
+      const drawn = await useGameStore.getState().drawCardMidTurn();
       expect(drawn).toBe('x2');
       const s = useGameStore.getState();
       expect(s.currentCard).toBe('x2');
       expect(s.cards).toEqual(['Stop']);
     });
 
-    it('rebuilds the deck from initialCards when it runs empty', () => {
+    it('rebuilds the deck from initialCards when it runs empty', async () => {
       useGameStore.setState({
         currentPlayerIndex: 0,
         players: [{ name: 'Alice', score: 0 } as never],
@@ -5031,16 +5031,121 @@ describe('useGameStore', () => {
         initialCards: { '200': 2 },
         finished: false,
       });
-      const drawn = useGameStore.getState().drawCardMidTurn();
+      const drawn = await useGameStore.getState().drawCardMidTurn();
       expect(drawn).toBe('200');
       expect(useGameStore.getState().cards).toEqual(['200']);
     });
 
-    it('refuses when no turn is active or the game is finished', () => {
+    it('refuses when no turn is active or the game is finished', async () => {
       useGameStore.setState({ currentPlayerIndex: null, cards: ['200'] });
-      expect(useGameStore.getState().drawCardMidTurn()).toBeNull();
+      await expect(useGameStore.getState().drawCardMidTurn()).resolves.toBeNull();
       useGameStore.setState({ currentPlayerIndex: 0, players: [{ name: 'A', score: 0 } as never], finished: true });
-      expect(useGameStore.getState().drawCardMidTurn()).toBeNull();
+      await expect(useGameStore.getState().drawCardMidTurn()).resolves.toBeNull();
+    });
+
+    describe('online, where the card is the server’s to choose', () => {
+      // The deck a client holds is the ordered list of cards not yet dealt, so
+      // a client that draws from its own copy has read the answer before
+      // making the decision the whole classic turn turns on. The draw is asked
+      // for over the wire and answered by the server now.
+      const midTurn = (over: Partial<GameStore> = {}) => {
+        // A real socket (the module singleton) as well as the online flags:
+        // the draw is a round trip, so a test without one only ever exercises
+        // the no-socket bail-out.
+        useGameStore.getState().connectSocket('http://localhost:3000');
+        useGameStore.setState({
+          ...seatedInRoom,
+          currentPlayerIndex: 0,
+          players: namedPlayers('Alice', 'Bob'),
+          currentCard: '300',
+          cards: ['x2', 'Stop'],
+          finished: false,
+          ...over,
+        });
+        mockEmit.mockClear();
+      };
+
+      afterEach(() => {
+        disconnectSocket();
+      });
+
+      it('asks the server instead of shifting its own deck', async () => {
+        midTurn();
+        mockEmit.mockImplementation((event, _payload, ack) => {
+          if (event === 'drawCard') ack({ ok: true, card: 'Kleeblatt' });
+        });
+
+        const drawn = await useGameStore.getState().drawCardMidTurn();
+
+        // 'Kleeblatt' is nowhere in the local deck, whose top card is 'x2' —
+        // so a client that still drew locally could not produce this.
+        expect(drawn).toBe('Kleeblatt');
+        expect(useGameStore.getState().currentCard).toBe('Kleeblatt');
+        expect(emittedEvents()).toContain('drawCard');
+      });
+
+      it('does not push a card of its own choosing', async () => {
+        midTurn();
+        mockEmit.mockImplementation((event, _payload, ack) => {
+          if (event === 'drawCard') ack({ ok: true, card: 'Kleeblatt' });
+        });
+
+        await useGameStore.getState().drawCardMidTurn();
+
+        expect(emittedEvents(), 'the draw is the request, not a fait accompli').not.toContain('pushState');
+      });
+
+      it('refuses when the server does, leaving the card in play alone', async () => {
+        midTurn();
+        mockEmit.mockImplementation((event, _payload, ack) => {
+          if (event === 'drawCard') ack({ ok: false, reason: 'not-playing' });
+        });
+
+        await expect(useGameStore.getState().drawCardMidTurn()).resolves.toBeNull();
+        expect(useGameStore.getState().currentCard).toBe('300');
+      });
+
+      it('gives up on silence rather than leaving the turn parked forever', async () => {
+        // The panel has already committed the tutto by the time it asks, so a
+        // draw that never resolves strands it on a decided turn with nothing
+        // left to press. A null is the answer it already knows how to take:
+        // bank the tutto instead.
+        vi.useFakeTimers();
+        try {
+          midTurn();
+          mockEmit.mockImplementation(() => {});
+
+          const pending = useGameStore.getState().drawCardMidTurn();
+          vi.advanceTimersByTime(DRAW_CARD_ACK_TIMEOUT_MS);
+
+          await expect(pending).resolves.toBeNull();
+          expect(useGameStore.getState().currentCard).toBe('300');
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('does not let a draw be buffered across a dropped socket', async () => {
+        // socket.io buffers an emit made while the transport is down. For a
+        // draw that is worse than dropping it: the panel gives up and banks
+        // the tutto, and the buffered request then spends a card off the
+        // room's deck for a turn that ended seconds ago.
+        midTurn();
+        mockSocketConnected = false;
+        try {
+          await expect(useGameStore.getState().drawCardMidTurn()).resolves.toBeNull();
+          expect(emittedEvents()).not.toContain('drawCard');
+        } finally {
+          mockSocketConnected = true;
+        }
+      });
+
+      it('answers null without asking when there is no turn to draw on', async () => {
+        midTurn({ finished: true });
+
+        await expect(useGameStore.getState().drawCardMidTurn()).resolves.toBeNull();
+        expect(emittedEvents()).not.toContain('drawCard');
+      });
     });
   });
 

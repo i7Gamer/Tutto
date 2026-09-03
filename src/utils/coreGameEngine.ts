@@ -778,7 +778,7 @@ export type UndoInputState = CoreGameState & { liveTurnState?: DiceSnapshot | nu
  * has already moved past. A list that does not end on currentCard describes
  * some other moment, so it is ignored in favour of the card in play alone.
  */
-const inProgressChainCards = (
+export const inProgressChainCards = (
   currentCard: CardType | null,
   liveTurnState: DiceSnapshot | null | undefined,
 ): CardType[] => {

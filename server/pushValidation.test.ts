@@ -18,7 +18,7 @@ import {
   isValidTurnSummary,
   sanitizeTurnSummary,
   MAX_SCORE_MAGNITUDE,
-  MAX_DECK_GIVE_BACK,
+  SERVER_OWNED_FIELD_LIST,
 } from './pushValidation';
 import { createRoom } from './rooms';
 import { MIN_ENABLED_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
@@ -800,117 +800,97 @@ describe('applyPushedState', () => {
       expect(state.reconnectTimeout).toBe(MIN_ENABLED_RECONNECT_TIMEOUT);
     });
 
-    it('currentCard/previousCard: accepts null and valid cards, rejects junk', () => {
+    it('previousCard: accepts null and valid cards, rejects junk', () => {
       const state = makeState();
-      applyPushedState(state, { currentCard: 'Stop', previousCard: 'x2' }, asActivePlayer);
-      expect(state.currentCard).toBe('Stop');
+      applyPushedState(state, { previousCard: 'x2' }, asActivePlayer);
       expect(state.previousCard).toBe('x2');
-      applyPushedState(state, { currentCard: 'NotACard', previousCard: null }, asActivePlayer);
-      expect(state.currentCard).toBe('Stop');
+      applyPushedState(state, { previousCard: 'NotACard' }, asActivePlayer);
+      expect(state.previousCard).toBe('x2');
+      applyPushedState(state, { previousCard: null }, asActivePlayer);
       expect(state.previousCard).toBeNull();
     });
 
-    it('cards: enforces card validity and the deck-size cap', () => {
-      const state = makeState();
-      applyPushedState(state, { cards: ['Stop', '200'] }, asActivePlayer);
-      expect(state.cards).toEqual(['Stop', '200']);
-      applyPushedState(state, { cards: ['Bogus'] }, asActivePlayer);
-      expect(state.cards).toEqual(['Stop', '200']);
-      applyPushedState(state, { cards: Array(99 * 11 + 1).fill('Stop') }, asActivePlayer);
-      expect(state.cards).toEqual(['Stop', '200']);
-    });
-
-    describe('cards: a running game\'s deck only moves the way a game moves it', () => {
-      // The deck used to be replaceable outright by anyone a push was accepted
-      // from, and the push most likely to do it is an HONEST one: pushState
-      // relays the sender's whole store, and a client that has never drawn
-      // sits on whatever `cards` it last synced. Wiping the deck restarts the
-      // card sequence the table is mid-way through, silently.
+    describe('the deck belongs to the server, and a push may not write it', () => {
+      // `cards` is the ordered undrawn deck, so a client that can write it
+      // picks its own next card — and in the classic rule set that IS the
+      // game ("bank, or reveal the next card and risk everything"). Both
+      // fields moved out of every writable set; the server deals them itself
+      // (server/deckAuthority.ts).
+      //
+      // IGNORED, not refused, and that distinction is the whole reason this
+      // ships on its own: a client predating the change sends `cards` and
+      // `currentCard` on every single push, and clients reconnect straight
+      // across a redeploy. Refusing those pushes would break every game in
+      // progress.
       const DECK = ['300', '200', 'Stop', 'x2'];
 
-      const playing = (deck: string[] = DECK): RoomState => {
+      const playing = (): RoomState => {
         const state = makeState();
         state.status = 'playing';
         state.currentPlayerIndex = 0;
-        state.cards = [...deck] as RoomState['cards'];
+        state.currentCard = 'Kniffel';
+        state.cards = [...DECK] as RoomState['cards'];
         return state;
       };
 
-      it('refuses the empty deck a host who never took a turn pushes', () => {
+      it('ignores a deck pushed by the active player', () => {
         const state = playing();
-        applyPushedState(state, { cards: [] }, asHost);
+        applyPushedState(state, { cards: ['Kleeblatt'] }, asActivePlayer);
         expect(state.cards).toEqual(DECK);
       });
 
-      it('refuses a wholesale replacement of the same length', () => {
+      it('ignores a card pushed by the active player', () => {
+        // The bare version of the exploit: read cards[0] in devtools, decide,
+        // then push the card you wanted instead of the one you drew.
         const state = playing();
-        applyPushedState(state, { cards: ['Kleeblatt', 'Kleeblatt', 'Kleeblatt', 'Kleeblatt'] }, asActivePlayer);
+        applyPushedState(state, { currentCard: 'Kleeblatt' }, asActivePlayer);
+        expect(state.currentCard).toBe('Kniffel');
+      });
+
+      it('ignores both from the HOST, who owns every other field', () => {
+        const state = playing();
+        applyPushedState(state, { cards: [], currentCard: 'Kleeblatt' }, asHost);
         expect(state.cards).toEqual(DECK);
+        expect(state.currentCard).toBe('Kniffel');
       });
 
-      it('refuses more cards back than the two chains an undo can return', () => {
-        // MAX_DECK_GIVE_BACK is the undone turn's chain plus the discarded
-        // in-progress one. A card past that is not a turn being rewound, it is
-        // a deck being installed on top of the old one.
+      it('ignores the deck the game-starting push used to install', () => {
+        // The kickoff was the one push allowed to replace the deck outright,
+        // which made the opening card order the host's to choose. The server
+        // builds it (settleDeck's 'kickoff') straight after this merge.
         const state = playing();
-        const overlong = [...Array(MAX_DECK_GIVE_BACK + 1).fill('Kleeblatt'), ...DECK];
-        applyPushedState(state, { cards: overlong }, asActivePlayer);
+        applyPushedState(state, { status: 'playing', cards: ['Kleeblatt'], currentCard: 'Kleeblatt' }, asHostStarting);
         expect(state.cards).toEqual(DECK);
+        expect(state.currentCard).toBe('Kniffel');
       });
 
-      it('accepts exactly the two chains an undo can return', () => {
-        // The control for the bound above: one card fewer must still land, or
-        // the refusal would also pass for a rule that rejects every give-back.
-        const state = playing();
-        const atLimit = [...Array(MAX_DECK_GIVE_BACK).fill('Kleeblatt'), ...DECK];
-        applyPushedState(state, { cards: atLimit }, asActivePlayer);
-        expect(state.cards).toEqual(atLimit);
+      it('holds for every field on the list, host and active player alike', () => {
+        // Over the LIST rather than over 'cards' and 'currentCard' by name, so
+        // a field added to it is covered without anyone remembering to add a
+        // case — the point of writing the list down at all.
+        for (const field of SERVER_OWNED_FIELD_LIST) {
+          for (const [who, sender] of [['the host', asHost], ['the active player', asActivePlayer]] as const) {
+            const state = playing();
+            const before = state[field];
+            applyPushedState(state, { [field]: 'Kleeblatt' }, sender);
+            expect(state[field], `${field} written by ${who}`).toEqual(before);
+          }
+        }
       });
 
-      it('refuses dropping two cards at once, which no single draw does', () => {
+      it('applies the rest of a push that also carries them', () => {
+        // The compatibility guarantee itself: an old client's every push
+        // carries the deck, and its turn must still land.
         const state = playing();
-        applyPushedState(state, { cards: DECK.slice(2) }, asActivePlayer);
+        const applied = applyPushedState(
+          state,
+          { cards: ['Kleeblatt'], currentCard: 'Kleeblatt', currentPlayerIndex: 1, round: 2 },
+          asActivePlayer,
+        );
+        expect(applied).toBe(true);
+        expect(state.currentPlayerIndex).toBe(1);
+        expect(state.round).toBe(2);
         expect(state.cards).toEqual(DECK);
-      });
-
-      it('accepts the deck coming back unchanged, which most pushes carry', () => {
-        const state = playing();
-        applyPushedState(state, { cards: [...DECK] }, asActivePlayer);
-        expect(state.cards).toEqual(DECK);
-      });
-
-      it('accepts a draw taking exactly the top card', () => {
-        const state = playing();
-        applyPushedState(state, { cards: DECK.slice(1) }, asActivePlayer);
-        expect(state.cards).toEqual(['200', 'Stop', 'x2']);
-      });
-
-      it('accepts an undo putting the turn\'s chain back on top', () => {
-        const state = playing();
-        applyPushedState(state, { cards: ['Kniffel', 'Feuerwerk', ...DECK] }, asActivePlayer);
-        expect(state.cards).toEqual(['Kniffel', 'Feuerwerk', ...DECK]);
-      });
-
-      it('accepts a freshly built deck, but only out of an exhausted one', () => {
-        const state = playing([]);
-        applyPushedState(state, { cards: ['400', '500', '600'] }, asActivePlayer);
-        expect(state.cards).toEqual(['400', '500', '600']);
-      });
-
-      it('leaves the game-starting push free to install the deck it just built', () => {
-        const state = playing();
-        applyPushedState(state, { status: 'playing', cards: ['Kleeblatt'] }, asHostStarting);
-        expect(state.cards).toEqual(['Kleeblatt']);
-      });
-
-      it('still lets endGame clear the deck, because it carries the lobby with it', () => {
-        // The host's endGame pushes `status: 'lobby'` and `cards: []` in one
-        // snapshot, and 'status' is the first field applied on the host path —
-        // so by the time the deck is merged there is no running game left to
-        // conserve a deck for.
-        const state = playing();
-        applyPushedState(state, { status: 'lobby', currentPlayerIndex: null, cards: [] }, asHost);
-        expect(state.cards).toEqual([]);
       });
     });
 
