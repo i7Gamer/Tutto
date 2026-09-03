@@ -23,7 +23,6 @@
   "dependencies": {
     "canvas-confetti": "^1.9.4",
     "chart.js": "^4.5.1",
-    "clsx": "^2.1.1",
     "framer-motion": "^13.1.1",
     "i18next": "^26.4.0",
     "immer": "^11.1.18",
@@ -35,7 +34,6 @@
     "react-dom": "^19.2.6",
     "react-i18next": "^17.0.12",
     "socket.io-client": "^4.8.3",
-    "tailwind-merge": "^3.6.0",
     "uuid": "^14.0.2",
     "zustand": "^5.0.15"
   },
