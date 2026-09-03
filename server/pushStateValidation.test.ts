@@ -4,10 +4,16 @@
 import type { ChildProcess } from 'child_process';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { io, type Socket as ClientSocket } from 'socket.io-client';
-import { asserting, startTestServer, type JoinAck } from './socketTestHarness';
+import { asserting, startTestServer, makeServerPlayer, type JoinAck } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 import type { GameStore } from '../src/store/storeTypes';
+import { MAX_PLAYERS_PER_ROOM } from './rooms';
+import { MAX_DECK_SIZE } from './pushValidation';
+import { MAX_PUSHED_STATE_BYTES } from './socketLimits';
+import type { RoomState } from './roomTypes';
+import { MAX_CHAIN_CARDS, MAX_HISTORY_LOG_SIZE, type CardType, type HistoryEntry } from '../src/types';
+import { VALID_CARD_TYPES } from '../src/utils/configValidation';
 
 // The shape of a 'gameState' broadcast, matching how the client itself types
 // it (src/store/socketSlice.ts's own 'gameState' handler) — a broadcast only
@@ -231,9 +237,6 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
   // checks — a client that ignores the cap gets its connection dropped
   // rather than served.
   describe('maxHttpBufferSize bounds an oversized socket packet', () => {
-    // Mirrors MAX_PUSHED_STATE_BYTES in server/index.ts.
-    const MAX_HTTP_BUFFER_SIZE = 512 * 1024;
-
     const connectRawSocket = (): Promise<ClientSocket> =>
       new Promise((resolve, reject) => {
         const s = io(`http://127.0.0.1:${PORT}`, { transports: ['websocket'] });
@@ -247,7 +250,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
 
       // The content doesn't matter — the cap is enforced on the raw packet
       // bytes before any field is ever parsed or validated.
-      sock.emit('pushState', { roomId: 'OVERSIZED-PACKET-ROOM', newState: { junk: 'x'.repeat(MAX_HTTP_BUFFER_SIZE + 1024) } });
+      sock.emit('pushState', { roomId: 'OVERSIZED-PACKET-ROOM', newState: { junk: 'x'.repeat(MAX_PUSHED_STATE_BYTES + 1024) } });
 
       await disconnectedReason;
       expect(sock.connected).toBe(false);
@@ -266,5 +269,108 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
       expect(sock.connected).toBe(true);
       sock.close();
     }, 10000);
+  });
+});
+
+// How many rounds a realistically long game can be expected to reach — not
+// MAX_ROUNDS (100,000 in pushValidation.ts), which is a pure safety cap far
+// beyond anything a human game could reach, but generous headroom over a
+// genuinely long session (several times a normal ~20-40 round game) for
+// sizing MAX_PUSHED_STATE_BYTES against.
+const REALISTIC_MAX_ROUNDS = 400;
+
+// The largest state a real game can legitimately produce: every cap a room
+// can hit at once. Mirrors buildGameStatePayload's shape (rooms.ts) closely
+// enough for a byte-size measurement — a full roster, a maxed-out history
+// log with maximal classic chains, a fully-drawn deck, and chart history out
+// to REALISTIC_MAX_ROUNDS.
+const buildMaximalRoomState = (): RoomState => {
+  const players = Array.from({ length: MAX_PLAYERS_PER_ROOM }, (_, i) =>
+    makeServerPlayer(`Player-${i}-with-a-realistically-long-display-name`, {
+      position: i,
+      deviceId: `device-${i}-${'x'.repeat(40)}`,
+      socketId: `socket-${i}-${'x'.repeat(20)}`,
+      color: '#a1b2c3',
+    }));
+
+  const maximalChain: CardType[] = Array.from(
+    { length: MAX_CHAIN_CARDS },
+    (_, i) => VALID_CARD_TYPES[i % VALID_CARD_TYPES.length],
+  );
+  const maximalDeductedPlayers = Array.from(
+    { length: MAX_CHAIN_CARDS },
+    (_, i) => players[i % players.length].name,
+  );
+  const maximalDeductedAmounts = Array.from({ length: MAX_CHAIN_CARDS }, () => 1000);
+
+  const historyLog: HistoryEntry[] = Array.from({ length: MAX_HISTORY_LOG_SIZE }, (_, i) => ({
+    id: `history-entry-${i}-${'x'.repeat(20)}`,
+    round: i + 1,
+    playerName: players[i % players.length].name,
+    playerColor: '#a1b2c3',
+    card: 'Kniffel',
+    type: 'success',
+    score: 30000,
+    deductedPlayers: maximalDeductedPlayers,
+    deductedAmounts: maximalDeductedAmounts,
+    cards: maximalChain,
+  }));
+
+  const cards: CardType[] = Array.from(
+    { length: MAX_DECK_SIZE },
+    (_, i) => VALID_CARD_TYPES[i % VALID_CARD_TYPES.length],
+  );
+
+  return {
+    players,
+    status: 'playing',
+    initialCards: {},
+    winningScore: 30000,
+    randomOrder: true,
+    turnDuration: 60,
+    reconnectTimeout: 60,
+    currentCard: 'Kniffel',
+    cards,
+    round: REALISTIC_MAX_ROUNDS,
+    currentPlayerIndex: 0,
+    finished: false,
+    chartValues: players.map(() => Array.from({ length: REALISTIC_MAX_ROUNDS }, () => 999999)),
+    chartNames: players.map(p => p.name),
+    chartLabels: Array.from({ length: REALISTIC_MAX_ROUNDS }, (_, i) => i + 1),
+    gameTimeInSeconds: 999999,
+    turnStartTime: Date.now(),
+    previousCard: 'Kniffel',
+    previousScore: 30000,
+    previousLeaders: null,
+    previousWasBust: false,
+    previousWasSuccess: true,
+    previousHighestTurnScore: 30000,
+    previousHighestFeuerwerkTurnScore: 30000,
+    previousHighestX2TurnScore: 30000,
+    previousPlayerName: players[0].name,
+    previousTurnSummary: null,
+    liveTurnState: null,
+    enforcedDiceMode: null,
+    ruleset: 'classic',
+    historyLog,
+  };
+};
+
+// Regression coverage for MAX_PUSHED_STATE_BYTES (server/socketLimits.ts):
+// the cap must actually fit the largest state a real game can produce.
+// Previously it did not — the old 512 KiB cap sat below a maximal state built
+// the same way this test builds one — so a room that ever reached that size
+// would have every gameState broadcast dropped by socket.io's own
+// oversize-packet handling, making the room unplayable rather than merely
+// slow.
+describe('maximal pushed/broadcast state size', () => {
+  it('stays comfortably under MAX_PUSHED_STATE_BYTES with headroom', () => {
+    const state = buildMaximalRoomState();
+    const byteLength = Buffer.byteLength(JSON.stringify(state));
+
+    expect(byteLength).toBeLessThan(MAX_PUSHED_STATE_BYTES);
+    // Real headroom, not a near-miss: a genuinely maximal state should sit
+    // well below the cap, not creep up on it.
+    expect(byteLength).toBeLessThan(MAX_PUSHED_STATE_BYTES * 0.75);
   });
 });

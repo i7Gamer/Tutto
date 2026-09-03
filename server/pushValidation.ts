@@ -17,8 +17,10 @@ import { roomPhase } from '../src/utils/roomPhase';
 import type { SyncedGameStateKey, AssertNever, ConfigKeys } from '../src/types';
 import type { RoomState, ServerPlayer } from './roomTypes';
 
-// A fully-loaded deck has at most MAX_CARD_COUNT of each of the 11 card types.
-const MAX_DECK_SIZE = MAX_CARD_COUNT * 11;
+// A fully-loaded deck has at most MAX_CARD_COUNT of each of the 11 card
+// types. Exported for pushStateValidation.test.ts's maximal-state size
+// measurement (see socketLimits.ts).
+export const MAX_DECK_SIZE = MAX_CARD_COUNT * 11;
 // Exported for turnTimers.ts: the timeout path appends its own round-end
 // datapoints and must respect the same bound the pushed arrays get.
 // Generous safety cap for per-round arrays (chartLabels/chartValues entries) — far
