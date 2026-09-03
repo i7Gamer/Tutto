@@ -3,8 +3,9 @@ import { useGameStore, _resetTimersForTests, _resetSocketSliceForTests } from '.
 import { disconnectSocket } from './socketRef';
 import { DEFAULT_INITIAL_CARDS } from '../utils/configValidation';
 import { blockStorage, failStorageMethods, restoreStorage } from '../testing/storageStubs';
-import { JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS } from '../utils/uiTimings';
-import type { DiceSnapshot, Player } from '../types';
+import { JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS, STATS_SUBMIT_ACK_TIMEOUT_MS } from '../utils/uiTimings';
+import { STATS_SUBMIT_MAX_ATTEMPTS, statsSubmitRetryDelayMs } from './socketSlice';
+import type { DiceSnapshot, EndGameStatsAck, Player } from '../types';
 import type { GameStore } from './storeTypes';
 import { makePlayer as makeFullPlayer, mockFetchJson, nonNull } from '../testing/factories';
 
@@ -979,9 +980,11 @@ describe('useGameStore', () => {
       }
 
       // Should have emitted endGameStats with Bob's deviceId
+      // The third argument is the ack callback the retry hangs off (see the
+      // retry suite below).
       expect(mockEmit).toHaveBeenCalledWith('endGameStats', expect.objectContaining({
         deviceId: 'dev-bob'
-      }));
+      }), expect.any(Function));
     });
 
     it('sends online stats exactly once when host finishes the game', () => {
@@ -1002,7 +1005,7 @@ describe('useGameStore', () => {
       // Should emit endGameStats for Alice (personal stats via socket)
       expect(mockEmit).toHaveBeenCalledWith('endGameStats', expect.objectContaining({
         deviceId: 'dev-alice'
-      }));
+      }), expect.any(Function));
 
       // Should emit global stats via socket (no HTTP token needed)
       expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', expect.objectContaining({
@@ -1038,7 +1041,7 @@ describe('useGameStore', () => {
           highestFeuerwerkTurnScore: 300,
           highestX2TurnScore: 400,
         }),
-      }));
+      }), expect.any(Function));
 
       expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', expect.objectContaining({
         roomId: 'ROOM1',
@@ -1114,6 +1117,164 @@ describe('useGameStore', () => {
       const submitGlobalStatsCallsAfterEcho = mockEmit.mock.calls.filter(c => c[0] === 'submitGlobalStats').length;
       expect(endGameStatsCallsAfterEcho).toBe(1);
       expect(submitGlobalStatsCallsAfterEcho).toBe(1);
+    });
+  });
+
+
+  describe('endGameStats is retried until the server says it landed', () => {
+    // It used to be fire-and-forget, so a transient sqlite error on the
+    // server — which rolls its dedup entry back precisely so a resend CAN be
+    // recorded — lost this device's row for the game, permanently and
+    // silently. Only 'write-failed' (and a server that answers nothing at
+    // all) is resent; every other refusal is terminal.
+    const statsEmits = () => mockEmit.mock.calls.filter(([event]) => event === 'endGameStats');
+    const ackLast = (ack: EndGameStatsAck | undefined) => nonNull(statsEmits().at(-1))[2](ack);
+
+    /** A finished online game with this device seated, ready to submit. */
+    const stageFinishedGame = () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        // Not the host: submitGlobalStats is a separate event with its own
+        // (unchanged) fire-and-forget contract, and leaving it out keeps
+        // these cases about the device row alone.
+        isHost: false, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
+        players: [makeOnlinePlayer('Alice', { score: 6000 }), makeOnlinePlayer('Bob', { score: 100 })],
+        status: 'playing', finished: true, round: 3,
+      });
+      mockEmit.mockClear();
+    };
+
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('sends once and arms nothing when the first attempt is acked ok', () => {
+      stageFinishedGame();
+
+      useGameStore.getState().sendOnlineStats();
+      expect(statsEmits(), 'one submission per finished game').toHaveLength(1);
+      expect(statsEmits()[0][2], 'and it carries an ack callback').toBeTypeOf('function');
+
+      ackLast({ ok: true });
+      vi.advanceTimersByTime(STATS_SUBMIT_ACK_TIMEOUT_MS + statsSubmitRetryDelayMs(1));
+
+      expect(statsEmits(), 'nothing to retry').toHaveLength(1);
+    });
+
+    it('resends the identical payload after a write-failed, and stops once it lands', () => {
+      stageFinishedGame();
+
+      useGameStore.getState().sendOnlineStats();
+      ackLast({ ok: false, reason: 'write-failed' });
+      expect(statsEmits(), 'the resend waits out the backoff').toHaveLength(1);
+
+      vi.advanceTimersByTime(statsSubmitRetryDelayMs(1));
+      expect(statsEmits()).toHaveLength(2);
+      expect(statsEmits()[1][1], 'the very same submission, so the server can merge it')
+        .toEqual(statsEmits()[0][1]);
+
+      ackLast({ ok: true });
+      vi.advanceTimersByTime(STATS_SUBMIT_ACK_TIMEOUT_MS + statsSubmitRetryDelayMs(2));
+      expect(statsEmits(), 'the second attempt landed').toHaveLength(2);
+    });
+
+    it('gives up after STATS_SUBMIT_MAX_ATTEMPTS rather than resending forever', () => {
+      stageFinishedGame();
+
+      useGameStore.getState().sendOnlineStats();
+      for (let attempt = 1; attempt < STATS_SUBMIT_MAX_ATTEMPTS; attempt += 1) {
+        ackLast({ ok: false, reason: 'write-failed' });
+        vi.advanceTimersByTime(statsSubmitRetryDelayMs(attempt));
+        expect(statsEmits()).toHaveLength(attempt + 1);
+      }
+
+      // The last attempt fails too — and that is the end of it.
+      ackLast({ ok: false, reason: 'write-failed' });
+      vi.advanceTimersByTime(statsSubmitRetryDelayMs(STATS_SUBMIT_MAX_ATTEMPTS) * 2);
+
+      expect(statsEmits()).toHaveLength(STATS_SUBMIT_MAX_ATTEMPTS);
+    });
+
+    it('resends when the server answers nothing at all, and still gives up', () => {
+      // A server predating the ack never invokes the callback, which is
+      // indistinguishable from one that died mid-write — so silence is
+      // retried. Its own per-game dedup makes the extra sends no-ops.
+      stageFinishedGame();
+
+      useGameStore.getState().sendOnlineStats();
+      vi.advanceTimersByTime(STATS_SUBMIT_ACK_TIMEOUT_MS + statsSubmitRetryDelayMs(1));
+      expect(statsEmits()).toHaveLength(2);
+
+      vi.advanceTimersByTime(STATS_SUBMIT_ACK_TIMEOUT_MS + statsSubmitRetryDelayMs(2));
+      expect(statsEmits()).toHaveLength(STATS_SUBMIT_MAX_ATTEMPTS);
+
+      vi.advanceTimersByTime((STATS_SUBMIT_ACK_TIMEOUT_MS + statsSubmitRetryDelayMs(3)) * 2);
+      expect(statsEmits(), 'bounded even against a silent server').toHaveLength(STATS_SUBMIT_MAX_ATTEMPTS);
+    });
+
+    it('does not resend a refusal a resend cannot fix', () => {
+      // 'duplicate' most of all: the row is already in, and resending would
+      // be asking the server to count the game twice.
+      const terminal: Extract<EndGameStatsAck, { ok: false }>[] = [
+        { ok: false, reason: 'unauthorized' },
+        { ok: false, reason: 'no-room' },
+        { ok: false, reason: 'duplicate' },
+        { ok: false, reason: 'not-finished' },
+        { ok: false, reason: 'invalid' },
+        { ok: false, reason: 'rate-limited' },
+      ];
+
+      for (const ack of terminal) {
+        stageFinishedGame();
+        useGameStore.getState().sendOnlineStats();
+        ackLast(ack);
+        vi.advanceTimersByTime(STATS_SUBMIT_ACK_TIMEOUT_MS + statsSubmitRetryDelayMs(1));
+
+        expect(statsEmits(), `${ack.reason} must not be retried`).toHaveLength(1);
+      }
+    });
+
+    it('cancels a pending retry when the player leaves the room', () => {
+      // The retry is module state, so clearRoomState cannot reach it: without
+      // an explicit cancel a submission for an abandoned room would go out
+      // seconds later, from a socket that no longer holds that seat.
+      stageFinishedGame();
+
+      useGameStore.getState().sendOnlineStats();
+      ackLast({ ok: false, reason: 'write-failed' });
+      useGameStore.getState().leaveRoom();
+
+      vi.advanceTimersByTime(statsSubmitRetryDelayMs(1) * 2);
+
+      expect(statsEmits(), 'the retry left with the room').toHaveLength(1);
+    });
+
+    it('cancels the no-ack deadline when the player leaves the room', () => {
+      stageFinishedGame();
+
+      useGameStore.getState().sendOnlineStats();
+      useGameStore.getState().leaveRoom();
+
+      vi.advanceTimersByTime(STATS_SUBMIT_ACK_TIMEOUT_MS * 2);
+
+      expect(statsEmits()).toHaveLength(1);
+    });
+
+    it('drops an earlier game\'s pending retry when the next game submits', () => {
+      // One slot: a retry still owed for the previous game must not race the
+      // submission for the one just finished.
+      stageFinishedGame();
+      useGameStore.getState().sendOnlineStats();
+      ackLast({ ok: false, reason: 'write-failed' });
+
+      stageFinishedGame();
+      useGameStore.getState().sendOnlineStats();
+      const afterSecondGame = statsEmits().length;
+
+      vi.advanceTimersByTime(statsSubmitRetryDelayMs(1) * 2);
+
+      expect(statsEmits(), 'only the second game\'s own deadline is live')
+        .toHaveLength(afterSecondGame);
     });
   });
 

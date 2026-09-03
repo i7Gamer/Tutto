@@ -61,6 +61,23 @@ export const PUSH_REJOIN_RACE_WINDOW_MS = 5_000;
 // enough that the move is not visibly late.
 export const PUSH_REJOIN_RETRY_DELAY_MS = 300;
 
+// How long a finished game's endGameStats submission waits for the server's
+// ack before it is treated as lost and resent.
+//
+// Silence and a server that died mid-write are indistinguishable from here,
+// and so is a server old enough to ack nothing at all — all three are retried,
+// which the server's own per-game dedup makes harmless (a resend of a
+// submission that did land is refused as 'duplicate'). Comfortably longer than
+// a socket round trip plus a small sqlite write; short enough that the whole
+// bounded sequence finishes while the player is still on the end screen.
+export const STATS_SUBMIT_ACK_TIMEOUT_MS = 5_000;
+
+// The first backoff between endGameStats attempts; each further attempt waits
+// double the previous one (see statsSubmitRetryDelayMs in socketSlice.ts). The
+// failure being backed off from is a busy database, so the point of the delay
+// is to let whatever held the lock finish rather than to pace a flood.
+export const STATS_SUBMIT_RETRY_BASE_MS = 1_000;
+
 // How long a resolved dice turn's summary counts down before auto-continuing
 // to the next player. The countdown logic (useAutoContinueCountdown) and the
 // summary's shrinking progress bar (DiceSummary) both derive from this one

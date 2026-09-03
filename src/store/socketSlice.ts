@@ -8,12 +8,18 @@ import { getSocket, setSocket } from './socketRef';
 import { REACTION_DISPLAY_MS } from '../utils/reactions';
 import { roomPhase } from '../utils/roomPhase';
 import { SYNCED_GAME_STATE_KEYS } from '../types';
-import type { Reaction, DiceSnapshot, AssertNever, SyncedGameStateKey, PushStateAck } from '../types';
+import type {
+  Reaction, DiceSnapshot, AssertNever, SyncedGameStateKey, PushStateAck,
+  EndGameStatsAck, DeviceStatsPayload,
+} from '../types';
 import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from './storeTypes';
 import { finishedGameSnapshotOf, makeToast } from './gameSlice';
 import { clearTurnCaches } from '../utils/diceTurnState';
 import { joinErrorMessage } from '../utils/joinErrors';
-import { JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS, CANCEL_RECONNECT_FAILSAFE_MS } from '../utils/uiTimings';
+import {
+  JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS, CANCEL_RECONNECT_FAILSAFE_MS,
+  STATS_SUBMIT_ACK_TIMEOUT_MS, STATS_SUBMIT_RETRY_BASE_MS,
+} from '../utils/uiTimings';
 
 type SocketSlice = Pick<GameStore,
   | 'connectSocket' | 'joinRoom' | 'leaveRoom' | 'kickPlayer'
@@ -205,6 +211,13 @@ export const clearPendingPush = (): void => {
   parkedPush = null;
   clearPendingPushRetry();
   lastReconnectAt = null;
+  // Every caller of this is a path that abandons the current online room
+  // (leaveRoom, the kicked/seatTakenOver surrender, the unrecoverable-rejoin
+  // branch, cancelReconnect, useGameStore's reset), and an endGameStats
+  // resend still owed to that room must not outlive it either — it would go
+  // out from a socket that no longer holds the seat. Cleared here rather than
+  // at each of those five call sites so the two cannot drift apart.
+  clearPendingStatsSubmit();
 };
 
 // Test-only escape hatch, the socket twin of timers.ts's _resetTimersForTests:
@@ -236,6 +249,101 @@ const submitGlobalStats = (get: SocketSliceGet): void => {
   socket.emit('submitGlobalStats', {
     roomId: get().roomId,
     payload: get().buildGlobalStatsPayload(),
+  });
+};
+
+/**
+ * How many times one finished game's endGameStats submission is sent before
+ * the client gives up: the first attempt plus two resends.
+ *
+ * Bounded, and small, because the thing being retried is not free: each
+ * attempt costs a socket round trip and a slot in the server's per-socket
+ * endGameStats limiter (5 per 10s). Three attempts spread over a few seconds
+ * comfortably outlast the transient lock contention this exists for; a
+ * database that is still refusing writes by then is not a client problem.
+ */
+export const STATS_SUBMIT_MAX_ATTEMPTS = 3;
+
+/** The attempt number the first send carries — the backoff counts from here. */
+const FIRST_STATS_ATTEMPT = 1;
+
+/** Exponential backoff: base, then double per further attempt. Exported so the tests
+ * pin the schedule rather than re-deriving it. */
+export const statsSubmitRetryDelayMs = (attempt: number): number =>
+  STATS_SUBMIT_RETRY_BASE_MS * 2 ** (attempt - FIRST_STATS_ATTEMPT);
+
+// The resend armed for a submission the server could not write, and the
+// deadline that decides a server answered nothing at all. At most one of each
+// is ever live: a client submits once per finished game, and each new
+// submission supersedes whatever the last one left behind.
+//
+// Module state for the same reason parkedPush is — `set(clearRoomState())`
+// cannot reach it, so every path that abandons the room has to clear it
+// explicitly, or a resend for a room this client already left would go out
+// from a socket that no longer holds that seat.
+let statsResendTimer: ReturnType<typeof setTimeout> | null = null;
+let statsAckDeadline: ReturnType<typeof setTimeout> | null = null;
+
+/** Forgets any endGameStats attempt this client still owes. */
+export const clearPendingStatsSubmit = (): void => {
+  if (statsResendTimer !== null) {
+    clearTimeout(statsResendTimer);
+    statsResendTimer = null;
+  }
+  if (statsAckDeadline !== null) {
+    clearTimeout(statsAckDeadline);
+    statsAckDeadline = null;
+  }
+};
+
+type EndGameStatsPayload = {
+  roomId: string | null;
+  deviceId: string | null;
+  stats: DeviceStatsPayload;
+};
+
+/**
+ * Sends one game's device stats and resends them if the server lost the write.
+ *
+ * The submission used to be fire-and-forget, and the server's write failure
+ * path — which rolls its per-device dedup entry back precisely so a resend CAN
+ * be recorded — had nothing on the other end to resend. One transient sqlite
+ * error therefore lost this device's row for the game for good.
+ *
+ * Exactly two outcomes lead to a resend:
+ *
+ *  - 'write-failed', which is the server saying the dedup is reopened and an
+ *    identical payload is expected.
+ *  - no answer at all inside STATS_SUBMIT_ACK_TIMEOUT_MS — a server that died
+ *    mid-write, and also a server predating the ack. The latter would already
+ *    have recorded the row, and its own per-game dedup drops the resends.
+ *
+ * Every other refusal is terminal, 'duplicate' most of all: the row is in, and
+ * resending would be asking the server to count the same game twice.
+ */
+const emitEndGameStats = (payload: EndGameStatsPayload, attempt: number): void => {
+  const socket = getSocket();
+  if (!socket) return;
+
+  // Whichever arrives first — the ack or the deadline — settles this attempt;
+  // a late ack after the deadline has already armed a resend must not arm a
+  // second one.
+  let settled = false;
+  const settle = (resend: boolean): void => {
+    if (settled) return;
+    settled = true;
+    clearPendingStatsSubmit();
+    if (!resend || attempt >= STATS_SUBMIT_MAX_ATTEMPTS) return;
+    statsResendTimer = setTimeout(() => {
+      statsResendTimer = null;
+      emitEndGameStats(payload, attempt + 1);
+    }, statsSubmitRetryDelayMs(attempt));
+  };
+
+  statsAckDeadline = setTimeout(() => settle(true), STATS_SUBMIT_ACK_TIMEOUT_MS);
+
+  socket.emit('endGameStats', payload, (ack?: EndGameStatsAck) => {
+    settle(ack !== undefined && !ack.ok && ack.reason === 'write-failed');
   });
 };
 
@@ -847,7 +955,10 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     // instead of keeping a copy that drifts.
     const stats = buildDeviceStatsPayload(s.players, s.myName, s.gameTimeInSeconds, s.round);
     if (stats && socket) {
-      socket.emit('endGameStats', { roomId: s.roomId, deviceId: s.deviceId, stats });
+      // Anything still pending can only belong to an earlier game — this one
+      // just finished. Same reason pushState clears its own retry first.
+      clearPendingStatsSubmit();
+      emitEndGameStats({ roomId: s.roomId, deviceId: s.deviceId, stats }, FIRST_STATS_ATTEMPT);
     }
 
     if (s.isHost) submitGlobalStats(get);
