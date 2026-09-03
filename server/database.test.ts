@@ -185,16 +185,16 @@ describe('Database Statistics Integration', () => {
   it('cannot pin a MIN record at zero with a boolean, in either scope', async () => {
     const mockDeviceId = 'test-bool-min-device-' + Date.now();
 
-    await database.updateDeviceStats(mockDeviceId, sanitizeStats({ gamesPlayed: 1, fastestWinTurns: 7 }));
+    await database.updateDeviceStats(mockDeviceId, sanitizeStats({ gamesPlayed: 1, fastestWinTurns: 7 }, 'device'));
     expect(nonNull(await database.getDeviceStats(mockDeviceId)).fastestWinTurns).toBe(7);
 
-    await database.updateDeviceStats(mockDeviceId, sanitizeStats({ gamesPlayed: 1, fastestWinTurns: false }));
+    await database.updateDeviceStats(mockDeviceId, sanitizeStats({ gamesPlayed: 1, fastestWinTurns: false }, 'device'));
     expect(nonNull(await database.getDeviceStats(mockDeviceId)).fastestWinTurns).toBe(7);
 
-    await database.updateGlobalStats(sanitizeStats({ gamesPlayed: 1, fastestWinTurns: 4 }));
+    await database.updateGlobalStats(sanitizeStats({ gamesPlayed: 1, fastestWinTurns: 4 }, 'global'));
     const globalBefore = nonNull(await database.getGlobalStats()).fastestWinTurns;
 
-    await database.updateGlobalStats(sanitizeStats({ gamesPlayed: 1, fastestWinTurns: false }));
+    await database.updateGlobalStats(sanitizeStats({ gamesPlayed: 1, fastestWinTurns: false }, 'global'));
     expect(nonNull(await database.getGlobalStats()).fastestWinTurns).toBe(globalBefore);
   });
 

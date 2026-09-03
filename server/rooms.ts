@@ -3,7 +3,7 @@ import { buildDeck, getLeaders, noUndoableTurn } from '../src/utils/coreGameEngi
 import { getEffectiveTurnDuration } from '../src/utils/turnDuration';
 import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
-  DEFAULT_RULESET,
+  DEFAULT_RULESET, MAX_PLAYERS_PER_ROOM,
 } from '../src/utils/configValidation';
 import { MS_PER_SECOND } from '../src/utils/time';
 import { MAX_ROUNDS } from './pushValidation';
@@ -44,12 +44,13 @@ export const rooms: Record<string, Room> = Object.create(null) as Record<string,
  */
 export const roomChannel = (roomId: string): string => `room:${roomId}`;
 
-// Upper bound on distinct players a single room can hold. Without one, a
-// hostile or buggy client could keep joining new deviceIds into one room
-// forever, growing its player/chart arrays (and every broadcast of them)
-// without limit — this is a sanity cap on room size, not a real gameplay
-// scenario (nobody plays Tutto with anywhere near this many players).
-export const MAX_PLAYERS_PER_ROOM = 100;
+// Re-exported (not redefined) so joinRoom and this file's own tests keep
+// importing it from here — the real definition moved to
+// src/utils/configValidation.ts, which server/sanitize.ts can import without
+// dragging this module's graph (and pushValidation's coreGameEngine ↔
+// statsPayloads cycle) into server/api.ts. Same pattern MAX_SCORE_MAGNITUDE
+// already follows for pushValidation.ts.
+export { MAX_PLAYERS_PER_ROOM };
 
 // Upper bound on concurrently existing rooms. joinRoom refuses to CREATE a
 // room past this cap (joins and reconnects into existing rooms are

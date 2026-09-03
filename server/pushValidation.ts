@@ -9,7 +9,7 @@ import {
   isValidEnforcedDiceMode, isValidRuleset,
   MAX_CARD_COUNT, VALID_CARD_TYPES,
   MAX_TURN_DURATION, MAX_PLAYER_NAME_LENGTH,
-  MAX_SCORE_MAGNITUDE,
+  MAX_SCORE_MAGNITUDE, MAX_ROUNDS, MAX_GAME_SECONDS,
 } from '../src/utils/configValidation';
 import { PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
 import { getLeaders } from '../src/utils/coreGameEngine';
@@ -21,20 +21,17 @@ import type { RoomState, ServerPlayer } from './roomTypes';
 // types. Exported for pushStateValidation.test.ts's maximal-state size
 // measurement (see socketLimits.ts).
 export const MAX_DECK_SIZE = MAX_CARD_COUNT * 11;
-// Exported for turnTimers.ts: the timeout path appends its own round-end
-// datapoints and must respect the same bound the pushed arrays get.
-// Generous safety cap for per-round arrays (chartLabels/chartValues entries) — far
-// beyond any real game, just enough to stop a malicious pushState from growing
-// these arrays without bound.
-export const MAX_ROUNDS = 100000;
-// Re-exported (not redefined) so this file's own tests can keep importing it
-// from here — the real definition lives in src/utils/configValidation.ts,
-// shared with the client's own score clamp (diceTurnControls.ts's
-// parseScoreInput), which is what keeps the two ceilings from drifting apart
-// the way they used to (the client allowed a 7-digit box up to 9,999,999
-// while this bound was 1,000,000).
-export { MAX_SCORE_MAGNITUDE };
-const MAX_GAME_SECONDS = 10_000_000;
+// Re-exported (not redefined) so this file's own tests, rooms.ts and
+// turnTimers.ts can keep importing them from here — the real definitions live
+// in src/utils/configValidation.ts. MAX_SCORE_MAGNITUDE is shared with the
+// client's own score clamp (diceTurnControls.ts's parseScoreInput), which is
+// what keeps the two ceilings from drifting apart the way they used to (the
+// client allowed a 7-digit box up to 9,999,999 while this bound was
+// 1,000,000); MAX_ROUNDS and MAX_GAME_SECONDS moved there so server/sanitize.ts
+// can bound a stats payload by the same numbers a pushed state is bound by,
+// without importing this file and dragging its coreGameEngine ↔ statsPayloads
+// cycle into server/api.ts's module graph.
+export { MAX_SCORE_MAGNITUDE, MAX_ROUNDS, MAX_GAME_SECONDS };
 // A history-entry id is a client-generated string (see HistoryEntry in
 // src/types.ts) — this is a sanity bound, not a format, same role as
 // MAX_ROOM_ID_LENGTH plays for room ids.

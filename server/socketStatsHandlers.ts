@@ -145,7 +145,7 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // this, an empty submission advanced the global row's defaultGamesPlayed
     // counter (from isDefaultGame) while totalGamesPlayed stayed put.
     const globalStats: SanitizedStats = {
-      ...sanitizeStats(payload),
+      ...sanitizeStats(payload, 'global'),
       isDefaultGame: room.normalizedGame,
       gamesPlayed: GAMES_PER_FINISH,
     };
@@ -236,7 +236,7 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // the game started with: the frozen ruleset picks the pair, the frozen
     // normalizedGame flag picks within it.
     const mode = statsModeFor(room);
-    const clean = sanitizeStats(stats);
+    const clean = sanitizeStats(stats, 'device');
 
     // Whether this device WON is the server's call, for the same reason
     // isDefaultGame is: the client computes it with getLeaders() over its own

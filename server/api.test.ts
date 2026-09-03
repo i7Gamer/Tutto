@@ -483,21 +483,44 @@ describe('production CORS defaults to same-origin', () => {
 // — the client hit stop or reload, or the connection dropped, while
 // dist/index.html was streaming — and no real request can reproduce that on
 // demand, since index.html leaves the server in a single write.
-describe('the SPA fallback when sendFile reports an error', () => {
-  // registerApiRoutes' last path-less app.use; the unmatched-/api 404 above it
-  // is mounted on '/api'.
-  const spaFallback = (): express.RequestHandler => {
-    const pathless: express.RequestHandler[] = [];
-    const app = {
-      get: () => {},
-      post: () => {},
-      use: (...args: unknown[]) => {
-        if (typeof args[0] === 'function') pathless.push(args[0] as express.RequestHandler);
-      },
-    } as unknown as express.Express;
+// Express tells an error handler from an ordinary one by arity alone: four
+// declared parameters mean (err, req, res, next). registerApiRoutes mounts one
+// as its very last app.use, so "the last path-less handler" — how the helper
+// below used to pick the SPA fallback — would otherwise select that instead,
+// handing every assertion here a handler that never calls sendFile.
+const ERROR_HANDLER_ARITY = 4;
 
-    registerApiRoutes(app);
-    return pathless[pathless.length - 1] as express.RequestHandler;
+// The path-less handlers registerApiRoutes mounts, split the way express
+// itself splits them. The unmatched-/api 404 sitting between the two is
+// mounted on '/api', so it appears in neither list.
+const pathlessHandlers = (): {
+  requestHandlers: express.RequestHandler[];
+  errorHandlers: express.ErrorRequestHandler[];
+} => {
+  const requestHandlers: express.RequestHandler[] = [];
+  const errorHandlers: express.ErrorRequestHandler[] = [];
+  const app = {
+    get: () => {},
+    post: () => {},
+    use: (...args: unknown[]) => {
+      const handler = args[0];
+      if (typeof handler !== 'function') return;
+      if (handler.length < ERROR_HANDLER_ARITY) requestHandlers.push(handler as express.RequestHandler);
+      else errorHandlers.push(handler as express.ErrorRequestHandler);
+    },
+  } as unknown as express.Express;
+
+  registerApiRoutes(app);
+  return { requestHandlers, errorHandlers };
+};
+
+describe('the SPA fallback when sendFile reports an error', () => {
+  // registerApiRoutes' last path-less REQUEST handler; the unmatched-/api 404
+  // above it is mounted on '/api', and the terminal error handler below it is
+  // filtered out by arity.
+  const spaFallback = (): express.RequestHandler => {
+    const { requestHandlers } = pathlessHandlers();
+    return requestHandlers[requestHandlers.length - 1] as express.RequestHandler;
   };
 
   // What express hands the callback: an Error carrying the syscall code the
@@ -595,6 +618,38 @@ describe('the SPA fallback when sendFile reports an error', () => {
 
     expect(status).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+// The terminal error handler's headers-sent branch, driven directly for the
+// same reason the SPA fallback's callback above is: nothing a real request can
+// do reproduces a failure that surfaces AFTER the response has started.
+describe('the terminal error handler once the response has started', () => {
+  it('is mounted exactly once, after the SPA fallback', () => {
+    // Registered inside registerApiRoutes rather than in index.ts, where
+    // api.routes.test.ts — which builds its own express app around this very
+    // function — could never reach it.
+    expect(pathlessHandlers().errorHandlers).toHaveLength(1);
+  });
+
+  it('delegates to express instead of answering a second time', () => {
+    // The SPA fallback streams a file, so an error here can arrive with the
+    // headers already on the wire. Answering anyway throws
+    // ERR_HTTP_HEADERS_SENT out of the handler — uncaught, which takes the
+    // whole server down over one client hitting reload mid-download. next(err)
+    // hands it back to express, which destroys the socket instead.
+    const [errorHandler] = pathlessHandlers().errorHandlers;
+    const json = vi.fn();
+    const status = vi.fn(() => ({ json }));
+    const res = { headersSent: true, status, json } as unknown as express.Response;
+    const next = vi.fn();
+    const err = new Error('the file stopped mid-stream');
+
+    errorHandler(err, {} as express.Request, res, next);
+
+    expect(next).toHaveBeenCalledWith(err);
+    expect(status).not.toHaveBeenCalled();
+    expect(json).not.toHaveBeenCalled();
   });
 });
 

@@ -48,6 +48,42 @@ const CLIENT_ABORT_ERROR_CODES = ['ECONNABORTED', 'ECONNRESET'];
 const isClientAbort = (err: unknown): boolean =>
   CLIENT_ABORT_ERROR_CODES.includes((err as { code?: string }).code ?? '');
 
+// What the terminal error handler at the bottom of registerApiRoutes answers
+// with. Express 5 has no error middleware of its own beyond finalhandler,
+// which writes `err.stack` into the response whenever NODE_ENV !== 'production'
+// — absolute server paths and the body-parser call chain, handed to an
+// unauthenticated caller by nothing more than a malformed JSON body on
+// POST /api/log/client-error. Nothing below is derived from the error itself.
+const CLIENT_ERROR_MESSAGE = 'Bad request';
+const SERVER_ERROR_MESSAGE = 'Internal server error';
+
+// The first and last statuses that mean "an error", and the boundary between
+// the caller's fault and ours. A status outside the range is not one this
+// handler will echo (see errorStatus): a library hanging a `status: 0` or a
+// `statusCode: 200` on its error would otherwise make res.status throw, or
+// answer an outright failure with a success code.
+const MIN_ERROR_STATUS = 400;
+const SERVER_ERROR_STATUS = 500;
+const MAX_ERROR_STATUS = 599;
+
+/**
+ * The status an error asks to be answered with, or 500 when it names none.
+ *
+ * body-parser is why this is not simply a blanket 500: it distinguishes a
+ * malformed body (400) from one past the size limit (413), and flattening
+ * both into a server error tells the caller its own request was fine and
+ * blames the server — a misdiagnosis paid for twice, once by whoever is
+ * debugging the client and once by whoever is reading the logs.
+ */
+const errorStatus = (err: unknown): number => {
+  const claimed = (err as { status?: unknown; statusCode?: unknown } | null | undefined)?.status
+    ?? (err as { statusCode?: unknown } | null | undefined)?.statusCode;
+  return typeof claimed === 'number' && Number.isInteger(claimed)
+    && claimed >= MIN_ERROR_STATUS && claimed <= MAX_ERROR_STATUS
+    ? claimed
+    : SERVER_ERROR_STATUS;
+};
+
 // What tells an asset-shaped request (a JS chunk, a stale HTML import, a
 // probed .ico) apart from a client-side route: the app has no router at all —
 // rooms travel as a `?room=` query param (see src/utils/roomLink.ts), never a
@@ -281,7 +317,7 @@ export const registerApiRoutes = (app: express.Express): void => {
 
   app.post('/api/stats/global', requireToken, rejectForeignBucketParam(RULESET_PARAM, MODE_PARAM), rejectUnknownRuleset, async (req: express.Request, res: express.Response) => {
     try {
-      await updateGlobalStats(sanitizeStats(req.body), requestedRuleset(req));
+      await updateGlobalStats(sanitizeStats(req.body, 'global'), requestedRuleset(req));
       res.json({ success: true });
     } catch (err) {
       console.error(err);
@@ -318,7 +354,7 @@ export const registerApiRoutes = (app: express.Express): void => {
 
   app.post('/api/stats/:deviceId', requireToken, requireValidDeviceId, rejectForeignBucketParam(MODE_PARAM, RULESET_PARAM), rejectUnknownMode, async (req: express.Request, res: express.Response) => {
     try {
-      await updateDeviceStats(req.params.deviceId as string, sanitizeStats(req.body), requestedMode(req));
+      await updateDeviceStats(req.params.deviceId as string, sanitizeStats(req.body, 'device'), requestedMode(req));
       res.json({ success: true });
     } catch (err) {
       console.error(err);
@@ -393,6 +429,41 @@ export const registerApiRoutes = (app: express.Express): void => {
       // client reloading mid-download would take the server with it.
       if (res.headersSent || isClientAbort(err)) return;
       res.status(404).send('Not found');
+    });
+  });
+
+  // Terminal error handler — must stay the LAST app.use of all, after the SPA
+  // fallback above, and must live here rather than in index.ts: express only
+  // reaches a four-parameter handler for an error raised by middleware
+  // registered BEFORE it, and api.routes.test.ts builds its own express app
+  // around registerApiRoutes, so a handler mounted in index.ts would never be
+  // exercised by a test.
+  //
+  // Without it, express 5 falls through to finalhandler, which answers with
+  // err.stack whenever NODE_ENV !== 'production' — absolute server paths and
+  // body-parser internals, for nothing more than a malformed JSON body on the
+  // one route that takes unauthenticated writes.
+  //
+  // The four parameters are load-bearing: express tells an error handler from
+  // an ordinary one by fn.length alone, so none of them may be dropped.
+  app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    // Same hazard the SPA fallback's sendFile callback documents just above:
+    // it streams a file, so an error can surface with the headers already on
+    // the wire, and answering then throws ERR_HTTP_HEADERS_SENT — uncaught,
+    // which takes the server down over one client hitting reload. Delegating
+    // hands it back to express, which destroys the socket instead of writing
+    // a second time.
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+    // Server-side only. The client is told nothing it could not have worked
+    // out from the status, but swallowing the detail entirely would make a
+    // genuine 500 invisible.
+    console.error('Unhandled request error:', err);
+    const status = errorStatus(err);
+    res.status(status).json({
+      error: status < SERVER_ERROR_STATUS ? CLIENT_ERROR_MESSAGE : SERVER_ERROR_MESSAGE,
     });
   });
 };

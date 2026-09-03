@@ -157,6 +157,32 @@ export const RULESETS: readonly Ruleset[] = ['modernized', 'classic'];
 export const isValidRuleset = (v: unknown): v is Ruleset =>
   RULESETS.some(ruleset => ruleset === v);
 
+// Generous safety cap for per-round arrays (chartLabels/chartValues entries)
+// and for a round number itself — far beyond any real game, just enough to
+// stop a malicious pushState from growing these arrays without bound.
+// Defined here rather than in server/pushValidation.ts (which re-exports it,
+// the same way it re-exports MAX_SCORE_MAGNITUDE) because server/sanitize.ts
+// needs it too: importing pushValidation.ts there would drag its
+// coreGameEngine ↔ statsPayloads cycle into server/api.ts's module graph.
+export const MAX_ROUNDS = 100000;
+
+// Sanity cap on the seconds a single game may claim to have lasted, enforced
+// on every pushed gameTimeInSeconds. Lives here for the same reason
+// MAX_ROUNDS does — server/sanitize.ts bounds the playtime a stats payload
+// may add from it, and must not import server/pushValidation.ts to get it.
+export const MAX_GAME_SECONDS = 10_000_000;
+
+// Upper bound on distinct players a single room can hold. Without one, a
+// hostile or buggy client could keep joining new deviceIds into one room
+// forever, growing its player/chart arrays (and every broadcast of them)
+// without limit — this is a sanity cap on room size, not a real gameplay
+// scenario (nobody plays Tutto with anywhere near this many players).
+// Enforced by joinRoom (server/socketRoomHandlers.ts, via server/rooms.ts's
+// re-export); server/sanitize.ts reads it as the ceiling on the
+// mostPlayersInGame record and as the multiplier turning a per-player stats
+// bound into a whole-room one.
+export const MAX_PLAYERS_PER_ROOM = 100;
+
 // The largest magnitude a turn/game score may claim, shared by the client's
 // manual score-entry clamp (diceTurnControls.ts's parseScoreInput, for
 // physical dice mode) and the server's own bound on every pushed score

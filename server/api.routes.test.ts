@@ -429,6 +429,58 @@ describe('api routes in-process', () => {
       expect(await res.json()).toEqual({ error: 'Not found' });
     });
   });
+
+  /**
+   * What a request that fails BEFORE any route runs gets told.
+   *
+   * express.json() (mounted here exactly as index.ts mounts it) throws on a
+   * malformed body, and with no error-handling middleware of its own the app
+   * fell through to express 5's finalhandler — which answers with `err.stack`
+   * whenever NODE_ENV !== 'production'. A single unauthenticated POST carrying
+   * `{` therefore handed back absolute server paths and the body-parser call
+   * chain, on the one route that exists for players with no credentials at all.
+   */
+  describe('a request that fails before any route runs', () => {
+    // express.json()'s default body limit is 100kb; comfortably past it.
+    const OVER_JSON_BODY_LIMIT_BYTES = 200_000;
+
+    const postRaw = (body: string): Promise<Response> =>
+      fetch(url('/api/log/client-error'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      });
+
+    it('answers a malformed body with generic JSON, not a stack trace', async () => {
+      const res = await postRaw('{');
+      const text = await res.text();
+
+      expect(res.headers.get('content-type')).toContain('application/json');
+      expect(JSON.parse(text)).toEqual({ error: 'Bad request' });
+      // The three things finalhandler used to leak: the exception's class, the
+      // absolute paths of the modules it walked through, and their line
+      // numbers. None of them tells an unauthenticated caller anything it is
+      // entitled to know.
+      expect(text).not.toContain('SyntaxError');
+      expect(text).not.toContain('node_modules');
+      expect(text).not.toMatch(/\.js:\d+/);
+    });
+
+    it('keeps body-parser own status rather than turning it into a 500', async () => {
+      // The failure is the caller's, and saying so is the difference between
+      // "fix your request" and "the server is broken". A blanket 500 would
+      // also have made this indistinguishable from a database outage.
+      expect((await postRaw('{')).status).toBe(400);
+      expect((await postRaw(`"${'x'.repeat(OVER_JSON_BODY_LIMIT_BYTES)}"`)).status).toBe(413);
+    });
+
+    it('still records the real error server-side', async () => {
+      // The client is told nothing useful on purpose, so the detail has to go
+      // somewhere — silently swallowing it would make a genuine 500 invisible.
+      await postRaw('{');
+      expect(errorSpy).toHaveBeenCalled();
+    });
+  });
 });
 
 // Item 5: the STATS_RATE_LIMIT_MAX production default (60) used to be a bare

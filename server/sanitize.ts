@@ -1,3 +1,8 @@
+import { MAX_CHAIN_CARDS } from '../src/types';
+import {
+  MAX_SCORE_MAGNITUDE, MAX_ROUNDS, MAX_GAME_SECONDS, MAX_PLAYERS_PER_ROOM,
+} from '../src/utils/configValidation';
+
 export const STATS_VALUE_CAP = 1e9;
 
 // Indent prepended to continuation lines of multi-line log fields — see
@@ -59,6 +64,11 @@ export const indentLogContinuationLines = (value: string): string =>
 // nothing — and nothing short of editing the database dislodges it again.
 // Absent is what such a value means, and an absent record column is left
 // alone by both merge paths.
+//
+// They get no UPPER bound, which is why they are not in RECORD_STATS_BOUNDS
+// below: a huge value never poisons a MIN column — it just loses the merge —
+// so dropping one would buy nothing, and raising it toward MIN_RECORD_TURNS
+// would write the very unbeatable record this drop exists to prevent.
 const MIN_RECORD_STATS_FIELDS = new Set(['fastestWinTurns', 'fastestLossTurns']);
 
 // The smallest turn count either of those records can honestly hold.
@@ -80,10 +90,82 @@ const NEGATIVE_ALLOWED_STATS_FIELDS = new Set(['totalScore']);
 // boolean for a counter, so one arriving is a malformed payload.
 const BOOLEAN_STATS_FIELDS = new Set(['isDefaultGame']);
 
+/**
+ * The MAX-merged record columns, and the largest value each can honestly hold.
+ *
+ * STATS_VALUE_CAP on its own left a hole between two layers that both look
+ * careful: pushValidation refuses a turn score past MAX_SCORE_MAGNITUDE, but
+ * nothing tied the STATS payload to the state it claims to describe — so a
+ * host could play a real game to a legitimate finish and then submit
+ * `highestTurnScore: 1e9`, which sailed through and, because RECORD_COLUMNS
+ * merges these with MAX in database.ts, pinned the record for good.
+ *
+ * Every bound here is the one the value's own source already enforces, so no
+ * real game can reach it: a turn score by MAX_SCORE_MAGNITUDE, a round number
+ * by MAX_ROUNDS, a roster by MAX_PLAYERS_PER_ROOM, one turn's chain by
+ * MAX_CHAIN_CARDS. Taken from those constants rather than restated, so a
+ * loosened bound upstream cannot leave a stale ceiling here.
+ *
+ * The two MIN-merged records are deliberately absent — see
+ * MIN_RECORD_STATS_FIELDS above for why bounding those is either inert or the
+ * very bug that comment warns about.
+ *
+ * Exported so sanitize.test.ts generates its cases from this list, the way
+ * database.test.ts generates its record-column cases from RECORD_COLUMNS: a
+ * column added here arrives already covered.
+ */
+export const RECORD_STATS_BOUNDS: ReadonlyMap<string, number> = new Map([
+  ['highestTurnScore', MAX_SCORE_MAGNITUDE],
+  ['highestFeuerwerkTurnScore', MAX_SCORE_MAGNITUDE],
+  ['highestX2TurnScore', MAX_SCORE_MAGNITUDE],
+  ['highestForfeitedTurnScore', MAX_SCORE_MAGNITUDE],
+  ['mostPlayersInGame', MAX_PLAYERS_PER_ROOM],
+  ['longestGameRounds', MAX_ROUNDS],
+  ['mostCardsInTurn', MAX_CHAIN_CARDS],
+]);
+
+/**
+ * The most one player can add to an additive counter over a single game.
+ *
+ * Those counters come in three families with different natural ceilings — a
+ * duration (totalPlaytime, bounded by MAX_GAME_SECONDS), a score (totalScore,
+ * MAX_SCORE_MAGNITUDE) and a count (totalTurns and the per-turn tallies, none
+ * of which can outrun MAX_ROUNDS) — and one shared bound has to clear the
+ * largest of them or it would silently truncate a legitimate submission.
+ * Derived from all three rather than picked, so raising any one of them
+ * carries through without anyone having to remember this line.
+ */
+export const MAX_ADDITIVE_PER_PLAYER = Math.max(MAX_GAME_SECONDS, MAX_SCORE_MAGNITUDE, MAX_ROUNDS);
+
+/**
+ * The same counters on a global row are a sum over every seat that played, so
+ * an identical key legitimately holds up to MAX_PLAYERS_PER_ROOM times as
+ * much there. One shared cap across both shapes is either useless on a device
+ * row or lossy on a global one, which is why sanitizeStats has to be told
+ * which it is sanitizing for.
+ */
+export const MAX_ADDITIVE_PER_GLOBAL_ROW = MAX_ADDITIVE_PER_PLAYER * MAX_PLAYERS_PER_ROOM;
+
+// The two additive counters left at the general STATS_VALUE_CAP instead of the
+// per-game bound above. The token-gated admin route (POST /api/stats/:deviceId)
+// legitimately corrects a miscount in one multi-game call rather than one game
+// at a time, and api.routes.test.ts + api.test.ts pin that. Safe to exempt
+// precisely because both are plain running sums: nothing they carry is
+// permanent, so the same route can subtract it again — unlike a record column,
+// where a single write is forever.
+const MULTI_GAME_ADDITIVE_STATS_FIELDS = new Set(['gamesPlayed', 'wins']);
+
 export type SanitizedStats = Record<string, number | boolean | null>;
 
-export const sanitizeStats = (raw: unknown): SanitizedStats => {
+// Which row shape the payload is bound for. Deliberately required rather than
+// defaulted: a call site that forgot it would either truncate a legitimate
+// whole-room sum or hand a device row a hundred times the bound it needs, and
+// neither failure says anything at the time it happens.
+export type StatsScope = 'device' | 'global';
+
+export const sanitizeStats = (raw: unknown, scope: StatsScope): SanitizedStats => {
   if (!raw || typeof raw !== 'object') return {};
+  const additiveCap = scope === 'global' ? MAX_ADDITIVE_PER_GLOBAL_ROW : MAX_ADDITIVE_PER_PLAYER;
   const clean: SanitizedStats = {};
   for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof val === 'boolean') {
@@ -110,8 +192,30 @@ export const sanitizeStats = (raw: unknown): SanitizedStats => {
       clean[key] = capped;
       continue;
     }
+    const recordBound = RECORD_STATS_BOUNDS.get(key);
+    if (recordBound !== undefined) {
+      // Dropped, not clamped, for exactly the reason a non-positive
+      // fastestWinTurns is: these columns are MAX-merged, so a clamp still
+      // WRITES a permanent value — the sender simply pins the record at the
+      // clamp instead of at STATS_VALUE_CAP, and nothing short of editing the
+      // database takes it back down. Writing nothing leaves the stored record
+      // where the last honest game left it, which is what an out-of-range
+      // value actually means.
+      if (capped > recordBound) continue;
+      clean[key] = Math.max(0, capped);
+      continue;
+    }
+    // Additive counters are safe to CLAMP rather than drop: they are running
+    // sums, so nothing a clamp writes is permanent — the token-gated route can
+    // subtract it again — while dropping one would silently lose the honest
+    // part of a real game's submission.
+    const maxAllowed = MULTI_GAME_ADDITIVE_STATS_FIELDS.has(key) ? STATS_VALUE_CAP : additiveCap;
+    // totalScore's negative bound deliberately stays the wider
+    // STATS_VALUE_CAP: it is the only field not floored at 0, which makes it
+    // the only way an operator can subtract a poisoned total back out. Bounding
+    // that direction would take the repair away along with the abuse.
     const minAllowed = NEGATIVE_ALLOWED_STATS_FIELDS.has(key) ? -STATS_VALUE_CAP : 0;
-    clean[key] = Math.max(minAllowed, capped);
+    clean[key] = Math.max(minAllowed, Math.min(maxAllowed, capped));
   }
   return clean;
 };
