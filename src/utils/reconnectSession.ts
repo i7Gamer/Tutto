@@ -6,6 +6,10 @@
 import { MAX_PLAYER_NAME_LENGTH, isPlausibleRoomId, normalizeRoomId } from './configValidation';
 
 /** The seat this device held, so a reload can offer to reclaim it. */
+// The sessionStorage key the online seat is remembered under. One constant,
+// imported everywhere, so a typo cannot silently read a key nothing writes.
+export const ONLINE_SESSION_KEY = 'tutto_online_session';
+
 export interface ReconnectSession {
   roomId: string;
   myName: string;

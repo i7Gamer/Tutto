@@ -1,4 +1,5 @@
 import { localStore, sessionStore } from '../utils/storage';
+import { ONLINE_SESSION_KEY } from '../utils/reconnectSession';
 import React from 'react';
 import { recordCrash } from '../utils/crashLog';
 import { clearTurnCaches } from '../utils/diceTurnState';
@@ -106,7 +107,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   hardReset = (): Promise<void> => {
     clearTurnCaches();
     localStore.remove('tutto_local_game');
-    sessionStore.remove('tutto_online_session');
+    sessionStore.remove(ONLINE_SESSION_KEY);
     return clearCachesAndUnregisterWorkers().then(() => {
       window.location.reload();
     });

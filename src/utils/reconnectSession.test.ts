@@ -76,3 +76,26 @@ describe('parseReconnectSession', () => {
       .toEqual({ roomId: 'ROOM1', myName: 'Alice' });
   });
 });
+
+describe('the session key literal', () => {
+  it('appears in source only where ONLINE_SESSION_KEY is defined', () => {
+    // A bare 'tutto_online_session' string elsewhere is the typo hazard the
+    // constant exists to remove — the same reason diceTurnState.ts owns
+    // DICE_TURN_STATE_KEY.
+    const fs = require('fs') as typeof import('fs');
+    const path = require('path') as typeof import('path');
+    const root = path.resolve(__dirname, '..');
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (/\.(ts|tsx)$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)
+          && entry.name !== 'reconnectSession.ts'
+          && fs.readFileSync(full, 'utf8').includes("'tutto_online_session'")) offenders.push(path.relative(root, full));
+      }
+    };
+    walk(root);
+    expect(offenders).toEqual([]);
+  });
+});

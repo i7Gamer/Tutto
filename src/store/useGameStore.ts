@@ -1,4 +1,5 @@
 import { localStore, sessionStore } from '../utils/storage';
+import { ONLINE_SESSION_KEY } from '../utils/reconnectSession';
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { parseJsonString } from '../utils/parseJson';
@@ -138,7 +139,7 @@ export const useGameStore = create<GameStore>()(
     },
 
     clearPendingReconnect: () => {
-      sessionStore.remove('tutto_online_session');
+      sessionStore.remove(ONLINE_SESSION_KEY);
       set({ pendingReconnectSession: null });
     },
 
@@ -159,9 +160,9 @@ export const useGameStore = create<GameStore>()(
       // corrupted entry used to ask about "room (undefined)" and then join a
       // room by that name. Dropped when unusable — left in place it would be
       // re-read, and re-prompted for, on every mount.
-      const rawSession = sessionStore.read('tutto_online_session');
+      const rawSession = sessionStore.read(ONLINE_SESSION_KEY);
       const session = parseReconnectSession(rawSession);
-      if (rawSession !== null && session === null) sessionStore.remove('tutto_online_session');
+      if (rawSession !== null && session === null) sessionStore.remove(ONLINE_SESSION_KEY);
 
       set((state) => {
         state.deviceId = deviceId;

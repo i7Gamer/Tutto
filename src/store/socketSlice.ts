@@ -2,6 +2,7 @@ import { localStore, sessionStore } from '../utils/storage';
 import { io, type Socket } from 'socket.io-client';
 import { buildDeviceStatsPayload, noUndoableTurn } from '../utils/coreGameEngine';
 import i18n from '../i18n';
+import { ONLINE_SESSION_KEY } from '../utils/reconnectSession';
 import { formatInt } from '../utils/formatNumber';
 import { areInitialCardsEqual, normalizeRoomId } from '../utils/configValidation';
 import { validateOnlineConfig } from './persistence';
@@ -627,7 +628,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
   const surrenderSeat = (message: string): void => {
     get().addToast(message);
     get().stopOnlineTimers();
-    sessionStore.remove('tutto_online_session');
+    sessionStore.remove(ONLINE_SESSION_KEY);
     clearTurnCaches();
     clearPendingPush();
     clearRejoinWatchdog();
@@ -747,7 +748,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     clearTurnCaches();
     clearPendingPush();
     clearRejoinWatchdog();
-    sessionStore.remove('tutto_online_session');
+    sessionStore.remove(ONLINE_SESSION_KEY);
     set({ pendingReconnectSession: null, liveTurnState: null, showReconnectPopup: false });
 
     // Abandoning an active room (the "Return to Main Menu" path) must also drop
@@ -857,7 +858,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
             roomId: canonicalRoomId, isHost: res.isHost ?? false, myName: seatedName,
             mode: 'online', isOnline: true, lastAppliedStateVersion: null,
           });
-          sessionStore.write('tutto_online_session', JSON.stringify({ roomId: canonicalRoomId, myName: seatedName }));
+          sessionStore.write(ONLINE_SESSION_KEY, JSON.stringify({ roomId: canonicalRoomId, myName: seatedName }));
 
           if (res.isHost && !isReconnect && initialConfig) {
             get().addToast(i18n.t('lobby.savedSettingsLoaded'));
@@ -872,7 +873,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     const socket = getSocket();
     if (socket) socket.emit('leaveRoom');
     get().stopOnlineTimers();
-    sessionStore.remove('tutto_online_session');
+    sessionStore.remove(ONLINE_SESSION_KEY);
     clearTurnCaches();
     clearPendingPush();
     clearRejoinWatchdog();
