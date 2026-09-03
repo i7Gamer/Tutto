@@ -5,7 +5,7 @@
  * environment deliberately.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { attachPersistence } from './persistence';
+import { attachPersistence, LOCAL_GAME_SCHEMA_VERSION } from './persistence';
 import type { GameStore } from './useGameStore';
 import { makeGameState, makePlayer } from '../testing/factories';
 
@@ -68,6 +68,15 @@ describe('attachPersistence', () => {
     emit(localState());
 
     expect(saved()).toMatchObject({ round: 1, currentCard: '200' });
+  });
+
+  it('stamps every save with the current schema version', () => {
+    const { store, emit } = makeStore();
+    attachPersistence(store);
+
+    emit(localState());
+
+    expect(saved()).toMatchObject({ schemaVersion: LOCAL_GAME_SCHEMA_VERSION });
   });
 
   // The whole reason the stability key exists: the 1s game clock mutates

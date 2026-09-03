@@ -41,6 +41,17 @@ const STABLE_LOCAL_GAME_KEYS = [
 
 const LOCAL_GAME_STATE_KEYS = [...STABLE_LOCAL_GAME_KEYS, 'gameTimeInSeconds'] as const satisfies readonly (keyof GameStore)[];
 
+// Stamped into every `tutto_local_game` write (see attachPersistence below) and
+// checked on read (pickLocalGameState). A save with no schemaVersion at all
+// predates this field and is read as version 1 — today's shape — so every
+// existing save keeps restoring unchanged. A save whose version is HIGHER than
+// this build knows is dropped outright rather than partially restored: a
+// future field this code has never validated could be the one a later shape
+// change actually depends on for safety. Bump this whenever
+// LOCAL_GAME_STATE_KEYS or LOCAL_GAME_VALIDATORS changes in a way that isn't
+// backward compatible with an older save.
+export const LOCAL_GAME_SCHEMA_VERSION = 1;
+
 // The synced-online fields that deliberately do NOT go into a local save.
 // Together with LOCAL_GAME_STATE_KEYS this must account for every canonical
 // synced field (SYNCED_GAME_STATE_KEYS, src/types.ts) — a new game-state
@@ -223,6 +234,12 @@ const LOCAL_GAME_VALIDATORS: Record<(typeof LOCAL_GAME_STATE_KEYS)[number], (v: 
 export const pickLocalGameState = (parsed: unknown): Partial<GameStore> => {
   if (typeof parsed !== 'object' || parsed === null) return {};
   const source = parsed as Record<string, unknown>;
+  // Absent schemaVersion (typeof undefined !== 'number') reads as version 1 —
+  // every save written before this field existed. Only a version this build
+  // cannot have written (newer than LOCAL_GAME_SCHEMA_VERSION) is rejected;
+  // dropping the whole save here rather than field-by-field avoids restoring
+  // half of a shape this code was never written to understand.
+  if (typeof source.schemaVersion === 'number' && source.schemaVersion > LOCAL_GAME_SCHEMA_VERSION) return {};
   const out: Record<string, unknown> = {};
   for (const key of LOCAL_GAME_STATE_KEYS) {
     if (key in source && LOCAL_GAME_VALIDATORS[key](source[key])) out[key] = source[key];
@@ -323,7 +340,11 @@ export const attachPersistence = (store: Pick<StoreApi<GameStore>, 'subscribe'>)
     if (persistKey === lastLocalPersistKey) return;
     lastLocalPersistKey = persistKey;
     // The latest gameTimeInSeconds still rides along whenever a real change is saved.
-    const localStateToSave = { ...stable, gameTimeInSeconds: state.gameTimeInSeconds };
+    const localStateToSave = {
+      ...stable,
+      gameTimeInSeconds: state.gameTimeInSeconds,
+      schemaVersion: LOCAL_GAME_SCHEMA_VERSION,
+    };
     localStore.write('tutto_local_game', JSON.stringify(localStateToSave));
   });
 

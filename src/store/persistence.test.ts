@@ -1,6 +1,6 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
-import { pickLocalGameState } from './persistence';
+import { pickLocalGameState, LOCAL_GAME_SCHEMA_VERSION } from './persistence';
 
 describe('pickLocalGameState', () => {
   it('returns an empty object for non-object or null input', () => {
@@ -338,6 +338,27 @@ describe('pickLocalGameState', () => {
       expect(pickLocalGameState({ previousTurnSummary: { ...bareSummary, deductedAmounts: [400] } })).toEqual({});
 
       expect(pickLocalGameState({ previousTurnSummary: summary })).toEqual({ previousTurnSummary: summary });
+    });
+  });
+
+  describe('schemaVersion', () => {
+    it('accepts a save with no schemaVersion at all, as version 1 (every save predates this field)', () => {
+      expect(pickLocalGameState({ round: 3 })).toEqual({ round: 3 });
+    });
+
+    it('accepts a save stamped with the current schema version', () => {
+      expect(pickLocalGameState({ schemaVersion: LOCAL_GAME_SCHEMA_VERSION, round: 3 })).toEqual({ round: 3 });
+    });
+
+    it('drops the whole save when its schemaVersion is newer than this build understands', () => {
+      // A half-restore under a future shape this code has never validated
+      // would be worse than restoring nothing.
+      const futureSave = {
+        schemaVersion: LOCAL_GAME_SCHEMA_VERSION + 1,
+        round: 3,
+        players: [{ name: 'Alice', score: 100 }],
+      };
+      expect(pickLocalGameState(futureSave)).toEqual({});
     });
   });
 
