@@ -194,47 +194,66 @@ describe('applyUpdateWhenIdle', () => {
 });
 
 describe('reloadOnceForUpdate', () => {
+  /** A minimal store: a value, a setter, and zustand-shaped subscribe. */
+  const makeStore = (initial: UpdateIdleState) => {
+    let state = initial;
+    const listeners = new Set<() => void>();
+    return {
+      getState: () => state,
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      set: (next: UpdateIdleState) => {
+        state = next;
+        [...listeners].forEach(listener => listener());
+      },
+      listenerCount: () => listeners.size,
+    };
+  };
+
   const stubReload = () => {
     const reload = vi.fn();
     vi.stubGlobal('location', { ...window.location, reload });
     return reload;
   };
 
-  /** Puts this tab in the state of having handed the worker its go-ahead. */
-  const applyHere = () => applyUpdateWhenIdle({
-    apply: () => {},
-    getState: () => idle,
-    subscribe: () => () => {},
-  });
-
-  it('reloads the page once this tab has applied the update', () => {
+  it('reloads immediately when this tab is idle', () => {
+    // The common case: this tab applied the update itself while idle (or the
+    // controller simply changed while nothing else was going on), so the
+    // idle check below passes on the very first attempt.
     const reload = stubReload();
-    applyHere();
+    const store = makeStore(idle);
 
-    reloadOnceForUpdate();
+    reloadOnceForUpdate({ getState: store.getState, subscribe: store.subscribe });
 
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
-  it('does not reload a tab that did not apply the update itself', () => {
-    // The reported "one tab updating reloads every other tab", which the move
-    // to prompt mode was supposed to end and did not. The register template
-    // adds a `controlling` listener in EVERY tab that sees a worker reach
-    // `waiting` — including one installed because of another tab — and workbox
-    // dispatches `controlling` unconditionally with isUpdate true for any tab
-    // that is not a first-ever visit. isExternal is passed and the template
-    // ignores it. So a tab that never chose to update was reloaded anyway,
-    // mid-game included: a visible flash plus a reconnect round trip for
-    // everyone at that table.
-    //
-    // Not reloading is not a compromise: clients.claim hands the new worker
-    // tabs still running the PREVIOUS build, and RETAINED_CACHE_GENERATIONS
-    // exists precisely so their chunks keep resolving.
+  // The bug report: a tab claimed by ANOTHER tab's update never reloaded.
+  // workbox-window's `controlling` event (wired to this via onNeedReload in
+  // main.tsx) fires in EVERY tab whose controller changes, including one
+  // that never called apply() itself — clients.claim() affects every open
+  // tab under the registration, not just the one that asked for the update.
+  // The old code gated reloading on a flag only the applying tab ever set,
+  // so a tab claimed this way just sat there running stale JS under a new
+  // worker's control until its own next cold start. Standing down was never
+  // meant to mean "never reload" — RETAINED_CACHE_GENERATIONS (src/sw.js)
+  // exists so a stale tab's chunks keep resolving UNTIL it gets a chance to
+  // reload without interrupting anything, not so it can skip reloading
+  // forever.
+  it('reloads a tab that never applied the update itself, once it is idle', () => {
     const reload = stubReload();
+    const store = makeStore({ ...idle, players: { length: 2 }, currentPlayerIndex: 0 });
 
-    reloadOnceForUpdate();
+    reloadOnceForUpdate({ getState: store.getState, subscribe: store.subscribe });
+    expect(reload, 'busy — must wait, not reload mid-game').not.toHaveBeenCalled();
 
-    expect(reload, 'only the tab that decided to update may reload').not.toHaveBeenCalled();
+    // The game ends and the players leave: the first idle moment.
+    store.set(idle);
+
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(store.listenerCount(), 'the subscription is released').toBe(0);
   });
 
   it('reloads only once, however often it is called', () => {
@@ -242,12 +261,61 @@ describe('reloadOnceForUpdate', () => {
     // `controlling` listener every time a worker enters `waiting`, so more
     // than one can be live, each reloading a page already on its way out.
     const reload = stubReload();
-    applyHere();
+    const store = makeStore(idle);
 
-    reloadOnceForUpdate();
-    reloadOnceForUpdate();
-    reloadOnceForUpdate();
+    reloadOnceForUpdate({ getState: store.getState, subscribe: store.subscribe });
+    reloadOnceForUpdate({ getState: store.getState, subscribe: store.subscribe });
+    reloadOnceForUpdate({ getState: store.getState, subscribe: store.subscribe });
 
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start a second watch while the first is still waiting', () => {
+    const reload = stubReload();
+    const store = makeStore({ ...idle, roomId: 'R1' });
+
+    reloadOnceForUpdate({ getState: store.getState, subscribe: store.subscribe });
+    reloadOnceForUpdate({ getState: store.getState, subscribe: store.subscribe });
+
+    expect(store.listenerCount()).toBe(1);
+
+    store.set(idle);
+
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(store.listenerCount(), 'and it is released once it reloads').toBe(0);
+  });
+
+  // The other half of the same bug: a claimed tab's own pending
+  // applyUpdateWhenIdle watch (started earlier by its own onNeedRefresh, for
+  // the SAME waiting worker another tab just skip-waited) would eventually
+  // fire too, telling an already-activated worker to skip waiting again — a
+  // silent no-op — while permanently setting its "applied" latch. Since
+  // applyUpdateWhenIdle refuses to start a second watch once that latch is
+  // set, every update after the first would be a no-op for this tab forever,
+  // and the header comment on reloadOnceForUpdate claimed this could not
+  // happen. Once the controller has genuinely changed, that pending watch is
+  // stale — there is no waiting worker left for it to message — so
+  // reloadOnceForUpdate must retire it rather than let it fire later.
+  it('cancels a pending apply watch so it cannot poison a later update', () => {
+    const store = makeStore({ ...idle, players: { length: 2 }, currentPlayerIndex: 0 });
+    const staleApply = vi.fn();
+
+    // This tab's own onNeedRefresh, still waiting for the SAME busy player to
+    // go idle when the controller changes out from under it.
+    applyUpdateWhenIdle({ apply: staleApply, getState: store.getState, subscribe: store.subscribe });
+
+    // Another tab's update claims this one before it ever went idle.
+    reloadOnceForUpdate({ getState: store.getState, subscribe: store.subscribe });
+
+    store.set(idle);
+    expect(staleApply, 'the stale watch must not fire').not.toHaveBeenCalled();
+
+    // A genuinely new update, later, must still be able to run its own watch
+    // to completion — proof the earlier cancellation did not also poison
+    // applyUpdateWhenIdle's own latch. No _resetSwUpdateForTests() here: that
+    // would trivially "fix" a poisoned latch too and prove nothing.
+    const freshApply = vi.fn();
+    applyUpdateWhenIdle({ apply: freshApply, getState: () => idle, subscribe: () => () => {} });
+    expect(freshApply).toHaveBeenCalledTimes(1);
   });
 });

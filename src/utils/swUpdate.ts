@@ -7,9 +7,8 @@
  * need to" and "sometimes it reloads twice":
  *
  *  - `isExternal` fires for a worker THIS tab did not register, so one tab
- *    updating reloaded every other open tab and PWA window along with it.
- *    Prompt mode does not close this on its own — see reloadOnceForUpdate,
- *    which stands down in any tab that did not apply the update itself.
+ *    updating reloaded every other open tab and PWA window along with it,
+ *    mid-game included, with no idle check at all.
  *  - `isUpdate` is true for any activation with a previous controller —
  *    including the browser's own periodic sw.js re-check, with no deploy
  *    behind it.
@@ -22,9 +21,12 @@
  *    prompt mode adds a fresh `controlling` listener on every waiting event.
  *
  * So: the worker now waits, and the page decides. An update is applied at the
- * first moment a reload interrupts nothing — and if that moment never comes,
- * the browser activates the waiting worker on the next cold start, with no
- * client to reload at all. Which is what main.tsx always claimed happened.
+ * first moment a reload interrupts nothing. A tab whose controller changes
+ * WITHOUT it ever asking (another tab applied the update, and clients.claim()
+ * takes every open tab under the registration along with it) reloads too, at
+ * its own next idle moment rather than immediately — see reloadOnceForUpdate.
+ * And if neither moment ever comes, the browser activates the waiting worker
+ * on the next cold start, with no client to reload at all.
  */
 
 /** The store fields that decide whether the player is in the middle of something. */
@@ -70,20 +72,34 @@ export const isSafeToApplyUpdate = (state: UpdateIdleState): boolean => {
   return !seated && state.roomId === null && !state.hasFormDraft && !state.statsScreenOpen;
 };
 
-interface ApplyUpdateOptions<S extends UpdateIdleState> {
-  /** Hands the waiting worker its SKIP_WAITING message. */
-  apply: () => void;
+interface IdleSubscription<S extends UpdateIdleState> {
   getState: () => S;
   /** Store subscription; returns its own unsubscribe. */
   subscribe: (listener: () => void) => () => void;
 }
 
+interface ApplyUpdateOptions<S extends UpdateIdleState> extends IdleSubscription<S> {
+  /** Hands the waiting worker its SKIP_WAITING message. */
+  apply: () => void;
+}
+
 // Module state, because "apply once" has to hold across every call and every
 // store tick. Reset between tests through the export at the bottom, the same
 // way useGameStore's timers are.
+//
+// This is one of TWO independent one-shot watches in this file — the other
+// is reloadOnceForUpdate's below. They cannot share latches: a controller
+// change this tab did not itself request can arrive before, during, or
+// completely without this tab's own apply() ever running (see
+// reloadOnceForUpdate's docs), so "have we told a worker to skip waiting" and
+// "have we reloaded onto whatever now controls us" are genuinely different
+// questions.
 let updateApplied = false;
 let watchingForIdle = false;
-let reloading = false;
+// The listener applyUpdateWhenIdle is currently waiting on, if any — held at
+// module scope (rather than only in applyUpdateWhenIdle's own closure) so
+// cancelPendingApply can release it from the outside. See its docs.
+let pendingApplyUnsubscribe: (() => void) | null = null;
 
 /**
  * Applies a waiting update at the first idle moment, then stops watching.
@@ -106,55 +122,113 @@ export const applyUpdateWhenIdle = <S extends UpdateIdleState>(
   if (updateApplied || watchingForIdle) return;
   watchingForIdle = true;
 
-  let unsubscribe: (() => void) | null = null;
   const attempt = (): void => {
     if (updateApplied || !isSafeToApplyUpdate(getState())) return;
     updateApplied = true;
     watchingForIdle = false;
-    unsubscribe?.();
+    pendingApplyUnsubscribe?.();
+    pendingApplyUnsubscribe = null;
     apply();
   };
 
-  unsubscribe = subscribe(attempt);
+  pendingApplyUnsubscribe = subscribe(attempt);
   attempt();
-  // Already applied on the first attempt, before `unsubscribe` was assigned to
-  // for the listener to read.
-  if (updateApplied) unsubscribe();
+  // Already applied on the first attempt, before `pendingApplyUnsubscribe` was
+  // assigned to for the listener to read.
+  if (updateApplied) {
+    pendingApplyUnsubscribe?.();
+    pendingApplyUnsubscribe = null;
+  }
 };
 
 /**
- * Reloads onto the new worker, once, and only in the tab that asked for it.
+ * Retires a still-pending applyUpdateWhenIdle watch without applying it.
  *
- * Passed to registerSW as `onNeedReload`, replacing the template's unguarded
- * `window.location.reload()`. In prompt mode the template adds a `controlling`
- * listener each time a worker enters `waiting`, so more than one can be live
- * at a time — and each would reload a page that is already on its way out.
- * That is what `reloading` covers.
- *
- * `updateApplied` covers the other half, which prompt mode did NOT fix and the
- * comment at the top of this file wrongly claimed it had. The template adds
- * that listener in EVERY tab that sees a worker reach `waiting` — including
- * one installed because of a different tab — and workbox dispatches
- * `controlling` unconditionally with `isUpdate: true` for any tab that is not
- * a first-ever visit. It passes `isExternal` alongside; the template ignores
- * it. So one tab applying an update reloaded every other open tab and PWA
- * window, mid-game included: a visible flash plus a reconnect round trip for
- * everyone at that table.
- *
- * Standing down is not a compromise. `clients.claim()` hands the new worker
- * tabs still running the PREVIOUS build, and RETAINED_CACHE_GENERATIONS
- * (src/sw.js) exists precisely so their hashed chunks keep resolving — those
- * tabs update on their own next idle moment, or the next cold start.
+ * Called from reloadOnceForUpdate the moment this tab's controller changes —
+ * proof that whatever worker a pending watch was saving its skipWaiting
+ * message for has already taken over, requested by this tab or another one.
+ * Left running, that watch would still fire at this tab's next idle moment,
+ * post a skipWaiting message to a worker that is no longer waiting (a silent
+ * no-op), and — this is the reported bug — permanently set `updateApplied`
+ * regardless, which used to make applyUpdateWhenIdle refuse to start a
+ * watch for every update after it: one stray no-op meant this tab could
+ * never again ask a worker to skip waiting for the rest of the page's life.
+ * A no-op cancellation (`updateApplied` already true) is left alone — that
+ * update genuinely was applied by this tab, and reloadOnceForUpdate's own
+ * watch is what reloads onto it.
  */
-export const reloadOnceForUpdate = (): void => {
-  if (!updateApplied || reloading) return;
-  reloading = true;
-  window.location.reload();
+const cancelPendingApply = (): void => {
+  if (updateApplied) return;
+  watchingForIdle = false;
+  pendingApplyUnsubscribe?.();
+  pendingApplyUnsubscribe = null;
 };
 
-/** Test-only: clears the two one-shot latches above. */
+// The second one-shot watch — see the comment above `updateApplied`.
+let reloadQueued = false;
+let watchingToReload = false;
+let reloading = false;
+let pendingReloadUnsubscribe: (() => void) | null = null;
+
+/**
+ * Reloads onto whatever now controls this tab, at the first idle moment.
+ *
+ * Passed to registerSW as `onNeedReload`, replacing the template's unguarded
+ * `window.location.reload()`. workbox-window's `controlling` event — what
+ * this is wired to — fires in EVERY tab whose controller changes, including
+ * one that never called apply() itself: `clients.claim()` (src/sw.js) hands
+ * the new worker every open tab under the registration, not just the one
+ * that asked for it. The comment this replaced claimed standing down in that
+ * tab was the end of the story, citing RETAINED_CACHE_GENERATIONS as why a
+ * stale tab's chunks keep resolving — true, but the retained generations
+ * exist so that tab can keep running UNTIL its own next idle moment, not so
+ * it can skip reloading forever. So this runs the exact same idle watch
+ * applyUpdateWhenIdle does, driven by the controller-change event itself
+ * (ground truth that a new worker is in control) rather than by whether THIS
+ * tab was the one that requested it.
+ *
+ * `reloading` still covers the "sometimes it reloads twice" report: prompt
+ * mode adds a fresh `controlling` listener every time a worker enters
+ * `waiting`, so more than one can be live, each otherwise reloading a page
+ * already on its way out.
+ */
+export const reloadOnceForUpdate = <S extends UpdateIdleState>(
+  { getState, subscribe }: IdleSubscription<S>,
+): void => {
+  // The controller has already changed by the time this runs — any apply()
+  // this tab still has queued for a worker that was merely waiting is now
+  // stale (see cancelPendingApply).
+  cancelPendingApply();
+
+  if (reloadQueued || watchingToReload) return;
+  watchingToReload = true;
+
+  const attempt = (): void => {
+    if (reloadQueued || !isSafeToApplyUpdate(getState())) return;
+    reloadQueued = true;
+    watchingToReload = false;
+    pendingReloadUnsubscribe?.();
+    pendingReloadUnsubscribe = null;
+    if (reloading) return;
+    reloading = true;
+    window.location.reload();
+  };
+
+  pendingReloadUnsubscribe = subscribe(attempt);
+  attempt();
+  if (reloadQueued) {
+    pendingReloadUnsubscribe?.();
+    pendingReloadUnsubscribe = null;
+  }
+};
+
+/** Test-only: clears every one-shot latch above. */
 export const _resetSwUpdateForTests = (): void => {
   updateApplied = false;
   watchingForIdle = false;
+  pendingApplyUnsubscribe = null;
+  reloadQueued = false;
+  watchingToReload = false;
   reloading = false;
+  pendingReloadUnsubscribe = null;
 };

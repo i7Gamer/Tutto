@@ -52,9 +52,16 @@ const updateServiceWorker = registerSW({
     });
   },
   // Replaces the register template's own unguarded window.location.reload(),
-  // which it wires up afresh every time a worker enters `waiting`.
+  // which it wires up afresh every time a worker enters `waiting`. Fires in
+  // EVERY tab whose controller changes — including one claimed by another
+  // tab's update, which never called apply() itself — so this needs the same
+  // idle gate applyUpdateWhenIdle uses above, not just a flag saying whether
+  // this tab was the one that asked.
   onNeedReload() {
-    reloadOnceForUpdate();
+    reloadOnceForUpdate({
+      getState: getIdleState,
+      subscribe: subscribeIdleState,
+    });
   },
   onOfflineReady() {
     console.log('App is ready to work offline');
