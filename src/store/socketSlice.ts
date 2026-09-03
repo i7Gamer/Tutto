@@ -560,10 +560,10 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
         // loop below: serverState is typed Partial<GameStore>, so an absent
         // key must read as "unchanged", not "changed to undefined" (which
         // would toast e.g. "Winning score: undefined").
-        if ('winningScore' in serverState && prev.winningScore !== serverState.winningScore) {
+        if (typeof serverState.winningScore === 'number' && prev.winningScore !== serverState.winningScore) {
           prev.toasts.push(makeToast(i18n.t('game.toastWinningScore', {
             defaultValue: 'Winning score: {{value}}',
-            value: formatInt(serverState.winningScore as number, i18n.language),
+            value: formatInt(serverState.winningScore, i18n.language),
           })));
         }
         if ('turnDuration' in serverState && prev.turnDuration !== serverState.turnDuration) {

@@ -4225,6 +4225,20 @@ describe('useGameStore', () => {
       expect(messages.some(m => m.includes('8,000'))).toBe(true);
     });
 
+    it('does not toast when winningScore is present but not a number', () => {
+      // The old guard was `'winningScore' in serverState`, which is true for
+      // any value including undefined — formatInt(undefined) rendered
+      // "Winning score: 0", inventing a change that never happened.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({ roomId: 'R1', status: 'lobby', winningScore: 6000 });
+
+      mockOnHandlers['gameState']({ status: 'lobby', winningScore: undefined, players: [] });
+
+      const messages = useGameStore.getState().toasts.map(t => t.message);
+      expect(messages.some(m => m.includes('Winning score'))).toBe(false);
+    });
+
     it('toasts when the host turns on dice mode enforcement in the lobby', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
