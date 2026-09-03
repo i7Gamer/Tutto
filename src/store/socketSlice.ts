@@ -12,7 +12,7 @@ import { roomPhase } from '../utils/roomPhase';
 import { SYNCED_GAME_STATE_KEYS } from '../types';
 import type {
   Reaction, DiceSnapshot, AssertNever, SyncedGameStateKey, PushStateAck,
-  EndGameStatsAck, DeviceStatsPayload,
+  StatsSubmitAck, DeviceStatsPayload, GlobalStatsPayload,
 } from '../types';
 import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from './storeTypes';
 import { finishedGameSnapshotOf, makeToast } from './gameSlice';
@@ -237,31 +237,14 @@ export const _resetSocketSliceForTests = (): void => {
 type SocketSliceSet = Parameters<ImmerStateCreator<SocketSlice>>[0];
 type SocketSliceGet = Parameters<ImmerStateCreator<SocketSlice>>[1];
 
-// Global stats are submitted by the host over the socket, so no secret token
-// needs to be compiled into the client bundle: the server validates the sender
-// is the room host by socket identity.
-//
-// Safe to call more than once for the same game. The server refuses it unless
-// room.state.finished, and records it once per game (statsRecordedForGame.global,
-// reset when the next one starts) — which is what lets the host-promotion path
-// below fire it without having to know whether the departed host already did.
-const submitGlobalStats = (get: SocketSliceGet): void => {
-  const socket = getSocket();
-  if (!socket) return;
-  socket.emit('submitGlobalStats', {
-    roomId: get().roomId,
-    payload: get().buildGlobalStatsPayload(),
-  });
-};
-
 /**
- * How many times one finished game's endGameStats submission is sent before
- * the client gives up: the first attempt plus two resends.
+ * How many times one finished game's stats submission is sent before the
+ * client gives up: the first attempt plus two resends.
  *
  * Bounded, and small, because the thing being retried is not free: each
  * attempt costs a socket round trip and a slot in the server's per-socket
- * endGameStats limiter (5 per 10s). Three attempts spread over a few seconds
- * comfortably outlast the transient lock contention this exists for; a
+ * limiter for that event (5 per 10s each). Three attempts spread over a few
+ * seconds comfortably outlast the transient lock contention this exists for; a
  * database that is still refusing writes by then is not a client problem.
  */
 export const STATS_SUBMIT_MAX_ATTEMPTS = 3;
@@ -274,28 +257,54 @@ const FIRST_STATS_ATTEMPT = 1;
 export const statsSubmitRetryDelayMs = (attempt: number): number =>
   STATS_SUBMIT_RETRY_BASE_MS * 2 ** (attempt - FIRST_STATS_ATTEMPT);
 
+/**
+ * The two submissions one finished game produces: this device's own row, and
+ * — from the host alone — the game's server-wide row.
+ *
+ * Each keeps its OWN retry slot below. A host owes both and sends them back
+ * to back (see sendOnlineStats), so a single shared slot would have the
+ * second submission disarm the first one's ack deadline on its way out, and
+ * the device row would never be resent — the very failure this retry exists
+ * for.
+ */
+const STATS_SUBMIT_EVENTS = ['endGameStats', 'submitGlobalStats'] as const;
+type StatsSubmitEvent = (typeof STATS_SUBMIT_EVENTS)[number];
+
 // The resend armed for a submission the server could not write, and the
 // deadline that decides a server answered nothing at all. At most one of each
-// is ever live: a client submits once per finished game, and each new
-// submission supersedes whatever the last one left behind.
+// is ever live PER EVENT: a client submits each once per finished game, and
+// each new submission supersedes whatever the last one left behind.
 //
 // Module state for the same reason parkedPush is — `set(clearRoomState())`
 // cannot reach it, so every path that abandons the room has to clear it
 // explicitly, or a resend for a room this client already left would go out
 // from a socket that no longer holds that seat.
-let statsResendTimer: ReturnType<typeof setTimeout> | null = null;
-let statsAckDeadline: ReturnType<typeof setTimeout> | null = null;
+type PendingStatsSubmit = {
+  resendTimer: ReturnType<typeof setTimeout> | null;
+  ackDeadline: ReturnType<typeof setTimeout> | null;
+};
 
-/** Forgets any endGameStats attempt this client still owes. */
+const pendingStatsSubmits: Record<StatsSubmitEvent, PendingStatsSubmit> = {
+  endGameStats: { resendTimer: null, ackDeadline: null },
+  submitGlobalStats: { resendTimer: null, ackDeadline: null },
+};
+
+/** Forgets whatever one of the two submissions still owes. */
+const clearStatsSubmit = (event: StatsSubmitEvent): void => {
+  const pending = pendingStatsSubmits[event];
+  if (pending.resendTimer !== null) {
+    clearTimeout(pending.resendTimer);
+    pending.resendTimer = null;
+  }
+  if (pending.ackDeadline !== null) {
+    clearTimeout(pending.ackDeadline);
+    pending.ackDeadline = null;
+  }
+};
+
+/** Forgets every stats attempt this client still owes. */
 export const clearPendingStatsSubmit = (): void => {
-  if (statsResendTimer !== null) {
-    clearTimeout(statsResendTimer);
-    statsResendTimer = null;
-  }
-  if (statsAckDeadline !== null) {
-    clearTimeout(statsAckDeadline);
-    statsAckDeadline = null;
-  }
+  for (const event of STATS_SUBMIT_EVENTS) clearStatsSubmit(event);
 };
 
 type EndGameStatsPayload = {
@@ -304,13 +313,20 @@ type EndGameStatsPayload = {
   stats: DeviceStatsPayload;
 };
 
+// No roomId: the server resolves the room from the session and ignores
+// whatever the wire payload claims (see submitGlobalStats in
+// server/socketStatsHandlers.ts). A field nobody reads only invites the next
+// reader to think it is authoritative.
+type GlobalStatsSubmission = { payload: GlobalStatsPayload };
+
 /**
- * Sends one game's device stats and resends them if the server lost the write.
+ * Sends one game's stats and resends them if the server lost the write.
  *
- * The submission used to be fire-and-forget, and the server's write failure
- * path — which rolls its per-device dedup entry back precisely so a resend CAN
+ * Both submissions used to be fire-and-forget, and the server's write failure
+ * path — which rolls the matching dedup entry back precisely so a resend CAN
  * be recorded — had nothing on the other end to resend. One transient sqlite
- * error therefore lost this device's row for the game for good.
+ * error therefore lost that row for the game for good: this device's, or, for
+ * submitGlobalStats, the game's server-wide one.
  *
  * Exactly two outcomes lead to a resend:
  *
@@ -323,9 +339,14 @@ type EndGameStatsPayload = {
  * Every other refusal is terminal, 'duplicate' most of all: the row is in, and
  * resending would be asking the server to count the same game twice.
  */
-const emitEndGameStats = (payload: EndGameStatsPayload, attempt: number): void => {
+const emitStatsSubmission = (
+  event: StatsSubmitEvent,
+  payload: EndGameStatsPayload | GlobalStatsSubmission,
+  attempt: number,
+): void => {
   const socket = getSocket();
   if (!socket) return;
+  const pending = pendingStatsSubmits[event];
 
   // Whichever arrives first — the ack or the deadline — settles this attempt;
   // a late ack after the deadline has already armed a resend must not arm a
@@ -334,19 +355,40 @@ const emitEndGameStats = (payload: EndGameStatsPayload, attempt: number): void =
   const settle = (resend: boolean): void => {
     if (settled) return;
     settled = true;
-    clearPendingStatsSubmit();
+    clearStatsSubmit(event);
     if (!resend || attempt >= STATS_SUBMIT_MAX_ATTEMPTS) return;
-    statsResendTimer = setTimeout(() => {
-      statsResendTimer = null;
-      emitEndGameStats(payload, attempt + 1);
+    pending.resendTimer = setTimeout(() => {
+      pending.resendTimer = null;
+      emitStatsSubmission(event, payload, attempt + 1);
     }, statsSubmitRetryDelayMs(attempt));
   };
 
-  statsAckDeadline = setTimeout(() => settle(true), STATS_SUBMIT_ACK_TIMEOUT_MS);
+  pending.ackDeadline = setTimeout(() => settle(true), STATS_SUBMIT_ACK_TIMEOUT_MS);
 
-  socket.emit('endGameStats', payload, (ack?: EndGameStatsAck) => {
+  socket.emit(event, payload, (ack?: StatsSubmitAck) => {
     settle(ack !== undefined && !ack.ok && ack.reason === 'write-failed');
   });
+};
+
+// Global stats are submitted by the host over the socket, so no secret token
+// needs to be compiled into the client bundle: the server validates the sender
+// is the room host by socket identity.
+//
+// Safe to call more than once for the same game. The server refuses it unless
+// room.state.finished, and records it once per game (statsRecordedForGame.global,
+// reset when the next one starts) — which is what lets the host-promotion path
+// below fire it without having to know whether the departed host already did.
+// A repeat that the server has already recorded comes back as 'duplicate',
+// which the retry above treats as terminal.
+const submitGlobalStats = (get: SocketSliceGet): void => {
+  // Anything still pending for this event can only belong to an earlier
+  // attempt at the same row, which this fresher one supersedes.
+  clearStatsSubmit('submitGlobalStats');
+  emitStatsSubmission(
+    'submitGlobalStats',
+    { payload: get().buildGlobalStatsPayload() },
+    FIRST_STATS_ATTEMPT,
+  );
 };
 
 /**
@@ -960,7 +1002,11 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       // Anything still pending can only belong to an earlier game — this one
       // just finished. Same reason pushState clears its own retry first.
       clearPendingStatsSubmit();
-      emitEndGameStats({ roomId: s.roomId, deviceId: s.deviceId, stats }, FIRST_STATS_ATTEMPT);
+      emitStatsSubmission(
+        'endGameStats',
+        { roomId: s.roomId, deviceId: s.deviceId, stats },
+        FIRST_STATS_ATTEMPT,
+      );
     }
 
     if (s.isHost) submitGlobalStats(get);

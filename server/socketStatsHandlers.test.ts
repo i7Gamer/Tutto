@@ -1,8 +1,8 @@
 /** @vitest-environment node */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { registerStatsHandlers, END_GAME_STATS_LIMIT } from './socketStatsHandlers';
+import { registerStatsHandlers, END_GAME_STATS_LIMIT, SUBMIT_GLOBAL_STATS_LIMIT } from './socketStatsHandlers';
 import { makeFakeSocket, makeFakeIo, makeServerPlayer, type Handler } from './socketTestHarness';
-import type { EndGameStatsAck } from '../src/types';
+import type { StatsSubmitAck } from '../src/types';
 import { rooms, createRoom, deleteRoom, emitRoomState } from './rooms';
 import { summarizeActivity } from './activity';
 import { nonNull, makeDeviceStatsRow } from '../src/testing/factories';
@@ -1007,9 +1007,9 @@ describe('endGameStats acks what it did with the submission', () => {
   const submitWithAck = async (
     handler: Handler,
     data: unknown,
-  ): Promise<EndGameStatsAck | undefined> => {
-    let ack: EndGameStatsAck | undefined;
-    await handler(data, (result: EndGameStatsAck) => { ack = result; });
+  ): Promise<StatsSubmitAck | undefined> => {
+    let ack: StatsSubmitAck | undefined;
+    await handler(data, (result: StatsSubmitAck) => { ack = result; });
     return ack;
   };
 
@@ -1108,7 +1108,7 @@ describe('endGameStats acks what it did with the submission', () => {
     const handler = handlerFor();
 
     // One more than the limiter allows in its window; only the last is read.
-    let ack: EndGameStatsAck | undefined;
+    let ack: StatsSubmitAck | undefined;
     for (let i = 0; i <= END_GAME_STATS_LIMIT.max; i += 1) {
       ack = await submitWithAck(handler, { deviceId, stats: {} });
     }
@@ -1136,5 +1136,164 @@ describe('endGameStats acks what it did with the submission', () => {
 
     expect(ack).toEqual({ ok: true });
     expect(errorSpy).toHaveBeenCalledWith('[endGameStats] streak refresh error:', expect.anything());
+  });
+});
+
+describe('submitGlobalStats acks what it did with the submission', () => {
+  // The device-row twin of the describe above, for the same reason: the
+  // handler already rolls its per-game `global` dedup flag back when the
+  // write throws, precisely so a resend CAN be recorded — but nothing on the
+  // client ever heard that it should resend, so one transient sqlite error
+  // lost the whole game's global row.
+  const roomId = 'GLOBAL-ACK-ROOM';
+  const HOST_SOCKET = 'alice-sock';
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.mocked(updateGlobalStats).mockReset().mockResolvedValue(1);
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+  });
+
+  /** A finished game hosted by HOST_SOCKET, ready for its global submission. */
+  const stageFinishedGame = () => {
+    rooms[roomId] = createRoom(HOST_SOCKET);
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null,
+      players: [makePlayer('Alice', HOST_SOCKET, 'dev-alice')],
+    });
+  };
+
+  /** The handler, bound to the host's socket unless told otherwise. */
+  const handlerFor = (socketId = HOST_SOCKET, sessionRoomId: string | null = roomId) => {
+    const fake = makeFakeSocket(socketId);
+    registerStatsHandlers({
+      io: makeFakeIo().io, socket: fake.socket,
+      session: { roomId: sessionRoomId, username: 'Alice' },
+    });
+    return fake.handlers['submitGlobalStats'];
+  };
+
+  // No roomId: the client stopped sending one once the server settled on
+  // resolving the room from the session (see the describe above).
+  const globalSubmission = { payload: { totalGamesPlayed: 1 } };
+
+  const submitWithAck = async (
+    handler: Handler,
+    data: unknown,
+  ): Promise<StatsSubmitAck | undefined> => {
+    let ack: StatsSubmitAck | undefined;
+    await handler(data, (result: StatsSubmitAck) => { ack = result; });
+    return ack;
+  };
+
+  it('acks ok once the global row is committed', async () => {
+    stageFinishedGame();
+
+    const ack = await submitWithAck(handlerFor(), globalSubmission);
+
+    expect(ack).toEqual({ ok: true });
+    expect(updateGlobalStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('acks write-failed, with the dedup reopened, so the client can resend', async () => {
+    stageFinishedGame();
+    vi.mocked(updateGlobalStats).mockRejectedValueOnce(new Error('SQLITE_BUSY'));
+
+    const first = await submitWithAck(handlerFor(), globalSubmission);
+
+    expect(first).toEqual({ ok: false, reason: 'write-failed' });
+    expect(rooms[roomId].statsRecordedForGame.global,
+      'reopened, or the resend the ack just invited would be refused as a duplicate').toBe(false);
+
+    const second = await submitWithAck(handlerFor(), globalSubmission);
+
+    expect(second).toEqual({ ok: true });
+    expect(updateGlobalStats).toHaveBeenCalledTimes(2);
+  });
+
+  it('acks duplicate for a repeat of a submission that already landed', async () => {
+    stageFinishedGame();
+
+    await submitWithAck(handlerFor(), globalSubmission);
+    const repeat = await submitWithAck(handlerFor(), globalSubmission);
+
+    expect(repeat).toEqual({ ok: false, reason: 'duplicate' });
+    expect(updateGlobalStats, 'the repeat wrote nothing').toHaveBeenCalledTimes(1);
+  });
+
+  it('acks unauthorized for a seated player who is not the host', async () => {
+    stageFinishedGame();
+    rooms[roomId].state.players.push(makePlayer('Bob', 'bob-sock', 'dev-bob'));
+
+    const ack = await submitWithAck(handlerFor('bob-sock'), globalSubmission);
+
+    expect(ack).toEqual({ ok: false, reason: 'unauthorized' });
+    expect(updateGlobalStats).not.toHaveBeenCalled();
+  });
+
+  it('acks no-room when the session holds no room at all', async () => {
+    stageFinishedGame();
+
+    const ack = await submitWithAck(handlerFor(HOST_SOCKET, null), globalSubmission);
+
+    expect(ack).toEqual({ ok: false, reason: 'no-room' });
+  });
+
+  it('acks no-room when the room is gone', async () => {
+    // The session still names it; the room itself was deleted (the last seat
+    // left while this submission was in flight).
+    const ack = await submitWithAck(handlerFor(), globalSubmission);
+
+    expect(ack).toEqual({ ok: false, reason: 'no-room' });
+  });
+
+  it('acks not-finished for a game that has not reached its end', async () => {
+    rooms[roomId] = createRoom(HOST_SOCKET);
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: false, currentPlayerIndex: 0,
+      players: [makePlayer('Alice', HOST_SOCKET, 'dev-alice')],
+    });
+
+    const ack = await submitWithAck(handlerFor(), globalSubmission);
+
+    expect(ack).toEqual({ ok: false, reason: 'not-finished' });
+  });
+
+  it('acks invalid for a payload that is not a submission', async () => {
+    stageFinishedGame();
+    const handler = handlerFor();
+
+    expect(await submitWithAck(handler, null)).toEqual({ ok: false, reason: 'invalid' });
+    expect(await submitWithAck(handler, 'nonsense')).toEqual({ ok: false, reason: 'invalid' });
+    expect(updateGlobalStats).not.toHaveBeenCalled();
+  });
+
+  it('acks rate-limited once the per-socket limit is spent', async () => {
+    stageFinishedGame();
+    const handler = handlerFor();
+
+    // One more than the limiter allows in its window; only the last is read.
+    let ack: StatsSubmitAck | undefined;
+    for (let i = 0; i <= SUBMIT_GLOBAL_STATS_LIMIT.max; i += 1) {
+      ack = await submitWithAck(handler, globalSubmission);
+    }
+
+    expect(ack).toEqual({ ok: false, reason: 'rate-limited' });
+  });
+
+  it('still serves a client that passes no callback at all', async () => {
+    // The ack is optional on the wire in both directions — an older client
+    // sends one argument, and socket.io then calls the handler with one.
+    stageFinishedGame();
+
+    await handlerFor()(globalSubmission);
+
+    expect(updateGlobalStats, 'the row is still written').toHaveBeenCalledTimes(1);
   });
 });

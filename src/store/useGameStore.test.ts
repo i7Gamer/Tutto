@@ -5,7 +5,7 @@ import { DEFAULT_INITIAL_CARDS } from '../utils/configValidation';
 import { blockStorage, failStorageMethods, restoreStorage } from '../testing/storageStubs';
 import { JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS, STATS_SUBMIT_ACK_TIMEOUT_MS } from '../utils/uiTimings';
 import { STATS_SUBMIT_MAX_ATTEMPTS, statsSubmitRetryDelayMs } from './socketSlice';
-import type { DiceSnapshot, EndGameStatsAck, Player } from '../types';
+import type { DiceSnapshot, StatsSubmitAck, Player } from '../types';
 import type { GameStore } from './storeTypes';
 import { makePlayer as makeFullPlayer, mockFetchJson, nonNull } from '../testing/factories';
 
@@ -37,6 +37,12 @@ vi.mock('socket.io-client', () => {
     }))
   };
 });
+
+// Which events the mock socket was asked to emit, in order. Negative
+// assertions go through this rather than not.toHaveBeenCalledWith(event, ...):
+// that matcher compares the full argument list, so it silently starts passing
+// the moment an emit grows an argument (an ack callback, say).
+const emittedEvents = (): unknown[] => mockEmit.mock.calls.map(([event]) => event);
 
 // Minimal player stand-ins for tests that only ever read `name`.
 const namedPlayers = (...names: string[]): Player[] =>
@@ -1007,10 +1013,11 @@ describe('useGameStore', () => {
         deviceId: 'dev-alice'
       }), expect.any(Function));
 
-      // Should emit global stats via socket (no HTTP token needed)
-      expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', expect.objectContaining({
-        roomId: 'ROOM1',
-      }));
+      // Should emit global stats via socket (no HTTP token needed). No
+      // roomId in the payload: the server resolves the room from the session.
+      expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', {
+        payload: expect.any(Object),
+      }, expect.any(Function));
     });
 
     it('includes players-per-game, rounds, and feuerwerk/x2 turn maxima in endGameStats and submitGlobalStats payloads', () => {
@@ -1044,14 +1051,13 @@ describe('useGameStore', () => {
       }), expect.any(Function));
 
       expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', expect.objectContaining({
-        roomId: 'ROOM1',
         payload: expect.objectContaining({
           totalPlayersSum: 2,
           mostPlayersInGame: 2,
           totalRoundsSum: 4,
           longestGameRounds: 4,
         }),
-      }));
+      }), expect.any(Function));
     });
 
     it('emits pushState BEFORE the stats events on the winning turn, so the server sees finished=true first', () => {
@@ -1128,7 +1134,7 @@ describe('useGameStore', () => {
     // silently. Only 'write-failed' (and a server that answers nothing at
     // all) is resent; every other refusal is terminal.
     const statsEmits = () => mockEmit.mock.calls.filter(([event]) => event === 'endGameStats');
-    const ackLast = (ack: EndGameStatsAck | undefined) => nonNull(statsEmits().at(-1))[2](ack);
+    const ackLast = (ack: StatsSubmitAck | undefined) => nonNull(statsEmits().at(-1))[2](ack);
 
     /** A finished online game with this device seated, ready to submit. */
     const stageFinishedGame = () => {
@@ -1215,7 +1221,7 @@ describe('useGameStore', () => {
     it('does not resend a refusal a resend cannot fix', () => {
       // 'duplicate' most of all: the row is already in, and resending would
       // be asking the server to count the game twice.
-      const terminal: Extract<EndGameStatsAck, { ok: false }>[] = [
+      const terminal: Extract<StatsSubmitAck, { ok: false }>[] = [
         { ok: false, reason: 'unauthorized' },
         { ok: false, reason: 'no-room' },
         { ok: false, reason: 'duplicate' },
@@ -1275,6 +1281,171 @@ describe('useGameStore', () => {
 
       expect(statsEmits(), 'only the second game\'s own deadline is live')
         .toHaveLength(afterSecondGame);
+    });
+  });
+
+  describe('submitGlobalStats is retried until the server says it landed', () => {
+    // The host's row for the whole GAME had the same fire-and-forget hole the
+    // device row did: the server rolls its per-game `global` dedup flag back
+    // when the write throws, so a resend can land — but nothing resent, and
+    // one transient sqlite error dropped the game from the server-wide totals
+    // for good. Same policy as endGameStats: only 'write-failed' and silence
+    // are resent.
+    const globalEmits = () => mockEmit.mock.calls.filter(([event]) => event === 'submitGlobalStats');
+    const ackLast = (ack: StatsSubmitAck | undefined) => nonNull(globalEmits().at(-1))[2](ack);
+
+    /** A finished online game this client HOSTS, so it owes the global row. */
+    const stageFinishedGame = () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: true, roomId: 'ROOM1', myName: 'Alice', deviceId: 'dev-alice',
+        players: [makeOnlinePlayer('Alice', { score: 6000 }), makeOnlinePlayer('Bob', { score: 100 })],
+        status: 'playing', finished: true, round: 3,
+      });
+      mockEmit.mockClear();
+    };
+
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('sends once and arms nothing when the first attempt is acked ok', () => {
+      stageFinishedGame();
+
+      useGameStore.getState().sendOnlineStats();
+      expect(globalEmits(), 'one submission per finished game').toHaveLength(1);
+      expect(globalEmits()[0][2], 'and it carries an ack callback').toBeTypeOf('function');
+
+      ackLast({ ok: true });
+      vi.advanceTimersByTime(STATS_SUBMIT_ACK_TIMEOUT_MS + statsSubmitRetryDelayMs(1));
+
+      expect(globalEmits(), 'nothing to retry').toHaveLength(1);
+    });
+
+    it('sends no roomId — the server resolves the room from the session', () => {
+      // The server stopped trusting the payload's roomId (a stale or forged
+      // one could name another room this same socket hosts), so the client
+      // stopped sending it: a field nobody reads only invites the next reader
+      // to think it is authoritative.
+      stageFinishedGame();
+
+      useGameStore.getState().sendOnlineStats();
+
+      const submitted = nonNull(globalEmits()[0])[1] as Record<string, unknown>;
+      expect(submitted).not.toHaveProperty('roomId');
+      expect(Object.keys(submitted)).toEqual(['payload']);
+    });
+
+    it('resends the identical payload after a write-failed, and stops once it lands', () => {
+      stageFinishedGame();
+
+      useGameStore.getState().sendOnlineStats();
+      ackLast({ ok: false, reason: 'write-failed' });
+      expect(globalEmits(), 'the resend waits out the backoff').toHaveLength(1);
+
+      vi.advanceTimersByTime(statsSubmitRetryDelayMs(1));
+      expect(globalEmits()).toHaveLength(2);
+      expect(globalEmits()[1][1], 'the very same submission the server asked for again')
+        .toEqual(globalEmits()[0][1]);
+
+      ackLast({ ok: true });
+      vi.advanceTimersByTime(STATS_SUBMIT_ACK_TIMEOUT_MS + statsSubmitRetryDelayMs(2));
+      expect(globalEmits(), 'the second attempt landed').toHaveLength(2);
+    });
+
+    it('gives up after STATS_SUBMIT_MAX_ATTEMPTS rather than resending forever', () => {
+      stageFinishedGame();
+
+      useGameStore.getState().sendOnlineStats();
+      for (let attempt = 1; attempt < STATS_SUBMIT_MAX_ATTEMPTS; attempt += 1) {
+        ackLast({ ok: false, reason: 'write-failed' });
+        vi.advanceTimersByTime(statsSubmitRetryDelayMs(attempt));
+        expect(globalEmits()).toHaveLength(attempt + 1);
+      }
+
+      // The last attempt fails too — and that is the end of it.
+      ackLast({ ok: false, reason: 'write-failed' });
+      vi.advanceTimersByTime(statsSubmitRetryDelayMs(STATS_SUBMIT_MAX_ATTEMPTS) * 2);
+
+      expect(globalEmits()).toHaveLength(STATS_SUBMIT_MAX_ATTEMPTS);
+    });
+
+    it('resends when the server answers nothing at all, and still gives up', () => {
+      // A server predating the ack never invokes the callback; its own
+      // per-game dedup refuses the extra sends as duplicates.
+      stageFinishedGame();
+
+      useGameStore.getState().sendOnlineStats();
+      vi.advanceTimersByTime(STATS_SUBMIT_ACK_TIMEOUT_MS + statsSubmitRetryDelayMs(1));
+      expect(globalEmits()).toHaveLength(2);
+
+      vi.advanceTimersByTime((STATS_SUBMIT_ACK_TIMEOUT_MS + statsSubmitRetryDelayMs(2)) * 2);
+      expect(globalEmits(), 'bounded even against a silent server').toHaveLength(STATS_SUBMIT_MAX_ATTEMPTS);
+    });
+
+    it('does not resend a refusal a resend cannot fix', () => {
+      // 'duplicate' most of all: the game is already counted server-wide, and
+      // resending would ask for it to be counted twice.
+      const terminal: Extract<StatsSubmitAck, { ok: false }>[] = [
+        { ok: false, reason: 'unauthorized' },
+        { ok: false, reason: 'no-room' },
+        { ok: false, reason: 'duplicate' },
+        { ok: false, reason: 'not-finished' },
+        { ok: false, reason: 'invalid' },
+        { ok: false, reason: 'rate-limited' },
+      ];
+
+      for (const ack of terminal) {
+        stageFinishedGame();
+        useGameStore.getState().sendOnlineStats();
+        ackLast(ack);
+        vi.advanceTimersByTime(STATS_SUBMIT_ACK_TIMEOUT_MS + statsSubmitRetryDelayMs(1));
+
+        expect(globalEmits(), ack.reason + ' must not be retried').toHaveLength(1);
+      }
+    });
+
+    it('cancels a pending retry when the player leaves the room', () => {
+      stageFinishedGame();
+
+      useGameStore.getState().sendOnlineStats();
+      ackLast({ ok: false, reason: 'write-failed' });
+      useGameStore.getState().leaveRoom();
+
+      vi.advanceTimersByTime(statsSubmitRetryDelayMs(1) * 2);
+
+      expect(globalEmits(), 'the retry left with the room').toHaveLength(1);
+    });
+
+    it('cancels the no-ack deadline when the player leaves the room', () => {
+      stageFinishedGame();
+
+      useGameStore.getState().sendOnlineStats();
+      useGameStore.getState().leaveRoom();
+
+      vi.advanceTimersByTime(STATS_SUBMIT_ACK_TIMEOUT_MS * 2);
+
+      expect(globalEmits()).toHaveLength(1);
+    });
+
+    it('retries alongside the device submission without either cancelling the other', () => {
+      // A host owes BOTH rows for the same finished game, and the two go out
+      // back to back. One shared retry slot would mean the second submission
+      // disarmed the first one's deadline the moment it was sent — the device
+      // row would then never be resent, which is the very bug being fixed.
+      const deviceEmits = () => mockEmit.mock.calls.filter(([event]) => event === 'endGameStats');
+      stageFinishedGame();
+
+      useGameStore.getState().sendOnlineStats();
+      expect(deviceEmits()).toHaveLength(1);
+      expect(globalEmits()).toHaveLength(1);
+
+      nonNull(deviceEmits().at(-1))[2]({ ok: false, reason: 'write-failed' });
+      ackLast({ ok: false, reason: 'write-failed' });
+      vi.advanceTimersByTime(statsSubmitRetryDelayMs(1));
+
+      expect(deviceEmits(), 'the device row is resent').toHaveLength(2);
+      expect(globalEmits(), 'and so is the global one').toHaveLength(2);
     });
   });
 
@@ -1344,9 +1515,9 @@ describe('useGameStore', () => {
       mockOnHandlers['hostId']('socket-123'); // this client's own socket id
 
       expect(useGameStore.getState().isHost).toBe(true);
-      expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', expect.objectContaining({
-        roomId: 'ROOM1',
-      }));
+      expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', {
+        payload: expect.any(Object),
+      }, expect.any(Function));
     });
 
     // With the default non-zero reconnectTimeout the promotion only happens
@@ -1511,7 +1682,11 @@ describe('useGameStore', () => {
       // arrives repeatedly for the whole end screen.
       mockOnHandlers['hostId']('socket-123');
 
-      expect(mockEmit).not.toHaveBeenCalledWith('submitGlobalStats', expect.anything());
+      // Matched by event name rather than through not.toHaveBeenCalledWith:
+      // that matcher compares the whole argument list, so an expectation
+      // written for the pre-ack two-argument emit would pass no matter what
+      // this client sent.
+      expect(emittedEvents()).not.toContain('submitGlobalStats');
     });
 
     it('does not submit global stats on promotion while the game is still running', () => {
@@ -1526,7 +1701,7 @@ describe('useGameStore', () => {
       mockOnHandlers['hostId']('socket-123');
 
       expect(useGameStore.getState().isHost).toBe(true);
-      expect(mockEmit).not.toHaveBeenCalledWith('submitGlobalStats', expect.anything());
+      expect(emittedEvents()).not.toContain('submitGlobalStats');
     });
 
     // The lobby's join button and the reconnect popup's "Yes, Reconnect" both
@@ -3700,9 +3875,9 @@ describe('useGameStore', () => {
       mockEmit.mockClear();
       useGameStore.getState().nextTurn(500, true);
 
-      expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', expect.objectContaining({
-        roomId: 'ROOM1',
-      }));
+      expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', {
+        payload: expect.any(Object),
+      }, expect.any(Function));
     });
 
     it('non-host does NOT send global stats when an online game ends', () => {
@@ -3718,7 +3893,7 @@ describe('useGameStore', () => {
       mockEmit.mockClear();
       useGameStore.getState().nextTurn(500, true);
 
-      expect(mockEmit).not.toHaveBeenCalledWith('submitGlobalStats', expect.any(Object));
+      expect(emittedEvents()).not.toContain('submitGlobalStats');
     });
   });
 

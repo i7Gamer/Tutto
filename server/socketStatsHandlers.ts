@@ -4,19 +4,36 @@ import { rooms, emitRoomState } from './rooms';
 import { statsModeFor } from './roomTypes';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
-import type { EndGameStatsAck, StatsRefusalReason } from '../src/types';
+import type { StatsSubmitAck, StatsRefusalReason } from '../src/types';
 
 /**
- * The optional callback a client may pass as endGameStats' second argument.
+ * The optional callback a client may pass as the second argument to either
+ * stats submission — endGameStats or submitGlobalStats.
  *
  * Optional in the type as well as on the wire, exactly like pushState's (see
  * socketGameStateHandlers.ts): a client predating the ack sends only the
  * payload, socket.io then invokes the handler with one argument, and every
  * branch below behaves as it did before.
  */
-type EndGameStatsAckFn = (result: EndGameStatsAck) => void;
+type StatsSubmitAckFn = (result: StatsSubmitAck) => void;
 
-const SUBMIT_GLOBAL_STATS_LIMIT = { windowMs: 10_000, max: 5 };
+/**
+ * The answer/refuse pair a submission handler names its outcome with.
+ *
+ * Shared by both handlers so the two cannot drift into answering the same
+ * situation differently — and so neither has to re-state that a missing
+ * callback is simply not called.
+ */
+const ackHelpers = (ack: StatsSubmitAckFn | undefined) => {
+  const answer = (result: StatsSubmitAck): void => {
+    if (typeof ack === 'function') ack(result);
+  };
+  return { answer, refuse: (reason: StatsRefusalReason): void => answer({ ok: false, reason }) };
+};
+
+// Exported for the same reason END_GAME_STATS_LIMIT is: the ack tests spend
+// exactly the budget rather than guessing at it.
+export const SUBMIT_GLOBAL_STATS_LIMIT = { windowMs: 10_000, max: 5 };
 // Exported so the ack tests can spend exactly the budget rather than guessing
 // at it — a client that hits 'rate-limited' backs off, so the number matters
 // to more than this file now.
@@ -60,9 +77,18 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
   const submitGlobalStatsLimiter = createSocketEventLimiter(SUBMIT_GLOBAL_STATS_LIMIT);
   const endGameStatsLimiter = createSocketEventLimiter(END_GAME_STATS_LIMIT);
 
-  safeOn(socket, 'submitGlobalStats', async (data: { roomId?: string; payload?: unknown } | null | undefined) => {
-    if (!submitGlobalStatsLimiter()) return;
-    if (!data || typeof data !== 'object') return;
+  safeOn(socket, 'submitGlobalStats', async (
+    data: { roomId?: string; payload?: unknown } | null | undefined,
+    ack?: StatsSubmitAckFn,
+  ) => {
+    // Every bail-out below names itself to the sender; the gates themselves
+    // are unchanged. Only 'write-failed' invites a resend — see
+    // STATS_REFUSAL_REASONS in src/types.ts for what each one means to the
+    // client, and endGameStats below for the same treatment of the device row.
+    const { answer, refuse } = ackHelpers(ack);
+
+    if (!submitGlobalStatsLimiter()) return refuse('rate-limited');
+    if (!data || typeof data !== 'object') return refuse('invalid');
     const { payload } = data;
     // Resolved from the session — the room this socket is actually seated
     // in — the same source endGameStats uses, rather than the roomId in the
@@ -75,7 +101,8 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // Only the room host may submit global stats, authenticated by socket identity.
     // No token needed — the WebSocket session is the credential.
     const room = roomId ? rooms[roomId] : null;
-    if (!room || room.host !== socket.id) return;
+    if (!room) return refuse('no-room');
+    if (room.host !== socket.id) return refuse('unauthorized');
     // Stats only exist for a game that actually reached its end — without
     // this gate, a host could submit fabricated stats straight from the
     // lobby, and repeat at will by re-triggering pushState's startingGame
@@ -88,12 +115,12 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // their OWN score to the winning one and then finish legitimately
     // (applyPushedState's `finished` branch checks a real game-over, not who
     // earned it). What this refuses is the out-of-context and replayed cases.
-    if (!room.state.finished) return;
+    if (!room.state.finished) return refuse('not-finished');
     // A reconnect/reload after the game already finished (but before anyone
     // leaves the room) makes the client think "finished just became true" again,
     // re-submitting for the same game. Recorded per game, reset when a new one
     // starts (see pushState's startingGame branch).
-    if (room.statsRecordedForGame.global) return;
+    if (room.statsRecordedForGame.global) return refuse('duplicate');
     // Marked BEFORE the await so a concurrent duplicate can't slip through,
     // but rolled back on failure — otherwise a transient DB error would
     // permanently swallow this game's stats (the dedup would reject a retry).
@@ -128,21 +155,25 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     } catch (err) {
       room.statsRecordedForGame.global = false;
       console.error('submitGlobalStats error:', err);
+      // The rollback above is what makes this reason retryable: the client
+      // resends the identical payload (see the bounded retry in
+      // src/store/socketSlice.ts) and it is recorded as if this attempt had
+      // never happened.
+      return refuse('write-failed');
     }
+    // Committed — the only path that acks a success.
+    answer({ ok: true });
   });
 
   safeOn(socket, 'endGameStats', async (
     data: { deviceId?: string; stats?: unknown } | null | undefined,
-    ack?: EndGameStatsAckFn,
+    ack?: StatsSubmitAckFn,
   ) => {
     // Every bail-out below now names itself to the sender; the gates
     // themselves are unchanged. Only 'write-failed' invites a resend — see
     // STATS_REFUSAL_REASONS in src/types.ts for what each one means to the
     // client.
-    const answer = (result: EndGameStatsAck): void => {
-      if (typeof ack === 'function') ack(result);
-    };
-    const refuse = (reason: StatsRefusalReason): void => answer({ ok: false, reason });
+    const { answer, refuse } = ackHelpers(ack);
 
     if (!endGameStatsLimiter()) return refuse('rate-limited');
     if (!data || typeof data !== 'object') return refuse('invalid');

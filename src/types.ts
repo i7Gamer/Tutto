@@ -349,14 +349,18 @@ export type PushStateAck =
   | { ok: false; reason: PushRefusalReason };
 
 /**
- * Why the server did not record an endGameStats submission.
+ * Why the server did not record a stats submission — endGameStats (the
+ * submitting device's own row) or submitGlobalStats (the host's row for the
+ * whole game). One vocabulary for both: the two handlers refuse for the same
+ * reasons and the client answers each the same way.
  *
- * endGameStats used to be fire-and-forget, and every one of its bail-outs was
- * a silent `return`. The one that mattered was the write failure: the handler
+ * Both used to be fire-and-forget, and every one of their bail-outs was
+ * a silent `return`. The one that mattered was the write failure: each handler
  * rolls its dedup entry back so a retry CAN land, but nothing ever retried,
  * so a single transient sqlite error (see SQLITE_BUSY_TIMEOUT_MS in
- * server/knexfile.ts for the other half of that fix) lost that device's row
- * for the game permanently. Naming the reason is what lets the client
+ * server/knexfile.ts for the other half of that fix) lost that row — the
+ * device's, or the game's server-wide one — permanently. Naming the reason is
+ * what lets the client
  * distinguish "try again" and "never send this again". (Worded so that no
  * quoted string follows the word from: server/packaging.test.ts scans source
  * text for import specifiers.)
@@ -366,21 +370,23 @@ export type PushStateAck =
  * these values.
  */
 export const STATS_REFUSAL_REASONS = [
-  // The submitting socket holds no seat in its room, or the seat it holds is
-  // not the device it is submitting for.
+  // endGameStats: the submitting socket holds no seat in its room, or the
+  // seat it holds is not the device it is submitting for. submitGlobalStats:
+  // the socket is not the room's host, who alone may record the game.
   'unauthorized',
   // No room on this session (a submission that outlived leaving it), or the
   // room is gone.
   'no-room',
   // The room's game has not reached its end, so there are no stats to record.
   'not-finished',
-  // The payload itself was not a usable endGameStats submission.
+  // The payload itself was not a usable submission.
   'invalid',
-  // The per-socket endGameStats rate limit.
+  // The per-socket rate limit for this event.
   'rate-limited',
-  // A full row for this device and game is already in. The submission was
-  // deliberately dropped, not lost — resending it would count the game twice,
-  // so this is the one refusal that is also a success for the client.
+  // A full row for this game is already in — this device's, or the game's
+  // global one. The submission was deliberately dropped, not lost — resending
+  // it would count the game twice, so this is the one refusal that is also a
+  // success for the client.
   'duplicate',
   // The database write threw. The dedup entry has been rolled back to what it
   // was before the attempt, so an identical resend is safe — this is the only
@@ -391,15 +397,15 @@ export const STATS_REFUSAL_REASONS = [
 export type StatsRefusalReason = (typeof STATS_REFUSAL_REASONS)[number];
 
 /**
- * What the server answers an endGameStats with, when the client passes a
- * callback. A client that passes none (an older one) is served exactly as
- * before — every branch stays a plain return.
+ * What the server answers an endGameStats or a submitGlobalStats with, when
+ * the client passes a callback. A client that passes none (an older one) is
+ * served exactly as before — every branch stays a plain return.
  *
  * `{ ok: true }` means the row is committed. Anything else names why it is
- * not; only 'write-failed' is retryable (see the retry in
+ * not; only 'write-failed' is retryable (see the shared retry in
  * src/store/socketSlice.ts).
  */
-export type EndGameStatsAck =
+export type StatsSubmitAck =
   | { ok: true }
   | { ok: false; reason: StatsRefusalReason };
 
