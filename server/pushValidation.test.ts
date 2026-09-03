@@ -781,12 +781,60 @@ describe('applyPushedState', () => {
         expect(state.finished).toBe(false);
       });
 
-      it('does not gate the host, who owns the room state anyway', () => {
+      it('holds the host to the same rule — a tie is not a win', () => {
+        // The host used to be exempt, so a host client whose engine had
+        // drifted (or a patched one) could freeze a verdict with TWO winners:
+        // rememberFinishedGame takes getLeaders() at face value, and both
+        // names then take a win and a fastestWinTurns that can never be undone.
         const state = makeState();
+        state.status = 'playing';
+        winning(state, 'Alice');
+        winning(state, 'Bob');
 
         applyPushedState(state, { finished: true }, asHost);
 
+        expect(state.finished).toBe(false);
+      });
+
+      it('refuses a host finish for a game nobody has won', () => {
+        const state = makeState();
+        state.status = 'playing';
+
+        applyPushedState(state, { finished: true }, asHost);
+
+        expect(state.finished).toBe(false);
+      });
+
+      it('accepts the host push that ends a game a sole leader has won', () => {
+        const state = makeState();
+        state.status = 'playing';
+
+        applyPushedState(state, {
+          players: [{ name: 'Alice', score: state.winningScore }, { name: 'Bob', score: 100 }],
+          finished: true,
+          currentPlayerIndex: null,
+        }, asHost);
+
         expect(state.finished).toBe(true);
+        expect(state.currentPlayerIndex).toBeNull();
+      });
+
+      it('accepts the host ending the game early — gameSlice.endGame pushes finished: false', () => {
+        // The only explicit early-end the UI offers (GameControls' "End Game",
+        // host-only online) tears the game down to the LOBBY: finished stays
+        // false and no verdict is ever frozen. So nothing legitimate needs the
+        // old host exemption.
+        const state = makeState();
+        Object.assign(state, { status: 'playing', currentPlayerIndex: 0 });
+
+        applyPushedState(state, {
+          status: 'lobby', finished: false, currentPlayerIndex: null, round: 1,
+          chartValues: [], chartNames: [], chartLabels: [],
+        }, asHost);
+
+        expect(state.status).toBe('lobby');
+        expect(state.finished).toBe(false);
+        expect(state.currentPlayerIndex).toBeNull();
       });
     });
 

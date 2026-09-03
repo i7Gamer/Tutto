@@ -252,6 +252,19 @@ describe('the game mode a finished game is recorded under', () => {
   };
 
   /**
+   * The `finished: true` half of a push the server will actually accept.
+   *
+   * pushValidation only takes a finish for a state the engine could have
+   * produced — a SOLE leader at or over the winning score, the host included.
+   * These rooms are single-seat, so seating the room's own (possibly custom)
+   * winning score on Alice is the whole of it.
+   */
+  const winningFinish = (roomId: string): Record<string, unknown> => ({
+    finished: true,
+    players: [{ name: 'Alice', deviceId: deviceFor(roomId), score: rooms[roomId].state.winningScore }],
+  });
+
+  /**
    * Ends the game the way a real client does — with a push, which BROADCASTS.
    *
    * That broadcast is where the room freezes its verdict (rememberFinishedGame
@@ -264,7 +277,7 @@ describe('the game mode a finished game is recorded under', () => {
    * reset it.
    */
   const finishTheGame = async (sock: ClientSocket, roomId: string): Promise<void> => {
-    push(sock, roomId, { finished: true });
+    push(sock, roomId, winningFinish(roomId));
     await waitFor(() => rooms[roomId].finishedGame !== null);
   };
 
@@ -432,7 +445,7 @@ describe('the game mode a finished game is recorded under', () => {
 
     // Finish that custom game, then start a fresh one on the default deck
     // without ever returning to the lobby — the room stays status 'playing'.
-    push(client, roomId, { finished: true, initialCards: { ...CUSTOM_DECK } });
+    push(client, roomId, { ...winningFinish(roomId), initialCards: { ...CUSTOM_DECK } });
     await waitFor(() => rooms[roomId].state.finished === true);
     push(client, roomId, { finished: false, initialCards: { ...DEFAULT_INITIAL_CARDS } });
     await waitFor(() => rooms[roomId].state.finished === false);

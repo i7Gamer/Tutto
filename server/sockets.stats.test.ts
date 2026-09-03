@@ -105,6 +105,24 @@ describe('Server Socket E2E — statistics persistence', () => {
     throw new Error(`${deviceId} (${mode}) never ${what}`);
   };
 
+  /**
+   * The roster a finishing push has to carry.
+   *
+   * pushValidation only accepts `finished: true` for a state the engine could
+   * actually have produced — a SOLE leader at or over the winning score (a tie
+   * plays another round, and that rule binds the host too). These cases care
+   * that the game ENDED, not who won, so the first name gets the win. The
+   * DEFAULT winning score clears the lower custom ones the bucket cases push,
+   * so one value serves every room here.
+   */
+  const finishedBy = (winner: string, ...others: string[]) => ({
+    finished: true,
+    players: [
+      { name: winner, score: DEFAULT_WINNING_SCORE },
+      ...others.map(name => ({ name })),
+    ],
+  });
+
   beforeAll(async () => {
     serverProcess = await startTestServer(PORT);
   }, SERVER_BOOT_TIMEOUT_MS);
@@ -190,7 +208,7 @@ describe('Server Socket E2E — statistics persistence', () => {
         s1.emit('joinRoom', { roomId: 'EGS_SELF_ROOM', name: 'Alice', deviceId, color: '#ff0000' }, () => {
           // Stats are only accepted once the game has finished — stage a
           // started-and-finished game first (same-socket emits are ordered).
-          s1.emit('pushState', { roomId: 'EGS_SELF_ROOM', newState: { status: 'playing', finished: true } });
+          s1.emit('pushState', { roomId: 'EGS_SELF_ROOM', newState: { status: 'playing', ...finishedBy('Alice') } });
           s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, wins: 1, totalScore: 1234 } });
           pollDeviceStats(deviceId, DEFAULT_GAME_MODE, b => (b.gamesPlayed ?? 0) >= 1, 'recorded a game').then((body) => {
             try {
@@ -237,7 +255,7 @@ describe('Server Socket E2E — statistics persistence', () => {
             // The custom config rides in on the opening push itself — the
             // lobby state never held it, which is exactly the case the
             // after-the-push mode evaluation exists for.
-            s1.emit('pushState', { roomId, newState: { status: 'playing', finished: true, winningScore: 1000 } });
+            s1.emit('pushState', { roomId, newState: { status: 'playing', winningScore: 1000, ...finishedBy('Alice') } });
             s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, wins: 1, totalScore: 777 } });
             // The client claims it was a default game; the server knows better.
             s1.emit('submitGlobalStats', { roomId, payload: { gamesPlayed: 1, totalScore: 777, isDefaultGame: true } });
@@ -299,7 +317,7 @@ describe('Server Socket E2E — statistics persistence', () => {
 
             // A classic game on an otherwise DEFAULT config → the plain
             // 'classic' bucket and the classic global row's full sums.
-            s1.emit('pushState', { roomId, newState: { status: 'playing', finished: true, ruleset: 'classic' } });
+            s1.emit('pushState', { roomId, newState: { status: 'playing', ruleset: 'classic', ...finishedBy('Alice') } });
             s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, wins: 1, totalScore: 555, totalTuttos: 3, mostCardsInTurn: 2 } });
             s1.emit('submitGlobalStats', { roomId, payload: { gamesPlayed: 1, totalScore: 555, totalTuttos: 3, isDefaultGame: true } });
 
@@ -329,7 +347,7 @@ describe('Server Socket E2E — statistics persistence', () => {
             // un-finish that names nobody to act is refused wholesale by the
             // coherence repair (pushValidation), so no second game would start.
             s1.emit('pushState', { roomId, newState: { status: 'playing', finished: false, currentPlayerIndex: 0, winningScore: 1000 } });
-            s1.emit('pushState', { roomId, newState: { status: 'playing', finished: true } });
+            s1.emit('pushState', { roomId, newState: { status: 'playing', ...finishedBy('Alice') } });
             s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, wins: 0, totalScore: 111 } });
             s1.emit('submitGlobalStats', { roomId, payload: { gamesPlayed: 1, totalScore: 111, isDefaultGame: true } });
 
@@ -379,7 +397,7 @@ describe('Server Socket E2E — statistics persistence', () => {
                 status: 'playing', currentPlayerIndex: 0,
               },
             });
-            s1.emit('pushState', { roomId, newState: { finished: true } });
+            s1.emit('pushState', { roomId, newState: finishedBy('Alice') });
             s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, totalScore: 100 } });
             await pollDeviceScore(100);
 
@@ -398,7 +416,7 @@ describe('Server Socket E2E — statistics persistence', () => {
               roomId,
               newState: { status: 'playing', finished: false, currentPlayerIndex: 0 },
             });
-            s1.emit('pushState', { roomId, newState: { finished: true } });
+            s1.emit('pushState', { roomId, newState: finishedBy('Alice') });
             await new Promise(r => setTimeout(r, testDelay(200)));
 
             // Now a submission for the NEW game must be accepted.
@@ -441,7 +459,7 @@ describe('Server Socket E2E — statistics persistence', () => {
             const before = await getGlobalTotalScore();
 
             // Stats are only accepted once the game has finished.
-            s1.emit('pushState', { roomId, newState: { status: 'playing', finished: true } });
+            s1.emit('pushState', { roomId, newState: { status: 'playing', ...finishedBy('Alice') } });
             s1.emit('submitGlobalStats', { roomId, payload: { totalScore: 100 } });
             await pollGlobalTotalScore(before + 100);
 
@@ -471,7 +489,7 @@ describe('Server Socket E2E — statistics persistence', () => {
             // waited for. Landing on exactly +150 proves the duplicate
             // contributed nothing — had the dedup regressed, the total would
             // be on its way to +100+99999+50 and this poll could never see it.
-            s1.emit('pushState', { roomId, newState: { finished: true } });
+            s1.emit('pushState', { roomId, newState: finishedBy('Alice') });
             s1.emit('submitGlobalStats', { roomId, payload: { totalScore: 50 } });
             await pollGlobalTotalScore(before + 150);
 
@@ -499,7 +517,7 @@ describe('Server Socket E2E — statistics persistence', () => {
         s1.emit('joinRoom', { roomId: 'EGS_FOREIGN_ROOM', name: 'Alice', deviceId: ownDevice, color: '#ff0000' }, () => {
           // Stage a finished game so the ownership check below is the ONLY
           // thing rejecting the write (not the finished-game gate).
-          s1.emit('pushState', { roomId: 'EGS_FOREIGN_ROOM', newState: { status: 'playing', finished: true } });
+          s1.emit('pushState', { roomId: 'EGS_FOREIGN_ROOM', newState: { status: 'playing', ...finishedBy('Alice') } });
           // Attempt to write stats for a device this socket does not own — must be ignored.
           s1.emit('endGameStats', { deviceId: foreignDevice, stats: { gamesPlayed: 99, totalScore: 999999 } });
 
@@ -561,7 +579,7 @@ describe('Server Socket E2E — statistics persistence', () => {
               // Game 1: normal lobby→playing start, then finish and record stats.
               s1.emit('pushState', { roomId, newState: { players, status: 'playing', currentPlayerIndex: 0 } });
               await new Promise(r => setTimeout(r, 80));
-              s1.emit('pushState', { roomId, newState: { finished: true } });
+              s1.emit('pushState', { roomId, newState: finishedBy('Alice', 'Bob') });
               s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, totalScore: 100 } });
               await pollDeviceScore(100);
 
@@ -585,7 +603,7 @@ describe('Server Socket E2E — statistics persistence', () => {
 
               // Finish game 2 — stats are only accepted for a finished game —
               // then they must be accepted (dedup was reset by the restart).
-              s1.emit('pushState', { roomId, newState: { finished: true } });
+              s1.emit('pushState', { roomId, newState: finishedBy('Alice', 'Bob') });
               s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, totalScore: 50 } });
               await pollDeviceScore(150); // 100 (game 1) + 50 (game 2)
 
@@ -635,7 +653,7 @@ describe('Server Socket E2E — statistics persistence', () => {
               // Game 1: start, finish, record.
               s1.emit('pushState', { roomId, newState: { players, status: 'playing', currentPlayerIndex: 0 } });
               await new Promise(r => setTimeout(r, testDelay(400)));
-              s1.emit('pushState', { roomId, newState: { finished: true } });
+              s1.emit('pushState', { roomId, newState: finishedBy('Alice', 'Bob') });
               s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, totalScore: 100 } });
               await pollDeviceScore(100);
 
@@ -679,7 +697,7 @@ describe('Server Socket E2E — statistics persistence', () => {
               // refused submission contributed nothing — had the dedup
               // regressed, the row would be on its way to 100+99999+50 and
               // this poll could never see 150 at all.
-              s1.emit('pushState', { roomId, newState: { finished: true } });
+              s1.emit('pushState', { roomId, newState: finishedBy('Alice', 'Bob') });
               s1.emit('endGameStats', { deviceId, stats: { gamesPlayed: 1, totalScore: 50 } });
               const after = await pollDeviceScore(150);
               expect(after.gamesPlayed).toBe(2);
@@ -752,7 +770,7 @@ describe('Server Socket E2E — statistics persistence', () => {
               await settled;
 
               settled = nextGameState(s1);
-              s1.emit('pushState', { roomId, newState: { finished: true } });
+              s1.emit('pushState', { roomId, newState: finishedBy('Alice', 'Bob') });
               await settled;
 
               // Alice submits while the game is still labelled correctly.

@@ -580,14 +580,25 @@ const applyFinished: FieldHandler = (value, ctx) => {
   //
   // The same condition calculateNextTurn and handleActivePlayerRemoved use,
   // against the roster this push has already merged ('players' runs before
-  // 'finished' in ACTIVE_PLAYER_FIELD_LIST). A tie is not a win. Un-finishing
-  // is never gated — that is what Play Again does. The host is exempt for the
-  // same reason it is everywhere else here: it already writes every field via
-  // ALL_FIELDS.
+  // 'finished' in ACTIVE_PLAYER_FIELD_LIST). A tie is not a win.
+  //
+  // The HOST is held to it too, unlike everywhere else in this file. The
+  // exemption it used to have was the one place a two-winner verdict could
+  // get in: rooms.ts freezes room.finishedGame from getLeaders() the first
+  // moment the room reports itself finished, so a host-pushed tie handed BOTH
+  // leaders a win and a fastestWinTurns, neither of which any later
+  // correction can take back. The host owning every field is not a reason to
+  // let it assert an outcome the engine cannot produce.
+  //
+  // Nothing legitimate needs the exemption: the only explicit early end the UI
+  // offers (GameControls' host-only "End Game" -> gameSlice.endGame) pushes
+  // finished: FALSE with status 'lobby', and so does Play Again. Un-finishing
+  // is never gated, so both keep working — see the coherence repair in
+  // applyPushedState for the one un-finish that is still refused.
   if (typeof value !== 'boolean') return;
   const leaders = getLeaders(ctx.state.players);
   const gameIsOver = leaders.length === 1 && leaders[0].score >= ctx.state.winningScore;
-  if (!value || ctx.isHost || gameIsOver) ctx.state.finished = value;
+  if (!value || gameIsOver) ctx.state.finished = value;
 };
 
 const applyPreviousScore: FieldHandler = (value, ctx) => {

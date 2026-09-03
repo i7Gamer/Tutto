@@ -351,6 +351,7 @@ describe('pushState may not leave a running game with nobody to act', () => {
     const state = rooms[roomId].state;
     expect(state.finished, 'a real game-over is still accepted').toBe(true);
     expect(state.currentPlayerIndex).toBeNull();
+    expect(rooms[roomId].finishedGame?.winners).toEqual(['Alice']);
   });
 
   it('refuses a host push that starts a game without saying whose turn it is', () => {
@@ -397,6 +398,64 @@ describe('pushState may not leave a running game with nobody to act', () => {
     registerGameStateHandlers({ io: makeFakeIo().io, socket: hostFake.socket, session: { roomId, username: 'Bob' } });
     return hostFake.handlers['pushState'];
   };
+
+  it('refuses a HOST push that finishes a game on tied leaders, and freezes no verdict', () => {
+    // The engine never ends a game on a tie — a tie plays another round — but
+    // applyFinished used to wave the HOST through unconditionally. The verdict
+    // rememberFinishedGame then froze named BOTH leaders as winners, and each
+    // took a win and a fastestWinTurns that no later correction can undo.
+    const { winningScore } = rooms[roomId].state;
+
+    hostPush()({
+      roomId,
+      newState: {
+        players: [{ name: 'Alice', score: winningScore }, { name: 'Bob', score: winningScore }],
+        finished: true,
+        currentPlayerIndex: null,
+      },
+    });
+
+    const state = rooms[roomId].state;
+    expect(state.finished, 'a tie is not a win, not even for the host').toBe(false);
+    expect(state.currentPlayerIndex, 'the coherence repair keeps someone to act').toBe(0);
+    expect(rooms[roomId].finishedGame, 'no verdict may be frozen for a tie').toBeNull();
+  });
+
+  it('still accepts the HOST push that ends a game a sole leader won, and freezes one winner', () => {
+    // The control for the guard above: the host's own winning push is the
+    // ordinary way a game ends when the host is the active player.
+    const { winningScore } = rooms[roomId].state;
+
+    hostPush()({
+      roomId,
+      newState: {
+        players: [{ name: 'Alice', score: winningScore }, { name: 'Bob', score: 100 }],
+        finished: true,
+        currentPlayerIndex: null,
+      },
+    });
+
+    expect(rooms[roomId].state.finished).toBe(true);
+    expect(rooms[roomId].finishedGame?.winners).toEqual(['Alice']);
+  });
+
+  it('still accepts the host ending the game early, which tears it down to the lobby', () => {
+    // gameSlice.endGame — the only explicit early-end the UI offers, host-only
+    // online — pushes finished: false with status 'lobby'. It never asserts a
+    // winner, so the game-over rule above does not touch it.
+    hostPush()({
+      roomId,
+      newState: {
+        status: 'lobby', finished: false, currentPlayerIndex: null, round: 1,
+        chartValues: [], chartNames: [], chartLabels: [],
+      },
+    });
+
+    const state = rooms[roomId].state;
+    expect(state.status, 'End Game returns the room to the lobby').toBe('lobby');
+    expect(state.finished).toBe(false);
+    expect(rooms[roomId].finishedGame, 'an abandoned game has no verdict').toBeNull();
+  });
 
   it('refuses a host push that un-finishes a game without saying whose turn it is', () => {
     stageFinishedGame();
@@ -558,8 +617,11 @@ describe('pushState captures the game-start roster (startRoster)', () => {
   });
 
   it('re-captures the roster on Play Again: a joiner is included, a leaver is not', () => {
-    // Game 1 starts and finishes with Alice and Bob.
+    // Game 1 starts and finishes with Alice and Bob. Alice takes the winning
+    // score, because a finish is only accepted for a game the engine could
+    // have ended (pushValidation's applyFinished).
     pushState({ roomId, newState: { status: 'playing', currentPlayerIndex: 0 } });
+    rooms[roomId].state.players[0].score = rooms[roomId].state.winningScore;
     pushState({ roomId, newState: { finished: true } });
     expect(rooms[roomId].startRoster).toEqual([
       { deviceId: 'dev-Alice', name: 'Alice' },

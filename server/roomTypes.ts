@@ -137,9 +137,16 @@ export type DeviceStatsRecordLevel = 'verdict-only' | 'full';
  * seated — the same reasoning that makes isDefaultGame the server's call.
  */
 export interface FinishedGame {
-  /** Every tied leader, by name. A tie is not a win — see getLeaders. A host push
-   * is exempt from the game-over check in pushValidation and can set finished=true
-   * unconditionally. */
+  /**
+   * Every tied leader, by name — see getLeaders.
+   *
+   * In practice always exactly one: a tie is not a win, so no path to
+   * `finished` can produce more. pushValidation's `applyFinished` holds every
+   * pusher, the host included, to the engine's sole-leader rule, and the two
+   * server-side finishes (turnTimers' expiry, rooms' handleActivePlayerRemoved)
+   * run the same check themselves. The plural stays because getLeaders returns
+   * a list and a downstream reader must not assume the shape it was handed.
+   */
   winners: string[];
   /**
    * Seats at the table when the game ended, for the players-per-game totals —

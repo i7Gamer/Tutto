@@ -17,6 +17,7 @@ vi.mock('./database', () => ({
 
 import { startInProcessServer, emitJoin, type InProcessServer } from './socketTestHarness';
 import { rooms } from './rooms';
+import { DEFAULT_WINNING_SCORE } from '../src/utils/configValidation';
 
 describe('game clock (gameTimeInSeconds / gameActualStartTime)', () => {
   let server: InProcessServer;
@@ -103,7 +104,9 @@ describe('game clock (gameTimeInSeconds / gameActualStartTime)', () => {
       newState: {
         status: 'playing', currentCard: '200', cards: [], currentPlayerIndex: 0, round: 1,
         finished: true, gameTimeInSeconds: 999, // stale client value — server must snapshot the real time
-        players: [{ name: 'Alice', deviceId: 'dev-gtes-a', score: 100 }],
+        // At the winning score, because a finish is only accepted for a state
+        // the engine could have produced (pushValidation's applyFinished).
+        players: [{ name: 'Alice', deviceId: 'dev-gtes-a', score: DEFAULT_WINNING_SCORE }],
       },
     });
 
