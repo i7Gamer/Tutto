@@ -57,6 +57,39 @@ describe('ErrorBoundary', () => {
     expect(screen.getByText('Clear Cache & Reload')).toBeInTheDocument();
   });
 
+  describe('dark mode', () => {
+    // This boundary renders above (and without) App's theme state — it can't
+    // take `theme` as a prop — so a crash used to flash the light palette
+    // (hardcoded #f4f7f6/#1a1a1a) even with data-theme="dark" already on
+    // <html>. The `dark:` classes below resolve from that live DOM attribute
+    // regardless of where this component sits in the React tree (the custom
+    // variant is a plain `[data-theme="dark"] &` descendant selector — see
+    // index.css), so no theme prop is needed to fix it.
+    afterEach(() => {
+      document.documentElement.removeAttribute('data-theme');
+    });
+
+    it('carries dark: classes on the fallback container so a crash in dark mode does not flash white', () => {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      localStorage.setItem('last_crash_time', Date.now().toString());
+
+      render(
+        <ErrorBoundary>
+          <ProblemChild />
+        </ErrorBoundary>
+      );
+
+      const container = screen.getByText('Oops! Something went wrong.').parentElement;
+      expect(container?.className).toEqual(expect.stringContaining('dark:bg-slate-900'));
+      expect(container?.className).toEqual(expect.stringContaining('dark:text-slate-50'));
+      // Not conditional on the attribute — the same static classes render
+      // for a light-mode crash too. Pinned here so the light case can't
+      // silently regress into being the only one that gets tested above.
+      expect(container?.className).toEqual(expect.stringContaining('bg-[#f4f7f6]'));
+      expect(container?.className).toEqual(expect.stringContaining('text-[#1a1a1a]'));
+    });
+  });
+
   it('shows the fallback instead of auto-reloading when the throttle cannot be stored', () => {
     // Two things at once. componentDidCatch reads and writes the crash
     // throttle while React is already handling a crash, so a throw from there

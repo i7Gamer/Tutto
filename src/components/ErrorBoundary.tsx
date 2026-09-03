@@ -140,8 +140,22 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   render() {
     if (this.state.hasError) {
+      // Background/text color live in className, not the style object below —
+      // this component renders above (and without) App's theme state, so it
+      // can't pass `theme` down as a prop. The `dark:` classes still apply
+      // correctly: the custom variant is `[data-theme="dark"] &` (index.css),
+      // a plain descendant-of-<html> selector that resolves from the live DOM
+      // regardless of where this sits in the React tree — App already set the
+      // attribute on <html> before anything could crash under it. Without
+      // this, a crash in dark mode flashed the light palette (#f4f7f6/
+      // #1a1a1a, hardcoded here) for as long as the fallback stayed up. The
+      // hex/slate pairs below match --bg-color/--text-color's own light/dark
+      // values (index.css).
       return (
-        <div style={{ padding: '2rem', textAlign: 'center', fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', backgroundColor: '#f4f7f6', color: '#1a1a1a' }}>
+        <div
+          className="bg-[#f4f7f6] text-[#1a1a1a] dark:bg-slate-900 dark:text-slate-50"
+          style={{ padding: '2rem', textAlign: 'center', fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}
+        >
           <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem', color: '#dc2626' }}>{i18n.t('errorBoundary.title', 'Oops! Something went wrong.')}</h2>
           <p style={{ marginBottom: '2rem' }}>{i18n.t('errorBoundary.description', 'The application encountered an unexpected error and needs to reload.')}</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
