@@ -93,6 +93,7 @@
   "game.controls.stopTurnOver": "Stopp! Dein Zug ist vorbei.",
   "game.controls.continue": "Weiter",
   "game.controls.waiting": "Warte auf anderen Spieler…",
+  "game.physicalTurnNotice": "{{name}} würfelt mit echten Würfeln",
   "game.controls.playerIsPlaying": "{{name}} spielt gerade",
   "game.controls.keptDice": "Behaltene Würfel",
   "game.controls.chainCard": "Karte {{count}} dieses Zugs",

@@ -64,6 +64,15 @@ const useGameControlsSlice = () => useGameStore(useShallow(state => ({
   isHost: state.isHost,
   activeTurnState: state.liveTurnState,
   currentPlayer: state.currentPlayerIndex !== null ? state.players[state.currentPlayerIndex] : null,
+  // The host-enforced dice mode is the only signal a spectator ever gets
+  // about how the ACTIVE player is rolling — an individual player's own
+  // dice-mode preference is local-only and never leaves their device (see
+  // roomTypes.ts), so it cannot be read for anyone but yourself. When the
+  // room enforces physical, liveTurnState above will never arrive for this
+  // turn — physical dice never push one — so a spinner waiting on it would
+  // spin forever.
+  enforcedDiceMode: state.enforcedDiceMode,
+  turnTimeRemaining: state.turnTimeRemaining,
   undo: state.undo,
   endGame: state.endGame,
   leaveRoom: state.leaveRoom,
@@ -95,6 +104,8 @@ export default function GameControls({
     isHost,
     activeTurnState,
     currentPlayer,
+    enforcedDiceMode,
+    turnTimeRemaining,
     undo,
     endGame,
     leaveRoom,
@@ -401,6 +412,24 @@ export default function GameControls({
                         })}
                       </div>
                     </div>
+                  )}
+                </div>
+              ) : isOnline && enforcedDiceMode === 'physical' ? (
+                // Physical dice push no liveTurnState — enforcedDiceMode is
+                // the only way a spectator can tell that the "waiting"
+                // spinner above would never resolve, and would otherwise spin
+                // for the whole real-world duration of the active player's
+                // turn. A static notice instead, with the room's own turn
+                // countdown (Scoreboard shows it too, but not next to this
+                // message) when a turn timer is running.
+                <div className="w-full">
+                  <h4 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">
+                    {t('game.physicalTurnNotice', '{{name}} is rolling real dice', { name: currentPlayer?.name ?? '' })}
+                  </h4>
+                  {turnTimeRemaining !== null && turnTimeRemaining !== undefined && (
+                    <p className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      {t('game.timeSeconds', '{{time}}s', { time: turnTimeRemaining })}
+                    </p>
                   )}
                 </div>
               ) : (

@@ -93,6 +93,7 @@
   "game.controls.stopTurnOver": "Stop! Your turn is over.",
   "game.controls.continue": "Continue",
   "game.controls.waiting": "Waiting for other player…",
+  "game.physicalTurnNotice": "{{name}} is rolling real dice",
   "game.controls.playerIsPlaying": "{{name}} is currently playing",
   "game.controls.keptDice": "Kept Dice",
   "game.controls.chainCard": "Card {{count}} of this turn",

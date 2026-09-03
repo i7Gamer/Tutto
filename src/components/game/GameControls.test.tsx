@@ -310,6 +310,85 @@ describe('GameControls spectator view (online, not my turn)', () => {
   });
 });
 
+describe('GameControls spectator view when the active player rolls physical dice', () => {
+  // Physical dice never push a liveTurnState — an individual player's OWN
+  // dice-mode preference never leaves their device, so enforcedDiceMode is
+  // the only signal a spectator has that no snapshot is ever coming. Without
+  // it, the generic "waiting" branch (a spinner) used to spin for the whole
+  // real-world duration of the active player's turn.
+  const renderAsSpectator = (overrides: Partial<ComponentProps<typeof GameControls>> = {}) => {
+    return render(
+      <GameControls
+        isMyTurn={false}
+        diceMode="digital"
+        setShowDiceGame={vi.fn()}
+        scoreInput=""
+        setScoreInput={vi.fn()}
+        applyBonus={false}
+        setApplyBonus={vi.fn()}
+        handleNextTurn={vi.fn()}
+        handleYesNo={vi.fn()}
+        canUndo={true}
+        {...overrides}
+      />
+    );
+  };
+
+  it('shows a static notice instead of a spinner when the room enforces physical dice', () => {
+    setStore({
+      isOnline: true, isHost: false, liveTurnState: null, enforcedDiceMode: 'physical',
+      currentPlayerIndex: 0,
+      players: [makePlayer({ name: 'Bob', socketId: 'socket1', position: 1 })],
+    });
+    const { container } = renderAsSpectator();
+
+    expect(screen.getByText('game.physicalTurnNotice')).toBeInTheDocument();
+    expect(screen.queryByText('game.controls.waiting')).toBeNull();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(container.querySelector('.animate-spin')).toBeNull();
+  });
+
+  it('shows the turn-timer countdown beside the notice when a turn timer is running', () => {
+    setStore({
+      isOnline: true, isHost: false, liveTurnState: null, enforcedDiceMode: 'physical',
+      turnTimeRemaining: 12,
+      currentPlayerIndex: 0,
+      players: [makePlayer({ name: 'Bob', socketId: 'socket1', position: 1 })],
+    });
+    renderAsSpectator();
+
+    expect(screen.getByText('game.timeSeconds')).toBeInTheDocument();
+  });
+
+  it('omits the countdown when no turn timer is running', () => {
+    setStore({
+      isOnline: true, isHost: false, liveTurnState: null, enforcedDiceMode: 'physical',
+      turnTimeRemaining: null,
+      currentPlayerIndex: 0,
+      players: [makePlayer({ name: 'Bob', socketId: 'socket1', position: 1 })],
+    });
+    renderAsSpectator();
+
+    expect(screen.queryByText('game.timeSeconds')).toBeNull();
+  });
+
+  it('leaves the digital-active-player-without-a-snapshot-yet spinner unchanged', () => {
+    // The control: an active player on digital (or an unenforced room, where
+    // a spectator has no way to know the other player's own preference) still
+    // gets the generic spinner while waiting for their first liveTurnState.
+    setStore({
+      isOnline: true, isHost: false, liveTurnState: null, enforcedDiceMode: null,
+      currentPlayerIndex: 0,
+      players: [makePlayer({ name: 'Bob', socketId: 'socket1', position: 1 })],
+    });
+    const { container } = renderAsSpectator();
+
+    expect(screen.getByText('game.controls.waiting')).toBeInTheDocument();
+    expect(screen.queryByText('game.physicalTurnNotice')).toBeNull();
+    expect(container.querySelector('.animate-spin')).not.toBeNull();
+  });
+});
+
 describe('GameControls physical dice interactions', () => {
   const baseProps = (overrides: Partial<ComponentProps<typeof GameControls>> = {}) => ({
     isMyTurn: true,
