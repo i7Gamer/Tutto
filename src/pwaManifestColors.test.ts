@@ -95,3 +95,21 @@ describe('PWA manifest colours match src/index.css', () => {
     expect(manifestSource).toMatch(/lang:\s*undefined/);
   });
 });
+
+// iOS ignores the web-app manifest's icons for the home-screen tile and reads
+// only <link rel="apple-touch-icon">. Apple's nominal size is 180x180, but
+// Safari scales any square PNG it is given; the 192 icon the manifest already
+// ships is reused rather than adding a second binary the icon script (which
+// needs sharp) would have to regenerate.
+describe('the home-screen icon for iOS', () => {
+  const APPLE_TOUCH_ICON_PATTERN = /<link\s+rel="apple-touch-icon"[^>]*href="([^"]+)"/;
+  const indexHtml = fs.readFileSync(path.join(REPO_ROOT, 'index.html'), 'utf8');
+
+  it('is linked from index.html and points at a PNG that exists in public/', () => {
+    const match = APPLE_TOUCH_ICON_PATTERN.exec(indexHtml);
+    expect(match, 'index.html has no <link rel="apple-touch-icon">').not.toBeNull();
+    const href = match![1];
+    expect(href.endsWith('.png')).toBe(true);
+    expect(fs.existsSync(path.join(REPO_ROOT, 'public', href.replace(/^\//, '')))).toBe(true);
+  });
+});
