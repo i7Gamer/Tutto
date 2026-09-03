@@ -30,6 +30,21 @@ const ensureDistIndexHtml = () => {
 };
 ensureDistIndexHtml();
 
+// A stand-in for a real Vite output file — the content-hashed name is the
+// only thing the immutable-caching test below cares about, since server/
+// index.ts keys its long-lived Cache-Control off the /assets/ mount, not off
+// anything in the file itself.
+const DIST_ASSET_STUB_NAME = 'x.abc123.js';
+const ensureDistAssetStub = () => {
+  const assetsDir = path.join(__dirname, '../dist/assets');
+  const assetPath = path.join(assetsDir, DIST_ASSET_STUB_NAME);
+  if (!fs.existsSync(assetPath)) {
+    fs.mkdirSync(assetsDir, { recursive: true });
+    fs.writeFileSync(assetPath, '// stub asset for the immutable-caching test\n');
+  }
+};
+ensureDistAssetStub();
+
 describe('API Endpoints Token Protection', () => {
   let serverProcess: ChildProcess | undefined;
   const PORT = TEST_PORTS.apiTokenProtection;
@@ -208,6 +223,25 @@ describe('API Endpoints Token Protection', () => {
     const res = await fetch(`http://127.0.0.1:${PORT}/favicon.ico`);
     expect(res.status).toBe(404);
     expect(res.headers.get('content-type')).not.toContain('text/html');
+  });
+
+  it('caches a hashed asset under /assets/ immutably for a year', async () => {
+    // The hash is the URL's own guarantee of content — see ASSET_CACHE_MAX_AGE_MS
+    // in server/index.ts.
+    const res = await fetch(`http://127.0.0.1:${PORT}/assets/${DIST_ASSET_STUB_NAME}`);
+    expect(res.status).toBe(200);
+    const cacheControl = res.headers.get('cache-control') ?? '';
+    expect(cacheControl).toContain('immutable');
+    expect(cacheControl).toContain('max-age=31536000');
+  });
+
+  it('still answers max-age: 0 for the index route', async () => {
+    // index.html keeps the same URL across every deploy, so it must always
+    // revalidate rather than inherit the assets' year-long cache.
+    const res = await fetch(`http://127.0.0.1:${PORT}/`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    expect(res.headers.get('cache-control')).toContain('max-age=0');
   });
 
   it('GET the device stats route rejects an oversized device id with 400', async () => {

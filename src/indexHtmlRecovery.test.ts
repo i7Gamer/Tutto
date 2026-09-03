@@ -39,6 +39,19 @@ const readInlineScript = (): string =>
 
 const inlineScript = readInlineScript();
 
+const readIndexHtml = (): string => fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf8');
+
+// These three meta tags asked the browser not to cache the document at all —
+// inert in every current browser, which only honours Cache-Control (and
+// Pragma/Expires) from the actual HTTP response headers, never from a <meta
+// http-equiv> in the document it already received. server/index.ts now sets
+// the real header instead (see the immutable-caching test in server/api.test.ts).
+describe('index.html has no inert cache-control metas', () => {
+  it('carries no http-equiv meta tag', () => {
+    expect(readIndexHtml()).not.toMatch(/<meta\s+http-equiv=/i);
+  });
+});
+
 /** Evaluates the inline script and returns the 'error' listener it registers. */
 const loadHandler = (): ErrorHandler => {
   let captured: ErrorHandler | undefined;

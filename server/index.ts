@@ -25,6 +25,7 @@ import { createShutdownHandler, createServerClosers, SHUTDOWN_SIGNALS } from './
 import { rooms } from './rooms';
 import { summarizeActivity, renderActivityLine } from './activity';
 import { createStatusLine, isStatusLineEnabled } from './statusLine';
+import { MS_PER_SECOND } from '../src/utils/time';
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection, shutting down:', reason);
@@ -64,7 +65,43 @@ warnIfProxyTrustUnset();
 
 app.use(cors({ origin: CORS_ORIGIN }));
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../dist')));
+
+const DIST_DIR = path.join(__dirname, '../dist');
+const ASSETS_DIR = path.join(DIST_DIR, 'assets');
+
+// Vite names every file under dist/assets/ by a hash of its content (see
+// manualChunks in vite.config.ts) — the URL itself changes the instant the
+// content does, so a client can never observe stale bytes at a given URL and
+// there is nothing to ever revalidate. `immutable` tells a cache (and the
+// browser) not to bother re-checking even on a hard refresh.
+const HOURS_PER_DAY = 24;
+const MINUTES_PER_HOUR = 60;
+const SECONDS_PER_MINUTE = 60;
+const DAYS_PER_YEAR = 365;
+const ASSET_CACHE_MAX_AGE_MS =
+  DAYS_PER_YEAR * HOURS_PER_DAY * MINUTES_PER_HOUR * SECONDS_PER_MINUTE * MS_PER_SECOND;
+
+// Mounted before the catch-all dist static below so a request under
+// /assets/ is answered here, with the immutable, long-lived cache — the
+// catch-all's maxAge: 0 would otherwise apply to it too, since express.static
+// matches whichever mount reaches a real file first.
+app.use('/assets', express.static(ASSETS_DIR, {
+  immutable: true,
+  maxAge: ASSET_CACHE_MAX_AGE_MS,
+  index: false,
+}));
+// Everything else under dist/ — index.html, the webmanifest, the icons,
+// favicon.svg — keeps the same URL across a deploy even when its content
+// changes, so it must always revalidate: maxAge: 0 rather than the assets'
+// immutable year. `index` is left at its default ('index.html'), not set to
+// `false`: without it express.static never matches a bare "/" at all (there
+// is no file literally named ""), so the request would fall through to the
+// SPA fallback in api.ts, which sendFile()s index.html with no Cache-Control
+// of its own — silently losing the max-age: 0 this line exists to set. See
+// "still answers max-age: 0 for the index route" in api.test.ts.
+app.use(express.static(DIST_DIR, {
+  maxAge: 0,
+}));
 
 const server = http.createServer(app);
 
