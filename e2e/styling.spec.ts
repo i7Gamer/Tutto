@@ -16,6 +16,25 @@ import { seedLocalDeck, startLocalGame, joinOnlineRoom } from './helpers';
  * element rules (0,0,1) and the `*` reset (0,0,0), and LOSE to the app's own
  * class rules, which match at equal specificity and are written after them.
  */
+// Opens the dice panel and waits until a die can be selected. The opening
+// auto-roll busts before any selection about once in forty runs; on a bust
+// the summary auto-continues to the next player, whose board offers a fresh
+// roll, so the helper simply rolls again (whose turn it is never matters to
+// a layout or contrast probe). Shared by every probe that needs a live roll.
+const OPENING_ROLL_ATTEMPTS = 3;
+const rollUntilSelectable = async (page: Page): Promise<void> => {
+  const selectAll = page.getByRole('button', { name: /Select all/i });
+  const bust = page.getByText(/Bust!/i);
+  const rollDice = page.getByRole('button', { name: /Roll Dice/i });
+  for (let attempt = 0; attempt < OPENING_ROLL_ATTEMPTS; attempt++) {
+    await rollDice.click();
+    await expect(selectAll.or(bust)).toBeVisible({ timeout: 15000 });
+    if (await selectAll.isVisible()) return;
+    await expect(rollDice).toBeVisible({ timeout: 15000 });
+  }
+  throw new Error(`the opening roll busted ${OPENING_ROLL_ATTEMPTS} times in a row`);
+};
+
 test.describe('stylesheet cascade', () => {
   // Probes are injected rather than looked for in the UI: this is about which
   // rule wins, and a real element would confound that with its own classes.
@@ -123,10 +142,10 @@ test.describe('base heading margin does not leak into a flex row (finding 38)', 
     await page.goto('/');
     await startLocalGame(page);
 
-    await page.getByRole('button', { name: /Roll Dice/i }).click();
+    await rollUntilSelectable(page);
     const heading = page.getByText('Current Roll', { exact: true });
     const selectAll = page.getByRole('button', { name: /Select all/i });
-    await expect(selectAll).toBeVisible({ timeout: 15000 });
+    await expect(selectAll).toBeVisible();
     await expect(heading).toBeVisible();
 
     expect(await heading.evaluate(el => getComputedStyle(el).marginBottom)).toBe('0px');
@@ -568,31 +587,14 @@ test.describe('WCAG AA contrast — accent and caption fixes (A8)', () => {
 
   /**
    * Stop & Score always banks the turn as a win (DiceGame.tsx's `stop` branch
-   * dispatches `TURN_BANKED` with `won: true` unconditionally) — the only way
-   * this lands on "Bust!" instead is the opening auto-roll itself busting
-   * before a selection is ever made. Rare with six dice, but it happened in a
-   * full local run, so a busted opening roll is retried on the next player's
-   * turn (whose turn it is does not matter to a contrast probe) rather than
-   * failing the test.
+   * dispatches `TURN_BANKED` with `won: true` unconditionally), so once a die
+   * is selectable the win is guaranteed; rollUntilSelectable handles the rare
+   * busted opening roll.
    */
-  const OPENING_ROLL_ATTEMPTS = 3;
   const winATurn = async (page: Page) => {
-    const selectAll = page.getByRole('button', { name: /Select all/i });
-    const bust = page.getByText(/Bust!/i);
-    const rollDice = page.getByRole('button', { name: /Roll Dice/i });
-    for (let attempt = 0; attempt < OPENING_ROLL_ATTEMPTS; attempt++) {
-      await rollDice.click();
-      await expect(selectAll.or(bust)).toBeVisible({ timeout: 15000 });
-      if (await selectAll.isVisible()) {
-        await selectAll.click();
-        await page.getByRole('button', { name: /Stop & Score/i }).click();
-        return;
-      }
-      // Busted before any selection: the summary auto-continues to the next
-      // player, whose board offers a fresh roll.
-      await expect(rollDice).toBeVisible({ timeout: 15000 });
-    }
-    throw new Error(`the opening roll busted ${OPENING_ROLL_ATTEMPTS} times in a row`);
+    await rollUntilSelectable(page);
+    await page.getByRole('button', { name: /Select all/i }).click();
+    await page.getByRole('button', { name: /Stop & Score/i }).click();
   };
 
   for (const theme of ['light', 'dark'] as const) {
@@ -940,10 +942,11 @@ test.describe('tap targets ≥ 44px on game-time controls (C65)', () => {
 
     const kickButton = pageA.getByRole('button', { name: 'Kick' });
     await expect(kickButton).toBeVisible({ timeout: 20000 });
-    const box = await kickButton.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
-    expect(box!.width).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    // The leaderboard row scales in (framer-motion), so a one-shot box read
+    // can land mid-tween a few px short; poll until the layout has settled.
+    const boxSide = (side: 'height' | 'width') => async () => (await kickButton.boundingBox())?.[side] ?? 0;
+    await expect.poll(boxSide('height')).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    await expect.poll(boxSide('width')).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
 
     await contextA.close();
   });
