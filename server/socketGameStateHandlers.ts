@@ -1,4 +1,4 @@
-import { rooms, drawNextCardForRoom, emitRoomState, emitRoomStateTo, idleTurnTimerState, rememberCurrentTurn, roomChannel } from './rooms';
+import { rooms, drawNextCardForRoom, emitRoomState, emitRoomStateTo, idleTurnTimerState, recordDealtCard, rememberCurrentTurn, roomChannel } from './rooms';
 import { applyPushedState, isValidDiceSnapshot, sanitizeDiceSnapshot } from './pushValidation';
 import { readDeckContext, settleDeck } from './deckAuthority';
 import { isNormalizedConfig, normalizeRoomId } from '../src/utils/configValidation';
@@ -191,7 +191,7 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     // server/deckAuthority.ts). Before the timer bookkeeping below, so a card
     // dealt here gets its deadline in the same pass, and before emitRoomState,
     // so it rides the same broadcast as the turn it belongs to.
-    settleDeck(room.state, deckBefore, startedGame);
+    settleDeck(room, deckBefore, startedGame);
 
     room.turnTimerState ??= idleTurnTimerState();
 
@@ -286,9 +286,14 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     drawNextCardForRoom(room.state);
     const card = room.state.currentCard;
     // drawNextCardForRoom rebuilds an exhausted deck before dealing, so this
-    // is null only for a room configured with no cards at all — which both
-    // lobbies already refuse to start (hasPlayableDeck).
+    // is null only for a room configured with no cards at all — which
+    // validateInitialCards refuses SERVER-side before such a game can start.
+    // (Both lobbies also gate the start button on hasPlayableDeck, but that is
+    // a client check and cannot be what this guard rests on.)
     if (!card) return refuse('not-playing');
+    // Extends the turn already in progress rather than opening one, so this
+    // card joins the current turn's list — an undo of this turn gives it back.
+    recordDealtCard(room, card, false);
 
     // The fresh card is a fresh deadline: without this a chain drawn late in a
     // turn inherits whatever seconds the previous card had left. Budgeted by

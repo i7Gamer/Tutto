@@ -6,7 +6,7 @@ import { isBust } from '../src/utils/diceLogic';
 import { hasScoreInput } from '../src/utils/diceTurnControls';
 import { roomPhase } from '../src/utils/roomPhase';
 import type { Room, ServerPlayer } from './roomTypes';
-import { rooms, calculateRemainingTurnTime, emitRoomState, idleTurnTimerState, rememberCurrentTurn, roomChannel } from './rooms';
+import { rooms, calculateRemainingTurnTime, emitRoomState, idleTurnTimerState, recordDealtCard, rememberCurrentTurn, roomChannel } from './rooms';
 import { MAX_ROUNDS } from './pushValidation';
 import { MS_PER_SECOND } from '../src/utils/time';
 
@@ -249,6 +249,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       room.state.round = result.nextRound;
       room.state.cards = result.newDeck;
       room.state.currentCard = result.drawnCard;
+      recordDealtCard(room, result.drawnCard, true);
       room.state.turnStartTime = Date.now();
       // Mark this as the "already seen" turn so the next pushState's deck/
       // player-change check doesn't treat it as a fresh turn and reschedule.

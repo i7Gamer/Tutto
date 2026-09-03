@@ -758,6 +758,11 @@ describe('the server deals the cards a pushState implies', () => {
       cards: [...DECK], round: 1, turnDuration: 60, turnStartTime: Date.now(),
       players: [makePlayer('Alice', 'host-sock'), makePlayer('Bob', 'other-sock')],
     });
+    // Alice's turn is in progress on the card the server dealt her, which is
+    // what a kickoff (or the previous advance) would have recorded — the log
+    // an undo reconstructs the deck from. Seeded here because this fixture
+    // assembles the room directly instead of playing into it.
+    rooms[roomId].dealtThisTurn = ['Kniffel'];
     pushState = seat('host-sock', 'Alice');
   });
 
@@ -814,11 +819,16 @@ describe('the server deals the cards a pushState implies', () => {
   });
 
   it('gives an undone turn its card back rather than dealing a fresh one', () => {
+    // Driven as a real round trip rather than assembled: the advance is what
+    // writes the server's record of what Alice's turn was dealt, and the undo
+    // has to reconstruct the deck from THAT. Hand-setting the state instead
+    // would skip the half of this that matters.
     const room = rooms[roomId];
-    Object.assign(room.state, {
-      currentPlayerIndex: 1, currentCard: 'x2',
-      previousCard: 'Kniffel', previousPlayerName: 'Alice', previousTurnSummary: null,
+    pushState({
+      roomId,
+      newState: { currentPlayerIndex: 1, previousCard: 'Kniffel', previousPlayerName: 'Alice' },
     });
+    expect(room.state.currentCard, 'Bob was dealt the top card').toBe('300');
 
     pushState({
       roomId,
@@ -828,7 +838,33 @@ describe('the server deals the cards a pushState implies', () => {
     });
 
     expect(room.state.currentCard, 'the undone turn is replayed on its own card').toBe('Kniffel');
-    expect(room.state.cards, 'and the discarded turn gives its card back').toEqual(['x2', ...DECK]);
+    expect(room.state.cards, 'and the discarded turn gives its card back').toEqual(DECK);
+  });
+
+  it('an undo cannot hand the player a card it named in previousTurnSummary', () => {
+    // The restore used to be built from previousTurnSummary/liveTurnState,
+    // both pushable — so the cards it gave back were the caller's to choose,
+    // and currentCard was whichever they put first. Repeating it prepended an
+    // arbitrary run of chosen cards to the deck.
+    const room = rooms[roomId];
+    pushState({
+      roomId,
+      newState: { currentPlayerIndex: 1, previousCard: 'Kniffel', previousPlayerName: 'Alice' },
+    });
+
+    pushState({
+      roomId,
+      newState: {
+        currentPlayerIndex: 0, previousCard: null, previousPlayerName: null,
+        previousTurnSummary: {
+          cards: [{ card: '600', completed: true }, { card: '600', completed: true }],
+          tuttoCount: 0, plusMinusScores: [], ended: 'banked',
+        },
+      },
+    });
+
+    expect(room.state.currentCard, 'not the 600 the push asked for').toBe('Kniffel');
+    expect(room.state.cards).not.toContain('600');
   });
 });
 

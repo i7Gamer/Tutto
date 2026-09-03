@@ -213,6 +213,28 @@ export interface Room {
   // BEFORE the finish and is invisible to endGameStats — see
   // recordDepartedSeatsStats in rooms.ts, which records it instead.
   startRoster: StartRosterEntry[] | null;
+  /**
+   * The cards the SERVER dealt for the turn in progress, and for the one
+   * before it, oldest first — each list starting with the card its turn opened
+   * on and followed by that turn's chain draws.
+   *
+   * The undo restore needs to know what the discarded turn took off the deck.
+   * It used to read that from `previousTurnSummary` and `liveTurnState`, which
+   * are PUSHABLE — so the cards a client got back were the cards it had named,
+   * and `currentCard` was whichever one it put first. Capping the result at
+   * MAX_DECK_SIZE bounded how MANY cards that could be, never WHICH, and a
+   * player could hand themselves a chosen card on demand.
+   *
+   * On Room rather than RoomState for the same reason stateVersion is: it is
+   * not part of SYNCED_GAME_STATE_KEYS, never broadcast, and unreachable from
+   * a push — which is the entire point of keeping it.
+   *
+   * Two turns is all the undo needs and all that is kept: `calculateUndo`
+   * only ever gives back the last turn, and the push that undid one clears
+   * `previousCard`, so a second consecutive undo is not classified as one.
+   */
+  dealtThisTurn: CardType[];
+  dealtLastTurn: CardType[];
 }
 
 /**

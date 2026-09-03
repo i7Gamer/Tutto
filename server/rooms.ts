@@ -9,7 +9,7 @@ import { MS_PER_SECOND } from '../src/utils/time';
 import { MAX_ROUNDS } from './pushValidation';
 import { envLimitOr } from './envLimits';
 import { updateDeviceStats } from './database';
-import type { AssertNever, SyncedGameStateKey } from '../src/types';
+import type { AssertNever, CardType, SyncedGameStateKey } from '../src/types';
 import { statsModeFor, type Room, type RoomState, type ServerPlayer, type TurnTimerState } from './roomTypes';
 
 // Null-prototype, not `{}`: every key here is a client-supplied roomId, and
@@ -154,6 +154,8 @@ export const createRoom = (hostSocketId: string, createdBy = ''): Room => ({
   ruleset: DEFAULT_RULESET,
   finishedGame: null,
   startRoster: null,
+  dealtThisTurn: [],
+  dealtLastTurn: [],
   state: {
     players: [],
     status: 'lobby',
@@ -211,6 +213,29 @@ export const deleteRoom = (roomId: string): void => {
 export const isAbandonedRoom = (room: Room): boolean =>
   room.state.players.every(p => p.disconnected) &&
   Object.keys(room.disconnectTimers).length === 0;
+
+/**
+ * Note a card the server has just dealt, so an undo can give back exactly what
+ * the discarded turn took — see Room.dealtThisTurn.
+ *
+ * `opensTurn` distinguishes the deal that STARTS a turn (an advance, a
+ * kickoff, a timeout, the active player being removed) from a mid-turn chain
+ * draw, which extends the turn already in progress. Only the former rotates,
+ * so a turn's list is always [the card it opened on, ...its chain draws] —
+ * the exact shape restoreDeckForUndo unwinds.
+ *
+ * Called at every server deal site rather than inside drawNextCardForRoom,
+ * because two of the five do not go through it (the kickoff builds its own
+ * deck, the turn-timer expiry deals through calculateNextTurn) and only the
+ * call site knows whether it is opening a turn.
+ */
+export const recordDealtCard = (room: Room, card: CardType | null, opensTurn: boolean): void => {
+  if (opensTurn) {
+    room.dealtLastTurn = room.dealtThisTurn;
+    room.dealtThisTurn = [];
+  }
+  if (card) room.dealtThisTurn.push(card);
+};
 
 export const drawNextCardForRoom = (state: RoomState): void => {
   if (state.cards && state.cards.length > 0) {
@@ -289,6 +314,7 @@ export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void 
     } else {
       state.turnStartTime = Date.now();
       drawNextCardForRoom(state);
+      recordDealtCard(room, state.currentCard, true);
     }
   }
 
