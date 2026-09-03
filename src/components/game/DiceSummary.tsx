@@ -47,16 +47,16 @@ export default function DiceSummary({ summaryData, continueCountdown, finishGame
       className="text-center py-10"
     >
       {/* Mounts once per turn (this panel replaces the dice table fresh each
-          time), so role="status" announces the outcome exactly once — no
-          separate live region needed for a heading that never updates in
-          place. */}
-      <h2
-        role="status"
-        aria-live="polite"
-        className={`text-4xl font-extrabold mb-4 ${summaryData.won ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}
-      >
-        {summaryData.won ? t('dice.success', 'Success!') : t('dice.bust', 'Bust!')}
-      </h2>
+          time), so a polite status region around the heading announces the
+          outcome exactly once — on a WRAPPER, not the h2 itself: role="status"
+          on the heading would replace its heading role, and the outcome must
+          stay a heading for anyone navigating by headings (and for the
+          probes that find it that way). */}
+      <div role="status" aria-live="polite">
+        <h2 className={`text-4xl font-extrabold mb-4 ${summaryData.won ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+          {summaryData.won ? t('dice.success', 'Success!') : t('dice.bust', 'Bust!')}
+        </h2>
+      </div>
       {summaryData.isTutto && (
         <h3 className="text-3xl font-bold text-indigo-500 mb-4 animate-bounce">
           {t('dice.tutto', 'Tutto!')}

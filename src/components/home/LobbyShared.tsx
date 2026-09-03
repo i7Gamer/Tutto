@@ -171,13 +171,14 @@ export function PlayerList({
                         </div>
                       )}
                       {/* Same phone-only min-h-11 / -my-1.5 treatment as the
-                          reorder buttons above — the button below is
-                          w-full h-full of this wrapper, so sizing it here is
-                          enough. */}
-                      <div className="w-8 min-h-11 sm:h-8 -my-1.5 sm:my-0 flex items-center justify-center ml-1">
+                          reorder buttons above. The button STRETCHES to the
+                          wrapper's cross axis (no items-center here): a
+                          percentage h-full against a min-height parent never
+                          resolves, and the button collapsed to its 18px icon. */}
+                      <div className="w-8 min-h-11 sm:h-8 -my-1.5 sm:my-0 flex items-stretch justify-center ml-1">
                         {(!isOnline || (isHost && p.socketId !== hostId)) && (
                           <button
-                            className="text-red-500 hover:bg-red-100 active:bg-red-200 dark:hover:bg-red-900/40 dark:active:bg-red-900/60 w-full h-full flex items-center justify-center rounded-sm transition-colors"
+                            className="text-red-500 hover:bg-red-100 active:bg-red-200 dark:hover:bg-red-900/40 dark:active:bg-red-900/60 w-full flex items-center justify-center rounded-sm transition-colors"
                             aria-label={`${isOnline ? t('lobby.kickPlayer', 'Kick:') : t('lobby.removePlayer', 'Remove:')} ${p.name}`}
                             title={`${isOnline ? t('lobby.kickPlayer', 'Kick:') : t('lobby.removePlayer', 'Remove:')} ${p.name}`}
                             onClick={() => (isOnline ? setPendingKick(p) : onRemovePlayer(p))}

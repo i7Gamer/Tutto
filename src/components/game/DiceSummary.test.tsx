@@ -53,11 +53,13 @@ describe('DiceSummary', () => {
     // Mounts fresh once per turn, so a role="status" heading announces the
     // outcome exactly once, through the browser's own polite live-region
     // handling — no separate announcer needed for text that never updates.
-    it('announces itself as a polite status region', () => {
+    it('announces itself as a polite status region while the outcome stays a heading', () => {
       render(<DiceSummary {...baseProps} />);
       const status = screen.getByRole('status');
       expect(status).toHaveTextContent('dice.success');
       expect(status).toHaveAttribute('aria-live', 'polite');
+      // role="status" on the h2 itself would have taken its heading role away.
+      expect(screen.getByRole('heading', { name: 'dice.success' })).toBeInTheDocument();
     });
   });
 
