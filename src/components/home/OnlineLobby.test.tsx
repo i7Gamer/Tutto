@@ -58,6 +58,13 @@ afterEach(() => {
   act(() => {
     useGameStore.setState(pristineStore, true);
   });
+  // Several tests below write tutto_last_room / tutto_recent_rooms, and the
+  // lobby PREFILLS the room code from tutto_last_room on mount — so a later
+  // test that types only a name and expects "enter both" to refuse the join
+  // passed or failed depending on which test ran before it (caught by a
+  // seeded --sequence.shuffle). Storage is per-file in jsdom; clear it here.
+  localStorage.clear();
+  sessionStorage.clear();
   // Unconditionally, not only in the tests that install them: a test that
   // throws before its own vi.useRealTimers() leaves the clock faked for every
   // test after it. That is invisible until something needs a real one —
