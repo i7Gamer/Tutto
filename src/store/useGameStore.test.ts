@@ -4,7 +4,8 @@ import { disconnectSocket } from './socketRef';
 import { DEFAULT_INITIAL_CARDS } from '../utils/configValidation';
 import { blockStorage, failStorageMethods, restoreStorage } from '../testing/storageStubs';
 import { JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS, STATS_SUBMIT_ACK_TIMEOUT_MS } from '../utils/uiTimings';
-import { STATS_SUBMIT_MAX_ATTEMPTS, statsSubmitRetryDelayMs } from './socketSlice';
+import { STATS_SUBMIT_MAX_ATTEMPTS, statsSubmitRetryDelayMs, isRetryableStatsRefusal } from './socketSlice';
+import { STATS_REFUSAL_REASONS } from '../types';
 import type { DiceSnapshot, StatsSubmitAck, Player } from '../types';
 import type { GameStore } from './storeTypes';
 import { makePlayer as makeFullPlayer, mockFetchJson, nonNull } from '../testing/factories';
@@ -1281,6 +1282,72 @@ describe('useGameStore', () => {
 
       expect(statsEmits(), 'only the second game\'s own deadline is live')
         .toHaveLength(afterSecondGame);
+    });
+
+    it('arms no resend when a stale write-failed ack arrives after leaveRoom', () => {
+      // clearPendingStatsSubmit (called from leaveRoom) stops the resend timer
+      // and ack deadline, but the in-flight attempt's own closure had no way
+      // to know that — until it does, its `settle` still runs and would arm a
+      // resend against a room this client already left.
+      stageFinishedGame();
+      useGameStore.getState().sendOnlineStats();
+      const staleAck = nonNull(statsEmits().at(-1))[2];
+
+      useGameStore.getState().leaveRoom();
+      staleAck({ ok: false, reason: 'write-failed' });
+
+      vi.advanceTimersByTime(statsSubmitRetryDelayMs(1) * 2);
+
+      expect(statsEmits(), 'no resend for a room already left').toHaveLength(1);
+    });
+
+    it('does not let a stale attempt\'s late ack cancel a newer attempt\'s deadline', () => {
+      // submitGlobalStats/sendOnlineStats clear and start a fresher attempt;
+      // an old closure settling later must not run clearStatsSubmit again and
+      // kill the NEW attempt's ack deadline.
+      stageFinishedGame();
+      useGameStore.getState().sendOnlineStats();
+      const staleAck = nonNull(statsEmits().at(-1))[2];
+
+      stageFinishedGame();
+      useGameStore.getState().sendOnlineStats();
+      const afterSecondGame = statsEmits().length;
+
+      staleAck({ ok: false, reason: 'write-failed' });
+
+      // A stale resend (the bug) would fire here, on the OLD attempt's own backoff.
+      vi.advanceTimersByTime(statsSubmitRetryDelayMs(1));
+      expect(statsEmits(), 'the stale ack must not arm its own resend')
+        .toHaveLength(afterSecondGame);
+
+      // The newer attempt's own ack deadline must still be live and retry on silence.
+      vi.advanceTimersByTime(STATS_SUBMIT_ACK_TIMEOUT_MS);
+      expect(statsEmits(), 'the newer attempt still retries on silence')
+        .toHaveLength(afterSecondGame + 1);
+    });
+  });
+
+  describe('isRetryableStatsRefusal classifies every known stats refusal reason', () => {
+    // STATS_REFUSAL_REASONS (src/types.ts) has no other consumer pinning the
+    // client's retry classification against it — walking the full array here
+    // means a reason added there without an explicit entry in this table
+    // fails loudly instead of silently falling through as terminal.
+    const expectedRetryable: Record<(typeof STATS_REFUSAL_REASONS)[number], boolean> = {
+      unauthorized: false,
+      'no-room': false,
+      'not-finished': false,
+      invalid: false,
+      'rate-limited': false,
+      duplicate: false,
+      'write-failed': true,
+    };
+
+    it.each(STATS_REFUSAL_REASONS)('%s', (reason) => {
+      expect(isRetryableStatsRefusal(reason)).toBe(expectedRetryable[reason]);
+    });
+
+    it('covers every reason STATS_REFUSAL_REASONS declares', () => {
+      expect(Object.keys(expectedRetryable).sort()).toEqual([...STATS_REFUSAL_REASONS].sort());
     });
   });
 

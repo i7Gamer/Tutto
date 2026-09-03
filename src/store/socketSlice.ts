@@ -12,7 +12,7 @@ import { roomPhase } from '../utils/roomPhase';
 import { SYNCED_GAME_STATE_KEYS } from '../types';
 import type {
   Reaction, DiceSnapshot, AssertNever, SyncedGameStateKey, PushStateAck,
-  StatsSubmitAck, DeviceStatsPayload, GlobalStatsPayload,
+  StatsSubmitAck, StatsRefusalReason, DeviceStatsPayload, GlobalStatsPayload,
 } from '../types';
 import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from './storeTypes';
 import { finishedGameSnapshotOf, makeToast } from './gameSlice';
@@ -258,6 +258,20 @@ export const statsSubmitRetryDelayMs = (attempt: number): number =>
   STATS_SUBMIT_RETRY_BASE_MS * 2 ** (attempt - FIRST_STATS_ATTEMPT);
 
 /**
+ * Which of a stats submission's refusal reasons is worth resending —
+ * 'write-failed' alone (see STATS_REFUSAL_REASONS in ../types for what each
+ * reason means and why only this one is retryable).
+ *
+ * Named and exported, rather than an inline `=== 'write-failed'` check, so a
+ * test can walk every reason STATS_REFUSAL_REASONS declares against an
+ * explicit expected table: nothing else in the codebase reads that array, so
+ * without this a reason added there would silently fall through this
+ * function's bare comparison as terminal.
+ */
+export const isRetryableStatsRefusal = (reason: StatsRefusalReason): boolean =>
+  reason === 'write-failed';
+
+/**
  * The two submissions one finished game produces: this device's own row, and
  * — from the host alone — the game's server-wide row.
  *
@@ -282,16 +296,28 @@ type StatsSubmitEvent = (typeof STATS_SUBMIT_EVENTS)[number];
 type PendingStatsSubmit = {
   resendTimer: ReturnType<typeof setTimeout> | null;
   ackDeadline: ReturnType<typeof setTimeout> | null;
+  // Bumped by every clearStatsSubmit — including the one an attempt's own
+  // settle() runs on its way to arming a resend — so an in-flight attempt's
+  // closure can tell whether it still owns this slot by the time its ack or
+  // deadline fires. Without it, an attempt cancelled by leaveRoom/
+  // cancelReconnect (which stop the timers but cannot reach the closure)
+  // still ran settle() when its ack landed and armed a resend against a room
+  // already left; and a fresher attempt starting (submitGlobalStats/
+  // sendOnlineStats clearing and resubmitting) left the OLD attempt's closure
+  // free to have its own late ack call clearStatsSubmit again, cancelling the
+  // NEW attempt's ack deadline out from under it.
+  epoch: number;
 };
 
 const pendingStatsSubmits: Record<StatsSubmitEvent, PendingStatsSubmit> = {
-  endGameStats: { resendTimer: null, ackDeadline: null },
-  submitGlobalStats: { resendTimer: null, ackDeadline: null },
+  endGameStats: { resendTimer: null, ackDeadline: null, epoch: 0 },
+  submitGlobalStats: { resendTimer: null, ackDeadline: null, epoch: 0 },
 };
 
 /** Forgets whatever one of the two submissions still owes. */
 const clearStatsSubmit = (event: StatsSubmitEvent): void => {
   const pending = pendingStatsSubmits[event];
+  pending.epoch += 1;
   if (pending.resendTimer !== null) {
     clearTimeout(pending.resendTimer);
     pending.resendTimer = null;
@@ -347,13 +373,19 @@ const emitStatsSubmission = (
   const socket = getSocket();
   if (!socket) return;
   const pending = pendingStatsSubmits[event];
+  // The generation this attempt owns the slot under. clearStatsSubmit bumps
+  // it on every cancellation — leaveRoom/cancelReconnect abandoning the room,
+  // and a fresher attempt starting — so settle() below can tell a slot it no
+  // longer owns from one still live, even though those cancellations can
+  // reach the timers but never this closure.
+  const epoch = pending.epoch;
 
   // Whichever arrives first — the ack or the deadline — settles this attempt;
   // a late ack after the deadline has already armed a resend must not arm a
-  // second one.
+  // second one, and neither may fire once this attempt's epoch is stale.
   let settled = false;
   const settle = (resend: boolean): void => {
-    if (settled) return;
+    if (settled || pending.epoch !== epoch) return;
     settled = true;
     clearStatsSubmit(event);
     if (!resend || attempt >= STATS_SUBMIT_MAX_ATTEMPTS) return;
@@ -366,7 +398,7 @@ const emitStatsSubmission = (
   pending.ackDeadline = setTimeout(() => settle(true), STATS_SUBMIT_ACK_TIMEOUT_MS);
 
   socket.emit(event, payload, (ack?: StatsSubmitAck) => {
-    settle(ack !== undefined && !ack.ok && ack.reason === 'write-failed');
+    settle(ack !== undefined && !ack.ok && isRetryableStatsRefusal(ack.reason));
   });
 };
 
