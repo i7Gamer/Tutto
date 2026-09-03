@@ -33,6 +33,16 @@
    which is why --secondary stays a literal below. e2e/styling.spec.js fails if
    one of these ever stops resolving. */
 :root {
+  /* Tells the browser which palette this page actually offers, so native
+     chrome the app never themes itself — form control renderings, the
+     scrollbar track, the pull-to-refresh spinner — picks the matching one
+     instead of defaulting to light and clashing with a dark <body> (or, on
+     some engines, painting white behind the page before this stylesheet's
+     background-color rule below even applies). B58's [data-theme="dark"]
+     override further down is what actually flips this per theme; index.html
+     carries the same `light dark` as a <meta name="color-scheme"> for the
+     one frame before this stylesheet parses. */
+  color-scheme: light;
   --bg-color: #f4f7f6;
   --text-color: #1a1a1a;
   --card-bg: rgba(255, 255, 255, 0.85);
@@ -44,6 +54,7 @@
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   --bg-color: #0f172a;
   --text-color: #f8fafc;
   --card-bg: rgba(30, 41, 59, 0.85);

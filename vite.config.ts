@@ -86,7 +86,22 @@ export default defineConfig(({ mode }) => {
           name: 'Tutto Game',
           short_name: 'Tutto',
           description: 'Tutto scorecard and game manager',
-          theme_color: '#4f46e5',
+          // The light theme's actual header/page colours — see the note
+          // above --primary and --bg-color in src/index.css for why neither
+          // is a literal a config file can just import, and
+          // src/pwaManifestColors.test.ts for what keeps these two in sync
+          // with that stylesheet instead. theme_color was previously
+          // '#4f46e5', the Tailwind v3 hex for indigo-600 kept by hand; v4
+          // redefined the palette in OKLCH and left this one behind (exactly
+          // the drift --secondary's own comment in index.css warns about) —
+          // #4f39f6 is indigo-600's actual v4 colour.
+          theme_color: '#4f39f6',
+          background_color: '#f4f7f6',
+          // vite-plugin-pwa defaults this to 'en' unless overridden; the app
+          // is bilingual (see src/i18n.test.ts), so no single lang applies.
+          // `undefined` here (rather than omitting the key) overrides that
+          // default — JSON.stringify then drops it from the generated file.
+          lang: undefined,
           // Rendered from public/favicon.svg — see scripts/generate-icons.mjs.
           // The previous config declared the 200x200 logo.png as both the 192
           // and 512 icon, so installed-app icons rendered upscaled and blurry.

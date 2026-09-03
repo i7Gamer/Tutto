@@ -1185,6 +1185,49 @@ describe('App Integration (End-to-End)', () => {
   // persisted, so a reload lands back on Home rather than reopening
   // Statistics — there is no "same screen" to resume reading on. See
   // uiBusyState.ts.
+  // B58: startup used to ignore prefers-color-scheme outright (`localStore.read
+  // ('tutto-theme') || 'light'`), so a dark-mode OS with no prior in-app choice
+  // still opened white. resolveInitialTheme (themePreference.ts) is unit-tested
+  // on its own; these drive it through App's actual mount to prove the value it
+  // returns is what ends up on <html data-theme>.
+  describe('honouring the OS colour scheme on first load', () => {
+    // The whole document, not a container React unmounts — App writes
+    // data-theme onto <html> itself (see the effect in App.tsx), and nothing
+    // clears that attribute between tests. Reset here to whatever the OS says
+    // matches:false resolves to (light), the same value setupTests.tsx's own
+    // default matchMedia mock would have left it at anyway.
+    afterEach(() => {
+      document.documentElement.setAttribute('data-theme', 'light');
+      vi.unstubAllGlobals();
+    });
+
+    const stubSystemScheme = (prefersDark: boolean) => {
+      vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
+        matches: prefersDark,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })));
+    };
+
+    it('opens dark when nothing was chosen before and the OS prefers dark', () => {
+      stubSystemScheme(true);
+
+      render(<App />);
+
+      expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    });
+
+    it('keeps a stored light choice even though the OS now prefers dark', () => {
+      localStorage.setItem('tutto-theme', 'light');
+      stubSystemScheme(true);
+
+      render(<App />);
+
+      expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    });
+  });
+
   describe('reporting the Statistics screen to uiBusyState', () => {
     // Statistics.tsx observes chart elements into view with framer-motion's
     // viewport feature, which jsdom has no native IntersectionObserver for —

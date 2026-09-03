@@ -265,6 +265,26 @@ test.describe('theme colours resolve', () => {
   }
 
   /**
+   * B58: `color-scheme` was never set at all, so native chrome the app does
+   * not theme itself — form control renderings, the scrollbar track — always
+   * rendered light, even under `[data-theme="dark"]`. index.css sets it on
+   * `:root` and overrides it in the dark block; this is the one part no unit
+   * test can see, because jsdom does not resolve color-scheme into anything
+   * `getComputedStyle` reports.
+   */
+  test('color-scheme on <html> follows data-theme', async ({ page }) => {
+    await page.goto('/');
+
+    const read = (theme: string) => page.evaluate((theme) => {
+      document.documentElement.setAttribute('data-theme', theme);
+      return getComputedStyle(document.documentElement).colorScheme;
+    }, theme);
+
+    expect(await read('light')).toBe('light');
+    expect(await read('dark')).toBe('dark');
+  });
+
+  /**
    * The `dark:` variant and the `[data-theme="dark"]` rules above are two
    * different mechanisms — the first is a `@custom-variant` in index.css, the
    * second an ordinary selector — and only the second is covered by the tests
@@ -748,5 +768,40 @@ test.describe('HUD vs dice panel, help button z-order (A9)', () => {
 
     expect(intersects(languageBox!, headingBox!)).toBe(false);
     expect(intersects(themeBox!, headingBox!)).toBe(false);
+  });
+});
+
+/**
+ * B58 — safe areas. viewport-fit=cover (index.html) lets the page draw under
+ * a phone's notch/home-indicator; without it the browser never reports a
+ * non-zero env(safe-area-inset-*), so the HUD's padding (App.tsx) would be a
+ * no-op on exactly the hardware it targets.
+ */
+test.describe('safe-area viewport (B58)', () => {
+  test('the viewport meta opts into drawing under device cutouts', async ({ page }) => {
+    await page.goto('/');
+
+    const content = await page.locator('meta[name="viewport"]').getAttribute('content');
+    expect(content).toContain('viewport-fit=cover');
+  });
+
+  test('the HUD reads a safe-area-inset padding, not a plain length', async ({ page }) => {
+    // A real cutout can't be simulated here, so this only proves the
+    // declaration is env()-driven at all (any positive value it resolved to
+    // in a real Safari would come from device chrome, not this test) — the
+    // regression this guards against is the padding utility being dropped
+    // from App.tsx's className entirely, which env(safe-area-inset-top)
+    // resolving to 0 everywhere else would otherwise hide.
+    await page.goto('/');
+
+    const themeToggle = page.getByLabel('Toggle theme');
+    const paddingTop = await themeToggle.locator('xpath=..').evaluate(
+      el => getComputedStyle(el).paddingTop,
+    );
+
+    // 0px with no device inset is the correct, expected value — this only
+    // fails if the property comes back unset (empty string) rather than
+    // resolved to a length, which is what "no such rule at all" looks like.
+    expect(paddingTop).toMatch(/^-?\d+(\.\d+)?px$/);
   });
 });

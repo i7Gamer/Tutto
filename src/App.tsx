@@ -1,4 +1,5 @@
 import { localStore } from './utils/storage';
+import { resolveInitialTheme } from './utils/themePreference';
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sun, Moon } from 'lucide-react';
@@ -191,7 +192,7 @@ const RouteSpinner = () => (
 
 export default function App() {
   const { t } = useTranslation();
-  const [theme, setTheme] = useState(() => localStore.read('tutto-theme') || 'light');
+  const [theme, setTheme] = useState(() => resolveInitialTheme(localStore.read('tutto-theme')));
 
   const [deviceId] = useState(() => {
     let id = localStore.read('tutto_device_id');
@@ -255,7 +256,15 @@ export default function App() {
           until scrolled. Moving both floating controls up on narrow widths
           clears both without asking either screen to carve out padding for
           a control that isn't part of their own layout. */}
-      <div className="fixed top-4 right-4 sm:top-auto sm:bottom-4 z-100 flex gap-2 items-center">
+      {/* pt-/pb-[env(safe-area-inset-*)]: this element sits at the very top
+          edge on phones (top-4) and the very bottom edge from `sm` up
+          (bottom-4) — see the comment above. Either edge can be a hardware
+          cutout (a notch, a home-indicator bar) on a phone with
+          viewport-fit=cover (index.html), so the side actually touching the
+          screen edge in each layout gets the matching safe-area padding.
+          env() resolves to 0 with no cutout, so this is a no-op on desktop
+          and in every test here (jsdom/Playwright report no safe area). */}
+      <div className="fixed top-4 right-4 sm:top-auto sm:bottom-4 z-100 flex gap-2 items-center pt-[env(safe-area-inset-top)] sm:pt-0 sm:pb-[env(safe-area-inset-bottom)]">
         <LanguageSwitcher />
         <button className="theme-toggle" onClick={toggleTheme} aria-label={t('app.toggleTheme', 'Toggle theme')} style={{ background: 'var(--card-bg)', boxShadow: 'var(--shadow-md)' }}>
           {theme === 'light' ? <Moon size={24} /> : <Sun size={24} />}

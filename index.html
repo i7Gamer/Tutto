@@ -6,7 +6,19 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Matches src/index.css's `color-scheme` (light on :root, dark under
+         [data-theme="dark"]) for the one frame before that stylesheet
+         parses — without it the very first paint is forced light regardless
+         of the OS or the stored theme, which briefly flashes white on a dark
+         start. -->
+    <meta name="color-scheme" content="light dark" />
+    <!-- viewport-fit=cover: lets the page draw under the notch/home-indicator
+         on a phone with a cutout instead of leaving those areas at the OS's
+         default background colour, so the env(safe-area-inset-*) padding
+         App.tsx's HUD wrapper uses (see the comment there) has a cutout to
+         actually pad around — without this the browser never reports a
+         non-zero safe-area inset at all. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Tutto</title>
   </head>
   <body>
