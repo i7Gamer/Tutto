@@ -29,7 +29,7 @@ describe('README cards list', () => {
     // lower-case word "straight" may still describe the dice run itself.
     expect(readme).toContain('**Kniffel**');
     expect(readme).not.toContain('Kniffel (Straight)');
-    expect(readme).not.toMatch(/the Straight/);
+    expect(readme).not.toMatch(/\bthe Straight\b/);
   });
 });
 

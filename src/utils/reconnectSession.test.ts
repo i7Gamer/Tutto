@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import { parseReconnectSession } from './reconnectSession';
 import { MAX_PLAYER_NAME_LENGTH, MAX_ROOM_ID_LENGTH } from './configValidation';
 
@@ -82,8 +84,6 @@ describe('the session key literal', () => {
     // A bare 'tutto_online_session' string elsewhere is the typo hazard the
     // constant exists to remove — the same reason diceTurnState.ts owns
     // DICE_TURN_STATE_KEY.
-    const fs = require('fs') as typeof import('fs');
-    const path = require('path') as typeof import('path');
     const root = path.resolve(__dirname, '..');
     const offenders: string[] = [];
     const walk = (dir: string) => {
