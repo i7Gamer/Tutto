@@ -39,9 +39,11 @@ vi.mock('./utils/uiTimings', async (importOriginal) => ({
 // ROLL_SETTLE_BUFFER_MS after the last one settles (see DiceGame.tsx's roll()).
 // Game.tsx's own DICE_PANEL_ENTRANCE_MS timeout has to elapse first (it is
 // what flips panelReady, which is what starts the roll), so the wait below
-// covers both in sequence. A small margin on top keeps it past the deadline
-// rather than exactly on it.
-const ROLL_ANIMATION_MARGIN_MS = 250;
+// covers both in sequence. The margin on top is generous: it only bounds how
+// long waitFor may poll, so it costs nothing when the roll lands on time, and
+// under a loaded full-suite run (many files in parallel) a real timer can
+// land well after its nominal delay.
+const ROLL_ANIMATION_MARGIN_MS = 2000;
 const FULL_ROLL_ANIMATION_MS =
   DICE_PANEL_ENTRANCE_MS + DIE_TUMBLE_MS + (TOTAL_DICE - 1) * DIE_STAGGER_MS + ROLL_SETTLE_BUFFER_MS + ROLL_ANIMATION_MARGIN_MS;
 
