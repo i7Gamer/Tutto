@@ -441,8 +441,15 @@ describe('Server-side turn timer', () => {
     hostSock.emit('pushState', {
       roomId,
       newState: {
+        // currentCard and cards are both ignored by the server now -- it deals
+        // the kickoff card from a deck it builds itself -- so the deck is
+        // pinned through initialCards instead. Turn length is per-card
+        // (Feuerwerk 3x, Kleeblatt 2x) and the kick below deals again, so the
+        // turnTimeRemaining assertion at the end otherwise depended on the
+        // shuffle: it read 90 rather than 30 whenever Feuerwerk came up.
         players, status: 'playing', currentPlayerIndex: 1, currentCard: '200',
         cards: ['300', '400'], round: 1, turnDuration: TURN_DURATION_S,
+        initialCards: { '300': 8 },
       },
     });
     await waitForArmedTimer(roomId);

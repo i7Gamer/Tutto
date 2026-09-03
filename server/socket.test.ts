@@ -186,10 +186,19 @@ describe('Socket security and timer fixes', () => {
     const { sock: bystanderSock } = await joinAsGuest(roomId, 'Bystander');
     await bystanderJoinedState;
 
-    // Set turn duration to 60 s (valid range is 10-600)
+    // Set turn duration to 60 s (valid range is 10-600), and pin the deck to a
+    // card with no duration multiplier.
+    //
+    // The deck matters because the server deals the kickoff card itself now and
+    // ignores the one this push names — so `currentCard: 'Stop'` below does NOT
+    // decide what the turn is played on, a freshly shuffled deck does. Turn
+    // length is per-card (TURN_DURATION_MULTIPLIERS: Feuerwerk 3x, Kleeblatt
+    // 2x), so an unpinned deck made this assertion depend on the shuffle: it
+    // read 180 whenever Feuerwerk came up first, and 120 on Kleeblatt. The same
+    // applies after the kick, which deals again from this deck.
     await new Promise(r => {
       hostSock.once('gameState', r);
-      hostSock.emit('updateConfig', { roomId, turnDuration: 60 });
+      hostSock.emit('updateConfig', { roomId, turnDuration: 60, initialCards: { '300': 8 } });
     });
 
     // Start game with guest (index 1) as the active player
