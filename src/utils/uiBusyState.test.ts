@@ -61,4 +61,17 @@ describe('uiBusyState', () => {
 
     expect(uiBusyState.getState()).toEqual({ hasFormDraft: false, statsScreenOpen: false });
   });
+
+  it('drops listeners subscribed before the reset', () => {
+    // Without clearing `listeners` too, a component from a previous test that
+    // never got to unmount (and so never ran its unsubscribe) keeps being
+    // notified by every setter the NEXT test calls.
+    const listener = vi.fn();
+    uiBusyState.subscribe(listener);
+
+    _resetUiBusyStateForTests();
+    setHasFormDraft(true);
+
+    expect(listener).not.toHaveBeenCalled();
+  });
 });

@@ -46,4 +46,8 @@ export const setStatsScreenOpen = (statsScreenOpen: boolean): void => setState({
 /** Test-only: restores the initial (both-false) state. */
 export const _resetUiBusyStateForTests = (): void => {
   state = initialState;
+  // A component from the previous test that never unmounted (and so never
+  // ran its unsubscribe) would otherwise keep being notified by every setter
+  // the next test calls.
+  listeners.clear();
 };
