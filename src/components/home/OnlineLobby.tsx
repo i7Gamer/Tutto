@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { Copy, Check, X, Share2, QrCode, ScanLine } from 'lucide-react';
@@ -62,6 +62,7 @@ const NAME_INPUT_ID = 'online-lobby-player-name';
 export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
   const { t, i18n } = useTranslation();
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const advancedOptionsPanelId = useId();
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
 
   // localStore already absorbs a throwing read (blocked site data, a
@@ -574,12 +575,13 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
               setEnforcedDiceMode={setEnforcedDiceMode}
             />
           )}
-          <AdvancedOptionsToggle showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} />
+          <AdvancedOptionsToggle showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} panelId={advancedOptionsPanelId} />
         </div>
 
         <CustomGameBadge />
 
         <AdvancedOptionsPanel
+          id={advancedOptionsPanelId}
           showAdvanced={showAdvanced}
           isOnline={true}
           readOnly={!isHost}

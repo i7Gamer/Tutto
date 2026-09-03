@@ -125,6 +125,49 @@ describe('Scoreboard Component', () => {
     expect(name.style.color).toBe('');
   });
 
+  // The crown-adjacent sr-only badge announcing who currently has the top
+  // score — distinct from the host crown just before it, which marks who
+  // runs the room, not who is winning.
+  describe('leader badge', () => {
+    it('shows "game.leader" when the current player has the top score', () => {
+      const game = makeScoreboardGame({
+        players: [
+          makePlayer({ name: 'Leader', score: 500, socketId: 'a' }),
+          makePlayer({ name: 'Player 1', score: 100, socketId: 'b' }),
+        ],
+        currentPlayerIndex: 0,
+        myName: 'Leader',
+      });
+      render(<Scoreboard game={game} formattedTime="10:00" />);
+      expect(screen.getByText('game.leader')).toBeInTheDocument();
+    });
+
+    it('does not show "game.leader" when the current player is behind', () => {
+      const game = makeScoreboardGame({
+        players: [
+          makePlayer({ name: 'Trailing', score: 100, socketId: 'a' }),
+          makePlayer({ name: 'Ahead', score: 500, socketId: 'b' }),
+        ],
+        currentPlayerIndex: 0,
+        myName: 'Trailing',
+      });
+      render(<Scoreboard game={game} formattedTime="10:00" />);
+      expect(screen.queryByText('game.leader')).not.toBeInTheDocument();
+    });
+
+    // Every player is trivially tied for the top score at the game's start —
+    // nothing worth a "Leader" badge yet.
+    it('does not show "game.leader" with only one player', () => {
+      const game = makeScoreboardGame({
+        players: [makePlayer({ name: 'Solo', score: 0, socketId: 'a' })],
+        currentPlayerIndex: 0,
+        myName: 'Solo',
+      });
+      render(<Scoreboard game={game} formattedTime="10:00" />);
+      expect(screen.queryByText('game.leader')).not.toBeInTheDocument();
+    });
+  });
+
   // `truncate` (overflow:hidden + white-space:nowrap + ellipsis) only does
   // anything on the element that actually holds the text. It used to sit on
   // the flex COLUMN wrapping the whole name row (crown + text), which has no

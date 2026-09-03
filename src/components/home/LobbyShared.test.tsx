@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { StartGameButton, PlayerList, AdvancedOptionsPanel, HapticsSettingSelector, CustomGameBadge, RulesetSelector, RulesetBadge, DiceModeSelector, DiceModeEnforcedBadge, AudioSettingSelector } from './LobbyShared';
+import { StartGameButton, PlayerList, AdvancedOptionsPanel, AdvancedOptionsToggle, HapticsSettingSelector, CustomGameBadge, RulesetSelector, RulesetBadge, DiceModeSelector, DiceModeEnforcedBadge, AudioSettingSelector } from './LobbyShared';
 import { useGameStore } from '../../store/useGameStore';
 import type { GameStore } from '../../store/useGameStore';
 import { VALID_CARD_TYPES } from '../../utils/configValidation';
@@ -186,7 +186,33 @@ describe('PlayerList', () => {
   });
 });
 
+describe('AdvancedOptionsToggle', () => {
+  // aria-expanded says whether the panel is open; aria-controls names it, so
+  // a screen reader user knows which element the toggle affects even though
+  // it renders somewhere else in the tree (OnlineLobby's scanner toggle uses
+  // the same aria-expanded pattern for its own collapsible panel).
+  it('reflects the open state and names the panel it controls', () => {
+    const { rerender } = render(
+      <AdvancedOptionsToggle showAdvanced={false} setShowAdvanced={vi.fn()} panelId="advanced-panel-1" />
+    );
+    const button = screen.getByRole('button');
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    expect(button).toHaveAttribute('aria-controls', 'advanced-panel-1');
+
+    rerender(<AdvancedOptionsToggle showAdvanced={true} setShowAdvanced={vi.fn()} panelId="advanced-panel-1" />);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
 describe('AdvancedOptionsPanel', () => {
+  // The id is what AdvancedOptionsToggle's aria-controls names — set here
+  // rather than defaulted, since the two are rendered by separate lobbies
+  // that generate the shared id themselves (useId).
+  it('renders with the id its toggle would point aria-controls at', () => {
+    const { container } = render(<AdvancedOptionsPanel showAdvanced={true} isOnline={true} id="advanced-panel-1" />);
+    expect(container.querySelector('#advanced-panel-1')).not.toBeNull();
+  });
+
   // BlurInput clamps to minVal/maxVal on commit, but consumed them itself and
   // rendered a bare <input type="number">: no native bounds, no spinner limits,
   // and nothing for a screen reader to announce the range from. The clamp is
@@ -722,6 +748,11 @@ describe('RulesetSelector', () => {
     expect(screen.getByText('lobby.rulesetClassicDesc')).toBeInTheDocument();
     expect(screen.queryByText('lobby.rulesetModernizedDesc')).not.toBeInTheDocument();
   });
+
+  it('exposes itself as a named group', () => {
+    render(<RulesetSelector ruleset="modernized" setRuleset={vi.fn()} nameSuffix="Test" />);
+    expect(screen.getByRole('group', { name: 'lobby.rulesetLabel' })).toBeInTheDocument();
+  });
 });
 
 describe('RulesetBadge', () => {
@@ -939,6 +970,14 @@ describe('DiceModeSelector', () => {
     rerender(<DiceModeSelector diceMode="physical" setDiceMode={setDiceMode} nameSuffix="Test" />);
     fireEvent.click(radios()[0]);
     expect(setDiceMode).toHaveBeenCalledWith('digital');
+  });
+
+  // A bare pair of <input type="radio"> with no shared name announces as two
+  // unrelated controls; wrapping them in a <fieldset>/<legend> gives the pair
+  // an accessible group name a screen reader can announce once.
+  it('exposes itself as a named group', () => {
+    render(<DiceModeSelector diceMode="digital" setDiceMode={vi.fn()} nameSuffix="Test" />);
+    expect(screen.getByRole('group', { name: 'lobby.diceMode' })).toBeInTheDocument();
   });
 });
 

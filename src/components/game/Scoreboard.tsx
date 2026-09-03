@@ -3,7 +3,12 @@ import { useTranslation } from 'react-i18next';
 import type { GameStore } from '../../store/useGameStore';
 import { readableNameVars } from '../../utils/contrastColor';
 import { formatInt } from '../../utils/formatNumber';
+import { getLeaders } from '../../utils/coreGameEngine';
 import { TURN_URGENT_SECONDS } from '../../utils/uiTimings';
+
+// Below this many players, "in the lead" says nothing a solo hot-seat game
+// needs to hear — every player would trivially be tied for it at 0.
+const MIN_PLAYERS_FOR_LEADER_BADGE = 2;
 
 interface ScoreboardProps {
   game: Pick<GameStore, 'players' | 'currentPlayerIndex' | 'isOnline' | 'myName' | 'round' | 'winningScore' | 'turnTimeRemaining' | 'hostId'>;
@@ -24,6 +29,8 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
 
   const currentPlayer = currentPlayerIndex !== null && players?.length ? players[currentPlayerIndex] : null;
   const isMyTurn = !isOnline || (currentPlayer && currentPlayer.name === myName);
+  const isLeader = !!currentPlayer && (players?.length ?? 0) >= MIN_PLAYERS_FOR_LEADER_BADGE
+    && getLeaders(players).some(p => p.name === currentPlayer.name);
 
   let displayPlayer = currentPlayer;
   if (isOnline) {
@@ -53,6 +60,15 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
                 squeezed by the ellipsis. */}
             <span className="flex items-center justify-center gap-2 min-w-0 max-w-full">
               {isOnline && game.hostId === currentPlayer.socketId && <span title={t('game.host', 'Host')} className="text-xl leading-none shrink-0">👑</span>}
+              {/* The host crown above marks who runs the room; this marks who
+                  is winning right now — the emoji alone said nothing to a
+                  screen reader either way, so both get an sr-only companion. */}
+              {isLeader && (
+                <span title={t('game.leader', 'Leader')} className="text-xl leading-none shrink-0">
+                  <span aria-hidden="true">👑</span>
+                  <span className="sr-only">{t('game.leader', 'Leader')}</span>
+                </span>
+              )}
               <span className="truncate min-w-0">
                 {isOnline && isMyTurn ? t('game.you', 'You ({{name}})', { name: currentPlayer.name }) : currentPlayer.name}
               </span>

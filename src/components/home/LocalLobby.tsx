@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { UserPlus } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -12,6 +12,7 @@ export default function LocalLobby() {
   const { t } = useTranslation();
   const [newPlayerName, setNewPlayerName] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const advancedOptionsPanelId = useId();
   // Selects only what this lobby renders — the whole store used to arrive as
   // a prop from Home, re-rendering the entire lobby tree on any store change.
   const {
@@ -101,10 +102,11 @@ export default function LocalLobby() {
         <DiceModeSelector diceMode={diceMode} setDiceMode={setDiceMode} nameSuffix="Local" />
         <AudioSettingSelector audioEnabled={audioEnabled} setAudioEnabled={setAudioEnabled} nameSuffix="Local" />
         <HapticsSettingSelector hapticsEnabled={hapticsEnabled} setHapticsEnabled={setHapticsEnabled} nameSuffix="Local" />
-        <AdvancedOptionsToggle showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} />
+        <AdvancedOptionsToggle showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} panelId={advancedOptionsPanelId} />
       </div>
 
       <AdvancedOptionsPanel
+        id={advancedOptionsPanelId}
         showAdvanced={showAdvanced}
         isOnline={false}
         onResetGeneralSettings={() => resetGeneralSettings()}
