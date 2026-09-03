@@ -550,16 +550,29 @@ test.describe('WCAG AA contrast — accent and caption fixes (A8)', () => {
    * Stop & Score always banks the turn as a win (DiceGame.tsx's `stop` branch
    * dispatches `TURN_BANKED` with `won: true` unconditionally) — the only way
    * this lands on "Bust!" instead is the opening auto-roll itself busting
-   * before a selection is ever made, which is rare with six dice. Accepted as
-   * the same small flakiness trade-off the rest of this suite takes with
-   * random rolls; CI's retry covers it.
+   * before a selection is ever made. Rare with six dice, but it happened in a
+   * full local run, so a busted opening roll is retried on the next player's
+   * turn (whose turn it is does not matter to a contrast probe) rather than
+   * failing the test.
    */
+  const OPENING_ROLL_ATTEMPTS = 3;
   const winATurn = async (page: Page) => {
-    await page.getByRole('button', { name: /Roll Dice/i }).click();
     const selectAll = page.getByRole('button', { name: /Select all/i });
-    await expect(selectAll).toBeVisible({ timeout: 15000 });
-    await selectAll.click();
-    await page.getByRole('button', { name: /Stop & Score/i }).click();
+    const bust = page.getByText(/Bust!/i);
+    const rollDice = page.getByRole('button', { name: /Roll Dice/i });
+    for (let attempt = 0; attempt < OPENING_ROLL_ATTEMPTS; attempt++) {
+      await rollDice.click();
+      await expect(selectAll.or(bust)).toBeVisible({ timeout: 15000 });
+      if (await selectAll.isVisible()) {
+        await selectAll.click();
+        await page.getByRole('button', { name: /Stop & Score/i }).click();
+        return;
+      }
+      // Busted before any selection: the summary auto-continues to the next
+      // player, whose board offers a fresh roll.
+      await expect(rollDice).toBeVisible({ timeout: 15000 });
+    }
+    throw new Error(`the opening roll busted ${OPENING_ROLL_ATTEMPTS} times in a row`);
   };
 
   for (const theme of ['light', 'dark'] as const) {
