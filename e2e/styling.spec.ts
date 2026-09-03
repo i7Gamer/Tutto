@@ -830,6 +830,34 @@ test.describe('safe-area viewport (B58)', () => {
 test.describe('tap targets ≥ 44px on game-time controls (C65)', () => {
   const MIN_TAP_TARGET_PX = 44;
 
+  /**
+   * Measure a tap target, polling until its layout has settled.
+   *
+   * Every screen these controls sit on animates in (framer-motion: the roster
+   * tweens height 0 -> auto with its rows sliding in, the game entrance slides
+   * its columns, the leaderboard rows scale). A child measured during a
+   * parent's tween reports a fraction under its settled size — so a one-shot
+   * boundingBox() turns a passing control into a failure that varies per run
+   * and per browser rather than reproducing. The lobby probe below read
+   * 43.79-43.96 against the 44 its CSS asks for, on CI and locally alike.
+   *
+   * Polling keeps the assertion honest rather than loosening it: a control
+   * that never reaches 44 still fails, on the real number, once the poll
+   * gives up. A tolerance would have hidden that.
+   */
+  const expectTapTarget = async (
+    locator: Locator,
+    sides: readonly ('height' | 'width')[],
+    what: string,
+  ): Promise<void> => {
+    await expect(locator, `${what} is not visible`).toBeVisible({ timeout: 15000 });
+    for (const side of sides) {
+      await expect
+        .poll(async () => (await locator.boundingBox())?.[side] ?? 0, { message: `${what} ${side}` })
+        .toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    }
+  };
+
   test('the quick-add score chips are at least 44px tall on phone', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await seedLocalDeck(page);
@@ -843,11 +871,7 @@ test.describe('tap targets ≥ 44px on game-time controls (C65)', () => {
     // stand in for the whole row (same reasoning the rest of this file uses
     // for a shared class: one representative element, not all of them).
     for (const val of [50, 1000]) {
-      const chip = page.getByTestId(`quick-add-${val}`);
-      await expect(chip).toBeVisible({ timeout: 15000 });
-      const box = await chip.boundingBox();
-      expect(box, `+${val} chip has no box`).not.toBeNull();
-      expect(box!.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+      await expectTapTarget(page.getByTestId(`quick-add-${val}`), ['height'], `+${val} chip`);
     }
   });
 
@@ -858,13 +882,9 @@ test.describe('tap targets ≥ 44px on game-time controls (C65)', () => {
     await startLocalGame(page);
 
     await page.getByRole('button', { name: /Roll Dice/i }).click();
-    const selectAll = page.getByRole('button', { name: /Select all/i });
-    await expect(selectAll).toBeVisible({ timeout: 15000 });
-
-    const box = await selectAll.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
-    expect(box!.width).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    await expectTapTarget(
+      page.getByRole('button', { name: /Select all/i }), ['height', 'width'], 'Select all',
+    );
   });
 
   test('the language switcher buttons are at least 44px in both dimensions on phone', async ({ page }) => {
@@ -872,10 +892,7 @@ test.describe('tap targets ≥ 44px on game-time controls (C65)', () => {
     await page.goto('/');
 
     for (const label of ['Switch to English', 'Switch to German']) {
-      const box = await page.getByLabel(label).boundingBox();
-      expect(box, `${label} has no box`).not.toBeNull();
-      expect(box!.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
-      expect(box!.width).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+      await expectTapTarget(page.getByLabel(label), ['height', 'width'], label);
     }
   });
 
@@ -896,12 +913,8 @@ test.describe('tap targets ≥ 44px on game-time controls (C65)', () => {
     // was under 44px and what this checks.
     const moveDown = page.getByRole('button', { name: /Move down: Alice/i });
     const remove = page.getByRole('button', { name: /Remove: Bob/i });
-    const moveDownBox = await moveDown.boundingBox();
-    const removeBox = await remove.boundingBox();
-    expect(moveDownBox).not.toBeNull();
-    expect(removeBox).not.toBeNull();
-    expect(moveDownBox!.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
-    expect(removeBox!.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    await expectTapTarget(moveDown, ['height'], 'Move down: Alice');
+    await expectTapTarget(remove, ['height'], 'Remove: Bob');
 
     // The taller tap targets must not have grown the ROW itself — that's what
     // the negative margin on each button is for, and it's what keeps a
@@ -944,13 +957,9 @@ test.describe('tap targets ≥ 44px on game-time controls (C65)', () => {
 
       await pageA.setViewportSize({ width: 375, height: 812 });
 
-      const kickButton = pageA.getByRole('button', { name: 'Kick' });
-      await expect(kickButton).toBeVisible({ timeout: 20000 });
-      // The leaderboard row scales in (framer-motion), so a one-shot box read
-      // can land mid-tween a few px short; poll until the layout has settled.
-      const boxSide = (side: 'height' | 'width') => async () => (await kickButton.boundingBox())?.[side] ?? 0;
-      await expect.poll(boxSide('height')).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
-      await expect.poll(boxSide('width')).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+      await expectTapTarget(
+        pageA.getByRole('button', { name: 'Kick' }), ['height', 'width'], 'Kick pill',
+      );
 
     } finally {
       await contextA.close();
