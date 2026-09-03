@@ -836,6 +836,14 @@ describe('coreGameEngine', () => {
         expect(result.nextIndex).toBeNull();
       });
 
+      it('ends the game when the sole leader is exactly at the winning score', () => {
+        const state = makeState({
+          players: [makePlayer('Alice', { score: 6000 }), makePlayer('Bob', { score: 0 })],
+          currentPlayerIndex: 1,
+        });
+        expect(calculateNextTurn(state, 0, false).isGameOver).toBe(true);
+      });
+
       it('does not end the game on a tie at the winning score', () => {
         const state = makeState({
           players: [makePlayer('Alice', { score: 6000 }), makePlayer('Bob', { score: 6000 })],

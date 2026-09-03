@@ -243,7 +243,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   }, [rollingDiceIndices, currentRoll]);
 
   const handleAction = (action: 'roll' | 'stop' | 'draw') => {
-    if (!validation.valid && action !== 'stop') return;
+    if (!validation.valid) return;
 
     let newTurnScore = turnScore + (countsDicePoints ? validation.score : 0);
     const newKniffelProgress = validation.newKniffelProgress;

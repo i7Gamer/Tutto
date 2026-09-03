@@ -19,6 +19,8 @@ describe('diceLogic', () => {
     it('should return false if there is a triplet', () => {
       expect(isBust([2, 2, 2, 4, 6], "200", [])).toBe(false);
       expect(isBust([3, 3, 3, 4, 6], "Stop", [])).toBe(false);
+      expect(isBust([6, 6, 6, 2, 3, 4], "200", [])).toBe(false);
+      expect(isBust([4, 4, 4, 2, 3, 6], "200", [])).toBe(false);
     });
 
     it('Kniffel: should return false if rolling a valid start (1 or 6)', () => {

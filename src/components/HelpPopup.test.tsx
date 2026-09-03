@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import HelpPopup from './HelpPopup';
 import { useGameStore } from '../store/useGameStore';
 import { APP_VERSION } from '../utils/appVersion';
@@ -19,6 +19,15 @@ vi.mock('react-i18next', async (importOriginal) => {
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
 
 describe('HelpPopup', () => {
+  // 'defaults to cards section...' and 'scrolls the specific highlighted
+  // card...' below both set status/currentCard on the shared store and never
+  // restore them. Without this reset, that leaks into every test that runs
+  // after — most insidiously the 'section headers' tests further down, where
+  // it silently swapped which section starts open.
+  beforeEach(() => {
+    useGameStore.setState({ status: 'lobby', currentCard: null });
+  });
+
   it('renders closed by default and opens on click', async () => {
     render(<HelpPopup />);
 
@@ -270,17 +279,29 @@ describe('HelpPopup', () => {
       }
     });
 
-    it('flips the state and points at the panel it opened', () => {
+    it('opens a closed section and points at the panel it opened', () => {
       openWiki();
-      const [header] = sectionHeaders();
-      const wasOpen = header.getAttribute('aria-expanded') === 'true';
+      const headers = sectionHeaders();
+      const header = headers.find(h => h.getAttribute('aria-expanded') === 'false');
+      expect(header, 'no closed section header found — the selector has gone stale').toBeTruthy();
 
-      fireEvent.click(header);
+      fireEvent.click(header!);
 
-      expect(header.getAttribute('aria-expanded')).toBe(String(!wasOpen));
-      const controls = header.getAttribute('aria-controls');
+      expect(header!.getAttribute('aria-expanded')).toBe('true');
+      const controls = header!.getAttribute('aria-controls');
       expect(controls).toBeTruthy();
-      if (!wasOpen) expect(document.getElementById(controls!)).toBeInTheDocument();
+      expect(document.getElementById(controls!)).toBeInTheDocument();
+    });
+
+    it('closes an open section', () => {
+      openWiki();
+      const headers = sectionHeaders();
+      const header = headers.find(h => h.getAttribute('aria-expanded') === 'true');
+      expect(header, 'no open section header found — the selector has gone stale').toBeTruthy();
+
+      fireEvent.click(header!);
+
+      expect(header!.getAttribute('aria-expanded')).toBe('false');
     });
   });
 
