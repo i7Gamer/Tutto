@@ -537,7 +537,7 @@ describe('EndScreen Component', () => {
       })));
       useGameStore.setState({ isOnline: true });
 
-      const { getByText } = render(<EndScreen theme="light" deviceId="device-avg-busts-1" />);
+      const { getByText } = render(<EndScreen theme="light" deviceId="device-avg-busts-1" onShowStats={vi.fn()} />);
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(500);
