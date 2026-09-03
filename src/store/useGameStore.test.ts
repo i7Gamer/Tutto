@@ -3913,7 +3913,7 @@ describe('useGameStore', () => {
       // …and a LATER host change toasts as before.
       mockOnHandlers['gameState']({ status: 'lobby', winningScore: 8000, players: [] });
       const messages = useGameStore.getState().toasts.map(t => t.message);
-      expect(messages.some(m => m.includes('8000'))).toBe(true);
+      expect(messages.some(m => m.includes('8,000'))).toBe(true);
     });
 
     it('joinRoom re-arms the first-sync suppression for the next room', () => {
@@ -3934,7 +3934,7 @@ describe('useGameStore', () => {
       mockOnHandlers['gameState']({ status: 'lobby', winningScore: 8000, players: [] });
 
       const messages = useGameStore.getState().toasts.map(t => t.message);
-      expect(messages.some(m => m.includes('8000'))).toBe(true);
+      expect(messages.some(m => m.includes('8,000'))).toBe(true);
     });
 
     it('toasts when the host turns on dice mode enforcement in the lobby', () => {
@@ -3957,6 +3957,22 @@ describe('useGameStore', () => {
 
       const messages = useGameStore.getState().toasts.map(t => t.message);
       expect(messages.some(m => m.includes('Disabled'))).toBe(true);
+    });
+
+    it('groups the new winning score in the toast the way the goal banner shows it', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      const s = useGameStore.getState();
+      useGameStore.setState({ roomId: 'R1', status: 'lobby', winningScore: 6000, toasts: [] });
+
+      mockOnHandlers['gameState']({
+        status: 'lobby', players: [], winningScore: 10000,
+        turnDuration: s.turnDuration, reconnectTimeout: s.reconnectTimeout,
+        enforcedDiceMode: s.enforcedDiceMode, initialCards: s.initialCards,
+      });
+
+      const messages = useGameStore.getState().toasts.map(t => t.message);
+      expect(messages.some(m => m.includes('10,000')), messages.join(' | ')).toBe(true);
     });
 
     it('does not toast config changes for a partial gameState payload that omits those keys', () => {

@@ -353,7 +353,7 @@ export default function GameControls({
                     {t('game.controls.playerIsPlaying', '{{name}} is playing', { name: currentPlayer?.name ?? '' })}
                   </p>
                   <div className="text-4xl font-black text-indigo-600 dark:text-indigo-400 mb-4">
-                    {activeTurnState.turnScore}
+                    {formatInt(activeTurnState.turnScore, i18n.language)}
                   </div>
                   {(activeTurnState.cardsThisTurn?.length ?? 0) > 1 && (
                     <p className="text-xs font-bold text-indigo-500 uppercase tracking-wider -mt-3 mb-4">

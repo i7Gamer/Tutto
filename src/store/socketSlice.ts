@@ -2,6 +2,7 @@ import { localStore, sessionStore } from '../utils/storage';
 import { io, type Socket } from 'socket.io-client';
 import { buildDeviceStatsPayload, noUndoableTurn } from '../utils/coreGameEngine';
 import i18n from '../i18n';
+import { formatInt } from '../utils/formatNumber';
 import { areInitialCardsEqual, normalizeRoomId } from '../utils/configValidation';
 import { validateOnlineConfig } from './persistence';
 import { getSocket, setSocket } from './socketRef';
@@ -487,7 +488,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
         if ('winningScore' in serverState && prev.winningScore !== serverState.winningScore) {
           prev.toasts.push(makeToast(i18n.t('game.toastWinningScore', {
             defaultValue: 'Winning score: {{value}}',
-            value: serverState.winningScore,
+            value: formatInt(serverState.winningScore as number, i18n.language),
           })));
         }
         if ('turnDuration' in serverState && prev.turnDuration !== serverState.turnDuration) {

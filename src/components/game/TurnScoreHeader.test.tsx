@@ -18,6 +18,13 @@ describe('TurnScoreHeader', () => {
     expect(screen.getByTestId('dice-current-score')).toHaveTextContent('450');
   });
 
+  it('groups a four-digit running total the way the rest of the app does', () => {
+    // The unit i18n mock reports language "en", so en-US grouping applies.
+    render(<TurnScoreHeader {...baseProps} turnScore={2000} pendingSelectionScore={500} />);
+
+    expect(screen.getByTestId('dice-current-score')).toHaveTextContent('2,500');
+  });
+
   it('shows the chain badge only from the second classic card on', () => {
     const { rerender } = render(<TurnScoreHeader {...baseProps} isClassic chainCardCount={1} />);
     expect(screen.queryByText('dice.chain_card_count')).toBeNull();

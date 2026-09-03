@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { formatInt } from '../../utils/formatNumber';
 import { motion } from 'framer-motion';
 import type { CardType } from '../../types';
 
@@ -14,7 +15,7 @@ interface TurnScoreHeaderProps {
 }
 
 export default function TurnScoreHeader({ turnScore, pendingSelectionScore, isClassic, chainCardCount, currentCard, tuttosThisTurn }: TurnScoreHeaderProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   return (
     <div className="text-center mb-6 sm:mb-8">
@@ -27,7 +28,7 @@ export default function TurnScoreHeader({ turnScore, pendingSelectionScore, isCl
             animation plays when a roll is banked, not on every die
             click that flips the selection valid/invalid. */}
         <motion.div key={turnScore} data-testid="dice-current-score" initial={{ scale: 1.2 }} animate={{ scale: 1 }} className="text-5xl font-black text-indigo-600 dark:text-indigo-400">
-          {turnScore + pendingSelectionScore}
+          {formatInt(turnScore + pendingSelectionScore, i18n.language)}
         </motion.div>
       </div>
       {isClassic && chainCardCount > 1 && (

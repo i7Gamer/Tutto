@@ -199,6 +199,18 @@ describe('GameControls spectator view (online, not my turn)', () => {
   // pips — SVG circles carrying no text. The dice INSIDE the roll panel were
   // given names in 62c1f1b; this mirror was missed, so a spectator using a
   // screen reader heard the running total but never the dice behind it.
+  it('groups the mirrored running total like every other score on screen', () => {
+    renderSpectator({
+      turnScore: 1200,
+      keptDice: [],
+      currentRoll: [],
+      kniffelProgress: [],
+      tuttosThisTurn: 0,
+    }, '200');
+
+    expect(screen.getByText('1,200')).toBeInTheDocument();
+  });
+
   it('names every mirrored die for a screen reader', () => {
     renderSpectator({
       turnScore: 300,

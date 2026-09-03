@@ -930,7 +930,7 @@ describe('DiceGame interactive turn logic', () => {
       expect(scoreShown()).toBe('0'); // a partial selection completes nothing
 
       selectAllValid();
-      expect(scoreShown()).toBe('1000');
+      expect(scoreShown()).toBe('1,000');
     });
 
     it('shows the same for Plus/Minus under classic rules, on top of the chain total', async () => {
@@ -943,9 +943,9 @@ describe('DiceGame interactive turn logic', () => {
       render(<DiceGame currentCard="Plus_Minus" turnKey="K" ruleset="classic" onDrawCard={vi.fn()} onComplete={vi.fn()} />);
       await flushRoll();
 
-      expect(scoreShown()).toBe('1800');
+      expect(scoreShown()).toBe('1,800');
       selectAllValid();
-      expect(scoreShown()).toBe('2800');
+      expect(scoreShown()).toBe('2,800');
     });
 
     it('shows a completed straight its 2000', async () => {
@@ -957,7 +957,7 @@ describe('DiceGame interactive turn logic', () => {
       expect(scoreShown()).toBe('0');
 
       selectAllValid();
-      expect(scoreShown()).toBe('2000');
+      expect(scoreShown()).toBe('2,000');
     });
 
     it('leaves an ordinary card counting its dice', async () => {
@@ -1199,7 +1199,7 @@ describe('DiceGame chain draw the server discards', () => {
     act(() => { vi.advanceTimersByTime(PAST_RECOVERY_DEADLINE_MS); });
 
     expect(dieShowing(1, false)).toBeInTheDocument();
-    expect(screen.getByTestId('dice-current-score')).toHaveTextContent('1800');
+    expect(screen.getByTestId('dice-current-score')).toHaveTextContent('1,800');
     expect(screen.queryByText('dice.bank_points')).not.toBeInTheDocument();
     expect(onComplete).not.toHaveBeenCalled();
   });
@@ -1763,7 +1763,7 @@ describe('DiceGame classic chains', () => {
     await flushRoll();
 
     expect(dieShowing(1, false)).toBeInTheDocument();
-    expect(screen.getByTestId('dice-current-score')).toHaveTextContent('1800');
+    expect(screen.getByTestId('dice-current-score')).toHaveTextContent('1,800');
   });
 
   it('D draws the next card, the same as the button', async () => {
@@ -1793,7 +1793,7 @@ describe('DiceGame classic chains', () => {
     await flushRoll();
 
     expect(dieShowing(1, false)).toBeInTheDocument();
-    expect(screen.getByTestId('dice-current-score')).toHaveTextContent('1800');
+    expect(screen.getByTestId('dice-current-score')).toHaveTextContent('1,800');
   });
 
   it('Stop & Score commits the banked state into the live snapshot', async () => {
