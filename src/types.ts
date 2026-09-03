@@ -357,9 +357,9 @@ export type PushStateAck =
  * so a single transient sqlite error (see SQLITE_BUSY_TIMEOUT_MS in
  * server/knexfile.ts for the other half of that fix) lost that device's row
  * for the game permanently. Naming the reason is what lets the client
- * distinguish "try again" and "never send this again". (Worded to keep the
- * phrase `from "..."` out of this comment: server/packaging.test.ts scans
- * source text for import specifiers.)
+ * distinguish "try again" and "never send this again". (Worded so that no
+ * quoted string follows the word from: server/packaging.test.ts scans source
+ * text for import specifiers.)
  *
  * Modelled on PUSH_REFUSAL_REASONS above, and shared with the server
  * (server/socketStatsHandlers.ts), which is the only thing that produces
