@@ -731,7 +731,7 @@ export function StartGameButton({ startGame, playersCount, disabled = false, dis
   const { t } = useTranslation();
   const fallbackMessage = playersCount < 2
     ? t('lobby.needAtLeast2Players', 'Need at least 2 players')
-    : t('lobby.waitingForPlayersToReconnect', 'Waiting for players to reconnect...');
+    : t('lobby.waitingForPlayersToReconnect', 'Waiting for players to reconnect…');
   return (
     <AnimatePresence>
       {playersCount > 0 && (

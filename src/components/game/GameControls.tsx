@@ -393,7 +393,7 @@ export default function GameControls({
               ) : (
                 <>
                   <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
-                  <h4 className="text-xl font-bold text-gray-800 dark:text-gray-100">{t('game.controls.waiting', 'Waiting for other player...')}</h4>
+                  <h4 className="text-xl font-bold text-gray-800 dark:text-gray-100">{t('game.controls.waiting', 'Waiting for other player…')}</h4>
                 </>
               )}
             </motion.div>

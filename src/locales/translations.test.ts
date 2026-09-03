@@ -233,3 +233,65 @@ describe('Interpolation placeholders match between en and de', () => {
     expect(placeholders('no placeholder')).toEqual([]);
   });
 });
+
+// Vocabulary policy (Timo, final — 2026-09-03). This is where it lives from
+// now on; any future wording change to these three areas should keep it
+// consistent with the rules below rather than re-litigating them per-string.
+//
+// (a) Card names are the game's German proper nouns, used EVERYWHERE —
+//     including in English strings: Feuerwerk, Kleeblatt, Kniffel,
+//     Plus/Minus, Stop, x2. The old English glosses (Fireworks, Cloverleaf,
+//     and "Straight" when it names the Kniffel card) are retired from the
+//     ~11 en/translation.json wiki/help strings that used them. A genuine
+//     dice-mechanic sentence — describing the actual 1-6 sequence rather
+//     than naming the card — may still say "straight" lowercase; those keys
+//     are allow-listed explicitly below rather than banned outright.
+// (b) Spelling is en-US throughout the EN file: no British -our/-ise/-yse
+//     forms (colour, favourite, customise, organise, analyse, centre, grey,
+//     …). "hour", "your", "four", "tour" etc. are not British spellings and
+//     are not affected.
+// (c) The ellipsis is the single character "…" everywhere, in BOTH
+//     languages — never the three-character "...".
+describe('Card-name vocabulary and spelling policy', () => {
+  const en = readLocale(enPath);
+  const de = readLocale(dePath);
+
+  it('no EN string uses the retired English card glosses', () => {
+    const hits = Object.entries(en)
+      .filter(([, value]) => /Fireworks|Cloverleaf/.test(value))
+      .map(([key]) => key);
+    expect(hits).toEqual([]);
+  });
+
+  // Keys where "straight" describes the dice mechanic (a run 1-2-3-4-5-6),
+  // not the Kniffel card's name — see policy (a) above.
+  const straightMechanicKeys = ['help.cards.kniffelDesc', 'help.cards.kniffelDescClassic'];
+
+  it('no EN string uses "Straight" as the Kniffel gloss', () => {
+    const hits = Object.entries(en)
+      .filter(([key, value]) => !straightMechanicKeys.includes(key) && /\bStraight\b/.test(value))
+      .map(([key]) => key);
+    expect(hits).toEqual([]);
+  });
+
+  it('the allow-listed dice-mechanic keys still exist and use lowercase "straight"', () => {
+    straightMechanicKeys.forEach((key) => {
+      expect(en[key]).toMatch(/\bstraight\b/);
+    });
+  });
+
+  it('no EN string uses a British spelling', () => {
+    const britishPattern = /\b(colour|favourite|customise|organise|analyse|centre|grey)\w*\b/i;
+    const hits = Object.entries(en)
+      .filter(([, value]) => britishPattern.test(value))
+      .map(([key]) => key);
+    expect(hits).toEqual([]);
+  });
+
+  it('no string in either language uses "..." instead of "…"', () => {
+    const hitsIn = (locale: Record<string, string>) =>
+      Object.entries(locale).filter(([, value]) => value.includes('...')).map(([key]) => key);
+    expect(hitsIn(en)).toEqual([]);
+    expect(hitsIn(de)).toEqual([]);
+  });
+});

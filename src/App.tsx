@@ -94,7 +94,7 @@ function ReconnectPopup() {
           <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.578"/><path d="M22.016 11.664v-1.664h-1.664"/><path d="M2.383 14.156a10.742 10.742 0 0 1-1.074-6.49M2.08 7.666v1.665h1.665"/><path d="M7 16l-3.32-3.32"/><path d="M20.32 8.68L17 12"/><path d="m2 2 20 20"/></svg>
         </div>
         <h3 id={RECONNECT_TITLE_ID} className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">{t('home.reconnect.title', 'Connection Lost')}</h3>
-        <p className="text-gray-600 dark:text-gray-400 mb-6">{t('home.reconnect.description', 'You have lost connection to the server. Attempting to automatically reconnect...')}</p>
+        <p className="text-gray-600 dark:text-gray-400 mb-6">{t('home.reconnect.description', 'You have lost connection to the server. Attempting to automatically reconnect…')}</p>
         <div className="flex flex-col gap-3">
           <button
             className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-xl transition-colors"

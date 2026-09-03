@@ -252,7 +252,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
                 disabled={playAgainBlocked}
               >
                 <RotateCcw size={24} /> {waitingForReconnect
-                  ? t('lobby.waitingForPlayersToReconnect', 'Waiting for players to reconnect...')
+                  ? t('lobby.waitingForPlayersToReconnect', 'Waiting for players to reconnect…')
                   : tooFewForRematch
                     ? t('end.tooFewPlayers', 'Not enough players to play again')
                     : t('end.playAgain', 'Play Again')}
@@ -265,7 +265,7 @@ export default function EndScreen({ theme, deviceId }: EndScreenProps) {
             <div className="flex flex-col items-center gap-4 bg-black/5 dark:bg-white/5 p-6 rounded-2xl border border-gray-200 dark:border-slate-600 w-full max-w-md">
               <div className="text-indigo-600 font-bold text-lg flex items-center gap-3">
                 <div className="w-6 h-6 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-                {t('end.waitingForHost', 'Waiting for host to restart...')}
+                {t('end.waitingForHost', 'Waiting for host to restart…')}
               </div>
               <button className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/40 px-6 py-2 rounded-lg font-bold transition-colors border border-red-200 dark:border-red-800" onClick={leaveRoom}>
                 {t('end.leaveGame', 'Leave Game')}

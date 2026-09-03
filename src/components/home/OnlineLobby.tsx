@@ -605,7 +605,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
             <div className="flex justify-center mb-3">
               <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
             </div>
-            {t('lobby.online.waitingForHost', 'Waiting for host to start the game...')}
+            {t('lobby.online.waitingForHost', 'Waiting for host to start the game…')}
           </motion.div>
         )}
       </AnimatePresence>

@@ -412,7 +412,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
           <div className="flex justify-center items-center h-full min-h-[500px]">
             <div className="flex flex-col items-center gap-4">
               <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-              <h2 className="text-xl font-bold text-gray-700 dark:text-gray-200">{t('statistics.loading', 'Loading Statistics...')}</h2>
+              <h2 className="text-xl font-bold text-gray-700 dark:text-gray-200">{t('statistics.loading', 'Loading Statistics…')}</h2>
             </div>
           </div>
         ) : (

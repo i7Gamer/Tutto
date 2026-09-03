@@ -291,7 +291,7 @@ export default function HelpPopup() {
                       <p className="text-sm">{t('help.cards.stopDesc')}</p>
                     </CardEntry>
                     <CardEntry isActive={currentCard === 'Feuerwerk'} activeRef={activeCardRef}>
-                      <h4 className="wiki-heading">{t('help.cards.fireworks', 'Fireworks')}</h4>
+                      <h4 className="wiki-heading">{t('help.cards.fireworks', 'Feuerwerk')}</h4>
                       <p className="wiki-card-note border-orange-400 text-orange-800 dark:text-orange-200" dangerouslySetInnerHTML={{ __html: renderBoldMarkdown(isClassic ? t('help.cards.fireworksDescClassic') : t('help.cards.fireworksDesc')) }}></p>
                     </CardEntry>
                     <CardEntry isActive={currentCard === 'Kniffel'} activeRef={activeCardRef}>
