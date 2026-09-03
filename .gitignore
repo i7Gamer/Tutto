@@ -50,6 +50,14 @@ GEMINI.md
 *.db
 *.backup
 *.bak*
+# SQLite's write-ahead log and shared-memory sidecars. *.db above does not
+# cover them (the suffix continues past .db), so a `git add -A` on a machine
+# running the server swept the live stats.db-wal — real user rows — into the
+# index. They are also worthless without the .db they belong to.
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
 
 # TypeScript build cache
 *.tsbuildinfo

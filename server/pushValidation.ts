@@ -21,17 +21,21 @@ import type { RoomState, ServerPlayer } from './roomTypes';
 // types. Exported for pushStateValidation.test.ts's maximal-state size
 // measurement (see socketLimits.ts).
 export const MAX_DECK_SIZE = MAX_CARD_COUNT * 11;
-// Re-exported (not redefined) so this file's own tests, rooms.ts and
-// turnTimers.ts can keep importing them from here — the real definitions live
-// in src/utils/configValidation.ts. MAX_SCORE_MAGNITUDE is shared with the
+// Re-exported (not redefined) so rooms.ts, turnTimers.ts and this file's own
+// tests can keep importing them from here — the real definitions live in
+// src/utils/configValidation.ts. MAX_SCORE_MAGNITUDE is shared with the
 // client's own score clamp (diceTurnControls.ts's parseScoreInput), which is
 // what keeps the two ceilings from drifting apart the way they used to (the
 // client allowed a 7-digit box up to 9,999,999 while this bound was
-// 1,000,000); MAX_ROUNDS and MAX_GAME_SECONDS moved there so server/sanitize.ts
-// can bound a stats payload by the same numbers a pushed state is bound by,
-// without importing this file and dragging its coreGameEngine ↔ statsPayloads
-// cycle into server/api.ts's module graph.
-export { MAX_SCORE_MAGNITUDE, MAX_ROUNDS, MAX_GAME_SECONDS };
+// 1,000,000).
+//
+// MAX_GAME_SECONDS used to be re-exported alongside them, on the stated
+// grounds that server/sanitize.ts needed it — but sanitize.ts takes all three
+// straight from configValidation (which is what avoids dragging this file's
+// coreGameEngine ↔ statsPayloads cycle into server/api.ts's module graph), and
+// nothing imported it from here at all. Dropped rather than left as a second
+// name for the same constant.
+export { MAX_SCORE_MAGNITUDE, MAX_ROUNDS };
 // A history-entry id is a client-generated string (see HistoryEntry in
 // src/types.ts) — this is a sanity bound, not a format, same role as
 // MAX_ROOM_ID_LENGTH plays for room ids.
