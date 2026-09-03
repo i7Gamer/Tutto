@@ -628,13 +628,17 @@ test.describe('WCAG AA contrast — accent and caption fixes (A8)', () => {
       await startLocalGame(page);
       await winATurn(page);
 
+      // The summary fades in (motion opacity 0 -> 1). toBeVisible is
+      // satisfied at opacity 0, and contrastOf composes through ancestor
+      // opacity, so a one-shot read taken mid-fade reports ~1:1 — it did,
+      // once, under a loaded full run. Poll until the entrance has settled.
       const heading = page.getByRole('heading', { name: 'Success!' });
       await expect(heading).toBeVisible();
-      expect(await contrastOf(heading)).toBeGreaterThanOrEqual(AA_LARGE);
+      await expect.poll(() => contrastOf(heading)).toBeGreaterThanOrEqual(AA_LARGE);
 
       const pointsLine = page.getByText('Points gained:');
       await expect(pointsLine).toBeVisible();
-      expect(await contrastOf(pointsLine.locator('strong'))).toBeGreaterThanOrEqual(AA_TEXT);
+      await expect.poll(() => contrastOf(pointsLine.locator('strong'))).toBeGreaterThanOrEqual(AA_TEXT);
     });
   }
 });
