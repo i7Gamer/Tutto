@@ -133,21 +133,29 @@ describe('Statistics Saving - Personal and Global', () => {
         isDefaultGame: true
       };
 
+      // The global row is ONE row shared by every test in this file, and the
+      // file's tests run in any order (a seeded --sequence.shuffle put three
+      // games ahead of this one). Assert the delta this write adds, the way
+      // the accumulation test below already does.
+      const before = await database.getGlobalStats();
+      const was = (field: keyof NonNullable<typeof before>): number => Number(before?.[field] ?? 0);
+
       await database.updateGlobalStats(globalStats);
       const saved = nonNull(await database.getGlobalStats());
 
-      expect(saved.totalGamesPlayed).toBe(1);
-      expect(saved.totalPlaytime).toBe(600);
-      expect(saved.totalPlusMinus).toBe(2);
-      expect(saved.totalKniffel).toBe(3);
-      expect(saved.totalStop).toBe(4);
-      expect(saved.totalFeuerwerk).toBe(2);
-      expect(saved.totalKleeblatt).toBe(1);
-      expect(saved.totalKleeblattCompleted).toBe(1);
-      expect(saved.totalTurns).toBe(25);
-      expect(saved.totalScore).toBe(8000);
-      expect(saved.highestTurnScore).toBe(600);
-      expect(saved.fastestWinTurns).toBe(25);
+      expect(saved.totalGamesPlayed).toBe(was('totalGamesPlayed') + 1);
+      expect(saved.totalPlaytime).toBe(was('totalPlaytime') + 600);
+      expect(saved.totalPlusMinus).toBe(was('totalPlusMinus') + 2);
+      expect(saved.totalKniffel).toBe(was('totalKniffel') + 3);
+      expect(saved.totalStop).toBe(was('totalStop') + 4);
+      expect(saved.totalFeuerwerk).toBe(was('totalFeuerwerk') + 2);
+      expect(saved.totalKleeblatt).toBe(was('totalKleeblatt') + 1);
+      expect(saved.totalKleeblattCompleted).toBe(was('totalKleeblattCompleted') + 1);
+      expect(saved.totalTurns).toBe(was('totalTurns') + 25);
+      expect(saved.totalScore).toBe(was('totalScore') + 8000);
+      // Records, not sums: the row keeps the best it has ever seen.
+      expect(saved.highestTurnScore).toBe(Math.max(was('highestTurnScore'), 600));
+      expect(saved.fastestWinTurns).toBe(before?.fastestWinTurns ? Math.min(Number(before.fastestWinTurns), 25) : 25);
     });
 
     it('should accumulate global stats across multiple games', async () => {
