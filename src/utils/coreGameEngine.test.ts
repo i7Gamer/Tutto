@@ -4,8 +4,8 @@ import { getLeaders, buildGlobalStatsPayload, shuffleArray, buildDeck, calculate
 // The consumer of the recorded amounts: what the activity log will actually
 // print for an entry is what makes "no amounts here" right or wrong.
 import { summarizeDeductions } from './deductionSummary';
-import { makePlayer as makeFullPlayer, makeGameState, nonNull } from '../testing/factories';
-import type { CoreGameState, NextTurnResult, Player, TurnSummary } from '../types';
+import { makeDiceSnapshot, makePlayer as makeFullPlayer, makeGameState, nonNull } from '../testing/factories';
+import type { CardType, CoreGameState, NextTurnResult, Player, TurnSummary } from '../types';
 
 // Thin, name-first adapter over the shared factory — keeps every existing
 // `makePlayer('Alice', { score: 500 })` call site unchanged while returning a
@@ -1141,6 +1141,89 @@ describe('coreGameEngine', () => {
       const result = nonNull(calculateUndo(state));
       expect(result.newDeck).toEqual(['200', '600']);
       expect(result.newDeck).not.toContain(null);
+    });
+
+    // The turn being DISCARDED by the undo has taken cards off the deck too:
+    // in a classic chain every tutto reveals another one (drawCardMidTurn
+    // shifts it off `cards` and makes it currentCard), so by the time the host
+    // presses Undo mid-chain the deck is missing the whole chain — not just
+    // the card in play. liveTurnState.cardsThisTurn is the only record of it.
+    describe("the current player's in-progress chain", () => {
+      // Two cards left under whatever the in-progress chain has to put back,
+      // so the ORDER of the restored cards is observable and not just their
+      // presence. A factory, not a shared const: every state gets its own.
+      const deckBelow = (): CardType[] => ['600', 'Kleeblatt'];
+
+      // Alice's turn is the undoable one; Bob is mid-chain on `currentCard`.
+      const midChainState = (
+        cardsThisTurn: CardType[] | undefined,
+        currentCard: CardType | null = '400',
+        previousTurnSummary: TurnSummary | null = null,
+      ) => ({
+        ...makeState({
+          players: [makePlayer('Alice', { score: 500, totalTurns: 1 }), makePlayer('Bob')],
+          currentPlayerIndex: 1,
+          currentCard,
+          cards: deckBelow(),
+          previousCard: '200',
+          previousScore: 500,
+          previousPlayerName: 'Alice',
+          previousTurnSummary,
+        }),
+        liveTurnState: cardsThisTurn ? makeDiceSnapshot({ cardsThisTurn }) : null,
+      });
+
+      it('puts back exactly the card in play when the chain is only one card long', () => {
+        const result = nonNull(calculateUndo(midChainState(['400'])));
+        expect(result.newDeck).toEqual(['400', '600', 'Kleeblatt']);
+        expect(result.drawnCard).toBe('200');
+      });
+
+      it('puts every card the current player already drew back on top, in draw order', () => {
+        const result = nonNull(calculateUndo(midChainState(['Kniffel', 'x2', '400'])));
+        expect(result.newDeck).toEqual(['Kniffel', 'x2', '400', '600', 'Kleeblatt']);
+        expect(result.drawnCard).toBe('200');
+      });
+
+      it('restores the previous turn\'s chain and the in-progress one together', () => {
+        const result = nonNull(calculateUndo(midChainState(
+          ['Kniffel', 'x2', '400'],
+          '400',
+          {
+            cards: [
+              { card: 'Plus_Minus', completed: true },
+              { card: '300', completed: true },
+              { card: '200', completed: true },
+            ],
+            tuttoCount: 3,
+            plusMinusScores: [],
+            ended: 'banked',
+          },
+        )));
+        // Alice's chain re-deals its first card and stacks the rest, then
+        // Bob's whole chain, then what was left of the deck.
+        expect(result.drawnCard).toBe('Plus_Minus');
+        expect(result.newDeck).toEqual(['300', '200', 'Kniffel', 'x2', '400', '600', 'Kleeblatt']);
+      });
+
+      it('falls back to the card in play when the live chain does not end on it', () => {
+        // liveTurnState is a snapshot relayed from another client and can lag
+        // a draw (or belong to a turn the store has moved past); a list that
+        // does not end on currentCard describes some other moment, and
+        // trusting it would push the WRONG cards into the deck.
+        const result = nonNull(calculateUndo(midChainState(['Kniffel', 'x2'])));
+        expect(result.newDeck).toEqual(['400', '600', 'Kleeblatt']);
+      });
+
+      it('injects nothing when there is no card in play, live chain or not', () => {
+        const result = nonNull(calculateUndo(midChainState(['Kniffel'], null)));
+        expect(result.newDeck).toEqual(['600', 'Kleeblatt']);
+      });
+
+      it('is unchanged for a modernized turn, which carries no live chain', () => {
+        const result = nonNull(calculateUndo(midChainState(undefined)));
+        expect(result.newDeck).toEqual(['400', '600', 'Kleeblatt']);
+      });
     });
 
     it('returns null when undoing on round 1, player 0', () => {

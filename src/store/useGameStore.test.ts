@@ -823,6 +823,35 @@ describe('useGameStore', () => {
     expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
   });
 
+  it('undo returns the whole in-progress classic chain to the deck, not just the card in play', () => {
+    // The engine can only do this if the store hands it liveTurnState (it is
+    // not part of CoreGameState — see UndoInputState in coreGameEngine.ts).
+    // P2 is mid-chain: the turn opened on 300 and drew Kniffel then 400, so
+    // three cards left the deck and all three have to come back, in order.
+    useGameStore.getState().addPlayer('P1');
+    useGameStore.setState({
+      status: 'playing',
+      currentPlayerIndex: 1,
+      currentCard: '400',
+      cards: ['600', 'Kleeblatt'],
+      previousCard: 'x2',
+      previousScore: 0,
+      previousLeaders: [],
+      previousPlayerName: 'P1',
+      players: [makeOnlinePlayer('P1', { score: 500 }), makeOnlinePlayer('P2')],
+      liveTurnState: {
+        turnScore: 900, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+        cardsThisTurn: ['300', 'Kniffel', '400'],
+      },
+    });
+
+    useGameStore.getState().undo();
+
+    const state = useGameStore.getState();
+    expect(state.currentCard).toBe('x2');
+    expect(state.cards).toEqual(['300', 'Kniffel', '400', '600', 'Kleeblatt']);
+  });
+
   it('starting a new game clears BOTH cached turn entries, digital and physical', () => {
     // A Play-Again (or any new local game) resets round to 1 with the same
     // room and ruleset — a chain cached by the PREVIOUS game could otherwise

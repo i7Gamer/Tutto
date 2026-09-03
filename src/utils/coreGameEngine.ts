@@ -1,5 +1,6 @@
 import type {
   CardType,
+  DiceSnapshot,
   InitialCards,
   Player,
   CoreGameState,
@@ -749,12 +750,50 @@ export const canUndoState = (gameState: UndoEligibilityState): boolean => {
   return true;
 };
 
-export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
+/**
+ * What calculateUndo reads: the core game state PLUS the live snapshot of the
+ * turn currently in progress.
+ *
+ * liveTurnState is store/room state rather than part of CoreGameState (it is
+ * relayed on its own socket event, several times a second, and is never
+ * saved), but undo cannot restore the deck without it — see
+ * inProgressChainCards below. Optional, so every existing caller that only has
+ * a CoreGameState still type-checks and simply gets the no-live-chain
+ * behaviour.
+ */
+export type UndoInputState = CoreGameState & { liveTurnState?: DiceSnapshot | null };
+
+/**
+ * The cards the turn IN PROGRESS has already taken off the deck, in draw order.
+ *
+ * A classic chain reveals another card on every tutto (drawCardMidTurn shifts
+ * it off `cards` and makes it currentCard), so the deck is missing the whole
+ * chain by the time an undo discards that turn — not just the card in play.
+ * Putting back only currentCard, as this used to, lost every earlier card of
+ * the chain from the deck for the rest of the game. cardsThisTurn is the only
+ * record of them; by construction its last entry IS currentCard.
+ *
+ * Which is also the trust check: liveTurnState is a snapshot relayed from
+ * whichever client is playing and can lag a draw, or describe a turn the store
+ * has already moved past. A list that does not end on currentCard describes
+ * some other moment, so it is ignored in favour of the card in play alone.
+ */
+const inProgressChainCards = (
+  currentCard: CardType | null,
+  liveTurnState: DiceSnapshot | null | undefined,
+): CardType[] => {
+  if (!currentCard) return [];
+  const chain = liveTurnState?.cardsThisTurn;
+  if (chain && chain.length > 0 && chain[chain.length - 1] === currentCard) return [...chain];
+  return [currentCard];
+};
+
+export const calculateUndo = (gameState: UndoInputState): UndoResult | null => {
   const {
     players, currentPlayerIndex, round, previousCard, previousScore,
     previousLeaders, previousWasBust, previousWasSuccess, previousHighestTurnScore,
     previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore, previousPlayerName,
-    previousTurnSummary, currentCard, cards,
+    previousTurnSummary, currentCard, cards, liveTurnState,
   } = gameState;
 
   // Whether the previous turn's card was completed. Read from the outcome
@@ -824,6 +863,9 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
   // the rest go back on top of the deck ahead of the next player's card.
   const chainCards = previousTurnSummary?.cards.map(c => c.card);
   const hasChain = !!chainCards && chainCards.length > 0;
+  // ...and the turn being discarded gives back everything IT drew, not just
+  // the card in play (see inProgressChainCards).
+  const liveCards = inProgressChainCards(currentCard, liveTurnState);
 
   return {
     players: newPlayers,
@@ -831,8 +873,8 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
     nextRound: newRound,
     isRoundEndUndo,
     newDeck: hasChain
-      ? [...chainCards.slice(1), ...(currentCard ? [currentCard] : []), ...cards]
-      : (currentCard ? [currentCard, ...cards] : [...cards]),
+      ? [...chainCards.slice(1), ...liveCards, ...cards]
+      : [...liveCards, ...cards],
     drawnCard: hasChain ? chainCards[0] : definitePreviousCard,
   };
 };
