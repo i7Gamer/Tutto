@@ -138,6 +138,24 @@ describe('Statistics Component', () => {
     expect(onBackMock).toHaveBeenCalled();
   });
 
+  it('groups the card-breakdown counts and averages like every other number', async () => {
+    // 1,200 Feuerwerk received, 200 busted -> 1,000 won; 2,400,000 points
+    // over 1,200 cards -> 2,000 average. All four-digit or more, so a raw
+    // render would show bare digits beside the grouped StatTiles above them.
+    const personal = {
+      gamesPlayed: 10, wins: 6, totalPlaytime: 100, totalTurns: 100, totalScore: 40000,
+      feuerwerkReceived: 1200, feuerwerkBusts: 200, feuerwerkPointsScored: 2_400_000,
+    };
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(url.includes('global') ? {} : personal))));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+    expect(screen.getAllByText('1,200').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('1,000').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('2,000').length).toBeGreaterThan(0);
+  });
+
   it('names the device in a header rather than in the URL', async () => {
     // A path segment is written into every fronting proxy's access.log, and
     // this id is what lets a client reclaim its seat — see deviceStatsRequest.

@@ -249,7 +249,8 @@ const CardBreakdown = ({ rows }: { rows: CardBreakdownRow[] }) => {
 };
 
 const CardRow = ({ label, icon, count, wins, fails, avgPoints, hideRate, failsLabel }: CardRowProps) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language;
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -263,17 +264,17 @@ const CardRow = ({ label, icon, count, wins, fails, avgPoints, hideRate, failsLa
       </div>
       <div className="flex items-center gap-6">
         <div className="text-center min-w-[40px]">
-          <div className="font-black text-lg text-gray-700 dark:text-gray-200">{count}</div>
+          <div className="font-black text-lg text-gray-700 dark:text-gray-200">{formatInt(count, lang)}</div>
           <div className="stat-caption">{t('statistics.total', 'Total')}</div>
         </div>
         {wins !== undefined && (
           <>
             <div className="text-center min-w-[40px] hidden sm:block">
-              <div className="font-black text-lg text-emerald-500 dark:text-emerald-400">{wins}</div>
+              <div className="font-black text-lg text-emerald-500 dark:text-emerald-400">{formatInt(wins, lang)}</div>
               <div className="stat-caption">{t('statistics.won', 'Won')}</div>
             </div>
             <div className="text-center min-w-[40px] hidden sm:block">
-              <div className="font-black text-lg text-red-500 dark:text-red-400">{fails}</div>
+              <div className="font-black text-lg text-red-500 dark:text-red-400">{formatInt(fails ?? 0, lang)}</div>
               <div className="stat-caption">{failsLabel || t('statistics.lost', 'Lost')}</div>
             </div>
             {!hideRate && (
@@ -286,7 +287,7 @@ const CardRow = ({ label, icon, count, wins, fails, avgPoints, hideRate, failsLa
         )}
         {avgPoints !== undefined && (
           <div className="text-center min-w-[50px]">
-            <div className="font-black text-lg text-amber-500 dark:text-amber-400">{count > 0 ? Math.round(avgPoints / count) : 0}</div>
+            <div className="font-black text-lg text-amber-500 dark:text-amber-400">{formatInt(count > 0 ? Math.round(avgPoints / count) : 0, lang)}</div>
             <div className="stat-caption">{t('statistics.avgPts', 'Avg Pts')}</div>
           </div>
         )}
@@ -656,7 +657,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                     from reading as "every game ever played". */}
                 {!!g?.customGamesPlayed && (
                   <p className="text-sm text-gray-400 dark:text-gray-500 mt-2">
-                    {t('statistics.customGamesNotCounted', 'Custom games played: {{count}} (not counted here)', { count: g.customGamesPlayed })}
+                    {t('statistics.customGamesNotCounted', 'Custom games played: {{played}} (not counted here)', { played: formatInt(g.customGamesPlayed ?? 0, i18n.language) })}
                   </p>
                 )}
               </div>

@@ -308,7 +308,7 @@
   "statistics.globalCommunityTitle": "Globale Community-Statistiken",
   "statistics.globalDescription": "Zusammengefasst über alle normalen Online-Spiele des gewählten Regelwerks.",
   "statistics.noGlobalGames": "Es wurden noch keine Spiele auf dem Server gespielt!",
-  "statistics.customGamesNotCounted": "Angepasste Spiele: {{count}} (hier nicht mitgezählt)",
+  "statistics.customGamesNotCounted": "Angepasste Spiele: {{played}} (hier nicht mitgezählt)",
   "statistics.totalGames": "Gesamte Spiele",
   "statistics.avgGameDuration": "Ø Spieldauer",
   "statistics.totalPointsScored": "Gesamte erzielte Punkte",

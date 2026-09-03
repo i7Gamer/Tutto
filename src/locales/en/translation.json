@@ -313,7 +313,7 @@
   "statistics.globalCommunityTitle": "Global Community Statistics",
   "statistics.globalDescription": "Aggregated across all normal online games played under the selected rule set.",
   "statistics.noGlobalGames": "No games have been played on the server yet!",
-  "statistics.customGamesNotCounted": "Custom games played: {{count}} (not counted here)",
+  "statistics.customGamesNotCounted": "Custom games played: {{played}} (not counted here)",
   "statistics.totalGames": "Total Games",
   "statistics.avgGameDuration": "Avg Game Duration",
   "statistics.totalPointsScored": "Total Points Scored",
