@@ -113,8 +113,8 @@ export function PlayerList({
                            collapses to one identical string under the unit i18n
                            mock — the same reason the recent-rooms remove button
                            builds its label this way. */
-                        aria-label={`${t('lobby.playerColorLabel', 'Colour for:')} ${p.name}`}
-                        title={`${t('lobby.playerColorLabel', 'Colour for:')} ${p.name}`}
+                        aria-label={`${t('lobby.playerColorLabel', 'Color for:')} ${p.name}`}
+                        title={`${t('lobby.playerColorLabel', 'Color for:')} ${p.name}`}
                         value={p.color || '#ffffff'}
                         onChange={(e) => changeColor(p, e.target.value)}
                         className={`w-6 h-6 p-0 border-0 bg-transparent align-middle cursor-pointer ${!isOnline ? 'mr-1' : ''}`}

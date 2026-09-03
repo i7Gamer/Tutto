@@ -185,6 +185,29 @@ describe('lobby.customGameNoStats wording', () => {
   });
 });
 
+// LobbyShared.tsx's own t() fallbacks for the colour-picker label still
+// carried the British spelling after the en-US pass corrected the actual
+// translation VALUE — the same blind spot the Leaderboard guard above closes
+// for a different key: a fallback only ever renders when the key itself is
+// missing, so nothing there caught it disagreeing with the real EN string.
+describe('LobbyShared.tsx playerColorLabel fallback', () => {
+  it('t() fallbacks for lobby.playerColorLabel match the EN translation', () => {
+    const lobbySharedSource = fs.readFileSync(
+      path.resolve(__dirname, '../components/home/LobbyShared.tsx'),
+      'utf8',
+    );
+    const enValue = readLocale(enPath)['lobby.playerColorLabel'];
+
+    const fallbackRegex = /t\(\s*['"`]lobby\.playerColorLabel['"`]\s*,\s*['"`]([^'"`]+)['"`]\s*\)/g;
+    const fallbacks = [...lobbySharedSource.matchAll(fallbackRegex)].map(m => m[1]);
+
+    expect(fallbacks.length).toBeGreaterThan(0);
+    fallbacks.forEach((fallback) => {
+      expect(fallback).toBe(enValue);
+    });
+  });
+});
+
 // home.restore.cancel actually gives up the seat (App.tsx's restore dialog
 // wires it to cancelReconnect, a server leave) but read like a harmless
 // dismiss ("No, Cancel") — nothing on the button hinted that declining costs
