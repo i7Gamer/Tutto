@@ -271,7 +271,18 @@ export const useGameStore = create<GameStore>()(
       if (mode === 'local') {
         disconnectSocket();
         get().stopOnlineTimers();
-        get().startLocalTimers();
+        // Only (re)start the 1s clock when there is actually a game running to
+        // tick: Home calls setMode('local') on mount with no game at all, and
+        // starting the interval there just leaves it ticking (a no-op every
+        // second, per the guard in startLocalTimers) until a game eventually
+        // starts. The two real starters are startGame and this restore path —
+        // a saved local game whose Object.assign above put it back in
+        // progress. Same test as reanchorLocalClock above, deliberately: an
+        // in-progress restore and a re-anchored clock are the same condition.
+        const restored = get();
+        if (roomPhase(restored) === 'playing' && restored.currentPlayerIndex !== null) {
+          get().startLocalTimers();
+        }
       } else {
         get().stopLocalTimers();
       }

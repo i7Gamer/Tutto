@@ -329,6 +329,69 @@ describe('useGameStore', () => {
     expect(useGameStore.getState().gameStartTime).toBeNull();
   });
 
+  describe("setMode('local') and the 1s game clock", () => {
+    // Home calls setMode('local') on mount with no game running at all — that
+    // used to start the 1s interval unconditionally, leaving it ticking
+    // (harmlessly no-op'ing on every tick, but never stopped) for as long as
+    // the player sits on the menu. The clock should only start when a game
+    // actually starts (startGame) or an in-progress local game is restored.
+    it('with no local game running, does not start the 1s game clock', () => {
+      localStorage.removeItem('tutto_local_game');
+      useGameStore.setState({ mode: 'online' });
+      const setIntervalSpy = vi.spyOn(global, 'setInterval');
+
+      useGameStore.getState().setMode('local');
+
+      expect(setIntervalSpy).not.toHaveBeenCalled();
+      setIntervalSpy.mockRestore();
+    });
+
+    // A saved local game restored via setMode (e.g. a room's setMode('local')
+    // fallback finding a mid-game save on disk) must still get its clock
+    // going, exactly like init() already does for the direct-into-<Game/> path
+    // (see 'resuming a mid-game local save also restarts the 1-second game
+    // clock' above).
+    it('restoring an in-progress local save starts the clock and it actually ticks', () => {
+      vi.useFakeTimers();
+      try {
+        localStorage.setItem('tutto_local_game', JSON.stringify({
+          players: [{ name: 'Alice', color: '#ff0000', score: 100 }],
+          status: 'playing',
+          currentPlayerIndex: 0,
+          finished: false,
+          round: 2,
+          gameTimeInSeconds: 50,
+        }));
+        useGameStore.setState({ mode: 'online' });
+
+        useGameStore.getState().setMode('local');
+        vi.advanceTimersByTime(3000);
+
+        expect(useGameStore.getState().gameTimeInSeconds).toBe(53);
+      } finally {
+        _resetTimersForTests();
+        vi.useRealTimers();
+      }
+    });
+
+    it('a save that is not in progress (lobby) does not start the clock either', () => {
+      localStorage.setItem('tutto_local_game', JSON.stringify({
+        players: [{ name: 'Alice', color: '#ff0000', score: 0 }],
+        status: 'lobby',
+        currentPlayerIndex: null,
+        finished: false,
+        gameTimeInSeconds: 0,
+      }));
+      useGameStore.setState({ mode: 'online' });
+      const setIntervalSpy = vi.spyOn(global, 'setInterval');
+
+      useGameStore.getState().setMode('local');
+
+      expect(setIntervalSpy).not.toHaveBeenCalled();
+      setIntervalSpy.mockRestore();
+    });
+  });
+
   it('does not rewrite localStorage on a pure game-timer tick, but does on a real change', () => {
     useGameStore.getState().addPlayer('Alice');
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
