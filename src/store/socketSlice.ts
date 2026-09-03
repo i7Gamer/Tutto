@@ -150,6 +150,31 @@ let pushRejoinRetryTimer: ReturnType<typeof setTimeout> | null = null;
 // rather than as a real refusal.
 let lastReconnectAt: number | null = null;
 
+// The deadline armed for the automatic rejoin the latest 'connect' sent (see
+// registerSocketHandlers). Module state rather than a local of that handler:
+// reconnects can overlap — the transport can drop again while a rejoin is
+// still in flight — and the earlier attempt's ack can then never arrive,
+// because the socket it was sent on is gone. Left armed, that dead attempt
+// toasted "No response from the server" and tore the reconnect popup down
+// JOIN_TIMEOUT_MS after the newer rejoin had already succeeded.
+let rejoinWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Disarms the pending rejoin watchdog, if any.
+ *
+ * Called when a newer 'connect' supersedes the attempt it belongs to, when
+ * that attempt is acked, and from every path that abandons the room
+ * (leaveRoom, the kicked/seatTakenOver surrender, cancelReconnect,
+ * useGameStore's reset) — the same set clearPendingPush is called from, and
+ * for the same reason: `set(clearRoomState())` cannot reach module state.
+ */
+export const clearRejoinWatchdog = (): void => {
+  if (rejoinWatchdogTimer !== null) {
+    clearTimeout(rejoinWatchdogTimer);
+    rejoinWatchdogTimer = null;
+  }
+};
+
 /**
  * Forgets any push this client is still holding for the current room.
  *
@@ -191,6 +216,7 @@ export const _resetSocketSliceForTests = (): void => {
   pendingCancelReconnectCleanup?.();
   pendingCancelReconnectCleanup = null;
   clearPendingPush();
+  clearRejoinWatchdog();
 };
 
 type SocketSliceSet = Parameters<ImmerStateCreator<SocketSlice>>[0];
@@ -495,6 +521,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     sessionStore.remove('tutto_online_session');
     clearTurnCaches();
     clearPendingPush();
+    clearRejoinWatchdog();
     set(clearRoomState());
     get().setMode('local');
   };
@@ -530,6 +557,10 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     // Stamped before the early return: an 'unauthorized' push refusal is only
     // excused as a rejoin race for a short window after this moment.
     lastReconnectAt = Date.now();
+    // Whatever the previous connect was still waiting on died with its
+    // socket: only the attempt this handler is about to make (if any) may
+    // speak for the player from here.
+    clearRejoinWatchdog();
     const { mode, roomId, myName, deviceId } = get();
     if (!roomId || !myName) {
       // Nothing to rejoin, so anything the drop raised is now stale. Limited
@@ -552,12 +583,18 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     // to reconnect" modal stayed up for good, with the menu button as the only
     // way out.
     const watchdog = setTimeout(() => {
+      rejoinWatchdogTimer = null;
       get().addToast(i18n.t('lobby.online.joinTimeout', 'No response from the server. Please try again.'));
       set({ showReconnectPopup: false });
     }, JOIN_TIMEOUT_MS);
+    rejoinWatchdogTimer = watchdog;
 
     sock.emit('joinRoom', { roomId, name: myName, deviceId, color: savedColor, isReconnect: true }, (res: JoinRoomResponse) => {
       clearTimeout(watchdog);
+      // Only if this ack's own watchdog is still the pending one — a late ack
+      // from a superseded attempt must not disarm the live attempt's deadline
+      // (same identity check pendingCancelReconnectCleanup's cleanup makes).
+      if (rejoinWatchdogTimer === watchdog) rejoinWatchdogTimer = null;
       if (res.success) {
         // The floor goes with the connection: the room may have been
         // recreated under the same id while this client was away, and its
@@ -600,6 +637,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
 
     clearTurnCaches();
     clearPendingPush();
+    clearRejoinWatchdog();
     sessionStore.remove('tutto_online_session');
     set({ pendingReconnectSession: null, liveTurnState: null, showReconnectPopup: false });
 
@@ -728,6 +766,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     sessionStore.remove('tutto_online_session');
     clearTurnCaches();
     clearPendingPush();
+    clearRejoinWatchdog();
     set(clearRoomState());
   },
 

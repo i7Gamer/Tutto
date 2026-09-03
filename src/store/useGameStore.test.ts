@@ -1368,6 +1368,113 @@ describe('useGameStore', () => {
         }
       });
 
+      // How long the first reconnect's rejoin is left in flight before the
+      // transport drops again — any value short of the deadline will do.
+      const FIRST_ATTEMPT_IN_FLIGHT_MS = JOIN_TIMEOUT_MS / 2;
+
+      // The watchdog used to be a plain local of the 'connect' handler, so a
+      // second reconnect while the first rejoin was still in flight left the
+      // first one armed: its ack can never come (that socket is gone), so it
+      // toasted "No response from the server" and tore the popup down ten
+      // seconds after the SECOND rejoin had already succeeded.
+      it('does not fire the first attempt\'s watchdog once a later reconnect is acked', () => {
+        vi.useFakeTimers();
+        try {
+          stageSeatedReconnect();
+          mockEmit.mockClear();
+
+          // First connect: the rejoin goes out and nothing ever acks it.
+          mockOnHandlers['connect']();
+          vi.advanceTimersByTime(FIRST_ATTEMPT_IN_FLIGHT_MS);
+
+          // The transport comes back and this rejoin is acked.
+          mockEmit.mockImplementation((event, _payload, ack) => {
+            if (event === 'joinRoom') ack({ success: true, isHost: false, name: 'Alice' });
+          });
+          mockOnHandlers['connect']();
+          expect(useGameStore.getState().myName).toBe('Alice');
+
+          const toastsAfterAck = useGameStore.getState().toasts.length;
+          vi.advanceTimersByTime(JOIN_TIMEOUT_MS * 2);
+          expect(useGameStore.getState().toasts.length, 'the dead attempt must stay quiet').toBe(toastsAfterAck);
+          // The gameState sync that follows the rejoin is what lowers this —
+          // the stale watchdog must not do it first.
+          expect(useGameStore.getState().showReconnectPopup).toBe(true);
+        } finally {
+          mockEmit.mockReset();
+          vi.useRealTimers();
+        }
+      });
+
+      it('drops the watchdog when the room is left while the rejoin is in flight', () => {
+        vi.useFakeTimers();
+        try {
+          stageSeatedReconnect();
+          mockEmit.mockClear();
+
+          mockOnHandlers['connect']();
+          useGameStore.getState().leaveRoom();
+
+          const toasts = useGameStore.getState().toasts.length;
+          vi.advanceTimersByTime(JOIN_TIMEOUT_MS * 2);
+          expect(useGameStore.getState().toasts.length, 'no seat is waiting on that ack any more').toBe(toasts);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('drops the watchdog when the reconnect is cancelled while the rejoin is in flight', () => {
+        vi.useFakeTimers();
+        try {
+          stageSeatedReconnect();
+          mockEmit.mockClear();
+
+          mockOnHandlers['connect']();
+          useGameStore.getState().cancelReconnect();
+
+          const toasts = useGameStore.getState().toasts.length;
+          vi.advanceTimersByTime(JOIN_TIMEOUT_MS * 2);
+          expect(useGameStore.getState().toasts.length).toBe(toasts);
+          expect(useGameStore.getState().showReconnectPopup).toBe(false);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('drops the watchdog when the store is reset while the rejoin is in flight', () => {
+        vi.useFakeTimers();
+        try {
+          stageSeatedReconnect();
+          mockEmit.mockClear();
+
+          mockOnHandlers['connect']();
+          useGameStore.getState().reset();
+
+          const toasts = useGameStore.getState().toasts.length;
+          vi.advanceTimersByTime(JOIN_TIMEOUT_MS * 2);
+          expect(useGameStore.getState().toasts.length).toBe(toasts);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('drops the watchdog when the seat is surrendered while the rejoin is in flight', () => {
+        vi.useFakeTimers();
+        try {
+          stageSeatedReconnect();
+          mockEmit.mockClear();
+
+          mockOnHandlers['connect']();
+          mockOnHandlers['kicked']();
+
+          const toasts = useGameStore.getState().toasts.length;
+          vi.advanceTimersByTime(JOIN_TIMEOUT_MS * 2);
+          expect(useGameStore.getState().toasts.length, 'only the kick is worth saying').toBe(toasts);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
       it('arms no watchdog when there is no seat to rejoin', () => {
         vi.useFakeTimers();
         try {

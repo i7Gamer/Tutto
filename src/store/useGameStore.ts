@@ -13,7 +13,7 @@ import type { GameStore, GameStatus, ReconnectSession, PreGameStats, FinishedGam
 import { validateOnlineConfig, reanchorLocalClock, attachPersistence, pickLocalGameState } from './persistence';
 import { createTimerSlice } from './timers';
 import { createConfigSlice } from './configSlice';
-import { createSocketSlice, clearRoomState, clearPendingPush } from './socketSlice';
+import { createSocketSlice, clearRoomState, clearPendingPush, clearRejoinWatchdog } from './socketSlice';
 import { createGameSlice } from './gameSlice';
 import { disconnectSocket } from './socketRef';
 
@@ -119,6 +119,10 @@ export const useGameStore = create<GameStore>()(
       // for a room this store is throwing away must not be flushed into the
       // next one by a later reconnect.
       clearPendingPush();
+      // Same reason, same reach: a rejoin deadline armed for the room being
+      // thrown away must not toast "No response from the server" into the
+      // fresh one.
+      clearRejoinWatchdog();
       set({
         ...createInitialLocalState(),
         ...clearRoomState(),
