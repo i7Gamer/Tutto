@@ -9,8 +9,11 @@
  * revertSummaryCounters / applyClassicPlusMinus / advanceTurnOrder — any red
  * here means the split changed behaviour, not that the oracle is wrong.
  *
- * Two carve-outs are deliberate, not oversights — see the comments beside
- * NOT_UNDOABLE_HIGH_SCORE_FIELDS and the bare-Stop branch below.
+ * One carve-out is deliberate, not an oversight — see the comment beside the
+ * bare-Stop branch below. (A second one, the undo of a never-set record
+ * coming back as 0 instead of undefined, was a real asymmetry this oracle
+ * documented for a while; it is fixed in calculateUndo and asserted exactly
+ * again.)
  *
  * A third gap is structural rather than a carve-out: applySummaryCounters and
  * revertSummaryCounters both drive the same CARD_COUNTER_DELTAS table (delta
@@ -30,7 +33,7 @@ import {
 } from './coreGameEngine';
 import { isSpecialCard } from './diceTurnControls';
 import { makePlayer, makeGameState, nonNull } from '../testing/factories';
-import type { CardType, Player } from '../types';
+import type { CardType } from '../types';
 
 // ── PRNG ─────────────────────────────────────────────────────────────────
 // mulberry32: small, fast, deterministic. The seed is fixed so a failure is
@@ -79,34 +82,6 @@ const SPECIAL_VALUE_RANGE = 2000;
 const INITIAL_CARDS = {
   '200': 10, '300': 10, '400': 10, '500': 8, '600': 8,
   Kniffel: 6, Plus_Minus: 6, x2: 6, Feuerwerk: 6, Kleeblatt: 4, Stop: 6,
-};
-
-// calculateUndo restores highestTurnScore/highestFeuerwerkTurnScore/
-// highestX2TurnScore via `previousHighestXTurnScore ?? 0` unconditionally
-// (coreGameEngine.ts ~744-746), where the "previous" value was itself
-// captured as `currentPlayer.highestXTurnScore ?? 0` (~552-554). A player who
-// has never set one of these fields carries it as `undefined` ("no record
-// yet", per playerStats.ts's PLAYER_RECORD_FIELD_MAP comment — deliberately
-// NOT zeroed at game start). Undoing a turn that didn't beat the record
-// (e.g. a player's very first turn, if it's a bust) writes the captured `0`
-// back unconditionally, turning that `undefined` into a `0`.
-//
-// This is a REAL, pre-existing asymmetry (confirmed with a standalone
-// repro: a fresh player's first turn is a numeric-card bust, scoreInput 0 —
-// apply leaves highestTurnScore `undefined`, undo sets it to `0`). It predates
-// this refactor, lives in code shared by both rulesets (not the classic/
-// modern duplicated blocks B5 targets), and every read site defaults with
-// `?? 0` / `|| 0` (see buildGlobalStatsPayload, buildDeviceStatsPayload), so
-// it is not user-visible. Per instructions this is reported, not "fixed" —
-// excluded here so the oracle asserts everything else exactly.
-const NOT_UNDOABLE_HIGH_SCORE_FIELDS = ['highestTurnScore', 'highestFeuerwerkTurnScore', 'highestX2TurnScore'] as const;
-
-const normalizeForUndoComparison = (player: Player) => {
-  const normalized = { ...player };
-  for (const field of NOT_UNDOABLE_HIGH_SCORE_FIELDS) {
-    normalized[field] = normalized[field] ?? 0;
-  }
-  return normalized;
 };
 
 const numericValue = (card: string, rng: ReturnType<typeof makeRng>): number => {
@@ -302,7 +277,7 @@ const runGame = (ruleset: 'classic' | 'modernized', rng: ReturnType<typeof makeR
       expect(restored.nextRound).toBe(beforeRound);
       expect(restored.drawnCard).toBe(beforeCurrentCard);
       expect(restored.newDeck).toEqual(beforeCards);
-      expect(restored.players.map(normalizeForUndoComparison)).toEqual(beforePlayers.map(normalizeForUndoComparison));
+      expect(restored.players).toEqual(beforePlayers);
       totals.turnsUndoVerified++;
     }
 

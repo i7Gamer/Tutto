@@ -1187,6 +1187,29 @@ describe('coreGameEngine', () => {
       expect(result.players[0].highestX2TurnScore).toBe(700);
     });
 
+    it('leaves a record the seat never had undefined, not zero, after undo', () => {
+      // A player starts with no records ("no value yet" is undefined, per
+      // playerStats.ts), and the engine only ever writes a record that BEATS
+      // the previous one — never a 0. So a 0 in the pre-turn snapshot means
+      // there was no record, and undo must put back exactly that: a fresh
+      // player whose first (busted) turn is undone is a fresh player again.
+      const state = makeState({
+        players: [makePlayer('Alice'), makePlayer('Bob')],
+        currentPlayerIndex: 1,
+        previousCard: '200',
+        previousScore: 0,
+        previousWasBust: true,
+        previousHighestTurnScore: 0,
+        previousHighestFeuerwerkTurnScore: 0,
+        previousHighestX2TurnScore: 0,
+        previousPlayerName: 'Alice',
+      });
+      const result = nonNull(calculateUndo(state));
+      expect(result.players[0].highestTurnScore).toBeUndefined();
+      expect(result.players[0].highestFeuerwerkTurnScore).toBeUndefined();
+      expect(result.players[0].highestX2TurnScore).toBeUndefined();
+    });
+
     it('reverses Kleeblatt failure', () => {
       const state = makeState({
         players: [makePlayer('Alice', { timesKleeblattFailed: 1 }), makePlayer('Bob')],

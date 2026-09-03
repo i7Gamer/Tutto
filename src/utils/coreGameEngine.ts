@@ -26,6 +26,17 @@ export { buildDeviceStatsPayload, buildGlobalStatsPayload };
 export const PLUS_MINUS_SCORE = 1000;
 export const KNIFFEL_SCORE = 2000;
 
+// How a per-turn record a player has not set yet is carried in the pre-turn
+// snapshot (NextTurnResult types those as plain numbers). Safe as a sentinel
+// because the engine only ever writes a record that BEATS the previous value,
+// which starts here — so no real record is ever 0, and calculateUndo can put
+// back `undefined` ("no value yet", see playerStats.ts) instead of a
+// manufactured zero.
+const NO_RECORD_YET = 0;
+
+const recordFromSnapshot = (snapshot: number): number | undefined =>
+  snapshot === NO_RECORD_YET ? undefined : snapshot;
+
 // A deck with every card type at 0 leaves currentCard permanently null and the
 // game unplayable — both lobbies must refuse to start in that state.
 export const hasPlayableDeck = (initialCards: InitialCards | undefined): boolean =>
@@ -371,9 +382,9 @@ const applyHighestTurnScoreRecords = (
   currentCard: CardType | null,
   turnSummary: TurnSummary | undefined,
 ): HighestTurnScoreSnapshot => {
-  const previousHighestTurnScore = currentPlayer.highestTurnScore ?? 0;
-  const previousHighestFeuerwerkTurnScore = currentPlayer.highestFeuerwerkTurnScore ?? 0;
-  const previousHighestX2TurnScore = currentPlayer.highestX2TurnScore ?? 0;
+  const previousHighestTurnScore = currentPlayer.highestTurnScore ?? NO_RECORD_YET;
+  const previousHighestFeuerwerkTurnScore = currentPlayer.highestFeuerwerkTurnScore ?? NO_RECORD_YET;
+  const previousHighestX2TurnScore = currentPlayer.highestX2TurnScore ?? NO_RECORD_YET;
 
   if (turnScore > previousHighestTurnScore) currentPlayer.highestTurnScore = turnScore;
   if (!turnSummary && currentCard === 'Feuerwerk' && turnScore > previousHighestFeuerwerkTurnScore) {
@@ -425,9 +436,9 @@ const resolveKleeblattWin = (
     previousCard: currentCard, previousScore: turnScore,
     previousLeaders: snapshotLeaders, previousWasBust: wasBust,
     previousWasSuccess: isSuccess,
-    previousHighestTurnScore: currentPlayer.highestTurnScore ?? 0,
-    previousHighestFeuerwerkTurnScore: currentPlayer.highestFeuerwerkTurnScore ?? 0,
-    previousHighestX2TurnScore: currentPlayer.highestX2TurnScore ?? 0,
+    previousHighestTurnScore: currentPlayer.highestTurnScore ?? NO_RECORD_YET,
+    previousHighestFeuerwerkTurnScore: currentPlayer.highestFeuerwerkTurnScore ?? NO_RECORD_YET,
+    previousHighestX2TurnScore: currentPlayer.highestX2TurnScore ?? NO_RECORD_YET,
     previousPlayerName: currentPlayer.name,
     previousTurnSummary: summaryForState,
     newDeck: cards, drawnCard: null,
@@ -803,9 +814,9 @@ export const calculateUndo = (gameState: CoreGameState): UndoResult | null => {
     revertModernizedCounters(newPlayers, p, definitePreviousCard, previousScore, previousWasBust, previousLeaders, wasCompleted);
   }
 
-  if (previousHighestTurnScore !== undefined) p.highestTurnScore = previousHighestTurnScore;
-  if (previousHighestFeuerwerkTurnScore !== undefined) p.highestFeuerwerkTurnScore = previousHighestFeuerwerkTurnScore;
-  if (previousHighestX2TurnScore !== undefined) p.highestX2TurnScore = previousHighestX2TurnScore;
+  if (previousHighestTurnScore !== undefined) p.highestTurnScore = recordFromSnapshot(previousHighestTurnScore);
+  if (previousHighestFeuerwerkTurnScore !== undefined) p.highestFeuerwerkTurnScore = recordFromSnapshot(previousHighestFeuerwerkTurnScore);
+  if (previousHighestX2TurnScore !== undefined) p.highestX2TurnScore = recordFromSnapshot(previousHighestX2TurnScore);
   p.score -= (previousScore ?? 0);
 
   // A chained turn consumed several cards: put them all back so the replayed
