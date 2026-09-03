@@ -5,9 +5,23 @@ import { statsModeFor } from './roomTypes';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
 import { normalizeRoomId } from '../src/utils/configValidation';
+import type { EndGameStatsAck, StatsRefusalReason } from '../src/types';
+
+/**
+ * The optional callback a client may pass as endGameStats' second argument.
+ *
+ * Optional in the type as well as on the wire, exactly like pushState's (see
+ * socketGameStateHandlers.ts): a client predating the ack sends only the
+ * payload, socket.io then invokes the handler with one argument, and every
+ * branch below behaves as it did before.
+ */
+type EndGameStatsAckFn = (result: EndGameStatsAck) => void;
 
 const SUBMIT_GLOBAL_STATS_LIMIT = { windowMs: 10_000, max: 5 };
-const END_GAME_STATS_LIMIT = { windowMs: 10_000, max: 5 };
+// Exported so the ack tests can spend exactly the budget rather than guessing
+// at it — a client that hits 'rate-limited' backs off, so the number matters
+// to more than this file now.
+export const END_GAME_STATS_LIMIT = { windowMs: 10_000, max: 5 };
 
 // One finish, one game — see the `gamesPlayed` override in endGameStats.
 const GAMES_PER_FINISH = 1;
@@ -113,22 +127,35 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     }
   });
 
-  safeOn(socket, 'endGameStats', async (data: { deviceId?: string; stats?: unknown } | null | undefined) => {
-    if (!endGameStatsLimiter()) return;
-    if (!data || typeof data !== 'object') return;
+  safeOn(socket, 'endGameStats', async (
+    data: { deviceId?: string; stats?: unknown } | null | undefined,
+    ack?: EndGameStatsAckFn,
+  ) => {
+    // Every bail-out below now names itself to the sender; the gates
+    // themselves are unchanged. Only 'write-failed' invites a resend — see
+    // STATS_REFUSAL_REASONS in src/types.ts for what each one means to the
+    // client.
+    const answer = (result: EndGameStatsAck): void => {
+      if (typeof ack === 'function') ack(result);
+    };
+    const refuse = (reason: StatsRefusalReason): void => answer({ ok: false, reason });
+
+    if (!endGameStatsLimiter()) return refuse('rate-limited');
+    if (!data || typeof data !== 'object') return refuse('invalid');
     const { deviceId, stats } = data;
-    if (typeof deviceId !== 'string') return;
+    if (typeof deviceId !== 'string') return refuse('invalid');
     // A socket may only submit stats for its OWN device, and only while it is a
     // member of its current room. This mirrors the token gate on the HTTP path
     // (POST /api/stats/:deviceId) so the socket route can't be used to write
     // arbitrary device statistics.
     const roomId = session.roomId;
     const room = roomId ? rooms[roomId] : null;
-    const player = room?.state.players.find(p => p.socketId === socket.id);
-    if (!player || player.deviceId !== deviceId || !room) return;
+    if (!room) return refuse('no-room');
+    const player = room.state.players.find(p => p.socketId === socket.id);
+    if (!player || player.deviceId !== deviceId) return refuse('unauthorized');
     // See submitGlobalStats above — stats are only accepted for a game that
     // actually reached its end.
-    if (!room.state.finished) return;
+    if (!room.state.finished) return refuse('not-finished');
     // See submitGlobalStats above — same reconnect-after-finish dedup, per
     // device. A row the SERVER wrote for this device (a seat that had left or
     // was disconnected when the finish was broadcast — see
@@ -138,7 +165,7 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // submission as a duplicate lost them for good, so it is accepted as a
     // MERGE instead. Only a full row already in makes a submission a no-op.
     const recordedLevel = room.statsRecordedForGame.devices.get(deviceId);
-    if (recordedLevel === 'full') return;
+    if (recordedLevel === 'full') return refuse('duplicate');
     const isMerge = recordedLevel === 'verdict-only';
     // See submitGlobalStats: pre-marking blocks concurrent duplicates,
     // rollback on failure keeps a retry possible instead of losing the game's
@@ -207,8 +234,17 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
       if (recordedLevel) room.statsRecordedForGame.devices.set(deviceId, recordedLevel);
       else room.statsRecordedForGame.devices.delete(deviceId);
       console.error('[endGameStats] error:', err);
-      return;
+      // The rollback above is what makes this reason retryable: the client
+      // resends the identical payload (see the bounded retry in
+      // src/store/socketSlice.ts) and it is recorded as if the first attempt
+      // had never happened.
+      return refuse('write-failed');
     }
+
+    // Committed. Acked BEFORE the streak refresh below, which is a broadcast
+    // concern rather than part of the submission: its failure must not read
+    // as a lost write, and the client has nothing to do about it either way.
+    answer({ ok: true });
 
     // The win/loss just recorded above may have changed this device's streak.
     // `player` still holds the value from when they joined, so without this

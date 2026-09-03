@@ -348,6 +348,59 @@ export type PushStateAck =
   | { ok: true; stateVersion: number }
   | { ok: false; reason: PushRefusalReason };
 
+/**
+ * Why the server did not record an endGameStats submission.
+ *
+ * endGameStats used to be fire-and-forget, and every one of its bail-outs was
+ * a silent `return`. The one that mattered was the write failure: the handler
+ * rolls its dedup entry back so a retry CAN land, but nothing ever retried,
+ * so a single transient sqlite error (see SQLITE_BUSY_TIMEOUT_MS in
+ * server/knexfile.ts for the other half of that fix) lost that device's row
+ * for the game permanently. Naming the reason is what lets the client tell
+ * "try again" apart from "never send this again".
+ *
+ * Modelled on PUSH_REFUSAL_REASONS above, and shared with the server
+ * (server/socketStatsHandlers.ts), which is the only thing that produces
+ * these values.
+ */
+export const STATS_REFUSAL_REASONS = [
+  // The submitting socket holds no seat in its room, or the seat it holds is
+  // not the device it is submitting for.
+  'unauthorized',
+  // No room on this session (a submission that outlived leaving it), or the
+  // room is gone.
+  'no-room',
+  // The room's game has not reached its end, so there are no stats to record.
+  'not-finished',
+  // The payload itself was not a usable endGameStats submission.
+  'invalid',
+  // The per-socket endGameStats rate limit.
+  'rate-limited',
+  // A full row for this device and game is already in. The submission was
+  // deliberately dropped, not lost — resending it would count the game twice,
+  // so this is the one refusal that is also a success for the client.
+  'duplicate',
+  // The database write threw. The dedup entry has been rolled back to what it
+  // was before the attempt, so an identical resend is safe — this is the only
+  // reason worth retrying.
+  'write-failed',
+] as const;
+
+export type StatsRefusalReason = (typeof STATS_REFUSAL_REASONS)[number];
+
+/**
+ * What the server answers an endGameStats with, when the client passes a
+ * callback. A client that passes none (an older one) is served exactly as
+ * before — every branch stays a plain return.
+ *
+ * `{ ok: true }` means the row is committed. Anything else names why it is
+ * not; only 'write-failed' is retryable (see the retry in
+ * src/store/socketSlice.ts).
+ */
+export type EndGameStatsAck =
+  | { ok: true }
+  | { ok: false; reason: StatsRefusalReason };
+
 // Instantiating this with anything but `never` is a compile error that names
 // the offending key ("Type '\"foo\"' does not satisfy the constraint 'never'").
 // The field-list locks are built on it: wrap Exclude<inventory, handled> in it

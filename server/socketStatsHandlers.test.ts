@@ -1,7 +1,8 @@
 /** @vitest-environment node */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { registerStatsHandlers } from './socketStatsHandlers';
-import { makeFakeSocket, makeFakeIo, makeServerPlayer } from './socketTestHarness';
+import { registerStatsHandlers, END_GAME_STATS_LIMIT } from './socketStatsHandlers';
+import { makeFakeSocket, makeFakeIo, makeServerPlayer, type Handler } from './socketTestHarness';
+import type { EndGameStatsAck } from '../src/types';
 import { rooms, createRoom, deleteRoom, emitRoomState } from './rooms';
 import { summarizeActivity } from './activity';
 import { nonNull, makeDeviceStatsRow } from '../src/testing/factories';
@@ -891,5 +892,180 @@ describe('a submission carrying no usable game data still records the verdict', 
     const written = await submit('Alice', 'alice-sock', 'dev-alice', {});
 
     expect(written).toEqual({});
+  });
+});
+
+describe('endGameStats acks what it did with the submission', () => {
+  // The whole point of the ack: a write that failed is indistinguishable, to
+  // a fire-and-forget client, from one that landed. The handler already rolls
+  // its dedup entry back on a failed write so a resend CAN be recorded —
+  // these cases pin that it also SAYS so, and that every other bail-out names
+  // itself instead of being silently dropped.
+  const roomId = 'ACK-ROOM';
+  const deviceId = 'dev-alice';
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.mocked(getDeviceStats).mockReset().mockResolvedValue(null);
+    vi.mocked(updateDeviceStats).mockReset().mockResolvedValue(true);
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+  });
+
+  const stageFinishedGame = () => {
+    rooms[roomId] = createRoom('host-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null,
+      players: [makePlayer('Alice', 'alice-sock', deviceId)],
+    });
+  };
+
+  /** The handler, bound to a socket seated as Alice unless told otherwise. */
+  const handlerFor = (socketId = 'alice-sock', sessionRoomId: string | undefined = roomId) => {
+    const fake = makeFakeSocket(socketId);
+    registerStatsHandlers({
+      io: makeFakeIo().io, socket: fake.socket,
+      session: { roomId: sessionRoomId, username: 'Alice' },
+    });
+    return fake.handlers['endGameStats'];
+  };
+
+  const submitWithAck = async (
+    handler: Handler,
+    data: unknown,
+  ): Promise<EndGameStatsAck | undefined> => {
+    let ack: EndGameStatsAck | undefined;
+    await handler(data, (result: EndGameStatsAck) => { ack = result; });
+    return ack;
+  };
+
+  it('acks ok once the row is committed', async () => {
+    stageFinishedGame();
+
+    const ack = await submitWithAck(handlerFor(), { deviceId, stats: { gamesPlayed: 1, wins: 1 } });
+
+    expect(ack).toEqual({ ok: true });
+  });
+
+  it('acks write-failed, with the dedup reopened, so the client can resend', async () => {
+    stageFinishedGame();
+    vi.mocked(updateDeviceStats).mockRejectedValueOnce(new Error('SQLITE_BUSY'));
+
+    const first = await submitWithAck(handlerFor(), { deviceId, stats: { gamesPlayed: 1, wins: 1 } });
+
+    expect(first).toEqual({ ok: false, reason: 'write-failed' });
+    expect(rooms[roomId].statsRecordedForGame.devices.has(deviceId),
+      'reopened, or the resend the ack just invited would be refused as a duplicate').toBe(false);
+
+    // And the resend the ack invited is actually recorded.
+    const second = await submitWithAck(handlerFor(), { deviceId, stats: { gamesPlayed: 1, wins: 1 } });
+
+    expect(second).toEqual({ ok: true });
+    expect(vi.mocked(updateDeviceStats)).toHaveBeenCalledTimes(2);
+  });
+
+  it('acks duplicate for a repeat of a submission that already landed', async () => {
+    // ok:false, not a flagged success: nothing was written, and the client
+    // must be able to tell "recorded" from "deliberately dropped". It is
+    // still a terminal answer — resending would count the game twice.
+    stageFinishedGame();
+
+    await submitWithAck(handlerFor(), { deviceId, stats: { gamesPlayed: 1, wins: 1 } });
+    const repeat = await submitWithAck(handlerFor(), { deviceId, stats: { gamesPlayed: 1, wins: 1 } });
+
+    expect(repeat).toEqual({ ok: false, reason: 'duplicate' });
+    expect(vi.mocked(updateDeviceStats), 'the repeat wrote nothing').toHaveBeenCalledTimes(1);
+  });
+
+  it('acks unauthorized for a device the seat does not own', async () => {
+    stageFinishedGame();
+
+    const ack = await submitWithAck(handlerFor(), { deviceId: 'dev-someone-else', stats: {} });
+
+    expect(ack).toEqual({ ok: false, reason: 'unauthorized' });
+    expect(vi.mocked(updateDeviceStats)).not.toHaveBeenCalled();
+  });
+
+  it('acks unauthorized for a socket holding no seat in the room', async () => {
+    stageFinishedGame();
+
+    const ack = await submitWithAck(handlerFor('stranger-sock'), { deviceId, stats: {} });
+
+    expect(ack).toEqual({ ok: false, reason: 'unauthorized' });
+  });
+
+  it('acks no-room when the session holds no room at all', async () => {
+    const ack = await submitWithAck(handlerFor('alice-sock', undefined), { deviceId, stats: {} });
+
+    expect(ack).toEqual({ ok: false, reason: 'no-room' });
+  });
+
+  it('acks no-room when the room is gone', async () => {
+    // The session still names it; the room itself was deleted (the last seat
+    // left while this submission was in flight).
+    const ack = await submitWithAck(handlerFor(), { deviceId, stats: {} });
+
+    expect(ack).toEqual({ ok: false, reason: 'no-room' });
+  });
+
+  it('acks not-finished for a game that has not reached its end', async () => {
+    rooms[roomId] = createRoom('host-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: false, currentPlayerIndex: 0,
+      players: [makePlayer('Alice', 'alice-sock', deviceId)],
+    });
+
+    const ack = await submitWithAck(handlerFor(), { deviceId, stats: { gamesPlayed: 1 } });
+
+    expect(ack).toEqual({ ok: false, reason: 'not-finished' });
+  });
+
+  it('acks invalid for a payload that is not a submission', async () => {
+    stageFinishedGame();
+    const handler = handlerFor();
+
+    expect(await submitWithAck(handler, null)).toEqual({ ok: false, reason: 'invalid' });
+    expect(await submitWithAck(handler, {})).toEqual({ ok: false, reason: 'invalid' });
+    expect(await submitWithAck(handler, { deviceId: 42, stats: {} })).toEqual({ ok: false, reason: 'invalid' });
+  });
+
+  it('acks rate-limited once the per-socket limit is spent', async () => {
+    stageFinishedGame();
+    const handler = handlerFor();
+
+    // One more than the limiter allows in its window; only the last is read.
+    let ack: EndGameStatsAck | undefined;
+    for (let i = 0; i <= END_GAME_STATS_LIMIT.max; i += 1) {
+      ack = await submitWithAck(handler, { deviceId, stats: {} });
+    }
+
+    expect(ack).toEqual({ ok: false, reason: 'rate-limited' });
+  });
+
+  it('still serves a client that passes no callback at all', async () => {
+    // The ack is optional on the wire in both directions — an older client
+    // sends one argument, and socket.io then calls the handler with one.
+    stageFinishedGame();
+
+    await handlerFor()({ deviceId, stats: { gamesPlayed: 1, wins: 1 } });
+
+    expect(vi.mocked(updateDeviceStats), 'the row is still written').toHaveBeenCalledTimes(1);
+  });
+
+  it('acks ok even when only the post-write streak refresh fails', async () => {
+    // The row IS committed; a stale streak badge is not the client's problem
+    // to retry, and a retry would count the game twice.
+    stageFinishedGame();
+    vi.mocked(getDeviceStats).mockRejectedValue(new Error('read failed'));
+
+    const ack = await submitWithAck(handlerFor(), { deviceId, stats: { gamesPlayed: 1, wins: 1 } });
+
+    expect(ack).toEqual({ ok: true });
+    expect(errorSpy).toHaveBeenCalledWith('[endGameStats] streak refresh error:', expect.anything());
   });
 });
