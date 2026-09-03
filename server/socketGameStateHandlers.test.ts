@@ -74,7 +74,12 @@ describe('pushState turn-timer restarts', () => {
   it('a player change always restarts and resets the budget', () => {
     rooms[roomId].turnTimerState!.restartsThisTurn = MAX_TIMER_RESTARTS_PER_TURN;
 
-    pushState({ roomId, newState: { currentPlayerIndex: 1, currentCard: '200', cards: [] } });
+    // A real turn hand-over: the next player's draw takes exactly the top card
+    // off the deck. (A `cards: []` here would be refused by the deck-
+    // conservation rule in pushValidation and leave only the player change —
+    // still enough to pass, which is precisely how it would stop testing what
+    // it says.)
+    pushState({ roomId, newState: { currentPlayerIndex: 1, currentCard: '300', cards: ['200'] } });
 
     expect(rooms[roomId].state.turnStartTime).toBe(PUSH_TIME);
     expect(rooms[roomId].turnTimerState?.restartsThisTurn).toBe(0);
@@ -649,5 +654,93 @@ describe('pushState captures the game-start roster (startRoster)', () => {
       { deviceId: 'dev-Alice', name: 'Alice' },
       { deviceId: 'dev-Carol', name: 'Carol' },
     ]);
+  });
+});
+
+/**
+ * The live dice feed is the ACTIVE player's, and only theirs.
+ *
+ * The guard used to be `!isHost && !isActivePlayer`, which let the host write
+ * the snapshot during someone else's turn — and turnTimers reads exactly that
+ * snapshot into the timed-out player's own highestForfeitedTurnScore, which
+ * their unmodified client then submits for their device, where the DB merges
+ * it with MAX. Permanent, silent, and aimed at a victim who did nothing.
+ *
+ * Nothing legitimate emits this as a non-active host: the physical-dice relay
+ * is gated on isMyTurn and the dice modal is force-closed for every non-active
+ * client.
+ */
+describe('liveTurnState authorization', () => {
+  const roomId = 'LIVE-TURN-ROOM';
+  const ACTIVE_INDEX = 1;
+
+  const snapshot = (turnScore: number) => ({
+    turnScore, tuttosThisTurn: 0, keptDice: [], currentRoll: [], kniffelProgress: [],
+  });
+
+  const seat = (socketId: string, username: string) => {
+    const fake = makeFakeSocket(socketId);
+    const { io, emit } = makeFakeIo();
+    registerGameStateHandlers({ io, socket: fake.socket, session: { roomId, username } });
+    return { liveTurnState: fake.handlers['liveTurnState'], emit };
+  };
+
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    rooms[roomId] = createRoom('host-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: false, currentPlayerIndex: ACTIVE_INDEX, currentCard: '300',
+      cards: ['200'], round: 1, turnDuration: 60, turnStartTime: Date.now(),
+      liveTurnState: snapshot(150),
+      players: [
+        makePlayer('Alice', 'host-sock'),
+        makePlayer('Bob', 'active-sock'),
+        makePlayer('Carol', 'bystander-sock'),
+      ],
+    });
+  });
+
+  afterEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+  });
+
+  it('refuses a host who is not the active player', () => {
+    const alice = seat('host-sock', 'Alice');
+
+    alice.liveTurnState({ roomId, liveTurnState: snapshot(9_999) });
+
+    expect(rooms[roomId].state.liveTurnState, 'the host planted a snapshot on Bob\'s turn')
+      .toEqual(snapshot(150));
+    expect(alice.emit, 'a refused relay is not broadcast').not.toHaveBeenCalled();
+  });
+
+  it('refuses a host wiping the active player\'s snapshot', () => {
+    // The other half of the same hole: `null` is a valid payload, so a host
+    // could erase the live view the room is watching, and with it the
+    // forfeited-score the timeout path is about to read.
+    const alice = seat('host-sock', 'Alice');
+
+    alice.liveTurnState({ roomId, liveTurnState: null });
+
+    expect(rooms[roomId].state.liveTurnState).toEqual(snapshot(150));
+  });
+
+  it('refuses a seated bystander', () => {
+    const carol = seat('bystander-sock', 'Carol');
+
+    carol.liveTurnState({ roomId, liveTurnState: snapshot(9_999) });
+
+    expect(rooms[roomId].state.liveTurnState).toEqual(snapshot(150));
+  });
+
+  it('still accepts it from the active player, who is not the host', () => {
+    // The control: without it the refusals above would also pass for a handler
+    // that ignores everyone.
+    const bob = seat('active-sock', 'Bob');
+
+    bob.liveTurnState({ roomId, liveTurnState: snapshot(400) });
+
+    expect(rooms[roomId].state.liveTurnState).toEqual(snapshot(400));
+    expect(bob.emit).toHaveBeenCalledWith('liveTurnState', { liveTurnState: snapshot(400) });
   });
 });

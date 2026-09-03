@@ -138,10 +138,14 @@ describe('game clock (gameTimeInSeconds / gameActualStartTime)', () => {
 
     backdateClock(roomId, 3000);
 
-    // updatePlayerColor triggers a fresh emitRoomState so s2 observes the
-    // backdated elapsed time before disconnecting.
+    // requestState answers on the asking socket alone, so s2 observes the
+    // backdated elapsed time before disconnecting. It goes through the same
+    // buildGameStatePayload every broadcast does — gameTimeInSeconds included
+    // — and deliberately does not bump the state version, which nothing here
+    // asserts on. (updatePlayerColor used to serve as the rebroadcast trigger;
+    // it is a lobby-only control now and returns silently mid-game.)
     const s2Rebroadcast = new Promise<{ gameTimeInSeconds: number }>(resolve => s2.once('gameState', resolve));
-    s1.emit('updatePlayerColor', { roomId, color: '#123456' });
+    s2.emit('requestState', { roomId });
     const atDisconnect = await s2Rebroadcast;
     const s2GameTimeAtDisconnect = atDisconnect.gameTimeInSeconds;
     expect(s2GameTimeAtDisconnect).toBeGreaterThanOrEqual(3);

@@ -18,6 +18,7 @@ import {
   isValidTurnSummary,
   sanitizeTurnSummary,
   MAX_SCORE_MAGNITUDE,
+  MAX_DECK_GIVE_BACK,
 } from './pushValidation';
 import { createRoom } from './rooms';
 import { MIN_ENABLED_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
@@ -286,11 +287,20 @@ describe('applyPushedState', () => {
     // is finally committed by each victim's own unmodified client at game end,
     // which submits its own entry for its own device. Only score and
     // times1000PointsDeducted move across seats under the rules: the classic
-    // and modernized Plus/Minus branches, and their undo, are the sole places
-    // the engine writes to a player other than the one taking the turn.
+    // and modernized Plus/Minus branches are the only places the engine writes
+    // to a player other than the one taking the turn — plus an undo, which
+    // rewinds a turn onto the pusher's IMMEDIATE PREDECESSOR and has its own
+    // (still narrower than own-seat) surface below.
     describe('a non-host push may only touch its own seat', () => {
+      // Three seats, and the victim two away from the pusher: at two seats the
+      // only other seat IS Alice's predecessor, so the premise this describe
+      // states — a foreign seat that is not the undo seat — is unreachable
+      // there and every assertion below would have been vacuous.
+      const threeSeats = { isHost: false, startingGame: false, pusherName: 'Alice' };
+      const makeThreeSeatState = () => makeState(['Alice', 'Bob', 'Carol']);
+
       it('refuses another seat\'s counters, records and identity fields', () => {
-        const state = makeState();
+        const state = makeThreeSeatState();
         Object.assign(state.players[1], { busts: 2, highestTurnScore: 400, position: 1 });
 
         applyPushedState(state, {
@@ -306,8 +316,9 @@ describe('applyPushedState', () => {
               position: 0,
               color: '#00ff00',
             },
+            { name: 'Carol' },
           ],
-        }, asActivePlayer);
+        }, threeSeats);
 
         expect(state.players[1].busts).toBe(2);
         expect(state.players[1].totalTurns).toBe(0);
@@ -320,15 +331,16 @@ describe('applyPushedState', () => {
       });
 
       it('still lets a Plus/Minus deduct another seat\'s score and deduction count', () => {
-        const state = makeState();
+        const state = makeThreeSeatState();
         state.players[1].score = 3000;
 
         applyPushedState(state, {
           players: [
             { name: 'Alice', score: 1000, timesPlusMinusCompleted: 1 },
             { name: 'Bob', score: 2000, times1000PointsDeducted: 1 },
+            { name: 'Carol' },
           ],
-        }, asActivePlayer);
+        }, threeSeats);
 
         expect(state.players[1].score).toBe(2000);
         expect(state.players[1].times1000PointsDeducted).toBe(1);
@@ -374,6 +386,101 @@ describe('applyPushedState', () => {
         expect(state.players[1].busts).toBe(4);
         expect(state.players[1].highestTurnScore).toBe(800);
         expect(state.players[1].position).toBe(3);
+      });
+    });
+
+    /**
+     * An undo does not rewind the pusher's own turn — it rewinds the one
+     * BEFORE it, onto the seat that played it. calculateUndo
+     * (src/utils/coreGameEngine.ts) writes that seat's totalTurns, its busts
+     * and per-card counters, and the five per-turn records the summary stashed
+     * the pre-turn values of. All of it fell outside PLAYER_CROSS_SEAT_MUTABLE,
+     * so only the score came back and the replayed turn counted every one of
+     * those a second time — permanently, since each victim's own client
+     * submits the doubled row for its own device at game end.
+     *
+     * The seat is derived from the ROSTER (the pusher's immediate predecessor),
+     * never from previousPlayerName, which is itself pushable.
+     */
+    describe('the seat an undo hands the turn back to', () => {
+      // Alice pushes; Bob sits between her and Carol. Alice's predecessor is
+      // therefore Carol (the wrap), and Bob stays an ordinary foreign seat.
+      const alicePushes = { isHost: false, startingGame: false, pusherName: 'Alice' };
+
+      it('takes back the counters and records an undo restores', () => {
+        const state = makeState(['Alice', 'Bob', 'Carol']);
+        Object.assign(state.players[2], { totalTurns: 4, busts: 3, totalTuttos: 6, highestTurnScore: 900 });
+
+        applyPushedState(state, {
+          players: [
+            { name: 'Alice' },
+            { name: 'Bob' },
+            { name: 'Carol', totalTurns: 3, busts: 2, totalTuttos: 4, highestTurnScore: 500, mostCardsInTurn: 2 },
+          ],
+        }, alicePushes);
+
+        expect(state.players[2].totalTurns, 'the undone turn is given back').toBe(3);
+        expect(state.players[2].busts).toBe(2);
+        expect(state.players[2].totalTuttos).toBe(4);
+        expect(state.players[2].highestTurnScore).toBe(500);
+        expect(state.players[2].mostCardsInTurn).toBe(2);
+      });
+
+      it('wraps to the last seat for the first player, which is the round-end undo', () => {
+        // Carol played the last turn of the previous round; Alice, at index 0,
+        // is undoing across the round boundary.
+        const state = makeState(['Alice', 'Bob', 'Carol']);
+        state.players[2].busts = 5;
+
+        applyPushedState(state, {
+          players: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Carol', busts: 4 }],
+        }, alicePushes);
+
+        expect(state.players[2].busts).toBe(4);
+      });
+
+      it('still refuses the presentation fields no undo writes', () => {
+        const state = makeState(['Alice', 'Bob', 'Carol']);
+        Object.assign(state.players[2], { position: 2 });
+
+        applyPushedState(state, {
+          players: [
+            { name: 'Alice' },
+            { name: 'Bob' },
+            { name: 'Carol', position: 0, color: '#00ff00' },
+          ],
+        }, alicePushes);
+
+        expect(state.players[2].position).toBe(2);
+        expect(state.players[2].color).toBe('#ff0000');
+      });
+
+      it('grants nothing extra at a single seat, where the predecessor is the pusher', () => {
+        const state = makeState(['Alice']);
+        applyPushedState(state, { players: [{ name: 'Alice', busts: 7 }] }, alicePushes);
+        expect(state.players[0].busts, 'the pusher\'s own seat was always writable').toBe(7);
+      });
+
+      it('cannot be aimed with previousPlayerName, split across two pushes', () => {
+        // The bypass an earlier audit confirmed over the wire: previousPlayerName
+        // is a pushable field, so keying the wider grant off it lets an attacker
+        // plant a victim's name in push #1 and write their counters in push #2 —
+        // twenty times a second, under PUSH_STATE_LIMIT. Bob is neither the
+        // pusher's seat nor her predecessor, and naming him changes nothing.
+        const state = makeState(['Alice', 'Bob', 'Carol']);
+        state.players[1].busts = 1;
+
+        applyPushedState(state, { previousPlayerName: 'Bob' }, alicePushes);
+        applyPushedState(state, {
+          players: [
+            { name: 'Alice' },
+            { name: 'Bob', busts: 99, totalTurns: 42 },
+            { name: 'Carol' },
+          ],
+        }, alicePushes);
+
+        expect(state.players[1].busts).toBe(1);
+        expect(state.players[1].totalTurns).toBe(0);
       });
     });
 
@@ -645,6 +752,100 @@ describe('applyPushedState', () => {
       expect(state.cards).toEqual(['Stop', '200']);
       applyPushedState(state, { cards: Array(99 * 11 + 1).fill('Stop') }, asActivePlayer);
       expect(state.cards).toEqual(['Stop', '200']);
+    });
+
+    describe('cards: a running game\'s deck only moves the way a game moves it', () => {
+      // The deck used to be replaceable outright by anyone a push was accepted
+      // from, and the push most likely to do it is an HONEST one: pushState
+      // relays the sender's whole store, and a client that has never drawn
+      // sits on whatever `cards` it last synced. Wiping the deck restarts the
+      // card sequence the table is mid-way through, silently.
+      const DECK = ['300', '200', 'Stop', 'x2'];
+
+      const playing = (deck: string[] = DECK): RoomState => {
+        const state = makeState();
+        state.status = 'playing';
+        state.currentPlayerIndex = 0;
+        state.cards = [...deck] as RoomState['cards'];
+        return state;
+      };
+
+      it('refuses the empty deck a host who never took a turn pushes', () => {
+        const state = playing();
+        applyPushedState(state, { cards: [] }, asHost);
+        expect(state.cards).toEqual(DECK);
+      });
+
+      it('refuses a wholesale replacement of the same length', () => {
+        const state = playing();
+        applyPushedState(state, { cards: ['Kleeblatt', 'Kleeblatt', 'Kleeblatt', 'Kleeblatt'] }, asActivePlayer);
+        expect(state.cards).toEqual(DECK);
+      });
+
+      it('refuses more cards back than the two chains an undo can return', () => {
+        // MAX_DECK_GIVE_BACK is the undone turn's chain plus the discarded
+        // in-progress one. A card past that is not a turn being rewound, it is
+        // a deck being installed on top of the old one.
+        const state = playing();
+        const overlong = [...Array(MAX_DECK_GIVE_BACK + 1).fill('Kleeblatt'), ...DECK];
+        applyPushedState(state, { cards: overlong }, asActivePlayer);
+        expect(state.cards).toEqual(DECK);
+      });
+
+      it('accepts exactly the two chains an undo can return', () => {
+        // The control for the bound above: one card fewer must still land, or
+        // the refusal would also pass for a rule that rejects every give-back.
+        const state = playing();
+        const atLimit = [...Array(MAX_DECK_GIVE_BACK).fill('Kleeblatt'), ...DECK];
+        applyPushedState(state, { cards: atLimit }, asActivePlayer);
+        expect(state.cards).toEqual(atLimit);
+      });
+
+      it('refuses dropping two cards at once, which no single draw does', () => {
+        const state = playing();
+        applyPushedState(state, { cards: DECK.slice(2) }, asActivePlayer);
+        expect(state.cards).toEqual(DECK);
+      });
+
+      it('accepts the deck coming back unchanged, which most pushes carry', () => {
+        const state = playing();
+        applyPushedState(state, { cards: [...DECK] }, asActivePlayer);
+        expect(state.cards).toEqual(DECK);
+      });
+
+      it('accepts a draw taking exactly the top card', () => {
+        const state = playing();
+        applyPushedState(state, { cards: DECK.slice(1) }, asActivePlayer);
+        expect(state.cards).toEqual(['200', 'Stop', 'x2']);
+      });
+
+      it('accepts an undo putting the turn\'s chain back on top', () => {
+        const state = playing();
+        applyPushedState(state, { cards: ['Kniffel', 'Feuerwerk', ...DECK] }, asActivePlayer);
+        expect(state.cards).toEqual(['Kniffel', 'Feuerwerk', ...DECK]);
+      });
+
+      it('accepts a freshly built deck, but only out of an exhausted one', () => {
+        const state = playing([]);
+        applyPushedState(state, { cards: ['400', '500', '600'] }, asActivePlayer);
+        expect(state.cards).toEqual(['400', '500', '600']);
+      });
+
+      it('leaves the game-starting push free to install the deck it just built', () => {
+        const state = playing();
+        applyPushedState(state, { status: 'playing', cards: ['Kleeblatt'] }, asHostStarting);
+        expect(state.cards).toEqual(['Kleeblatt']);
+      });
+
+      it('still lets endGame clear the deck, because it carries the lobby with it', () => {
+        // The host's endGame pushes `status: 'lobby'` and `cards: []` in one
+        // snapshot, and 'status' is the first field applied on the host path —
+        // so by the time the deck is merged there is no running game left to
+        // conserve a deck for.
+        const state = playing();
+        applyPushedState(state, { status: 'lobby', currentPlayerIndex: null, cards: [] }, asHost);
+        expect(state.cards).toEqual([]);
+      });
     });
 
     it('currentPlayerIndex: accepts null and in-range integers only', () => {

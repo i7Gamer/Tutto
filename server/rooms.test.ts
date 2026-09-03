@@ -12,8 +12,9 @@
  * turnTimer.test.ts, which now runs in-process itself.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { handleActivePlayerRemoved, calculateRemainingTurnTime, createRoom, deleteRoom, emitRoomState, isAbandonedRoom, rooms } from './rooms';
+import { BROADCAST_EXCLUDED_FIELDS, handleActivePlayerRemoved, calculateRemainingTurnTime, createRoom, deleteRoom, emitRoomState, isAbandonedRoom, promoteHostAfterLoss, rooms } from './rooms';
 import type { Server } from 'socket.io';
+import { SYNCED_GAME_STATE_KEYS } from '../src/types';
 import { MAX_ROUNDS } from './pushValidation';
 import type { Room, RoomState, ServerPlayer } from './roomTypes';
 import { makeServerPlayer as makePlayer } from './socketTestHarness';
@@ -589,6 +590,34 @@ describe('emitRoomState scrubs reconnect credentials', () => {
 
     expect(stateOf(emit).previousLeaders).toBeNull();
   });
+
+  it('carries every canonical synced field on the wire', () => {
+    // The broadcast payload is the one list SYNCED_GAME_STATE_KEYS did not
+    // lock: six others (PushFieldLock, the FIELD_HANDLERS satisfies,
+    // RoomStateFieldLock, ClearRoomStateLock, LocalSaveFieldLock, the client's
+    // push payload) fail the build when a field goes missing, while dropping
+    // one from the object that actually goes out type-checked clean. The
+    // compile-time twin is BroadcastFieldLock in rooms.ts; this is its runtime
+    // half, and it also catches a field emitted as `undefined`.
+    const room = createRoom('sock-host');
+    rooms['WIRE_COMPLETE_ROOM'] = room;
+    room.state.players = [makePlayer('Alice')];
+
+    const { io, emit } = captureBroadcast();
+    emitRoomState(io, 'WIRE_COMPLETE_ROOM');
+
+    const state = stateOf(emit);
+    // Minus whatever the payload deliberately withholds — the same list the
+    // compile-time lock reads, so the two can never disagree about what is
+    // supposed to be on the wire. previousWasSuccess is the one optional
+    // synced field (a turn predating it records none — see RoomState), so
+    // presence of the KEY is the rule here, not a defined value.
+    const excluded = BROADCAST_EXCLUDED_FIELDS as readonly string[];
+    const missing = SYNCED_GAME_STATE_KEYS
+      .filter(key => !excluded.includes(key))
+      .filter(key => !(key in state));
+    expect(missing, 'a synced field never reached the clients').toEqual([]);
+  });
 });
 
   // roomId and deviceId only as non-empty strings within a length bound), so
@@ -611,6 +640,98 @@ describe('emitRoomState scrubs reconnect credentials', () => {
     vi.advanceTimersByTime(5000);
 
     expect(callback).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The failover that keeps a room manageable: `pushState`'s host branch,
+ * `updateConfig`, `kickPlayer` and `submitGlobalStats` all gate on
+ * `room.host === socket.id`, so a host id pointing at a socket nobody holds
+ * makes the room unmanageable until it dies.
+ *
+ * It had no test of its own at all, which is how `?? room.state.players[0]`
+ * survived: reached from the reconnect-timer drain, that fallback hands the
+ * room straight to a DISCONNECTED seat — the very state the function exists
+ * to get out of.
+ */
+describe('promoteHostAfterLoss', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+  });
+
+  const roomHostedBy = (hostSocketId: string, players: ServerPlayer[]): Room => {
+    const room = createRoom(hostSocketId);
+    room.state.players = players;
+    return room;
+  };
+
+  it('hands a room whose host seat is gone to a connected player', () => {
+    // What the reconnect-timer drain leaves behind: the host's seat has just
+    // been spliced out, so nothing holds room.host any more.
+    const room = roomHostedBy('sock-Gone', [
+      makePlayer('Bob', { socketId: 'sock-Bob', disconnected: true }),
+      makePlayer('Carol', { socketId: 'sock-Carol' }),
+    ]);
+
+    expect(promoteHostAfterLoss(room)).toBe(true);
+    expect(room.host).toBe('sock-Carol');
+  });
+
+  it('never hands the room to a disconnected seat', () => {
+    // The `?? players[0]` fallback did exactly this: the room came back owned
+    // by a socket that is not there, so nobody could change config, kick the
+    // ghost, restart or submit the game's statistics — and no timer was left
+    // to try again.
+    const room = roomHostedBy('sock-Gone', [
+      makePlayer('Bob', { socketId: 'sock-Bob', disconnected: true }),
+      makePlayer('Carol', { socketId: 'sock-Carol', disconnected: true }),
+    ]);
+
+    expect(promoteHostAfterLoss(room)).toBe(false);
+    expect(room.host, 'the room was handed to a dead socket').toBe('sock-Gone');
+  });
+
+  it('leaves a room alone while a connected seat still holds it', () => {
+    const room = roomHostedBy('sock-Alice', [
+      makePlayer('Alice', { socketId: 'sock-Alice' }),
+      makePlayer('Bob', { socketId: 'sock-Bob' }),
+    ]);
+
+    expect(promoteHostAfterLoss(room)).toBe(false);
+    expect(room.host).toBe('sock-Alice');
+  });
+
+  it('does not steal the room from a host who merely blinked', () => {
+    // A host who dropped with a reconnect window still pending keeps the room
+    // for that window — the deliberate policy socketRoomHandlers documents on
+    // its disconnect path, where only reconnectTimeout === 0 (which arms no
+    // timer at all, so nothing would ever recover the room) promotes early.
+    vi.useFakeTimers();
+    const room = roomHostedBy('sock-Alice', [
+      makePlayer('Alice', { socketId: 'sock-Alice', disconnected: true }),
+      makePlayer('Bob', { socketId: 'sock-Bob' }),
+    ]);
+    room.disconnectTimers['dev-Alice'] = setTimeout(() => {}, 60_000);
+
+    expect(promoteHostAfterLoss(room)).toBe(false);
+    expect(room.host).toBe('sock-Alice');
+  });
+
+  it('promotes a host who dropped with no reconnect window to come back in', () => {
+    // reconnectTimeout === 0: the seat is marked disconnected and no timer is
+    // armed, so nothing would ever revisit the room.
+    const room = roomHostedBy('sock-Alice', [
+      makePlayer('Alice', { socketId: 'sock-Alice', disconnected: true }),
+      makePlayer('Bob', { socketId: 'sock-Bob' }),
+    ]);
+
+    expect(promoteHostAfterLoss(room)).toBe(true);
+    expect(room.host).toBe('sock-Bob');
+  });
+
+  it('reports false for an empty roster rather than throwing', () => {
+    expect(promoteHostAfterLoss(roomHostedBy('sock-Gone', []))).toBe(false);
   });
 });
 

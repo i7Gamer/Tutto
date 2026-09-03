@@ -138,7 +138,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       // one pair of events. Deliberately not done for a non-zero timeout: a
       // host who merely blinked gets their reconnect window first.
       if (timeoutSecs === 0 && !room.state.players.every(p => p.disconnected)) {
-        promoteHostAfterLoss(room, socket.id);
+        promoteHostAfterLoss(room);
       }
 
       emitRoomState(io, currentRoom);
@@ -152,7 +152,6 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       }
 
       const roomIdSnapshot = currentRoom;
-      const disconnectedSocketId = socket.id;
 
       const disconnectMs = scaledTimerMs(timeoutSecs);
       room.disconnectTimers[player.deviceId] = setTimeout(() => {
@@ -183,7 +182,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
           if (r.state.players.length === 0 || isAbandonedRoom(r)) {
             deleteRoom(roomIdSnapshot);
           } else {
-            promoteHostAfterLoss(r, disconnectedSocketId);
+            promoteHostAfterLoss(r);
             const aborted = abortGameIfLowPlayers(io, r, roomIdSnapshot);
             if (!aborted) startServerTurnTimer(io, roomIdSnapshot);
             emitRoomState(io, roomIdSnapshot);
@@ -401,6 +400,16 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
         clearTimeout(room.disconnectTimers[deviceId]);
         delete room.disconnectTimers[deviceId];
       }
+
+      // The other half of the host failover, and the only half that can close
+      // its worst case: a draining reconnect timer can find NOBODY connected
+      // to promote to, and once every seat is offline no further server event
+      // ever revisits the room — so the first client back has to be able to
+      // pick it up. The guard is the same one promoteHostAfterLoss applies
+      // everywhere else, so an ordinary rejoin under a live host changes
+      // nothing, and a host who merely blinked keeps their room. Runs before
+      // the ack below, which reports isHost.
+      promoteHostAfterLoss(room);
 
       socket.join(roomChannel(roomId));
       session.roomId = roomId;

@@ -274,13 +274,22 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     const room = rooms[roomId];
     if (!room) return;
 
-    const isHost = room.host === socket.id;
     const activePlayer = room.state.currentPlayerIndex !== null
       ? room.state.players[room.state.currentPlayerIndex]
       : null;
     const isActivePlayer = activePlayer?.socketId === socket.id;
 
-    if (!isHost && !isActivePlayer) return;
+    // The ACTIVE player alone, unlike pushState's `isHost || isActivePlayer`.
+    // The host has no live turn of its own to relay while someone else is
+    // rolling, and this snapshot is not just a spectator view: turnTimers
+    // reads it into the timed-out player's OWN highestForfeitedTurnScore,
+    // which their unmodified client then submits for their device — where the
+    // DB merges it with MAX, permanently. So a host could plant a record on a
+    // victim, or wipe the snapshot the room is watching, on a turn that is not
+    // theirs. Nothing legitimate emits this as a non-active host: the physical
+    // relay is gated on isMyTurn and the dice modal is force-closed for every
+    // non-active client.
+    if (!isActivePlayer) return;
 
     if (liveTurnState === null) {
       room.state.liveTurnState = null;

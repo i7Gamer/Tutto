@@ -1,9 +1,10 @@
 /** @vitest-environment node */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Server } from 'socket.io';
 import { registerRoomHandlers } from './socketRoomHandlers';
 import { makeFakeSocket, type Handler } from './socketTestHarness';
 import { rooms, deleteRoom, roomChannel } from './rooms';
+import { scaledTimerMs } from './turnTimers';
 import type { ConnectionSession } from './socketContext';
 import { normalizeRoomId } from '../src/utils/configValidation';
 
@@ -522,6 +523,95 @@ describe('joinRoom with ids that name Object.prototype members', () => {
     const room = rooms['PROTO-DEVICE-ROOM'];
     expect(Object.keys(room.disconnectTimers)).toEqual(['__proto__']);
     deleteRoom('PROTO-DEVICE-ROOM');
+  });
+});
+
+/**
+ * The other half of the host failover, because promoteHostAfterLoss alone
+ * cannot close it: a draining reconnect timer can find NOBODY connected to
+ * promote to, and once every seat is offline no further server event will
+ * ever revisit the room. The first client back has to be able to pick the
+ * room up, and the reconnect path is where it is seated.
+ */
+describe('joinRoom repairs a room whose host socket is gone', () => {
+  beforeEach(resetRooms);
+
+  afterEach(() => {
+    vi.useRealTimers();
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+  });
+
+  // Long enough that only the short window below drains while the others stay
+  // pending — the point of the fixture is one seat timing out, not all three.
+  const SHORT_RECONNECT_S = 1;
+  const LONG_RECONNECT_S = 3600;
+
+  const seatOf = (roomId: string, socketId: string, name: string, deviceId: string, io: Server) => {
+    const fake = makeFakeSocket(socketId);
+    registerRoomHandlers({ io, socket: fake.socket, session: { roomId: null, username: null } });
+    return { fake, join: () => joinAndWait(fake.handlers, { roomId, name, deviceId }) };
+  };
+
+  it('hands the room to a reconnecting player when the host seat timed out with nobody connected', async () => {
+    vi.useFakeTimers();
+    const roomId = 'HOST-REPAIR-ROOM';
+    const { io } = makeFakeIo();
+
+    const alice = seatOf(roomId, 'alice-sock', 'Alice', 'dev-hr-a', io);
+    await alice.join();
+    const bob = seatOf(roomId, 'bob-sock', 'Bob', 'dev-hr-b', io);
+    await bob.join();
+    const carol = seatOf(roomId, 'carol-sock', 'Carol', 'dev-hr-c', io);
+    await carol.join();
+    expect(rooms[roomId].host).toBe('alice-sock');
+
+    // The host drops on a short window; the other two on a long one, so the
+    // room is still legitimately being held open when hers runs out.
+    rooms[roomId].state.reconnectTimeout = SHORT_RECONNECT_S;
+    alice.fake.handlers['disconnect']();
+    rooms[roomId].state.reconnectTimeout = LONG_RECONNECT_S;
+    bob.fake.handlers['disconnect']();
+    carol.fake.handlers['disconnect']();
+
+    vi.advanceTimersByTime(scaledTimerMs(SHORT_RECONNECT_S) + 1);
+
+    const room = rooms[roomId];
+    expect(room, 'the room is still held open for the two pending windows').toBeDefined();
+    expect(room.state.players.map(p => p.name), 'the host seat drained').toEqual(['Bob', 'Carol']);
+    expect(room.state.players.some(p => p.socketId === room.host),
+      'nothing seated holds the room, which is the state joinRoom has to repair').toBe(false);
+
+    // Carol comes back — on a NEW socket, and the dead host id is not her own
+    // old one, so joinRoom's same-device takeover cannot heal this by itself.
+    const carolAgain = seatOf(roomId, 'carol-sock-2', 'Carol', 'dev-hr-c', io);
+    const ack = await carolAgain.join();
+
+    expect(rooms[roomId].host, 'the room is still owned by a socket nobody holds').toBe('carol-sock-2');
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: true, isHost: true }));
+  });
+
+  it('leaves the room with a host who is merely mid-reconnect', async () => {
+    // The blink case, and the reason the repair is not simply "no connected
+    // seat holds it": the host's own reconnect window is still open, and
+    // socketRoomHandlers gives them that window on purpose.
+    vi.useFakeTimers();
+    const roomId = 'HOST-BLINK-ROOM';
+    const { io } = makeFakeIo();
+
+    const alice = seatOf(roomId, 'alice-sock', 'Alice', 'dev-hb-a', io);
+    await alice.join();
+    const bob = seatOf(roomId, 'bob-sock', 'Bob', 'dev-hb-b', io);
+    await bob.join();
+
+    rooms[roomId].state.reconnectTimeout = LONG_RECONNECT_S;
+    alice.fake.handlers['disconnect']();
+    bob.fake.handlers['disconnect']();
+
+    const bobAgain = seatOf(roomId, 'bob-sock-2', 'Bob', 'dev-hb-b', io);
+    const ack = await bobAgain.join();
+
+    expect(rooms[roomId].host, 'the room was stolen from a host who merely blinked').toBe('alice-sock');
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ success: true, isHost: false }));
   });
 });
 

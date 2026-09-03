@@ -1,4 +1,4 @@
-import { rooms, deleteRoom, handleActivePlayerRemoved, emitRoomState, roomChannel, isAbandonedRoom } from './rooms';
+import { rooms, deleteRoom, handleActivePlayerRemoved, emitRoomState, promoteHostAfterLoss, roomChannel, isAbandonedRoom } from './rooms';
 import { startServerTurnTimer, abortGameIfLowPlayers } from './turnTimers';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
@@ -69,6 +69,12 @@ export const registerRosterHandlers = ({ io, socket, session }: SocketContext): 
     // Same normalization joinRoom applies before ever touching `rooms`.
     const roomId = normalizeRoomId(rawRoomId);
     if (!rooms[roomId]) return;
+    // A lobby control, like reorderPlayers above: the colour picker is the
+    // only production caller (gameSlice.ts), and it is only reachable from the
+    // lobby. Ungated it was a full re-broadcast of the room state from any
+    // seat at the limiter's 20/s, repainting a player mid-game under a
+    // historyLog whose entries already carry the colour they played under.
+    if (rooms[roomId].state.status !== 'lobby') return;
     if (!COLOR_RE.test(color)) return;
     const player = rooms[roomId].state.players.find(p => p.socketId === socket.id);
     if (player) {
@@ -124,11 +130,12 @@ export const registerRosterHandlers = ({ io, socket, session }: SocketContext): 
     } else {
       // Only a (modified) host client can kick its own socket, but if it does,
       // the room must not keep a host id that is no longer seated — no one
-      // could change config, kick, or restart until the room died.
-      if (!room.state.players.some(p => p.socketId === room.host)) {
-        const nextHost = room.state.players.find(p => !p.disconnected) ?? room.state.players[0];
-        room.host = nextHost.socketId;
-      }
+      // could change config, kick, or restart until the room died. Through the
+      // shared helper rather than inline, because the inline version fell back
+      // to `?? room.state.players[0]` and so pinned the room on whichever
+      // DISCONNECTED seat happened to sit first — worse than leaving it
+      // unclaimed, which joinRoom repairs for the first player back.
+      promoteHostAfterLoss(room);
       const aborted = abortGameIfLowPlayers(io, room, roomId);
       // If the kicked player was mid-turn, handleActivePlayerRemoved already
       // reset turnStartTime for the player now in their slot — resync the timer.

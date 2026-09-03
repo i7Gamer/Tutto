@@ -117,13 +117,14 @@ export const isPlausiblePlayerSnapshot = (v: unknown): v is { name: string; scor
 export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
-  // Bounded, not merely finite, like every other numeric in this file: the
-  // liveTurnState handler accepts `isHost || isActivePlayer`, so a patched
-  // host can plant a snapshot for ANOTHER player's turn and then force expiry
-  // (shortening turnDuration mid-game). turnTimers reads turnScore straight
-  // into that player's highestForfeitedTurnScore, which their own unmodified
-  // client then submits for their device — where the DB merges it with MAX,
-  // permanently.
+  // Bounded, not merely finite, like every other numeric in this file:
+  // turnTimers reads turnScore straight into the timed-out player's
+  // highestForfeitedTurnScore, which their own unmodified client then submits
+  // for their device — where the DB merges it with MAX, permanently. The
+  // liveTurnState handler is the ACTIVE player's alone now (it used to accept
+  // `isHost || isActivePlayer`, which let a patched host aim that at someone
+  // else), so this bounds what a player can do to their OWN record — and the
+  // pushState path, which still admits both, reaches the same field.
   if (!isBoundedNumber(s.turnScore)) return false;
   if (!isBoundedNumber(s.tuttosThisTurn)) return false;
   if (!(Array.isArray(s.keptDice) && s.keptDice.length <= TOTAL_DICE && s.keptDice.every(isSnapshotDie))) return false;
@@ -413,24 +414,49 @@ export const validatePushedPlayers = (existing: ServerPlayer[], pushed: unknown[
  * each victim's OWN unmodified client at game end, which submits its own entry
  * for its own deviceId and is therefore accepted.
  *
- * These two are the whole legitimate cross-seat surface: the classic and
- * modernized Plus/Minus branches, and their undo, are the only places
- * coreGameEngine writes to a player other than the one taking the turn.
+ * These two are the whole legitimate cross-seat surface for a turn being
+ * PLAYED: the classic and modernized Plus/Minus branches are the only places
+ * coreGameEngine writes to a player other than the one taking the turn. A turn
+ * being UNDONE reaches further, onto one specific other seat — see
+ * PLAYER_UNDO_SEAT_MUTABLE.
  */
 const PLAYER_CROSS_SEAT_MUTABLE: (keyof ServerPlayer)[] = ['score', 'times1000PointsDeducted'];
+
+/**
+ * What a non-host push may write on the seat an undo hands the turn back to.
+ *
+ * calculateUndo (src/utils/coreGameEngine.ts) does not rewind the pusher's own
+ * turn — it rewinds the one BEFORE it, onto the seat that played it: that
+ * seat's totalTurns, every counter revertSummaryCounters and
+ * revertModernizedCounters walk back (busts, the per-card counters, tuttos),
+ * and the per-turn records whose pre-turn values the summary stashed. All of
+ * that fell outside PLAYER_CROSS_SEAT_MUTABLE once the turn had advanced, so
+ * only the score came back and every counter was silently dropped — the
+ * replayed turn then counted each of them a second time, and the doubled row
+ * was finally committed by that victim's OWN unmodified client at game end.
+ *
+ * `position` and `color` are the only PLAYER_MUTABLE entries left out: no undo
+ * path writes either, and they are presentation rather than the turn
+ * bookkeeping an undo has to reverse.
+ */
+const PLAYER_UNDO_SEAT_MUTABLE: (keyof ServerPlayer)[] = [
+  ...PLAYER_STAT_FIELDS,
+  ...PLAYER_OPTIONAL_RECORDS,
+];
 
 const mergeMutable = (
   existing: ServerPlayer,
   p: Record<string, unknown> | undefined,
   // Only a game start may read an absent optional record as "cleared" — see
-  // PLAYER_OPTIONAL_RECORDS. ownSeat false narrows the writable set to
-  // PLAYER_CROSS_SEAT_MUTABLE; it defaults to true so the host path, which
-  // legitimately rebuilds the whole roster, keeps its existing behaviour.
-  { clearAbsentRecords = false, ownSeat = true }: { clearAbsentRecords?: boolean; ownSeat?: boolean } = {},
+  // PLAYER_OPTIONAL_RECORDS. `writable` is the field set THIS push may write
+  // on THIS seat; it defaults to the full one so the host path and the
+  // game-start path, which legitimately rebuild the whole roster, keep their
+  // existing behaviour.
+  { clearAbsentRecords = false, writable = PLAYER_MUTABLE }:
+    { clearAbsentRecords?: boolean; writable?: (keyof ServerPlayer)[] } = {},
 ): ServerPlayer => {
   if (!p) return existing;
   const updated = { ...existing };
-  const writable = ownSeat ? PLAYER_MUTABLE : PLAYER_CROSS_SEAT_MUTABLE;
   for (const f of writable) {
     if (!(f in p)) {
       if (clearAbsentRecords && PLAYER_OPTIONAL_RECORDS.includes(f)) {
@@ -486,9 +512,26 @@ const applyPlayers: FieldHandler = (value, ctx) => {
       mergeMutable(byName.get(q.name as string)!, q, { clearAbsentRecords: true }),
     );
   } else {
-    ctx.state.players = ctx.state.players.map(existing =>
+    // The pusher's seat and the seat their undo reaches, both read off the
+    // ROSTER rather than off the payload. previousPlayerName names the same
+    // player and would be the obvious key, but it is itself a pushable field:
+    // an attacker plants a victim's name in one push and writes that victim's
+    // counters in the next, twenty times a second (PUSH_STATE_LIMIT). A
+    // non-host push is authorized only from the ACTIVE seat, so the pusher's
+    // own index IS the turn's index and "the seat before mine" is the previous
+    // player by construction — with nothing in the payload able to aim it.
+    const seats = ctx.state.players;
+    const pusherIdx = ctx.pusherName === null ? -1 : seats.findIndex(p => p.name === ctx.pusherName);
+    // Wrapping, because the first seat's predecessor is the last one — that is
+    // the undo that also unwinds the round. At a single seat it resolves to
+    // the pusher themselves, which grants nothing they did not already have.
+    const undoSeatIdx = pusherIdx === -1 ? -1 : (pusherIdx - 1 + seats.length) % seats.length;
+
+    ctx.state.players = seats.map((existing, i) =>
       mergeMutable(existing, pushed.find(q => q.name === existing.name), {
-        ownSeat: ctx.isHost || existing.name === ctx.pusherName,
+        writable: ctx.isHost || i === pusherIdx
+          ? PLAYER_MUTABLE
+          : (i === undoSeatIdx ? PLAYER_UNDO_SEAT_MUTABLE : PLAYER_CROSS_SEAT_MUTABLE),
       }),
     );
   }
@@ -541,10 +584,71 @@ const cardFieldHandler = (field: 'currentCard' | 'previousCard'): FieldHandler =
   }
 };
 
+/**
+ * The most cards one push may hand BACK to the deck.
+ *
+ * An undo returns two chains at once (calculateUndo's newDeck): the turn it is
+ * rewinding gives back everything but the card it re-deals
+ * (previousTurnSummary.cards), and the in-progress turn it is discarding gives
+ * back everything IT drew (liveTurnState.cardsThisTurn — see
+ * inProgressChainCards). Both lists are capped at MAX_CHAIN_CARDS where they
+ * enter this file, so two of them is the ceiling.
+ *
+ * Exported so the tests push exactly one card past the bound rather than
+ * hard-coding a number that would drift away from it.
+ */
+export const MAX_DECK_GIVE_BACK = MAX_CHAIN_CARDS * 2;
+
+/**
+ * Whether a pushed deck is one a game could actually have moved to.
+ *
+ * Read off applyCards' only real callers — the client store's own pushes
+ * (gameSlice.ts) and the engine behind them (coreGameEngine.ts) — the deck has
+ * exactly four legitimate mid-game moves:
+ *
+ *   - unchanged. pushState relays the sender's WHOLE store, so every push that
+ *     is neither a draw nor an undo simply re-sends the deck it last synced.
+ *   - one card off the top: a draw. calculateNextTurn's advance and
+ *     drawCardMidTurn both `shift()` the deck they were handed.
+ *   - up to MAX_DECK_GIVE_BACK cards back ON the top: an undo, which leaves
+ *     the rest of the deck untouched underneath what it returns.
+ *   - anything at all, but only out of an EXHAUSTED deck: a draw from an empty
+ *     deck rebuilds a fresh one first (buildDeck). That is the one legitimate
+ *     wholesale replacement, and there is nothing left to conserve when it
+ *     happens.
+ *
+ * Nothing else — and in particular nothing that shrinks the deck by more than
+ * the single card a draw takes, and nothing that swaps the deck's contents out
+ * from under the room while keeping its length. Without the rule, any accepted
+ * push installed its own `cards` outright, and the push most likely to do so
+ * is an honest one: a client that has never drawn sits on whatever deck it
+ * last synced, so a host's own undo / endGame / startGame could wipe the deck
+ * the table was mid-way through and every later draw came off a silently
+ * restarted one.
+ */
+const isReachableDeckMove = (next: readonly CardType[], current: readonly CardType[]): boolean => {
+  if (current.length === 0) return true;
+  if (next.length === current.length - 1) return next.every((c, i) => c === current[i + 1]);
+  const givenBack = next.length - current.length;
+  if (givenBack < 0 || givenBack > MAX_DECK_GIVE_BACK) return false;
+  return current.every((c, i) => c === next[givenBack + i]);
+};
+
 const applyCards: FieldHandler = (value, ctx) => {
-  if (Array.isArray(value) && value.length <= MAX_DECK_SIZE && value.every(c => VALID_CARD_TYPES.includes(c as CardType))) {
-    ctx.state.cards = value as CardType[];
+  if (!(Array.isArray(value) && value.length <= MAX_DECK_SIZE && value.every(c => VALID_CARD_TYPES.includes(c as CardType)))) {
+    return;
   }
+  // A game start installs the deck it has just built, so it is exempt; outside
+  // a running game there is no deck to conserve at all. `ctx.state.status` is
+  // the POST-push value on the host path ('status' is the first entry of
+  // ALL_FIELDS — the same ordering applyPushedState's own coherence check
+  // documents), which is exactly what keeps endGame's `cards: []` legal: it
+  // carries the return to the lobby in the same snapshot.
+  if (!ctx.startingGame && ctx.state.status === 'playing' &&
+      !isReachableDeckMove(value as CardType[], ctx.state.cards)) {
+    return;
+  }
+  ctx.state.cards = value as CardType[];
 };
 
 const applyCurrentPlayerIndex: FieldHandler = (value, ctx) => {
@@ -785,10 +889,12 @@ export const applyPushedState = (
     // The seat the sender occupies, read by the caller BEFORE this function
     // mutates anything — currentPlayerIndex is itself a pushable field, so
     // re-deriving it inside the loop below would read a value the same push
-    // had already moved. Required rather than optional: a non-host push may
-    // only write PLAYER_CROSS_SEAT_MUTABLE on other seats, and a defaulted
+    // had already moved. Required rather than optional: it is what applyPlayers
+    // narrows every other seat against (PLAYER_CROSS_SEAT_MUTABLE, or
+    // PLAYER_UNDO_SEAT_MUTABLE for the one seat before it), and a defaulted
     // value would fail open. null means "no seat", which is treated as
-    // strictly as a foreign one. The host path ignores it.
+    // strictly as a foreign one — and names no predecessor either. The host
+    // path ignores it.
     pusherName: string | null;
   },
 ): boolean => {

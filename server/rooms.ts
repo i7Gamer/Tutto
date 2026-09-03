@@ -9,6 +9,7 @@ import { MS_PER_SECOND } from '../src/utils/time';
 import { MAX_ROUNDS } from './pushValidation';
 import { envLimitOr } from './envLimits';
 import { updateDeviceStats } from './database';
+import type { AssertNever, SyncedGameStateKey } from '../src/types';
 import { statsModeFor, type Room, type RoomState, type ServerPlayer, type TurnTimerState } from './roomTypes';
 
 // Null-prototype, not `{}`: every key here is a client-supplied roomId, and
@@ -299,22 +300,49 @@ export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void 
 };
 
 /**
- * Hands the room to a connected player when the socket that just died was the
- * one holding it, and reports whether it did.
+ * Whether `room.host` names a socket nobody can still act on the room with.
+ *
+ * Two clauses, and the second is what keeps this from STEALING a room:
+ *
+ *  - no connected seat holds it. A seat that is merely in the roster is not
+ *    enough — its socket may be long gone.
+ *  - and the seat that does hold it has no reconnect window still pending.
+ *    Without this clause the repair below would fire the moment a host
+ *    blinked, contradicting the deliberate policy in socketRoomHandlers'
+ *    disconnect path: a host with a window open gets it, and only a
+ *    reconnectTimeout of 0 — which arms no timer, so nothing would ever
+ *    revisit the room — promotes immediately.
+ *
+ * A host id no seat carries at all (the seat has been spliced out) is lost by
+ * the first clause: there is no deviceId left to hold a timer under.
+ */
+const hostSeatIsLost = (room: Room): boolean => {
+  const hostSeat = room.state.players.find(p => p.socketId === room.host);
+  if (!hostSeat) return true;
+  if (!hostSeat.disconnected) return false;
+  return !room.disconnectTimers[hostSeat.deviceId];
+};
+
+/**
+ * Hands the room to a connected player when nothing that can still act on it
+ * holds `room.host`, and reports whether it did.
  *
  * A room whose host id is a dead socket is unmanageable: `pushState`'s host
  * branch, `updateConfig`, `kickPlayer` and `submitGlobalStats` all gate on
  * `room.host === socket.id`, so nobody can change config, kick the ghost,
- * restart, or record the game. Both places a host can vanish need this — the
- * reconnect-timeout timer and, because a disabled kick timer arms no timer at
- * all, the disconnect itself.
+ * restart, or record the game.
  *
- * players[0] is the fallback rather than the preference: it may itself be
- * disconnected, which is the very state this exists to get out of.
+ * There is no fallback to `players[0]`. There used to be, and from the
+ * reconnect-timer drain it handed the room straight to a DISCONNECTED seat —
+ * the very state this exists to get out of, now pinned on a ghost that may
+ * never come back while the seat that does return can no longer claim it.
+ * Reporting false and leaving the id unclaimed is strictly better: joinRoom
+ * runs this again when a player is seated, so the first client back picks the
+ * room up.
  */
-export const promoteHostAfterLoss = (room: Room, lostSocketId: string): boolean => {
-  if (room.host !== lostSocketId) return false;
-  const nextHost = room.state.players.find(p => !p.disconnected) ?? room.state.players[0];
+export const promoteHostAfterLoss = (room: Room): boolean => {
+  if (!hostSeatIsLost(room)) return false;
+  const nextHost = room.state.players.find(p => !p.disconnected);
   if (!nextHost) return false;
   room.host = nextHost.socketId;
   return true;
@@ -482,6 +510,52 @@ const buildGameStatePayload = (room: Room) => ({
   gameTimeInSeconds: calculateGameTime(room),
   stateVersion: room.stateVersion,
 });
+
+/**
+ * The synced fields deliberately withheld from the broadcast.
+ *
+ * Empty, and expected to stay that way: the payload above spreads the whole
+ * room state, so every canonical field goes out. It exists so that dropping
+ * one has to be WRITTEN DOWN rather than merely happening — the same shape
+ * NeverSavedLocally and FieldKeptOnLeave have on their own sides.
+ *
+ * An array rather than a bare type union, so the runtime half of the same
+ * check (rooms.test.ts, "carries every canonical synced field on the wire")
+ * subtracts the very list the compile-time lock below reads.
+ */
+export const BROADCAST_EXCLUDED_FIELDS = [] as const satisfies readonly SyncedGameStateKey[];
+
+/**
+ * Compile-time lock between the wire payload and the canonical synced-field
+ * list (SYNCED_GAME_STATE_KEYS, src/types.ts).
+ *
+ * Six lists were already locked to it — PushFieldLock and the FIELD_HANDLERS
+ * `satisfies` (server/pushValidation.ts), RoomStateFieldLock
+ * (server/roomTypes.ts), ClearRoomStateLock and pushState's wire payload
+ * (src/store/socketSlice.ts), LocalSaveFieldLock (src/store/persistence.ts) —
+ * and the object that ACTUALLY goes on the wire was not one of them. Taking a
+ * field out of it type-checked clean and every client simply stopped receiving
+ * it, which for a broadcast means the room's own value is silently replaced by
+ * whatever each client already had.
+ *
+ * Exported only so noUnusedLocals sees a use; nothing imports it. Each tuple
+ * element must be `never`, or the build fails naming the offending key.
+ */
+export type BroadcastFieldLock = [
+  // Every synced field is either on the wire or deliberately excluded.
+  AssertNever<Exclude<
+    SyncedGameStateKey,
+    keyof ReturnType<typeof buildGameStatePayload> | (typeof BROADCAST_EXCLUDED_FIELDS)[number]
+  >>,
+  // No field is both sent and excluded.
+  AssertNever<Extract<
+    keyof ReturnType<typeof buildGameStatePayload>,
+    (typeof BROADCAST_EXCLUDED_FIELDS)[number]
+  >>,
+  // The exclusion list holds only real synced fields (typo guard — the same
+  // check every other exception list in these locks carries).
+  AssertNever<Exclude<(typeof BROADCAST_EXCLUDED_FIELDS)[number], SyncedGameStateKey>>,
+];
 
 export const emitRoomState = (io: Server, roomId: string): void => {
   const room = rooms[roomId];
