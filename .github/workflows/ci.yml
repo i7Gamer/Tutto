@@ -13,10 +13,22 @@ on:
 permissions:
   contents: read
 
+# A superseded push (or a force-push-then-push) would otherwise run two
+# instances of this workflow for the same branch side by side, each burning
+# its own Actions minutes toward a result only the later one matters for.
+# cancel-in-progress kills the older run the moment a newer one starts on the
+# same ref. server/workflows.test.ts pins this.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     name: Type Check, Lint & Test
     runs-on: ubuntu-latest
+    # Today's run takes about 6 minutes; 25 leaves headroom for legitimate
+    # variance while still bounding a hang. server/workflows.test.ts pins this.
+    timeout-minutes: 25
 
     steps:
       - name: Checkout repository
@@ -94,6 +106,10 @@ jobs:
   e2e:
     name: End-to-End Tests
     runs-on: ubuntu-latest
+    # Today's run takes about 9 minutes (browser download plus a serial
+    # three-browser suite); 30 leaves headroom for legitimate variance while
+    # still bounding a hang. server/workflows.test.ts pins this.
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository

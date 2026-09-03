@@ -271,6 +271,12 @@ npx playwright install
 npm run test:e2e
 ```
 
+## Continuous Integration
+
+Every push and pull request against `master` runs two GitHub Actions checks defined in `.github/workflows/ci.yml`: **Type Check, Lint & Test** and **End-to-End Tests**. Both are bounded by `timeout-minutes`, and the workflow cancels a superseded run on the same branch instead of queuing behind it.
+
+Branch protection on `master` is a repository setting applied by hand, not by a workflow. It requires both checks above to pass before merging, and blocks force pushes and branch deletion on `master`. Pull request review is **not** required.
+
 ## Advanced Options Explained
 
 In the lobby, you can tweak the following:

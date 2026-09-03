@@ -54,10 +54,17 @@ interface WorkflowStep {
 
 interface WorkflowJob {
   steps?: WorkflowStep[];
+  'timeout-minutes'?: number;
+}
+
+interface WorkflowConcurrency {
+  group?: string;
+  'cancel-in-progress'?: boolean;
 }
 
 interface Workflow {
   jobs?: Record<string, WorkflowJob>;
+  concurrency?: WorkflowConcurrency;
 }
 
 const workflowFiles = (): string[] =>
@@ -486,5 +493,96 @@ describe('publish-latest fails closed unless HEAD is the release tag', () => {
     expect(needs).toContain(VERSION_JOB);
 
     expect(findGuardStep(), 'the guard must live in the version job, which publish depends on').toBeDefined();
+  });
+});
+
+/**
+ * Before this, an accidental double-push or a force-push-then-push could run
+ * two ci.yml instances for the same branch concurrently, each burning its own
+ * Actions minutes toward a result only the later one matters for, and a stuck
+ * step had no ceiling at all. A run of the `ci` job takes about 6 minutes
+ * today and `e2e` about 9; the caps below leave headroom for legitimate
+ * variance while still bounding a hang or a runaway matrix.
+ */
+describe('ci.yml is bound in time and concurrency', () => {
+  // Named per the comment above rather than left as bare numbers in the YAML.
+  const CI_JOB_TIMEOUT_MINUTES = 25;
+  const E2E_JOB_TIMEOUT_MINUTES = 30;
+  const CI_WORKFLOW = 'ci.yml';
+
+  const loadCiWorkflow = (): Workflow =>
+    parseWorkflow(fs.readFileSync(path.join(WORKFLOWS_DIR, CI_WORKFLOW), 'utf8'));
+
+  it('finds the jobs it is meant to be checking', () => {
+    // The self-oracle: matching nothing must not read as everything passing.
+    expect(Object.keys(loadCiWorkflow().jobs ?? {})).toEqual(expect.arrayContaining(['ci', 'e2e']));
+  });
+
+  it('cancels a superseded run instead of queuing behind it', () => {
+    const { concurrency } = loadCiWorkflow();
+    expect(concurrency?.group).toBe('ci-${{ github.ref }}');
+    expect(concurrency?.['cancel-in-progress']).toBe(true);
+  });
+
+  it('bounds every job with timeout-minutes', () => {
+    const jobs = loadCiWorkflow().jobs ?? {};
+    const missing = Object.entries(jobs)
+      .filter(([, definition]) => typeof definition['timeout-minutes'] !== 'number')
+      .map(([job]) => job);
+
+    expect(missing, 'every job needs an explicit ceiling or a hang runs until GitHub kills it').toEqual([]);
+    expect(jobs.ci?.['timeout-minutes']).toBe(CI_JOB_TIMEOUT_MINUTES);
+    expect(jobs.e2e?.['timeout-minutes']).toBe(E2E_JOB_TIMEOUT_MINUTES);
+  });
+});
+
+/**
+ * docker-publish.yml's `verify` job runs the unit suite but never the e2e one,
+ * so an image could publish with a broken client the unit tests cannot see —
+ * ci.yml's `e2e` job is what normally catches that class of bug, and nothing
+ * here re-ran it before shipping. The chromium-only restriction mirrors why
+ * ci.yml itself only runs firefox/webkit as part of the full three-browser e2e
+ * job: this is a pre-publish gate, not the place to re-run the full matrix
+ * ci.yml already covers on every push.
+ */
+describe('docker-publish.yml verify job also runs the e2e suite', () => {
+  const VERIFY_JOB_TIMEOUT_MINUTES = 40;
+  const CHROMIUM_PROJECT_FLAG = '--project=chromium';
+  const DOCKER_PUBLISH_WORKFLOW = 'docker-publish.yml';
+  const VERIFY_JOB = 'verify';
+  const UNIT_TEST_STEP = 'npm run test';
+
+  const loadDockerPublishWorkflow = (): Workflow =>
+    parseWorkflow(fs.readFileSync(path.join(WORKFLOWS_DIR, DOCKER_PUBLISH_WORKFLOW), 'utf8'));
+
+  const verifyJob = (): WorkflowJob | undefined => loadDockerPublishWorkflow().jobs?.[VERIFY_JOB];
+
+  it('finds the verify job it is meant to be checking', () => {
+    // The self-oracle: matching nothing must not read as everything passing.
+    expect(verifyJob()?.steps?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it('bounds the verify job with timeout-minutes', () => {
+    expect(verifyJob()?.['timeout-minutes']).toBe(VERIFY_JOB_TIMEOUT_MINUTES);
+  });
+
+  it('installs the chromium browser after the unit tests run', () => {
+    const steps = verifyJob()?.steps ?? [];
+    const unitTestAt = steps.findIndex(step => step.run?.trim() === UNIT_TEST_STEP);
+    const installAt = steps.findIndex(
+      step => !!step.run?.includes('playwright install') && step.run.includes('chromium'),
+    );
+
+    expect(unitTestAt, 'expected to find the existing unit-test step as an anchor').toBeGreaterThan(-1);
+    expect(installAt, 'expected a playwright install step scoped to chromium').toBeGreaterThan(-1);
+    expect(installAt).toBeGreaterThan(unitTestAt);
+  });
+
+  it('runs the e2e suite restricted to the chromium project', () => {
+    const steps = verifyJob()?.steps ?? [];
+    const e2eStep = steps.find(step => step.run?.includes('test:e2e'));
+
+    expect(e2eStep, 'expected a step running the test:e2e script').toBeDefined();
+    expect(e2eStep?.run).toContain(CHROMIUM_PROJECT_FLAG);
   });
 });

@@ -74,6 +74,11 @@ jobs:
     # mid-run publish a tree that nothing here tested.
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
+    # Unit tests plus a single-browser e2e run; ci.yml's own e2e job (three
+    # browsers, its own download) takes about 9 minutes, so 40 leaves this
+    # narrower job real headroom rather than trimming it to the same ceiling.
+    # server/workflows.test.ts pins this.
+    timeout-minutes: 40
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -166,6 +171,18 @@ jobs:
 
       - name: Run Unit & Integration Tests
         run: npm run test
+
+      # A publish otherwise ships whatever the unit suite cannot see — ci.yml's
+      # own e2e job is what normally catches a broken client, and nothing here
+      # re-ran it before an image goes out. Restricted to chromium: this is a
+      # pre-publish gate, not the place to re-run the full three-browser matrix
+      # ci.yml already covers on every push. server/workflows.test.ts pins the
+      # ordering (after the unit tests) and the --project flag.
+      - name: Install Playwright browser (chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: Run End-to-End Tests (chromium)
+        run: npm run test:e2e -- --project=chromium
 
   build:
     name: Build ${{ matrix.platform }}
