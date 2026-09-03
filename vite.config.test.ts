@@ -28,6 +28,39 @@ afterAll(() => {
   else process.env.API_TARGET = ORIGINAL_TARGET;
 });
 
+describe('coverage config', () => {
+  it('includes both the client and server trees, so an untested file counts as 0% instead of being invisible', async () => {
+    // Once `include` is set, @vitest/coverage-v8 always folds in every
+    // matching-but-untested file as 0% (see getUntestedFiles) — there is no
+    // separate `all` toggle in this vitest version, so `include` alone is
+    // what makes the floor below measure "the whole tree" rather than just
+    // whatever some test happened to import.
+    vi.resetModules();
+    const { default: configFactory } = await import('./vite.config');
+    const config = await configFactory({ mode: 'test', command: 'serve' });
+    const coverage = config.test!.coverage!;
+
+    expect(coverage.include).toEqual(expect.arrayContaining(['src/**/*.{ts,tsx}', 'server/**/*.ts']));
+  });
+
+  it('excludes test files, type declarations, and the spawned-server-only files V8 cannot instrument', async () => {
+    vi.resetModules();
+    const { default: configFactory } = await import('./vite.config');
+    const config = await configFactory({ mode: 'test', command: 'serve' });
+    const coverage = config.test!.coverage!;
+
+    expect(coverage.exclude).toEqual(expect.arrayContaining([
+      '**/*.test.*',
+      '**/*.d.ts',
+      'src/testing/**',
+      'src/sw.js',
+      'server/socketTestHarness.ts',
+      'server/testPorts.ts',
+      'server/index.ts',
+    ]));
+  });
+});
+
 describe('dev server proxy', () => {
   it('forwards the API and the socket to the local server by default', async () => {
     const proxy = await proxyWith(undefined);

@@ -19,13 +19,13 @@ const { version: appVersion } = JSON.parse(
 // assignment below so the split actually happens — see the note there.
 const LAZY_PACKAGES = ['qrcode-generator', 'jsqr', 'chart.js', 'react-chartjs-2']
 
-// Coverage gate for `npm run test:coverage` (which CI runs): a floor well
-// under the suite's actual level (~92% statements / ~88% branches as of
-// v1.5.3), so it catches real erosion without turning every refactor into a
-// threshold fight. Note the number understates the server: most of
-// server/api.test.ts drives a spawned server subprocess, which V8 coverage
-// cannot see into.
-const COVERAGE_FLOOR_PERCENT = 80
+// Coverage gate for `npm run test:coverage` (which CI runs): five points
+// under the lowest of the four metrics actually measured over the whole
+// tree (see `include` on the `coverage` block below) — 95.93% statements /
+// 91.43% branches / 97.57% functions / 97.52% lines as of v1.5.4, branches
+// the lowest. Five points of headroom catches real erosion without turning
+// every refactor into a threshold fight.
+const COVERAGE_FLOOR_PERCENT = 86
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -174,6 +174,30 @@ export default defineConfig(({ mode }) => {
       // the project at all.
       exclude: ['node_modules', 'dist', '.idea', '.git', '.cache', 'e2e/**', 'server/node_modules/**', 'scratch/**', '.claude/**'],
       coverage: {
+        // Without `include`, V8 coverage only reports on files some test
+        // actually imported — an untested file simply never appears, so it
+        // cannot drag the percentage down and the floor above measured
+        // nothing like "the whole tree". Once `include` is set, the v8
+        // provider always folds in every matching-but-untested file as 0%
+        // (see getUntestedFiles in @vitest/coverage-v8) — there is no
+        // separate `all` toggle to opt into that in this vitest version; one
+        // existed in older istanbul-only releases but isn't part of the
+        // current CoverageOptions type at all.
+        include: ['src/**/*.{ts,tsx}', 'server/**/*.ts'],
+        exclude: [
+          '**/*.test.*',
+          '**/*.d.ts',
+          'src/testing/**',
+          'src/sw.js',
+          // Every one of these lives only in a subprocess a spawned-server
+          // suite starts (see socketTestHarness.ts) — V8 coverage instruments
+          // the parent process, so it cannot see into that child at all, and
+          // counting these against the floor would penalize files that ARE
+          // exercised, just not visibly.
+          'server/socketTestHarness.ts',
+          'server/testPorts.ts',
+          'server/index.ts',
+        ],
         thresholds: {
           statements: COVERAGE_FLOOR_PERCENT,
           branches: COVERAGE_FLOOR_PERCENT,
