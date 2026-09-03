@@ -181,9 +181,24 @@ export const registerApiRoutes = (app: express.Express): void => {
     max: CRASH_LOG_RATE_LIMIT_MAX,
   });
 
+  // Keys a stats GET by device id when the request carries a valid one,
+  // rather than by IP: the end-screen retry loop (useDeviceStats.ts) can
+  // fire several reads per finishing device, and several devices finishing
+  // behind the same NAT/proxy IP would otherwise share — and blow through —
+  // one 60/min bucket, 429ing a device that never made a request of its own.
+  // GET /api/stats/global never carries this header (see statsApi.ts), so it
+  // keeps the previous IP-keyed behaviour untouched; an anonymous scraper
+  // hitting the device route with no header, or an invalid one, also falls
+  // back to the IP key, so it stays bounded exactly as before.
+  const statsRateLimitKey = (req: express.Request): string => {
+    const deviceId = deviceIdFromHeader(req);
+    return deviceId !== null ? `device:${deviceId}` : `ip:${req.ip ?? 'unknown'}`;
+  };
+
   const statsRateLimiter = createRateLimiter({
     windowMs: STATS_RATE_LIMIT_WINDOW_MS,
     max: STATS_RATE_LIMIT_MAX,
+    keyFn: statsRateLimitKey,
   });
 
   app.post('/api/log/client-error', crashLogRateLimiter, (req: express.Request, res: express.Response) => {

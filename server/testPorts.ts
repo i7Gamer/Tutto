@@ -36,6 +36,7 @@ const BASE_PORTS = {
   apiClientErrorRateLimit: '3013',
   apiProductionCors: '3018',
   apiStatsRateLimitEnv: '3021',
+  apiDeviceStatsRateLimit: '3022',
 
   // Focused socket behaviour suites.
   socketConfigBounds: '3008',

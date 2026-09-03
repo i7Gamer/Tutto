@@ -9,6 +9,11 @@ export interface RateLimiterOptions {
   // from many different IPs would grow the map forever — each key only ever gets
   // cleaned up when a fresh request happens to land after its window expired.
   maxTrackedKeys?: number;
+  // Identifies which bucket a request counts against. Defaults to the
+  // request's IP — pass this to key by something else instead (e.g. a
+  // validated id read off a header) so callers that don't share that
+  // identity don't share one IP-wide bucket either.
+  keyFn?: (req: express.Request) => string;
 }
 
 interface Hit {
@@ -43,11 +48,12 @@ const evictOverCap = (hits: Map<string, Hit>, maxTrackedKeys: number, now: numbe
 // A minimal fixed-window rate limiter keyed by client IP. Not shared across
 // server instances/processes — fine for this app's single-process deployment,
 // and simpler than pulling in a dependency for one low-traffic endpoint.
-export const createRateLimiter = ({ windowMs, max, maxTrackedKeys = 10_000 }: RateLimiterOptions) => {
+export const createRateLimiter = ({ windowMs, max, maxTrackedKeys = 10_000, keyFn }: RateLimiterOptions) => {
   const hits = new Map<string, Hit>();
+  const resolveKey = keyFn ?? ((req: express.Request) => req.ip ?? 'unknown');
 
   return (req: express.Request, res: express.Response, next: express.NextFunction): void => {
-    const key = req.ip ?? 'unknown';
+    const key = resolveKey(req);
     const now = Date.now();
 
     if (hits.size > maxTrackedKeys) {

@@ -10,6 +10,7 @@ import { registerApiRoutes } from './api';
 import { startTestServer } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { DEVICE_ID_HEADER, DEVICE_STATS_PATH } from '../src/utils/statsApi';
 
 // setupTests.tsx stashes the real fetch here before installing its jsdom-only
 // stub; several describes below restore it explicitly rather than relying on
@@ -570,5 +571,57 @@ describe('GET /api/stats/global rate limiting', () => {
 
     expect(statuses.some(s => s === 200)).toBe(true);
     expect(statuses.some(s => s === 429)).toBe(true);
+  }, 15000);
+});
+
+// Regression coverage for the fix keying GET /api/stats/device by device id:
+// before it, this route shared one IP-wide bucket with GET /api/stats/global,
+// so several devices finishing behind the same NAT/proxy IP (the end-screen
+// retry loop in useDeviceStats.ts fires several reads per finishing device)
+// could exhaust it and 429 a device that never made a request of its own.
+describe('GET /api/stats/device rate limiting is keyed per device', () => {
+  let serverProcess: ChildProcess | undefined;
+  const PORT = TEST_PORTS.apiDeviceStatsRateLimit;
+  const TINY_CAP = '2';
+
+  beforeAll(async () => {
+    restoreNativeFetch();
+    serverProcess = await startTestServer(PORT, { env: { STATS_RATE_LIMIT_MAX: TINY_CAP } });
+  }, SERVER_BOOT_TIMEOUT_MS);
+
+  afterAll(() => {
+    if (serverProcess) serverProcess.kill();
+  });
+
+  const getDevice = (deviceId: string) => fetch(`http://127.0.0.1:${PORT}${DEVICE_STATS_PATH}`, {
+    headers: { [DEVICE_ID_HEADER]: encodeURIComponent(deviceId) },
+  });
+
+  it('does not 429 device B once device A alone has exhausted the cap, though both share this IP', async () => {
+    const capExceedingRequestCount = Number(TINY_CAP) + 1;
+    const deviceAStatuses: number[] = [];
+    for (let i = 0; i < capExceedingRequestCount; i++) deviceAStatuses.push((await getDevice('device-a')).status);
+
+    // Device A alone blew through its own bucket.
+    expect(deviceAStatuses.slice(0, Number(TINY_CAP))).toEqual([200, 200]);
+    expect(deviceAStatuses[Number(TINY_CAP)]).toBe(429);
+
+    // Device B, same IP, gets its own bucket — untouched by A's requests.
+    const deviceBRes = await getDevice('device-b');
+    expect(deviceBRes.status).toBe(200);
+  }, 15000);
+
+  it('still rate-limits by IP a caller with no device header at all', async () => {
+    const capExceedingRequestCount = Number(TINY_CAP) + 1;
+    const get = () => fetch(`http://127.0.0.1:${PORT}${DEVICE_STATS_PATH}`);
+    const statuses: number[] = [];
+    for (let i = 0; i < capExceedingRequestCount; i++) statuses.push((await get()).status);
+
+    // Every request here is missing the device header, so the route answers
+    // 400 for each one it doesn't rate-limit away first — but once the
+    // shared IP bucket is exhausted, the rate limiter runs before that
+    // validation and answers 429 instead.
+    expect(statuses.slice(0, Number(TINY_CAP))).toEqual([400, 400]);
+    expect(statuses[Number(TINY_CAP)]).toBe(429);
   }, 15000);
 });

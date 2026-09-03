@@ -1,5 +1,6 @@
 /** @vitest-environment node */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type express from 'express';
 import { createRateLimiter, createSocketEventLimiter, createKeyedEventLimiter } from './rateLimit';
 
 const makeReq = (ip: string): { ip: string } => ({ ip });
@@ -103,6 +104,43 @@ describe('createRateLimiter', () => {
     limiter(makeReq('1.2.3.4') as never, res2 as never, next);
     expect(res2.statusCode).toBe(200);
     expect(next).toHaveBeenCalledTimes(2);
+  });
+
+  it('keys hits with a custom keyFn instead of req.ip', () => {
+    // A caller may want to key by something other than the request's IP
+    // (e.g. a validated id from a header) so unrelated callers sharing one
+    // IP don't share one bucket.
+    const limiter = createRateLimiter({
+      windowMs: 1000,
+      max: 1,
+      keyFn: (req: express.Request) => (req as unknown as { deviceId: string }).deviceId,
+    });
+    const next = vi.fn();
+    const resA = makeRes();
+    const resB = makeRes();
+
+    limiter({ ip: '1.2.3.4', deviceId: 'device-a' } as never, resA as never, next);
+    limiter({ ip: '1.2.3.4', deviceId: 'device-b' } as never, resB as never, next);
+
+    expect(resA.statusCode).toBe(200);
+    expect(resB.statusCode).toBe(200);
+  });
+
+  it('shares a bucket across two requests with the same keyFn result even from different IPs', () => {
+    const limiter = createRateLimiter({
+      windowMs: 1000,
+      max: 1,
+      keyFn: (req: express.Request) => (req as unknown as { deviceId: string }).deviceId,
+    });
+    const next = vi.fn();
+    const res1 = makeRes();
+    const res2 = makeRes();
+
+    limiter({ ip: '1.1.1.1', deviceId: 'device-a' } as never, res1 as never, next);
+    limiter({ ip: '2.2.2.2', deviceId: 'device-a' } as never, res2 as never, next);
+
+    expect(res1.statusCode).toBe(200);
+    expect(res2.statusCode).toBe(429);
   });
 
   it('falls back to a shared key when req.ip is missing', () => {
