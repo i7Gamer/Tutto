@@ -2239,6 +2239,43 @@ describe('useGameStore', () => {
         }
       });
 
+      it('parks the retry instead of emitting it into a socket that dropped again', () => {
+        // The retry exists for a flaky reconnect, so a second drop inside its
+        // 300ms is exactly the case it must survive. socket.io-client buffers
+        // an emit made while disconnected and flushes that buffer BEFORE it
+        // fires 'connect' -- so the push would arrive on the NEW socket id
+        // while the seat still carries the old one, be refused, and be gone:
+        // the retry is not retryable and nothing was parked to recover it.
+        // The player's banked turn disappears with no toast.
+        vi.useFakeTimers();
+        try {
+          stageSeatedGame();
+          mockSocketConnected = false;
+          useGameStore.getState().pushState();
+
+          mockSocketConnected = true;
+          mockOnHandlers['connect']();
+          ackRejoin({ success: true, isHost: true, name: 'Alice' });
+
+          pushes()[0][2]({ ok: false, reason: 'unauthorized' });
+
+          // The transport drops again while the retry is armed.
+          mockSocketConnected = false;
+          vi.advanceTimersByTime(PUSH_REJOIN_RETRY_DELAY_MS);
+          expect(pushes(), 'nothing is emitted into a dead socket').toHaveLength(1);
+
+          // ...and it is held, so the next rejoin sends it.
+          mockSocketConnected = true;
+          mockOnHandlers['connect']();
+          ackRejoin({ success: true, isHost: true, name: 'Alice' });
+
+          expect(pushes(), 'the parked snapshot goes out on the new connection').toHaveLength(2);
+          expect(pushes()[1][1].newState.round).toBe(STAGED_ROUND);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
       it('cancels a pending rejoin retry when a newer push is made before it fires', () => {
         vi.useFakeTimers();
         try {
@@ -2694,6 +2731,18 @@ describe('useGameStore', () => {
           expect(useGameStore.getState().toasts).toEqual([]);
         }],
         ['nameConflictWithDisconnected', () => mockOnHandlers['nameConflictWithDisconnected']('Stranger'), () => {
+          expect(useGameStore.getState().toasts).toEqual([]);
+        }],
+        // The two destructive ones: both run surrenderSeat, which clears the
+        // room state and flips to local mode -- and the local persistence
+        // subscriber writes on any set() made while mode is 'local', so
+        // arriving after this client has already left would empty a RESTORED
+        // LOCAL GAME and overwrite its save on disk.
+        ['seatTakenOver', () => mockOnHandlers['seatTakenOver'](), () => {
+          expect(useGameStore.getState().toasts).toEqual([]);
+          expect(useGameStore.getState().mode, 'no surrender, so no flip to local').toBe('online');
+        }],
+        ['gameAborted', () => mockOnHandlers['gameAborted'](), () => {
           expect(useGameStore.getState().toasts).toEqual([]);
         }],
       ];
@@ -5198,6 +5247,53 @@ describe('useGameStore', () => {
         } finally {
           vi.useRealTimers();
         }
+      });
+
+      it('ignores an ack that lands after the deadline already banked the turn', async () => {
+        // The deadline above is the panel's answer to silence -- but the ack
+        // is not cancelled by it, and the socket is still connected. Arriving
+        // late it would write its card over whatever is current NOW, which by
+        // then is the next turn's: the room and the table disagree until some
+        // later broadcast happens to correct it.
+        vi.useFakeTimers();
+        try {
+          midTurn();
+          let lateAck: ((res: unknown) => void) | undefined;
+          mockEmit.mockImplementation((event, _payload, ack) => {
+            if (event === 'drawCard') lateAck = ack;
+          });
+
+          const pending = useGameStore.getState().drawCardMidTurn();
+          vi.advanceTimersByTime(DRAW_CARD_ACK_TIMEOUT_MS);
+          await expect(pending).resolves.toBeNull();
+
+          // The turn moved on while the server was quiet.
+          useGameStore.setState({ currentCard: 'Kniffel' });
+          lateAck!({ ok: true, card: 'Kleeblatt' });
+
+          expect(useGameStore.getState().currentCard, 'the late ack does not touch the new turn').toBe('Kniffel');
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('ignores an ack that lands after this client left the room', async () => {
+        // currentCard is one of STABLE_LOCAL_GAME_KEYS, so writing it here
+        // puts a card from a room this client no longer holds into whatever
+        // local game replaced it -- which the persistence subscriber then
+        // saves over that game's file on disk.
+        midTurn();
+        let lateAck: ((res: unknown) => void) | undefined;
+        mockEmit.mockImplementation((event, _payload, ack) => {
+          if (event === 'drawCard') lateAck = ack;
+        });
+
+        const pending = useGameStore.getState().drawCardMidTurn();
+        useGameStore.setState({ roomId: null, currentCard: 'Kniffel' });
+        lateAck!({ ok: true, card: 'Kleeblatt' });
+
+        await expect(pending).resolves.toBeNull();
+        expect(useGameStore.getState().currentCard).toBe('Kniffel');
       });
 
       it('does not let a draw be buffered across a dropped socket', async () => {

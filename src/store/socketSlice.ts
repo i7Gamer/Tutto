@@ -579,7 +579,16 @@ const emitPushState = (
       pushRejoinRetryTimer = setTimeout(() => {
         pushRejoinRetryTimer = null;
         const current = getSocket();
-        if (current) emitPushState(current, payload, get, false);
+        // Connected, not merely present. This retry is armed for a flaky
+        // reconnect, so the transport dropping again inside its delay is the
+        // case it exists for — and emitting then is the exact bug parkedPush
+        // was built to prevent: socket.io-client flushes its send buffer
+        // BEFORE it fires 'connect', so the push lands on the new socket id
+        // while the seat still carries the old one, is refused, and is gone
+        // (this retry is not itself retryable). Park it instead, and the
+        // rejoin flushes it in order like any other held push.
+        if (current?.connected) emitPushState(current, payload, get, false);
+        else parkedPush = { payload, parkedAt: Date.now() };
       }, PUSH_REJOIN_RETRY_DELAY_MS);
       return;
     }
@@ -1250,7 +1259,17 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     const deadline = setTimeout(() => settle(null), DRAW_CARD_ACK_TIMEOUT_MS);
 
     socket.emit('drawCard', { roomId: s.roomId }, (ack?: DrawCardAck) => {
-      if (!ack || !ack.ok) return settle(null);
+      // `settled` as well as the ack itself: an ack that lost the race to the
+      // deadline is answering a draw the panel has already banked and moved
+      // past, and the write below would then land on the NEXT turn's card.
+      // `inRoom` for the same reason every broadcast handler carries it —
+      // currentCard is one of STABLE_LOCAL_GAME_KEYS, so writing it after a
+      // leave puts a card from a room this client is no longer in into a
+      // restored local game, which the persistence subscriber then saves to
+      // disk. Unreachable today only because setMode('local') disconnects the
+      // socket and socket.io drops pending acks with it; that is a property of
+      // the teardown order, not of this callback.
+      if (!ack || !ack.ok || settled || !inRoom(get)) return settle(null);
       // Adopted locally as well as handed back, so the panel does not have to
       // wait for the broadcast to be applied before it can act on the card.
       // The room's own gameState carries the same card AND the deck it came
