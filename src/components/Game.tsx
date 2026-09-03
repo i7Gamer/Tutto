@@ -16,7 +16,7 @@ import { useWakeLock } from '../hooks/useWakeLock';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useDeviceStats } from '../hooks/useDeviceStats';
 import type { PreGameStats } from '../store/storeTypes';
-import type { DiceSnapshot, TurnEnd, TurnSummary } from '../types';
+import type { CardType, DiceSnapshot, TurnEnd, TurnSummary } from '../types';
 import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../utils/coreGameEngine';
 import { usePhysicalChain, readPhysicalChainCache } from '../hooks/usePhysicalChain';
 import { useReconnectResume } from '../hooks/useReconnectResume';
@@ -176,6 +176,9 @@ export default function Game() {
   // already-your-turn state (fresh load, reconnect) doesn't itself count as
   // a "turn started" transition — only a later false-to-true flip does.
   const wasMyTurnRef = useRef(!!isMyTurn);
+
+  // Guards the awaited draw in handlePhysicalDrawNextCard — see there.
+  const drawInFlightRef = useRef(false);
 
   // Both of these correct state during render rather than from an effect. An
   // effect renders the stale value first and fixes it on the next pass, and
@@ -408,13 +411,28 @@ export default function Game() {
     // BEFORE drawCardMidTurn, or the drawn card would leave the deck without
     // ever entering the chain.
     if (!canDrawAnotherCard()) return;
+    // One draw at a time. The button has no disabled state and
+    // canDrawAnotherCard reads a chain that only grows in recordDraw — i.e.
+    // after the answer lands — so across the round trip below every one of
+    // this handler's own guards still says yes. A double-tap would deal twice
+    // for one tutto: two cards off the room deck, two turn-timer restarts, and
+    // a card entering the chain marked completed that was never rolled, which
+    // buildSummary counts as a tutto and MAX-merges into mostCardsInTurn for
+    // good. DiceGame's drawNextCard holds the same ref for the same reason.
+    if (drawInFlightRef.current) return;
+    drawInFlightRef.current = true;
     // Awaited: online the card is dealt by the server (the deck is not this
     // client's to draw from), so this is a round trip. `currentCard` is read
     // here, BEFORE the ask, because it is the card the chain is being
     // continued from and the store has moved on to the new one by the time the
     // answer lands — see recordDraw.
     const drawnFrom = currentCard;
-    const drawn = await drawCardMidTurn();
+    let drawn: CardType | null;
+    try {
+      drawn = await drawCardMidTurn();
+    } finally {
+      drawInFlightRef.current = false;
+    }
     if (!drawn) return;
     recordDraw(drawn, drawnFrom);
   }, [currentCard, canDrawAnotherCard, drawCardMidTurn, recordDraw]);

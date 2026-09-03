@@ -1101,6 +1101,37 @@ describe('Game Component Integration', () => {
         expect(nonNull(mockNextTurn.mock.calls[0][2]).cards).toHaveLength(MAX_CHAIN_CARDS);
       });
 
+      it('a second tap during the server round trip does not spend a second card', async () => {
+        // drawCardMidTurn is a SERVER round trip online (see the header note),
+        // so the button stays live across the await -- it has no disabled
+        // state and canDrawAnotherCard reads a chain that only grows once the
+        // answer lands. A double-tap therefore deals TWICE for one tutto: two
+        // cards off the room deck, two turn-timer restarts, and the extra card
+        // enters the chain marked completed although it was never rolled --
+        // which buildSummary counts as a tutto and feeds into mostCardsInTurn,
+        // a permanently MAX-merged lifetime record. DiceGame's own call site
+        // has guarded this since the draw became asynchronous
+        // (drawInFlightRef); this path was left behind.
+        let releaseDraw: (card: '400') => void = () => {};
+        const mockDraw = vi.fn(() => new Promise<'400'>(resolve => { releaseDraw = resolve; }));
+        useGameStore.setState({ currentCard: '300', round: 1, drawCardMidTurn: mockDraw });
+        localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
+          turnKey: 'local:1:0:300:classic',
+          cards: [{ card: '300', completed: false }],
+          plusMinusScores: [],
+          awaitingChoice: false,
+          scoreInput: '500',
+        }));
+        render(<Game />);
+
+        await drawNextPhysicalCard();
+        await drawNextPhysicalCard();
+
+        expect(mockDraw, 'the in-flight draw swallows the second tap').toHaveBeenCalledTimes(1);
+
+        await act(async () => { releaseDraw('400'); await Promise.resolve(); });
+      });
+
       it('allows the draw right up to the cap, then refuses', async () => {
         const mockDraw = vi.fn(async () => {
           useGameStore.setState({ currentCard: '400' });

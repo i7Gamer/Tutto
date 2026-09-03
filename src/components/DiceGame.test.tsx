@@ -1132,6 +1132,30 @@ describe('DiceGame chain draw the server discards', () => {
     fireEvent.click(screen.getByTestId('drawn-card-continue'));
   };
 
+  it('a second press during the round trip does not spend a second card', async () => {
+    // Two guards enforce this and the test passes under either, so it is a
+    // behavioural pin rather than an oracle for one of them: the load-bearing
+    // one is `validation.valid` at the top of the action handler (the table
+    // was committed on the first press, so no valid selection is left to act
+    // on), and drawNextCard's drawInFlightRef is the backstop behind it.
+    // Deleting the ref alone leaves this green -- deliberately recorded here,
+    // because the equivalent physical-dice path in Game.tsx has NO first
+    // guard, and there the same double-press really did deal twice.
+    let releaseDraw: (card: '500') => void = () => {};
+    const onDrawCard = vi.fn(() => new Promise<'500'>(resolve => { releaseDraw = resolve; }));
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    render(<DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={vi.fn()} />);
+    flushRollFake();
+
+    selectAllValid();
+    await clickDraw();
+    await pressDrawKey();
+
+    expect(onDrawCard, 'one press, one card off the deck').toHaveBeenCalledTimes(1);
+
+    await act(async () => { releaseDraw('500'); await Promise.resolve(); });
+  });
+
   it('banks the committed tutto when the drawn card never arrives, instead of stranding the roll', async () => {
     const onComplete = vi.fn();
     const onDrawCard = vi.fn(async () => '500' as const);
