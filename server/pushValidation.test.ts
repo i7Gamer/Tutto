@@ -22,7 +22,7 @@ import {
 } from './pushValidation';
 import { createRoom } from './rooms';
 import { MIN_ENABLED_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
-import { PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
+import { PLAYER_STAT_FIELDS, PLAYER_NUMERIC_FIELDS } from '../src/utils/playerStats';
 import type { RoomState, ServerPlayer } from './roomTypes';
 import { makeServerPlayer as makePlayer } from './socketTestHarness';
 import type { DiceSnapshot } from '../src/types';
@@ -188,6 +188,80 @@ describe('applyPushedState', () => {
       expect(state.players[0].busts).toBe(0);
       expect(state.players[0].disconnected).toBe(false);
       expect(state.players[1].score).toBe(300);
+    });
+
+    describe('a player number is a whole number, and only the score may be below zero', () => {
+      // Finite and magnitude-capped was the whole rule, so `busts: 2.5` and
+      // `totalTurns: -7` were accepted and broadcast to the room — and the
+      // counters ride into the stats payload each client submits at game end,
+      // where sanitizeStats' own bound is a magnitude too. Nothing a game can
+      // produce is fractional, and nothing but the score can be negative.
+      it('ignores a fractional counter', () => {
+        const state = makeState();
+        applyPushedState(state, { players: [{ name: 'Alice', busts: 2.5 }, { name: 'Bob' }] }, asActivePlayer);
+        expect(state.players[0].busts).toBe(0);
+      });
+
+      it('ignores a negative counter', () => {
+        const state = makeState();
+        applyPushedState(state, { players: [{ name: 'Alice', totalTurns: -7 }, { name: 'Bob' }] }, asActivePlayer);
+        expect(state.players[0].totalTurns).toBe(0);
+      });
+
+      it('accepts a whole one', () => {
+        const state = makeState();
+        applyPushedState(state, { players: [{ name: 'Alice', busts: 3, totalTurns: 0 }, { name: 'Bob' }] }, asActivePlayer);
+        expect(state.players[0].busts).toBe(3);
+        expect(state.players[0].totalTurns).toBe(0);
+      });
+
+      it('ignores a negative or fractional per-turn record', () => {
+        // A record is only ever written when it BEATS zero (NO_RECORD_YET in
+        // coreGameEngine), so a negative one is unreachable honestly — and it
+        // would render as a new personal best on the end screen.
+        const state = makeState();
+        state.players[0].highestTurnScore = 400;
+        applyPushedState(state, {
+          players: [{ name: 'Alice', highestTurnScore: -50, mostCardsInTurn: 1.5 }, { name: 'Bob' }],
+        }, asActivePlayer);
+        expect(state.players[0].highestTurnScore).toBe(400);
+        expect(state.players[0].mostCardsInTurn).toBeUndefined();
+      });
+
+      it('still accepts a negative score, which the modernized Plus/Minus produces', () => {
+        // Each leader is deducted 1000 on a Plus/Minus success, and a player
+        // who has not banked that much goes below zero. Refusing it here would
+        // reset that player's score to whatever the server last held, every
+        // push, for the rest of the game.
+        const state = makeState();
+        applyPushedState(state, { players: [{ name: 'Alice', score: -1000 }, { name: 'Bob' }] }, asActivePlayer);
+        expect(state.players[0].score).toBe(-1000);
+      });
+
+      it('but not a fractional one', () => {
+        const state = makeState();
+        applyPushedState(state, { players: [{ name: 'Alice', score: 0.5 }, { name: 'Bob' }] }, asActivePlayer);
+        expect(state.players[0].score).toBe(0);
+      });
+
+      it('holds for every numeric field the one list names', () => {
+        // Derived from the list that CREATES these fields, like the accepted-
+        // stats test above, so a counter added there is covered here without
+        // this file naming it. Only the score is exempt.
+        const state = makeState();
+        for (const field of PLAYER_NUMERIC_FIELDS) {
+          const held = state.players[0][field];
+          applyPushedState(state, { players: [{ name: 'Alice', [field]: -1 }, { name: 'Bob' }] }, asActivePlayer);
+          expect(state.players[0][field], field).toBe(field === 'score' ? -1 : held);
+        }
+      });
+
+      it('applies to position too, which is an index', () => {
+        const state = makeState();
+        state.players[0].position = 1;
+        applyPushedState(state, { players: [{ name: 'Alice', position: 2.5 }, { name: 'Bob' }] }, asActivePlayer);
+        expect(state.players[0].position).toBe(1);
+      });
     });
 
     it('merges the per-card highest turn scores alongside the overall one', () => {

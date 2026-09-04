@@ -11,7 +11,7 @@ import {
   MAX_TURN_DURATION, MAX_PLAYER_NAME_LENGTH,
   MAX_SCORE_MAGNITUDE, MAX_ROUNDS, MAX_GAME_SECONDS,
 } from '../src/utils/configValidation';
-import { PLAYER_STAT_FIELDS } from '../src/utils/playerStats';
+import { PLAYER_STAT_FIELDS, PLAYER_NUMERIC_FIELDS, type PlayerStatField, type PlayerRecordField } from '../src/utils/playerStats';
 import { getLeaders } from '../src/utils/coreGameEngine';
 import { roomPhase } from '../src/utils/roomPhase';
 import type { SyncedGameStateKey, AssertNever, ConfigKeys } from '../src/types';
@@ -477,6 +477,40 @@ const PLAYER_UNDO_SEAT_MUTABLE: (keyof ServerPlayer)[] = [
   ...PLAYER_OPTIONAL_RECORDS,
 ];
 
+/**
+ * The one mutable player number that may legitimately be below zero.
+ *
+ * Every other number a player carries counts upward from zero — the stat
+ * counters, the two point sums, and the per-turn records, which are only ever
+ * written when they BEAT zero (NO_RECORD_YET in coreGameEngine). The score is
+ * different: the modernized Plus/Minus deducts 1000 from each leader, so a
+ * player who has not banked that much ends the turn negative, and the engine's
+ * own tests pin that. Refusing a negative score here would reset that player
+ * to whatever the server last held on every push for the rest of the game.
+ */
+const SIGNED_PLAYER_FIELD = 'score';
+
+const PLAYER_NON_NEGATIVE_FIELDS: ReadonlySet<keyof ServerPlayer> = Object.freeze(
+  new Set<keyof ServerPlayer>(PLAYER_NUMERIC_FIELDS.filter(f => f !== SIGNED_PLAYER_FIELD)),
+);
+
+// Locks the exemption to a field that is actually one of the numbers it is
+// carved out of. Without it a renamed `score` would leave the set unchanged
+// and silently make the real score field non-negative too — the same silence
+// PushFieldLock exists to prevent one list up.
+// Exported only so noUnusedLocals sees a use; nothing imports it.
+export type SignedPlayerFieldLock =
+  AssertNever<Exclude<typeof SIGNED_PLAYER_FIELD, PlayerStatField | PlayerRecordField>>;
+
+// What a pushed player number has to be: bounded like every other pushed
+// number, WHOLE (no game produces 2.5 busts or half a point), and at or above
+// zero unless it is the score. `busts: 2.5` and `totalTurns: -7` used to be
+// accepted on nothing but finiteness and the magnitude cap — then broadcast to
+// the room, and finally carried into the stats payload each client submits at
+// game end, whose own bound is a magnitude too.
+const isMergeablePlayerNumber = (field: keyof ServerPlayer, v: unknown): v is number =>
+  isBoundedNumber(v) && Number.isInteger(v) && (v >= 0 || !PLAYER_NON_NEGATIVE_FIELDS.has(field));
+
 const mergeMutable = (
   existing: ServerPlayer,
   p: Record<string, unknown> | undefined,
@@ -503,7 +537,9 @@ const mergeMutable = (
       // Same sanity cap as previousScore/previousHighestTurnScore below — these
       // are counters and scores, never legitimately anywhere near this large,
       // and an unbounded value would ride every future broadcast to every client.
-    } else if (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= MAX_SCORE_MAGNITUDE) {
+      // `position` is not one of the numbers PLAYER_NON_NEGATIVE_FIELDS covers
+      // (it is a seat index, not a tally), but it is still a whole number.
+    } else if (isMergeablePlayerNumber(f, v)) {
       (updated as Record<string, unknown>)[f] = v;
     }
   }
