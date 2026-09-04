@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode, type RefObject, type KeyboardEvent } from 'react';
+import { useEffect, useRef, type ReactNode, type RefObject, type KeyboardEvent, type FocusEvent } from 'react';
 import { motion, AnimatePresence, type MotionProps } from 'framer-motion';
 import './ModalShell.css';
 
@@ -93,6 +93,12 @@ export default function ModalShell({
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const wasOpenRef = useRef(false);
 
+  // Shared by the open effect below and the focus-recovery handler further
+  // down: the first focusable control in the panel, or the panel itself when
+  // there is none (the dice panel before its dice settle).
+  const getFallbackFocusTarget = (): HTMLElement | null =>
+    panelRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ?? panelRef.current;
+
   // Cleanup covers both ways a dialog goes away: the prop flipping to false,
   // and the whole shell unmounting while still open. Game.tsx renders the dice
   // panel as `{showDiceGame && <ModalShell open>}`, which only ever does the
@@ -112,9 +118,7 @@ export default function ModalShell({
       // otherwise leave focus on the trigger behind the backdrop — Tab then
       // walks the page underneath, and the trap below never sees a key,
       // because it is a handler on this panel.
-      const fallback = panelRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)
-        ?? panelRef.current;
-      (initialFocusRef?.current ?? fallback)?.focus();
+      (initialFocusRef?.current ?? getFallbackFocusTarget())?.focus();
       return;
     }
     // A dialog that has never been open has no focus to hand back, and taking
@@ -165,6 +169,25 @@ export default function ModalShell({
     }
   };
 
+  // The Tab trap above only ever sees a key while focus is inside the panel.
+  // A control that becomes `disabled` while it holds focus — TurnActionBar's
+  // Roll/Stop, for ~1.6s while the dice tumble — is blurred by the browser to
+  // <body>, outside the panel: Escape then reaches no handler and Tab walks
+  // into the page behind the backdrop (GameControls' End/Leave Game). React's
+  // onBlur bubbles like a native focusout, so this catches it wherever inside
+  // the panel it happens and pulls focus back in.
+  const handleFocusLeavingPanel = (e: FocusEvent<HTMLDivElement>): void => {
+    if (!open) return;
+    const next = e.relatedTarget as HTMLElement | null;
+    // Focus already landed somewhere sensible: still inside this panel, or
+    // inside another dialog stacked on top of it (a confirm over the dice
+    // panel). That dialog must keep it — refocusing here would fight it back.
+    if (next && (panelRef.current?.contains(next) || next.closest('[role="dialog"], [role="alertdialog"]'))) {
+      return;
+    }
+    getFallbackFocusTarget()?.focus();
+  };
+
   return (
     <AnimatePresence>
       {open && (
@@ -181,6 +204,7 @@ export default function ModalShell({
             className={panelClassName}
             onClick={e => e.stopPropagation()}
             onKeyDown={handleKeyDown}
+            onBlur={handleFocusLeavingPanel}
             {...motionProps}
           >
             {children}

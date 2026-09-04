@@ -405,6 +405,118 @@ describe('ModalShell', () => {
     expect(notPrevented).toBe(true);
   });
 
+  // UI-5: the keydown trap above only ever sees a key while focus is inside
+  // the panel. A control that becomes `disabled` while focused — Roll/Stop in
+  // TurnActionBar, for ~1.6s while the dice tumble — is blurred by the
+  // browser to <body>, outside the panel: Escape then reaches no handler and
+  // Tab walks into the page behind the backdrop. jsdom does not run the
+  // browser's "unfocusing steps" for a disabled control on its own, so each
+  // test below simulates the resulting blur (relatedTarget null) by hand.
+  describe('recovers focus lost to a control disabling itself', () => {
+    it('reclaims focus for the panel when the focused control becomes disabled', () => {
+      const { rerender } = render(
+        <ModalShell open>
+          <button>roll</button>
+          <button>stop</button>
+        </ModalShell>
+      );
+      const dialog = screen.getByRole('dialog');
+      const roll = screen.getByRole('button', { name: 'roll' });
+      roll.focus();
+      expect(roll).toHaveFocus();
+
+      rerender(
+        <ModalShell open>
+          <button disabled>roll</button>
+          <button disabled>stop</button>
+        </ModalShell>
+      );
+      fireEvent.focusOut(roll, { relatedTarget: null });
+
+      expect(dialog).toHaveFocus();
+    });
+
+    it('still dismisses on Escape once focus has been reclaimed from body', () => {
+      const onDismiss = vi.fn();
+      const { rerender } = render(
+        <ModalShell open onDismiss={onDismiss}>
+          <button>roll</button>
+          <button>stop</button>
+        </ModalShell>
+      );
+      const roll = screen.getByRole('button', { name: 'roll' });
+      roll.focus();
+
+      rerender(
+        <ModalShell open onDismiss={onDismiss}>
+          <button disabled>roll</button>
+          <button disabled>stop</button>
+        </ModalShell>
+      );
+      fireEvent.focusOut(roll, { relatedTarget: null });
+
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+    });
+
+    // A confirm stacked on the dice panel: the confirm's own open effect
+    // moves focus into itself, which fires a focusout on the dice panel too
+    // (focusout bubbles). The dice panel must leave focus where it landed
+    // instead of fighting the confirm for it.
+    it('does not steal focus back once it has moved into a second dialog stacked on top', () => {
+      const { rerender } = render(
+        <ModalShell open>
+          <button>lower</button>
+        </ModalShell>
+      );
+      const lowerButton = screen.getByRole('button', { name: 'lower' });
+      expect(lowerButton).toHaveFocus();
+
+      rerender(
+        <>
+          <ModalShell open>
+            <button>lower</button>
+          </ModalShell>
+          <ModalShell open>
+            <button>upper</button>
+          </ModalShell>
+        </>
+      );
+      const upperButton = screen.getByRole('button', { name: 'upper' });
+      expect(upperButton, "the upper dialog's own open effect takes focus").toHaveFocus();
+
+      fireEvent.focusOut(lowerButton, { relatedTarget: upperButton });
+
+      expect(upperButton, 'the lower dialog must not fight the upper one for focus').toHaveFocus();
+    });
+
+    it('does nothing while the shell is closed', () => {
+      // A closed dialog renders no panel at all, so this guards the same case
+      // as the `wasOpenRef` check in the effect above: nothing here may ever
+      // reach for focus while `open` is false.
+      const elsewhere = document.createElement('button');
+      document.body.appendChild(elsewhere);
+      elsewhere.focus();
+
+      const { rerender } = render(
+        <ModalShell open={false}>
+          <button>roll</button>
+        </ModalShell>
+      );
+      expect(elsewhere).toHaveFocus();
+
+      rerender(
+        <ModalShell open={false}>
+          <button disabled>roll</button>
+        </ModalShell>
+      );
+
+      expect(elsewhere, 'a closed dialog must not reach for focus').toHaveFocus();
+      elsewhere.remove();
+    });
+  });
+
   // The page behind a modal used to keep scrolling for every dialog except the
   // dice panel, which held a lock of its own in Game.tsx. Moving it here makes
   // it the shell's job, which is the only place that knows a dialog is up.
