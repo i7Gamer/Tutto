@@ -1040,6 +1040,16 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     sessionStore.remove(ONLINE_SESSION_KEY);
     set({ pendingReconnectSession: null, liveTurnState: null, showReconnectPopup: false });
 
+    // Read BEFORE the clearRoomState below wipes them: the arguments identify
+    // the room to release when the caller knows it (declining the restore
+    // prompt, where the store never held one), but App.tsx's "Return to Main
+    // Menu" calls this with none while the store is still seated. Without this
+    // fallback the server was never told, and a room configured with
+    // reconnectTimeout 0 arms no kick timer (server/socketRoomHandlers.ts), so
+    // the abandoned seat stayed in the room forever.
+    const targetRoomId = roomId ?? get().roomId;
+    const targetName = name ?? get().myName;
+
     // Abandoning an active room (the "Return to Main Menu" path) must also drop
     // the room identity and game state from the store — the setMode('local')
     // that follows only overwrites the keys a saved local game happens to
@@ -1060,7 +1070,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       set(clearRoomState());
     }
 
-    if (!roomId) return;
+    if (!targetRoomId) return;
 
     const tempSocket = io(window.location.origin);
     let cleanedUp = false;
@@ -1078,8 +1088,8 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     tempSocket.on('connect', () => {
       const savedColor = localStore.read('tutto_color');
       tempSocket.emit('joinRoom', {
-        roomId,
-        name,
+        roomId: targetRoomId,
+        name: targetName,
         deviceId: get().deviceId,
         color: savedColor,
         // A reconnect, so a room the server no longer has is refused

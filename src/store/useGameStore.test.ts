@@ -3944,6 +3944,37 @@ describe('useGameStore', () => {
       expect(s.round).toBe(1);
     });
 
+    it('cancelReconnect (no args) frees the seat the STORE is holding', async () => {
+      // App.tsx's "Return to Main Menu" calls this with no arguments while the
+      // store still holds roomId/myName. Without falling back to them the
+      // teardown join is never sent, and a room whose reconnectTimeout is 0
+      // arms no kick timer server-side — the seat is a permanent ghost.
+      const { io } = await import('socket.io-client');
+      vi.mocked(io).mockClear();
+      mockEmit.mockClear();
+      mockDisconnect.mockClear();
+
+      useGameStore.setState({
+        mode: 'online', isOnline: true,
+        roomId: 'R1', myName: 'Alice', deviceId: 'dev-alice',
+        players: namedPlayers('Alice', 'Bob'),
+        showReconnectPopup: true,
+      });
+
+      useGameStore.getState().cancelReconnect();
+
+      expect(io).toHaveBeenCalledWith(expect.any(String));
+      mockOnHandlers['connect']();
+      const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
+      // The room identity the store held, even though the local state was
+      // already cleared before the temp socket opened.
+      expect(joinRoomCall[1]).toMatchObject({ roomId: 'R1', name: 'Alice', isReconnect: true });
+
+      joinRoomCall[2]({ success: true });
+      expect(mockEmit).toHaveBeenCalledWith('leaveRoom');
+      expect(mockDisconnect).toHaveBeenCalled();
+    });
+
     it('cancelReconnect(roomId, name) without an active store room leaves a restored local game untouched', () => {
       // Declining the restore prompt happens on a fresh page load where the
       // store may already hold a restored LOCAL game. Only the roomId ARGUMENT
