@@ -201,6 +201,14 @@ test.describe('base heading margin does not leak into a flex row (finding 38)', 
  * resolves neither layers nor :hover.
  */
 test.describe('the lobby row hover cue survives the cascade', () => {
+  // How long a background colour is given to stop moving before the reading
+  // that samples it is called unstable. Explicit rather than left to
+  // expect.poll's 5 s default, so the number the message quotes is the number
+  // that applies. The intervals start tight because the transition being
+  // waited out is ~150ms — the default first-poll gap alone would be most of it.
+  const BACKGROUND_SETTLE_TIMEOUT_MS = 5000;
+  const BACKGROUND_SETTLE_INTERVALS_MS = [50, 50, 100, 250, 500];
+
   test('hovering the Random Order switch actually changes its background', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('button', { name: /Show Advanced Options/i }).click();
@@ -255,16 +263,35 @@ test.describe('the lobby row hover cue survives the cascade', () => {
     const row = pageA.locator('.player-name', { hasText: 'BobGuest' }).locator('xpath=..');
     const background = () => row.evaluate(el => getComputedStyle(el).backgroundColor);
 
+    // transition-colors animates the background over ~150ms — settle before
+    // sampling, or a resting/hover pair caught mid-animation can differ by
+    // residual interpolation alone and pass for the wrong reason.
+    //
+    // Two consecutive equal readings rather than a sleep longer than the
+    // transition: it waits on the thing itself instead of on a clock that has
+    // to be re-tuned whenever the duration changes, and it returns as soon as
+    // the colour has actually stopped.
+    const settledBackground = async (what: string): Promise<string> => {
+      let previous = await background();
+      await expect.poll(async () => {
+        const current = await background();
+        const unchanged = current === previous;
+        previous = current;
+        return unchanged;
+      }, {
+        message: `${what} was still changing colour after ${BACKGROUND_SETTLE_TIMEOUT_MS}ms — no reading of it settled`,
+        timeout: BACKGROUND_SETTLE_TIMEOUT_MS,
+        intervals: BACKGROUND_SETTLE_INTERVALS_MS,
+      }).toBe(true);
+      return previous;
+    };
+
     for (const theme of ['light', 'dark'] as const) {
       if (theme === 'dark') {
         await pageA.getByLabel('Toggle theme').click();
       }
-      // transition-colors animates the background over ~150ms — settle
-      // before sampling, or a resting/hover pair caught mid-animation can
-      // differ by residual interpolation alone and pass for the wrong reason.
       await pageA.mouse.move(0, 0);
-      await pageA.waitForTimeout(300);
-      const resting = await background();
+      const resting = await settledBackground(`BobGuest's un-hovered roster row in ${theme} mode`);
 
       await row.hover();
       await expect.poll(background, {
