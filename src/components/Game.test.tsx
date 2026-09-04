@@ -1132,6 +1132,65 @@ describe('Game Component Integration', () => {
         await act(async () => { releaseDraw('400'); await Promise.resolve(); });
       });
 
+      // UI-7: drawInFlightRef alone is a re-entrancy guard, not visual
+      // feedback -- a ref read in render doesn't itself cause one, so the
+      // button showed nothing while the (network) round trip above was
+      // pending. isDrawing gives it a disabled/aria-busy state that actually
+      // re-renders.
+      it('disables the draw button and marks it busy while the draw is pending, then re-enables it once it settles', async () => {
+        let releaseDraw: (card: '400') => void = () => {};
+        const mockDraw = vi.fn(() => new Promise<'400'>(resolve => { releaseDraw = resolve; }));
+        useGameStore.setState({ currentCard: '300', round: 1, drawCardMidTurn: mockDraw });
+        localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
+          turnKey: 'local:1:0:300:classic',
+          cards: [{ card: '300', completed: false }],
+          plusMinusScores: [],
+          awaitingChoice: false,
+          scoreInput: '500',
+        }));
+        render(<Game />);
+
+        const drawButton = screen.getByTestId('physical-draw-next-card');
+        expect(drawButton).not.toBeDisabled();
+        expect(drawButton).toHaveAttribute('aria-busy', 'false');
+
+        fireEvent.click(drawButton);
+        expect(drawButton).toBeDisabled();
+        expect(drawButton).toHaveAttribute('aria-busy', 'true');
+
+        await act(async () => { releaseDraw('400'); await Promise.resolve(); });
+
+        expect(drawButton).not.toBeDisabled();
+        expect(drawButton).toHaveAttribute('aria-busy', 'false');
+      });
+
+      // The same round trip, but the draw comes back empty (the server-side
+      // failure case drawCardMidTurn reports by resolving null rather than
+      // throwing -- see its own tests in useGameStore.test.ts). The button
+      // must not stay stuck disabled just because nothing was drawn.
+      it('re-enables the draw button after a draw that resolves with no card', async () => {
+        let releaseDraw: (card: null) => void = () => {};
+        const mockDraw = vi.fn(() => new Promise<null>(resolve => { releaseDraw = resolve; }));
+        useGameStore.setState({ currentCard: '300', round: 1, drawCardMidTurn: mockDraw });
+        localStorage.setItem('tutto_physical_turn_state', JSON.stringify({
+          turnKey: 'local:1:0:300:classic',
+          cards: [{ card: '300', completed: false }],
+          plusMinusScores: [],
+          awaitingChoice: false,
+          scoreInput: '500',
+        }));
+        render(<Game />);
+
+        const drawButton = screen.getByTestId('physical-draw-next-card');
+        fireEvent.click(drawButton);
+        expect(drawButton).toBeDisabled();
+
+        await act(async () => { releaseDraw(null); await Promise.resolve(); });
+
+        expect(drawButton).not.toBeDisabled();
+        expect(drawButton).toHaveAttribute('aria-busy', 'false');
+      });
+
       it('allows the draw right up to the cap, then refuses', async () => {
         const mockDraw = vi.fn(async () => {
           useGameStore.setState({ currentCard: '400' });

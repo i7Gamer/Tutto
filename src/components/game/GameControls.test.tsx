@@ -636,6 +636,40 @@ describe('GameControls score input Enter key', () => {
   });
 });
 
+// UI-7: Game.tsx sets isDrawingNextCard around the drawCardMidTurn round
+// trip; this just pins that GameControls actually binds it onto the button
+// rather than dropping it.
+describe('GameControls draw-next-card busy state', () => {
+  const baseProps = (overrides: Partial<ComponentProps<typeof GameControls>> = {}) => ({
+    isMyTurn: true,
+    diceMode: 'physical' as const,
+    setShowDiceGame: vi.fn(),
+    scoreInput: '',
+    setScoreInput: vi.fn(),
+    applyBonus: false,
+    setApplyBonus: vi.fn(),
+    handleNextTurn: vi.fn(),
+    handleYesNo: vi.fn(),
+    onDrawNextCard: vi.fn(),
+    canUndo: true,
+    ...overrides,
+  });
+
+  it('leaves the draw button enabled and not busy by default', () => {
+    render(<GameControls {...baseProps()} />);
+    const drawButton = screen.getByTestId('physical-draw-next-card');
+    expect(drawButton).not.toBeDisabled();
+    expect(drawButton).toHaveAttribute('aria-busy', 'false');
+  });
+
+  it('disables the draw button and marks it aria-busy when isDrawingNextCard is true', () => {
+    render(<GameControls {...baseProps({ isDrawingNextCard: true })} />);
+    const drawButton = screen.getByTestId('physical-draw-next-card');
+    expect(drawButton).toBeDisabled();
+    expect(drawButton).toHaveAttribute('aria-busy', 'true');
+  });
+});
+
 describe('GameControls end/leave game confirmation dialogs', () => {
   const baseProps = (overrides: Partial<ComponentProps<typeof GameControls>> = {}) => ({
     isMyTurn: true,

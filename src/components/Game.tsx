@@ -179,6 +179,11 @@ export default function Game() {
 
   // Guards the awaited draw in handlePhysicalDrawNextCard — see there.
   const drawInFlightRef = useRef(false);
+  // UI-7: the ref above is read-only re-entrancy — a ref write doesn't
+  // itself re-render, so the button gave no visual feedback across the
+  // round trip. This state exists purely for that: GameControls binds it to
+  // disabled/aria-busy on the "Draw next card" button.
+  const [isDrawingNextCard, setIsDrawingNextCard] = useState(false);
 
   // Both of these correct state during render rather than from an effect. An
   // effect renders the stale value first and fixes it on the next pass, and
@@ -411,16 +416,23 @@ export default function Game() {
     // BEFORE drawCardMidTurn, or the drawn card would leave the deck without
     // ever entering the chain.
     if (!canDrawAnotherCard()) return;
-    // One draw at a time. The button has no disabled state and
-    // canDrawAnotherCard reads a chain that only grows in recordDraw — i.e.
-    // after the answer lands — so across the round trip below every one of
-    // this handler's own guards still says yes. A double-tap would deal twice
-    // for one tutto: two cards off the room deck, two turn-timer restarts, and
-    // a card entering the chain marked completed that was never rolled, which
+    // One draw at a time. isDrawingNextCard below disables the button, but
+    // that's a re-render away from this click, and canDrawAnotherCard reads
+    // a chain that only grows in recordDraw — i.e. after the answer lands —
+    // so across the round trip below every one of this handler's own guards
+    // still says yes. The ref is what actually closes the gap: set
+    // synchronously here, before any await, a same-tick double-tap sees it
+    // true on the second call. A double-tap would otherwise deal twice for
+    // one tutto: two cards off the room deck, two turn-timer restarts, and a
+    // card entering the chain marked completed that was never rolled, which
     // buildSummary counts as a tutto and MAX-merges into mostCardsInTurn for
     // good. DiceGame's drawNextCard holds the same ref for the same reason.
     if (drawInFlightRef.current) return;
     drawInFlightRef.current = true;
+    // UI-7: paired with the ref above, but this one exists to be READ —
+    // GameControls renders off it, disabling the button and marking it
+    // aria-busy for the length of the round trip.
+    setIsDrawingNextCard(true);
     // Awaited: online the card is dealt by the server (the deck is not this
     // client's to draw from), so this is a round trip. `currentCard` is read
     // here, BEFORE the ask, because it is the card the chain is being
@@ -432,6 +444,7 @@ export default function Game() {
       drawn = await drawCardMidTurn();
     } finally {
       drawInFlightRef.current = false;
+      setIsDrawingNextCard(false);
     }
     if (!drawn) return;
     recordDraw(drawn, drawnFrom);
@@ -559,6 +572,7 @@ export default function Game() {
             handleNextTurn={handleNextTurn}
             handleYesNo={handleYesNo}
             onDrawNextCard={canDrawOnThisCard ? handlePhysicalDrawNextCard : undefined}
+            isDrawingNextCard={isDrawingNextCard}
             onBust={canBustOnThisCard ? handlePhysicalBust : undefined}
             awaitingChainChoice={physicalAwaitingChoice}
             canUndo={canUndo}

@@ -31,6 +31,12 @@ interface GameControlsProps {
   // Classic physical chains: reveals the next card mid-turn. Rendered only
   // when provided (Game passes it for classic + physical dice).
   onDrawNextCard?: () => void;
+  // UI-7: Game.tsx's handlePhysicalDrawNextCard awaits a network round trip
+  // (drawCardMidTurn), and a ref read in render (its own re-entrancy guard)
+  // doesn't itself trigger one — so without this, the button gave no visual
+  // feedback while a draw was in flight. Only meaningful alongside
+  // onDrawNextCard.
+  isDrawingNextCard?: boolean;
   // Classic physical chains: says outright "I rolled a null", which physical
   // mode had no way to express. Rendered only when provided — Game withholds
   // it for Feuerwerk, whose null banks rather than forfeits.
@@ -95,6 +101,7 @@ export default function GameControls({
   handleNextTurn,
   handleYesNo,
   onDrawNextCard,
+  isDrawingNextCard = false,
   onBust,
   awaitingChainChoice = false,
   canUndo,
@@ -316,8 +323,10 @@ export default function GameControls({
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                       data-testid="physical-draw-next-card"
-                      className="mt-3 bg-amber-500 hover:bg-amber-600 text-white w-full max-w-sm py-3 md:py-4 rounded-xl md:rounded-2xl text-lg md:text-xl font-bold flex justify-center items-center gap-2 md:gap-3 shadow-lg shadow-amber-500/30 transition-colors"
+                      className="mt-3 bg-amber-500 hover:bg-amber-600 text-white w-full max-w-sm py-3 md:py-4 rounded-xl md:rounded-2xl text-lg md:text-xl font-bold flex justify-center items-center gap-2 md:gap-3 shadow-lg shadow-amber-500/30 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                       onClick={onDrawNextCard}
+                      disabled={isDrawingNextCard}
+                      aria-busy={isDrawingNextCard}
                     >
                       {t('dice.draw_next_card', 'Draw next card — risk everything!')} <Layers className="w-5 h-5 md:w-6 md:h-6" />
                     </motion.button>
