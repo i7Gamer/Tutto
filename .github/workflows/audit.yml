@@ -38,8 +38,8 @@ jobs:
       # npm audit reads the manifest and lockfile and asks the registry — no
       # node_modules needed, so there is deliberately no npm ci here.
       - name: Security Audit (root)
-        run: npm audit --audit-level=high
+        run: node scripts/npm-audit-retry.mjs
 
       - name: Security Audit (server)
-        run: npm audit --audit-level=high
+        run: node ../scripts/npm-audit-retry.mjs
         working-directory: server

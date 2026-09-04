@@ -94,11 +94,15 @@ jobs:
       # Runs last so a newly published advisory cannot mask a real test failure.
       # Dependabot alerts alone missed several findings here (auto-triage
       # dismissals, and the server workspace), so audit both lockfiles directly.
+      # Through scripts/npm-audit-retry.mjs, not a bare npm audit: the wrapper
+      # retries a registry outage (npm's own endpoint-error line) and nothing
+      # else, so an advisory still fails on the first attempt. Pinned by
+      # server/workflows.test.ts.
       - name: Security Audit (root)
-        run: npm audit --audit-level=high
+        run: node scripts/npm-audit-retry.mjs
 
       - name: Security Audit (server)
-        run: npm audit --audit-level=high
+        run: node ../scripts/npm-audit-retry.mjs
         working-directory: server
 
   # Separate job so browser downloads and the serial three-browser run do not

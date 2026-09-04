@@ -46,6 +46,7 @@ const isInsideNodeModules = (candidate: string): boolean =>
   candidate.split(/[\\/]/).includes(NODE_MODULES);
 
 interface WorkflowStep {
+  name?: string;
   uses?: string;
   run?: string;
   with?: Record<string, unknown>;
@@ -634,5 +635,54 @@ describe('docker-publish.yml verify job runs every check ci.yml gates on (M-10)'
       hasRunStep(stepsOf(DOCKER_PUBLISH_WORKFLOW, VERIFY_JOB), script),
       `verify is missing npm run ${script}, which ci.yml gates on — an image can publish without it`,
     ).toBe(true);
+  });
+});
+
+/**
+ * Every `npm audit` step goes through scripts/npm-audit-retry.mjs. A bare
+ * `npm audit` fails the workflow on a registry outage exactly as it does on a
+ * real advisory — on 2026-09-04 the advisory endpoint flapped for most of a
+ * day and three runs in a row of ci.yml went red at this step with every code
+ * check green. The wrapper retries the endpoint error only; the advisory path
+ * is pinned by server/npmAuditRetry.test.ts.
+ */
+describe('the audit steps retry a registry outage instead of failing the run', () => {
+  const AUDIT_STEP_NAME = /^Security Audit/;
+  const AUDIT_WRAPPER = 'npm-audit-retry.mjs';
+  const BARE_NPM_AUDIT = /\bnpm audit\b/;
+
+  const auditSteps = (): { file: string; job: string; step: WorkflowStep }[] =>
+    workflowFiles().flatMap(file => {
+      const workflow = parseWorkflow(fs.readFileSync(path.join(WORKFLOWS_DIR, file), 'utf8'));
+      return Object.entries(workflow.jobs ?? {}).flatMap(([job, definition]) =>
+        (definition.steps ?? [])
+          .filter(step => !!step.name && AUDIT_STEP_NAME.test(step.name))
+          .map(step => ({ file, job, step })),
+      );
+    });
+
+  it('finds the audit steps it is meant to be checking', () => {
+    // Both lockfiles, in both the push workflow and the scheduled one.
+    expect(auditSteps().length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('runs every audit step through the retry wrapper, never a bare npm audit', () => {
+    const bare = auditSteps()
+      .filter(({ step }) => !step.run?.includes(AUDIT_WRAPPER) || BARE_NPM_AUDIT.test(step.run ?? ''))
+      .map(({ file, job, step }) => `${file} / ${job} / ${step.name}: ${step.run}`);
+
+    expect(bare, 'a bare npm audit turns a registry outage into a failed run').toEqual([]);
+  });
+
+  it('points the server audit at the wrapper from inside server/', () => {
+    // `working-directory: server` makes the script path relative to server/;
+    // a root-relative path there is a file-not-found on the runner, which the
+    // check above cannot tell from a working wrapper.
+    const wrong = auditSteps()
+      .filter(({ step }) => step['working-directory'] === 'server')
+      .filter(({ step }) => !step.run?.includes(`../scripts/${AUDIT_WRAPPER}`))
+      .map(({ file, job, step }) => `${file} / ${job}: ${step.run}`);
+
+    expect(wrong).toEqual([]);
   });
 });
