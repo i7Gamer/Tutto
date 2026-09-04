@@ -88,6 +88,17 @@ describe('PWA manifest colours match src/index.css', () => {
     expect(manifestField(manifestSource, 'theme_color')?.toLowerCase()).toBe(expectedHex);
   });
 
+  // UI-11: the manifest's theme_color only paints the PWA's install UI
+  // (splash screen, task switcher) — index.html's own <meta name="theme-color">
+  // is what colours the browser chrome (the address bar / status bar) for a
+  // plain tab, and nothing kept the two in sync.
+  it('index.html\'s <meta name="theme-color"> matches the manifest theme_color', () => {
+    const indexHtml = fs.readFileSync(path.join(REPO_ROOT, 'index.html'), 'utf8');
+    const match = /<meta\s+name="theme-color"\s+content="([^"]+)"/.exec(indexHtml);
+    expect(match, 'index.html has no <meta name="theme-color">').not.toBeNull();
+    expect((match as RegExpExecArray)[1].toLowerCase()).toBe(manifestField(manifestSource, 'theme_color')?.toLowerCase());
+  });
+
   it('drops lang rather than shipping vite-plugin-pwa\'s "en" default', () => {
     // The app is bilingual (src/i18n.test.ts) — `lang: undefined` in the
     // manifest object overrides the plugin's default and JSON.stringify

@@ -52,6 +52,11 @@
          of the OS or the stored theme, which briefly flashes white on a dark
          start. -->
     <meta name="color-scheme" content="light dark" />
+    <!-- Colours the browser chrome (address bar / status bar) for a plain
+         tab, distinct from the PWA manifest's own theme_color (vite.config.ts),
+         which only paints the installed app's splash screen/task switcher —
+         kept in sync with it by src/pwaManifestColors.test.ts. -->
+    <meta name="theme-color" content="#4f39f6" />
     <!-- viewport-fit=cover: lets the page draw under the notch/home-indicator
          on a phone with a cutout instead of leaving those areas at the OS's
          default background colour, so the env(safe-area-inset-*) padding
