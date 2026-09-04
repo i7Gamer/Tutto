@@ -633,18 +633,54 @@ test.describe('WCAG AA contrast — accent and caption fixes (A8)', () => {
   };
 
   for (const theme of ['light', 'dark'] as const) {
-    test(`the goal number clears AA in ${theme} mode`, async ({ page }) => {
+    /**
+     * One game start for both readings. They used to boot the same game twice
+     * — seed, goto, setTheme, startLocalGame — and the goal number is on screen
+     * before the turn is won, so reading it first and then carrying on into
+     * winATurn walks exactly the same states in exactly the same order.
+     *
+     * The goal half is soft so a failing ratio there still lets the summary
+     * report; the summary half stays hard, because winATurn is a click
+     * sequence and carrying on past a soft failure would mean clicking against
+     * a screen that is not where the test thinks it is. (Soft does not cover
+     * everything: if the goal line never renders at all, the contrast read
+     * throws and the summary half is lost with it. Soft buys the report for
+     * the failure this actually guards — a legible element with a bad ratio.)
+     *
+     * The merged test measures ~7 s on webkit locally against the 30 s default
+     * timeout, and a loaded CI run costs more than a local one — so it must not
+     * grow further without a `test.setTimeout` of its own.
+     */
+    test(`the goal number clears AA in ${theme} mode, and so does the dice summary`, async ({ page }) => {
       await seedLocalDeck(page);
       await page.goto('/');
       await setTheme(page, theme);
       await startLocalGame(page);
 
-      // The default fallback string in Leaderboard.tsx reads "Goal:" — but
-      // en/translation.json overrides it to the same "Goal:", and that
-      // loaded string, not the fallback, is what actually renders.
-      const goalLine = page.getByText('Goal:');
-      await expect(goalLine).toBeVisible();
-      expect(await contrastOf(goalLine.locator('strong'))).toBeGreaterThanOrEqual(AA_TEXT);
+      await test.step(`the goal number clears AA in ${theme} mode`, async () => {
+        // The default fallback string in Leaderboard.tsx reads "Goal:" — but
+        // en/translation.json overrides it to the same "Goal:", and that
+        // loaded string, not the fallback, is what actually renders.
+        const goalLine = page.getByText('Goal:');
+        await expect.soft(goalLine).toBeVisible();
+        expect.soft(await contrastOf(goalLine.locator('strong'))).toBeGreaterThanOrEqual(AA_TEXT);
+      });
+
+      await test.step(`the dice summary's win heading and points-gained value clear AA in ${theme} mode`, async () => {
+        await winATurn(page);
+
+        // The summary fades in (motion opacity 0 -> 1). toBeVisible is
+        // satisfied at opacity 0, and contrastOf composes through ancestor
+        // opacity, so a one-shot read taken mid-fade reports ~1:1 — it did,
+        // once, under a loaded full run. Poll until the entrance has settled.
+        const heading = page.getByRole('heading', { name: 'Success!' });
+        await expect(heading).toBeVisible();
+        await expect.poll(() => contrastOf(heading)).toBeGreaterThanOrEqual(AA_LARGE);
+
+        const pointsLine = page.getByText('Points gained:');
+        await expect(pointsLine).toBeVisible();
+        await expect.poll(() => contrastOf(pointsLine.locator('strong'))).toBeGreaterThanOrEqual(AA_TEXT);
+      });
     });
 
     test(`the join-room error text clears AA in ${theme} mode`, async ({ page }) => {
@@ -656,26 +692,6 @@ test.describe('WCAG AA contrast — accent and caption fixes (A8)', () => {
       const error = page.getByText('Please enter both a Room Code and a Name.');
       await expect(error).toBeVisible();
       expect(await contrastOf(error)).toBeGreaterThanOrEqual(AA_TEXT);
-    });
-
-    test(`the dice summary's win heading and points-gained value clear AA in ${theme} mode`, async ({ page }) => {
-      await seedLocalDeck(page);
-      await page.goto('/');
-      await setTheme(page, theme);
-      await startLocalGame(page);
-      await winATurn(page);
-
-      // The summary fades in (motion opacity 0 -> 1). toBeVisible is
-      // satisfied at opacity 0, and contrastOf composes through ancestor
-      // opacity, so a one-shot read taken mid-fade reports ~1:1 — it did,
-      // once, under a loaded full run. Poll until the entrance has settled.
-      const heading = page.getByRole('heading', { name: 'Success!' });
-      await expect(heading).toBeVisible();
-      await expect.poll(() => contrastOf(heading)).toBeGreaterThanOrEqual(AA_LARGE);
-
-      const pointsLine = page.getByText('Points gained:');
-      await expect(pointsLine).toBeVisible();
-      await expect.poll(() => contrastOf(pointsLine.locator('strong'))).toBeGreaterThanOrEqual(AA_TEXT);
     });
   }
 });
