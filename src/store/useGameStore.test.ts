@@ -5327,6 +5327,25 @@ describe('useGameStore', () => {
         expect(useGameStore.getState().currentCard).toBe('Kniffel');
       });
 
+      it('ignores an ack that lands after this client joined a DIFFERENT room', async () => {
+        // inRoom only asks whether SOME room is held, so a client that left
+        // and joined another room between the request and the ack passes it —
+        // and the card dealt off the old room's deck would be written into
+        // the new room's turn.
+        midTurn();
+        let lateAck: ((res: unknown) => void) | undefined;
+        mockEmit.mockImplementation((event, _payload, ack) => {
+          if (event === 'drawCard') lateAck = ack;
+        });
+
+        const pending = useGameStore.getState().drawCardMidTurn();
+        useGameStore.setState({ roomId: 'ROOM2', currentCard: 'Kniffel' });
+        lateAck!({ ok: true, card: 'Kleeblatt' });
+
+        await expect(pending).resolves.toBeNull();
+        expect(useGameStore.getState().currentCard).toBe('Kniffel');
+      });
+
       it('does not let a draw be buffered across a dropped socket', async () => {
         // socket.io buffers an emit made while the transport is down. For a
         // draw that is worse than dropping it: the panel gives up and banks

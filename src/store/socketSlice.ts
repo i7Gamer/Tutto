@@ -1268,7 +1268,12 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     };
     const deadline = setTimeout(() => settle(null), DRAW_CARD_ACK_TIMEOUT_MS);
 
-    socket.emit('drawCard', { roomId: s.roomId }, (ack?: DrawCardAck) => {
+    // The room this draw was asked of. inRoom below only asks whether SOME
+    // room is held, which a client that left and joined another one still
+    // passes — and the card would then be dealt off the old room's deck into
+    // the new room's turn.
+    const reqRoomId = s.roomId;
+    socket.emit('drawCard', { roomId: reqRoomId }, (ack?: DrawCardAck) => {
       // `settled` as well as the ack itself: an ack that lost the race to the
       // deadline is answering a draw the panel has already banked and moved
       // past, and the write below would then land on the NEXT turn's card.
@@ -1279,7 +1284,10 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       // disk. Unreachable today only because setMode('local') disconnects the
       // socket and socket.io drops pending acks with it; that is a property of
       // the teardown order, not of this callback.
-      if (!ack || !ack.ok || settled || !inRoom(get)) return settle(null);
+      // No player-index or round check beyond this: the server broadcasts the
+      // dealt card BEFORE it acks, so either would drop a legitimately dealt
+      // card whenever the broadcast had already moved the store on.
+      if (!ack || !ack.ok || settled || !inRoom(get) || get().roomId !== reqRoomId) return settle(null);
       // Adopted locally as well as handed back, so the panel does not have to
       // wait for the broadcast to be applied before it can act on the card.
       // The room's own gameState carries the same card AND the deck it came
