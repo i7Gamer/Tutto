@@ -704,47 +704,66 @@ test.describe('HUD vs dice panel, help button z-order (A9)', () => {
     await expect(page.getByRole('button', { name: /Stop & Score/i })).toBeVisible({ timeout: 15000 });
   };
 
-  test('the language switcher and theme toggle do not cover the dice panel action row at 375x812', async ({ page }) => {
+  /**
+   * Both halves want the same screen — a dice panel open on a phone — and used
+   * to boot one each. Merging them halves the boots, which is worth more than
+   * the page loads: openDicePanelOnPhone clicks Roll Dice ONCE and waits for
+   * Stop & Score, without the rollUntilSelectable retry above, so it is the one
+   * setup in this file exposed to the one-in-forty opening bust.
+   *
+   * Order is load-bearing: the action-row half reads a screen that the help
+   * half then changes by opening the wiki, so it goes first. Its assertions are
+   * soft (a covered action row must not stop the z-order half from reporting);
+   * the help half stays hard, because each of its steps is what puts the screen
+   * where the next one expects it.
+   */
+  test('the HUD clears the dice panel action row, and the help trigger stays above its backdrop, at 375x812', async ({ page }) => {
     await openDicePanelOnPhone(page);
 
-    const languageSwitcher = page.getByLabel('Switch to English').locator('xpath=..');
-    const themeToggle = page.getByLabel('Toggle theme');
-    const stopButton = page.getByRole('button', { name: /Stop & Score/i });
-    const rollAgainButton = page.getByRole('button', { name: /Roll Again/i });
+    await test.step('the language switcher and theme toggle do not cover the dice panel action row', async () => {
+      const languageSwitcher = page.getByLabel('Switch to English').locator('xpath=..');
+      const themeToggle = page.getByLabel('Toggle theme');
+      const stopButton = page.getByRole('button', { name: /Stop & Score/i });
+      const rollAgainButton = page.getByRole('button', { name: /Roll Again/i });
 
-    const languageBox = await languageSwitcher.boundingBox();
-    const themeBox = await themeToggle.boundingBox();
-    const stopBox = await stopButton.boundingBox();
-    expect(languageBox).not.toBeNull();
-    expect(themeBox).not.toBeNull();
-    expect(stopBox).not.toBeNull();
+      const languageBox = await languageSwitcher.boundingBox();
+      const themeBox = await themeToggle.boundingBox();
+      const stopBox = await stopButton.boundingBox();
+      expect.soft(languageBox).not.toBeNull();
+      expect.soft(themeBox).not.toBeNull();
+      expect.soft(stopBox).not.toBeNull();
+      // Returned on rather than `!`-dereferenced: a soft failure does not
+      // throw, so reading .x off a null box here would TypeError and take the
+      // help-trigger half down with it — which is what soft is here to prevent.
+      if (!languageBox || !themeBox || !stopBox) return;
 
-    expect(intersects(languageBox!, stopBox!)).toBe(false);
-    expect(intersects(themeBox!, stopBox!)).toBe(false);
+      expect.soft(intersects(languageBox, stopBox)).toBe(false);
+      expect.soft(intersects(themeBox, stopBox)).toBe(false);
 
-    // Roll Again is absent only on the rare turn that already made a tutto —
-    // checked when present rather than asserted unconditionally.
-    if (await rollAgainButton.isVisible()) {
+      // Roll Again is absent only on the rare turn that already made a tutto —
+      // checked when present rather than asserted unconditionally.
+      if (!(await rollAgainButton.isVisible())) return;
       const rollAgainBox = await rollAgainButton.boundingBox();
-      expect(intersects(languageBox!, rollAgainBox!)).toBe(false);
-      expect(intersects(themeBox!, rollAgainBox!)).toBe(false);
-    }
-  });
+      expect.soft(rollAgainBox).not.toBeNull();
+      if (!rollAgainBox) return;
 
-  test('the help trigger sits above the dice panel backdrop and stays clickable at 375x812', async ({ page }) => {
-    await openDicePanelOnPhone(page);
+      expect.soft(intersects(languageBox, rollAgainBox)).toBe(false);
+      expect.soft(intersects(themeBox, rollAgainBox)).toBe(false);
+    });
 
-    const helpButton = page.getByTitle('Open Help / Wiki');
-    const backdrop = page.locator('.modal-backdrop-under-hud');
-    await expect(backdrop).toBeVisible();
-    await expect(helpButton).toBeVisible();
+    await test.step('the help trigger sits above the dice panel backdrop and stays clickable', async () => {
+      const helpButton = page.getByTitle('Open Help / Wiki');
+      const backdrop = page.locator('.modal-backdrop-under-hud');
+      await expect(backdrop).toBeVisible();
+      await expect(helpButton).toBeVisible();
 
-    const helpZ = Number(await helpButton.evaluate(el => getComputedStyle(el).zIndex));
-    const backdropZ = Number(await backdrop.evaluate(el => getComputedStyle(el).zIndex));
-    expect(helpZ).toBeGreaterThan(backdropZ);
+      const helpZ = Number(await helpButton.evaluate(el => getComputedStyle(el).zIndex));
+      const backdropZ = Number(await backdrop.evaluate(el => getComputedStyle(el).zIndex));
+      expect(helpZ).toBeGreaterThan(backdropZ);
 
-    await helpButton.click();
-    await expect(page.getByRole('heading', { name: 'Tutto Wiki' })).toBeVisible();
+      await helpButton.click();
+      await expect(page.getByRole('heading', { name: 'Tutto Wiki' })).toBeVisible();
+    });
   });
 
   /**
