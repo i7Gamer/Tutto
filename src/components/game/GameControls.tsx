@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Undo2, ChevronRight, Check, X, Dices, Layers } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -151,6 +151,12 @@ export default function GameControls({
   // button is pressed, not the seconds the dialog is open.
   const [pendingUndoTurn, setPendingUndoTurn] = useState<string | null>(null);
 
+  // Enter in the score box below routes through a real click() on this
+  // button rather than calling handleNextTurn directly, so a disabled Next
+  // Turn button can't be bypassed from the keyboard (see the onKeyDown next
+  // to score-input).
+  const nextTurnButtonRef = useRef<HTMLButtonElement>(null);
+
   // Render-time correction, the same pattern the flip state above uses: the
   // turn moved on, so the question the dialog is asking no longer has an
   // answer. Closing beats leaving it up over a turn that is gone.
@@ -226,6 +232,18 @@ export default function GameControls({
                       // what Next Turn will actually bank — see
                       // clampScoreInputText.
                       onChange={(e) => setScoreInput(clampScoreInputText(e.target.value))}
+                      // The box sits outside a <form> (nothing for Enter to
+                      // submit), and useKeyboardShortcuts deliberately
+                      // ignores Enter while an INPUT is focused — so without
+                      // this, Enter here did nothing. Routed through the
+                      // button's own click() rather than handleNextTurn
+                      // directly so a disabled button still wins.
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter') return;
+                        e.preventDefault();
+                        if (nextTurnButtonRef.current?.disabled) return;
+                        nextTurnButtonRef.current?.click();
+                      }}
                       placeholder={t('game.controls.scorePlaceholder', 'Score')}
                       className="flex-1 min-w-0 w-full text-center text-2xl md:text-3xl font-bold py-3 md:py-4 rounded-2xl border-2 border-gray-200 dark:border-slate-600 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/20 bg-(--card-bg) transition-all outline-hidden"
                     />
@@ -272,6 +290,7 @@ export default function GameControls({
                   </div>
 
                   <motion.button
+                    ref={nextTurnButtonRef}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     className="bg-emerald-500 hover:bg-emerald-600 text-white w-full max-w-sm py-3 md:py-4 rounded-xl md:rounded-2xl text-lg md:text-xl font-bold flex justify-center items-center gap-2 md:gap-3 shadow-lg shadow-emerald-500/30 transition-colors"

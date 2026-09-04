@@ -583,6 +583,59 @@ describe('GameControls physical dice interactions', () => {
   });
 });
 
+// The score box lives outside a <form> (no submit for Enter to trigger), and
+// useKeyboardShortcuts deliberately ignores Enter/Space while an INPUT is
+// focused (see NATIVE_ACTIVATION_SELECTOR_BY_KEY there) -- so without this
+// handler, Enter in the box did nothing.
+describe('GameControls score input Enter key', () => {
+  const baseProps = (overrides: Partial<ComponentProps<typeof GameControls>> = {}) => ({
+    isMyTurn: true,
+    diceMode: 'physical' as const,
+    setShowDiceGame: vi.fn(),
+    scoreInput: '150',
+    setScoreInput: vi.fn(),
+    applyBonus: false,
+    setApplyBonus: vi.fn(),
+    handleNextTurn: vi.fn(),
+    handleYesNo: vi.fn(),
+    canUndo: true,
+    ...overrides,
+  });
+
+  it('Enter in the score input triggers Next Turn', () => {
+    const handleNextTurn = vi.fn();
+    render(<GameControls {...baseProps({ handleNextTurn })} />);
+
+    fireEvent.keyDown(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { key: 'Enter' });
+
+    expect(handleNextTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it('a non-Enter key in the score input does not trigger Next Turn', () => {
+    const handleNextTurn = vi.fn();
+    render(<GameControls {...baseProps({ handleNextTurn })} />);
+
+    fireEvent.keyDown(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { key: 'a' });
+
+    expect(handleNextTurn).not.toHaveBeenCalled();
+  });
+
+  // Enter is wired through a click() on the actual Next Turn button rather
+  // than calling handleNextTurn directly, so a disabled button can never be
+  // bypassed from the keyboard -- see the disabled guard by score-input's
+  // onKeyDown in GameControls.tsx.
+  it('Enter does not trigger Next Turn when its button is disabled', () => {
+    const handleNextTurn = vi.fn();
+    render(<GameControls {...baseProps({ handleNextTurn })} />);
+    const nextTurnButton = screen.getByText('game.controls.nextTurn').closest('button')!;
+    nextTurnButton.disabled = true;
+
+    fireEvent.keyDown(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { key: 'Enter' });
+
+    expect(handleNextTurn).not.toHaveBeenCalled();
+  });
+});
+
 describe('GameControls end/leave game confirmation dialogs', () => {
   const baseProps = (overrides: Partial<ComponentProps<typeof GameControls>> = {}) => ({
     isMyTurn: true,
