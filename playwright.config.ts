@@ -25,7 +25,11 @@ export default defineConfig({
   reporter: 'html',
   use: {
     baseURL: E2E_ORIGIN,
-    trace: 'on-first-retry',
+    // on-first-retry captures nothing where there is no retry -- and locally
+    // there is none, so no local flake ever left a trace behind. Locally a
+    // failure keeps its trace instead; CI keeps the cheaper mode, its retries
+    // being what produce the trace there.
+    trace: process.env.CI ? 'on-first-retry' : 'retain-on-failure',
   },
   projects: [
     {

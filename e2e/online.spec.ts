@@ -1,5 +1,5 @@
 import { test, expect, type TestInfo } from '@playwright/test';
-import { joinOnlineRoom } from './helpers';
+import { joinOnlineRoomPair } from './helpers';
 
 // Every browser project (chromium/firefox/webkit) runs against the SAME
 // spawned server, and a room's player names stay reserved for the whole
@@ -19,21 +19,13 @@ test.describe('Tutto Online Ghost Lobbies', () => {
 
     const roomId = uniqueRoomId('ROOM1', testInfo);
 
-    // 1. Host creates room
-    await joinOnlineRoom(pageA, roomId, 'AliceHost');
-
-    // Check if there is an error message
-    const errorMsg = pageA.locator('.text-red-500');
-    if (await errorMsg.isVisible()) {
-      console.log('Error Message on Join:', await errorMsg.textContent());
-    }
+    // 1. Host creates the room, 2. the guest joins it: both pages load side
+    // by side, only the two submits are ordered (see the helper).
+    await joinOnlineRoomPair({ page: pageA, name: 'AliceHost' }, { page: pageB, name: 'BobGuest' }, roomId);
 
     // Verify room joined
     await expect(pageA.getByText('AliceHost').first()).toBeVisible({ timeout: 15000 });
     await expect(pageA.getByText(/Room: /i)).toBeVisible({ timeout: 15000 });
-
-    // 2. Guest joins room
-    await joinOnlineRoom(pageB, roomId, 'BobGuest');
 
     await expect(pageA.getByText('BobGuest').first()).toBeVisible();
     await expect(pageB.getByText('AliceHost').first()).toBeVisible();
@@ -63,11 +55,7 @@ test.describe('Tutto Online Ghost Lobbies', () => {
 
     const roomId = uniqueRoomId('ROOM2', testInfo);
 
-    // 1. Host creates room
-    await joinOnlineRoom(pageA, roomId, 'AliceHost');
-
-    // 2. Guest joins room
-    await joinOnlineRoom(pageB, roomId, 'BobGuest');
+    await joinOnlineRoomPair({ page: pageA, name: 'AliceHost' }, { page: pageB, name: 'BobGuest' }, roomId);
 
     await expect(pageA.getByText('BobGuest').first()).toBeVisible({ timeout: 15000 });
 
@@ -175,8 +163,7 @@ test.describe('Online classic chain', () => {
 
     const roomId = uniqueRoomId('CLASSIC', testInfo);
 
-    await joinOnlineRoom(pageA, roomId, 'AliceHost');
-    await joinOnlineRoom(pageB, roomId, 'BobGuest');
+    await joinOnlineRoomPair({ page: pageA, name: 'AliceHost' }, { page: pageB, name: 'BobGuest' }, roomId);
     await expect(pageA.getByText('BobGuest').first()).toBeVisible({ timeout: 15000 });
 
     // Classic rules — the host's call, and the only ruleset with a chain to
@@ -191,6 +178,12 @@ test.describe('Online classic chain', () => {
     // guest — seated first below — is the one who will hold the turn.
     await pageA.getByLabel(/Physical Dice/i).click();
     await pageB.getByLabel(/Physical Dice/i).click();
+    // Asserted, not assumed: the draw button below exists only for a physical
+    // classic turn, and a radio click that did not take would otherwise
+    // surface 20 s later as "no draw button", indistinguishable from a deal
+    // that never came.
+    await expect(pageA.getByLabel(/Physical Dice/i)).toBeChecked();
+    await expect(pageB.getByLabel(/Physical Dice/i)).toBeChecked();
 
     await pageA.getByRole('button', { name: /Show Advanced Options/i }).click();
     const turnTimerInput = pageA.getByLabel(/Turn Timer/i);
@@ -215,12 +208,28 @@ test.describe('Online classic chain', () => {
     // spectator page still sitting in the lobby.
     await expect(pageA.getByText(/Current Player/i).first()).toBeVisible();
     await expect(pageB.getByText(/Current Player/i).first()).toBeVisible({ timeout: 15000 });
+    // Same reason as the radio check above: a first turn that went to the
+    // host (a lost reorder, a random start) would also read as a missing
+    // draw button. The tile's label and value are siblings, and the value
+    // reads "You (BobGuest)" on the guest's own page.
+    await expect(
+      pageB.getByText('Current Player', { exact: true }).locator('xpath=following-sibling::div[1]'),
+      'the guest does not hold the first turn',
+    ).toContainText('BobGuest');
 
     // Fixed roles: the guest holds the turn and draws; the host spectates.
     // (A NON-host pushing the deck change is also the stronger direction of
     // this test's claim.)
+    //
+    // The score input first: it and the draw button share the physical-turn
+    // block, so "input there, button missing" points at the draw button's own
+    // gate (ruleset, dice mode, a Feuerwerk) while "no input either" points at
+    // the block's (whose turn, a Stop, the card still flipping). One missing
+    // button used to report both the same way.
+    await expect(pageB.locator('#score-input'), "the guest's physical-turn controls never rendered")
+      .toBeVisible({ timeout: 20000 });
     const drawButton = pageB.getByTestId('physical-draw-next-card');
-    await expect(drawButton).toBeVisible({ timeout: 20000 });
+    await expect(drawButton, 'the physical-turn block rendered without its draw button').toBeVisible({ timeout: 20000 });
     const spectatorPage = pageA;
 
     // The spectator's own view of the active player's turn timer: the label and
@@ -283,14 +292,14 @@ test.describe('Online lobby ruleset', () => {
 
     const roomId = uniqueRoomId('RULES', testInfo);
 
-    // Host creates the room and sees the editable selector.
-    await joinOnlineRoom(pageA, roomId, 'AliceHost');
+    // Host creates the room and sees the editable selector; the guest's join
+    // is already submitted by the time the host's page is checked.
+    await joinOnlineRoomPair({ page: pageA, name: 'AliceHost' }, { page: pageB, name: 'BobGuest' }, roomId);
     await expect(pageA.getByText(/Room: /i)).toBeVisible({ timeout: 15000 });
     await expect(pageA.getByLabel('Modernized', { exact: true })).toBeChecked();
 
     // The guest joins and gets the always-visible read-only badge instead of
     // the radios — the rules are the host's call.
-    await joinOnlineRoom(pageB, roomId, 'BobGuest');
     await expect(pageB.getByText('AliceHost').first()).toBeVisible({ timeout: 15000 });
 
     await expect(pageB.getByText(/Rules: Modernized \(set by host\)/)).toBeVisible();

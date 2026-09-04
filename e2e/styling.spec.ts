@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator, type TestInfo } from '@playwright/test';
-import { seedLocalDeck, startLocalGame, joinOnlineRoom } from './helpers';
+import { seedLocalDeck, startLocalGame, joinOnlineRoomPair } from './helpers';
 
 /**
  * Tailwind v4 emits its utilities inside a real `@layer utilities`. Unlayered
@@ -16,24 +16,30 @@ import { seedLocalDeck, startLocalGame, joinOnlineRoom } from './helpers';
  * element rules (0,0,1) and the `*` reset (0,0,0), and LOSE to the app's own
  * class rules, which match at equal specificity and are written after them.
  */
-// Opens the dice panel and waits until a die can be selected. The opening
-// auto-roll busts before any selection about once in forty runs; on a bust
-// the summary auto-continues to the next player, whose board offers a fresh
-// roll, so the helper simply rolls again (whose turn it is never matters to
-// a layout or contrast probe). Shared by every probe that needs a live roll.
+// Opens the dice panel and waits until `ready` is on screen. The opening
+// auto-roll busts before any selection about once in forty runs (about one
+// in three full runs, over three engines); on a bust the summary
+// auto-continues to the next player, whose board offers a fresh roll, so the
+// helper simply rolls again (whose turn it is never matters to a layout or
+// contrast probe). Shared by EVERY probe that opens the panel: the one that
+// clicked Roll Dice on its own and waited for Select all was this file's
+// flakiest test, and its trace showed exactly this -- the panel opened,
+// busted, and closed on its own before anything selectable appeared.
 const OPENING_ROLL_ATTEMPTS = 3;
-const rollUntilSelectable = async (page: Page): Promise<void> => {
-  const selectAll = page.getByRole('button', { name: /Select all/i });
+const OPENING_ROLL_TIMEOUT_MS = 15000;
+const rollUntil = async (page: Page, ready: Locator): Promise<void> => {
   const bust = page.getByText(/Bust!/i);
   const rollDice = page.getByRole('button', { name: /Roll Dice/i });
   for (let attempt = 0; attempt < OPENING_ROLL_ATTEMPTS; attempt++) {
     await rollDice.click();
-    await expect(selectAll.or(bust)).toBeVisible({ timeout: 15000 });
-    if (await selectAll.isVisible()) return;
-    await expect(rollDice).toBeVisible({ timeout: 15000 });
+    await expect(ready.or(bust)).toBeVisible({ timeout: OPENING_ROLL_TIMEOUT_MS });
+    if (await ready.isVisible()) return;
+    await expect(rollDice).toBeVisible({ timeout: OPENING_ROLL_TIMEOUT_MS });
   }
   throw new Error(`the opening roll busted ${OPENING_ROLL_ATTEMPTS} times in a row`);
 };
+const rollUntilSelectable = (page: Page): Promise<void> =>
+  rollUntil(page, page.getByRole('button', { name: /Select all/i }));
 
 test.describe('stylesheet cascade', () => {
   // Probes are injected rather than looked for in the UI: this is about which
@@ -252,10 +258,8 @@ test.describe('the lobby row hover cue survives the cascade', () => {
     const pageB = await contextB.newPage();
 
     const roomId = `E2E-HOVER-${testInfo.project.name}-w${testInfo.workerIndex}-${Date.now()}`;
-    await joinOnlineRoom(pageA, roomId, 'AliceHost');
+    await joinOnlineRoomPair({ page: pageA, name: 'AliceHost' }, { page: pageB, name: 'BobGuest' }, roomId);
     await expect(pageA.getByText('AliceHost').first()).toBeVisible({ timeout: 15000 });
-
-    await joinOnlineRoom(pageB, roomId, 'BobGuest');
     await expect(pageA.getByText('BobGuest').first()).toBeVisible({ timeout: 15000 });
 
     // BobGuest's row, read from AliceHost's page: not "isMe", so it never
@@ -444,7 +448,12 @@ test.describe('theme colours resolve', () => {
       expect.soft(color).toBe('rgb(1, 2, 3)');
     });
   });
+});
 
+// Re-homed from 'theme colours resolve', which had accumulated probes with no
+// theme in them: a describe's name is what a `-g` gate selects on, and that
+// one was selecting four tests for the price of one.
+test.describe('scroll containment', () => {
   /**
    * A scroller that reaches its end hands the rest of the gesture to the page
    * behind it — scroll chaining — so scrolling to the bottom of the wiki carried
@@ -485,7 +494,9 @@ test.describe('theme colours resolve', () => {
     test.skip(!behaviour.supported, 'this WebKit build does not implement overscroll-behavior; real iOS Safari 16+ does');
     expect(behaviour.containment).toBe('contain');
   });
+});
 
+test.describe('phone layouts: bottom clearance and the landscape variant', () => {
   /**
    * Two controls float over every screen: the help button (bottom-left) and
    * the theme/language row (bottom-right). Game.tsx has always cleared them
@@ -743,16 +754,14 @@ test.describe('HUD vs dice panel, help button z-order (A9)', () => {
     await seedLocalDeck(page);
     await page.goto('/');
     await startLocalGame(page);
-    await page.getByRole('button', { name: /Roll Dice/i }).click();
-    await expect(page.getByRole('button', { name: /Stop & Score/i })).toBeVisible({ timeout: 15000 });
+    await rollUntil(page, page.getByRole('button', { name: /Stop & Score/i }));
   };
 
   /**
    * Both halves want the same screen — a dice panel open on a phone — and used
    * to boot one each. Merging them halves the boots, which is worth more than
-   * the page loads: openDicePanelOnPhone clicks Roll Dice ONCE and waits for
-   * Stop & Score, without the rollUntilSelectable retry above, so it is the one
-   * setup in this file exposed to the one-in-forty opening bust.
+   * the page loads: openDicePanelOnPhone goes through the same bust-retrying
+   * rollUntil as every other panel opener, waiting for Stop & Score.
    *
    * Order is load-bearing: the action-row half reads a screen that the help
    * half then changes by opening the wiki, so it goes first. Its assertions are
@@ -984,7 +993,7 @@ test.describe('tap targets ≥ 44px on game-time controls (C65)', () => {
     await page.goto('/');
     await startLocalGame(page);
 
-    await page.getByRole('button', { name: /Roll Dice/i }).click();
+    await rollUntilSelectable(page);
     await expectTapTarget(
       page.getByRole('button', { name: /Select all/i }), ['height', 'width'], 'Select all',
     );
@@ -1043,9 +1052,8 @@ test.describe('tap targets ≥ 44px on game-time controls (C65)', () => {
       const pageB = await contextB.newPage();
 
       const roomId = `E2E-KICKSIZE-${testInfo.project.name}-w${testInfo.workerIndex}-${Date.now()}`;
-      await joinOnlineRoom(pageA, roomId, 'AliceHost');
+      await joinOnlineRoomPair({ page: pageA, name: 'AliceHost' }, { page: pageB, name: 'BobGuest' }, roomId);
       await expect(pageA.getByText('AliceHost').first()).toBeVisible({ timeout: 15000 });
-      await joinOnlineRoom(pageB, roomId, 'BobGuest');
       await expect(pageA.getByText('BobGuest').first()).toBeVisible({ timeout: 15000 });
 
       await pageA.getByRole('button', { name: /Start Game!/i }).click();
