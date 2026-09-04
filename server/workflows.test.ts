@@ -54,8 +54,14 @@ interface WorkflowStep {
   'working-directory'?: string;
 }
 
+interface MatrixInclude {
+  project?: string;
+  shard_index?: number;
+  shard_total?: number;
+}
+
 interface WorkflowStrategy {
-  matrix?: Record<string, unknown>;
+  matrix?: Record<string, unknown> & { include?: MatrixInclude[] };
   'fail-fast'?: boolean;
 }
 
@@ -727,6 +733,48 @@ describe('the e2e matrix runs exactly the browser projects playwright.config.ts 
     // A cancelled leg is a browser nobody tested; the failing one already
     // tells the story on its own.
     expect(e2eJob()?.strategy?.['fail-fast']).toBe(false);
+  });
+
+  /**
+   * A project may be split across runners with Playwright's --shard. The
+   * split is declared as matrix `include` entries carrying shard_index and
+   * shard_total, which GitHub turns into extra legs of that project. Two
+   * things keep a shard leg honest: the run step must actually pass the
+   * shard (an include without it would run the whole project twice and
+   * report both as separate legs), and the report artifact name must carry
+   * the shard, or the second leg's upload is refused as a duplicate.
+   */
+  it('runs every shard leg as a real shard of a configured project', () => {
+    const job = e2eJob();
+    const includes = job?.strategy?.matrix?.include ?? [];
+    const steps = job?.steps ?? [];
+    const run = steps.find(step => step.run?.includes('test:e2e'));
+    const report = steps.find(step => step.uses?.startsWith('actions/upload-artifact'));
+
+    for (const leg of includes) {
+      expect(configuredProjects, `shard leg for an unknown project: ${leg.project}`).toContain(leg.project);
+      expect(leg.shard_index, 'a shard leg needs shard_index').toEqual(expect.any(Number));
+      expect(leg.shard_total, 'a shard leg needs shard_total').toEqual(expect.any(Number));
+      expect(leg.shard_index).toBeGreaterThanOrEqual(1);
+      expect(leg.shard_index).toBeLessThanOrEqual(leg.shard_total ?? 0);
+    }
+    if (includes.length > 0) {
+      expect(run?.run, 'shard legs exist but the run step never passes --shard').toContain('--shard=');
+      expect(run?.run).toContain('matrix.shard_index');
+      expect(report?.with?.name, 'two shard legs would upload under one artifact name').toContain('matrix.shard_index');
+    }
+    // Every shard of a project must be present, or part of that project's
+    // suite never runs anywhere.
+    const byProject = new Map<string, number[]>();
+    for (const leg of includes) {
+      byProject.set(leg.project ?? '', [...(byProject.get(leg.project ?? '') ?? []), leg.shard_index ?? 0]);
+    }
+    for (const [project, indexes] of byProject) {
+      const total = includes.find(leg => leg.project === project)?.shard_total ?? 0;
+      expect([...indexes].sort(), `${project} is missing a shard`).toEqual(
+        Array.from({ length: total }, (_, i) => i + 1),
+      );
+    }
   });
 
   it('installs, runs and reports only its own browser on each leg', () => {

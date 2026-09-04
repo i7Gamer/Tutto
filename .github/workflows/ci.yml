@@ -116,13 +116,28 @@ jobs:
   # e2e coverage with every check still green. fail-fast is off so one failing
   # engine never cancels the other two: a cancelled leg is a browser nobody
   # tested.
+  #
+  # webkit is split across two runners with --shard: on this runner every
+  # webkit test runs three to four times slower than chromium's or firefox's
+  # (measured 2026-09-04: 374 s of test time against 43 s and 63 s), so its
+  # leg bounded the whole workflow on its own. The `include` entries add the
+  # shard keys to that one project; server/workflows.test.ts checks that a
+  # shard leg names a configured project, that every shard of it is present,
+  # and that the run and upload steps actually carry the shard.
   e2e:
-    name: End-to-End Tests (${{ matrix.project }})
+    name: End-to-End Tests (${{ matrix.project }}${{ matrix.shard_index && format(' {0}/{1}', matrix.shard_index, matrix.shard_total) || '' }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         project: [chromium, firefox, webkit]
+        include:
+          - project: webkit
+            shard_index: 1
+            shard_total: 2
+          - project: webkit
+            shard_index: 2
+            shard_total: 2
     # One engine's share of the former serial run plus its browser download;
     # 30 leaves headroom for legitimate variance while still bounding a hang.
     # server/workflows.test.ts pins this.
@@ -154,6 +169,12 @@ jobs:
         run: npm ci
         working-directory: server
 
+      # What the leg is running on. playwright.config.ts's worker count and
+      # the shard split above are sized against this; read it here before
+      # changing either.
+      - name: Runner capacity
+        run: nproc && free -m
+
       # Only this leg's browser, with its OS libraries. The chromium leg takes
       # the headless shell alone: headless runs use it anyway, and the full
       # browser is another download nothing here opens.
@@ -166,7 +187,7 @@ jobs:
       # single-worker with two retries, and points the API server at an
       # in-memory database (TEST_DB).
       - name: Run End-to-End Tests
-        run: npm run test:e2e -- --project=${{ matrix.project }}
+        run: npm run test:e2e -- --project=${{ matrix.project }} ${{ matrix.shard_index && format('--shard={0}/{1}', matrix.shard_index, matrix.shard_total) || '' }}
 
       - name: Upload Playwright report
         # always(), not failure(): a flaky-but-passed run is the only evidence
@@ -177,6 +198,6 @@ jobs:
         with:
           # Per leg: upload-artifact refuses a second upload under a name
           # another leg already took.
-          name: playwright-report-${{ matrix.project }}
+          name: playwright-report-${{ matrix.project }}${{ matrix.shard_index && format('-{0}of{1}', matrix.shard_index, matrix.shard_total) || '' }}
           path: playwright-report/
           retention-days: 30
