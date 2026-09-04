@@ -142,7 +142,15 @@ export const createTimerSlice: ImmerStateCreator<TimerSlice> = (set, get) => {
           const playerChanged = state.currentPlayerIndex !== turnTimerPlayerIndex;
           const deckChanged = state.cards.length !== turnTimerDeckSize;
           const justReconnected = state.justReconnected;
-          const serverValue = typeof serverRemaining === 'number' ? serverRemaining : null;
+          // Finite and non-negative, not merely a number: NaN is a number too,
+          // and it made turnDeadline NaN — Math.ceil(NaN) is never <= 0, so
+          // tickTurnCountdown's kill switch could not fire and the 1 Hz
+          // interval ran on forever over a tile rendering "NaNs". A garbled
+          // value is treated as no value at all, exactly like a null.
+          const serverValue = typeof serverRemaining === 'number'
+            && Number.isFinite(serverRemaining) && serverRemaining >= 0
+            ? serverRemaining
+            : null;
 
           if (playerChanged || deckChanged || justReconnected || serverValue !== null) {
             if (turnTimerInterval) clearInterval(turnTimerInterval);

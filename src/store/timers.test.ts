@@ -324,6 +324,70 @@ describe('timer slice', () => {
     });
   });
 
+  // syncOnlineTimers accepted anything `typeof serverRemaining === 'number'`,
+  // and NaN is one: it made turnDeadline NaN, and Math.ceil(NaN) is never
+  // <= 0, so the countdown's own kill switch never fired — the 1 Hz interval
+  // ran for the rest of the session over a tile rendering "NaNs".
+  describe('a garbled server turn time is treated as no value at all', () => {
+    const MS_PER_SECOND = 1000;
+    const RUNNING_TURN_SECONDS = 60;
+    const CORRECTED_TURN_SECONDS = 20;
+    const PAST_THE_DEADLINE_MS = (RUNNING_TURN_SECONDS + 1) * MS_PER_SECOND;
+    // What is left running once the countdown retires: the game clock alone.
+    const GAME_CLOCK_ONLY = ONLINE_TIMER_HANDLES - 1;
+
+    // A countdown already running on a good value — the state a garbled one
+    // arrives into, and the only state in which "ignored" is observable
+    // (nothing else here would restart the countdown).
+    const runningTurn = (): number => {
+      const startedAt = Date.now();
+      useGameStore.setState(startedOnlineTurnState);
+      useGameStore.getState().syncOnlineTimers(RUNNING_TURN_SECONDS);
+      return startedAt;
+    };
+
+    it.each([
+      ['NaN', NaN],
+      ['Infinity', Infinity],
+      ['a negative value', -1],
+    ])('ignores %s and leaves the running countdown untouched', (_label, garbled) => {
+      const startedAt = runningTurn();
+
+      useGameStore.getState().syncOnlineTimers(garbled);
+
+      expect(useGameStore.getState().turnTimeRemaining).toBe(RUNNING_TURN_SECONDS);
+      expect(useGameStore.getState().turnDeadline).toBe(startedAt + RUNNING_TURN_SECONDS * MS_PER_SECOND);
+    });
+
+    it('lets the countdown retire on its real deadline instead of counting NaN forever', () => {
+      runningTurn();
+      useGameStore.getState().syncOnlineTimers(NaN);
+
+      vi.advanceTimersByTime(PAST_THE_DEADLINE_MS);
+
+      expect(useGameStore.getState().turnTimeRemaining).toBe(0);
+      expect(vi.getTimerCount(), 'the countdown must still retire itself').toBe(GAME_CLOCK_ONLY);
+    });
+
+    it('still restarts the countdown from a valid value', () => {
+      runningTurn();
+      const correctedAt = Date.now();
+
+      useGameStore.getState().syncOnlineTimers(CORRECTED_TURN_SECONDS);
+
+      expect(useGameStore.getState().turnTimeRemaining).toBe(CORRECTED_TURN_SECONDS);
+      expect(useGameStore.getState().turnDeadline).toBe(correctedAt + CORRECTED_TURN_SECONDS * MS_PER_SECOND);
+    });
+
+    it('treats a zero as the value it is — the server saying the turn is out of time', () => {
+      runningTurn();
+
+      useGameStore.getState().syncOnlineTimers(0);
+
+      expect(useGameStore.getState().turnTimeRemaining).toBe(0);
+    });
+  });
+
   describe('endGame', () => {
     // endGame stopped only the LOCAL timers and left turnDeadline set, so the
     // surviving 1 Hz countdown re-derived turnTimeRemaining from that deadline
