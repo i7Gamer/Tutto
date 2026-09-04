@@ -562,12 +562,18 @@ const submitGlobalStats = (get: SocketSliceGet): void => {
  *  - anything else — and a second 'unauthorized' — is a push the room has
  *    genuinely thrown away. The player is told, and a fresh snapshot is pulled
  *    so the client stops rendering a turn the room never accepted.
+ *
+ * `parkedAt` is the stamp this snapshot already carries when the caller is
+ * flushing a park; a re-park below reuses it so the age keeps accruing, which
+ * is the invariant ParkedEmit documents. Absent (a live push) the re-park
+ * stamps itself.
  */
 const emitPushState = (
   sock: Socket,
   payload: PushStatePayload,
   get: SocketSliceGet,
   retryable: boolean,
+  parkedAt?: number,
 ): void => {
   sock.emit('pushState', payload, (ack?: PushStateAck) => {
     if (!ack || ack.ok) return;
@@ -587,8 +593,8 @@ const emitPushState = (
         // while the seat still carries the old one, is refused, and is gone
         // (this retry is not itself retryable). Park it instead, and the
         // rejoin flushes it in order like any other held push.
-        if (current?.connected) emitPushState(current, payload, get, false);
-        else parkedPush = { payload, parkedAt: Date.now() };
+        if (current?.connected) emitPushState(current, payload, get, false, parkedAt);
+        else parkedPush = { payload, parkedAt: parkedAt ?? Date.now() };
       }, PUSH_REJOIN_RETRY_DELAY_MS);
       return;
     }
@@ -624,14 +630,22 @@ const emitPushState = (
  * emit itself throws. A park older than PARKED_EMIT_MAX_AGE_MS is dropped
  * instead of sent — it describes a game the room has moved on from, and a push
  * is a FULL snapshot, so landing it would overwrite live play with a dead turn.
+ * A park made for another room is dropped for the same reason: every departure
+ * path clears the park today, so this is belt and braces for a room switch
+ * that ever forgets to.
+ *
+ * The stamp rides on into emitPushState so a re-park (the rejoin-race retry
+ * finding the transport gone again) keeps accruing age instead of renewing the
+ * snapshot on every flaky reconnect.
  */
 const flushParkedPush = (get: SocketSliceGet): void => {
   const parked = parkedPush;
   parkedPush = null;
   if (!parked) return;
   if (Date.now() - parked.parkedAt > PARKED_EMIT_MAX_AGE_MS) return;
+  if (parked.payload.roomId !== get().roomId) return;
   const sock = getSocket();
-  if (sock) emitPushState(sock, parked.payload, get, true);
+  if (sock) emitPushState(sock, parked.payload, get, true, parked.parkedAt);
 };
 
 /**

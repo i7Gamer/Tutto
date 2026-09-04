@@ -2385,6 +2385,23 @@ describe('useGameStore', () => {
         expect(useGameStore.getState().lastAppliedStateVersion).toBeNull();
       });
 
+      it('drops a push parked for a room the client is no longer in', () => {
+        stageSeatedGame();
+        mockSocketConnected = false;
+        useGameStore.getState().pushState();
+
+        // Every departure path clears the park today, so this is belt and
+        // braces — but a push is a FULL snapshot, so a room switch that ever
+        // forgot to would land ROOM1's game on top of ROOM2's.
+        mockSocketConnected = true;
+        useGameStore.setState({ roomId: 'ROOM2' });
+        mockEmit.mockClear();
+        mockOnHandlers['connect']();
+        ackRejoin({ success: true, isHost: true, name: 'Alice' });
+
+        expect(pushes()).toHaveLength(0);
+      });
+
       it('leaveRoom clears both the floor and the parked push', () => {
         stageSeatedGame();
         mockOnHandlers['gameState']({ round: 10, stateVersion: 50 });
@@ -2591,6 +2608,40 @@ describe('useGameStore', () => {
               'a re-park restarted the age, so a submission older than the bound was sent',
             ).toHaveLength(0);
             expect(emitsOf('submitGlobalStats')).toHaveLength(0);
+          });
+
+          it('keeps the original stamp when a parked PUSH has to be re-parked', () => {
+            // The push path re-parks too: a flushed snapshot refused as a
+            // rejoin race arms a retry, and a retry that finds the transport
+            // gone again parks it. Re-stamped there, the snapshot renews
+            // itself on every flaky reconnect and is eventually pushed over
+            // whatever game the room is playing by then.
+            stageSeatedGame();
+            mockSocketConnected = false;
+            useGameStore.getState().pushState();
+
+            // Flushed halfway through the window, and refused as a race with
+            // this client's own rejoin.
+            rejoinAfter(HALF_PARK_WINDOW_MS);
+            expect(pushes(), 'the flush must actually have sent it').toHaveLength(1);
+            pushes()[0][2]({ ok: false, reason: 'unauthorized' });
+
+            // The transport is gone again by the time the retry fires, so the
+            // snapshot parks a second time.
+            mockSocketConnected = false;
+            vi.advanceTimersByTime(PUSH_REJOIN_RETRY_DELAY_MS);
+            mockEmit.mockClear();
+
+            // Past the bound counted from the FIRST park, still inside it
+            // counted from the second.
+            rejoinAfter(
+              PARKED_EMIT_MAX_AGE_MS + 1 - HALF_PARK_WINDOW_MS - PUSH_REJOIN_RETRY_DELAY_MS,
+            );
+
+            expect(
+              pushes(),
+              'a re-park restarted the age, so a snapshot older than the bound was sent',
+            ).toHaveLength(0);
           });
 
           it('keeps it across an ack timeout and its backoff too', () => {
