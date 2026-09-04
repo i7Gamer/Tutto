@@ -272,9 +272,12 @@ export default function App() {
           until scrolled. Moving both floating controls up on narrow widths
           clears both without asking either screen to carve out padding for
           a control that isn't part of their own layout. */}
-      {/* pt-/pb-[env(safe-area-inset-*)]: this element sits at the very top
-          edge on phones (top-4) and the very bottom edge from `sm` up
-          (bottom-4) — see the comment above. Either edge can be a hardware
+      {/* The safe-area-inset padding (pt- on phones, pb- from `sm` up): this
+          element sits at the very top edge on phones (top-4) and the very
+          bottom edge from `sm` up (bottom-4) — see the comment above.
+          Spelled out this loosely on purpose: Tailwind scans comments too,
+          and a class-shaped shorthand with a `*` wildcard in it became a
+          real (and invalid) utility in the generated CSS. Either edge can be a hardware
           cutout (a notch, a home-indicator bar) on a phone with
           viewport-fit=cover (index.html), so the side actually touching the
           screen edge in each layout gets the matching safe-area padding.
