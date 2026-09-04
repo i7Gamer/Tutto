@@ -8,6 +8,7 @@ import { roomPhase } from '../src/utils/roomPhase';
 import type { Room, ServerPlayer } from './roomTypes';
 import { rooms, calculateRemainingTurnTime, emitRoomState, idleTurnTimerState, recordDealtCard, rememberCurrentTurn, roomChannel } from './rooms';
 import { MAX_ROUNDS } from './pushValidation';
+import { clearDeck } from './deckAuthority';
 import { MS_PER_SECOND } from '../src/utils/time';
 
 // Milliseconds for a server timer armed from a duration in seconds — the turn
@@ -303,7 +304,10 @@ export const abortGameIfLowPlayers = (io: Server, room: Room, roomId: string): b
     clearServerTurnTimer(roomId);
     io.to(roomChannel(roomId)).emit('gameAborted');
     room.state.status = 'lobby';
-    room.state.currentCard = null;
+    // The deck, the card in play and the deal log, cleared exactly as a push
+    // back to the lobby clears them — see clearDeck. Only currentCard was
+    // reset here, so the aborted game's undrawn deck rode the lobby broadcast.
+    clearDeck(room);
     room.state.currentPlayerIndex = null;
     room.state.finished = false;
     room.state.turnStartTime = null;

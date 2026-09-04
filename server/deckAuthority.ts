@@ -214,6 +214,25 @@ const restoreDeckForUndo = (room: Room): void => {
 };
 
 /**
+ * Drops everything a finished game leaves on the table: the undrawn deck, the
+ * card in play, and the deal log behind them.
+ *
+ * Shared with turnTimers' abortGameIfLowPlayers, which returns a room to the
+ * lobby for a reason no push carries. Every client still receives `cards`, so
+ * a deck left behind is broadcast into the lobby and into whatever game starts
+ * next; a deal log left behind still describes turns from a game that no
+ * longer exists, which is exactly what restoreDeckForUndo gives cards back
+ * out of. The two sites clear the same four things because they mean the same
+ * thing, and this is what stops them drifting apart.
+ */
+export const clearDeck = (room: Room): void => {
+  room.state.cards = [];
+  room.state.currentCard = null;
+  room.dealtThisTurn = [];
+  room.dealtLastTurn = [];
+};
+
+/**
  * Performs the deck move a merged push implies, and reports which one it was.
  *
  * Called from the pushState handler after applyPushedState and BEFORE the
@@ -248,10 +267,7 @@ export const settleDeck = (room: Room, before: DeckContext, startedGame: boolean
     case 'teardown':
       // What endGame's own push used to carry (`status: 'lobby'` alongside
       // `cards: []` and `currentCard: null`) and can no longer write itself.
-      state.cards = [];
-      state.currentCard = null;
-      room.dealtThisTurn = [];
-      room.dealtLastTurn = [];
+      clearDeck(room);
       break;
     case 'hold':
       break;

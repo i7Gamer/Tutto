@@ -879,6 +879,30 @@ describe('turnTimers', () => {
       });
     });
 
+    it('leaves no deck behind for the lobby to broadcast', () => {
+      // The same clear settleDeck's 'teardown' does when a push returns the
+      // room to the lobby, and it has to be the same one: `cards` still rides
+      // every broadcast, so the aborted game's undrawn deck was visible in the
+      // lobby and in whatever game started next, and the deal log stayed
+      // pointing at turns from a game that no longer exists — which is what
+      // restoreDeckForUndo hands cards back out of.
+      rooms[roomId] = createRoom('host-1');
+      const room = rooms[roomId];
+      Object.assign(room.state, {
+        status: 'playing', players: [makePlayer('Alice')], currentCard: '200',
+        currentPlayerIndex: 0, cards: ['300', '400'],
+      });
+      room.dealtThisTurn = ['200'];
+      room.dealtLastTurn = ['Kniffel'];
+
+      expect(abortGameIfLowPlayers(makeFakeIo().io, room, roomId)).toBe(true);
+
+      expect(room.state.cards).toEqual([]);
+      expect(room.state.currentCard).toBeNull();
+      expect(room.dealtThisTurn).toEqual([]);
+      expect(room.dealtLastTurn).toEqual([]);
+    });
+
     it('aborts the game, resets play state, clears the timer, and emits gameAborted', () => {
       rooms[roomId] = createRoom('host-1');
       const room = rooms[roomId];
