@@ -725,8 +725,21 @@ describe('the e2e matrix runs exactly the browser projects playwright.config.ts 
     expect(configuredProjects.length).toBeGreaterThan(1);
   });
 
+  /**
+   * The matrix is include-only, and this test insists on it. GitHub does
+   * not treat `include` entries as legs of their own when an original
+   * `project:` list exists: an include that matches an original combination
+   * is merged INTO it, and a later include may overwrite keys an earlier one
+   * added. Two webkit shard entries next to `project: [.., webkit]` therefore
+   * collapsed into a single "webkit 2/2" leg and half the suite ran nowhere,
+   * with the workflow green (run 33870132833, 2026-09-04). With no original
+   * matrix, every include entry is its own leg.
+   */
   it('lists every configured project in the matrix, and nothing else', () => {
-    expect(e2eJob()?.strategy?.matrix?.project).toEqual(configuredProjects);
+    const matrix = e2eJob()?.strategy?.matrix;
+    expect(matrix?.project, 'an original project list swallows the shard includes').toBeUndefined();
+    const legs = matrix?.include ?? [];
+    expect([...new Set(legs.map(leg => leg.project))]).toEqual(configuredProjects);
   });
 
   it('lets the other browsers finish when one leg fails', () => {
@@ -736,44 +749,45 @@ describe('the e2e matrix runs exactly the browser projects playwright.config.ts 
   });
 
   /**
-   * A project may be split across runners with Playwright's --shard. The
-   * split is declared as matrix `include` entries carrying shard_index and
-   * shard_total, which GitHub turns into extra legs of that project. Two
-   * things keep a shard leg honest: the run step must actually pass the
-   * shard (an include without it would run the whole project twice and
-   * report both as separate legs), and the report artifact name must carry
-   * the shard, or the second leg's upload is refused as a duplicate.
+   * A project may be split across runners with Playwright's --shard: its
+   * matrix entries carry shard_index and shard_total, one entry per shard.
+   * What keeps a shard leg honest: every shard of the project is present (a
+   * missing one is part of the suite running nowhere), no un-sharded entry
+   * of the same project sits next to them (that leg would run the whole
+   * suite again), the run step actually passes the shard, and the report
+   * artifact name carries it, or the second leg's upload is refused as a
+   * duplicate.
    */
-  it('runs every shard leg as a real shard of a configured project', () => {
+  it('runs every shard leg as a real shard, and every shard of a sharded project', () => {
     const job = e2eJob();
-    const includes = job?.strategy?.matrix?.include ?? [];
+    const legs = job?.strategy?.matrix?.include ?? [];
+    const shards = legs.filter(leg => leg.shard_index !== undefined || leg.shard_total !== undefined);
     const steps = job?.steps ?? [];
     const run = steps.find(step => step.run?.includes('test:e2e'));
     const report = steps.find(step => step.uses?.startsWith('actions/upload-artifact'));
 
-    for (const leg of includes) {
-      expect(configuredProjects, `shard leg for an unknown project: ${leg.project}`).toContain(leg.project);
+    for (const leg of shards) {
       expect(leg.shard_index, 'a shard leg needs shard_index').toEqual(expect.any(Number));
       expect(leg.shard_total, 'a shard leg needs shard_total').toEqual(expect.any(Number));
       expect(leg.shard_index).toBeGreaterThanOrEqual(1);
       expect(leg.shard_index).toBeLessThanOrEqual(leg.shard_total ?? 0);
     }
-    if (includes.length > 0) {
+    if (shards.length > 0) {
       expect(run?.run, 'shard legs exist but the run step never passes --shard').toContain('--shard=');
       expect(run?.run).toContain('matrix.shard_index');
       expect(report?.with?.name, 'two shard legs would upload under one artifact name').toContain('matrix.shard_index');
     }
-    // Every shard of a project must be present, or part of that project's
-    // suite never runs anywhere.
     const byProject = new Map<string, number[]>();
-    for (const leg of includes) {
+    for (const leg of shards) {
       byProject.set(leg.project ?? '', [...(byProject.get(leg.project ?? '') ?? []), leg.shard_index ?? 0]);
     }
     for (const [project, indexes] of byProject) {
-      const total = includes.find(leg => leg.project === project)?.shard_total ?? 0;
+      const total = shards.find(leg => leg.project === project)?.shard_total ?? 0;
       expect([...indexes].sort(), `${project} is missing a shard`).toEqual(
         Array.from({ length: total }, (_, i) => i + 1),
       );
+      const unsharded = legs.filter(leg => leg.project === project && !shards.includes(leg));
+      expect(unsharded, `${project} would run whole next to its shards`).toEqual([]);
     }
   });
 

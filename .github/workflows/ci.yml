@@ -120,9 +120,9 @@ jobs:
   # webkit is split across two runners with --shard: on this runner every
   # webkit test runs three to four times slower than chromium's or firefox's
   # (measured 2026-09-04: 374 s of test time against 43 s and 63 s), so its
-  # leg bounded the whole workflow on its own. The `include` entries add the
-  # shard keys to that one project; server/workflows.test.ts checks that a
-  # shard leg names a configured project, that every shard of it is present,
+  # leg bounded the whole workflow on its own. Its entries carry the shard
+  # keys; server/workflows.test.ts checks that the legs name exactly the
+  # configured projects, that every shard of a sharded project is present,
   # and that the run and upload steps actually carry the shard.
   e2e:
     name: End-to-End Tests (${{ matrix.project }}${{ matrix.shard_index && format(' {0}/{1}', matrix.shard_index, matrix.shard_total) || '' }})
@@ -130,8 +130,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [chromium, firefox, webkit]
+        # Include-only on purpose. Next to a `project:` list, GitHub merges an
+        # include into the original combination it matches and lets a later
+        # include overwrite keys an earlier one added: the two webkit entries
+        # collapsed into one "webkit 2/2" leg and half the suite ran nowhere,
+        # green (run 33870132833). With no original list, each entry is a leg.
         include:
+          - project: chromium
+          - project: firefox
           - project: webkit
             shard_index: 1
             shard_total: 2
