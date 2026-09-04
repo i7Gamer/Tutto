@@ -48,6 +48,8 @@ const isInsideNodeModules = (candidate: string): boolean =>
 
 interface WorkflowStep {
   name?: string;
+  id?: string;
+  if?: string;
   uses?: string;
   run?: string;
   with?: Record<string, unknown>;
@@ -789,6 +791,50 @@ describe('the e2e matrix runs exactly the browser projects playwright.config.ts 
       const unsharded = legs.filter(leg => leg.project === project && !shards.includes(leg));
       expect(unsharded, `${project} would run whole next to its shards`).toEqual([]);
     }
+  });
+
+  /**
+   * The browser download is the same bytes on every run until the Playwright
+   * version moves, and it cost every leg ~25 s. It is cached on the version
+   * read from the lockfile and the leg's engine. Three ways a cache can be
+   * worse than none, each pinned here: a key without the version serves a
+   * stale browser to a bumped @playwright/test (which then downloads its own
+   * on top, or fails); a key without the engine serves one leg's browser to
+   * another; and a hit that skips the install step altogether skips the OS
+   * libraries too, which live in /usr and are not in the cached directory,
+   * so a hit must still run install-deps.
+   */
+  describe('caches the browser download', () => {
+    const CACHE_HIT = "cache-hit == 'true'";
+    const CACHE_MISS = "cache-hit != 'true'";
+    const steps = (): WorkflowStep[] => e2eJob()?.steps ?? [];
+    const cache = (): WorkflowStep | undefined => steps().find(step => step.uses?.startsWith('actions/cache@'));
+    const install = (): WorkflowStep | undefined =>
+      steps().find(step => /playwright install\b/.test(step.run ?? ''));
+    const deps = (): WorkflowStep | undefined =>
+      steps().find(step => step.run?.includes('playwright install-deps'));
+
+    it('caches the Playwright browser directory', () => {
+      expect(cache()?.with?.path).toContain('ms-playwright');
+    });
+
+    it('keys the cache on the Playwright version from the lockfile and the engine', () => {
+      const key = String(cache()?.with?.key ?? '');
+      expect(key).toContain(MATRIX_PROJECT);
+      const versionStepId = /steps\.([\w-]+)\.outputs\.version/.exec(key)?.[1];
+      expect(versionStepId, 'the key never reads a version output').toBeDefined();
+      const versionStep = steps().find(step => step.id === versionStepId);
+      expect(versionStep?.run, 'the version step must read it from the lockfile').toContain('package-lock.json');
+      expect(versionStep?.run).toContain('@playwright/test');
+    });
+
+    it('downloads only on a miss, and installs the OS libraries on a hit', () => {
+      const cacheId = cache()?.id;
+      expect(cacheId).toBeDefined();
+      expect(install()?.if).toBe(`steps.${cacheId}.outputs.${CACHE_MISS}`);
+      expect(deps()?.if).toBe(`steps.${cacheId}.outputs.${CACHE_HIT}`);
+      expect(deps()?.run).toContain(MATRIX_PROJECT);
+    });
   });
 
   it('installs, runs and reports only its own browser on each leg', () => {

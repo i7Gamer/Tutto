@@ -181,11 +181,32 @@ jobs:
       - name: Runner capacity
         run: nproc && free -m
 
+      # The browser download is the same bytes on every run until the
+      # Playwright version moves, so it is cached on that version (read from
+      # the lockfile, not from a hand-typed copy) and the leg's engine. The OS
+      # libraries land in /usr, outside the cached directory, so a hit still
+      # runs install-deps. Pinned by server/workflows.test.ts.
+      - name: Read the Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/@playwright/test'].version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: browser-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ matrix.project }}-${{ steps.playwright.outputs.version }}
+
       # Only this leg's browser, with its OS libraries. The chromium leg takes
       # the headless shell alone: headless runs use it anyway, and the full
       # browser is another download nothing here opens.
       - name: Install Playwright browsers
+        if: steps.browser-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps ${{ matrix.project }} ${{ matrix.project == 'chromium' && '--only-shell' || '' }}
+
+      - name: Install Playwright OS libraries
+        if: steps.browser-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps ${{ matrix.project }}
 
       # playwright.config.ts starts the app itself with "npm run build && npm
       # run server" — the built artifact, rebuilt every run, not the dev
