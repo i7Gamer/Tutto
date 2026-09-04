@@ -4,7 +4,8 @@ import { render, screen, fireEvent, act, waitFor, cleanup } from '@testing-libra
 import { parseSavedDiceState } from '../utils/diceTurnState';
 import { MAX_CHAIN_CARDS } from '../types';
 import DiceGame from './DiceGame';
-import { playTone } from '../utils/soundEffects';
+import { playTone, playSuccess } from '../utils/soundEffects';
+import confetti from 'canvas-confetti';
 
 vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
@@ -794,6 +795,47 @@ describe('DiceGame interactive turn logic', () => {
     expect(screen.getByText('dice.tutto')).toBeInTheDocument();
     // 1000 (triple 1s) + 500 (triple 5s) + 400 bonus
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(1900, true));
+  });
+
+  // UI-2: unlike drawNextCard, the 'stop' and tutto-completing branches of
+  // handleAction had no re-entrancy guard. Since neither branch awaits,
+  // two sequential clicks can never actually overlap -- JS runs the first
+  // call to completion before the second is even dispatched -- so the real
+  // risk is a call that re-enters handleAction from INSIDE its own
+  // execution (a second input -- e.g. Enter's native button activation --
+  // landing in the same call stack a synchronous side effect touches).
+  // confetti() fires partway through the tutto branch, before the dispatch
+  // that ends the turn; this mock uses that moment to fire a second click
+  // on the same button, synchronously, before the first call returns --
+  // genuine reentrancy, not two settled clicks -- and the guard must
+  // swallow it.
+  it('a reentrant call into handleAction during a Tutto only completes the turn once', async () => {
+    const onComplete = vi.fn();
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    render(<DiceGame currentCard="400" onComplete={onComplete} />);
+    await flushRoll();
+
+    selectAllValid();
+    const stopButton = screen.getByText('dice.stop_and_score');
+
+    let reentered = false;
+    vi.mocked(confetti).mockImplementation(() => {
+      if (!reentered) {
+        reentered = true;
+        fireEvent.click(stopButton);
+      }
+      return null;
+    });
+
+    fireEvent.click(stopButton);
+
+    expect(screen.getByText('dice.tutto')).toBeInTheDocument();
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    // 1000 (triple 1s) + 500 (triple 5s) + 400 bonus -- double-counted score
+    // is the observable symptom of a double dispatch.
+    expect(onComplete).toHaveBeenCalledWith(1900, true);
+    expect(confetti).toHaveBeenCalledTimes(1);
+    expect(playSuccess).toHaveBeenCalledTimes(1);
   });
 
   it('a Tutto on x2 doubles the turn score', async () => {

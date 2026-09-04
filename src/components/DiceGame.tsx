@@ -126,6 +126,16 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // would spend a second card off the deck for one tutto — and the chain, which
   // only records the card drawNextCard returns, would never account for it.
   const drawInFlightRef = useRef(false);
+  // UI-2: handleAction's own re-entrancy guard. Unlike the draw round trip
+  // above, most of handleAction runs synchronously — but a same-task double
+  // invocation (a fast double-tap, or two inputs landing in the same
+  // event-loop turn, before React re-renders to disable the button) would
+  // still run a branch like Stop & Score or a completing Tutto twice off the
+  // same pre-dispatch closure: chainRef.current.tuttoCount incremented
+  // twice, plusMinusScores pushed twice, confetti/sound fired twice. A ref
+  // (not state) so the second call sees the first call's write immediately,
+  // with no render in between.
+  const actionInFlightRef = useRef(false);
   // The card just drawn, held on screen until the player dismisses it. It is
   // the only place they see it: this modal covers the board, and the very next
   // thing to happen is a roll judged by the new card's rules.
@@ -255,6 +265,13 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
 
   const handleAction = async (action: 'roll' | 'stop' | 'draw') => {
     if (!validation.valid) return;
+    // UI-2: see actionInFlightRef above. Set synchronously, before anything
+    // else runs, so a same-tick re-entry (the second call in a same-task
+    // double invocation) sees it true and bails here instead of repeating
+    // the dispatch/confetti/sound below.
+    if (actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
+    try {
 
     let newTurnScore = turnScore + (countsDicePoints ? validation.score : 0);
     const newKniffelProgress = validation.newKniffelProgress;
@@ -352,6 +369,14 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         keptDice: isTutto ? [] : newKeptDice, kniffelProgress: newKniffelProgress,
       });
       roll(isTutto ? TOTAL_DICE : TOTAL_DICE - newKeptDice.length, newKniffelProgress, newTurnScore);
+    }
+    } finally {
+      // Every branch above either dispatches synchronously and returns, or
+      // (the classic 'draw' branch) awaits drawNextCard first — either way,
+      // by the time we get here the action's resulting state has been
+      // dispatched (or refused up front by validation.valid), so it's safe
+      // to accept the next one.
+      actionInFlightRef.current = false;
     }
   };
 
