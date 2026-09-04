@@ -16,6 +16,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { parse } from 'yaml';
+import playwrightConfig from '../playwright.config';
 
 const REPO_ROOT = path.join(__dirname, '..');
 const WORKFLOWS_DIR = path.join(REPO_ROOT, '.github', 'workflows');
@@ -53,8 +54,15 @@ interface WorkflowStep {
   'working-directory'?: string;
 }
 
+interface WorkflowStrategy {
+  matrix?: Record<string, unknown>;
+  'fail-fast'?: boolean;
+}
+
 interface WorkflowJob {
+  name?: string;
   steps?: WorkflowStep[];
+  strategy?: WorkflowStrategy;
   'timeout-minutes'?: number;
 }
 
@@ -684,5 +692,53 @@ describe('the audit steps retry a registry outage instead of failing the run', (
       .map(({ file, job, step }) => `${file} / ${job}: ${step.run}`);
 
     expect(wrong).toEqual([]);
+  });
+});
+
+/**
+ * The e2e job runs one matrix leg per browser project, so the three engines
+ * run in parallel on three runners instead of back to back on one (the suite
+ * went from ~7 minutes serial to the slowest single engine). That moves WHICH
+ * engines run out of playwright.config.ts, which the suite itself pins, into
+ * the workflow's matrix, which nothing else does: dropping `webkit` from the
+ * matrix would silently delete a third of the e2e coverage -- including the
+ * only place WebKit's overscroll-behavior divergence is observed -- with every
+ * check green. This ties the two lists together.
+ */
+describe('the e2e matrix runs exactly the browser projects playwright.config.ts defines', () => {
+  const CI_WORKFLOW = 'ci.yml';
+  const MATRIX_PROJECT = '${{ matrix.project }}';
+  const PROJECT_FLAG = `--project=${MATRIX_PROJECT}`;
+  const configuredProjects = (playwrightConfig.projects ?? []).map(project => project.name);
+
+  const e2eJob = (): WorkflowJob | undefined =>
+    parseWorkflow(fs.readFileSync(path.join(WORKFLOWS_DIR, CI_WORKFLOW), 'utf8')).jobs?.e2e;
+
+  it('finds the configured projects it is meant to be checking', () => {
+    // The self-oracle: an empty config would make the matrix assertion vacuous.
+    expect(configuredProjects.length).toBeGreaterThan(1);
+  });
+
+  it('lists every configured project in the matrix, and nothing else', () => {
+    expect(e2eJob()?.strategy?.matrix?.project).toEqual(configuredProjects);
+  });
+
+  it('lets the other browsers finish when one leg fails', () => {
+    // A cancelled leg is a browser nobody tested; the failing one already
+    // tells the story on its own.
+    expect(e2eJob()?.strategy?.['fail-fast']).toBe(false);
+  });
+
+  it('installs, runs and reports only its own browser on each leg', () => {
+    const steps = e2eJob()?.steps ?? [];
+    const install = steps.find(step => step.run?.includes('playwright install'));
+    const run = steps.find(step => step.run?.includes('test:e2e'));
+    const report = steps.find(step => step.uses?.startsWith('actions/upload-artifact'));
+
+    expect(install?.run, 'downloading all three browsers on every leg wastes the split').toContain(MATRIX_PROJECT);
+    expect(run?.run).toContain(PROJECT_FLAG);
+    // upload-artifact refuses a second upload under a name another leg took.
+    expect(report?.with?.name).toContain(MATRIX_PROJECT);
+    expect(e2eJob()?.name, 'the check name must say which engine failed').toContain(MATRIX_PROJECT);
   });
 });

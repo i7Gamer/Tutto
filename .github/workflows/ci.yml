@@ -105,14 +105,27 @@ jobs:
         run: node ../scripts/npm-audit-retry.mjs
         working-directory: server
 
-  # Separate job so browser downloads and the serial three-browser run do not
-  # delay feedback from the checks above. Both jobs start at the same time.
+  # Separate job so browser downloads and the browser runs do not delay
+  # feedback from the checks above. All jobs start at the same time.
+  #
+  # One matrix leg per browser project: the three engines used to run back to
+  # back on one runner (~7 minutes of the job's 9), now each runs alone on its
+  # own runner and downloads only its own browser. The matrix MUST list exactly
+  # the projects in playwright.config.ts -- server/workflows.test.ts ties the
+  # two together, because dropping an engine here would delete a third of the
+  # e2e coverage with every check still green. fail-fast is off so one failing
+  # engine never cancels the other two: a cancelled leg is a browser nobody
+  # tested.
   e2e:
-    name: End-to-End Tests
+    name: End-to-End Tests (${{ matrix.project }})
     runs-on: ubuntu-latest
-    # Today's run takes about 9 minutes (browser download plus a serial
-    # three-browser suite); 30 leaves headroom for legitimate variance while
-    # still bounding a hang. server/workflows.test.ts pins this.
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, firefox, webkit]
+    # One engine's share of the former serial run plus its browser download;
+    # 30 leaves headroom for legitimate variance while still bounding a hang.
+    # server/workflows.test.ts pins this.
     timeout-minutes: 30
 
     steps:
@@ -141,8 +154,9 @@ jobs:
         run: npm ci
         working-directory: server
 
+      # Only this leg's browser, with its OS libraries.
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps
+        run: npx playwright install --with-deps ${{ matrix.project }}
 
       # playwright.config.ts starts the app itself with "npm run build && npm
       # run server" — the built artifact, rebuilt every run, not the dev
@@ -150,7 +164,7 @@ jobs:
       # single-worker with two retries, and points the API server at an
       # in-memory database (TEST_DB).
       - name: Run End-to-End Tests
-        run: npm run test:e2e
+        run: npm run test:e2e -- --project=${{ matrix.project }}
 
       - name: Upload Playwright report
         # always(), not failure(): a flaky-but-passed run is the only evidence
@@ -159,6 +173,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          # Per leg: upload-artifact refuses a second upload under a name
+          # another leg already took.
+          name: playwright-report-${{ matrix.project }}
           path: playwright-report/
           retention-days: 30
