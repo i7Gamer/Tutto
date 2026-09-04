@@ -102,13 +102,55 @@ describe('classifyDeckMove', () => {
     expect(classifyDeckMove(state, before, false)).toBe('advance');
   });
 
-  it('a moved index with no turn behind it deals nothing', () => {
-    // A stale client re-pushing an index the room has already moved past. The
-    // index alone used to be the whole signal, which let such a push burn a
-    // card off the deck for a turn nobody played.
+  it('the first advance of a game deals, with no turn behind it', () => {
+    // Why the advance cannot be anchored on the room's OWN previousCard, the
+    // obvious server-held stand-in for the pushed one: nothing has been played
+    // yet when the opening turn is handed on, so that anchor would withhold
+    // the second card of every single game.
+    const { state } = playing();
+    expect(state.previousCard, 'no turn has been played yet').toBeNull();
+    const before = readDeckContext(state);
+    handOverToSeat(state, 1, 'Alice');
+    expect(classifyDeckMove(state, before, false)).toBe('advance');
+  });
+
+  it('clearing previousCard cannot withhold the next seat\'s card', () => {
+    // previousCard arrives in the very push being judged (applyPreviousCard
+    // writes whatever it carries, null included), so reading it as proof a
+    // turn was played let the active player push `previousCard: null` beside
+    // an honest hand-over: no card was dealt, and the next seat inherited the
+    // one already in play — which the pusher had read off the broadcast deck
+    // before deciding to keep it. The card the room was HOLDING says the same
+    // thing and is the server's own.
+    const { state } = playing({ previousCard: 'Kniffel', previousPlayerName: 'Alice' }, ['Alice', 'Bob', 'Carol']);
+    const before = readDeckContext(state);
+    state.currentPlayerIndex = 1;
+    state.previousCard = null;
+    expect(classifyDeckMove(state, before, false)).toBe('advance');
+  });
+
+  it('and cannot withhold it at two seats either', () => {
+    // Two seats is where the same push used to land on 'undo' instead of
+    // 'hold' (the seat before and the seat after are one and the same), and
+    // the deck was rewound for a turn nobody undid. With no undoable turn
+    // behind the room the undo test cannot fire at all, so this is a plain
+    // advance — the tie the two-seat case does still have is settled by the
+    // undo test above, which is checked first.
     const { state } = playing();
     const before = readDeckContext(state);
     state.currentPlayerIndex = 1;
+    expect(classifyDeckMove(state, before, false)).toBe('advance');
+  });
+
+  it('a seat move in a room holding no card deals nothing', () => {
+    // The advance anchor's negative branch. Unreachable today: every path that
+    // nulls currentCard mid-game (turnTimers' game over and its
+    // abortGameIfLowPlayers, rooms.handleActivePlayerRemoved's game over) sets
+    // `finished` or drops the room to the lobby in the same breath, and both
+    // are answered above. This is the backstop for one that does not.
+    const { state } = playing({ currentCard: null });
+    const before = readDeckContext(state);
+    handOverToSeat(state, 1, 'Alice');
     expect(classifyDeckMove(state, before, false)).toBe('hold');
   });
 
@@ -157,9 +199,15 @@ describe('classifyDeckMove', () => {
     // The mirror of the advance case: previousPlayerName used to pick the
     // seat, so planting it let a player trigger the deck restore from a seat
     // the turn had never been at.
-    const { state } = playing({ currentPlayerIndex: 2, previousCard: 'Kniffel', previousPlayerName: 'Alice' }, ['Alice', 'Bob', 'Carol']);
+    //
+    // Four seats, because the seat an aimed undo would have to miss by is the
+    // one an advance hits: from the last seat of a three-player game the only
+    // index left to aim at is the wrap-around successor, which IS a round-end
+    // advance and deals accordingly. Here seat 1 is neither the predecessor
+    // (2) nor the successor (0) of the seat the room was on.
+    const { state } = playing({ currentPlayerIndex: 3, previousCard: 'Kniffel', previousPlayerName: 'Alice' }, ['Alice', 'Bob', 'Carol', 'Dave']);
     const before = readDeckContext(state);
-    undoPush(state, 0);
+    undoPush(state, 1);
     expect(classifyDeckMove(state, before, false)).toBe('hold');
   });
 
@@ -170,6 +218,19 @@ describe('classifyDeckMove', () => {
     const before = readDeckContext(state);
     state.finished = true;
     state.currentPlayerIndex = null;
+    expect(classifyDeckMove(state, before, false)).toBe('hold');
+  });
+
+  it('a game ended by the last player leaving holds too, card and all', () => {
+    // rooms.handleActivePlayerRemoved's game-over branch nulls currentCard
+    // alongside finished and currentPlayerIndex — the one place a room in
+    // status 'playing' is left holding no card. A push landing after it must
+    // still deal nothing, whichever seat it names.
+    const { state } = playing();
+    const before = readDeckContext(state);
+    state.finished = true;
+    state.currentPlayerIndex = null;
+    state.currentCard = null;
     expect(classifyDeckMove(state, before, false)).toBe('hold');
   });
 
@@ -209,6 +270,19 @@ describe('settleDeck', () => {
     const room = playing();
     const before = readDeckContext(room.state);
     handOverToSeat(room.state, 1, 'Alice');
+    settleDeck(room, before, false);
+
+    expect(room.state.currentCard).toBe('300');
+    expect(room.state.cards).toEqual(['200', 'Stop', 'x2']);
+  });
+
+  it('advance deals off the top even when the push clears previousCard', () => {
+    // The withheld deal at the level of the deck itself: the next seat gets
+    // the card the server turns over, not the one the pusher chose to sit on.
+    const room = playing({ previousCard: 'Kniffel', previousPlayerName: 'Alice' }, ['Alice', 'Bob', 'Carol']);
+    const before = readDeckContext(room.state);
+    room.state.currentPlayerIndex = 1;
+    room.state.previousCard = null;
     settleDeck(room, before, false);
 
     expect(room.state.currentCard).toBe('300');

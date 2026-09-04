@@ -33,9 +33,11 @@ import type { Room, RoomState } from './roomTypes';
  *
  * Every judgment below is a comparison between two moments, and
  * applyPushedState mutates the room in place — so the "before" side has to be
- * read off first. `currentCard`/`cards` are no longer writable by a push at
- * all, but the four turn-record fields around them are, and they are exactly
- * what says which move the push made.
+ * read off first. The turn-record fields around the deck are all writable by a
+ * push, which is why the judgments below lean on the two that are not:
+ * `currentCard` (server-owned, so "the room was holding a card" is the
+ * server's own account of a turn being in play) and `currentPlayerIndex` as
+ * the room held it before the push moved it.
  */
 export interface DeckContext {
   currentCard: CardType | null;
@@ -104,6 +106,13 @@ const seatAfter = (state: RoomState, from: number | null): number =>
  * its own decision is about, and both anchors are server-held — the point
  * being that neither reads previousPlayerName, which is what used to let
  * either be aimed at a seat the turn had never been at.
+ *
+ * At exactly two seats the predecessor and the successor are the same seat, so
+ * the index move alone cannot say which of the two happened and the pushed
+ * previousCard breaks the tie — checked before isAdvanceMove below, so the tie
+ * goes to the undo. That is what an honest client means by clearing the field,
+ * and claiming it grants nothing: the active seat may undo the turn behind it
+ * outright anyway.
  */
 const isUndoMove = (state: RoomState, before: DeckContext): boolean =>
   before.previousCard !== null &&
@@ -125,10 +134,23 @@ const isUndoMove = (state: RoomState, before: DeckContext): boolean =>
  * the one that was playing turned an ordinary advance into a 'hold' and the
  * next player was forced onto the card already in play, chosen after reading
  * the broadcast deck. Same reason the undo test above no longer reads it.
+ *
+ * The MERGED previousCard was the next version of exactly that mistake, and it
+ * is what `before.currentCard` replaces: previousCard is written by the push
+ * (applyPreviousCard takes null as readily as a card), so pushing
+ * `previousCard: null` beside an honest hand-over withheld the deal all over
+ * again — 'hold' at three seats or more, and at two seats 'undo', which rewound
+ * the deck for a turn nobody undid. "A turn was in play" is a fact about the
+ * room: the room was holding a card, and currentCard is server-owned
+ * (SERVER_OWNED_FIELD_LIST) and dealt only here.
+ *
+ * The room's own previousCard is NOT the anchor to use, tempting as it looks:
+ * it is null for the whole first turn of every game, so the first hand-over
+ * would deal nothing.
  */
 const isAdvanceMove = (state: RoomState, before: DeckContext): boolean =>
   before.currentPlayerIndex !== null &&
-  state.previousCard !== null &&
+  before.currentCard !== null &&
   state.currentPlayerIndex === seatAfter(state, before.currentPlayerIndex);
 
 export const classifyDeckMove = (state: RoomState, before: DeckContext, startedGame: boolean): DeckMove => {
