@@ -154,9 +154,11 @@ jobs:
         run: npm ci
         working-directory: server
 
-      # Only this leg's browser, with its OS libraries.
+      # Only this leg's browser, with its OS libraries. The chromium leg takes
+      # the headless shell alone: headless runs use it anyway, and the full
+      # browser is another download nothing here opens.
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps ${{ matrix.project }}
+        run: npx playwright install --with-deps ${{ matrix.project }} ${{ matrix.project == 'chromium' && '--only-shell' || '' }}
 
       # playwright.config.ts starts the app itself with "npm run build && npm
       # run server" — the built artifact, rebuilt every run, not the dev
