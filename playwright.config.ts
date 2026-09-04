@@ -9,12 +9,19 @@ import { defineConfig, devices } from '@playwright/test';
 const E2E_PORT = '4180';
 const E2E_ORIGIN = `http://localhost:${E2E_PORT}`;
 
+// Two, not the scaffold's one: every test namespaces its room by project and
+// worker index, the e2e database is in-memory per server, and the CI runner
+// has spare cores, so two workers share one server without sharing state.
+// The one real wall-clock deadline in the suite (the online classic chain's
+// turn timer) is sized for it. Locally the default (half the cores) stands.
+const CI_WORKERS = 2;
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: process.env.CI ? CI_WORKERS : undefined,
   reporter: 'html',
   use: {
     baseURL: E2E_ORIGIN,
@@ -52,6 +59,10 @@ export default defineConfig({
       // And they all CREATE rooms from that one address, which the
       // per-address room cap (rooms.ts) would refuse past its default.
       MAX_ROOMS_PER_ADDRESS: '1000000',
+      // And they all poll /api/stats from that one address too: the per-IP
+      // GET limiter (api.ts) is a 60 s bucket that two workers would drain
+      // twice as fast. Same lift vite.config.ts gives the unit suites.
+      STATS_RATE_LIMIT_MAX: '1000000',
     },
     // Never reuse: a server already on this port is not known to be serving a
     // fresh build, and testing yesterday's dist is worse than not testing.

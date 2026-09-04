@@ -146,8 +146,9 @@ test.describe('Tutto Online Ghost Lobbies', () => {
  */
 test.describe('Online classic chain', () => {
   // Comfortably longer than the few seconds spent below, so the draw always
-  // lands inside the turn it is meant to extend, even on a slow machine.
-  const TURN_TIMER_S = 30;
+  // lands inside the turn it is meant to extend, even on a slow machine that
+  // is also running a second worker's tests (playwright.config.ts).
+  const TURN_TIMER_S = 60;
   // How far the countdown must have run down before the draw: a restart back up
   // is only evidence of one if the timer had visibly left where it started.
   const TICKED_DOWN_TO_S = TURN_TIMER_S - 2;
