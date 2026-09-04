@@ -97,27 +97,54 @@ test.describe('stylesheet cascade', () => {
       return value;
     }, { html, property });
 
-  for (const { html, property, expected, what, contest, open } of PROBES) {
-    test(what, async ({ page }) => {
-      await page.goto('/');
-      if (open === 'statistics') {
-        await page.getByRole('button', { name: 'View Statistics' }).click();
-        // Waited for, not assumed: the chunk's stylesheet is injected as part
-        // of loading it, so probing before the screen is up would measure a
-        // document that legitimately has no such rule yet.
-        await expect(page.getByTestId('statistics-page')).toBeVisible();
-      }
+  /**
+   * All eight probes against one page load, where each used to pay for its own
+   * context and `goto` to inject a div and read one property back.
+   *
+   * `expect.soft` so a single lost cascade battle still reports the other
+   * seven — and so a `contest` that fails (the utility is missing from the
+   * stylesheet entirely) no longer aborts before the probe it guards, which is
+   * the more informative of the two readings. What a merged test cannot
+   * survive is a THROW: a crashed page or a failed `computed()` evaluate ends
+   * it there and the probes after it never run. Nothing here reads a value an
+   * earlier probe produced, so that costs diagnostic breadth, never a verdict.
+   */
+  test("the app's own rules and Tailwind's utilities resolve as v3 did", async ({ page }) => {
+    await page.goto('/');
 
-      if (contest) {
-        expect(
-          await computed(page, contest.html, property),
-          'the utility this claims to outrank is not in the stylesheet at all',
-        ).toBe(contest.expected);
-      }
+    const runProbe = ({ html, property, expected, what, contest }: Probe) =>
+      // The former test's own title, so it still names the failure in the HTML
+      // report and in the trace.
+      test.step(what, async () => {
+        if (contest) {
+          expect.soft(
+            await computed(page, contest.html, property),
+            'the utility this claims to outrank is not in the stylesheet at all',
+          ).toBe(contest.expected);
+        }
 
-      expect(await computed(page, html, property)).toBe(expected);
-    });
-  }
+        expect.soft(await computed(page, html, property), what).toBe(expected);
+      });
+
+    for (const probe of PROBES.filter(probe => !probe.open)) await runProbe(probe);
+
+    // Split out of the data rather than hand-written below, so a ninth probe
+    // declaring `open` cannot silently end up running in the closed state.
+    const afterStatistics = PROBES.filter(probe => probe.open === 'statistics');
+    if (afterStatistics.length > 0) {
+      // Last, and only once the closed-state readings are in: visiting
+      // Statistics injects that lazy chunk's stylesheet, and its LATE arrival
+      // is the whole premise of the probes below (see the note above).
+      await page.getByRole('button', { name: 'View Statistics' }).click();
+      // Waited for, not assumed: the chunk's stylesheet is injected as part
+      // of loading it, so probing before the screen is up would measure a
+      // document that legitimately has no such rule yet. Hard, not soft —
+      // every reading after it depends on the screen actually being up.
+      await expect(page.getByTestId('statistics-page')).toBeVisible();
+
+      for (const probe of afterStatistics) await runProbe(probe);
+    }
+  });
 });
 
 /**
