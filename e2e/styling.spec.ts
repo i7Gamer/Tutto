@@ -854,34 +854,40 @@ test.describe('HUD vs dice panel, help button z-order (A9)', () => {
  * no-op on exactly the hardware it targets.
  */
 test.describe('safe-area viewport (B58)', () => {
-  test('the viewport meta opts into drawing under device cutouts', async ({ page }) => {
+  /**
+   * Two reads off one loaded page, where each used to pay for its own. Neither
+   * half mutates anything, so nothing carries between them and their order is
+   * free; `expect.soft` throughout, so a dropped meta tag and a dropped padding
+   * utility are two failures rather than one.
+   */
+  test('the page opts into device cutouts and the HUD pads for them', async ({ page }) => {
     await page.goto('/');
 
-    const content = await page.locator('meta[name="viewport"]').getAttribute('content');
-    expect(content).toContain('viewport-fit=cover');
-  });
+    await test.step('the viewport meta opts into drawing under device cutouts', async () => {
+      const content = await page.locator('meta[name="viewport"]').getAttribute('content');
+      expect.soft(content).toContain('viewport-fit=cover');
+    });
 
-  test('the HUD declares its padding from the safe-area inset', async ({ page }) => {
-    // A real cutout cannot be simulated here, and a computed padding-top is
-    // "0px" both with the env() rule (inset 0 on this hardware) and with no
-    // rule at all — so the value proves nothing. What can regress is the
-    // declaration: the utility being dropped from App.tsx, or Tailwind no
-    // longer emitting a rule for it. Check both.
-    await page.goto('/');
+    await test.step('the HUD declares its padding from the safe-area inset', async () => {
+      // A real cutout cannot be simulated here, and a computed padding-top is
+      // "0px" both with the env() rule (inset 0 on this hardware) and with no
+      // rule at all — so the value proves nothing. What can regress is the
+      // declaration: the utility being dropped from App.tsx, or Tailwind no
+      // longer emitting a rule for it. Check both.
+      const hud = page.getByLabel('Toggle theme').locator('xpath=..');
+      const className = await hud.evaluate(el => el.className);
+      expect.soft(className).toContain('pt-[env(safe-area-inset-top)]');
 
-    const hud = page.getByLabel('Toggle theme').locator('xpath=..');
-    const className = await hud.evaluate(el => el.className);
-    expect(className).toContain('pt-[env(safe-area-inset-top)]');
-
-    const declared = await page.evaluate(() =>
-      Array.from(document.styleSheets).some(sheet => {
-        try {
-          return Array.from(sheet.cssRules).some(rule => rule.cssText.includes('env(safe-area-inset-top)'));
-        } catch {
-          return false;
-        }
-      }));
-    expect(declared, 'no stylesheet rule mentions env(safe-area-inset-top)').toBe(true);
+      const declared = await page.evaluate(() =>
+        Array.from(document.styleSheets).some(sheet => {
+          try {
+            return Array.from(sheet.cssRules).some(rule => rule.cssText.includes('env(safe-area-inset-top)'));
+          } catch {
+            return false;
+          }
+        }));
+      expect.soft(declared, 'no stylesheet rule mentions env(safe-area-inset-top)').toBe(true);
+    });
   });
 });
 
