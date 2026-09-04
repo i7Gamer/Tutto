@@ -266,121 +266,129 @@ test.describe('the lobby row hover cue survives the cascade', () => {
 test.describe('theme colours resolve', () => {
   const SEMANTIC = ['--primary', '--secondary', '--border-color', '--bg-color', '--text-color'];
 
-  for (const theme of ['light', 'dark']) {
-    test(`every semantic colour has a value in ${theme} mode`, async ({ page }) => {
-      await page.goto('/');
+  /**
+   * Six probes against one page load, where each used to pay for its own.
+   *
+   * Merging them is free of the usual risk: every read below sets `data-theme`
+   * itself immediately before its synchronous getComputedStyle call, and every
+   * one appends and then removes its own probe node — so no state carries from
+   * one step to the next and their order is not load-bearing.
+   *
+   * `expect.soft` throughout, so a broken mechanism still lets the other five
+   * report. What a merged test cannot survive is a THROW — a crashed page or a
+   * failed `page.evaluate` ends it at that step and the rest never run. No step
+   * here reads a value an earlier one produced, so a throw costs diagnostics
+   * only, never a wrong verdict.
+   */
+  test('every theme-driven colour mechanism resolves', async ({ page }) => {
+    await page.goto('/');
 
-      // The list is passed in rather than closed over — page.evaluate runs in
-      // the browser, so a second copy written inline here would silently stop
-      // covering whatever SEMANTIC grew.
-      const values = await page.evaluate(({ theme, names }) => {
+    for (const theme of ['light', 'dark']) {
+      await test.step(`every semantic colour has a value in ${theme} mode`, async () => {
+        // The list is passed in rather than closed over — page.evaluate runs in
+        // the browser, so a second copy written inline here would silently stop
+        // covering whatever SEMANTIC grew.
+        const values = await page.evaluate(({ theme, names }) => {
+          document.documentElement.setAttribute('data-theme', theme);
+          const style = getComputedStyle(document.documentElement);
+          return Object.fromEntries(names.map(name => [name, style.getPropertyValue(name).trim()]));
+        }, { theme, names: SEMANTIC });
+
+        expect.soft(SEMANTIC.filter(name => values[name] === '')).toEqual([]);
+      });
+    }
+
+    /**
+     * B58: `color-scheme` was never set at all, so native chrome the app does
+     * not theme itself — form control renderings, the scrollbar track — always
+     * rendered light, even under `[data-theme="dark"]`. index.css sets it on
+     * `:root` and overrides it in the dark block; this is the one part no unit
+     * test can see, because jsdom does not resolve color-scheme into anything
+     * `getComputedStyle` reports.
+     */
+    await test.step('color-scheme on <html> follows data-theme', async () => {
+      const read = (theme: string) => page.evaluate((theme) => {
         document.documentElement.setAttribute('data-theme', theme);
-        const style = getComputedStyle(document.documentElement);
-        return Object.fromEntries(names.map(name => [name, style.getPropertyValue(name).trim()]));
-      }, { theme, names: SEMANTIC });
+        return getComputedStyle(document.documentElement).colorScheme;
+      }, theme);
 
-      expect(SEMANTIC.filter(name => values[name] === '')).toEqual([]);
-    });
-  }
-
-  /**
-   * B58: `color-scheme` was never set at all, so native chrome the app does
-   * not theme itself — form control renderings, the scrollbar track — always
-   * rendered light, even under `[data-theme="dark"]`. index.css sets it on
-   * `:root` and overrides it in the dark block; this is the one part no unit
-   * test can see, because jsdom does not resolve color-scheme into anything
-   * `getComputedStyle` reports.
-   */
-  test('color-scheme on <html> follows data-theme', async ({ page }) => {
-    await page.goto('/');
-
-    const read = (theme: string) => page.evaluate((theme) => {
-      document.documentElement.setAttribute('data-theme', theme);
-      return getComputedStyle(document.documentElement).colorScheme;
-    }, theme);
-
-    expect(await read('light')).toBe('light');
-    expect(await read('dark')).toBe('dark');
-  });
-
-  /**
-   * The `dark:` variant and the `[data-theme="dark"]` rules above are two
-   * different mechanisms — the first is a `@custom-variant` in index.css, the
-   * second an ordinary selector — and only the second is covered by the tests
-   * above. The variant replaced a `darkMode` array in the deleted JS config, and
-   * getting it wrong compiles `dark:` back to `prefers-color-scheme`, which
-   * fails only for a reader whose OS theme disagrees with the in-app toggle.
-   */
-  test('the dark: variant follows the attribute, not the OS', async ({ page }) => {
-    await page.goto('/');
-
-    const read = (theme: string) => page.evaluate((theme) => {
-      document.documentElement.setAttribute('data-theme', theme);
-      const probe = document.createElement('div');
-      probe.className = 'bg-white dark:bg-slate-800';
-      document.body.appendChild(probe);
-      const value = getComputedStyle(probe).backgroundColor;
-      probe.remove();
-      return value;
-    }, theme);
-
-    const light = await read('light');
-    const dark = await read('dark');
-
-    expect(light).not.toBe(dark);
-    expect(light).toBe('rgb(255, 255, 255)');
-  });
-
-  /**
-   * A player's name is drawn in their own colour, fitted per theme because most
-   * colours legible on the light card are illegible on the dark one and vice
-   * versa. React sets both fitted values as custom properties and `.player-name`
-   * in index.css picks between them, so the switch is pure CSS — which means the
-   * unit suite can only assert that the two properties are set, never that the
-   * right one wins. That half lives here.
-   */
-  test('a player name follows the theme through its two custom properties', async ({ page }) => {
-    await page.goto('/');
-
-    const read = (theme: string) => page.evaluate((theme) => {
-      document.documentElement.setAttribute('data-theme', theme);
-      const probe = document.createElement('div');
-      probe.className = 'player-name';
-      // Stand-ins for what readableNameVars emits, distinct enough that a rule
-      // reading the wrong one, or neither, is unmistakable.
-      probe.style.setProperty('--player-name-light', 'rgb(1, 2, 3)');
-      probe.style.setProperty('--player-name-dark', 'rgb(250, 251, 252)');
-      document.body.appendChild(probe);
-      const value = getComputedStyle(probe).color;
-      probe.remove();
-      return value;
-    }, theme);
-
-    expect(await read('light')).toBe('rgb(1, 2, 3)');
-    expect(await read('dark')).toBe('rgb(250, 251, 252)');
-  });
-
-  /**
-   * `.player-name` is unlayered, like every other class rule in index.css, so it
-   * has to outrank a text-* utility landing on the same element — otherwise a
-   * colour utility added to one of those four elements later would silently take
-   * the fitted colour away and put an unreadable one back.
-   */
-  test('a player name outranks a colour utility on the same element', async ({ page }) => {
-    await page.goto('/');
-
-    const color = await page.evaluate(() => {
-      document.documentElement.setAttribute('data-theme', 'light');
-      const probe = document.createElement('div');
-      probe.className = 'player-name text-red-500';
-      probe.style.setProperty('--player-name-light', 'rgb(1, 2, 3)');
-      document.body.appendChild(probe);
-      const value = getComputedStyle(probe).color;
-      probe.remove();
-      return value;
+      expect.soft(await read('light')).toBe('light');
+      expect.soft(await read('dark')).toBe('dark');
     });
 
-    expect(color).toBe('rgb(1, 2, 3)');
+    /**
+     * The `dark:` variant and the `[data-theme="dark"]` rules above are two
+     * different mechanisms — the first is a `@custom-variant` in index.css, the
+     * second an ordinary selector — and only the second is covered by the steps
+     * above. The variant replaced a `darkMode` array in the deleted JS config, and
+     * getting it wrong compiles `dark:` back to `prefers-color-scheme`, which
+     * fails only for a reader whose OS theme disagrees with the in-app toggle.
+     */
+    await test.step('the dark: variant follows the attribute, not the OS', async () => {
+      const read = (theme: string) => page.evaluate((theme) => {
+        document.documentElement.setAttribute('data-theme', theme);
+        const probe = document.createElement('div');
+        probe.className = 'bg-white dark:bg-slate-800';
+        document.body.appendChild(probe);
+        const value = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return value;
+      }, theme);
+
+      const light = await read('light');
+      const dark = await read('dark');
+
+      expect.soft(light).not.toBe(dark);
+      expect.soft(light).toBe('rgb(255, 255, 255)');
+    });
+
+    /**
+     * A player's name is drawn in their own colour, fitted per theme because most
+     * colours legible on the light card are illegible on the dark one and vice
+     * versa. React sets both fitted values as custom properties and `.player-name`
+     * in index.css picks between them, so the switch is pure CSS — which means the
+     * unit suite can only assert that the two properties are set, never that the
+     * right one wins. That half lives here.
+     */
+    await test.step('a player name follows the theme through its two custom properties', async () => {
+      const read = (theme: string) => page.evaluate((theme) => {
+        document.documentElement.setAttribute('data-theme', theme);
+        const probe = document.createElement('div');
+        probe.className = 'player-name';
+        // Stand-ins for what readableNameVars emits, distinct enough that a rule
+        // reading the wrong one, or neither, is unmistakable.
+        probe.style.setProperty('--player-name-light', 'rgb(1, 2, 3)');
+        probe.style.setProperty('--player-name-dark', 'rgb(250, 251, 252)');
+        document.body.appendChild(probe);
+        const value = getComputedStyle(probe).color;
+        probe.remove();
+        return value;
+      }, theme);
+
+      expect.soft(await read('light')).toBe('rgb(1, 2, 3)');
+      expect.soft(await read('dark')).toBe('rgb(250, 251, 252)');
+    });
+
+    /**
+     * `.player-name` is unlayered, like every other class rule in index.css, so it
+     * has to outrank a text-* utility landing on the same element — otherwise a
+     * colour utility added to one of those four elements later would silently take
+     * the fitted colour away and put an unreadable one back.
+     */
+    await test.step('a player name outranks a colour utility on the same element', async () => {
+      const color = await page.evaluate(() => {
+        document.documentElement.setAttribute('data-theme', 'light');
+        const probe = document.createElement('div');
+        probe.className = 'player-name text-red-500';
+        probe.style.setProperty('--player-name-light', 'rgb(1, 2, 3)');
+        document.body.appendChild(probe);
+        const value = getComputedStyle(probe).color;
+        probe.remove();
+        return value;
+      });
+
+      expect.soft(color).toBe('rgb(1, 2, 3)');
+    });
   });
 
   /**
