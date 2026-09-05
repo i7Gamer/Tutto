@@ -476,6 +476,36 @@ describe('pushState may not leave a running game with nobody to act', () => {
     expect(state.finished, 'a rematch that names an actor is a legitimate un-finish').toBe(false);
     expect(state.currentPlayerIndex).toBe(0);
   });
+
+  it('a finished -> playing push that omits status still starts the game (F4)', () => {
+    // A finished room already reads status: 'playing' (roomPhase folds
+    // status+finished together) — so a hand-built push that only flips
+    // `finished` and names the next actor has an unambiguous intent to
+    // restart play, exactly like the real Play Again push above, and must run
+    // the same start-of-game bookkeeping: the stats dedup reset, the
+    // startRoster recapture, and the deck kickoff. It used to skip all three,
+    // because `startingGame` required newState.status === 'playing'
+    // literally — true for every real client, which always sends the whole
+    // synced field set, but not for this hand-built one.
+    stageFinishedGame();
+    const previousGameDevices = new Map([[PREVIOUS_GAME_DEVICE, 'full' as const]]);
+    rooms[roomId].statsRecordedForGame = { devices: previousGameDevices, global: true };
+    rooms[roomId].startRoster = [{ deviceId: 'dev-Alice', name: 'Alice' }, { deviceId: 'dev-Bob', name: 'Bob' }];
+
+    hostPush()({ roomId, newState: { finished: false, currentPlayerIndex: 0 } });
+
+    const room = rooms[roomId];
+    expect(room.state.finished, 'the room is back in play').toBe(false);
+    expect(room.state.currentPlayerIndex).toBe(0);
+    expect(room.statsRecordedForGame.devices.size, 'the previous game\'s dedup is reset for the new one').toBe(0);
+    expect(room.statsRecordedForGame.global).toBe(false);
+    expect(room.startRoster, 'the roster is recaptured for the new game').toEqual([
+      { deviceId: 'dev-Alice', name: 'Alice' },
+      { deviceId: 'dev-Bob', name: 'Bob' },
+    ]);
+    expect(room.state.currentCard, 'a fresh deck was built and dealt from, same as a kickoff that says status: \'playing\'')
+      .not.toBeNull();
+  });
 });
 
 describe('pushState against an already-finished game', () => {

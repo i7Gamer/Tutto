@@ -89,7 +89,20 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     // which never passes through the lobby — see roomPhase for why that leaves
     // the room reading as 'finished' rather than 'lobby' right up to this push.
     const currentPhase = roomPhase(room.state);
-    const startingGame = isHost && newState.status === 'playing' &&
+    // Read from the push's INTENT (newState.status), not from whether the
+    // phase actually moved — but a finished room already reads status:
+    // 'playing' (roomPhase folds status+finished together), so a hand-built
+    // push that un-finishes the game without repeating status: 'playing' —
+    // {finished: false, currentPlayerIndex: 0}, say — has an unambiguous
+    // intent to restart play but fails `newState.status === 'playing'` simply
+    // because a real client would have sent that field and this one omitted
+    // it. `wantsPlay` covers that case too: a finished room with no `status`
+    // in the push is still asking to move to playing: a finished room that
+    // clears `finished` has nowhere else to go. (Worded so as not to read
+    // like an import statement — server/packaging.test.ts scans comments too.)
+    const wantsPlay = newState.status === 'playing' ||
+      (currentPhase === 'finished' && newState.status === undefined);
+    const startingGame = isHost && wantsPlay &&
       (currentPhase === 'lobby' || (currentPhase === 'finished' && newState.finished === false));
 
     // Resolved from the socket rather than from currentPlayerIndex at merge
