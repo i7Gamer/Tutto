@@ -1,7 +1,18 @@
-import { getEffectiveTurnDuration } from '../utils/turnDuration';
+import { getEffectiveTurnDuration, TURN_DURATION_MULTIPLIERS } from '../utils/turnDuration';
+import { MAX_TURN_DURATION } from '../utils/configValidation';
 import { roomPhase } from '../utils/roomPhase';
 import { MS_PER_SECOND } from '../utils/time';
 import type { GameStore, ImmerStateCreator } from './storeTypes';
+
+// No real turn ever lasts longer than the longest base duration a room may be
+// configured with, multiplied by the largest per-card multiplier a turn can
+// draw (see getEffectiveTurnDuration/TURN_DURATION_MULTIPLIERS) — `1` is
+// included in the max() so an empty or all-below-1 multiplier table can never
+// produce a ceiling below MAX_TURN_DURATION itself. A serverRemaining above
+// this is exactly as garbled as NaN/Infinity/a negative value: it produces a
+// turnDeadline decades out, and the countdown's own kill switch
+// (Math.ceil((deadline - now) / 1000) <= 0) never fires either.
+const MAX_SERVER_TURN_REMAINING = MAX_TURN_DURATION * Math.max(1, ...Object.values(TURN_DURATION_MULTIPLIERS));
 
 let gameTimerInterval: ReturnType<typeof setInterval> | null = null;
 let turnTimerInterval: ReturnType<typeof setInterval> | null = null;
@@ -146,9 +157,14 @@ export const createTimerSlice: ImmerStateCreator<TimerSlice> = (set, get) => {
           // and it made turnDeadline NaN — Math.ceil(NaN) is never <= 0, so
           // tickTurnCountdown's kill switch could not fire and the 1 Hz
           // interval ran on forever over a tile rendering "NaNs". A garbled
-          // value is treated as no value at all, exactly like a null.
+          // value is treated as no value at all, exactly like a null. Bounded
+          // above by MAX_SERVER_TURN_REMAINING too: a value that is finite and
+          // non-negative but implausibly large (a corrupted or malicious
+          // gameState) is just as unfireable a kill switch as NaN was — it
+          // parks the deadline decades out instead of merely far out.
           const serverValue = typeof serverRemaining === 'number'
             && Number.isFinite(serverRemaining) && serverRemaining >= 0
+            && serverRemaining <= MAX_SERVER_TURN_REMAINING
             ? serverRemaining
             : null;
 

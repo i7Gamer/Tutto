@@ -22,7 +22,7 @@ import {
 } from './pushValidation';
 import { createRoom } from './rooms';
 import { MIN_ENABLED_RECONNECT_TIMEOUT, MAX_ROUNDS } from '../src/utils/configValidation';
-import { PLAYER_STAT_FIELDS, PLAYER_NUMERIC_FIELDS } from '../src/utils/playerStats';
+import { PLAYER_STAT_FIELDS, PLAYER_NUMERIC_FIELDS, PLAYER_RECORD_FIELDS } from '../src/utils/playerStats';
 import type { RoomState, ServerPlayer } from './roomTypes';
 import { makeServerPlayer as makePlayer } from './socketTestHarness';
 import type { DiceSnapshot } from '../src/types';
@@ -751,6 +751,33 @@ describe('applyPushedState', () => {
       expect(state.players[0].highestX2TurnScore).toBeUndefined();
       expect(state.players[0].mostCardsInTurn).toBeUndefined();
       expect(state.players[0].highestForfeitedTurnScore).toBeUndefined();
+    });
+
+    it('clears every record field PLAYER_RECORD_FIELDS names, not a separately hand-copied list', () => {
+      // PLAYER_MUTABLE's per-turn-record tail and PLAYER_OPTIONAL_RECORDS
+      // (both in pushValidation.ts) were two hand-written five-name lists,
+      // with no compile-time lock between them or against the client's own
+      // derived list (src/utils/playerStats.ts's PLAYER_RECORD_FIELDS) — a
+      // name added to the client's map and missed in either server copy
+      // would fail silently, exactly the way the two per-card maxima once
+      // fell out of PLAYER_MUTABLE entirely. Driven off the import instead
+      // of a copy typed out again here, so a future drift fails this test
+      // rather than only showing up as a record silently surviving a Play
+      // Again.
+      const state = makeState();
+      const priorGameRecords = Object.fromEntries(
+        PLAYER_RECORD_FIELDS.map((field, i) => [field, 1000 + i]),
+      );
+      Object.assign(state.players[0], priorGameRecords);
+
+      applyPushedState(state, {
+        players: [{ name: 'Alice', score: 0 }, { name: 'Bob', score: 0 }],
+        status: 'playing',
+      }, asHostStarting);
+
+      for (const field of PLAYER_RECORD_FIELDS) {
+        expect(state.players[0][field], field).toBeUndefined();
+      }
     });
 
     it('keeps a per-turn record that an ordinary mid-game push omits', () => {

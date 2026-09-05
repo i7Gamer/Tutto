@@ -53,7 +53,7 @@ export const clearRoomState = (): Pick<GameStore,
   | 'previousWasSuccess' | 'previousHighestTurnScore'
   | 'previousHighestFeuerwerkTurnScore' | 'previousHighestX2TurnScore'
   | 'previousPlayerName' | 'previousTurnSummary' | 'finishedGameSnapshot'
-  | 'lastAppliedStateVersion'
+  | 'lastAppliedStateVersion' | 'gameTimeInSeconds' | 'showReconnectPopup' | 'reactions'
 > => ({
   players: [],
   currentPlayerIndex: null,
@@ -94,6 +94,32 @@ export const clearRoomState = (): Pick<GameStore,
   // a floor carried out of the room just left would make the next room's whole
   // opening sequence look stale and be ignored.
   lastAppliedStateVersion: null,
+  // startGame resets this to 0 before anything can read it again while a game
+  // is running, but an abandoned room is not restarted — it is simply left.
+  // Formerly kept (see FieldKeptOnLeave's history), on the theory that "no
+  // turn yet" never reads it: true for startGame's own path, but
+  // setMode('local') also restores an ALREADY-in-progress saved local game
+  // directly into `status: 'playing'`, with no startGame in between. A save
+  // predating this key (or one whose value failed isNonNegativeNumber) left
+  // whatever the abandoned online room's elapsed time was sitting here, which
+  // the local persistence subscriber then wrote to disk on the very next
+  // set(), and reanchorLocalClock used to re-anchor the resumed local game's
+  // clock from the online room's elapsed time instead of the save's own.
+  gameTimeInSeconds: 0,
+  // Client-only UI state, not one of the synced game-state fields above: the
+  // full-screen "Connection Lost" modal a drop raises. It is normally lowered
+  // by the next 'gameState' broadcast (see registerSocketHandlers), but
+  // surrenderSeat (kicked/seatTakenOver) and the 'no-room' push refusal both
+  // abandon the room and flip to local mode without ever receiving one — left
+  // set, it rendered as a non-dismissible full-screen modal over local Home.
+  showReconnectPopup: false,
+  // A reaction from the room just left would otherwise float over the local
+  // game (or the join form) that replaced it for the rest of its
+  // REACTION_DISPLAY_MS — the handler that pushes them is itself guarded by
+  // inRoom, but an already-received one is not retroactively undone. Not
+  // `toasts`: surrenderSeat toasts the kick/takeover message before calling
+  // this, on purpose.
+  reactions: [],
   ...noUndoableTurn(),
 });
 
@@ -108,10 +134,7 @@ type FieldKeptOnLeave =
   // Every read is gated on isOnline (Game.tsx's effectiveDiceMode, the online
   // lobbies), so a value left behind is inert until the next room's first
   // sync replaces it.
-  | 'enforcedDiceMode'
-  // startGame resets it to 0 before anything can read it again — nothing
-  // renders it while status is 'lobby'.
-  | 'gameTimeInSeconds';
+  | 'enforcedDiceMode';
 
 // Exported only so noUnusedLocals sees a use; nothing imports it. Each tuple
 // element must be `never`, or the build fails naming the offending key.
@@ -645,7 +668,19 @@ const flushParkedPush = (get: SocketSliceGet): void => {
   if (Date.now() - parked.parkedAt > PARKED_EMIT_MAX_AGE_MS) return;
   if (parked.payload.roomId !== get().roomId) return;
   const sock = getSocket();
-  if (sock) emitPushState(sock, parked.payload, get, true, parked.parkedAt);
+  if (!sock) return;
+  if (!sock.connected) {
+    // Connected, not merely present — same reason emitPushState's own
+    // rejoin-race retry re-checks it (see ~line 596). The rejoin ack that
+    // reached here can still find the transport gone again (the ack and a
+    // fresh drop can land in the same tick), and emitting into it would be
+    // the exact bug parkedPush exists to prevent. Re-parked with the SAME
+    // stamp, not a fresh one, so age keeps accruing across re-parks — the
+    // invariant ParkedEmit documents.
+    parkedPush = parked;
+    return;
+  }
+  emitPushState(sock, parked.payload, get, true, parked.parkedAt);
 };
 
 /**
@@ -1373,10 +1408,14 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     // counterpart, so the integration suite can build the very same one
     // instead of keeping a copy that drifts.
     const stats = buildDeviceStatsPayload(s.players, s.myName, s.gameTimeInSeconds, s.round);
+    // Anything still pending can only belong to an earlier game — this call
+    // means a new finish superseded it. Hoisted above the `stats` check:
+    // buildDeviceStatsPayload returns null whenever this device holds no seat
+    // in the final roster (spectating, or spliced out by a host-failover
+    // splice), and a stale park from an earlier finish must not survive a
+    // seatless one either — same reason pushState clears its own retry first.
+    clearPendingStatsSubmit();
     if (stats && socket) {
-      // Anything still pending can only belong to an earlier game — this one
-      // just finished. Same reason pushState clears its own retry first.
-      clearPendingStatsSubmit();
       emitStatsSubmission(
         'endGameStats',
         { roomId: s.roomId, deviceId: s.deviceId, stats },

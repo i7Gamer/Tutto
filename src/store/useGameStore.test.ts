@@ -2107,6 +2107,30 @@ describe('useGameStore', () => {
         expect(pushes()[0][1].newState.round).toBe(STAGED_ROUND);
       });
 
+      it('re-parks a push the flush finds the socket down for again, instead of firing it into the void', () => {
+        // Mirrors the stats twin (see 'stats submissions parked across the
+        // same drop' > 're-parks a submission...' below): flushParkedPush
+        // used to check only `if (sock)`, not `sock.connected`, so a rejoin
+        // ack that lands while the transport is already gone again emitted
+        // straight into a dead socket instead of re-parking the snapshot.
+        stageSeatedGame();
+        mockSocketConnected = false;
+        useGameStore.getState().pushState();
+
+        // The rejoin acks, but the transport is gone again by the time it is
+        // processed.
+        mockSocketConnected = true;
+        mockOnHandlers['connect']();
+        mockSocketConnected = false;
+        ackRejoin({ success: true, isHost: true, name: 'Alice' });
+        expect(pushes(), 'nothing may go out over a dead transport').toHaveLength(0);
+
+        mockSocketConnected = true;
+        mockOnHandlers['connect']();
+        ackRejoin({ success: true, isHost: true, name: 'Alice' });
+        expect(pushes(), 'the park must survive to the next rejoin').toHaveLength(1);
+      });
+
       it('keeps only the newest parked push — an older snapshot is obsolete', () => {
         stageSeatedGame();
         mockSocketConnected = false;
@@ -2509,6 +2533,30 @@ describe('useGameStore', () => {
           mockOnHandlers['connect']();
           ackLatestRejoin({ success: true, isHost: true, name: 'Alice' });
           expect(emitsOf('endGameStats'), 'the park must survive to the next rejoin').toHaveLength(1);
+        });
+
+        it('clears a park from an earlier finish even when the new finish is seatless', () => {
+          // buildDeviceStatsPayload returns null when this device holds no
+          // seat in the final roster (spectating, or spliced out).
+          // sendOnlineStats used to call clearPendingStatsSubmit() only
+          // INSIDE the `stats && socket` branch, so a park from an earlier
+          // finish rode along on the very next rejoin and was recorded
+          // against a game this device never held a seat in.
+          stageFinishedGame();
+          mockSocketConnected = false;
+          useGameStore.getState().sendOnlineStats();
+          expect(emitsOf('endGameStats')).toHaveLength(0);
+
+          // A second finish, with this device spliced out of the final
+          // roster — still on a dead transport.
+          useGameStore.setState({ players: [makeOnlinePlayer('Bob')] });
+          useGameStore.getState().sendOnlineStats();
+
+          mockSocketConnected = true;
+          mockOnHandlers['connect']();
+          ackLatestRejoin({ success: true, isHost: true, name: 'Alice' });
+
+          expect(emitsOf('endGameStats'), 'a park from the previous game must not survive a seatless finish').toHaveLength(0);
         });
 
         it('forgets a submission parked for a room the client then left', () => {
@@ -3346,6 +3394,28 @@ describe('useGameStore', () => {
       expect(state.round).toBe(1);
       expect(state.finished).toBe(false);
       expect(state.liveTurnState).toBeNull();
+    });
+
+    it('lowers the reconnect popup when a kick lands while it is still up', () => {
+      // A drop raises the full-screen "Connection Lost" modal (see the
+      // 'disconnect' handler); if the rejoin that follows finds the seat
+      // already lost (kicked while away), surrenderSeat used to tear the room
+      // down and flip to local mode without ever lowering the popup — it is
+      // not one of the synced game-state fields a 'gameState' broadcast (the
+      // only other thing that clears it) would ever arrive to fix, so it sat
+      // over local Home, non-dismissible, forever.
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        roomId: 'TEST_ROOM', isHost: false, myName: 'Alice',
+        players: [makeOnlinePlayer('Alice'), makeOnlinePlayer('Bob')],
+        status: 'playing', currentPlayerIndex: 0, round: 3,
+        showReconnectPopup: true,
+      });
+
+      mockOnHandlers['kicked']();
+
+      expect(useGameStore.getState().showReconnectPopup).toBe(false);
     });
 
     it('surrenders the seat the same way when the same device takes it over elsewhere', () => {
@@ -4627,6 +4697,8 @@ describe('useGameStore', () => {
         historyLog: [{ id: 'h1', round: 1, playerName: 'Alice', card: '200', type: 'success', score: 100 }],
         previousCard: '200', previousScore: 100, previousPlayerName: 'Alice',
         previousWasBust: false, previousWasSuccess: true, previousHighestTurnScore: 100,
+        gameTimeInSeconds: 321,
+        reactions: [{ id: 1, emoji: '🔥', senderName: 'Bob' }],
       });
     };
 
@@ -4648,6 +4720,14 @@ describe('useGameStore', () => {
       expect(s.previousHighestTurnScore).toBe(0);
       // undefined, not false — "no outcome recorded" (see noUndoableTurn).
       expect(s.previousWasSuccess).toBeUndefined();
+      // startGame resets this to 0 before anything can read it again while a
+      // room is running, but an abandoned room's elapsed time is not
+      // otherwise cleared — see the dedicated local-save-bleed test below for
+      // why that mattered.
+      expect(s.gameTimeInSeconds).toBe(0);
+      // A reaction from the room just left would otherwise float over the
+      // local game (or the join form) that replaced it.
+      expect(s.reactions).toEqual([]);
     };
 
     it('leaveRoom drops the chart series, the activity log and the undo block', () => {
@@ -4678,6 +4758,29 @@ describe('useGameStore', () => {
       useGameStore.getState().setMode('local');
       expect(useGameStore.getState().previousCard).toBeNull();
       expect(useGameStore.getState().previousPlayerName).toBeNull();
+    });
+
+    it('does not let the abandoned room clock bleed into an old save missing gameTimeInSeconds', () => {
+      // A save written before gameTimeInSeconds existed (or one that failed
+      // isNonNegativeNumber) has no key for it, so pickLocalGameState leaves
+      // whatever the store currently holds in place rather than overwriting
+      // it. gameTimeInSeconds used to be the one synced field clearRoomState
+      // deliberately left standing, on the theory that startGame always
+      // resets it to 0 before anything reads it again — but setMode('local')
+      // restores an IN-PROGRESS save without ever calling startGame, so the
+      // abandoned online room's elapsed time rode straight into the restored
+      // local game, and reanchorLocalClock then re-anchored its clock from
+      // it (status: 'playing' with a seated currentPlayerIndex).
+      localStorage.setItem('tutto_local_game', JSON.stringify({
+        players: [{ name: 'Ann', color: '#ff0000', score: 1200 }],
+        currentPlayerIndex: 0, round: 3, status: 'playing', finished: false,
+      }));
+      seatOnlineGame();
+      useGameStore.setState({ gameTimeInSeconds: 999 });
+      useGameStore.getState().leaveRoom();
+      useGameStore.getState().setMode('local');
+
+      expect(useGameStore.getState().gameTimeInSeconds).toBe(0);
     });
   });
 

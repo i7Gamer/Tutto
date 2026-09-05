@@ -335,6 +335,13 @@ describe('timer slice', () => {
     const PAST_THE_DEADLINE_MS = (RUNNING_TURN_SECONDS + 1) * MS_PER_SECOND;
     // What is left running once the countdown retires: the game clock alone.
     const GAME_CLOCK_ONLY = ONLINE_TIMER_HANDLES - 1;
+    // Finite and non-negative, same as every other well-formed value here —
+    // but no real turn ever lasts this long (see MAX_SERVER_TURN_REMAINING in
+    // timers.ts). Past NaN/Infinity/negative, this is the other way a
+    // "garbled" value slips through a check that only asks for finiteness:
+    // it produces a deadline decades out, and the countdown's own kill
+    // switch (Math.ceil((deadline - now) / 1000) <= 0) never fires either.
+    const IMPLAUSIBLY_LARGE_TURN_REMAINING = 1e15;
 
     // A countdown already running on a good value — the state a garbled one
     // arrives into, and the only state in which "ignored" is observable
@@ -350,6 +357,7 @@ describe('timer slice', () => {
       ['NaN', NaN],
       ['Infinity', Infinity],
       ['a negative value', -1],
+      ['an implausibly large value', IMPLAUSIBLY_LARGE_TURN_REMAINING],
     ])('ignores %s and leaves the running countdown untouched', (_label, garbled) => {
       const startedAt = runningTurn();
 

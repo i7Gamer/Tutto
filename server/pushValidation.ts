@@ -11,7 +11,7 @@ import {
   MAX_TURN_DURATION, MAX_PLAYER_NAME_LENGTH,
   MAX_SCORE_MAGNITUDE, MAX_ROUNDS, MAX_CHART_POINTS, MAX_GAME_SECONDS,
 } from '../src/utils/configValidation';
-import { PLAYER_STAT_FIELDS, PLAYER_NUMERIC_FIELDS, type PlayerStatField, type PlayerRecordField } from '../src/utils/playerStats';
+import { PLAYER_STAT_FIELDS, PLAYER_NUMERIC_FIELDS, PLAYER_RECORD_FIELDS, type PlayerStatField, type PlayerRecordField } from '../src/utils/playerStats';
 import { getLeaders } from '../src/utils/coreGameEngine';
 import { roomPhase } from '../src/utils/roomPhase';
 import type { SyncedGameStateKey, AssertNever, ConfigKeys } from '../src/types';
@@ -373,28 +373,6 @@ export type LobbyOnlyConfigLock = [
 // false, permanently hiding the disconnected badge/kick button and
 // corrupting host-failover ("prefer a connected player") until that seat's
 // own reconnect-timeout timer or a manual kick removed it.
-const PLAYER_MUTABLE: (keyof ServerPlayer)[] = [
-  // Every counter a player accumulates, from the one list that also creates
-  // them here and on the client (playerStats.ts). Spelling them out again was
-  // how a stat came to be missing from this set — and a stat missing here is
-  // not merely ignored, since a broadcast replaces the roster wholesale: it
-  // is reset after every turn, for everyone.
-  ...PLAYER_STAT_FIELDS,
-  // All three per-turn maxima belong together: calculateNextTurn maintains
-  // them side by side on the client, and a gameState broadcast replaces the
-  // client's roster wholesale. Leaving the two per-card ones out meant they
-  // were reset to undefined after every turn, so the "Highest Feuerwerk/x2
-  // Turn" stats were always 0 for online games — in endGameStats, in the
-  // global payload, in EndScreen's new-record cards and in the stats tiles.
-  // They are not in that list because a player does not start a game on one:
-  // "no turn yet" is undefined, not zero.
-  'highestTurnScore', 'highestFeuerwerkTurnScore', 'highestX2TurnScore',
-  // The classic-chain records follow the same "no value yet is undefined"
-  // rule as the maxima above.
-  'mostCardsInTurn', 'highestForfeitedTurnScore',
-  'position', 'color',
-];
-
 /**
  * The PLAYER_MUTABLE entries whose "no value yet" is ABSENCE, not zero.
  *
@@ -409,11 +387,32 @@ const PLAYER_MUTABLE: (keyof ServerPlayer)[] = [
  * old number for the rest of the game.
  *
  * So absence has to mean two different things depending on the push, and only
- * a game start may read it as "cleared".
+ * a game start may read it as "cleared". Derived from PLAYER_RECORD_FIELDS
+ * (playerStats.ts) rather than spelled out here a second time — the same
+ * derivation PLAYER_MUTABLE's own stat-field spread already uses just below,
+ * and for the same reason: a hand-copied list is exactly how a record fell
+ * out of PLAYER_MUTABLE entirely before the maxima were let in.
  */
-const PLAYER_OPTIONAL_RECORDS: (keyof ServerPlayer)[] = [
-  'highestTurnScore', 'highestFeuerwerkTurnScore', 'highestX2TurnScore',
-  'mostCardsInTurn', 'highestForfeitedTurnScore',
+const PLAYER_OPTIONAL_RECORDS: (keyof ServerPlayer)[] = [...PLAYER_RECORD_FIELDS];
+
+const PLAYER_MUTABLE: (keyof ServerPlayer)[] = [
+  // Every counter a player accumulates, from the one list that also creates
+  // them here and on the client (playerStats.ts). Spelling them out again was
+  // how a stat came to be missing from this set — and a stat missing here is
+  // not merely ignored, since a broadcast replaces the roster wholesale: it
+  // is reset after every turn, for everyone.
+  ...PLAYER_STAT_FIELDS,
+  // All three per-turn maxima belong together: calculateNextTurn maintains
+  // them side by side on the client, and a gameState broadcast replaces the
+  // client's roster wholesale. Leaving the two per-card ones out meant they
+  // were reset to undefined after every turn, so the "Highest Feuerwerk/x2
+  // Turn" stats were always 0 for online games — in endGameStats, in the
+  // global payload, in EndScreen's new-record cards and in the stats tiles.
+  // Derived from PLAYER_OPTIONAL_RECORDS just above rather than spelled out
+  // here a second time, so the two copies — and the client's own
+  // PLAYER_RECORD_FIELDS — cannot drift apart the way they used to.
+  ...PLAYER_OPTIONAL_RECORDS,
+  'position', 'color',
 ];
 
 // Matched by name, not deviceId: name is already unique within a room (enforced
