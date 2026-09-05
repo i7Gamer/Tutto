@@ -227,7 +227,7 @@ describe('migration re-runnability', () => {
       expect(rows.find(r => r.mode === 'normalized').highestTurnScore).toBe(500);
       expect(await db.schema.hasColumn('device_statistics', 'totalTuttos')).toBe(true);
       expect(rows.find(r => r.mode === 'custom').totalTuttos, 'and its value survived').toBe(7);
-    });
+    }, DB_INIT_TIMEOUT_MS);
 
     it('ensure_global_stats_row does not throw on a replay', async () => {
       // It queries `where({ id: 1 })`, and 20260810 rebuilt global_statistics
@@ -240,7 +240,7 @@ describe('migration re-runnability', () => {
 
       const rows = await db('global_statistics');
       expect(rows.map(r => r.ruleset).sort()).toEqual(['classic', 'modernized']);
-    });
+    }, DB_INIT_TIMEOUT_MS);
 
     it('the whole chain replays cleanly from a finished database', async () => {
       // What a full `migrate:latest` after a rollback actually does. Fails on
@@ -251,10 +251,11 @@ describe('migration re-runnability', () => {
       await expect(db.migrate.latest({ directory: MIGRATIONS_DIR })).resolves.not.toThrow();
       // Runs the whole migration chain twice against a real sqlite file, which
       // is database work of the kind DB_INIT_TIMEOUT_MS exists to budget for --
-      // and it is the only test here that does. Vitest's default was enough on
-      // an idle machine and missed it once the suite grew, which is exactly the
-      // "a loaded machine reads as a broken suite" failure testTimeouts.ts
-      // documents; nothing about the migrations had changed.
+      // same as the other two tests in this block. Vitest's default was enough
+      // on an idle machine and missed it once the suite grew (a seed-7 shuffle
+      // timed all three out), which is exactly the "a loaded machine reads as a
+      // broken suite" failure testTimeouts.ts documents; nothing about the
+      // migrations had changed.
     }, DB_INIT_TIMEOUT_MS);
   });
 
