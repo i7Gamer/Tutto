@@ -149,6 +149,7 @@ All configuration is environment variables — the image contains no `.env` file
 | `TRUST_PROXY` | no | unset | Set to `1` **only** when the server sits behind exactly one reverse proxy: per-IP rate limiting then reads real client addresses from `X-Forwarded-For`. Leave unset for a directly exposed server (including LAN play) — trusting the header there would let clients forge their own rate-limit identities. A production start without it logs a one-line reminder. |
 | `SOCKET_CONN_LIMIT_MAX` | no | `30` | Per-IP cap on new WebSocket connections per 10-second window. Raise it only when one address legitimately stands for many players (e.g. a venue where everyone shares one NAT'd IP). |
 | `MAX_ROOMS_PER_ADDRESS` | no | `20` | Per-IP cap on rooms held open at once (the server holds 500 in total). Stops one client parking every slot with rooms whose players have "dropped", which would make the server refuse everyone else. Raise it in the same situations as `SOCKET_CONN_LIMIT_MAX`. |
+| `STATS_RATE_LIMIT_MAX` | no | `60` | Per-IP cap on GET requests to `/api/stats/*` (device and global statistics) per 60-second window. A valid device id also gets its own sub-bucket capped at this value, so one chatty device can't starve its neighbours' share of the shared IP bucket. Raise it in the same situations as `SOCKET_CONN_LIMIT_MAX`. |
 | `DB_PATH` | no | `/data/stats.db` | Location of the SQLite database. Change it only if you mount the volume elsewhere. |
 | `TZ` | no | `UTC` | Affects timestamps in the container logs. |
 
@@ -276,9 +277,9 @@ npm run test:e2e
 
 ## Continuous Integration
 
-Every push and pull request against `master` runs the GitHub Actions checks defined in `.github/workflows/ci.yml`: **Type Check, Lint & Test** and one **End-to-End Tests** leg per browser engine (chromium, firefox, webkit), run in parallel. All are bounded by `timeout-minutes`, and the workflow cancels a superseded run on the same branch instead of queuing behind it.
+Every push and pull request against `master` runs the GitHub Actions checks defined in `.github/workflows/ci.yml`: **Type Check, Lint & Test** and an **End-to-End Tests** leg per browser engine (chromium, firefox, webkit — webkit currently split across two shard legs), all run in parallel. All are bounded by `timeout-minutes`, and the workflow cancels a superseded run on the same branch instead of queuing behind it.
 
-Branch protection on `master` is a repository setting applied by hand, not by a workflow. It requires both checks above to pass before merging, and blocks force pushes and branch deletion on `master`. Pull request review is **not** required.
+Branch protection on `master` would be a repository setting applied by hand, not by a workflow, and none is currently configured: no CI check is required before merging (the checks above run on every push, but merging does not wait on them), pull request review is **not** required, and force pushes and branch deletion are not blocked.
 
 ## Advanced Options Explained
 

@@ -809,8 +809,12 @@ describe('the e2e matrix runs exactly the browser projects playwright.config.ts 
     const CACHE_MISS = "cache-hit != 'true'";
     const steps = (): WorkflowStep[] => e2eJob()?.steps ?? [];
     const cache = (): WorkflowStep | undefined => steps().find(step => step.uses?.startsWith('actions/cache@'));
+    // Named rather than matched by `run` text: /playwright install\b/ and
+    // .includes('playwright install') both also match "npx playwright
+    // install-deps" (the \b boundary sits on the hyphen), which happened to
+    // still resolve correctly only because that step comes later in the file.
     const install = (): WorkflowStep | undefined =>
-      steps().find(step => /playwright install\b/.test(step.run ?? ''));
+      steps().find(step => step.name === 'Install Playwright browsers');
     const deps = (): WorkflowStep | undefined =>
       steps().find(step => step.run?.includes('playwright install-deps'));
 
@@ -839,7 +843,10 @@ describe('the e2e matrix runs exactly the browser projects playwright.config.ts 
 
   it('installs, runs and reports only its own browser on each leg', () => {
     const steps = e2eJob()?.steps ?? [];
-    const install = steps.find(step => step.run?.includes('playwright install'));
+    // Named rather than matched by `run` text: a substring match on
+    // 'playwright install' also matches the later install-deps step's "npx
+    // playwright install-deps ...".
+    const install = steps.find(step => step.name === 'Install Playwright browsers');
     const run = steps.find(step => step.run?.includes('test:e2e'));
     const report = steps.find(step => step.uses?.startsWith('actions/upload-artifact'));
 

@@ -18,10 +18,12 @@ export const MAX_CARD_COUNT = 99;
 // LEFT — not merely disconnected — since the lobby check last ran).
 export const MIN_ONLINE_PLAYERS = 2;
 
-// The online path enforces this server-side (socketRoomHandlers.ts joinRoom,
-// pushValidation.ts's own MAX_PLAYER_NAME_LENGTH — keep all three in sync).
-// LocalLobby has no server round-trip to catch an oversized name, so it
-// enforces the same cap client-side before a name ever reaches the store.
+// One constant, imported wherever the cap is enforced: the online path
+// server-side (socketRoomHandlers.ts joinRoom, pushValidation.ts) as well as
+// client-side (LocalLobby, OnlineLobby, gameSlice, recentRooms,
+// reconnectSession). LocalLobby has no server round-trip to catch an
+// oversized name, so it enforces the same cap client-side before a name ever
+// reaches the store.
 export const MAX_PLAYER_NAME_LENGTH = 30;
 
 // Rooms are named by their joiner, so this is a sanity bound rather than a

@@ -339,10 +339,14 @@ export const sanitizeStats = (raw: unknown, scope: StatsScope, allowance: StatsA
     const maxAllowed = allowance === 'lifetime'
       ? STATS_VALUE_CAP
       : (additiveBounds.get(key) ?? UNCLASSIFIED_ADDITIVE_BOUND);
-    // totalScore's negative bound deliberately stays the wider
-    // STATS_VALUE_CAP: it is the only field not floored at 0, which makes it
-    // the only way an operator can subtract a poisoned total back out. Bounding
-    // that direction would take the repair away along with the abuse.
+    // totalScore's negative bound deliberately stays the wider STATS_VALUE_CAP
+    // regardless of `allowance` — it is the only field not floored at 0, which
+    // makes a negative value the only way an operator can subtract a poisoned
+    // total back out, and every ordinary per-game submission needs the same
+    // room: modernized Plus/Minus deductions are unclamped, so a player can
+    // legitimately finish a single game below zero (sanitize.test.ts pins this
+    // on the plain DEVICE/per-game path, not just the token-gated one).
+    // Bounding that direction would take the repair away along with the abuse.
     const minAllowed = NEGATIVE_ALLOWED_STATS_FIELDS.has(key) ? -STATS_VALUE_CAP : 0;
     clean[key] = Math.max(minAllowed, Math.min(maxAllowed, capped));
   }

@@ -211,8 +211,8 @@ jobs:
       # playwright.config.ts starts the app itself with "npm run build && npm
       # run server" — the built artifact, rebuilt every run, not the dev
       # server — and, because CI is set, never reuses an existing server, runs
-      # single-worker with two retries, and points the API server at an
-      # in-memory database (TEST_DB).
+      # CI_WORKERS (two) workers with two retries, and points the API server
+      # at an in-memory database (TEST_DB).
       - name: Run End-to-End Tests
         run: npm run test:e2e -- --project=${{ matrix.project }} ${{ matrix.shard_index && format('--shard={0}/{1}', matrix.shard_index, matrix.shard_total) || '' }}
 
