@@ -34,16 +34,19 @@ export default function CurrentRollBoard({
         {hasRolled && !isRolling && !bustState && (
           <button
             // min-h-11 grows the tap target to 44px (MIN_TAP_TARGET_PX,
-            // e2e/styling.spec.ts) without inflating the chip itself — the
-            // -my-2 gives back the extra height as negative margin, so the
-            // row still lays out at its old height and the heading stays
-            // centred against this button (see the finding-38 test above:
-            // symmetric negative margins don't move the button's own visual
-            // centre, only how much space it reserves in flow).
-            className="text-xs font-bold px-2.5 py-1 rounded-md border border-indigo-300 dark:border-indigo-600 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors min-h-11 flex items-center justify-center -my-2"
+            // e2e/styling.spec.ts); the -my-2 gives the extra height back as
+            // negative margin, so the row still lays out at its old height
+            // and the heading stays centred against this button. The button
+            // itself is a transparent hit area — the visible chip is the
+            // inner span, so the 44px target no longer makes the chip 44px
+            // tall (the same mistake the EN/DE pill had, LanguageSwitcher).
+            // "group" lets the chip take its hover colour from the button.
+            className="group min-h-11 flex items-center justify-center -my-2"
             onClick={onSelectAllValid}
           >
-            {t('dice.select_all_valid', 'Select all')}
+            <span className="text-xs font-bold px-2.5 py-1 rounded-md border border-indigo-300 dark:border-indigo-600 text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-900/30 transition-colors">
+              {t('dice.select_all_valid', 'Select all')}
+            </span>
           </button>
         )}
       </div>

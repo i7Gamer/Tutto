@@ -27,6 +27,20 @@ describe('CurrentRollBoard', () => {
     expect(onSelectAllValid).toHaveBeenCalledTimes(1);
   });
 
+  // The 44px tap target (min-h-11) used to sit on the styled button, so the
+  // chip itself was 44px tall — the same mistake the EN/DE pill had. The
+  // button is a transparent hit area; the visible chip is an inner span.
+  it('keeps the Select all chip its own size inside a 44px hit area', () => {
+    render(<CurrentRollBoard {...baseProps} />);
+    const chip = screen.getByText('dice.select_all_valid');
+    const button = chip.closest('button')!;
+    expect(chip.tagName).toBe('SPAN');
+    expect(button).toHaveClass('min-h-11');
+    expect(button.className).not.toMatch(/border|rounded|px-/);
+    expect(chip.className).toMatch(/border/);
+    expect(chip.className).toMatch(/rounded-md/);
+  });
+
   it('hides Select all while dice tumble and once the roll busted', () => {
     const { rerender } = render(<CurrentRollBoard {...baseProps} isRolling />);
     expect(screen.queryByText('dice.select_all_valid')).toBeNull();

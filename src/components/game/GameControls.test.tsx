@@ -1,4 +1,14 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import type { ReactNode } from 'react';
+// AnimatePresence as a pass-through: tests in this file run on fake timers,
+// under which framer-motion's frame loop does not advance (and does not recover
+// once real timers return), so a dismissed dialog's exit animation (ModalShell)
+// would never finish and the panel never leave the DOM. Nothing here asserts on
+// the animation itself — ModalShell.motion.test does.
+vi.mock('framer-motion', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('framer-motion')>()),
+  AnimatePresence: ({ children }: { children?: ReactNode }) => <>{children}</>,
+}));
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ComponentProps } from 'react';
 import GameControls from './GameControls';
@@ -538,6 +548,17 @@ describe('GameControls physical dice interactions', () => {
     expect(updater('')).toBe('100');
   });
 
+  it('keeps a quick-add chip its own size inside a 44px hit area', () => {
+    render(<GameControls {...baseProps({ scoreInput: '' })} />);
+    const chip = screen.getByText('+100');
+    const button = chip.closest('button')!;
+    expect(chip.tagName).toBe('SPAN');
+    expect(button).toHaveClass('min-h-11');
+    expect(button.className).not.toMatch(/border|rounded|shadow/);
+    expect(chip.className).toMatch(/rounded-lg/);
+    expect(chip.className).toMatch(/border/);
+  });
+
   it('quick-add button accumulates onto an existing numeric score input', () => {
     const setScoreInput = vi.fn();
     render(<GameControls {...baseProps({ scoreInput: '250', setScoreInput })} />);
@@ -716,7 +737,7 @@ describe('GameControls end/leave game confirmation dialogs', () => {
     vi.restoreAllMocks();
   });
 
-  it('offline: shows End Game, and only calls the store\'s endGame once the confirm dialog is accepted', () => {
+  it('offline: shows End Game, and only calls the store\'s endGame once the confirm dialog is accepted', async () => {
     const endGame = vi.fn();
     setStore({ isOnline: false, isHost: true, endGame });
     render(<GameControls {...baseProps()} />);
@@ -781,7 +802,7 @@ describe('GameControls end/leave game confirmation dialogs', () => {
     expect(undo).toHaveBeenCalledTimes(1);
   });
 
-  it('undo: refuses once the turn it was opened for is no longer the last one', () => {
+  it('undo: refuses once the turn it was opened for is no longer the last one', async () => {
     // pendingAction is plain state and nothing re-read the turn behind it, so
     // the dialog acted on whatever the previous-turn fields held at CONFIRM
     // time. A host opens Undo for Bob's turn; before answering, Carol's turn

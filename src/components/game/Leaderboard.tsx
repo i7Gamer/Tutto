@@ -100,17 +100,20 @@ function Leaderboard({
                         {isOnline && isHost && (
                           <button
                             onClick={() => { if (p.socketId) setPendingKick({ socketId: p.socketId, name: p.name }); }}
-                            // min-h-11 min-w-11: the pill's own text/padding
-                            // stay as small as before, but the tap target
-                            // grows to the 44px WCAG target (this was ~20px
-                            // tall — see MIN_TAP_TARGET_PX in
-                            // e2e/styling.spec.ts). -my-2 gives the extra
-                            // height back as negative margin so the row's
-                            // own height doesn't grow with it.
-                            className="text-red-600 dark:text-red-400 hover:text-white hover:bg-red-500 dark:hover:bg-red-600 px-2 py-0.5 text-[10px] sm:text-xs font-semibold rounded-full border border-red-200 dark:border-red-800 transition-colors shadow-xs ml-1 min-h-11 min-w-11 flex items-center justify-center -my-2"
+                            // min-h-11 min-w-11: the 44px WCAG tap target
+                            // (MIN_TAP_TARGET_PX, e2e/styling.spec.ts); -my-2
+                            // gives the extra height back as negative margin
+                            // so the row's own height doesn't grow with it.
+                            // The button is a transparent hit area and the
+                            // visible pill an inner span — styled directly,
+                            // the 44px button WAS the pill (see the same fix
+                            // on the EN/DE switch, LanguageSwitcher).
+                            className="group ml-1 min-h-11 min-w-11 flex items-center justify-center -my-2"
                             title={t('game.kickPlayer', 'Kick Player')}
                           >
-                            {t('game.kick', 'Kick')}
+                            <span className="text-red-600 dark:text-red-400 group-hover:text-white group-hover:bg-red-500 dark:group-hover:bg-red-600 px-2 py-0.5 text-[10px] sm:text-xs font-semibold rounded-full border border-red-200 dark:border-red-800 transition-colors shadow-xs">
+                              {t('game.kick', 'Kick')}
+                            </span>
                           </button>
                         )}
                       </>

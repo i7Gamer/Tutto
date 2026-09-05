@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { waitFor, render, screen, fireEvent, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi } from 'vitest';
 import Leaderboard, { type LeaderboardProps } from './Leaderboard';
@@ -87,6 +87,18 @@ describe('Leaderboard', () => {
     expect(screen.getByRole('button', { name: 'game.kick' })).toBeInTheDocument();
   });
 
+  it('keeps the kick pill its own size inside a 44px hit area', () => {
+    render(<Leaderboard {...props({
+      sortedPlayers: [player({ name: 'Grace', socketId: GUEST_SOCKET, disconnected: true })],
+    })} />);
+    const button = screen.getByRole('button', { name: 'game.kick' });
+    const pill = screen.getByText('game.kick');
+    expect(pill.tagName).toBe('SPAN');
+    expect(button).toHaveClass('min-h-11', 'min-w-11');
+    expect(button.className).not.toMatch(/border|rounded-full|px-/);
+    expect(pill.className).toMatch(/rounded-full/);
+  });
+
   it('offers no kick pill to a non-host, even though the badge still shows', () => {
     render(<Leaderboard {...props({
       isHost: false,
@@ -102,7 +114,7 @@ describe('Leaderboard', () => {
     expect(screen.queryByRole('button', { name: 'game.kick' })).not.toBeInTheDocument();
   });
 
-  it('asks before kicking, and kicks the socket it asked about', () => {
+  it('asks before kicking, and kicks the socket it asked about', async () => {
     const kickPlayer = vi.fn();
     render(<Leaderboard {...props({
       kickPlayer,
@@ -118,10 +130,10 @@ describe('Leaderboard', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'common.confirm' }));
 
     expect(kickPlayer).toHaveBeenCalledWith(GUEST_SOCKET);
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
   });
 
-  it('kicks nobody when the confirm is cancelled', () => {
+  it('kicks nobody when the confirm is cancelled', async () => {
     const kickPlayer = vi.fn();
     render(<Leaderboard {...props({
       kickPlayer,
@@ -132,7 +144,8 @@ describe('Leaderboard', () => {
     fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'common.cancel' }));
 
     expect(kickPlayer).not.toHaveBeenCalled();
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    // Awaited: the dialog fades out (ModalShell exit animation) before it leaves the DOM.
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
   });
 
   it('shows the goal footer, with the target and the ruleset, for a game that has one', () => {
