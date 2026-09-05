@@ -213,6 +213,25 @@ describe('Die', () => {
     expect(button.style.color).not.toBe('transparent');
   });
 
+  it('does not put a CSS transition on the transform framer-motion drives every frame', () => {
+    // A tumbling die is a framer-motion animation: `transform` is rewritten on
+    // every animation frame. `transition-all` (transition-property: all, 150ms)
+    // made the browser start a NEW 150ms CSS transition towards each of those
+    // per-frame values, so the die lagged its own animation and every frame
+    // cost a main-thread style recalculation instead of a compositor-only
+    // transform update — the "dice not smooth on a phone" report. The
+    // selection pop (scale-110) and the hover/selection colours keep their
+    // transitions: `scale` is its own CSS property in Tailwind 4, separate
+    // from the transform framer-motion writes, so it can stay transitioned.
+    render(
+      <Die die={defaultDie} isSelected={false} isDieTumbling={false} bustState={false} onToggle={() => {}} />
+    );
+    const button = screen.getByRole('button');
+    expect(button.className).not.toMatch(/\btransition-all\b/);
+    expect(button.className).toMatch(/\btransition-\[/);
+    expect(button.className).not.toMatch(/transition-\[[^\]]*transform/);
+  });
+
   describe('DiePips', () => {
     it('renders DiePips with large size layout by default', () => {
       const { container } = render(
