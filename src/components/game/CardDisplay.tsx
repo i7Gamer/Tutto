@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import CardFace from './cards/CardFace';
@@ -16,7 +17,12 @@ interface CardDisplayProps {
   stopCardCountdown?: number | null;
 }
 
-export default function CardDisplay({ currentCard, cards, stopCardCountdown = null }: CardDisplayProps) {
+// Memoized: every prop Game.tsx passes down is either a primitive
+// (currentCard, stopCardCountdown) or the store's own `cards` array
+// reference, so this bails out of the re-render Game does on every
+// liveTurnState tick during a roll (see HistoryLog.tsx for the same
+// re-render source, and Game.tsx for why the props below stay stable).
+function CardDisplay({ currentCard, cards, stopCardCountdown = null }: CardDisplayProps) {
   const { t } = useTranslation();
 
   return (
@@ -86,3 +92,7 @@ export default function CardDisplay({ currentCard, cards, stopCardCountdown = nu
     </div>
   );
 }
+
+CardDisplay.displayName = 'CardDisplay';
+
+export default memo(CardDisplay);

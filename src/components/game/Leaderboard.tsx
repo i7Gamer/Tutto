@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import ConfirmModal from '../ConfirmModal';
@@ -34,8 +34,13 @@ export interface LeaderboardProps {
  * its own transform, and a transformed ancestor would make the dialog's
  * fixed-position backdrop lay itself out against the card instead of the
  * viewport.
+ *
+ * Memoized: every prop here is already a primitive, a store-owned reference
+ * (kickPlayer), or built with useMemo in Game.tsx (sortedPlayers) — so this
+ * bails out of the re-render Game does on every liveTurnState tick during a
+ * roll (see HistoryLog.tsx for the same source).
  */
-export default function Leaderboard({
+function Leaderboard({
   sortedPlayers,
   currentPlayerName,
   isOnline,
@@ -144,3 +149,7 @@ export default function Leaderboard({
     </>
   );
 }
+
+Leaderboard.displayName = 'Leaderboard';
+
+export default memo(Leaderboard);

@@ -119,6 +119,16 @@ export default function Game() {
 
   const currentPlayer = currentPlayerIndex !== null ? players[currentPlayerIndex] : null;
   const sortedPlayers = useMemo(() => computeRankedPlayers(players), [players]);
+  // Scoreboard is memoized (see Scoreboard.tsx) and reads only these 8
+  // fields of the slice above — but `game` itself is a fresh object on every
+  // liveTurnState tick during a roll (useShallow only skips re-rendering
+  // Game when EVERY selected field is unchanged; it still returns a new
+  // object here since liveTurnState did change). Passing `game` straight
+  // through would reconstruct Scoreboard's prop every ~300ms regardless of
+  // memoization, so it's narrowed to its own stable object instead.
+  const scoreboardGame = useMemo(() => ({
+    players, currentPlayerIndex, isOnline, myName, round, winningScore, turnTimeRemaining, hostId: game.hostId,
+  }), [players, currentPlayerIndex, isOnline, myName, round, winningScore, turnTimeRemaining, game.hostId]);
 
   const isMyTurn = !isOnline || (currentPlayer && currentPlayer.name === myName);
   useTurnAnnouncement({ isOnline, isMyTurn: !!isMyTurn, addToast });
@@ -541,7 +551,7 @@ export default function Game() {
 
   return (
     <PageContainer className="pt-2 md:pt-4 gap-2 md:gap-4">
-      <Scoreboard game={game} formattedTime={formattedTime} />
+      <Scoreboard game={scoreboardGame} formattedTime={formattedTime} />
 
       {/* overflow-x-clip: the two columns below slide in from +-20px
           (CardDisplay from the left, GameControls from the right), and

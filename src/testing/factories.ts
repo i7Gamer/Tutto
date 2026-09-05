@@ -11,7 +11,7 @@
  * Not imported by any application module — same rule as storageStubs.ts.
  */
 import { DEFAULT_GAME_MODE } from '../types';
-import type { CoreGameState, DeviceStatsRow, DiceSnapshot, Player } from '../types';
+import type { CoreGameState, DeviceStatsRow, DiceSnapshot, HistoryEntry, Player } from '../types';
 import { zeroedPlayerStats } from '../utils/playerStats';
 import type { PreGameStats } from '../store/storeTypes';
 
@@ -168,6 +168,23 @@ export const makeDiceSnapshot = (overrides: Partial<DiceSnapshot> = {}): DiceSna
   currentRoll: [],
   kniffelProgress: [],
   tuttosThisTurn: 0,
+  ...overrides,
+});
+
+/**
+ * A full `HistoryEntry` (one row of `historyLog`), defaulted to an ordinary
+ * scored turn. Pass `{ id: 'e7', playerName: 'Bob', ... }` to override just
+ * what the test cares about — the same idiom as the factories above. Useful
+ * for building a long historyLog (see MAX_HISTORY_LOG_SIZE) without every
+ * call site re-typing the full HistoryEntry shape.
+ */
+export const makeHistoryEntry = (overrides: Partial<HistoryEntry> = {}): HistoryEntry => ({
+  id: 'history-entry',
+  round: 1,
+  playerName: 'Player',
+  card: '300',
+  type: 'success',
+  score: 300,
   ...overrides,
 });
 

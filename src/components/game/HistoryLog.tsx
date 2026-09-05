@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '../../store/useGameStore';
@@ -6,7 +7,15 @@ import { CARD_EMOJIS, UNKNOWN_CARD_EMOJI } from '../../utils/cardVisuals';
 import { summarizeDeductions } from '../../utils/deductionSummary';
 import { formatInt } from '../../utils/formatNumber';
 
-export default function HistoryLog() {
+// Takes no props at all — its own historyLog selector already skips a
+// re-render when that field hasn't changed. But a plain (non-memoized)
+// function component still runs its whole body (up to 50 motion.div entries
+// under AnimatePresence) every time its PARENT re-renders, regardless of
+// whether any prop changed — and Game.tsx re-renders on every liveTurnState
+// tick during a roll (~300ms cadence, see DiceGame's onStateChange). memo()
+// here has nothing to gate on props (there are none); it exists purely to
+// let this component bail out of that parent-triggered re-render.
+function HistoryLog() {
   const { t, i18n } = useTranslation();
   const historyLog = useGameStore(state => state.historyLog) || [];
 
@@ -168,3 +177,7 @@ export default function HistoryLog() {
     </div>
   );
 }
+
+HistoryLog.displayName = 'HistoryLog';
+
+export default memo(HistoryLog);

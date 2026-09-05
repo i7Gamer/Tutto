@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import type { GameStore } from '../../store/useGameStore';
@@ -15,7 +16,11 @@ interface ScoreboardProps {
   formattedTime: string;
 }
 
-export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
+// Memoized: Game.tsx passes a `game` object built with useMemo over just the
+// fields this component reads, so an unrelated store change (liveTurnState
+// ticking during a roll) doesn't reconstruct it and doesn't re-render this
+// tree of motion.div layout nodes.
+function Scoreboard({ game, formattedTime }: ScoreboardProps) {
   const { t, i18n } = useTranslation();
   const {
     players,
@@ -117,3 +122,7 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
     </div>
   );
 }
+
+Scoreboard.displayName = 'Scoreboard';
+
+export default memo(Scoreboard);
