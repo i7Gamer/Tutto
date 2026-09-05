@@ -11,22 +11,32 @@ export default function LanguageSwitcher() {
           -my-2 gives the added height back as negative margin so this
           switcher's own footprint (and the fixed HUD strip it sits in,
           App.tsx) doesn't grow with it; growing that would have pushed the
-          HUD into content the A9 tests already check it clears. */}
+          HUD into content the A9 tests already check it clears. The button
+          itself stays a transparent hit area (no background/shadow/rounding)
+          — the visible pill (size, colour, shadow) lives on the inner span
+          below, so the 44px tap target no longer forces the visible pill to
+          be 44px tall too. It used to: the pill was ~36px tall and the 44px
+          button carrying its styling directly made the selected pill stick
+          out top and bottom of its ~36px container (B3). */}
       <button
         onClick={() => void i18n.changeLanguage('en')}
         aria-label={t('app.switchToEnglish', 'Switch to English')}
         aria-pressed={currentLanguage.startsWith('en')}
-        className={`px-3 py-1 rounded-md text-sm font-bold transition-all min-h-11 min-w-11 flex items-center justify-center -my-2 ${currentLanguage.startsWith('en') ? 'bg-white dark:bg-slate-700 shadow-xs text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+        className="min-h-11 min-w-11 flex items-center justify-center -my-2"
       >
-        EN
+        <span className={`px-3 py-1 rounded-md text-sm font-bold transition-all ${currentLanguage.startsWith('en') ? 'bg-white dark:bg-slate-700 shadow-xs text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>
+          EN
+        </span>
       </button>
       <button
         onClick={() => void i18n.changeLanguage('de')}
         aria-label={t('app.switchToGerman', 'Switch to German')}
         aria-pressed={currentLanguage.startsWith('de')}
-        className={`px-3 py-1 rounded-md text-sm font-bold transition-all min-h-11 min-w-11 flex items-center justify-center -my-2 ${currentLanguage.startsWith('de') ? 'bg-white dark:bg-slate-700 shadow-xs text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+        className="min-h-11 min-w-11 flex items-center justify-center -my-2"
       >
-        DE
+        <span className={`px-3 py-1 rounded-md text-sm font-bold transition-all ${currentLanguage.startsWith('de') ? 'bg-white dark:bg-slate-700 shadow-xs text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>
+          DE
+        </span>
       </button>
     </div>
   );

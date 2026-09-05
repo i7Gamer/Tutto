@@ -250,6 +250,12 @@ test.describe('the lobby row hover cue survives the cascade', () => {
    * this guards. This is the case the custom no-conflicting-classnames lint
    * rule misses: it does not reason about a hover variant fighting an
    * unscoped dark variant on the same property.
+   *
+   * The same room also lets this test check the other half of that
+   * always-on own-row highlight directly: AliceHost's own row (the one that
+   * masks a broken hover cue above) is read fresh in each theme and must
+   * actually read as dark in dark mode and light in light mode, not just
+   * differ from whatever it was before.
    */
   test('hovering another player\'s roster row changes its background in both light and dark mode', async ({ browser }, testInfo: TestInfo) => {
     const contextA = await browser.newContext();
@@ -267,6 +273,14 @@ test.describe('the lobby row hover cue survives the cascade', () => {
     const row = pageA.locator('.player-name', { hasText: 'BobGuest' }).locator('xpath=..');
     const background = () => row.evaluate(el => getComputedStyle(el).backgroundColor);
 
+    // AliceHost's own row, read from her own page: this one IS "isMe", so it
+    // carries the always-on own-row highlight instead of a hover cue — a
+    // light tint in light mode, a dark tint in dark mode (LobbyShared.tsx).
+    // Read alongside Bob's row below rather than in a separate test, so it
+    // reuses this same online room instead of paying for a second one.
+    const ownRow = pageA.locator('.player-name', { hasText: 'AliceHost' }).locator('xpath=..');
+    const ownBackground = () => ownRow.evaluate(el => getComputedStyle(el).backgroundColor);
+
     // transition-colors animates the background over ~150ms — settle before
     // sampling, or a resting/hover pair caught mid-animation can differ by
     // residual interpolation alone and pass for the wrong reason.
@@ -275,10 +289,10 @@ test.describe('the lobby row hover cue survives the cascade', () => {
     // transition: it waits on the thing itself instead of on a clock that has
     // to be re-tuned whenever the duration changes, and it returns as soon as
     // the colour has actually stopped.
-    const settledBackground = async (what: string): Promise<string> => {
-      let previous = await background();
+    const settledBackground = async (readBackground: () => Promise<string>, what: string): Promise<string> => {
+      let previous = await readBackground();
       await expect.poll(async () => {
-        const current = await background();
+        const current = await readBackground();
         const unchanged = current === previous;
         previous = current;
         return unchanged;
@@ -290,12 +304,97 @@ test.describe('the lobby row hover cue survives the cascade', () => {
       return previous;
     };
 
+    // Same oklab/oklch-aware colour parsing the A8 contrast probe above needs
+    // for the same reason: this Chromium build echoes a Tailwind v4 palette
+    // colour's getComputedStyle() back as oklch()/oklab(), not rgb() — a
+    // plain rgba() regex on the own row's background would silently read it
+    // as black (alpha 0) and make both thresholds below meaningless. Only the
+    // background side is needed here (no foreground colour), composited over
+    // the element's own ancestor chain so a translucent tint (e.g.
+    // dark:bg-indigo-900/20) reads as it actually paints on screen rather
+    // than as its own uncomposited channel.
+    const backgroundLuminance = (locator: Locator): Promise<number> => locator.evaluate((el) => {
+      const oklabToSrgb255 = (L: number, a: number, b: number): [number, number, number] => {
+        const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+        const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+        const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+        const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
+        const r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+        const g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+        const bl = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+        const gamma = (c: number) => {
+          const clamped = Math.max(0, Math.min(1, c));
+          return clamped <= 0.0031308 ? 12.92 * clamped : 1.055 * Math.pow(clamped, 1 / 2.4) - 0.055;
+        };
+        return [gamma(r) * 255, gamma(g) * 255, gamma(bl) * 255];
+      };
+      const num = (tok: string | undefined, fallback: number): number =>
+        tok === undefined ? fallback : parseFloat(tok) / (tok.endsWith('%') ? 100 : 1);
+      const parseRGBA = (str: string): [number, number, number, number] => {
+        let m = str.match(/^rgba?\(([^)]+)\)$/);
+        if (m) {
+          const p = m[1].split(/[ ,/]+/).filter(Boolean);
+          return [parseFloat(p[0]), parseFloat(p[1]), parseFloat(p[2]), num(p[3], 1)];
+        }
+        m = str.match(/^oklch\(([^)]+)\)$/);
+        if (m) {
+          const p = m[1].split(/[ /]+/).filter(Boolean);
+          const [L, C] = [parseFloat(p[0]), parseFloat(p[1])];
+          const hRad = parseFloat(p[2]) * Math.PI / 180;
+          return [...oklabToSrgb255(L, C * Math.cos(hRad), C * Math.sin(hRad)), num(p[3], 1)];
+        }
+        m = str.match(/^oklab\(([^)]+)\)$/);
+        if (m) {
+          const p = m[1].split(/[ /]+/).filter(Boolean);
+          return [...oklabToSrgb255(parseFloat(p[0]), parseFloat(p[1]), parseFloat(p[2])), num(p[3], 1)];
+        }
+        // 'transparent' and anything unrecognised: alpha 0, so it never
+        // contributes to the ancestor background walk below.
+        return [0, 0, 0, 0];
+      };
+      const over = (fg: [number, number, number, number], bg: [number, number, number, number]): [number, number, number, number] => {
+        const a = fg[3];
+        return [fg[0] * a + bg[0] * (1 - a), fg[1] * a + bg[1] * (1 - a), fg[2] * a + bg[2] * (1 - a), 1];
+      };
+      const luminance = ([r, g, b]: [number, number, number, number]): number => {
+        const s = (c: number) => { const n = c / 255; return n <= 0.03928 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4); };
+        return 0.2126 * s(r) + 0.7152 * s(g) + 0.0722 * s(b);
+      };
+      const chain: Element[] = [];
+      for (let n: Element | null = el; n; n = n.parentElement) chain.unshift(n);
+      let bg: [number, number, number, number] = [255, 255, 255, 1];
+      for (const n of chain) {
+        const c = parseRGBA(getComputedStyle(n).backgroundColor);
+        if (c[3] > 0) bg = over(c, bg);
+      }
+      return luminance(bg);
+    });
+    // Thresholds rather than exact colours: LobbyShared.tsx's own-row tint is
+    // a separate, actively-changing piece of styling (see the note on this
+    // describe block's parent test file section) — this only needs the
+    // result to actually read as dark in dark mode and light in light mode,
+    // not pin its exact shade.
+    const DARK_LUMINANCE_CEILING = 0.2;
+    const LIGHT_LUMINANCE_FLOOR = 0.5;
+
     for (const theme of ['light', 'dark'] as const) {
       if (theme === 'dark') {
         await pageA.getByLabel('Toggle theme').click();
       }
       await pageA.mouse.move(0, 0);
-      const resting = await settledBackground(`BobGuest's un-hovered roster row in ${theme} mode`);
+      const resting = await settledBackground(background, `BobGuest's un-hovered roster row in ${theme} mode`);
+
+      await test.step(`AliceHost's own roster row reads as ${theme} in ${theme} mode`, async () => {
+        await settledBackground(ownBackground, `AliceHost's own roster row in ${theme} mode`);
+        const ownLuminance = await backgroundLuminance(ownRow);
+        if (theme === 'dark') {
+          expect(ownLuminance, `AliceHost's own row luminance ${ownLuminance} should read as dark in dark mode`)
+            .toBeLessThan(DARK_LUMINANCE_CEILING);
+        } else {
+          expect(ownLuminance, `AliceHost's own row luminance ${ownLuminance} should read as light in light mode`)
+            .toBeGreaterThan(LIGHT_LUMINANCE_FLOOR);
+        }
+      });
 
       await row.hover();
       await expect.poll(background, {
@@ -735,13 +834,16 @@ test.describe('WCAG AA contrast — accent and caption fixes (A8)', () => {
 });
 
 /**
- * A9 — the fixed HUD (language switcher + theme toggle, App.tsx) used to carry
- * an inline `zIndex: 100` and sit bottom-right at every width, which put it
- * directly over the dice panel's action row (Stop & Score / Roll Again) on a
- * phone — the panel reserves no bottom space for it. The help trigger
- * (HelpPopup.tsx) was `z-50`, the same layer as the dice panel's own backdrop
- * (`.modal-backdrop-under-hud`) and earlier in the DOM, so it lost the paint
- * order tie and was unreachable while the dice panel was open.
+ * A9 — the fixed HUD (language switcher + theme toggle, App.tsx) sits
+ * bottom-right at every width (B10c). That used to put it directly over the
+ * dice panel's action row (Stop & Score / Roll Again) on a phone, because the
+ * panel reserved no bottom space for it; the fix is on the panel's side now —
+ * its scroll area (DiceGame.tsx) carries extra bottom padding on phones so
+ * the action row clears the HUD's footprint instead of the HUD moving out of
+ * the way. The help trigger (HelpPopup.tsx) was once `z-50`, the same layer
+ * as the dice panel's own backdrop (`.modal-backdrop-under-hud`) and earlier
+ * in the DOM, so it lost the paint order tie and was unreachable while the
+ * dice panel was open.
  */
 test.describe('HUD vs dice panel, help button z-order (A9)', () => {
   interface Box { x: number; y: number; width: number; height: number; }
@@ -792,6 +894,20 @@ test.describe('HUD vs dice panel, help button z-order (A9)', () => {
       expect.soft(intersects(languageBox, stopBox)).toBe(false);
       expect.soft(intersects(themeBox, stopBox)).toBe(false);
 
+      // B10c: the HUD sits bottom-right now, not top-right — confirm it
+      // actually landed there rather than merely failing to overlap the
+      // action row by accident. hud is the fixed wrapper itself (App.tsx),
+      // reached the same way B58 below reaches it: the theme toggle's own
+      // parent.
+      const hud = page.getByLabel('Toggle theme').locator('xpath=..');
+      const hudBox = await hud.boundingBox();
+      expect.soft(hudBox).not.toBeNull();
+      if (hudBox) {
+        const phoneViewportHeightPx = 812;
+        const bottomQuarterStartY = phoneViewportHeightPx * 0.75;
+        expect.soft(hudBox.y).toBeGreaterThanOrEqual(bottomQuarterStartY);
+      }
+
       // Roll Again is absent only on the rare turn that already made a tutto —
       // checked when present rather than asserted unconditionally.
       if (!(await rollAgainButton.isVisible())) return;
@@ -819,12 +935,13 @@ test.describe('HUD vs dice panel, help button z-order (A9)', () => {
   });
 
   /**
-   * A10 — the HUD also sits over whatever the current screen puts in its own
-   * top-right corner, not just the dice panel: the Scoreboard's Score tile
-   * during ordinary play, and the centred main heading on Home. The dice
-   * panel case above got the HUD moved up; this carves out a phone-only strip
-   * at the App level so no screen's first row lands under it, regardless of
-   * what that screen renders there.
+   * A10 — before B10c, the HUD sat top-right on phones (it now sits
+   * bottom-right at every width, same as the dice panel case above), and it
+   * used to sit over whatever the current screen put in its own top-right
+   * corner: the Scoreboard's Score tile during ordinary play, and the centred
+   * main heading on Home. Both tests below now pass trivially — a
+   * bottom-right HUD is nowhere near either target — and stay only as a
+   * regression guard against the HUD moving back to the top.
    */
   test('the language switcher and theme toggle do not cover the Scoreboard tiles at 375x812 with the dice panel closed', async ({ page }) => {
     await seedLocalDeck(page);
@@ -887,7 +1004,9 @@ test.describe('HUD vs dice panel, help button z-order (A9)', () => {
  * B58 — safe areas. viewport-fit=cover (index.html) lets the page draw under
  * a phone's notch/home-indicator; without it the browser never reports a
  * non-zero env(safe-area-inset-*), so the HUD's padding (App.tsx) would be a
- * no-op on exactly the hardware it targets.
+ * no-op on exactly the hardware it targets. The HUD sits bottom-right at
+ * every width now (B10c) — the inset it pads from is the bottom one, since
+ * that's the edge it actually touches (a home-indicator bar), not the top.
  */
 test.describe('safe-area viewport (B58)', () => {
   /**
@@ -905,24 +1024,24 @@ test.describe('safe-area viewport (B58)', () => {
     });
 
     await test.step('the HUD declares its padding from the safe-area inset', async () => {
-      // A real cutout cannot be simulated here, and a computed padding-top is
-      // "0px" both with the env() rule (inset 0 on this hardware) and with no
-      // rule at all — so the value proves nothing. What can regress is the
+      // A real cutout cannot be simulated here, and a computed padding-bottom
+      // is "0px" both with the env() rule (inset 0 on this hardware) and with
+      // no rule at all — so the value proves nothing. What can regress is the
       // declaration: the utility being dropped from App.tsx, or Tailwind no
       // longer emitting a rule for it. Check both.
       const hud = page.getByLabel('Toggle theme').locator('xpath=..');
       const className = await hud.evaluate(el => el.className);
-      expect.soft(className).toContain('pt-[env(safe-area-inset-top)]');
+      expect.soft(className).toContain('pb-[env(safe-area-inset-bottom)]');
 
       const declared = await page.evaluate(() =>
         Array.from(document.styleSheets).some(sheet => {
           try {
-            return Array.from(sheet.cssRules).some(rule => rule.cssText.includes('env(safe-area-inset-top)'));
+            return Array.from(sheet.cssRules).some(rule => rule.cssText.includes('env(safe-area-inset-bottom)'));
           } catch {
             return false;
           }
         }));
-      expect.soft(declared, 'no stylesheet rule mentions env(safe-area-inset-top)').toBe(true);
+      expect.soft(declared, 'no stylesheet rule mentions env(safe-area-inset-bottom)').toBe(true);
     });
   });
 });
@@ -1108,6 +1227,74 @@ test.describe('Statistics tabs stay a single scrollable row on phones (C69.2)', 
       const scrollHeight = await tablist.evaluate((el) => el.scrollHeight);
 
       expect(Math.abs(scrollHeight - pillHeight)).toBeLessThanOrEqual(2);
+    }
+  });
+
+  // B10a — below `sm:` these rows used to be `sm:justify-center`-only, i.e.
+  // left-aligned, even for a row that comfortably fits a phone's width.
+  // Statistics.tsx now centers every row via auto margins on its first/last
+  // pill instead, which (unlike turning on `justify-center` unconditionally)
+  // degrades to a flush, fully-scrollable start once a row genuinely
+  // overflows rather than clipping its own left end. A row that FITS lands
+  // within 2px of true center; a row that OVERFLOWS starts at (or after) that
+  // same centered offset, since it can only ever sit at its natural start.
+  test('each tablist that fits is centered, and none clips its own start (B10a)', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'View Statistics' }).click();
+    await expect(page.getByTestId('statistics-page')).toBeVisible();
+
+    const tablists = page.getByRole('tablist');
+    await expect(tablists).toHaveCount(3);
+
+    const count = await tablists.count();
+    for (let i = 0; i < count; i++) {
+      const tablist = tablists.nth(i);
+      const rowBox = (await tablist.boundingBox())!;
+      const contentWidth = await tablist.evaluate((el) => el.scrollWidth);
+      const firstPillBox = (await tablist.getByRole('tab').first().boundingBox())!;
+
+      const centeredOffset = (rowBox.width - contentWidth) / 2;
+      const actualOffset = firstPillBox.x - rowBox.x;
+
+      // Never starts to the left of where centering would put it — the one
+      // way that could happen is `justify-center` clipping an overflowing
+      // row's start, which is exactly what B10a fixed.
+      expect(actualOffset).toBeGreaterThanOrEqual(centeredOffset - 2);
+      // And when the row actually fits, it lands ON that centered offset.
+      if (contentWidth <= rowBox.width + 1) {
+        expect(Math.abs(actualOffset - centeredOffset)).toBeLessThanOrEqual(2);
+      }
+    }
+  });
+
+  // B6 — whileHover on these pills used to leave a tapped one "hovered" (and
+  // so scaled 1.05×) on a touch device, and since each row is flex-nowrap
+  // overflow-x-auto, the scaled pill widened the row's own scrollable content
+  // enough to grow a scrollbar under a row that never needed one. Switching
+  // rulesets and then modes each land on a freshly-selected pill, the case
+  // that used to stick.
+  test('switching ruleset and mode pills leaves no scrollbar behind (B6)', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'View Statistics' }).click();
+    await expect(page.getByTestId('statistics-page')).toBeVisible();
+
+    await page.getByRole('tab', { name: 'Classic' }).click();
+    await page.getByRole('tab', { name: 'Custom' }).click();
+
+    const tablists = page.getByRole('tablist');
+    await expect(tablists).toHaveCount(3);
+
+    const count = await tablists.count();
+    for (let i = 0; i < count; i++) {
+      const tablist = tablists.nth(i);
+      const { scrollWidth, clientWidth } = await tablist.evaluate((el) => ({
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
+      }));
+
+      expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
     }
   });
 });

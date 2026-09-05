@@ -54,4 +54,37 @@ describe('LanguageSwitcher', () => {
     expect(enButton).toHaveAttribute('aria-pressed', 'true');
     expect(deButton).toHaveAttribute('aria-pressed', 'false');
   });
+
+  // B3: the button carries min-h-11/min-w-11 (the 44px tap target,
+  // e2e/styling.spec.ts "tap targets >= 44px") but the visible pill
+  // (background, shadow, rounded corners) must live on an inner span — a
+  // ~36px pill styled directly on the 44px button stuck out top and bottom
+  // of its container. The button stays a transparent hit area only.
+  it('puts the tap target on the button and the visible pill styling on an inner span', () => {
+    mockUseTranslation({ language: 'en', changeLanguage: vi.fn() });
+
+    render(<LanguageSwitcher />);
+
+    const enButton = screen.getByRole('button', { name: 'Switch to English' });
+    const deButton = screen.getByRole('button', { name: 'Switch to German' });
+
+    // Both buttons keep the 44px tap target and stay visually transparent —
+    // no pill background/shadow/rounding on the button itself.
+    for (const button of [enButton, deButton]) {
+      expect(button).toHaveClass('min-h-11', 'min-w-11');
+      expect(button.className).not.toMatch(/bg-white|shadow-xs|rounded-md/);
+    }
+
+    // The selected (EN) pill's visible styling lives on an inner span.
+    const enPill = screen.getByText('EN');
+    expect(enPill.tagName).toBe('SPAN');
+    expect(enPill).toHaveClass('bg-white', 'dark:bg-slate-700', 'shadow-xs', 'rounded-md', 'px-3', 'py-1');
+    expect(enButton).toContainElement(enPill);
+
+    // The unselected (DE) pill has no selected-state classes.
+    const dePill = screen.getByText('DE');
+    expect(dePill.tagName).toBe('SPAN');
+    expect(dePill.className).not.toMatch(/bg-white|shadow-xs/);
+    expect(deButton).toContainElement(dePill);
+  });
 });

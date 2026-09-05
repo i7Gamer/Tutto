@@ -265,25 +265,26 @@ export default function App() {
     <MotionConfig reducedMotion="user">
       {/* z-100: the same bare Tailwind z-index ReactionOverlay already uses,
           and now what HelpPopup's own corner trigger uses too — see the
-          z-order note there. Top-right below `sm`, its usual bottom-right
-          corner from `sm` up: at phone width this sat directly over the dice
-          panel's Stop & Score / Roll Again row (the panel reserves no bottom
-          space for it) and, behind the panel, over the Undo / End Game row
-          until scrolled. Moving both floating controls up on narrow widths
-          clears both without asking either screen to carve out padding for
-          a control that isn't part of their own layout. */}
-      {/* The safe-area-inset padding (pt- on phones, pb- from `sm` up): this
-          element sits at the very top edge on phones (top-4) and the very
-          bottom edge from `sm` up (bottom-4) — see the comment above.
+          z-order note there. Bottom-right at every width (B10c) — an earlier
+          version moved this to top-right below `sm` because bottom-right sat
+          directly over the dice panel's Stop & Score / Roll Again row on a
+          phone, and behind the panel, over the Undo / End Game row until
+          scrolled. That traded one overlap for a worse one: the HUD then sat
+          over every screen's own top-right content instead. The ruling now
+          is bottom-right everywhere, with the screens that need it reserving
+          the space instead — the dice panel's scroll area (DiceGame.tsx) and
+          Game/Home/EndScreen/Statistics's existing pb-20. */}
+      {/* The safe-area-inset padding: this element sits at the very bottom
+          edge of the viewport at every width (bottom-4), which can be a
+          hardware cutout (a home-indicator bar) on a phone with
+          viewport-fit=cover (index.html) — hence padding from
+          safe-area-inset-bottom rather than the plain bottom-4 gap alone.
           Spelled out this loosely on purpose: Tailwind scans comments too,
           and a class-shaped shorthand with a `*` wildcard in it became a
-          real (and invalid) utility in the generated CSS. Either edge can be a hardware
-          cutout (a notch, a home-indicator bar) on a phone with
-          viewport-fit=cover (index.html), so the side actually touching the
-          screen edge in each layout gets the matching safe-area padding.
-          env() resolves to 0 with no cutout, so this is a no-op on desktop
-          and in every test here (jsdom/Playwright report no safe area). */}
-      <div className="fixed top-4 right-4 sm:top-auto sm:bottom-4 z-100 flex gap-2 items-center pt-[env(safe-area-inset-top)] sm:pt-0 sm:pb-[env(safe-area-inset-bottom)]">
+          real (and invalid) utility in the generated CSS. env() resolves to
+          0 with no cutout, so this is a no-op on desktop and in every test
+          here (jsdom/Playwright report no safe area). */}
+      <div className="fixed bottom-4 right-4 z-100 flex gap-2 items-center pb-[env(safe-area-inset-bottom)]">
         <LanguageSwitcher />
         <button className="theme-toggle" onClick={toggleTheme} aria-label={t('app.toggleTheme', 'Toggle theme')} style={{ background: 'var(--card-bg)', boxShadow: 'var(--shadow-md)' }}>
           {theme === 'light' ? <Moon size={24} /> : <Sun size={24} />}
@@ -297,18 +298,13 @@ export default function App() {
       <ReactionOverlay />
       <IOSHapticProxy />
 
-      {/* pt-14: reserves the HUD's own strip (top-4 + its ~40px control
-          height) above every screen's first row on phones, where the HUD
-          sits top-right instead of its usual bottom-right corner (from `sm`
-          up this is a no-op — the HUD has moved out of the way itself).
-          Applied once here rather than per screen, so no screen's own
-          top-right content — the Scoreboard's tiles during play, a
-          centred heading on Home or Statistics — has to know the HUD
-          exists. flex-1 flex flex-col: #root itself is a flex column
-          (index.css), and Home's own outer div is `flex-1` to fill it —
-          this wrapper has to pass that flex context through rather than
-          sit in front of it as a plain block. */}
-      <div className="pt-14 sm:pt-0 flex-1 flex flex-col">
+      {/* Plain wrapper: every screen renders through PageContainer, which
+          sizes to its content and clears the bottom-edge HUD itself (pb-20;
+          the dice panel pads its own scroll area). Nothing fills the
+          viewport any more, so no flex context is passed through here. An
+          earlier version reserved a top strip on phones for the HUD — the
+          HUD now sits at the bottom at every width (see above). */}
+      <div>
         {showStats ? (
           <Suspense fallback={<RouteSpinner />}>
             <Statistics deviceId={deviceId} onBack={() => setShowStats(false)} />

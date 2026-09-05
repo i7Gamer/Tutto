@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import Statistics from './Statistics';
@@ -218,6 +219,125 @@ describe('Statistics Component', () => {
         // override is how a bare `text-sm` stays mobile-only.
         expect(tab.className).toContain('sm:text-base');
       }
+    });
+  });
+
+  // B6: whileHover on the tablist pills used to leave a tapped pill "hovered"
+  // (and so scaled 1.05) on a touch device, and because each row is
+  // flex-nowrap overflow-x-auto (C69.2) the scaled pill widened the row's own
+  // scrollable content — a scrollbar appeared under a row that never actually
+  // needed one. whileTap (a genuine press-down, which a tap cannot get stuck
+  // in) stays. No other test in this file mocks framer-motion — it renders
+  // for real everywhere else — so this one mocks it only for itself, via a
+  // scoped dynamic re-import, rather than turning the whole file's motion.div
+  // /motion.button into non-forwarding stand-ins (the roving-tabs suite below
+  // relies on real refs reaching the DOM node to move focus).
+  describe('tablist pills carry no hover scale a tap could get stuck in (B6)', () => {
+    afterEach(() => {
+      vi.doUnmock('framer-motion');
+      vi.resetModules();
+    });
+
+    it('renders every tab with whileTap but never whileHover', async () => {
+      vi.resetModules();
+      vi.doMock('framer-motion', () => {
+        // framer-motion-only props a real <button>/<div> would warn about —
+        // stripped the same way the other mocked suites in this repo strip
+        // them (see Die.test.tsx / Scoreboard.test.tsx), except whileHover
+        // and whileTap are kept below, surfaced as data attributes so the
+        // assertions can see whether Statistics.tsx still passes them.
+        const stripAnimationOnlyProps = (props: Record<string, unknown>) => {
+          const rest = { ...props };
+          delete rest.initial;
+          delete rest.animate;
+          delete rest.exit;
+          delete rest.whileInView;
+          delete rest.viewport;
+          delete rest.transition;
+          delete rest.layout;
+          delete rest.mode;
+          return rest;
+        };
+        return {
+          motion: {
+            div: (props: Record<string, unknown>) => {
+              const { children, ...rest } = props;
+              return <div {...stripAnimationOnlyProps(rest)}>{children as ReactNode}</div>;
+            },
+            button: (props: Record<string, unknown>) => {
+              const { children, whileHover, whileTap, ...rest } = props;
+              return (
+                <button
+                  data-while-hover={whileHover !== undefined ? 'yes' : undefined}
+                  data-while-tap={whileTap !== undefined ? 'yes' : undefined}
+                  {...stripAnimationOnlyProps(rest)}
+                >
+                  {children as ReactNode}
+                </button>
+              );
+            },
+          },
+          AnimatePresence: (props: { children?: ReactNode }) => <>{props.children}</>,
+        };
+      });
+
+      const { default: StatisticsWithMockedMotion } = await import('./Statistics');
+      global.fetch = vi.fn(() => Promise.resolve(mockFetchJson({ gamesPlayed: 1, wins: 1, totalPlaytime: 100 })));
+
+      render(<StatisticsWithMockedMotion deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+      // Personal/Global, Modernized/Classic, Normal/Custom.
+      const tabs = screen.getAllByRole('tab');
+      expect(tabs).toHaveLength(6);
+      for (const tab of tabs) {
+        expect(tab).not.toHaveAttribute('data-while-hover');
+        expect(tab).toHaveAttribute('data-while-tap', 'yes');
+      }
+    });
+  });
+
+  // B10a: below `sm:` these rows used to be left-aligned (`sm:justify-center`
+  // only applies at `sm:` and up) — on a phone that fits its tabs with room
+  // to spare, that read as mis-centered.
+  describe('tablist rows stay centered when they fit and scrollable when they don\'t (B10a)', () => {
+    it('gives every tablist row the auto-margin centering utilities and keeps overflow-x-auto', async () => {
+      global.fetch = vi.fn(() => Promise.resolve(mockFetchJson({ gamesPlayed: 1, wins: 1, totalPlaytime: 100 })));
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+      // The top-level pair, the ruleset pair, and the personal/custom mode
+      // pair — all three are on screen together with the default (personal)
+      // tab selected.
+      const tablists = screen.getAllByRole('tablist');
+      expect(tablists).toHaveLength(3);
+
+      for (const list of tablists) {
+        expect(list.className).toContain('overflow-x-auto');
+        // Auto margins on the first/last child centre a row that fits — and,
+        // unlike `justify-center` on an overflowing row, still let it scroll
+        // all the way to its true start when it doesn't (see B10a above).
+        expect(list.className).toContain('[&>:first-child]:ml-auto');
+        expect(list.className).toContain('[&>:last-child]:mr-auto');
+        expect(list.className).not.toContain('justify-center');
+      }
+    });
+  });
+
+  // B10b: the two empty-state strings ("...online games..." vs "...custom
+  // online games...") differ in length, so they can wrap onto a different
+  // number of lines on a phone — text-balance keeps each one's own wrap from
+  // reading as ragged, and the surrounding box's min-height (checked via the
+  // rendered style below) is what keeps the card from changing height when
+  // the wrap count still differs between the two.
+  describe('empty-state message stays readable across tabs (B10b)', () => {
+    it('gives the empty-state message text-balance', async () => {
+      global.fetch = vi.fn(() => Promise.resolve(mockFetchJson({})));
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+      const message = screen.getByText('statistics.noPersonalGames');
+      expect(message.className).toContain('text-balance');
     });
   });
 

@@ -18,6 +18,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import React from 'react';
 import './Statistics.css';
+import PageContainer from './PageContainer';
 
 // This device's own stats, as fetched for display — every DeviceStatsRow
 // column except the primary key (deviceId, mode), which this screen never
@@ -446,7 +447,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   const gAvgRoundsPerGame = g?.totalGamesPlayed ? Math.round((g.totalRoundsSum ?? 0) / g.totalGamesPlayed) : 0;
 
   return (
-    <div data-testid="statistics-page" className="container mx-auto px-4 py-8 pb-20 max-w-3xl flex flex-col items-center">
+    <PageContainer testId="statistics-page" className="pt-8 items-center">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-2xl rounded-3xl p-8 relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-2 bg-linear-to-r from-indigo-500 via-purple-500 to-pink-500" />
         <div className="flex items-center mb-8 relative justify-center">
@@ -472,10 +473,18 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
         ) : (
         <>
         {/* flex-nowrap + overflow-x-auto: below `sm:` this becomes a single
-            scrollable row instead of wrapping onto a second line (C69.2) —
-            `sm:justify-center` alone (no bare justify-center) keeps the
-            un-scrolled desktop layout exactly as it was. */}
-        <div className="flex flex-nowrap overflow-x-auto gap-2 sm:gap-4 mb-10 sm:justify-center" role="tablist">
+            scrollable row instead of wrapping onto a second line (C69.2).
+            Centering (B10a): auto margins on the first/last child, not
+            `justify-center` — the latter, used to be `sm:`-only (leaving a
+            row that FITS on a phone left-aligned instead of centered), and
+            turning it on unconditionally would have clipped an overflowing
+            row's start (centering shifts the whole line left by half the
+            overflow, which a plain scrollable flex row cannot scroll back
+            into view). Auto margins only ever soak up REAL leftover space:
+            a fitting row gets centred exactly as `justify-center` would,
+            while an overflowing one collapses them to 0 and starts flush at
+            its true left edge, still scrollable to the end. */}
+        <div className="flex flex-nowrap overflow-x-auto gap-2 sm:gap-4 mb-10 [&>:first-child]:ml-auto [&>:last-child]:mr-auto" role="tablist">
           <motion.button
             ref={topTabs.setTabRef(0)}
             id={topTabId(0)}
@@ -484,7 +493,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
             aria-controls={topPanelId(0)}
             tabIndex={topTabs.getTabIndex(0)}
             onKeyDown={(e) => topTabs.onKeyDown(e, 0)}
-            whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+            whileTap={{ scale: 0.95 }}
             className={`shrink-0 flex items-center gap-2 px-4 py-2.5 text-sm sm:px-6 sm:py-3 sm:text-base rounded-xl font-semibold transition-all ${tab === 'personal' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-black/5 border border-gray-200 dark:border-slate-600'}`}
             onClick={() => setTab('personal')}
           >
@@ -498,7 +507,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
             aria-controls={topPanelId(1)}
             tabIndex={topTabs.getTabIndex(1)}
             onKeyDown={(e) => topTabs.onKeyDown(e, 1)}
-            whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+            whileTap={{ scale: 0.95 }}
             className={`shrink-0 flex items-center gap-2 px-4 py-2.5 text-sm sm:px-6 sm:py-3 sm:text-base rounded-xl font-semibold transition-all ${tab === 'global' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:bg-black/5 border border-gray-200 dark:border-slate-600'}`}
             onClick={() => setTab('global')}
           >
@@ -506,7 +515,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
           </motion.button>
         </div>
 
-        <div className="flex flex-nowrap overflow-x-auto gap-2 sm:gap-3 mb-8 sm:justify-center" role="tablist" data-testid="ruleset-tabs">
+        <div className="flex flex-nowrap overflow-x-auto gap-2 sm:gap-3 mb-8 [&>:first-child]:ml-auto [&>:last-child]:mr-auto" role="tablist" data-testid="ruleset-tabs">
           {RULESET_TABS.map(({ value, labelKey, labelFallback }, index) => (
             <motion.button
               key={value}
@@ -517,7 +526,6 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
               aria-controls={rulesetPanelId}
               tabIndex={rulesetTabs.getTabIndex(index)}
               onKeyDown={(e) => rulesetTabs.onKeyDown(e, index)}
-              whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               className={subTabClass(statsRuleset === value)}
               onClick={() => setStatsRuleset(value)}
@@ -542,7 +550,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
             <motion.div key="personal" id={topPanelId(0)} role="tabpanel" aria-labelledby={topTabId(0)} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="flex flex-col w-full">
               <h3 className="text-xl font-bold mb-6 text-center text-gray-700 dark:text-gray-200">{t('statistics.onlineLifetimeRecord', 'Online Lifetime Record (This Device)')}</h3>
 
-              <div className="flex flex-nowrap overflow-x-auto gap-2 sm:gap-3 mb-6 sm:justify-center" role="tablist">
+              <div className="flex flex-nowrap overflow-x-auto gap-2 sm:gap-3 mb-6 [&>:first-child]:ml-auto [&>:last-child]:mr-auto" role="tablist">
                 {MODE_TABS.map(({ value, labelKey, labelFallback }, index) => (
                   <motion.button
                     key={value}
@@ -553,7 +561,6 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                     aria-controls={modePanelId}
                     tabIndex={modeTabs.getTabIndex(index)}
                     onKeyDown={(e) => modeTabs.onKeyDown(e, index)}
-                    whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     className={subTabClass(mode === value)}
                     onClick={() => setMode(value)}
@@ -573,11 +580,23 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
               )}
 
               {!p || !p.gamesPlayed ? (
-                <div className="text-center text-gray-500 dark:text-gray-400 py-10 bg-black/5 dark:bg-white/5 rounded-2xl border border-gray-100 dark:border-slate-700">
+                // B10b: the Normal/Custom empty-state strings differ in length,
+                // so they can wrap onto a different number of lines on a
+                // phone — min-h-52 pins the card to one height regardless
+                // (generous enough for the longer string's worst-case wrap),
+                // and flex/items-center/justify-center keeps the icon+message
+                // pair centred within that fixed height rather than pinned to
+                // the top with growing empty space below on the shorter one.
+                // text-balance is what keeps EACH message's own wrap from
+                // reading as ragged (a lone trailing word on its own line);
+                // it does not by itself equalize the two strings' line counts.
+                <div className="min-h-52 flex flex-col items-center justify-center text-center text-gray-500 dark:text-gray-400 py-10 bg-black/5 dark:bg-white/5 rounded-2xl border border-gray-100 dark:border-slate-700">
                   <div className="text-4xl mb-4">🎮</div>
-                  {isCustomView
-                    ? t('statistics.noCustomGames', "You haven't played any custom online games on this device yet!")
-                    : t('statistics.noPersonalGames', "You haven't played any online games on this device yet!")}
+                  <p className="text-balance">
+                    {isCustomView
+                      ? t('statistics.noCustomGames', "You haven't played any custom online games on this device yet!")
+                      : t('statistics.noPersonalGames', "You haven't played any online games on this device yet!")}
+                  </p>
                 </div>
               ) : (
                 <div className="w-full">
@@ -717,6 +736,6 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
         </>
         )}
       </motion.div>
-    </div>
+    </PageContainer>
   );
 }

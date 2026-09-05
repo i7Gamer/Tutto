@@ -692,7 +692,17 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         </div>
       )}
 
-      <div className="px-8 pt-6 pb-8 sm:p-8 w-full flex-1 overflow-y-auto overscroll-contain">
+      {/* pb-16 (B10c): the HUD (App.tsx) now sits bottom-right at every
+          width, roughly bottom-4 (1rem) to bottom-4 + its 44px tap target
+          (~3.75rem) up from the viewport edge. On phones this panel is
+          h-[calc(100dvh-2rem)] inside ModalShell's own p-4 backdrop, so the
+          panel's bottom edge already sits 1rem above the viewport bottom —
+          the previous pb-8 (2rem) left the action row's bottom edge only
+          ~3rem above the viewport, inside the HUD's footprint. pb-16 (4rem)
+          clears it with margin to spare. sm:p-8 is unchanged and wins from
+          `sm` up, where the HUD only ever sits beside a centred panel that
+          never grows tall enough to reach it. */}
+      <div className="px-8 pt-6 pb-16 sm:p-8 w-full flex-1 overflow-y-auto overscroll-contain">
         {revealedCard ? (
           <DrawnCardReveal
             card={revealedCard}
