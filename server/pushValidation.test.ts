@@ -21,7 +21,7 @@ import {
   SERVER_OWNED_FIELD_LIST,
 } from './pushValidation';
 import { createRoom } from './rooms';
-import { MIN_ENABLED_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
+import { MIN_ENABLED_RECONNECT_TIMEOUT, MAX_ROUNDS } from '../src/utils/configValidation';
 import { PLAYER_STAT_FIELDS, PLAYER_NUMERIC_FIELDS } from '../src/utils/playerStats';
 import type { RoomState, ServerPlayer } from './roomTypes';
 import { makeServerPlayer as makePlayer } from './socketTestHarness';
@@ -1025,13 +1025,42 @@ describe('applyPushedState', () => {
         expect(state.round, 'an undo puts it back').toBe(4);
       });
 
-      it('lets the host set it freely, since a Play Again resets it to 1', () => {
+      it('lets the host reset it to 1 at any time, since a Play Again — and End Game — both do', () => {
         const state = makeState();
         state.round = 9;
 
         applyPushedState(state, { round: 1 }, asHost);
 
         expect(state.round).toBe(1);
+      });
+
+      // The exemption used to be blanket for the host, so a mid-game host
+      // push (or anything impersonating the host outside a kickoff or a
+      // round: 1 reset) could set round: MAX_ROUNDS in one hop — the honest
+      // host then submits that as longestGameRounds, and it is MAX-merged
+      // into the global row forever. The standing round: 1 allowance does not
+      // reopen this: only exactly 1 gets the free pass, everything else still
+      // needs ±1.
+      it('refuses a mid-game HOST push beyond the next round, same as an active player', () => {
+        const state = makeState();
+        state.round = 4;
+
+        applyPushedState(state, { round: MAX_ROUNDS }, asHost);
+        expect(state.round).toBe(4);
+
+        applyPushedState(state, { round: 50 }, asHost);
+        expect(state.round).toBe(4);
+      });
+
+      it('holds a STARTING host to the same rule: a kickoff resets to 1, it does not open at 50', () => {
+        const state = makeState();
+        state.round = 9;
+
+        applyPushedState(state, { round: 50 }, asHostStarting);
+        expect(state.round, 'a kickoff-only exemption would let a game open at round 99990').toBe(9);
+
+        applyPushedState(state, { round: 1 }, asHostStarting);
+        expect(state.round, 'the real kickoff value lands').toBe(1);
       });
     });
 

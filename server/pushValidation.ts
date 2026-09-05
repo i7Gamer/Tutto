@@ -720,13 +720,26 @@ const applyRound: FieldHandler = (value, ctx) => {
   // MAX_ROUNDS is an array-length safety cap (chartLabels, historyLog), not a
   // bound on a legitimate round number — on its own it let an active player
   // push round: 100000 on their own turn. The honest host then submits that
-  // as longestGameRounds, sanitizeStats' 1e9 cap waves it through, and the
-  // column is MAX-merged into the global row forever.
+  // as longestGameRounds, and sanitize.ts' own MAX_ROUNDS cap (the same
+  // constant, not a separate 1e9 one) waves it through, so the column is
+  // MAX-merged into the global row forever.
   //
   // A game only ever nudges this: +1 when a round ends, the same value on
   // every other push, and -1 when a turn is undone across a round boundary.
-  // The host is exempt because a Play Again kickoff resets it to 1.
-  const withinReach = ctx.isHost || (value as number >= ctx.state.round - 1 && value as number <= ctx.state.round + 1);
+  // The host gets exactly one thing more than that: a standing allowance to
+  // reset it to 1. Both real resets are 1 — a Play Again / lobby kickoff
+  // (gameSlice.startGame) and the host-only "End Game" (gameSlice.endGame,
+  // which tears a running game down to the lobby with `round: 1` but
+  // startingGame false, since its push never carries status: 'playing') —
+  // and both must land after a long game has pushed `round` well out of ±1
+  // reach. Dropping to 1 is harmless: 1 can only ever LOWER a MAX-merged
+  // longestGameRounds record and adds at most 1 to a SUM-merged
+  // totalRoundsSum. Nothing wider, not even at a kickoff: a blanket host
+  // exemption let a mid-game host push (or a hand-built one impersonating the
+  // host) set round: MAX_ROUNDS in one hop, and a kickoff-only exemption would
+  // still let a kickoff open the game at round 99990.
+  const withinReach = (ctx.isHost && value === 1) ||
+    (typeof value === 'number' && value >= ctx.state.round - 1 && value <= ctx.state.round + 1);
   if (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= MAX_ROUNDS && withinReach) {
     ctx.state.round = value;
   }
