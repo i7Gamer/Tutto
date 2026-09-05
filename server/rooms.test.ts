@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { BROADCAST_EXCLUDED_FIELDS, handleActivePlayerRemoved, calculateRemainingTurnTime, createRoom, deleteRoom, emitRoomState, isAbandonedRoom, promoteHostAfterLoss, rooms } from './rooms';
 import type { Server } from 'socket.io';
 import { SYNCED_GAME_STATE_KEYS } from '../src/types';
-import { MAX_ROUNDS } from './pushValidation';
+import { MAX_CHART_POINTS } from './pushValidation';
 import type { Room, RoomState, ServerPlayer } from './roomTypes';
 import { makeServerPlayer as makePlayer } from './socketTestHarness';
 import { nonNull } from '../src/testing/factories';
@@ -245,14 +245,14 @@ describe('handleActivePlayerRemoved', () => {
       expect(room.state.chartValues).toEqual([[100, 250], [100, 175]]);
     });
 
-    it('stops appending chart datapoints once the MAX_ROUNDS cap is reached', () => {
+    it('stops appending chart datapoints once the MAX_CHART_POINTS cap is reached', () => {
       // The same bound turnTimers.advanceTurnOnTimeout respects on its own
       // round-end append. Not an abuse story here — it takes a real seat
       // removal per datapoint — but the cap is what pushValidation ENFORCES on
-      // the way in: a chartLabels longer than MAX_ROUNDS is refused wholesale,
-      // so a server array that grew past it is one no client can ever push
-      // back, and the two copies silently diverge from there.
-      const fullSeries = () => Array(MAX_ROUNDS).fill(0);
+      // the way in: a chartLabels longer than MAX_CHART_POINTS is refused
+      // wholesale, so a server array that grew past it is one no client can
+      // ever push back, and the two copies silently diverge from there.
+      const fullSeries = () => Array(MAX_CHART_POINTS).fill(0);
       const room = makeRoom(['Alice', 'Bob'], {
         currentPlayerIndex: 2,
         round: 7,
@@ -265,8 +265,8 @@ describe('handleActivePlayerRemoved', () => {
 
       handleActivePlayerRemoved(room, 2);
 
-      expect(room.state.chartLabels).toHaveLength(MAX_ROUNDS);
-      expect(room.state.chartValues[0]).toHaveLength(MAX_ROUNDS);
+      expect(room.state.chartLabels).toHaveLength(MAX_CHART_POINTS);
+      expect(room.state.chartValues[0]).toHaveLength(MAX_CHART_POINTS);
       // The turn bookkeeping itself still runs — only the chart append stops.
       expect(room.state.currentPlayerIndex).toBe(0);
       expect(room.state.round).toBe(8);

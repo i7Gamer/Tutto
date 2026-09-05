@@ -157,14 +157,34 @@ export const RULESETS: readonly Ruleset[] = ['modernized', 'classic'];
 export const isValidRuleset = (v: unknown): v is Ruleset =>
   RULESETS.some(ruleset => ruleset === v);
 
-// Generous safety cap for per-round arrays (chartLabels/chartValues entries)
-// and for a round number itself — far beyond any real game, just enough to
-// stop a malicious pushState from growing these arrays without bound.
+// Generous safety cap for a round NUMBER (state.round, historyLog entries'
+// `round`) — far beyond any real game, just enough to stop a malicious
+// pushState from writing an absurd round forward. NOT a bound for
+// chartLabels/chartValues array LENGTH — see MAX_CHART_POINTS below for that;
+// the two used to share this constant, which let a pushed chart series grow
+// to 100,000 datapoints (a room state north of 1.5 MB, rebroadcast to every
+// member on every later gameState).
 // Defined here rather than in server/pushValidation.ts (which re-exports it,
 // the same way it re-exports MAX_SCORE_MAGNITUDE) because server/sanitize.ts
 // needs it too: importing pushValidation.ts there would drag its
 // coreGameEngine ↔ statsPayloads cycle into server/api.ts's module graph.
 export const MAX_ROUNDS = 100000;
+
+// Safety cap for chartLabels/chartValues array LENGTH (one entry per
+// completed round). A real game is a few hundred rounds at the very most —
+// MAX_WINNING_SCORE (99999) forces a finish long before that, and the
+// project's own realistic-sizing model tops out at 400 rounds
+// (REALISTIC_MAX_ROUNDS, server/pushStateValidation.test.ts) — so 1000 is
+// ~2.5x headroom over a genuinely long game, not a bound sized for a
+// legitimate one. Enforced in lockstep in three places that must not diverge
+// (server/rooms.ts and server/turnTimers.ts's own chart appends must stay
+// under what pushValidation accepts on the way in, or a server array grown
+// past the client-facing cap could never be pushed back — see the comment at
+// server/rooms.ts's append site):
+//  - server/pushValidation.ts's applyChartValues/applyChartLabels (incoming)
+//  - server/rooms.ts's handleActivePlayerRemoved chart append
+//  - server/turnTimers.ts's advanceTurnOnTimeout chart append
+export const MAX_CHART_POINTS = 1000;
 
 // Sanity cap on the seconds a single game may claim to have lasted, enforced
 // on every pushed gameTimeInSeconds. Lives here for the same reason

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { registerGameStateHandlers, MAX_TIMER_RESTARTS_PER_TURN, DRAW_CARD_LIMIT } from './socketGameStateHandlers';
 import { makeFakeSocket, makeFakeIo, makeServerPlayer, type Handler } from './socketTestHarness';
 import { rooms, createRoom, deleteRoom } from './rooms';
+import { MAX_CHAIN_CARDS } from '../src/types';
 import type { RoomState } from './roomTypes';
 
 // This file's players default to position: 1 (rather than makeServerPlayer's
@@ -1052,5 +1053,29 @@ describe('drawCard', () => {
     bob.drawCard({ roomId }, vi.fn());
 
     expect(room.state.turnStartTime).toBeGreaterThan(1);
+  });
+
+  describe('the per-turn deal-log budget (recordDealtCard)', () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('101 chain draws in one turn leave dealtThisTurn at MAX_CHAIN_CARDS, not 101', () => {
+      // With turnDuration: 0 (a lobby option — see beforeEach) nothing else
+      // ends the turn, so the draw rate limiter is the only brake left on how
+      // many cards one turn can log — MAX_CHAIN_CARDS must be the other one.
+      // Stepping the clock past DRAW_CARD_LIMIT's window every DRAW_CARD_LIMIT.max
+      // draws keeps the rate limiter itself from ever refusing a draw here,
+      // so this proves the deal-log cap specifically, not the rate limit.
+      rooms[roomId].state.turnDuration = 0;
+      const bob = seat('active-sock', 'Bob');
+      const draws = MAX_CHAIN_CARDS + 1;
+
+      for (let i = 0; i < draws; i++) {
+        if (i > 0 && i % DRAW_CARD_LIMIT.max === 0) vi.advanceTimersByTime(DRAW_CARD_LIMIT.windowMs);
+        bob.drawCard({ roomId }, vi.fn());
+      }
+
+      expect(rooms[roomId].dealtThisTurn.length).toBe(MAX_CHAIN_CARDS);
+    });
   });
 });

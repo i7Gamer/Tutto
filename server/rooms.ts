@@ -6,10 +6,10 @@ import {
   DEFAULT_RULESET, MAX_PLAYERS_PER_ROOM,
 } from '../src/utils/configValidation';
 import { MS_PER_SECOND } from '../src/utils/time';
-import { MAX_ROUNDS } from './pushValidation';
+import { MAX_CHART_POINTS } from './pushValidation';
 import { envLimitOr } from './envLimits';
 import { updateDeviceStats } from './database';
-import type { AssertNever, CardType, SyncedGameStateKey } from '../src/types';
+import { MAX_CHAIN_CARDS, type AssertNever, type CardType, type SyncedGameStateKey } from '../src/types';
 import { statsModeFor, type Room, type RoomState, type ServerPlayer, type TurnTimerState } from './roomTypes';
 
 // Null-prototype, not `{}`: every key here is a client-supplied roomId, and
@@ -228,13 +228,22 @@ export const isAbandonedRoom = (room: Room): boolean =>
  * because two of the five do not go through it (the kickoff builds its own
  * deck, the turn-timer expiry deals through calculateNextTurn) and only the
  * call site knows whether it is opening a turn.
+ *
+ * Every opensTurn=true call deals exactly one card into a freshly-rotated
+ * (empty) list, so MAX_CHAIN_CARDS can never block those. Only the
+ * socketGameStateHandlers.ts drawCard chain-draw path (opensTurn=false) can
+ * push this repeatedly within one turn — with turnDuration:0 (a lobby
+ * option) nothing else ends the turn, so this cap is what stops that log
+ * from growing without bound. deckAuthority.ts's restoreDeckForUndo comment
+ * already claimed this log "cannot exceed MAX_CHAIN_CARDS per turn"; this is
+ * what makes that true rather than aspirational.
  */
 export const recordDealtCard = (room: Room, card: CardType | null, opensTurn: boolean): void => {
   if (opensTurn) {
     room.dealtLastTurn = room.dealtThisTurn;
     room.dealtThisTurn = [];
   }
-  if (card) room.dealtThisTurn.push(card);
+  if (card && room.dealtThisTurn.length < MAX_CHAIN_CARDS) room.dealtThisTurn.push(card);
 };
 
 export const drawNextCardForRoom = (state: RoomState): void => {
@@ -283,13 +292,13 @@ export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void 
       // removal forces past never gets a chart data point, and the end-screen
       // score-per-round chart silently comes up one round short.
       // Capped like advanceTurnOnTimeout's twin append, and for a sharper
-      // reason than unbounded growth: MAX_ROUNDS is what pushValidation
+      // reason than unbounded growth: MAX_CHART_POINTS is what pushValidation
       // ENFORCES on an incoming chartLabels, refusing a longer one wholesale.
       // A server array grown past the bound is one no client can ever push
       // back, so the server's copy and every client's would diverge from the
       // first append past it onward.
       if (state.chartValues.length === state.players.length && state.chartNames.length === state.players.length
-          && state.chartLabels.length < MAX_ROUNDS) {
+          && state.chartLabels.length < MAX_CHART_POINTS) {
         state.chartValues.forEach((vals, i) => vals.push(state.players[i].score));
         state.chartLabels.push(state.round);
       }

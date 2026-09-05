@@ -9,7 +9,7 @@ import {
   isValidEnforcedDiceMode, isValidRuleset,
   MAX_CARD_COUNT, VALID_CARD_TYPES,
   MAX_TURN_DURATION, MAX_PLAYER_NAME_LENGTH,
-  MAX_SCORE_MAGNITUDE, MAX_ROUNDS, MAX_GAME_SECONDS,
+  MAX_SCORE_MAGNITUDE, MAX_ROUNDS, MAX_CHART_POINTS, MAX_GAME_SECONDS,
 } from '../src/utils/configValidation';
 import { PLAYER_STAT_FIELDS, PLAYER_NUMERIC_FIELDS, type PlayerStatField, type PlayerRecordField } from '../src/utils/playerStats';
 import { getLeaders } from '../src/utils/coreGameEngine';
@@ -35,7 +35,7 @@ export const MAX_DECK_SIZE = MAX_CARD_COUNT * 11;
 // coreGameEngine ↔ statsPayloads cycle into server/api.ts's module graph), and
 // nothing imported it from here at all. Dropped rather than left as a second
 // name for the same constant.
-export { MAX_SCORE_MAGNITUDE, MAX_ROUNDS };
+export { MAX_SCORE_MAGNITUDE, MAX_ROUNDS, MAX_CHART_POINTS };
 // A history-entry id is a client-generated string (see HistoryEntry in
 // src/types.ts) — this is a sanity bound, not a format, same role as
 // MAX_ROOM_ID_LENGTH plays for room ids.
@@ -829,9 +829,11 @@ const applyPreviousTurnSummary: FieldHandler = (value, ctx) => {
 };
 
 const applyChartValues: FieldHandler = (value, ctx) => {
+  // MAX_CHART_POINTS bounds the series LENGTH (one entry per completed
+  // round), not a round number — see its definition in configValidation.ts.
   if (
     Array.isArray(value) && isPerPlayerOrCleared(value, ctx.state.players) &&
-    value.every(arr => Array.isArray(arr) && arr.length <= MAX_ROUNDS && arr.every(isBoundedNumber))
+    value.every(arr => Array.isArray(arr) && arr.length <= MAX_CHART_POINTS && arr.every(isBoundedNumber))
   ) {
     ctx.state.chartValues = value as number[][];
   }
@@ -851,8 +853,11 @@ const applyChartNames: FieldHandler = (value, ctx) => {
 };
 
 const applyChartLabels: FieldHandler = (value, ctx) => {
-  // Round numbers: whole, and bounded like every other pushed numeric.
-  if (Array.isArray(value) && value.length <= MAX_ROUNDS && value.every(n => Number.isInteger(n) && isBoundedNumber(n))) {
+  // Entries are round numbers (whole, bounded like every other pushed
+  // numeric), but the ARRAY LENGTH is capped by MAX_CHART_POINTS, not
+  // MAX_ROUNDS — the length is a datapoint count (one per completed round),
+  // not itself a round number.
+  if (Array.isArray(value) && value.length <= MAX_CHART_POINTS && value.every(n => Number.isInteger(n) && isBoundedNumber(n))) {
     ctx.state.chartLabels = value as number[];
   }
 };
@@ -983,6 +988,14 @@ export const applyPushedState = (
   const playerIndexBeforePush = state.currentPlayerIndex;
   const finishedBeforePush = state.finished;
 
+  // Kept for the chartLabels/chartValues coherence check after the loop —
+  // same reasoning as the trio above: applyChartLabels and applyChartValues
+  // validate independently, so a push naming one without the other (or both,
+  // out of step) can leave the pair incoherent, and reverting BOTH to their
+  // pre-push values is the repair that is always valid by induction.
+  const chartLabelsBeforePush = state.chartLabels;
+  const chartValuesBeforePush = state.chartValues;
+
   // Read from the PRE-push status, never from state.status inside the loop:
   // 'status' is the first Set entry and has already been overwritten by the
   // time later keys apply. Play Again is why `startingGame` is the other half
@@ -1043,6 +1056,21 @@ export const applyPushedState = (
     if (roomPhase(state) === 'playing' && state.currentPlayerIndex === null) {
       state.finished = finishedBeforePush;
     }
+  }
+
+  // chartLabels is round-indexed and chartValues is player-indexed, so a
+  // coherent chart has the two the same length (chartValues[0], since every
+  // player's series is appended to in lockstep — see rooms.ts/turnTimers.ts's
+  // own appends). applyChartLabels and applyChartValues each validate
+  // independently, so a push naming one without the other (or both, out of
+  // step) sails through both handlers above even though the pair it leaves
+  // behind is one no legitimate client ever produces. Only checked once BOTH
+  // are non-empty — an empty trio (endGame's own clearing push) is coherent
+  // by definition, and a fresh room starts with both empty.
+  if (state.chartLabels.length > 0 && state.chartValues.length > 0
+      && state.chartLabels.length !== state.chartValues[0]?.length) {
+    state.chartLabels = chartLabelsBeforePush;
+    state.chartValues = chartValuesBeforePush;
   }
 
   return true;

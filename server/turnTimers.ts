@@ -7,7 +7,7 @@ import { hasScoreInput } from '../src/utils/diceTurnControls';
 import { roomPhase } from '../src/utils/roomPhase';
 import type { Room, ServerPlayer } from './roomTypes';
 import { rooms, calculateRemainingTurnTime, emitRoomState, idleTurnTimerState, recordDealtCard, rememberCurrentTurn, roomChannel } from './rooms';
-import { MAX_ROUNDS } from './pushValidation';
+import { MAX_CHART_POINTS } from './pushValidation';
 import { clearDeck } from './deckAuthority';
 import { MS_PER_SECOND } from '../src/utils/time';
 
@@ -225,10 +225,11 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
     // Guarded on chartValues alone (not chartNames, as handleActivePlayerRemoved
     // additionally does) because that is the array actually being appended to
     // here; chartNames is only a fallback label source for the chart. Capped at
-    // MAX_ROUNDS like the pushed arrays: this path can self-advance for as long
-    // as nobody reaches the winning score, and must not grow state unboundedly.
+    // MAX_CHART_POINTS like the pushed arrays: this path can self-advance for as
+    // long as nobody reaches the winning score, and must not grow state
+    // unboundedly.
     if (result.isRoundEnd && room.state.chartValues.length === result.players.length
-        && room.state.chartLabels.length < MAX_ROUNDS) {
+        && room.state.chartLabels.length < MAX_CHART_POINTS) {
       room.state.chartValues.forEach((vals, i) => vals.push(result.players[i]?.score ?? 0));
       room.state.chartLabels.push(room.state.round);
     }

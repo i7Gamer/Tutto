@@ -4,11 +4,17 @@
  * carries is validated field-by-field afterward in pushValidation.ts, with
  * its own per-field caps (MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS,
  * MAX_DECK_SIZE, ...), but decoding a many-megabyte packet to reach those
- * checks is itself a cost a client can otherwise inflict for free. The same
- * Server-level option also governs outgoing gameState broadcasts — socket.io
- * drops the connection on either side's oversize packet, so this must fit
- * the largest state a real game can legitimately produce, not just what a
- * client may legitimately send.
+ * checks is itself a cost a client can otherwise inflict for free.
+ *
+ * This is socket.io's `maxHttpBufferSize` Server option, which bounds
+ * INCOMING packets only — the size of one message a client sends to the
+ * server, checked at the transport layer before it is ever parsed. It does
+ * NOT bound outgoing gameState broadcasts: socket.io does not check, and
+ * does not drop the connection over, an oversize packet the SERVER sends.
+ * (Confirmed directly: a 1.4 MB broadcast reached a real client with no
+ * disconnect.) An outgoing broadcast can still legitimately exceed this
+ * constant — this only needs to fit what a legitimate CLIENT PUSH may
+ * contain, not the full state the server may later broadcast.
  *
  * Previously left unset (the engine.io library default), which happened to
  * be big enough for legitimate traffic but was never actually chosen for

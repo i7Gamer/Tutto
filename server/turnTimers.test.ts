@@ -14,6 +14,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { rooms, createRoom, roomChannel } from './rooms';
 import { clearServerTurnTimer, startServerTurnTimer, advanceTurnOnTimeout, abortGameIfLowPlayers, scaledTimerMs } from './turnTimers';
 import { makeServerPlayer as makePlayer, makeFakeIo } from './socketTestHarness';
+import { MAX_CHART_POINTS } from './pushValidation';
 
 const roomId = 'timer-unit-room';
 
@@ -331,22 +332,22 @@ describe('turnTimers', () => {
       expect(lastEntry.cards).toEqual(['500', 'Kniffel', 'Feuerwerk']);
     });
 
-    it('stops appending chart datapoints once the MAX_ROUNDS cap is reached', () => {
+    it('stops appending chart datapoints once the MAX_CHART_POINTS cap is reached', () => {
       // The timeout path can self-advance forever when no one ever reaches the
       // winning score (e.g. a patched host arming a 1s turn in an idle room).
-      // Pushed chart arrays are capped at MAX_ROUNDS — the server's own
+      // Pushed chart arrays are capped at MAX_CHART_POINTS — the server's own
       // appends must respect the same bound or state grows without limit.
       rooms[roomId] = createRoom('host-1');
-      const fullSeries = Array(100000).fill(0);
+      const fullSeries = Array(MAX_CHART_POINTS).fill(0);
       Object.assign(rooms[roomId].state, {
         status: 'playing', currentPlayerIndex: 1, currentCard: '300', cards: ['200'],
         round: 100001, players: [makePlayer('Alice'), makePlayer('Bob')],
-        chartValues: [fullSeries, [...fullSeries]], chartLabels: Array(100000).fill(1),
+        chartValues: [fullSeries, [...fullSeries]], chartLabels: Array(MAX_CHART_POINTS).fill(1),
       });
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
 
-      expect(rooms[roomId].state.chartLabels).toHaveLength(100000);
-      expect(rooms[roomId].state.chartValues[0]).toHaveLength(100000);
+      expect(rooms[roomId].state.chartLabels).toHaveLength(MAX_CHART_POINTS);
+      expect(rooms[roomId].state.chartValues[0]).toHaveLength(MAX_CHART_POINTS);
       // The turn itself still advances — only the chart bookkeeping stops.
       expect(rooms[roomId].state.round).toBe(100002);
     });
