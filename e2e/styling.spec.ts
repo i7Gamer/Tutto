@@ -854,6 +854,23 @@ test.describe('HUD vs dice panel, help button z-order (A9)', () => {
   const intersects = (a: Box, b: Box): boolean =>
     a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 
+  // A box read only once two consecutive reads agree: the dice panel scales
+  // and slides into place as it opens (Game.tsx's motionProps), and a box
+  // read mid-entrance sits lower and larger than where the row ends up —
+  // enough, once on WebKit, to "intersect" a HUD it does not touch at rest.
+  const BOX_SETTLE_POLL_MS = 100;
+  const BOX_SETTLE_ATTEMPTS = 20;
+  const settledBox = async (locator: Locator) => {
+    let previous = await locator.boundingBox();
+    for (let i = 0; i < BOX_SETTLE_ATTEMPTS; i++) {
+      await locator.page().waitForTimeout(BOX_SETTLE_POLL_MS);
+      const next = await locator.boundingBox();
+      if (JSON.stringify(next) === JSON.stringify(previous)) return next;
+      previous = next;
+    }
+    return previous;
+  };
+
   const openDicePanelOnPhone = async (page: Page) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await seedLocalDeck(page);
@@ -885,7 +902,7 @@ test.describe('HUD vs dice panel, help button z-order (A9)', () => {
 
       const languageBox = await languageSwitcher.boundingBox();
       const themeBox = await themeToggle.boundingBox();
-      const stopBox = await stopButton.boundingBox();
+      const stopBox = await settledBox(stopButton);
       expect.soft(languageBox).not.toBeNull();
       expect.soft(themeBox).not.toBeNull();
       expect.soft(stopBox).not.toBeNull();
@@ -914,7 +931,7 @@ test.describe('HUD vs dice panel, help button z-order (A9)', () => {
       // Roll Again is absent only on the rare turn that already made a tutto —
       // checked when present rather than asserted unconditionally.
       if (!(await rollAgainButton.isVisible())) return;
-      const rollAgainBox = await rollAgainButton.boundingBox();
+      const rollAgainBox = await settledBox(rollAgainButton);
       expect.soft(rollAgainBox).not.toBeNull();
       if (!rollAgainBox) return;
 
