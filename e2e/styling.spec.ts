@@ -1273,6 +1273,36 @@ test.describe('Statistics tabs stay a single scrollable row on phones (C69.2)', 
     }
   });
 
+  // The Personal / Global Community row was the one that did not fit a
+  // 375px phone (364px of pills in a 277px row): it scrolled, so it sat
+  // flush left under two centred rows and cut its second pill off at the
+  // card's edge. The card's phone padding and the pills' icons are what
+  // went; German labels are longer still, so both languages are checked.
+  test('every tablist fits a 375px phone in English and German (B10a)', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'View Statistics' }).click();
+    await expect(page.getByTestId('statistics-page')).toBeVisible();
+    const tablists = page.getByRole('tablist');
+    await expect(tablists).toHaveCount(3);
+
+    const expectAllFit = async (language: string) => {
+      const count = await tablists.count();
+      for (let i = 0; i < count; i++) {
+        const { scrollWidth, clientWidth } = await tablists.nth(i).evaluate((el) => ({
+          scrollWidth: el.scrollWidth,
+          clientWidth: el.clientWidth,
+        }));
+        expect(scrollWidth, `${language}: tablist ${i} overflows`).toBeLessThanOrEqual(clientWidth + 1);
+      }
+    };
+
+    await expectAllFit('en');
+    await page.getByLabel('Switch to German').click();
+    await expect(page.getByRole('tab', { name: 'Persönlich' })).toBeVisible();
+    await expectAllFit('de');
+  });
+
   // B6 — whileHover on these pills scaled a hovered one 1.05×, and since each
   // row is flex-nowrap overflow-x-auto, a transformed pill at the row's end
   // extends the row's scrollable overflow enough to grow a scrollbar under a
