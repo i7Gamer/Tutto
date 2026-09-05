@@ -334,11 +334,18 @@
  * Not `animation: none`: an element whose only path to its final state is a
  * keyframe would be stuck at frame zero. A near-zero duration runs the whole
  * thing within one frame instead.
+ *
+ * :root:not([data-motion="always"]) is the per-device override (LobbyShared.tsx's
+ * AnimationsSettingSelector / App.tsx's data-motion effect): a player whose OS
+ * asks for reduced motion but wants the animations anyway sets motionOverride
+ * in the store, which App.tsx mirrors onto <html data-motion="always"> — a
+ * stylesheet cannot read Zustand state, only the DOM. This is the CSS half of
+ * that override; <MotionConfig reducedMotion={...}> in App.tsx is the other.
  */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  :root:not([data-motion="always"]) *,
+  :root:not([data-motion="always"]) *::before,
+  :root:not([data-motion="always"]) *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

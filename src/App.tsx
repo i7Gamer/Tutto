@@ -225,6 +225,12 @@ export default function App() {
   const finished = useGameStore(state => state.finished);
   const currentPlayerIndex = useGameStore(state => state.currentPlayerIndex);
   const players = useGameStore(state => state.players);
+  // Per-device override for a player whose OS asks for reduced motion but
+  // wants the animations anyway — set from the lobby (LobbyShared.tsx's
+  // AnimationsSettingSelector). Flips both halves that honour "user" motion
+  // preference: framer-motion's own MotionConfig below, and the CSS block in
+  // index.css gated on the data-motion attribute the effect further down sets.
+  const motionOverride = useGameStore(state => state.motionOverride);
 
   const hasWinner = finished && players.length > 0;
   const isPlaying = currentPlayerIndex !== null && players.length > 0;
@@ -250,6 +256,18 @@ export default function App() {
     localStore.write('tutto-theme', theme);
   }, [theme]);
 
+  // The CSS half of the override (index.css's `@media (prefers-reduced-motion:
+  // reduce)` block excludes `:root[data-motion="always"]`) reads this
+  // attribute rather than the store directly — a stylesheet cannot read
+  // Zustand state, only the DOM.
+  useEffect(() => {
+    if (motionOverride) {
+      document.documentElement.setAttribute('data-motion', 'always');
+    } else {
+      document.documentElement.removeAttribute('data-motion');
+    }
+  }, [motionOverride]);
+
   const toggleTheme = () => {
     // The effect above applies the DOM attribute (and persists it) whenever
     // `theme` changes — no need to also set it here.
@@ -260,9 +278,10 @@ export default function App() {
   // app honoured the OS setting: six dice tumbling 360° on every roll, a
   // bouncing "Tutto!", floating reaction emoji. "user" makes every motion
   // component here respect it, and the stylesheet covers the CSS animations
-  // framer-motion never sees.
+  // framer-motion never sees. motionOverride flips this back to "never" (see
+  // the data-motion effect above for the CSS side of the same override).
   return (
-    <MotionConfig reducedMotion="user">
+    <MotionConfig reducedMotion={motionOverride ? 'never' : 'user'}>
       {/* z-100: the same bare Tailwind z-index ReactionOverlay already uses,
           and now what HelpPopup's own corner trigger uses too — see the
           z-order note there. Bottom-right at every width (B10c) — an earlier

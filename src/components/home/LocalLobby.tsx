@@ -3,7 +3,7 @@ import { UserPlus } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
-import { DiceModeSelector, RulesetSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, AudioSettingSelector, HapticsSettingSelector } from './LobbyShared';
+import { DiceModeSelector, RulesetSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, AudioSettingSelector, HapticsSettingSelector, AnimationsSettingSelector } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
 import { MAX_PLAYER_NAME_LENGTH } from '../../utils/configValidation';
 import { useGameStore } from '../../store/useGameStore';
@@ -25,6 +25,7 @@ export default function LocalLobby() {
   const {
     players, addPlayer, removePlayer, startGame, reorderPlayers, changePlayerColor,
     diceMode, setDiceMode, audioEnabled, setAudioEnabled, hapticsEnabled, setHapticsEnabled,
+    motionOverride, setMotionOverride,
     initialCards, resetGeneralSettings, resetInitialCards, addToast,
     ruleset, setRuleset,
   } = useGameStore(useShallow((s) => ({
@@ -40,6 +41,8 @@ export default function LocalLobby() {
     setAudioEnabled: s.setAudioEnabled,
     hapticsEnabled: s.hapticsEnabled,
     setHapticsEnabled: s.setHapticsEnabled,
+    motionOverride: s.motionOverride,
+    setMotionOverride: s.setMotionOverride,
     initialCards: s.initialCards,
     resetGeneralSettings: s.resetGeneralSettings,
     resetInitialCards: s.resetInitialCards,
@@ -109,6 +112,7 @@ export default function LocalLobby() {
         <DiceModeSelector diceMode={diceMode} setDiceMode={setDiceMode} nameSuffix="Local" />
         <AudioSettingSelector audioEnabled={audioEnabled} setAudioEnabled={setAudioEnabled} nameSuffix="Local" />
         <HapticsSettingSelector hapticsEnabled={hapticsEnabled} setHapticsEnabled={setHapticsEnabled} nameSuffix="Local" />
+        <AnimationsSettingSelector motionOverride={motionOverride} setMotionOverride={setMotionOverride} nameSuffix="Local" />
         <AdvancedOptionsToggle showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} panelId={advancedOptionsPanelId} />
       </div>
 

@@ -612,6 +612,12 @@ describe('useGameStore', () => {
       expect(localStorage.getItem('tutto_hapticsEnabled')).toBe('false');
     });
 
+    it('setMotionOverride updates state and persists to localStorage', () => {
+      useGameStore.getState().setMotionOverride(true);
+      expect(useGameStore.getState().motionOverride).toBe(true);
+      expect(localStorage.getItem('tutto_motionOverride')).toBe('true');
+    });
+
     it('setInitialCards updates the deck composition', () => {
       const newCards = { Stop: 20, Kniffel: 0 };
       useGameStore.getState().setInitialCards(newCards as never);
@@ -5718,6 +5724,12 @@ describe('useGameStore', () => {
       localStorage.setItem('tutto_hapticsEnabled', 'false');
       useGameStore.getState().init('test-device-id');
       expect(useGameStore.getState().hapticsEnabled).toBe(false);
+    });
+
+    it('restores motionOverride from localStorage', () => {
+      localStorage.setItem('tutto_motionOverride', 'true');
+      useGameStore.getState().init('test-device-id');
+      expect(useGameStore.getState().motionOverride).toBe(true);
     });
   });
 

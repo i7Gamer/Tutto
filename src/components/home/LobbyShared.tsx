@@ -13,6 +13,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../../store/useGameStore';
 import { readableNameVars } from '../../utils/contrastColor';
 import { supportsIOSSwitchHaptic } from '../../utils/iosSwitchHaptic';
+import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 import { REORDER_PRESS_RELEASE_MS } from '../../utils/uiTimings';
 import { HOT_WIN_STREAK } from '../../utils/playerStats';
 import ConfirmModal from '../ConfirmModal';
@@ -386,6 +387,40 @@ export function HapticsSettingSelector({ hapticsEnabled, setHapticsEnabled, name
       <label className="radio-wrapper lobby-radio">
         <input type="radio" name={`hapticsSetting${nameSuffix}`} checked={hapticsEnabled === false} onChange={() => setHapticsEnabled(false)} />
         <span className="font-medium">{t('lobby.hapticsOff', 'Vibration Off')}</span>
+      </label>
+    </fieldset>
+  );
+}
+
+interface AnimationsSettingSelectorProps {
+  motionOverride: boolean;
+  setMotionOverride: (val: boolean) => void;
+  nameSuffix?: string;
+}
+
+// Only meaningful — and only shown — on a device whose OS is currently asking
+// for reduced motion: a player who never asked for that in the first place
+// has nothing to override, and a visible toggle that does nothing would just
+// read as broken (the same reasoning HapticsSettingSelector applies to
+// unsupported vibration). See usePrefersReducedMotion.ts and App.tsx's
+// <MotionConfig>/data-motion wiring for the two halves this flips.
+export function AnimationsSettingSelector({ motionOverride, setMotionOverride, nameSuffix = 'Lobby' }: AnimationsSettingSelectorProps) {
+  const { t } = useTranslation();
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  if (!prefersReducedMotion) return null;
+
+  return (
+    <fieldset className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 bg-white dark:bg-slate-800/50 px-4 py-3 sm:px-6 rounded-xl border border-gray-200 dark:border-slate-600 h-full min-h-[50px] min-w-0 m-0">
+      {/* sr-only legend: names the pair as one group, as the other lobby toggles do. */}
+      <legend className="sr-only">{t('lobby.animationsSetting', 'Animations')}</legend>
+      <label className="radio-wrapper lobby-radio">
+        <input type="radio" name={`animationsSetting${nameSuffix}`} checked={motionOverride === false} onChange={() => setMotionOverride(false)} />
+        <span className="font-medium">{t('lobby.animationsSystem', 'Follow system')}</span>
+      </label>
+      <label className="radio-wrapper lobby-radio">
+        <input type="radio" name={`animationsSetting${nameSuffix}`} checked={motionOverride === true} onChange={() => setMotionOverride(true)} />
+        <span className="font-medium">{t('lobby.animationsOn', 'Always on')}</span>
       </label>
     </fieldset>
   );

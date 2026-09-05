@@ -92,4 +92,25 @@ describe('the stylesheet half of reduced motion', () => {
 
     expect(block).toContain('scroll-behavior');
   });
+
+  // B-motion-override: the Animations lobby setting (LobbyShared.tsx's
+  // AnimationsSettingSelector) sets data-motion="always" on <html> (App.tsx)
+  // when a player wants the animations despite their OS's reduced-motion
+  // request. Every selector in this block must exclude that attribute, or the
+  // override would do nothing for the CSS half of reduced motion (framer-
+  // motion's own MotionConfig is the other half, and reads the store
+  // directly rather than the DOM attribute).
+  it('every selector in the block excludes the data-motion="always" override', () => {
+    const block = css.slice(
+      css.search(/@media\s*\(prefers-reduced-motion:\s*reduce\)/),
+      css.search(/@media\s*\(prefers-reduced-motion:\s*reduce\)/) + 600,
+    );
+    const selectorLine = block.slice(block.indexOf('{') + 1, block.indexOf('{', block.indexOf('{') + 1));
+    const selectors = selectorLine.split(',').map((s) => s.trim()).filter(Boolean);
+
+    expect(selectors.length).toBeGreaterThan(0);
+    selectors.forEach((selector) => {
+      expect(selector).toContain(':root:not([data-motion="always"])');
+    });
+  });
 });

@@ -104,6 +104,13 @@ export interface GameStore extends CoreGameState {
   ruleset: Ruleset;
   audioEnabled: boolean;
   hapticsEnabled: boolean;
+  // Per-device override for a player whose OS asks for reduced motion but
+  // wants the game's animations anyway — see usePrefersReducedMotion.ts and
+  // App.tsx's <MotionConfig>/data-motion wiring. Meaningless (and never
+  // surfaced in the lobby) for a device that isn't asking for reduced motion
+  // in the first place, hence the hook gating the fieldset rather than this
+  // flag alone.
+  motionOverride: boolean;
   randomOrder: boolean;
   turnDuration: number;
   reconnectTimeout: number;
@@ -148,6 +155,7 @@ export interface GameStore extends CoreGameState {
   setDiceMode: (val: DiceMode) => void;
   setAudioEnabled: (val: boolean) => void;
   setHapticsEnabled: (val: boolean) => void;
+  setMotionOverride: (val: boolean) => void;
   updateConfig: (config: Partial<Pick<GameStore, ConfigKeys>>) => void;
   setWinningScore: (val: number) => void;
   setInitialCards: (val: InitialCards) => void;

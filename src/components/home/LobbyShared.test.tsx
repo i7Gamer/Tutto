@@ -11,7 +11,14 @@ vi.mock('framer-motion', async (importOriginal) => ({
 }));
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { StartGameButton, PlayerList, AdvancedOptionsPanel, AdvancedOptionsToggle, HapticsSettingSelector, CustomGameBadge, RulesetSelector, RulesetBadge, DiceModeSelector, DiceModeEnforcedBadge, AudioSettingSelector } from './LobbyShared';
+// Mocked so AnimationsSettingSelector's tests control the OS preference
+// directly instead of stubbing matchMedia — the hook itself is unit-tested on
+// its own (usePrefersReducedMotion.test.ts).
+vi.mock('../../hooks/usePrefersReducedMotion', () => ({
+  usePrefersReducedMotion: vi.fn(() => false),
+}));
+import { StartGameButton, PlayerList, AdvancedOptionsPanel, AdvancedOptionsToggle, HapticsSettingSelector, CustomGameBadge, RulesetSelector, RulesetBadge, DiceModeSelector, DiceModeEnforcedBadge, AudioSettingSelector, AnimationsSettingSelector } from './LobbyShared';
+import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 import { useGameStore } from '../../store/useGameStore';
 import type { GameStore } from '../../store/useGameStore';
 import { VALID_CARD_TYPES } from '../../utils/configValidation';
@@ -665,6 +672,67 @@ describe('HapticsSettingSelector', () => {
     const { container } = render(<HapticsSettingSelector hapticsEnabled={true} setHapticsEnabled={vi.fn()} />);
 
     expect(container.firstChild).toBeNull();
+  });
+});
+
+describe('AnimationsSettingSelector', () => {
+  afterEach(() => {
+    vi.mocked(usePrefersReducedMotion).mockReturnValue(false);
+  });
+
+  it('renders nothing when the OS does not ask for reduced motion', () => {
+    vi.mocked(usePrefersReducedMotion).mockReturnValue(false);
+
+    const { container } = render(<AnimationsSettingSelector motionOverride={false} setMotionOverride={vi.fn()} />);
+
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('renders the toggle when the OS asks for reduced motion', () => {
+    vi.mocked(usePrefersReducedMotion).mockReturnValue(true);
+
+    render(<AnimationsSettingSelector motionOverride={false} setMotionOverride={vi.fn()} />);
+
+    expect(screen.getByText('lobby.animationsSystem')).toBeInTheDocument();
+    expect(screen.getByText('lobby.animationsOn')).toBeInTheDocument();
+  });
+
+  it('exposes itself as a named group', () => {
+    vi.mocked(usePrefersReducedMotion).mockReturnValue(true);
+
+    render(<AnimationsSettingSelector motionOverride={false} setMotionOverride={vi.fn()} />);
+
+    expect(screen.getByRole('group', { name: 'lobby.animationsSetting' })).toBeInTheDocument();
+  });
+
+  it('checks "Follow system" when motionOverride is false, and "Always on" when true', () => {
+    vi.mocked(usePrefersReducedMotion).mockReturnValue(true);
+
+    const { rerender } = render(<AnimationsSettingSelector motionOverride={false} setMotionOverride={vi.fn()} nameSuffix="Test" />);
+    expect(screen.getByText('lobby.animationsSystem').previousSibling).toHaveProperty('checked', true);
+    expect(screen.getByText('lobby.animationsOn').previousSibling).toHaveProperty('checked', false);
+
+    rerender(<AnimationsSettingSelector motionOverride={true} setMotionOverride={vi.fn()} nameSuffix="Test" />);
+    expect(screen.getByText('lobby.animationsSystem').previousSibling).toHaveProperty('checked', false);
+    expect(screen.getByText('lobby.animationsOn').previousSibling).toHaveProperty('checked', true);
+  });
+
+  it('calls setMotionOverride(true)/(false) when the radios are clicked', () => {
+    vi.mocked(usePrefersReducedMotion).mockReturnValue(true);
+    const setMotionOverride = vi.fn();
+
+    const { rerender } = render(<AnimationsSettingSelector motionOverride={false} setMotionOverride={setMotionOverride} nameSuffix="Test" />);
+
+    fireEvent.click(screen.getByText('lobby.animationsOn'));
+    expect(setMotionOverride).toHaveBeenCalledWith(true);
+
+    // Rerender with the store's new value, as a real parent would after the
+    // setter above runs — clicking an already-checked radio a second time
+    // fires no onChange, same as DiceModeSelector's own toggle test.
+    rerender(<AnimationsSettingSelector motionOverride={true} setMotionOverride={setMotionOverride} nameSuffix="Test" />);
+
+    fireEvent.click(screen.getByText('lobby.animationsSystem'));
+    expect(setMotionOverride).toHaveBeenCalledWith(false);
   });
 });
 

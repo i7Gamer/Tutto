@@ -8,7 +8,7 @@ import { getSocket } from './socketRef';
 import type { GameStore, ImmerStateCreator } from './storeTypes';
 
 type ConfigSlice = Pick<GameStore,
-  | 'setDiceMode' | 'setAudioEnabled' | 'setHapticsEnabled'
+  | 'setDiceMode' | 'setAudioEnabled' | 'setHapticsEnabled' | 'setMotionOverride'
   | 'updateConfig' | 'setWinningScore' | 'setInitialCards' | 'setRandomOrder'
   | 'setTurnDuration' | 'setReconnectTimeout' | 'setEnforcedDiceMode' | 'setRuleset'
   | 'resetGeneralSettings' | 'resetInitialCards'
@@ -36,6 +36,11 @@ export const createConfigSlice: ImmerStateCreator<ConfigSlice> = (set, get) => (
   setHapticsEnabled: (val) => {
     set({ hapticsEnabled: val });
     localStore.write('tutto_hapticsEnabled', String(val));
+  },
+
+  setMotionOverride: (val) => {
+    set({ motionOverride: val });
+    localStore.write('tutto_motionOverride', String(val));
   },
 
   updateConfig: (config) => {

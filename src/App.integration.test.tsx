@@ -5,9 +5,22 @@ import type { ReactNode } from 'react';
 // once real timers return), so a dismissed dialog's exit animation (ModalShell)
 // would never finish and the panel never leave the DOM. Nothing here asserts on
 // the animation itself — ModalShell.motion.test does.
+// Captured rather than asserted on directly inside the mock factory: vi.mock
+// factories run before the rest of this module's top-level code, so a plain
+// module-scope `let` here would be reassigned by a later import-order quirk.
+// vi.hoisted keeps it a stable reference the tests below can read after
+// render(<App />) — the same shape FAST_TIMINGS uses further down.
+const capturedMotionConfig = vi.hoisted(() => ({ reducedMotion: undefined as string | undefined }));
 vi.mock('framer-motion', async (importOriginal) => ({
   ...(await importOriginal<typeof import('framer-motion')>()),
   AnimatePresence: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  // Records the reducedMotion prop App.tsx passes down instead of rendering
+  // framer-motion's real MotionConfig (a context provider with no DOM
+  // footprint of its own) — there is nothing else here to assert on.
+  MotionConfig: ({ children, reducedMotion }: { children?: ReactNode; reducedMotion?: string }) => {
+    capturedMotionConfig.reducedMotion = reducedMotion;
+    return <>{children}</>;
+  },
 }));
 import userEvent from '@testing-library/user-event';
 import { vi, describe, it, expect, beforeEach, beforeAll, afterEach, type Mock } from 'vitest';
@@ -1243,6 +1256,33 @@ describe('App Integration (End-to-End)', () => {
       render(<App />);
 
       expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    });
+  });
+
+  // The per-device Animations override (LobbyShared.tsx's AnimationsSettingSelector,
+  // motionOverride in the store): a player who wants their OS's reduced-motion
+  // setting overridden flips it on, and both halves that honour "user" motion
+  // preference — framer-motion's own MotionConfig and the CSS block in
+  // index.css gated on data-motion — must follow it.
+  describe('honouring the per-device Animations override', () => {
+    afterEach(() => {
+      document.documentElement.removeAttribute('data-motion');
+    });
+
+    it('passes reducedMotion="user" and carries no data-motion attribute by default', () => {
+      render(<App />);
+
+      expect(capturedMotionConfig.reducedMotion).toBe('user');
+      expect(document.documentElement.hasAttribute('data-motion')).toBe(false);
+    });
+
+    it('passes reducedMotion="never" and sets data-motion="always" when the override is on', () => {
+      useGameStore.setState({ motionOverride: true });
+
+      render(<App />);
+
+      expect(capturedMotionConfig.reducedMotion).toBe('never');
+      expect(document.documentElement.getAttribute('data-motion')).toBe('always');
     });
   });
 
