@@ -102,7 +102,7 @@ export function PlayerList({
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className={`flex items-center justify-between p-3 border-b border-gray-100 dark:border-slate-700 last:border-0 hover:bg-indigo-50 dark:hover:bg-slate-700/60 transition-colors ${isOnline && isMe ? 'bg-indigo-50/50' : ''}`}
+                  className={`flex items-center justify-between p-3 border-b border-gray-100 dark:border-slate-700 last:border-0 hover:bg-indigo-50 dark:hover:bg-slate-700/60 transition-colors ${isOnline && isMe ? 'bg-indigo-50/50 dark:bg-indigo-900/30' : ''}`}
                 >
                   <div className="player-name font-semibold flex items-center gap-2" style={readableNameVars(p.color)}>
                     {isMe ? (

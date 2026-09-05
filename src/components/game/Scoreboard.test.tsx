@@ -142,6 +142,47 @@ describe('Scoreboard Component', () => {
       expect(screen.getByText('game.leader')).toBeInTheDocument();
     });
 
+    // The leader badge used to be a SECOND 👑, indistinguishable from the host
+    // crown — a host who also led showed two crowns, and a leading non-host
+    // showed one crown that players read as "host". It is now a trophy, so
+    // only an actual host ever shows a crown.
+    it('shows a trophy (not a second crown) for a leading player who is not the host', () => {
+      const game = makeScoreboardGame({
+        players: [
+          makePlayer({ name: 'Leader', score: 500, socketId: 'a' }),
+          makePlayer({ name: 'Player 1', score: 100, socketId: 'b' }),
+        ],
+        currentPlayerIndex: 0,
+        myName: 'Leader',
+        hostId: 'b',
+      });
+      render(<Scoreboard game={game} formattedTime="10:00" />);
+      expect(screen.getByTitle('game.leader')).toHaveTextContent('🏆');
+      expect(screen.queryByTitle('game.host')).not.toBeInTheDocument();
+      expect(screen.queryByText('👑')).not.toBeInTheDocument();
+    });
+
+    it('shows exactly one crown (host) and one trophy (leader) for a player who is both', () => {
+      const game = makeScoreboardGame({
+        players: [
+          makePlayer({ name: 'HostLeader', score: 500, socketId: 'a' }),
+          makePlayer({ name: 'Player 1', score: 100, socketId: 'b' }),
+        ],
+        currentPlayerIndex: 0,
+        myName: 'HostLeader',
+        hostId: 'a',
+      });
+      render(<Scoreboard game={game} formattedTime="10:00" />);
+
+      const crown = screen.getByTitle('game.host');
+      expect(crown).toHaveTextContent('👑');
+      const trophy = screen.getByTitle('game.leader');
+      expect(trophy).toHaveTextContent('🏆');
+      // Exactly one of each — a second 👑 for the leader badge would fail this.
+      expect(screen.getAllByText('👑')).toHaveLength(1);
+      expect(screen.getAllByText('🏆')).toHaveLength(1);
+    });
+
     it('does not show "game.leader" when the current player is behind', () => {
       const game = makeScoreboardGame({
         players: [

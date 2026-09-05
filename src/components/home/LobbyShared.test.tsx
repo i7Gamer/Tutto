@@ -934,6 +934,40 @@ describe('PlayerList row actions', () => {
   });
 });
 
+describe('PlayerList own-row highlight', () => {
+  // bg-indigo-50/50 alone (no dark variant) rendered as a pale grey wash in
+  // dark mode — the row highlighting the current user needs its own dark
+  // reading, matching the row hover (dark:hover:bg-slate-700/60) and the
+  // current-player row in Leaderboard (dark:bg-indigo-900/30).
+  const three = [
+    { name: 'Alice', color: '#ff0000', socketId: 'host1' },
+    { name: 'Bob', color: '#00ff00', socketId: 'client2' },
+  ];
+
+  it("carries a dark: background utility on the current user's own online row", () => {
+    render(
+      <PlayerList players={three as Player[]} reorderPlayers={vi.fn()} isOnline={true}
+        isHost={true} hostId="host1" myName="Alice" changeColor={vi.fn()} onRemovePlayer={vi.fn()} />
+    );
+
+    const ownRow = screen.getByText('Alice').closest('.border-b') as HTMLElement;
+    expect(ownRow).not.toBeNull();
+    expect(ownRow.className).toMatch(/dark:bg-/);
+  });
+
+  it("does not highlight another player's row", () => {
+    render(
+      <PlayerList players={three as Player[]} reorderPlayers={vi.fn()} isOnline={true}
+        isHost={true} hostId="host1" myName="Alice" changeColor={vi.fn()} onRemovePlayer={vi.fn()} />
+    );
+
+    const otherRow = screen.getByText('Bob').closest('.border-b') as HTMLElement;
+    expect(otherRow).not.toBeNull();
+    expect(otherRow.className).not.toMatch(/dark:bg-/);
+    expect(otherRow.className).not.toMatch(/bg-indigo-50\/50/);
+  });
+});
+
 describe('PlayerList streak bucket', () => {
   afterEach(() => {
     act(() => { useGameStore.setState(pristineStore, true); });

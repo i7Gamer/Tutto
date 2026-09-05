@@ -65,11 +65,14 @@ export default function Scoreboard({ game, formattedTime }: ScoreboardProps) {
             <span className="flex items-center justify-center gap-2 min-w-0 max-w-full">
               {isOnline && game.hostId === currentPlayer.socketId && <span title={t('game.host', 'Host')} className="text-xl leading-none shrink-0">👑</span>}
               {/* The host crown above marks who runs the room; this marks who
-                  is winning right now — the emoji alone said nothing to a
-                  screen reader either way, so both get an sr-only companion. */}
+                  is winning right now. It used to be a second 👑, which a host
+                  who also led rendered TWICE and a leading non-host players
+                  read as "host" — a trophy keeps the two badges visually
+                  distinct. The emoji alone said nothing to a screen reader
+                  either way, so it still gets an sr-only companion. */}
               {isLeader && (
                 <span title={t('game.leader', 'Leader')} className="text-xl leading-none shrink-0">
-                  <span aria-hidden="true">👑</span>
+                  <span aria-hidden="true">🏆</span>
                   <span className="sr-only">{t('game.leader', 'Leader')}</span>
                 </span>
               )}

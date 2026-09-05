@@ -87,7 +87,13 @@ describe('useAutoContinueCountdown', () => {
     expect(onElapsed).toHaveBeenCalledTimes(1);
   });
 
-  it('only starts once and ignores shouldStart toggling back and forth', () => {
+  // shouldStart going false→true→false→true used to latch on the FIRST
+  // start and ignore every later transition — right for the only case that
+  // used to exist (a summary that opens once and stays open), wrong once a
+  // caller (the Stop card) can go through several shouldStart cycles across
+  // its lifetime: the countdown reached 0 once and then sat there forever,
+  // and a later start could not begin a fresh one.
+  it('shouldStart going false clears the countdown to null and stops ticking', () => {
     const onElapsed = vi.fn();
     const { result, rerender } = renderHook(
       ({ shouldStart }) => useAutoContinueCountdown({ shouldStart, onElapsed }),
@@ -95,19 +101,58 @@ describe('useAutoContinueCountdown', () => {
     );
 
     expect(result.current).toBe(3);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(result.current).toBe(2);
 
     rerender({ shouldStart: false });
-    rerender({ shouldStart: true });
+    expect(result.current).toBeNull();
 
-    // Still a single countdown — onElapsed fires exactly once after 3
-    // one-second ticks. Advancing in 1s steps (rather than one 3000ms jump)
-    // because each tick's timer is only scheduled once the previous tick's
-    // state update has actually re-rendered — bulk-advancing skips past that,
-    // which is a fake-timer/effect-scheduling artifact, not how real timers
-    // behave in the browser.
+    // No pending timer survives the stop — it must not resurrect on its own.
+    act(() => vi.advanceTimersByTime(5000));
+    expect(result.current).toBeNull();
+    expect(onElapsed).not.toHaveBeenCalled();
+  });
+
+  it('shouldStart returning true after going false starts a fresh countdown', () => {
+    const onElapsed = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ shouldStart }) => useAutoContinueCountdown({ shouldStart, onElapsed }),
+      { initialProps: { shouldStart: true } }
+    );
+
+    act(() => vi.advanceTimersByTime(1000));
+    act(() => vi.advanceTimersByTime(1000));
+    expect(result.current).toBe(1);
+
+    rerender({ shouldStart: false });
+    expect(result.current).toBeNull();
+
+    rerender({ shouldStart: true });
+    // A fresh countdown, not a resumption of the one that was almost done.
+    expect(result.current).toBe(3);
+
     act(() => vi.advanceTimersByTime(1000));
     act(() => vi.advanceTimersByTime(1000));
     act(() => vi.advanceTimersByTime(1000));
+    expect(onElapsed).toHaveBeenCalledTimes(1);
+  });
+
+  it('after reaching 0 with shouldStart still true, the value stays 0 and onElapsed fires exactly once', () => {
+    // DiceSummary (and the Stop card) must be able to render 0 — see the
+    // comment in the hook about the display needing to actually show 0
+    // before onElapsed commits anything.
+    const onElapsed = vi.fn();
+    const { result } = renderHook(() => useAutoContinueCountdown({ shouldStart: true, onElapsed }));
+
+    act(() => vi.advanceTimersByTime(1000));
+    act(() => vi.advanceTimersByTime(1000));
+    act(() => vi.advanceTimersByTime(1000));
+    expect(result.current).toBe(0);
+    expect(onElapsed).toHaveBeenCalledTimes(1);
+
+    // Nothing further ticks it past 0, and onElapsed does not re-fire.
+    act(() => vi.advanceTimersByTime(5000));
+    expect(result.current).toBe(0);
     expect(onElapsed).toHaveBeenCalledTimes(1);
   });
 

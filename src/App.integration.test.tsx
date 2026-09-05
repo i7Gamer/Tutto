@@ -274,9 +274,11 @@ describe('App Integration (End-to-End)', () => {
       useGameStore.setState({ toasts: [{ id: 1, message: 'Host ended game early' }] });
     });
 
-    const live = screen.getByRole('status');
+    // The reaction announcer (ReactionOverlay) is a status region too, so
+    // find the toast's own region by its message rather than by role alone.
+    const live = screen.getByText('Host ended game early').closest('[role="status"]');
+    expect(live).not.toBeNull();
     expect(live).toHaveAttribute('aria-live', 'polite');
-    expect(live).toHaveTextContent('Host ended game early');
   });
 
   it('lets a long toast wrap instead of overflowing the phone viewport', () => {

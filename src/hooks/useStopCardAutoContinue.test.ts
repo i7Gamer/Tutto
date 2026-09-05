@@ -1,7 +1,8 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useStopCardAutoContinue, type UseStopCardAutoContinueOptions } from './useStopCardAutoContinue';
-import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS } from '../utils/uiTimings';
+import { CARD_FLIP_MS, STOP_CARD_AUTO_CONTINUE_MS, STOP_CARD_AUTO_CONTINUE_SECONDS } from '../utils/uiTimings';
+import { MS_PER_SECOND } from '../utils/time';
 import { playBuzzer } from '../utils/soundEffects';
 import type { CardType } from '../types';
 
@@ -138,6 +139,57 @@ describe('useStopCardAutoContinue', () => {
 
     act(() => vi.advanceTimersByTime(CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS));
     expect(result.current).toBeNull();
+  });
+
+  // The countdown used to latch on the FIRST Stop card and never reset: once
+  // it reached 0 it sat there forever, so a later, unrelated card (Stop or
+  // not) kept showing "Continuing in 0…" with no countdown actually running.
+  it('leaves the countdown null for a NEXT non-Stop card, after a Stop card counted all the way down', () => {
+    const { result, rerender } = renderHook(
+      (props: UseStopCardAutoContinueOptions) => useStopCardAutoContinue(props),
+      { initialProps: base() },
+    );
+
+    act(() => vi.advanceTimersByTime(CARD_FLIP_MS));
+    // One second at a time: each tick's setTimeout is only (re-)scheduled
+    // once the previous tick's state update has actually re-rendered, so a
+    // single bulk advance across the whole countdown skips ticks (see the
+    // same pattern in useAutoContinueCountdown.test.ts).
+    for (let i = 0; i < STOP_CARD_AUTO_CONTINUE_SECONDS; i++) {
+      act(() => vi.advanceTimersByTime(MS_PER_SECOND));
+    }
+    expect(result.current).toBe(0);
+
+    rerender(base({ currentCard: '300', cardsLength: DECK_SIZE - 1 }));
+
+    expect(result.current).toBeNull();
+  });
+
+  it("shows a player who has become the spectator no countdown, even for the other player's Stop", () => {
+    // The bug as played: the active player's Stop counted down, the turn
+    // passed, and "Continuing in 0…" stayed under every later card on BOTH
+    // screens — the now-watching player's countdown was latched at 0 and its
+    // bar re-animated on every deal because the hook only ever set a value,
+    // never cleared one. Once the turn is no longer mine, the countdown is
+    // null and stays null for every card that follows, including a Stop the
+    // other player draws (their countdown, not mine).
+    const { result, rerender } = renderHook(
+      (props: UseStopCardAutoContinueOptions) => useStopCardAutoContinue(props),
+      { initialProps: base() },
+    );
+
+    act(() => vi.advanceTimersByTime(CARD_FLIP_MS));
+    for (let i = 0; i < STOP_CARD_AUTO_CONTINUE_SECONDS; i++) {
+      act(() => vi.advanceTimersByTime(MS_PER_SECOND));
+    }
+    expect(result.current).toBe(0);
+
+    rerender(base({ isMyTurn: false, currentCard: '300', cardsLength: DECK_SIZE - 1 }));
+    expect(result.current).toBeNull();
+
+    rerender(base({ isMyTurn: false, currentCard: STOP, cardsLength: DECK_SIZE - 2 }));
+    act(() => vi.advanceTimersByTime(CARD_FLIP_MS + MS_PER_SECOND));
+    expect(result.current, "the other player's Stop is theirs to count down").toBeNull();
   });
 
   it('cancels both timers when the card leaves before they fire', () => {

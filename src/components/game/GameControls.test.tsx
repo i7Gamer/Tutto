@@ -430,7 +430,13 @@ describe('GameControls spectator view when the active player rolls physical dice
       expect(container.querySelector('.animate-spin')).not.toBeNull();
     });
 
-    it('shows the physical-dice notice once the grace period elapses', () => {
+    // An unenforced room's grace period only means "no live dice snapshot has
+    // shown up yet" — that is equally true of a digital player who has not
+    // opened the dice panel, so claiming they are "rolling real dice" here
+    // would assert something nobody actually knows. A neutral notice replaces
+    // it once the grace elapses in an unenforced room; only an ENFORCED
+    // physical room (tested below) still earns the specific claim.
+    it('shows a neutral turn-in-progress notice (not the physical-dice claim) once the grace period elapses', () => {
       setStore({
         isOnline: true, isHost: false, liveTurnState: null, enforcedDiceMode: null,
         currentPlayerIndex: 0, round: 1,
@@ -440,11 +446,12 @@ describe('GameControls spectator view when the active player rolls physical dice
 
       act(() => { vi.advanceTimersByTime(SPECTATOR_LIVE_STATE_GRACE_MS); });
 
-      expect(screen.getByText('game.physicalTurnNotice')).toBeInTheDocument();
+      expect(screen.getByText('game.turnInProgressNotice')).toBeInTheDocument();
+      expect(screen.queryByText('game.physicalTurnNotice')).toBeNull();
       expect(screen.queryByText('game.controls.waiting')).toBeNull();
     });
 
-    it('cancels the wait once live turn state arrives, showing the mirrored view instead of the notice', () => {
+    it('cancels the wait once live turn state arrives, showing the mirrored view instead of either notice', () => {
       setStore({
         isOnline: true, isHost: false, liveTurnState: null, enforcedDiceMode: null,
         currentPlayerIndex: 0, round: 1,
@@ -459,6 +466,7 @@ describe('GameControls spectator view when the active player rolls physical dice
       act(() => { vi.advanceTimersByTime(1000); });
 
       expect(screen.queryByText('game.physicalTurnNotice')).toBeNull();
+      expect(screen.queryByText('game.turnInProgressNotice')).toBeNull();
       expect(screen.getByText('250')).toBeInTheDocument();
     });
 
@@ -474,16 +482,16 @@ describe('GameControls spectator view when the active player rolls physical dice
       renderAsSpectator();
 
       act(() => { vi.advanceTimersByTime(SPECTATOR_LIVE_STATE_GRACE_MS - 500); });
-      expect(screen.queryByText('game.physicalTurnNotice')).toBeNull();
+      expect(screen.queryByText('game.turnInProgressNotice')).toBeNull();
 
       // The turn moves on to a new player before the old grace period ran out.
       act(() => { useGameStore.setState({ currentPlayerIndex: 1 }); });
 
       act(() => { vi.advanceTimersByTime(500); });
-      expect(screen.queryByText('game.physicalTurnNotice'), 'the new turn only just started waiting').toBeNull();
+      expect(screen.queryByText('game.turnInProgressNotice'), 'the new turn only just started waiting').toBeNull();
 
       act(() => { vi.advanceTimersByTime(SPECTATOR_LIVE_STATE_GRACE_MS - 500); });
-      expect(screen.getByText('game.physicalTurnNotice')).toBeInTheDocument();
+      expect(screen.getByText('game.turnInProgressNotice')).toBeInTheDocument();
     });
   });
 

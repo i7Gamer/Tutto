@@ -40,7 +40,22 @@ export function useAutoContinueCountdown({ shouldStart, onElapsed, restartKey, s
   useEffect(() => { onElapsedRef.current = onElapsed; }, [onElapsed]);
 
   useEffect(() => {
-    if (!shouldStart || startedForRef.current === restartKey) return;
+    if (!shouldStart) {
+      // Reset the latch too, not just the visible value: without this, a
+      // LATER shouldStart with the same restartKey (e.g. a second armed
+      // Stop card at the same cardsLength) would be silently ignored as
+      // "already started for this key", and a caller whose restartKey never
+      // changes (DiceSummary's default, undefined) could never restart at
+      // all once shouldStart had gone false and come back. Guarded the same
+      // way the start branch below guards its own setState: only touch state
+      // the first time this effect sees shouldStart false, not on every
+      // render where it happens to still be false.
+      if (startedForRef.current === NOT_STARTED) return;
+      startedForRef.current = NOT_STARTED;
+      setCountdown(null);
+      return;
+    }
+    if (startedForRef.current === restartKey) return;
     startedForRef.current = restartKey;
     setCountdown(seconds);
   }, [shouldStart, restartKey, seconds]);

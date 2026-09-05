@@ -466,17 +466,23 @@ export default function GameControls({
                 </div>
               ) : isOnline && (enforcedDiceMode === 'physical' || spectatorGraceElapsed) ? (
                 // Physical dice push no liveTurnState. In an enforced-physical
-                // room that is permanent, so the notice below shows at once;
-                // in an unenforced room it may just be an ordinary wait for
-                // the active player's first roll, so it only shows once
-                // useSpectatorGrace's grace period runs out with still
-                // nothing (see the comment on waitingOnUnenforcedLiveState
-                // above). A static notice either way, with the room's own
-                // turn countdown (Scoreboard shows it too, but not next to
-                // this message) when a turn timer is running.
+                // room that is permanent, so the specific "rolling real dice"
+                // notice below shows at once and is actually true. In an
+                // UNENFORCED room the grace elapsing only means "no live dice
+                // snapshot has shown up yet" — which looks identical to a
+                // digital player who simply hasn't opened the dice panel, so
+                // claiming they are rolling real dice would assert something
+                // nobody actually knows. That room gets a neutral notice
+                // instead (see the comment on waitingOnUnenforcedLiveState
+                // above for the grace period itself). A static notice either
+                // way, with the room's own turn countdown (Scoreboard shows
+                // it too, but not next to this message) when a turn timer is
+                // running.
                 <div className="w-full">
                   <h4 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">
-                    {t('game.physicalTurnNotice', '{{name}} is rolling real dice', { name: currentPlayer?.name ?? '' })}
+                    {enforcedDiceMode === 'physical'
+                      ? t('game.physicalTurnNotice', '{{name}} is rolling real dice', { name: currentPlayer?.name ?? '' })
+                      : t('game.turnInProgressNotice', '{{name}} is taking their turn…', { name: currentPlayer?.name ?? '' })}
                   </h4>
                   {turnTimeRemaining !== null && turnTimeRemaining !== undefined && (
                     <p className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
