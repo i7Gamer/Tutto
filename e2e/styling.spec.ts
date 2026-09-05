@@ -27,6 +27,9 @@ import { seedLocalDeck, startLocalGame, joinOnlineRoomPair } from './helpers';
 // busted, and closed on its own before anything selectable appeared.
 const OPENING_ROLL_ATTEMPTS = 3;
 const OPENING_ROLL_TIMEOUT_MS = 15000;
+// Longer than framer-motion's default hover tween, so a scale that should no
+// longer exist would have fully landed before a measurement (B6).
+const HOVER_SETTLE_MS = 400;
 const rollUntil = async (page: Page, ready: Locator): Promise<void> => {
   const bust = page.getByText(/Bust!/i);
   const rollDice = page.getByRole('button', { name: /Roll Dice/i });
@@ -1235,9 +1238,10 @@ test.describe('Statistics tabs stay a single scrollable row on phones (C69.2)', 
   // Statistics.tsx now centers every row via auto margins on its first/last
   // pill instead, which (unlike turning on `justify-center` unconditionally)
   // degrades to a flush, fully-scrollable start once a row genuinely
-  // overflows rather than clipping its own left end. A row that FITS lands
-  // within 2px of true center; a row that OVERFLOWS starts at (or after) that
-  // same centered offset, since it can only ever sit at its natural start.
+  // overflows rather than clipping its own left end. Measured from the pills'
+  // boxes, not from scrollWidth: for a row that fits, the auto margins are
+  // part of the scrollable content, so scrollWidth equals the row width and
+  // says nothing about where the pills sit.
   test('each tablist that fits is centered, and none clips its own start (B10a)', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto('/');
@@ -1251,50 +1255,60 @@ test.describe('Statistics tabs stay a single scrollable row on phones (C69.2)', 
     for (let i = 0; i < count; i++) {
       const tablist = tablists.nth(i);
       const rowBox = (await tablist.boundingBox())!;
-      const contentWidth = await tablist.evaluate((el) => el.scrollWidth);
       const firstPillBox = (await tablist.getByRole('tab').first().boundingBox())!;
+      const lastPillBox = (await tablist.getByRole('tab').last().boundingBox())!;
+      const overflows = await tablist.evaluate((el) => el.scrollWidth > el.clientWidth + 1);
 
-      const centeredOffset = (rowBox.width - contentWidth) / 2;
-      const actualOffset = firstPillBox.x - rowBox.x;
+      const leftGap = firstPillBox.x - rowBox.x;
+      const rightGap = rowBox.x + rowBox.width - (lastPillBox.x + lastPillBox.width);
 
-      // Never starts to the left of where centering would put it — the one
-      // way that could happen is `justify-center` clipping an overflowing
-      // row's start, which is exactly what B10a fixed.
-      expect(actualOffset).toBeGreaterThanOrEqual(centeredOffset - 2);
-      // And when the row actually fits, it lands ON that centered offset.
-      if (contentWidth <= rowBox.width + 1) {
-        expect(Math.abs(actualOffset - centeredOffset)).toBeLessThanOrEqual(2);
+      // Never starts to the left of the row's own edge — the one way that
+      // could happen is `justify-center` clipping an overflowing row's start,
+      // which is exactly what B10a fixed.
+      expect(leftGap, `tablist ${i} clips its start`).toBeGreaterThanOrEqual(-1);
+      // And when the row actually fits, it sits in the middle.
+      if (!overflows) {
+        expect(Math.abs(leftGap - rightGap), `tablist ${i} is off-centre`).toBeLessThanOrEqual(2);
       }
     }
   });
 
-  // B6 — whileHover on these pills used to leave a tapped one "hovered" (and
-  // so scaled 1.05×) on a touch device, and since each row is flex-nowrap
-  // overflow-x-auto, the scaled pill widened the row's own scrollable content
-  // enough to grow a scrollbar under a row that never needed one. Switching
-  // rulesets and then modes each land on a freshly-selected pill, the case
-  // that used to stick.
+  // B6 — whileHover on these pills scaled a hovered one 1.05×, and since each
+  // row is flex-nowrap overflow-x-auto, a transformed pill at the row's end
+  // extends the row's scrollable overflow enough to grow a scrollbar under a
+  // row that fits. Reported on a desktop while switching rulesets and modes
+  // with the mouse, so this hovers the way that report did: desktop width,
+  // pointer parked on the pill just switched to. (Rows may legitimately
+  // scroll at phone width — that is C69.2's job above, not this test's.)
   test('switching ruleset and mode pills leaves no scrollbar behind (B6)', async ({ page }) => {
-    await page.setViewportSize({ width: 375, height: 812 });
+    await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/');
     await page.getByRole('button', { name: 'View Statistics' }).click();
     await expect(page.getByTestId('statistics-page')).toBeVisible();
 
-    await page.getByRole('tab', { name: 'Classic' }).click();
-    await page.getByRole('tab', { name: 'Custom' }).click();
-
     const tablists = page.getByRole('tablist');
     await expect(tablists).toHaveCount(3);
 
-    const count = await tablists.count();
-    for (let i = 0; i < count; i++) {
-      const tablist = tablists.nth(i);
-      const { scrollWidth, clientWidth } = await tablist.evaluate((el) => ({
-        scrollWidth: el.scrollWidth,
-        clientWidth: el.clientWidth,
-      }));
+    const expectNoOverflow = async () => {
+      const count = await tablists.count();
+      for (let i = 0; i < count; i++) {
+        const { scrollWidth, clientWidth } = await tablists.nth(i).evaluate((el) => ({
+          scrollWidth: el.scrollWidth,
+          clientWidth: el.clientWidth,
+        }));
+        expect(scrollWidth, `tablist ${i} grew a scrollbar`).toBeLessThanOrEqual(clientWidth + 1);
+      }
+    };
 
-      expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
+    for (const name of ['Classic', 'Custom', 'Modernized', 'Normal']) {
+      const pill = page.getByRole('tab', { name, exact: true });
+      await pill.hover();
+      await pill.click();
+      await expect(pill).toHaveAttribute('aria-selected', 'true');
+      // A hover scale would be a ~200ms tween; give it time to have landed
+      // before measuring, so a regression cannot slip through mid-animation.
+      await page.waitForTimeout(HOVER_SETTLE_MS);
+      await expectNoOverflow();
     }
   });
 });
