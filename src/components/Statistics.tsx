@@ -448,7 +448,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
 
   return (
     <PageContainer testId="statistics-page" className="pt-8 items-center">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full bg-white dark:bg-slate-800/80 sm:backdrop-blur-xl border border-white/40 shadow-2xl rounded-3xl p-4 sm:p-8 relative overflow-hidden">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full bg-white dark:bg-slate-800/80 sm:backdrop-blur-xl border border-white/40 shadow-2xl rounded-3xl px-4 pb-4 pt-8 sm:p-8 relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-2 bg-linear-to-r from-indigo-500 via-purple-500 to-pink-500" />
         <div className="flex items-center mb-8 relative justify-center">
           <button className="absolute left-0 p-3 bg-white dark:bg-slate-800 hover:bg-black/5 border border-gray-200 dark:border-slate-600 rounded-xl text-gray-600 dark:text-gray-300 transition-colors shadow-xs" onClick={onBack} aria-label={t('common.back', 'Back')}>

@@ -110,7 +110,7 @@
   "game.confirmBustNo": "No, keep entering",
   "game.currentPlayer": "Current Player",
   "game.host": "Host",
-  "game.you": "You ({{name}})",
+  "game.you": "You",
   "game.winStreakTitle": "On a 🔥 {{streak}}-game win streak!",
   "game.aborted": "Game Aborted (Not Enough Players)",
   "game.disconnected": "Disconnected",

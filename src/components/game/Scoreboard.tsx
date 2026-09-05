@@ -82,7 +82,7 @@ function Scoreboard({ game, formattedTime }: ScoreboardProps) {
                 </span>
               )}
               <span className="truncate min-w-0">
-                {isOnline && isMyTurn ? t('game.you', 'You ({{name}})', { name: currentPlayer.name }) : currentPlayer.name}
+                {isOnline && isMyTurn ? t('game.you', 'You') : currentPlayer.name}
               </span>
             </span>
             {currentPlayer.disconnected && <span className="text-red-500 text-[10px] md:text-xs font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50 leading-tight">{t('game.disconnected', 'Disconnected')}</span>}

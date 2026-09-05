@@ -211,11 +211,12 @@ test.describe('Online classic chain', () => {
     // Same reason as the radio check above: a first turn that went to the
     // host (a lost reorder, a random start) would also read as a missing
     // draw button. The tile's label and value are siblings, and the value
-    // reads "You (BobGuest)" on the guest's own page.
+    // reads plain "You" on the guest's own page (the host's name when it is
+    // the host's turn).
     await expect(
       pageB.getByText('Current Player', { exact: true }).locator('xpath=following-sibling::div[1]'),
       'the guest does not hold the first turn',
-    ).toContainText('BobGuest');
+    ).toContainText('You');
 
     // Fixed roles: the guest holds the turn and draws; the host spectates.
     // (A NON-host pushing the deck change is also the stronger direction of

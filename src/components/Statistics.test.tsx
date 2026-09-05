@@ -40,6 +40,16 @@ describe('Statistics Component', () => {
   });
 
 
+  // The card dropped to p-4 on phones to let the tab rows fit, which also
+  // pulled the heading up under the card's edge; the top keeps the desktop gap.
+  it('keeps the desktop gap above its heading on a phone', () => {
+    global.fetch = vi.fn(() => new Promise<Response>(() => {}));
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    const card = screen.getByTestId('statistics-page').firstElementChild as HTMLElement;
+    expect(card.className).toMatch(/\bpt-8\b/);
+    expect(card.className).not.toMatch(/\bp-4\b/);
+  });
+
   it('renders loading state initially', () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {})); // Never resolves
     render(<Statistics deviceId="test-device" onBack={vi.fn()} />);

@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import Scoreboard from './Scoreboard';
 import type { GameStore } from '../../store/useGameStore';
 import { contrastRatio, LIGHT_SURFACE, DARK_SURFACE, NAME_CONTRAST_TARGET } from '../../utils/contrastColor';
@@ -62,6 +64,16 @@ describe('Scoreboard Component', () => {
     expect(screen.getByText('game.turnTimer')).toBeInTheDocument();
     expect(screen.getAllByText('game.timeSeconds').length).toBe(1);
     expect(screen.getByText('game.time')).toBeInTheDocument();
+  });
+
+  // "You (Host)" told a player their own name; the tile reads "You". The
+  // i18n mock returns bare keys, so the wording itself is pinned on the
+  // locale files: neither language interpolates a name any more.
+  it('calls the current player plain "You" on their own device, in both languages', () => {
+    for (const lang of ['en', 'de']) {
+      const messages = JSON.parse(readFileSync(join(__dirname, '../../locales', lang, 'translation.json'), 'utf8'));
+      expect(messages['game.you'], lang).not.toMatch(/{{/);
+    }
   });
 
   it('renders translation keys when disconnected', () => {

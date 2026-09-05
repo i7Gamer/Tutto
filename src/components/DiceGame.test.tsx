@@ -137,6 +137,18 @@ const pressDrawKey = async () => {
 const FAKE_FLUSH_MS = 5;
 const flushRollFake = () => act(() => { vi.advanceTimersByTime(FAKE_FLUSH_MS); });
 
+describe('DiceGame panel surface', () => {
+  // The dark-theme panel was 95% opaque, so the game screen and the dimmed
+  // backdrop showed through it while the dice tumbled. Both themes are solid.
+  it('is fully opaque in both themes', () => {
+    const { container } = render(<DiceGame currentCard="300" onComplete={vi.fn()} />);
+    const panel = container.firstElementChild as HTMLElement;
+    expect(panel.className).toMatch(/\bbg-white\b/);
+    expect(panel.className).toMatch(/\bdark:bg-slate-800\b/);
+    expect(panel.className).not.toMatch(/bg-slate-800\/\d+/);
+  });
+});
+
 describe('DiceGame State Restoration Logic', () => {
   beforeEach(() => {
     localStorage.clear();
