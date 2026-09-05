@@ -202,7 +202,7 @@ export default function GameControls({
   };
 
   return (
-    <div className="flex flex-col bg-(--card-bg) backdrop-blur-sm border border-white/40 rounded-3xl p-4 md:p-6 shadow-xl relative overflow-hidden h-full w-full min-h-[360px] md:min-h-[400px]">
+    <div className="flex flex-col bg-(--card-bg) sm:backdrop-blur-sm border border-white/40 rounded-3xl p-4 md:p-6 shadow-xl relative overflow-hidden h-full w-full min-h-[360px] md:min-h-[400px]">
       <div className="flex-1 flex flex-col justify-center items-center w-full min-h-[220px]">
         <AnimatePresence mode="wait">
           {isMyTurn && !isStopCard && !isFlipping && (

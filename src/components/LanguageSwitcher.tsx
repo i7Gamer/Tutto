@@ -5,7 +5,7 @@ export default function LanguageSwitcher() {
   const currentLanguage = i18n.language || 'en';
 
   return (
-    <div className="flex gap-2 bg-black/5 dark:bg-white/5 p-1 rounded-lg backdrop-blur-sm border border-gray-200 dark:border-slate-600">
+    <div className="flex gap-2 bg-black/5 dark:bg-white/5 p-1 rounded-lg sm:backdrop-blur-sm border border-gray-200 dark:border-slate-600">
       {/* min-h-11 min-w-11 grow the tap target to the 44px WCAG minimum
           (MIN_TAP_TARGET_PX, e2e/styling.spec.ts) — these were ~28px tall.
           -my-2 gives the added height back as negative margin so this

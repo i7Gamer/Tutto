@@ -8,7 +8,7 @@
    classes of equal specificity, so order is what decides them. */
 
 .modal-backdrop {
-  @apply fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4;
+  @apply fixed inset-0 z-[200] bg-black/60 sm:backdrop-blur-sm flex items-center justify-center p-4;
 }
 
 /* For a panel large enough that the backdrop's own padding shows. */

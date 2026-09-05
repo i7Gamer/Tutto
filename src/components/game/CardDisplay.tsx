@@ -27,7 +27,7 @@ export default function CardDisplay({ currentCard, cards, stopCardCountdown = nu
     <div
       role="status"
       aria-live="polite"
-      className="flex flex-col items-center justify-center p-2 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm border border-white/40 rounded-3xl shadow-xl relative overflow-hidden h-full w-full min-h-[300px] md:min-h-[340px]"
+      className="flex flex-col items-center justify-center p-2 bg-white/60 dark:bg-slate-800/60 sm:backdrop-blur-sm border border-white/40 rounded-3xl shadow-xl relative overflow-hidden h-full w-full min-h-[300px] md:min-h-[340px]"
     >
       <div className="relative w-[200px] md:w-[220px] lg:w-[240px] h-[280px] md:h-[308px] lg:h-[336px] perspective-[1000px]">
         <AnimatePresence mode="wait">

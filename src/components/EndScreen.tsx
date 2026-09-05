@@ -222,7 +222,7 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
 
   return (
     <PageContainer testId="end-screen-page" className="pt-4 sm:pt-8 gap-4 sm:gap-8">
-      <motion.div initial={{ opacity: 0, y: 20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-2xl rounded-3xl p-6 sm:p-10 text-center">
+      <motion.div initial={{ opacity: 0, y: 20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} className="bg-white dark:bg-slate-800/80 sm:backdrop-blur-xl border border-white/40 shadow-2xl rounded-3xl p-6 sm:p-10 text-center">
         <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10, stiffness: 100, delay: 0.2 }} className="flex justify-center mb-6">
           <div className="bg-amber-100 p-6 rounded-full shadow-lg border-4 border-amber-300">
             <Trophy size={64} className="text-amber-500" />
@@ -289,7 +289,7 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
       </motion.div>
 
       {hasNewRecord && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-6 sm:p-8">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white dark:bg-slate-800/80 sm:backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-6 sm:p-8">
           <h3 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100 text-center mb-6">{t('end.newRecordsTitle', 'New Personal Records!')}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 max-w-2xl mx-auto">
             {newHighScore && (
@@ -360,7 +360,7 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
       )}
 
       {deviceStats && deviceStats.gamesPlayed > 0 && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-6 sm:p-8">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white dark:bg-slate-800/80 sm:backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-6 sm:p-8">
           <h3 className={`text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100 text-center ${isCustomGame ? 'mb-2' : 'mb-6 sm:mb-8'}`}>{t('end.lifetimeStats', 'Your Lifetime Statistics')}</h3>
           {/* The numbers below are the custom bucket's, not the player's
               record — saying so is what keeps them from being read as one. */}
@@ -406,7 +406,7 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
         </motion.div>
       )}
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8 overflow-hidden">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="bg-white dark:bg-slate-800/80 sm:backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8 overflow-hidden">
         <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">{t('end.gameStats', 'Game Statistics')}</h3>
         <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-slate-600">
           <div className="flex flex-col rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 min-w-max">
@@ -455,7 +455,7 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
       </motion.div>
 
       {chartSnapshot.chartLabels && chartSnapshot.chartLabels.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }} className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8 h-[400px]">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }} className="bg-white dark:bg-slate-800/80 sm:backdrop-blur-xl border border-white/40 shadow-xl rounded-3xl p-8 h-[400px]">
           <Line data={chartData} options={chartOptions} />
         </motion.div>
       )}

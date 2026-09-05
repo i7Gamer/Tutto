@@ -101,7 +101,7 @@ export default function Home({ onShowStats }: HomeProps) {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 rounded-3xl p-4 sm:p-6 md:p-8 shadow-2xl relative overflow-hidden flex flex-col"
+        className="bg-white dark:bg-slate-800/80 sm:backdrop-blur-xl border border-white/40 rounded-3xl p-4 sm:p-6 md:p-8 shadow-2xl relative overflow-hidden flex flex-col"
       >
         <div className="absolute top-0 left-0 w-full h-2 bg-linear-to-r from-indigo-500 via-purple-500 to-pink-500" />
 
