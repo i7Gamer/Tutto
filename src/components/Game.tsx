@@ -1,4 +1,5 @@
 import { getDisplayCardName } from '../utils/cardVisuals';
+import PageContainer from './PageContainer';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../store/useGameStore';
@@ -539,7 +540,7 @@ export default function Game() {
     : null;
 
   return (
-    <div className="container mx-auto px-2 md:px-4 pt-2 md:pt-4 pb-20 max-w-3xl flex flex-col gap-2 md:gap-4">
+    <PageContainer className="pt-2 md:pt-4 gap-2 md:gap-4">
       <Scoreboard game={game} formattedTime={formattedTime} />
 
       {/* overflow-x-clip: the two columns below slide in from +-20px
@@ -659,6 +660,6 @@ export default function Game() {
         onCancel={cancelBust}
         onConfirm={confirmBust}
       />
-    </div>
+    </PageContainer>
   );
 }

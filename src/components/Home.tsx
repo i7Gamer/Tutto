@@ -11,6 +11,7 @@ import ModeSelector from './home/ModeSelector';
 import LocalLobby from './home/LocalLobby';
 import OnlineLobby from './home/OnlineLobby';
 import ConfirmModal from './ConfirmModal';
+import PageContainer from './PageContainer';
 import { clearTurnCaches } from '../utils/diceTurnState';
 
 interface HomeProps {
@@ -94,20 +95,13 @@ export default function Home({ onShowStats }: HomeProps) {
   }, []);
 
   return (
-    // pb-20 mirrors Game.tsx's own bottom padding — without it, this page's
-    // content can sit directly behind the fixed Help button (bottom-6 left-6)
-    // and theme/language toggles (bottom-4 right-4) instead of clearing them.
-    // max-w-4xl (up from max-w-3xl): at the lg: breakpoint the advanced-options
-    // grids switch to 3/4 columns (LobbyShared.tsx) — at max-w-3xl those columns
-    // were too narrow for their own labels ("Winning Score", "Kick Timer (s)",
-    // longer card names like "Plus/Minus"), which get whitespace-nowrap +
-    // text-ellipsis and were silently truncating regardless of how wide the
-    // actual browser window was.
-    <div className="container mx-auto px-2 sm:px-4 pt-4 md:pt-8 pb-20 max-w-4xl flex-1 flex flex-col">
+    // Width, bottom clearance and height behaviour live in PageContainer —
+    // this screen only adds its own top padding.
+    <PageContainer className="pt-4 md:pt-8">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 rounded-3xl p-4 sm:p-6 md:p-8 shadow-2xl relative overflow-hidden flex-1 flex flex-col"
+        className="bg-white dark:bg-slate-800/80 backdrop-blur-xl border border-white/40 rounded-3xl p-4 sm:p-6 md:p-8 shadow-2xl relative overflow-hidden flex flex-col"
       >
         <div className="absolute top-0 left-0 w-full h-2 bg-linear-to-r from-indigo-500 via-purple-500 to-pink-500" />
 
@@ -149,6 +143,6 @@ export default function Home({ onShowStats }: HomeProps) {
           setMode('local');
         }}
       />
-    </div>
+    </PageContainer>
   );
 }
