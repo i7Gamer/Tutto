@@ -491,7 +491,14 @@ describe('applyPushedState', () => {
 
       it('takes back the counters and records an undo restores', () => {
         const state = makeState(['Alice', 'Bob', 'Carol']);
-        Object.assign(state.players[2], { totalTurns: 4, busts: 3, totalTuttos: 6, highestTurnScore: 900 });
+        // mostCardsInTurn seeded at 3, not left undefined: a genuine undo only
+        // ever restores a record to a value <= what the seat already holds
+        // (the forward turn's own peak), so a fixture where the push claims 2
+        // has to start the field at something >= 2 to be a REAL undo shape —
+        // pushing 2 onto an undefined field is what an inflate attack looks
+        // like instead (see the two-seat describe block below), and the fix
+        // now refuses exactly that.
+        Object.assign(state.players[2], { totalTurns: 4, busts: 3, totalTuttos: 6, highestTurnScore: 900, mostCardsInTurn: 3 });
 
         applyPushedState(state, {
           ...UNDO_SHAPE,
@@ -621,6 +628,82 @@ describe('applyPushedState', () => {
 
         expect(state.players[1].busts).toBe(1);
         expect(state.players[1].totalTurns).toBe(0);
+      });
+
+      // The F3 finding itself: at exactly two seats the predecessor IS the
+      // successor, so an ORDINARY hand-over (previousCard: null,
+      // currentPlayerIndex pointing at the only other seat) satisfies
+      // looksLikeUndo for free — there is no "cost the attacker the turn"
+      // here the way there is at three seats. The shape gate alone let this
+      // widen the opponent's whole stat row on every hand-over. The direction
+      // gate closes it: a pushed value the seat's current value cannot beat
+      // is refused field-by-field, while the same shape carrying genuinely
+      // DECREASED values (what a real undo looks like) still lands.
+      it('at two seats, an ordinary hand-over cannot inflate the opponent\'s counters, only lower them', () => {
+        const state = makeState(['Alice', 'Bob']);
+        const twoSeatAlicePushes = { isHost: false, startingGame: false, pusherName: 'Alice' };
+        Object.assign(state.players[1], { busts: 5, totalTurns: 5, totalTuttos: 5, highestTurnScore: 300 });
+
+        applyPushedState(state, {
+          currentPlayerIndex: 1,
+          previousCard: null,
+          players: [
+            { name: 'Alice' },
+            { name: 'Bob', busts: 99, totalTurns: 99, totalTuttos: 99, highestTurnScore: 999999 },
+          ],
+        }, twoSeatAlicePushes);
+
+        expect(state.players[1].busts, 'inflated busts refused').toBe(5);
+        expect(state.players[1].totalTurns, 'inflated totalTurns refused').toBe(5);
+        expect(state.players[1].totalTuttos, 'inflated totalTuttos refused').toBe(5);
+        expect(state.players[1].highestTurnScore, 'inflated record refused').toBe(300);
+
+        // The exact same shape, but every value LOWER than what is already
+        // there — a genuine undo's own signature — still lands.
+        applyPushedState(state, {
+          currentPlayerIndex: 1,
+          previousCard: null,
+          players: [
+            { name: 'Alice' },
+            { name: 'Bob', busts: 4, totalTurns: 4, totalTuttos: 4, highestTurnScore: 250 },
+          ],
+        }, twoSeatAlicePushes);
+
+        expect(state.players[1].busts, 'decreased busts accepted').toBe(4);
+        expect(state.players[1].totalTurns, 'decreased totalTurns accepted').toBe(4);
+        expect(state.players[1].totalTuttos, 'decreased totalTuttos accepted').toBe(4);
+        expect(state.players[1].highestTurnScore, 'decreased record accepted').toBe(250);
+      });
+
+      it('a three-seat genuine undo still restores', () => {
+        // Different fields from the "takes back the counters..." case above
+        // (the per-card counters and totalTuttos, plus an absent record that
+        // stays absent because the push simply does not mention it — the
+        // ordinary mergeMutable "no key, no change" rule, untouched by the
+        // direction gate) — so this is not a restatement of that test, just
+        // confirmation the fix does not cost an ordinary >2-seat undo
+        // anything.
+        const state = makeState(['Alice', 'Bob', 'Carol']);
+        Object.assign(state.players[2], {
+          timesFeuerwerkReceived: 3, feuerwerkBusts: 2, x2PointsScored: 900, totalTuttos: 6,
+        });
+
+        applyPushedState(state, {
+          ...UNDO_SHAPE,
+          players: [
+            { name: 'Alice' },
+            { name: 'Bob' },
+            {
+              name: 'Carol', timesFeuerwerkReceived: 2, feuerwerkBusts: 1, x2PointsScored: 900, totalTuttos: 5,
+            },
+          ],
+        }, alicePushes);
+
+        expect(state.players[2].timesFeuerwerkReceived, 'walked back by one').toBe(2);
+        expect(state.players[2].feuerwerkBusts, 'walked back by one').toBe(1);
+        expect(state.players[2].x2PointsScored, 'unchanged value still accepted (not a rise)').toBe(900);
+        expect(state.players[2].totalTuttos, 'walked back by one').toBe(5);
+        expect(state.players[2].mostCardsInTurn, 'never mentioned, stays absent').toBeUndefined();
       });
     });
 

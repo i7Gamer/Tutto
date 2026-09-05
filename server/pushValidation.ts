@@ -471,6 +471,13 @@ const PLAYER_CROSS_SEAT_MUTABLE: (keyof ServerPlayer)[] = ['score', 'times1000Po
  * Handed out only on a push SHAPED like an undo — see looksLikeUndo in
  * applyPlayers. Granting it unconditionally let EVERY push from the active
  * seat rewrite one other seat's whole stat row.
+ *
+ * The shape alone is not enough at two seats, where the predecessor IS the
+ * successor and an ordinary hand-over satisfies it for free: mergeMutable's
+ * `undoDirectionOnly` additionally refuses any field here (other than
+ * PLAYER_CROSS_SEAT_MUTABLE, exempt below) whose pushed value exceeds what
+ * the seat already holds — a genuine undo only ever lowers or restores these,
+ * never raises them.
  */
 const PLAYER_UNDO_SEAT_MUTABLE: (keyof ServerPlayer)[] = [
   ...PLAYER_STAT_FIELDS,
@@ -519,8 +526,25 @@ const mergeMutable = (
   // on THIS seat; it defaults to the full one so the host path and the
   // game-start path, which legitimately rebuild the whole roster, keep their
   // existing behaviour.
-  { clearAbsentRecords = false, writable = PLAYER_MUTABLE }:
-    { clearAbsentRecords?: boolean; writable?: (keyof ServerPlayer)[] } = {},
+  //
+  // `undoDirectionOnly` is true exactly when `writable` is
+  // PLAYER_UNDO_SEAT_MUTABLE — see applyPlayers. It does not change WHICH
+  // fields are writable, only which values within them are accepted: a
+  // property probe over >= 2000 random (state, turn, undo) trials
+  // (scratch/r12-f3-undo-monotone.test.ts) confirms calculateUndo
+  // (src/utils/coreGameEngine.ts) never raises any PLAYER_UNDO_SEAT_MUTABLE
+  // field, on the seat it hands the turn back to, above what that seat held
+  // the moment the turn it undoes had just committed — a real undo only ever
+  // walks a counter back (Math.max(0, current - 1)) or restores a record to
+  // a stashed pre-turn value, which was never higher than what the forward
+  // turn set. So refusing a pushed value that EXCEEDS the seat's CURRENT
+  // (existing) value costs a genuine undo nothing, while it caps what the
+  // shape check alone let through: an attacker satisfying looksLikeUndo could
+  // still set every counter to any value <= what is already there (no gain)
+  // or below it (which every other cross-seat write already tolerates), but
+  // can no longer inflate one.
+  { clearAbsentRecords = false, writable = PLAYER_MUTABLE, undoDirectionOnly = false }:
+    { clearAbsentRecords?: boolean; writable?: (keyof ServerPlayer)[]; undoDirectionOnly?: boolean } = {},
 ): ServerPlayer => {
   if (!p) return existing;
   const updated = { ...existing };
@@ -540,6 +564,24 @@ const mergeMutable = (
       // `position` is not one of the numbers PLAYER_NON_NEGATIVE_FIELDS covers
       // (it is a seat index, not a tally), but it is still a whole number.
     } else if (isMergeablePlayerNumber(f, v)) {
+      // `score` and `times1000PointsDeducted` are exempt: PLAYER_CROSS_SEAT_MUTABLE
+      // already hands them out on every OTHER foreign seat too, unconditionally
+      // and in both directions (a Plus/Minus resolving on the pusher's own turn
+      // can raise or lower either on any seat it touches) — the undo grant
+      // widens nothing for these two, so gating them here would only refuse a
+      // write every other foreign-seat push already allows unchecked.
+      //
+      // Absent-existing reads as -Infinity, not 0: the probe above found no
+      // legitimate undo push that ever needs to WRITE a still-absent field a
+      // defined value under this grant (restoring a record to "no value yet"
+      // omits the key rather than sending a number, and the `!(f in p)` branch
+      // above already leaves that alone) — so there is no push this direction
+      // could wrongly refuse, while reading it as 0 would let an attacker plant
+      // a first value on a record this seat has never touched.
+      if (undoDirectionOnly && !PLAYER_CROSS_SEAT_MUTABLE.includes(f)
+        && v > ((existing as Record<string, unknown>)[f] as number | undefined ?? Number.NEGATIVE_INFINITY)) {
+        continue;
+      }
       (updated as Record<string, unknown>)[f] = v;
     }
   }
@@ -624,6 +666,15 @@ const applyPlayers: FieldHandler = (value, ctx) => {
     // it costs them is the turn (handed to the very seat they are writing) and
     // their own undo state, on every push that carries the wider set. That
     // turns an unlimited free-running write into one that gives up the table.
+    //
+    // At exactly two seats the predecessor IS the successor, so an ordinary
+    // hand-over (previousCard: null, currentPlayerIndex pointing at the only
+    // other seat) satisfies this shape for free — the turn/undo-state "cost"
+    // above is nothing at two seats. `undoDirectionOnly` below (mergeMutable)
+    // closes that: an undo only ever WALKS a counter BACK or RESTORES a
+    // record to its stashed pre-turn value, so a two-seat attacker can still
+    // satisfy the shape but can no longer inflate anything — only lower it,
+    // which every other cross-seat write already tolerates.
     const looksLikeUndo = ctx.pushedState.currentPlayerIndex === undoSeatIdx
       && ctx.pushedState.previousCard === null;
 
@@ -632,6 +683,7 @@ const applyPlayers: FieldHandler = (value, ctx) => {
         writable: ctx.isHost || i === pusherIdx
           ? PLAYER_MUTABLE
           : (looksLikeUndo && i === undoSeatIdx ? PLAYER_UNDO_SEAT_MUTABLE : PLAYER_CROSS_SEAT_MUTABLE),
+        undoDirectionOnly: looksLikeUndo && i === undoSeatIdx,
       }),
     );
   }
