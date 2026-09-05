@@ -44,6 +44,7 @@ playwright.config.ts
 src/**/*.test.*
 src/setupTests.tsx
 server/**/*.test.*
+eslint-rules/**/*.test.*
 # Test-only helpers: socketTestHarness spawns child processes, testPorts is the
 # suites' port registry, testTimeouts holds their hook budgets. None of them has
 # any business in a production image. Mirrored by TEST_ONLY_HELPERS in

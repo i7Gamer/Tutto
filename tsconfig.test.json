@@ -35,6 +35,13 @@
     "jsx": "react-jsx",
     "moduleDetection": "force",
 
+    /* eslint-rules/no-conflicting-classnames.js stays plain JS (repo-local
+       ESLint rules are JS-first in the ESLint ecosystem — see the same pair
+       in tsconfig.node.json); allowJs keeps its test's import in the program
+       without type-checking the rule file itself. */
+    "allowJs": true,
+    "checkJs": false,
+
     "strict": true,
     "noFallthroughCasesInSwitch": true
   },
@@ -48,6 +55,7 @@
     "src/**/*.integration.test.tsx",
     "server/**/*.test.ts",
     "server/**/*.integration.test.ts",
+    "eslint-rules/**/*.test.ts",
     "e2e/**/*.ts",
     "vite.config.ts",
     "vite.config.test.ts",

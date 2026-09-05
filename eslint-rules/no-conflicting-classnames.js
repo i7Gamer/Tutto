@@ -70,6 +70,18 @@ const conflictsIn = (classes) => {
  * the point, not a conflict. Everything outside the conditionals is in every
  * set, which is what catches a base colour conflicting with a branch's.
  */
+// Shared by both the template-literal branch below and the bare-conditional
+// one: walks a Conditional/Logical tree collecting one alternative per string
+// literal it bottoms out at. Anything else it bottoms out at (an identifier,
+// a call, a member expression) contributes nothing -- this rule only
+// understands string literals and the conditionals branching between them.
+const collectAlternatives = (expr, alternatives) => {
+  if (!expr) return;
+  if (expr.type === 'Literal' && typeof expr.value === 'string') alternatives.push(splitClasses(expr.value));
+  else if (expr.type === 'ConditionalExpression') { collectAlternatives(expr.consequent, alternatives); collectAlternatives(expr.alternate, alternatives); }
+  else if (expr.type === 'LogicalExpression') { collectAlternatives(expr.left, alternatives); collectAlternatives(expr.right, alternatives); }
+};
+
 const classSetsOf = (node) => {
   if (node.type === 'Literal' && typeof node.value === 'string') return [splitClasses(node.value)];
   if (node.type !== 'JSXExpressionContainer') return [];
@@ -78,21 +90,30 @@ const classSetsOf = (node) => {
   if (expression.type === 'Literal' && typeof expression.value === 'string') {
     return [splitClasses(expression.value)];
   }
-  if (expression.type !== 'TemplateLiteral') return [];
 
-  const always = expression.quasis.flatMap(q => splitClasses(q.value.cooked ?? ''));
-  const alternatives = [];
-  const collect = (expr) => {
-    if (!expr) return;
-    if (expr.type === 'Literal' && typeof expr.value === 'string') alternatives.push(splitClasses(expr.value));
-    else if (expr.type === 'ConditionalExpression') { collect(expr.consequent); collect(expr.alternate); }
-    else if (expr.type === 'LogicalExpression') { collect(expr.left); collect(expr.right); }
-  };
-  expression.expressions.forEach(collect);
+  if (expression.type === 'TemplateLiteral') {
+    const always = expression.quasis.flatMap(q => splitClasses(q.value.cooked ?? ''));
+    const alternatives = [];
+    expression.expressions.forEach(expr => collectAlternatives(expr, alternatives));
 
-  return alternatives.length ? alternatives.map(alt => [...always, ...alt]) : [always];
+    return alternatives.length ? alternatives.map(alt => [...always, ...alt]) : [always];
+  }
+
+  // A bare ternary/`&&` outside any template literal --
+  // `className={cond ? 'a' : 'b'}` -- contributes one set per branch, same as
+  // a conditional nested inside a template literal, just with no `always`
+  // classes surrounding it. Everything else (an identifier, a call, a member
+  // expression -- e.g. a classnames() helper) stays unchecked, same as before.
+  if (expression.type === 'ConditionalExpression' || expression.type === 'LogicalExpression') {
+    const alternatives = [];
+    collectAlternatives(expression, alternatives);
+    return alternatives.map(alt => [...alt]);
+  }
+
+  return [];
 };
 
+/** @type {import('eslint').Rule.RuleModule} */
 export default {
   meta: {
     type: 'problem',
