@@ -1253,14 +1253,21 @@ test.describe('Statistics tabs stay a single scrollable row on phones (C69.2)', 
 
     const count = await tablists.count();
     for (let i = 0; i < count; i++) {
-      const tablist = tablists.nth(i);
-      const rowBox = (await tablist.boundingBox())!;
-      const firstPillBox = (await tablist.getByRole('tab').first().boundingBox())!;
-      const lastPillBox = (await tablist.getByRole('tab').last().boundingBox())!;
-      const overflows = await tablist.evaluate((el) => el.scrollWidth > el.clientWidth + 1);
-
-      const leftGap = firstPillBox.x - rowBox.x;
-      const rightGap = rowBox.x + rowBox.width - (lastPillBox.x + lastPillBox.width);
+      // All three boxes from one evaluate, i.e. one frame: the panel these
+      // rows sit in slides into place on mount, and three separate
+      // boundingBox round trips read the row and its pills at different
+      // points of that slide — a few px of "off-centre" that was only motion.
+      const { leftGap, rightGap, overflows } = await tablists.nth(i).evaluate((el) => {
+        const tabs = el.querySelectorAll('[role="tab"]');
+        const row = el.getBoundingClientRect();
+        const first = tabs[0].getBoundingClientRect();
+        const last = tabs[tabs.length - 1].getBoundingClientRect();
+        return {
+          leftGap: first.left - row.left,
+          rightGap: row.right - last.right,
+          overflows: el.scrollWidth > el.clientWidth + 1,
+        };
+      });
 
       // Never starts to the left of the row's own edge — the one way that
       // could happen is `justify-center` clipping an overflowing row's start,
