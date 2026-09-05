@@ -1,4 +1,14 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import type { ReactNode } from 'react';
+// AnimatePresence as a pass-through: tests in this file run on fake timers,
+// under which framer-motion's frame loop does not advance (and does not recover
+// once real timers return), so a dismissed dialog's exit animation (ModalShell)
+// would never finish and the panel never leave the DOM. Nothing here asserts on
+// the animation itself — ModalShell.motion.test does.
+vi.mock('framer-motion', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('framer-motion')>()),
+  AnimatePresence: ({ children }: { children?: ReactNode }) => <>{children}</>,
+}));
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { StartGameButton, PlayerList, AdvancedOptionsPanel, AdvancedOptionsToggle, HapticsSettingSelector, CustomGameBadge, RulesetSelector, RulesetBadge, DiceModeSelector, DiceModeEnforcedBadge, AudioSettingSelector } from './LobbyShared';
@@ -879,7 +889,7 @@ describe('PlayerList row actions', () => {
   // or a colour change is — the same reason End Game/Leave/Undo confirm
   // (see GameControls.tsx) — so the row button now opens a confirm dialog
   // instead of kicking on the tap itself.
-  it('kicks online only after the confirm dialog is accepted, passing the player object', () => {
+  it('kicks online only after the confirm dialog is accepted, passing the player object', async () => {
     const onRemovePlayer = vi.fn();
     render(
       <PlayerList players={three as Player[]} reorderPlayers={vi.fn()} isOnline={true}
@@ -895,7 +905,7 @@ describe('PlayerList row actions', () => {
     expect(screen.queryByText('lobby.kickConfirm')).toBeNull();
   });
 
-  it('cancelling the kick confirm dialog does not remove the player', () => {
+  it('cancelling the kick confirm dialog does not remove the player', async () => {
     const onRemovePlayer = vi.fn();
     render(
       <PlayerList players={three as Player[]} reorderPlayers={vi.fn()} isOnline={true}

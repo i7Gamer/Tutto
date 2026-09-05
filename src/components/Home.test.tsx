@@ -91,7 +91,7 @@ describe('Home handleModeChange', () => {
     expect(setMode).toHaveBeenCalledWith('local');
   });
 
-  it('does not leave or switch mode when the leave-room confirm is declined', () => {
+  it('does not leave or switch mode when the leave-room confirm is declined', async () => {
     const setMode = vi.fn();
     const leaveRoom = vi.fn();
     useGameStore.setState({ mode: 'online', roomId: 'ROOM1', setMode, leaveRoom });
@@ -106,7 +106,8 @@ describe('Home handleModeChange', () => {
     fireEvent.click(screen.getByText('common.cancel'));
     expect(leaveRoom).not.toHaveBeenCalled();
     expect(setMode).not.toHaveBeenCalled();
-    expect(screen.queryByText('lobby.online.leaveConfirm')).toBeNull();
+    // Awaited: the dialog fades out (ModalShell exit animation) before it leaves the DOM.
+    await waitFor(() => expect(screen.queryByText('lobby.online.leaveConfirm')).toBeNull());
   });
 
   it('leaves the room and switches to local mode when the leave-room confirm is accepted', () => {

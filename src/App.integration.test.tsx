@@ -1,4 +1,14 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import type { ReactNode } from 'react';
+// AnimatePresence as a pass-through: tests in this file run on fake timers,
+// under which framer-motion's frame loop does not advance (and does not recover
+// once real timers return), so a dismissed dialog's exit animation (ModalShell)
+// would never finish and the panel never leave the DOM. Nothing here asserts on
+// the animation itself — ModalShell.motion.test does.
+vi.mock('framer-motion', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('framer-motion')>()),
+  AnimatePresence: ({ children }: { children?: ReactNode }) => <>{children}</>,
+}));
 import userEvent from '@testing-library/user-event';
 import { vi, describe, it, expect, beforeEach, beforeAll, afterEach, type Mock } from 'vitest';
 import App from './App';
@@ -7,7 +17,7 @@ import { useGameStore, _resetTimersForTests, _resetSocketSliceForTests } from '.
 import { disconnectSocket } from './store/socketRef';
 import {
   DICE_PANEL_ENTRANCE_MS, TOAST_LIFETIME_MS, JOIN_TIMEOUT_MS,
-  DIE_TUMBLE_MS, DIE_STAGGER_MS, ROLL_SETTLE_BUFFER_MS, AUTO_CONTINUE_SECONDS,
+  DIE_TUMBLE_MS, DIE_STAGGER_MS, ROLL_SETTLE_BUFFER_MS, AUTO_CONTINUE_SECONDS, CARD_FLIP_MS,
 } from './utils/uiTimings';
 import { TOTAL_DICE } from './utils/turnShapes';
 import type { JoinRoomResponse } from './store/storeTypes';
@@ -53,6 +63,10 @@ const FULL_ROLL_ANIMATION_MS =
 // that transition needs a timeout comfortably past the countdown's real
 // wall-clock length.
 const AUTO_CONTINUE_WAIT_MS = AUTO_CONTINUE_SECONDS * 1000 + 2000;
+// A new turn's card flips for CARD_FLIP_MS before its controls appear, longer
+// than findBy*'s default 1s. (An exiting panel used to linger past the flip
+// and mask this; AnimatePresence is a pass-through in this file now.)
+const AFTER_FLIP_WAIT_MS = CARD_FLIP_MS * 2;
 
 // Mock confetti
 vi.mock('canvas-confetti', () => ({
@@ -208,7 +222,7 @@ describe('App Integration (End-to-End)', () => {
     // It should be '200'.
 
     // Bob rolls dice
-    const rollBobModal = await screen.findByRole('button', { name: /game.controls.rollDice/i });
+    const rollBobModal = await screen.findByRole('button', { name: /game.controls.rollDice/i }, { timeout: AFTER_FLIP_WAIT_MS });
     fireEvent.click(rollBobModal);
 
     await screen.findByRole('heading', { name: /dice.title/i });
@@ -240,7 +254,7 @@ describe('App Integration (End-to-End)', () => {
   }, 20000);
 
 
-  it('renders ToastMessage and ReconnectPopup overlays based on store state', () => {
+  it('renders ToastMessage and ReconnectPopup overlays based on store state', async () => {
     render(<App />);
     
     act(() => {
@@ -984,7 +998,7 @@ describe('App Integration (End-to-End)', () => {
     // Wait for the game view to be up — Game.tsx renders the leaderboard
     // unconditionally, so its arrival is the signal that the effects under
     // test have actually run.
-    await waitFor(() => expect(screen.getByText('game.leaderboard')).toBeInTheDocument());
+    expect(screen.getByText('game.leaderboard')).toBeInTheDocument();
 
     // DiceGame should NOT appear because liveTurnState is null
     expect(screen.queryByText(/resume|rolling/i)).not.toBeInTheDocument();
@@ -1125,7 +1139,7 @@ describe('App Integration (End-to-End)', () => {
       render(<App />);
 
       // The invitation's lobby, with the room already filled in.
-      await waitFor(() => expect(screen.getByDisplayValue('LINKED')).toBeInTheDocument());
+      expect(screen.getByDisplayValue('LINKED')).toBeInTheDocument();
       expect(screen.queryByText('game.round')).not.toBeInTheDocument();
 
       // Nothing was thrown away: the save is still on disk, so picking local

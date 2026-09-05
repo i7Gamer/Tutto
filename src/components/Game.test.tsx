@@ -1,4 +1,13 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import type { ReactNode } from 'react';
+// AnimatePresence as a pass-through: this file runs on fake timers, under which
+// framer-motion's frames never advance, so a dismissed dialog's exit animation
+// (ModalShell) would never finish and the panel would never leave the DOM.
+// Nothing here asserts on the animation itself — ModalShell.motion.test does.
+vi.mock('framer-motion', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('framer-motion')>()),
+  AnimatePresence: ({ children }: { children?: ReactNode }) => <>{children}</>,
+}));
 import { Profiler } from 'react';
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, type Mock } from 'vitest';
@@ -364,7 +373,7 @@ describe('Game Component Integration', () => {
       expect(mockNextTurn).not.toHaveBeenCalled();
     });
 
-    it('cancel keeps the turn going — no commit, dialog closes', () => {
+    it('cancel keeps the turn going — no commit, dialog closes', async () => {
       render(<Game />);
 
       fireEvent.click(screen.getByRole('button', { name: /game.controls.nextTurn/i }));
@@ -377,7 +386,7 @@ describe('Game Component Integration', () => {
       expect(screen.getByRole('button', { name: /game.controls.nextTurn/i })).toBeInTheDocument();
     });
 
-    it('confirm advances the turn, recording the bust', () => {
+    it('confirm advances the turn, recording the bust', async () => {
       render(<Game />);
 
       fireEvent.click(screen.getByRole('button', { name: /game.controls.nextTurn/i }));
@@ -529,7 +538,7 @@ describe('Game Component Integration', () => {
   // Kicking mid-game is not reversible, so the pill now opens the same kind
   // of confirm dialog End Game/Leave/Undo use (see ConfirmModal.tsx) instead
   // of kicking on the tap itself.
-  it('renders a Kick button next to disconnected player when current user is the host, and kicks only after confirming', () => {
+  it('renders a Kick button next to disconnected player when current user is the host, and kicks only after confirming', async () => {
     const kickPlayerMock = vi.fn();
     useGameStore.setState({
       isOnline: true,
@@ -554,7 +563,7 @@ describe('Game Component Integration', () => {
     expect(screen.queryByText('lobby.kickConfirm')).toBeNull();
   });
 
-  it('cancelling the mid-game kick confirm dialog does not kick the player', () => {
+  it('cancelling the mid-game kick confirm dialog does not kick the player', async () => {
     const kickPlayerMock = vi.fn();
     useGameStore.setState({
       isOnline: true,
@@ -892,14 +901,14 @@ describe('Game Component Integration', () => {
       await drawNextPhysicalCard();
       expect(mockDraw).toHaveBeenCalled();
       expect(mockNextTurn).not.toHaveBeenCalled();
-      // The running total stays in the input across the draw.
-      expect((screen.getByPlaceholderText('game.controls.scorePlaceholder') as HTMLInputElement).value).toBe('350');
 
       // The card-flip animation GameControls plays on the '300'->'400' change
-      // above has to finish (its exit/enter swap otherwise leaves the score
-      // input mid-transition, where a change event no longer reaches live state)
-      // before the running total can be edited again.
+      // above hides the controls until it has finished (AnimatePresence is a
+      // pass-through in this file, so nothing lingers mid-transition either);
+      // the running total is checked and edited once they are back.
       act(() => { vi.advanceTimersByTime(CARD_FLIP_MS); });
+      // The running total stays in the input across the draw.
+      expect((screen.getByPlaceholderText('game.controls.scorePlaceholder') as HTMLInputElement).value).toBe('350');
       fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '1150' } });
       fireEvent.click(screen.getByText('game.controls.nextTurn'));
       expect(mockNextTurn).toHaveBeenCalledWith(1150, true, expect.objectContaining({
@@ -1211,6 +1220,9 @@ describe('Game Component Integration', () => {
 
         await drawNextPhysicalCard();
         expect(mockDraw).toHaveBeenCalledTimes(1); // MAX_CHAIN_CARDS - 1 → the cap
+        // The draw flips the card; the controls (and the draw button) are
+        // back once the flip has finished.
+        act(() => { vi.advanceTimersByTime(CARD_FLIP_MS); });
         await drawNextPhysicalCard();
         expect(mockDraw).toHaveBeenCalledTimes(1); // at the cap → refused
       });
@@ -1318,6 +1330,9 @@ describe('Game Component Integration', () => {
           awaitingChoice: false,
         });
 
+        // The draw flipped the card; the score input is back once the flip
+        // has finished.
+        act(() => { vi.advanceTimersByTime(CARD_FLIP_MS); });
         fireEvent.change(screen.getByPlaceholderText('game.controls.scorePlaceholder'), { target: { value: '2400' } });
         fireEvent.click(screen.getByText('game.controls.nextTurn'));
         expect(mockNextTurn).toHaveBeenCalled();

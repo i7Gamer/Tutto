@@ -1,4 +1,14 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import type { ReactNode } from 'react';
+// AnimatePresence as a pass-through: one test here runs on fake timers, and
+// framer-motion's frame loop does not recover once they are restored — so a
+// dismissed dialog's exit animation (ModalShell) never finished for the tests
+// declared after it, and the panel never left the DOM. Nothing here asserts on
+// the animation itself — ModalShell.motion.test does.
+vi.mock('framer-motion', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('framer-motion')>()),
+  AnimatePresence: ({ children }: { children?: ReactNode }) => <>{children}</>,
+}));
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import OnlineLobby from './OnlineLobby';
 import { MAX_RECENT_ROOMS } from '../../utils/recentRooms';
@@ -535,7 +545,7 @@ describe('OnlineLobby leave-room confirmation', () => {
     ...overrides,
   });
 
-  it('does not leave the room when the confirm dialog is declined', () => {
+  it('does not leave the room when the confirm dialog is declined', async () => {
     const leaveRoom = vi.fn();
     stageRoom({ leaveRoom });
     render(<OnlineLobby />);

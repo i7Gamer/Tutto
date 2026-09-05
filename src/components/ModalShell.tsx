@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode, type RefObject, type KeyboardEvent, type FocusEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, type MotionProps } from 'framer-motion';
 import './ModalShell.css';
 
@@ -24,6 +25,26 @@ const FOCUSABLE_SELECTOR =
  * restoring the scroll offset, which brings its own scroll-jump on close and
  * is deliberately not attempted here.
  */
+// The entrance and exit every dialog gets unless its caller brings its own
+// (the wiki and the dice panel do). Short: a confirm has to feel immediate,
+// it only has to stop popping. MotionConfig reducedMotion="user" (App.tsx)
+// turns it off for players who asked their OS for no motion.
+const MODAL_TRANSITION_S = 0.15;
+const PANEL_REST_SCALE = 0.95;
+const PANEL_REST_OFFSET_PX = 8;
+const DEFAULT_PANEL_MOTION: MotionProps = {
+  initial: { opacity: 0, scale: PANEL_REST_SCALE, y: PANEL_REST_OFFSET_PX },
+  animate: { opacity: 1, scale: 1, y: 0 },
+  exit: { opacity: 0, scale: PANEL_REST_SCALE, y: PANEL_REST_OFFSET_PX },
+  transition: { duration: MODAL_TRANSITION_S },
+};
+const BACKDROP_MOTION: MotionProps = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0 },
+  transition: { duration: MODAL_TRANSITION_S },
+};
+
 let openDialogCount = 0;
 let overflowBeforeLock = '';
 
@@ -87,7 +108,7 @@ export default function ModalShell({
   returnFocusRef,
   panelClassName = 'modal-panel modal-panel-card',
   backdropClassName = 'modal-backdrop',
-  motionProps,
+  motionProps = DEFAULT_PANEL_MOTION,
 }: ModalShellProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
@@ -188,10 +209,18 @@ export default function ModalShell({
     getFallbackFocusTarget()?.focus();
   };
 
-  return (
+  // Through a portal to document.body, not in place: the cards a dialog is
+  // mounted from (the lobby card, the game controls, the leaderboard) carry a
+  // backdrop-filter, and a backdrop-filter makes its element the containing
+  // block for every position: fixed descendant — so the "fixed inset-0"
+  // backdrop covered that one card instead of the page, while the same
+  // ConfirmModal mounted outside a card (Home's mode switch) covered the page.
+  // React context (i18n, MotionConfig) and event bubbling follow the React
+  // tree, not the DOM, so nothing else about the dialog changes.
+  return createPortal(
     <AnimatePresence>
       {open && (
-        <div data-testid="modal-backdrop" className={backdropClassName} onClick={() => onDismiss?.()}>
+        <motion.div data-testid="modal-backdrop" className={backdropClassName} onClick={() => onDismiss?.()} {...BACKDROP_MOTION}>
           <motion.div
             ref={panelRef}
             role={role}
@@ -209,8 +238,9 @@ export default function ModalShell({
           >
             {children}
           </motion.div>
-        </div>
+        </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }

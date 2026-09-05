@@ -34,6 +34,20 @@ describe('ModalShell', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  // The lobby card, the game controls and the leaderboard all carry a
+  // backdrop-filter, which makes each of them the containing block for any
+  // position: fixed descendant — so a dialog rendered inside one of them
+  // covered that card alone, while the same dialog mounted outside a card
+  // covered the page. Rendering through a portal to document.body takes the
+  // dialog out from under every such ancestor.
+  it('renders through a portal, outside the tree that mounts it', () => {
+    const { container } = render(<div data-testid="host-card"><Dialog /></div>);
+    const dialog = screen.getByRole('dialog');
+    expect(container.contains(dialog)).toBe(false);
+    expect(dialog.closest('[data-testid="host-card"]')).toBeNull();
+    expect(document.body.contains(dialog)).toBe(true);
+  });
+
   it('announces itself as a modal dialog', () => {
     render(
       <>
