@@ -247,6 +247,7 @@ export default function GameControls({
                       // directly so a disabled button still wins.
                       onKeyDown={(e) => {
                         if (e.key !== 'Enter') return;
+                        if (e.repeat) return;
                         e.preventDefault();
                         if (nextTurnButtonRef.current?.disabled) return;
                         nextTurnButtonRef.current?.click();

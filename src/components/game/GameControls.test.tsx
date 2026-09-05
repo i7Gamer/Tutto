@@ -634,6 +634,25 @@ describe('GameControls score input Enter key', () => {
 
     expect(handleNextTurn).not.toHaveBeenCalled();
   });
+
+  // Holding Enter down auto-repeats keydown at the OS repeat rate (every
+  // ~30-50ms) while the key stays physically down. Each repeat used to click
+  // Next Turn again, re-invoking Game.tsx's commitNextTurn and committing a
+  // zero-score "null" turn for every player after the one who was actually
+  // rolling — see useKeyboardShortcuts.ts:75, which already guards
+  // event.repeat for the window-level shortcuts path.
+  it('a held Enter key (OS auto-repeat) triggers Next Turn only once', () => {
+    const handleNextTurn = vi.fn();
+    render(<GameControls {...baseProps({ handleNextTurn })} />);
+    const input = screen.getByPlaceholderText('game.controls.scorePlaceholder');
+
+    fireEvent.keyDown(input, { key: 'Enter', repeat: false });
+    fireEvent.keyDown(input, { key: 'Enter', repeat: true });
+    fireEvent.keyDown(input, { key: 'Enter', repeat: true });
+    fireEvent.keyDown(input, { key: 'Enter', repeat: true });
+
+    expect(handleNextTurn).toHaveBeenCalledTimes(1);
+  });
 });
 
 // UI-7: Game.tsx sets isDrawingNextCard around the drawCardMidTurn round
