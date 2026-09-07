@@ -52,8 +52,8 @@ describe('describeLandedRoll', () => {
     expect(result).toEqual({ scoringCount: 6, score: null, completesTutto: true });
   });
 
-  // Plus/Minus discards its dice outright (DiceGame's countsDicePoints /
-  // FIXED_CARD_AWARD) — no dice value exists for it either.
+  // Plus/Minus discards its dice outright (DiceGame's countsDicePoints,
+  // coreGameEngine's fixedCardAward) — no dice value exists for it either.
   it('returns a null score for Plus/Minus, with the count of dice that count toward the card', () => {
     const result = describeLandedRoll({
       rollVals: [1, 1, 1, 5, 5, 2],

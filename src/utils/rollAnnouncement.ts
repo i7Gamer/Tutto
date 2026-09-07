@@ -1,5 +1,6 @@
 import type { CardType, Ruleset } from '../types';
 import { checkValidityAndScore, getMaxValidSelection } from './diceLogic';
+import { fixedCardAward } from './coreGameEngine';
 import { TOTAL_DICE } from './turnShapes';
 
 export interface DescribeLandedRollInput {
@@ -16,15 +17,12 @@ export interface DescribeLandedRollInput {
 export interface LandedRollDescription {
   scoringCount: number;
   // null for a card whose dice carry no value of their own — mirrors
-  // DiceGame's FIXED_CARD_AWARD/countsDicePoints: Kniffel's dice score 0 by
-  // construction (checkValidityAndScore, diceLogic.ts:119-124, a phantom
-  // number rather than the card's real award) and Plus/Minus discards its
-  // dice outright.
+  // DiceGame's countsDicePoints: Kniffel's dice score 0 by construction
+  // (checkValidityAndScore, diceLogic.ts:119-124, a phantom number rather
+  // than the card's real award) and Plus/Minus discards its dice outright.
   score: number | null;
   completesTutto: boolean;
 }
-
-const FIXED_SCORE_CARDS: ReadonlySet<CardType> = new Set(['Kniffel', 'Plus_Minus']);
 
 /**
  * Describes what a just-landed roll is worth, for the screen-reader
@@ -39,7 +37,7 @@ export const describeLandedRoll = ({
   const scoringCount = scoringIndices.length;
   const completesTutto = keptCount + scoringCount === TOTAL_DICE;
 
-  if (currentCard !== null && FIXED_SCORE_CARDS.has(currentCard)) {
+  if (fixedCardAward(currentCard) > 0) {
     return { scoringCount, score: null, completesTutto };
   }
 

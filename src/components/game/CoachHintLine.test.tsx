@@ -61,6 +61,24 @@ describe('CoachHintLine', () => {
     );
   });
 
+  // S-3: bustPercent/rollValue/threshold are null when the coach's own roll
+  // was not on offer (a completed card, nothing left to roll) — the stop copy
+  // must drop the risk clause instead of quoting figures for a roll that was
+  // never possible.
+  it('renders the no-roll stop verdict when there is no bust risk to quote', () => {
+    render(<CoachHintLine hint={{
+      ...baseHint, action: 'stop', bustPercent: null, rollValue: null, threshold: null,
+    }} />);
+
+    expect(screen.getByText('coach.stopNoRoll')).toBeInTheDocument();
+    expect(translate).toHaveBeenCalledWith(
+      'coach.stopNoRoll',
+      expect.any(String),
+      expect.objectContaining({ keep: '1, 5', bank: 150 }),
+    );
+    expect(screen.queryByText('coach.stop')).toBeNull();
+  });
+
   it('renders the draw verdict with the bank at stake', () => {
     render(<CoachHintLine hint={{ ...baseHint, action: 'draw', bank: 450 }} />);
 

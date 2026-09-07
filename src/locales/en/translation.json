@@ -479,6 +479,7 @@
   "lobby.coachOff": "Ask Otto Off",
   "coach.roll": "Otto would keep {{keep}} and roll {{dice}} dice: {{bust}}% bust risk, rolling is worth {{rollValue}} against {{threshold}} for banking.",
   "coach.stop": "Otto would keep {{keep}} and bank {{bank}}: {{bust}}% bust risk on {{dice}} dice.",
+  "coach.stopNoRoll": "Otto would keep {{keep}} and bank {{bank}}.",
   "coach.draw": "Otto would draw the next card with {{bank}} at stake.",
   "coach.selectionDiffers": "Otto would keep different dice. ",
   "coach.trailing": "You are behind, so Otto accepts more risk.",

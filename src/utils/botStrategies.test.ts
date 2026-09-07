@@ -1,10 +1,11 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
 import {
-  chooseBotSelection, chooseBotAction, evaluateRoll,
+  chooseBotSelection, chooseBotAction, evaluateRoll, outcomeOfSelection, optimalRollDecision,
   CAUTIOUS_BANK_MIN, CAUTIOUS_MIN_DICE_TO_ROLL, OPTIMAL_DRAW_BANK_LIMIT,
   type BotTurnContext, type BotActionAvailability, type BotAction,
 } from './botStrategies';
+import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from './coreGameEngine';
 import { BOT_PERSONALITIES, type CardType } from '../types';
 import { TOTAL_DICE, DIE_FACES } from './turnShapes';
 
@@ -66,6 +67,23 @@ describe('chooseBotSelection', () => {
 
   it('follows the card: a modernized Kniffel builds its run', () => {
     expect(chooseBotSelection(ctx({ currentCard: 'Kniffel', rollVals: [3, 1, 2, 6, 6, 4] }))).toEqual([1, 2, 0, 5]);
+  });
+});
+
+describe('optimalRollDecision against the progress as it will be, not as it was', () => {
+  // S-2: only classic Kniffel's odds actually depend on which numbers are
+  // already collected (modernized Kniffel always needs exactly one value, so
+  // the odds are the same whichever it is). Keeping the fourth number of a
+  // classic straight leaves one die that busts unless it shows the fifth —
+  // 5/6, not the 4/6 the stale pre-selection progress would report.
+  it('judges the next roll against the straight as it will be, not as it was', () => {
+    const afterKeepingOneFive = ctx({
+      ruleset: 'classic', currentCard: 'Kniffel', kniffelProgress: [1, 2, 3, 4], keptCount: 4, rollVals: [5, 5],
+    });
+    const { bank, diceAfter, progressAfter } = outcomeOfSelection(afterKeepingOneFive);
+    expect(progressAfter).toEqual([1, 2, 3, 4, 5]);
+    const decision = optimalRollDecision(afterKeepingOneFive, bank, diceAfter, progressAfter);
+    expect(decision.bustProbability).toBeCloseTo(5 / 6, 10);
   });
 });
 
@@ -153,6 +171,57 @@ describe('Optimal Otto', () => {
     // Five kept on a 200 total, the sixth a 5: 250 plus the card's 200.
     const cheap = otto({ ruleset: 'classic', keptCount: 5, rollVals: [5], turnScore: 200 });
     expect(chooseBotAction(cheap, STOP_OR_DRAW)).toBe('draw');
+  });
+
+  // S-1: a completed Kniffel/Plus-Minus used to bank as 0 (checkValidityAndScore
+  // scores Kniffel dice 0 and Plus/Minus dice are never counted, and neither is
+  // a BONUS_CARDS/x2 tutto bonus), so Otto took the stop-or-draw branch with
+  // bank 0 and drew again on a straight worth 2000 every time.
+  it('counts the card award in the bank of a completing classic Kniffel', () => {
+    const done = otto({
+      ruleset: 'classic', currentCard: 'Kniffel', kniffelProgress: [1, 2, 3, 4, 5],
+      keptCount: 5, rollVals: [6], turnScore: 0,
+    });
+    expect(outcomeOfSelection(done).bank).toBe(KNIFFEL_SCORE);
+    expect(chooseBotAction(done, STOP_OR_DRAW)).toBe('stop');
+  });
+
+  it('counts the card award in the bank of a completing classic Plus/Minus', () => {
+    const done = otto({
+      ruleset: 'classic', currentCard: 'Plus_Minus', rollVals: [1, 1, 1, 5, 5, 5], turnScore: 0,
+    });
+    expect(outcomeOfSelection(done).bank).toBe(PLUS_MINUS_SCORE);
+    expect(chooseBotAction(done, STOP_OR_DRAW)).toBe('stop');
+  });
+
+  // T-3: the exact boundary of the draw-or-stop branch (bank === the limit
+  // itself draws — the comparison is `<=`). Five kept on a 350 total, the
+  // sixth a 5 (50 dice points) plus the '200' bonus card's 200 = exactly 600.
+  it('draws at the exact draw limit (bank === OPTIMAL_DRAW_BANK_LIMIT)', () => {
+    const atLimit = otto({ ruleset: 'classic', keptCount: 5, rollVals: [5], turnScore: 350 });
+    expect(outcomeOfSelection(atLimit).bank).toBe(OPTIMAL_DRAW_BANK_LIMIT);
+    expect(chooseBotAction(atLimit, STOP_OR_DRAW)).toBe('draw');
+  });
+
+  // T-2: the exact tie of the roll-or-stop branch (rollValue === threshold
+  // rolls — the comparison is `>=`). No real dice roll lands this exactly (the
+  // outcomes are sixths, the threshold a bank times a deficit-derived
+  // appetite), so this calls optimalRollDecision directly with a hand-built
+  // bank/diceAfter/standings rather than going through a selection: one die
+  // left ('200', bustProbability 2/3, expectedGain 75 exactly, both proven in
+  // the evaluateRoll describe above) and a deficit at least half the winning
+  // score, which caps the appetite at exactly 0.5 —
+  //   rollValue  = (1 - 2/3) * (150 + 75) = 75
+  //   threshold  = 150 * (1 - 0.5)        = 75
+  it('rolls at the exact tie (rollValue === threshold)', () => {
+    const tied = otto({ myScore: 0, leaderScore: 3000, winningScore: 6000 });
+    const decision = optimalRollDecision(tied, 150, 1, []);
+    // Both sides land on 75, but via different floating-point paths (a 2/3
+    // built from division vs. a 0.5 appetite cap) — compare with tolerance,
+    // the tie itself is what `action` below is really asserting.
+    expect(decision.rollValue).toBeCloseTo(75, 10);
+    expect(decision.threshold).toBeCloseTo(75, 10);
+    expect(decision.action).toBe('roll');
   });
 });
 

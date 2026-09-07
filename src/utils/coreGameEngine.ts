@@ -27,6 +27,19 @@ export { buildDeviceStatsPayload, buildGlobalStatsPayload };
 export const PLUS_MINUS_SCORE = 1000;
 export const KNIFFEL_SCORE = 2000;
 
+/**
+ * What completing `card` pays, for the cards whose dice carry no value of
+ * their own — a straight scores 0 by construction (checkValidityAndScore) and
+ * Plus/Minus discards its dice outright, so the panel, the bot and the roll
+ * announcer all need the same answer for "what does this tutto actually
+ * bank". 0 for every other card, whose award is whatever its dice add up to.
+ */
+export const fixedCardAward = (card: CardType | null): number => {
+  if (card === 'Kniffel') return KNIFFEL_SCORE;
+  if (card === 'Plus_Minus') return PLUS_MINUS_SCORE;
+  return 0;
+};
+
 // How a per-turn record a player has not set yet is carried in the pre-turn
 // snapshot (NextTurnResult types those as plain numbers). Safe as a sentinel
 // because the engine only ever writes a record that BEATS the previous value,

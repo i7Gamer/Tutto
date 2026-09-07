@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { coachHint, type CoachHintInput } from './coachHint';
 import { OPTIMAL_DRAW_BANK_LIMIT } from './botStrategies';
+import { KNIFFEL_SCORE } from './coreGameEngine';
 import { MAX_CHAIN_CARDS, type CardType } from '../types';
 
 const input = (overrides: Partial<CoachHintInput> = {}): CoachHintInput => ({
@@ -12,7 +13,6 @@ const input = (overrides: Partial<CoachHintInput> = {}): CoachHintInput => ({
   ruleset: 'modernized',
   kniffelProgress: [],
   standings: { myScore: 0, leaderScore: 0, winningScore: 6000 },
-  isClassic: false,
   canDraw: false,
   chainCardCount: 0,
   tuttosThisTurn: 0,
@@ -50,7 +50,7 @@ describe('coachHint', () => {
     // under OPTIMAL_DRAW_BANK_LIMIT.
     expect(OPTIMAL_DRAW_BANK_LIMIT).toBe(600);
     const hint = coachHint(input({
-      ruleset: 'classic', isClassic: true, canDraw: true,
+      ruleset: 'classic', canDraw: true,
       keptCount: 5, rollVals: [5], turnScore: 200, chainCardCount: 0,
     }));
     expect(hint).not.toBeNull();
@@ -60,7 +60,7 @@ describe('coachHint', () => {
 
   it('will not advise drawing past MAX_CHAIN_CARDS — the panel refuses it too', () => {
     const hint = coachHint(input({
-      ruleset: 'classic', isClassic: true, canDraw: true,
+      ruleset: 'classic', canDraw: true,
       keptCount: 5, rollVals: [5], turnScore: 200, chainCardCount: MAX_CHAIN_CARDS,
     }));
     expect(hint).not.toBeNull();
@@ -116,5 +116,55 @@ describe('coachHint', () => {
   it('is null on a table that has nothing to keep', () => {
     // No 1, no 5, no completed triple — busts under the default rules.
     expect(coachHint(input({ rollVals: [2, 3, 4, 6, 6, 4] }))).toBeNull();
+  });
+
+  // S-1: a completing classic Kniffel used to hint bank: 0 while the panel's
+  // own running total showed 2000 (checkValidityAndScore scores a straight's
+  // dice 0, and nothing else was paying the award).
+  it('banks the card award on a completing classic Kniffel', () => {
+    const hint = coachHint(input({
+      ruleset: 'classic', currentCard: 'Kniffel', kniffelProgress: [1, 2, 3, 4, 5],
+      keptCount: 5, rollVals: [6], turnScore: 0, canDraw: false,
+    }));
+    expect(hint).not.toBeNull();
+    expect(hint!.bank).toBe(KNIFFEL_SCORE);
+    expect(hint!.action).toBe('stop');
+  });
+
+  // S-3: available.roll is false the moment the card is done (no roll button
+  // on the panel), so the bust figures Otto's roll-or-stop arithmetic would
+  // have produced must not be quoted for a roll that was never on offer.
+  it('quotes no bust risk when rolling is not on offer', () => {
+    const hint = coachHint(input({
+      ruleset: 'classic', currentCard: 'Kniffel', kniffelProgress: [1, 2, 3, 4, 5],
+      keptCount: 5, rollVals: [6], canDraw: false,
+    }));
+    expect(hint).not.toBeNull();
+    expect(hint!.action).toBe('stop');
+    expect(hint!.bustPercent).toBeNull();
+    expect(hint!.rollValue).toBeNull();
+    expect(hint!.threshold).toBeNull();
+  });
+
+  it('still quotes the bust risk when a roll is on offer', () => {
+    // Mirrors "advises on a fresh six-dice table": roll is offered, so the
+    // figures behind the advice are still there to show.
+    const hint = coachHint(input({ rollVals: [1, 2, 3, 4, 6, 6] }));
+    expect(hint).not.toBeNull();
+    expect(hint!.action).toBe('roll');
+    expect(hint!.bustPercent).not.toBeNull();
+    expect(hint!.rollValue).not.toBeNull();
+    expect(hint!.threshold).not.toBeNull();
+  });
+
+  // S-5: CoachHintInput no longer carries isClassic at all — coachHint must
+  // derive it from ruleset on its own (a classic tutto still offers the draw
+  // its panel offers, with no isClassic field anywhere in this input).
+  it('derives isClassic from ruleset alone', () => {
+    const hint = coachHint(input({
+      ruleset: 'classic', canDraw: true, keptCount: 5, rollVals: [5], turnScore: 200, chainCardCount: 0,
+    }));
+    expect(hint).not.toBeNull();
+    expect(hint!.action).toBe('draw');
   });
 });

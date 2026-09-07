@@ -1,5 +1,6 @@
 import type { BotPersonality, CardType, Ruleset } from '../types';
 import { applyTuttoBonus, checkValidityAndScore, getMaxValidSelection, isBust } from './diceLogic';
+import { fixedCardAward } from './coreGameEngine';
 import { DIE_FACES, TOTAL_DICE } from './turnShapes';
 
 /**
@@ -113,10 +114,12 @@ export const chooseBotSelection = (ctx: BotTurnContext): number[] =>
   getMaxValidSelection(ctx.rollVals, ctx.currentCard, ctx.kniffelProgress, ctx.ruleset);
 
 interface SelectionOutcome {
-  /** The turn total if the selection is banked now, tutto bonus included. */
+  /** The turn total if the selection is banked now, tutto bonus and any fixed card award included. */
   bank: number;
   /** Dice on the next table if the bot rolls on. */
   diceAfter: number;
+  /** The straight as it will read after this selection — [] once the card completes (a tutto) or for any non-Kniffel card. */
+  progressAfter: number[];
 }
 
 /**
@@ -127,16 +130,20 @@ interface SelectionOutcome {
  */
 export const outcomeOfSelection = (ctx: BotTurnContext): SelectionOutcome => {
   const picked = chooseBotSelection(ctx).map(i => ctx.rollVals[i]);
-  // Plus/Minus pays for completion only; its dice never count (DiceGame's
-  // countsDicePoints).
-  const dicePoints = ctx.currentCard === 'Plus_Minus'
-    ? 0
-    : checkValidityAndScore(picked, ctx.currentCard, ctx.kniffelProgress, ctx.ruleset).score;
+  const validation = checkValidityAndScore(picked, ctx.currentCard, ctx.kniffelProgress, ctx.ruleset);
+  // A fixed-award card (coreGameEngine.fixedCardAward) pays for completing
+  // it, not for the dice it was rolled with — Plus/Minus discards its dice
+  // outright and Kniffel scores 0 by construction (checkValidityAndScore
+  // above), same as DiceGame's countsDicePoints. The award itself is only
+  // earned on the tutto that completes the card.
+  const award = fixedCardAward(ctx.currentCard);
+  const dicePoints = award > 0 ? 0 : validation.score;
   const isTutto = ctx.keptCount + picked.length === TOTAL_DICE;
-  const total = ctx.turnScore + dicePoints;
+  const total = ctx.turnScore + dicePoints + (isTutto ? award : 0);
   return {
     bank: isTutto ? applyTuttoBonus(total, ctx.currentCard) : total,
     diceAfter: isTutto ? TOTAL_DICE : TOTAL_DICE - ctx.keptCount - picked.length,
+    progressAfter: isTutto ? [] : validation.newKniffelProgress,
   };
 };
 
@@ -170,9 +177,15 @@ export interface OptimalRollDecision {
  * against a bank discounted by a "trailing" appetite that grows with the gap
  * to the leader. Exported so the coach hint can show the same comparison
  * `optimal` decides with (coachHint.ts).
+ *
+ * `progressAfter` is the straight as THIS selection leaves it (outcomeOfSelection's
+ * own return value), not `ctx.kniffelProgress` — the odds of the roll that
+ * follows depend on what is collected once the current dice are kept, not on
+ * what was collected before them (S-2: only classic Kniffel's odds actually
+ * move with this, since modernized Kniffel always needs exactly one value).
  */
-export const optimalRollDecision = (ctx: BotTurnContext, bank: number, diceAfter: number): OptimalRollDecision => {
-  const { bustProbability, expectedGain } = evaluateRoll(diceAfter, ctx.currentCard, ctx.kniffelProgress, ctx.ruleset);
+export const optimalRollDecision = (ctx: BotTurnContext, bank: number, diceAfter: number, progressAfter: number[]): OptimalRollDecision => {
+  const { bustProbability, expectedGain } = evaluateRoll(diceAfter, ctx.currentCard, progressAfter, ctx.ruleset);
   const rollValue = (1 - bustProbability) * (bank + expectedGain);
   const deficit = ctx.winningScore > 0 ? (ctx.leaderScore - ctx.myScore) / ctx.winningScore : 0;
   const appetite = Math.min(OPTIMAL_MAX_RISK_APPETITE, Math.max(0, deficit));
@@ -181,9 +194,9 @@ export const optimalRollDecision = (ctx: BotTurnContext, bank: number, diceAfter
 };
 
 const optimal = (ctx: BotTurnContext, available: BotActionAvailability): BotAction | null => {
-  const { bank, diceAfter } = outcomeOfSelection(ctx);
+  const { bank, diceAfter, progressAfter } = outcomeOfSelection(ctx);
   if (available.stop && available.roll) {
-    return optimalRollDecision(ctx, bank, diceAfter).action;
+    return optimalRollDecision(ctx, bank, diceAfter, progressAfter).action;
   }
   if (available.stop && available.draw) {
     return bank <= OPTIMAL_DRAW_BANK_LIMIT ? 'draw' : 'stop';

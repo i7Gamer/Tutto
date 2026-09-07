@@ -36,6 +36,12 @@ export const createConfigSlice: ImmerStateCreator<ConfigSlice> = (set, get) => (
   },
 
   setAudioVolume: (val) => {
+    // clampAudioVolume(NaN) resolves to DEFAULT_AUDIO_VOLUME, which is
+    // MAX_AUDIO_VOLUME — fine for the parse side (parseStoredAudioVolume
+    // reads null instead, "keep the default"), wrong for a live setter: an
+    // unreadable value from here should leave the volume where it was, not
+    // jump it to full (S-7).
+    if (!Number.isFinite(val)) return;
     const volume = clampAudioVolume(val);
     set({ audioVolume: volume });
     localStore.write('tutto_audioVolume', String(volume));

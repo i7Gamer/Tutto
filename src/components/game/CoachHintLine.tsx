@@ -26,10 +26,15 @@ export default function CoachHintLine({ hint }: CoachHintLineProps) {
   const keep = hint.keep.join(KEEP_SEPARATOR);
   // Otto's own arithmetic is a mean over many outcomes, not a number a table
   // will ever actually show — rounded here, for display only; coachHint.ts
-  // keeps the exact figures for whatever reads them next.
-  const rollValue = Math.round(hint.rollValue);
-  const threshold = Math.round(hint.threshold);
+  // keeps the exact figures for whatever reads them next. Both are null
+  // exactly when action isn't 'roll' (S-3), the only branch that reads them.
+  const rollValue = hint.rollValue === null ? null : Math.round(hint.rollValue);
+  const threshold = hint.threshold === null ? null : Math.round(hint.threshold);
 
+  // A completed card offers no roll (available.roll is false), so coachHint
+  // hands back null bust figures rather than quoting risk for a roll that was
+  // never on offer (S-3) — the stop copy drops that clause entirely then,
+  // instead of interpolating nulls into the sentence.
   const message = hint.action === 'roll'
     ? t(
         'coach.roll',
@@ -37,11 +42,13 @@ export default function CoachHintLine({ hint }: CoachHintLineProps) {
         { keep, dice: hint.diceAfter, bust: hint.bustPercent, rollValue, threshold },
       )
     : hint.action === 'stop'
-      ? t(
-          'coach.stop',
-          'Otto would keep {{keep}} and bank {{bank}}: {{bust}}% bust risk on {{dice}} dice.',
-          { keep, bank: hint.bank, bust: hint.bustPercent, dice: hint.diceAfter },
-        )
+      ? (hint.bustPercent === null
+        ? t('coach.stopNoRoll', 'Otto would keep {{keep}} and bank {{bank}}.', { keep, bank: hint.bank })
+        : t(
+            'coach.stop',
+            'Otto would keep {{keep}} and bank {{bank}}: {{bust}}% bust risk on {{dice}} dice.',
+            { keep, bank: hint.bank, bust: hint.bustPercent, dice: hint.diceAfter },
+          ))
       : t('coach.draw', 'Otto would draw the next card with {{bank}} at stake.', { bank: hint.bank });
 
   return (

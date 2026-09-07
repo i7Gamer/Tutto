@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { playBuzzer, playSuccess, playTone, playDiceRattle, playDieClick, vibrateBust, vibrateSuccess } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
 import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from '../utils/diceLogic';
-import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../utils/coreGameEngine';
+import { KNIFFEL_SCORE, PLUS_MINUS_SCORE, fixedCardAward } from '../utils/coreGameEngine';
 import { DEFAULT_RULESET } from '../utils/configValidation';
 import { buildDiceSnapshot } from '../utils/diceTurnState';
 import { deriveTurnControls, canDrawAfterTutto as computeCanDrawAfterTutto, sortKeptDiceForDisplay } from '../utils/diceTurnControls';
@@ -69,22 +69,6 @@ interface DiceGameProps {
   // bot's own decision is built from `bot` above.
   coachSeat?: CoachHintStandings;
 }
-
-/**
- * The cards worth a fixed award for being completed rather than the dice they
- * were rolled with — Plus/Minus discards its dice outright, and a straight
- * scores none (checkValidityAndScore returns 0 for it).
- *
- * The running total counts this in the moment the selection completes the card,
- * so the panel names what the card will actually pay. It used to show the raw
- * dice instead: nothing at all for a straight or a classic Plus/Minus, and — in
- * modernized Plus/Minus — a dice total climbing toward a number the engine was
- * always going to replace with 1000.
- */
-const FIXED_CARD_AWARD: Partial<Record<CardType, number>> = {
-  Plus_Minus: PLUS_MINUS_SCORE,
-  Kniffel: KNIFFEL_SCORE,
-};
 
 export default function DiceGame({ currentCard, turnKey, onComplete, onStateChange, panelReady = true, ruleset = DEFAULT_RULESET, onDrawCard, bot, coachSeat }: DiceGameProps) {
   const { t } = useTranslation();
@@ -676,9 +660,9 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // What the selection on the table would add to the running total: its dice,
   // or — for a card whose value is a fixed award — that award, once the
   // selection actually completes the card.
-  const fixedCardAward = (currentCard ? FIXED_CARD_AWARD[currentCard] : 0) ?? 0;
+  const cardAward = fixedCardAward(currentCard);
   const pendingSelectionScore = !validation.valid ? 0
-    : fixedCardAward > 0 ? (isMakingTutto ? fixedCardAward : 0)
+    : cardAward > 0 ? (isMakingTutto ? cardAward : 0)
       : countsDicePoints ? validation.score : 0;
 
   const { canStop, isRollAgainApplicable, stopButtonText: stopButtonTextKey } = deriveTurnControls({
@@ -725,7 +709,6 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
       ruleset,
       kniffelProgress,
       standings: coachSeat,
-      isClassic,
       canDraw: !!onDrawCard,
       chainCardCount,
       tuttosThisTurn,
@@ -737,7 +720,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     });
   }, [
     coachSeat, bot, canAct, currentRoll, keptDice.length, turnScore, currentCard, ruleset,
-    kniffelProgress, isClassic, onDrawCard, chainCardCount, tuttosThisTurn, isSelectionLocked,
+    kniffelProgress, onDrawCard, chainCardCount, tuttosThisTurn, isSelectionLocked,
   ]);
 
   // Game renders this panel inside a modal, so an aria-modal element is always

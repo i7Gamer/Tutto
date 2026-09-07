@@ -21,12 +21,6 @@ export interface UseRollAnnouncementOptions {
   announce: (key: string, values: Record<string, unknown>) => void;
 }
 
-// Cards whose dice carry no value of their own (diceLogic.ts's
-// checkValidityAndScore scores Kniffel's straight as a phantom 0, and
-// DiceGame's FIXED_CARD_AWARD/countsDicePoints discard Plus/Minus's dice
-// outright) — describeLandedRoll returns score: null for these, and the
-// announcement uses the count-only wording (rollLandedFixed).
-const FIXED_SCORE_CARDS: ReadonlySet<CardType> = new Set(['Kniffel', 'Plus_Minus']);
 
 /**
  * Speaks each landed roll exactly once, through `announce` — never during
@@ -97,7 +91,10 @@ export const useRollAnnouncement = ({
       ? ` ${latestT('dice.announce.turnSoFar', { kept: latestKeptCount, turnScore: latestTurnScore })}`
       : '';
 
-    const key = latestCard !== null && FIXED_SCORE_CARDS.has(latestCard)
+    // describeLandedRoll answers "do these dice carry a value" through
+    // coreGameEngine.fixedCardAward — the one list the panel, the bot and
+    // this announcer all read — so a null score picks the count-only wording.
+    const key = score === null
       ? 'dice.announce.rollLandedFixed'
       : 'dice.announce.rollLanded';
 

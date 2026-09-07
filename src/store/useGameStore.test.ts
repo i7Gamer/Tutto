@@ -619,6 +619,24 @@ describe('useGameStore', () => {
       expect(useGameStore.getState().audioVolume).toBe(0);
     });
 
+    // S-7: clampAudioVolume(NaN) returns DEFAULT_AUDIO_VOLUME, which IS
+    // MAX_AUDIO_VOLUME — so an unreadable live value used to turn the volume
+    // all the way up instead of leaving it alone. The setter must keep the
+    // current value and write nothing, the same as the parse side already
+    // does for an unreadable stored value (see the test below).
+    it('setAudioVolume with a non-finite value keeps the current volume and writes nothing', () => {
+      useGameStore.getState().setAudioVolume(0.4);
+      localStorage.removeItem('tutto_audioVolume');
+
+      useGameStore.getState().setAudioVolume(Number.NaN);
+      expect(useGameStore.getState().audioVolume).toBe(0.4);
+      expect(localStorage.getItem('tutto_audioVolume')).toBeNull();
+
+      useGameStore.getState().setAudioVolume(Number.POSITIVE_INFINITY);
+      expect(useGameStore.getState().audioVolume).toBe(0.4);
+      expect(localStorage.getItem('tutto_audioVolume')).toBeNull();
+    });
+
     it('init restores tutto_audioVolume and leaves the default for an unreadable one', () => {
       expect(useGameStore.getState().audioVolume).toBe(1);
 
