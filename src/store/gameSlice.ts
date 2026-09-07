@@ -13,7 +13,8 @@ import { zeroedPlayerStats } from '../utils/playerStats';
 import { MS_PER_SECOND } from '../utils/time';
 import playerColorsData from '../../playerColors.json';
 import { v4 as uuidv4 } from 'uuid';
-import type { Player, CoreGameState, Toast, CardType } from '../types';
+import type { Player, CoreGameState, Toast, CardType, BotPersonality } from '../types';
+import { BOT_NAMES } from '../utils/bots';
 import { MAX_HISTORY_LOG_SIZE } from '../types';
 import { getSocket } from './socketRef';
 import type { FinishedGameSnapshot, GameStore, ImmerStateCreator } from './storeTypes';
@@ -29,7 +30,7 @@ export const createInitialPlayer = (name: string): Player => ({
 
 type GameSlice = Pick<GameStore,
   | 'addToast' | 'removeToast' | 'sendReaction' | 'removeReaction'
-  | 'addPlayer' | 'removePlayer' | 'reorderPlayers' | 'changePlayerColor' | 'changeMyColor'
+  | 'addPlayer' | 'addBot' | 'removePlayer' | 'reorderPlayers' | 'changePlayerColor' | 'changeMyColor'
   | 'setLiveTurnState' | 'startGame' | 'endGame' | 'nextTurn' | 'undo'
   | 'drawCardMidTurn'
   | 'buildGlobalStatsPayload' | 'setPreGameStats'
@@ -61,6 +62,26 @@ export const finishedGameSnapshotOf = (
   gameTimeInSeconds: game.gameTimeInSeconds,
 });
 
+// The roster invariants, held by the store itself rather than trusted to
+// every caller (LocalLobby's pre-checks, the server's joinRoom rules): a
+// case-insensitive duplicate breaks each name-keyed lookup (Plus/Minus
+// deduction, undo, pushState merging) and would make
+// persistence.hasUniquePlayerNames silently drop the entire restored save on
+// the next reload. Shared by the human and the bot path so a bot's reserved
+// name and a human's typed one are refused by the same rule.
+const seatPlayer = (players: Player[], name: string, bot?: BotPersonality): void => {
+  const trimmed = name.trim();
+  if (trimmed.length === 0 || trimmed.length > MAX_PLAYER_NAME_LENGTH) return;
+  if (players.some(p => p.name.toLowerCase() === trimmed.toLowerCase())) return;
+  const usedColors = players.map(p => p.color);
+  let color = PLAYER_COLORS.find(c => !usedColors.includes(c));
+  if (!color) color = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
+  const newPlayer = createInitialPlayer(trimmed);
+  newPlayer.color = color;
+  if (bot) newPlayer.bot = bot;
+  players.push(newPlayer);
+};
+
 export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
   addToast: (message) => set((state) => {
     state.toasts.push(makeToast(message));
@@ -80,23 +101,14 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
   }),
 
   addPlayer: (name) => {
-    set((state) => {
-      // The store enforces its own roster invariants (mirroring LocalLobby's
-      // pre-checks and the server's joinRoom rules) instead of trusting every
-      // caller: a case-insensitive duplicate breaks each name-keyed lookup
-      // (Plus/Minus deduction, undo, pushState merging) and would make
-      // persistence.hasUniquePlayerNames silently drop the entire restored
-      // save on the next reload.
-      const trimmed = name.trim();
-      if (trimmed.length === 0 || trimmed.length > MAX_PLAYER_NAME_LENGTH) return;
-      if (state.players.some(p => p.name.toLowerCase() === trimmed.toLowerCase())) return;
-      const usedColors = state.players.map(p => p.color);
-      let color = PLAYER_COLORS.find(c => !usedColors.includes(c));
-      if (!color) color = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
-      const newPlayer = createInitialPlayer(trimmed);
-      newPlayer.color = color;
-      state.players.push(newPlayer);
-    });
+    set((state) => { seatPlayer(state.players, name); });
+  },
+
+  // Local games only: an online seat is minted by the server's joinRoom, and
+  // the server would strip the flag from a pushed roster anyway.
+  addBot: (personality) => {
+    if (get().isOnline) return;
+    set((state) => { seatPlayer(state.players, BOT_NAMES[personality], personality); });
   },
 
   removePlayer: (name) => {
@@ -164,6 +176,9 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
         color: p.color,
         socketId: p.socketId,
         disconnected: p.disconnected,
+        // A bot is a bot for the rematch too — without this, Play Again
+        // handed its seat to a human nobody was holding.
+        bot: p.bot,
       }));
       state.players = state.randomOrder ? shuffleArray(resetPlayers) : resetPlayers;
       state.round = 1;

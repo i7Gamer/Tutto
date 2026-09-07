@@ -35,6 +35,11 @@ describe('pickLocalGameState', () => {
     expect(pickLocalGameState(parsed)).toEqual({ round: 3 });
   });
 
+  it("keeps a seat's bot personality through the save", () => {
+    const parsed = { players: [{ name: 'Carl', score: 300, bot: 'cautious' }] };
+    expect(pickLocalGameState(parsed)).toEqual(parsed);
+  });
+
   it('drops fields outside the known whitelist, including action names', () => {
     // A corrupted or hand-edited save must not be able to clobber a store
     // action (e.g. `startGame`) by Object.assign'ing an arbitrary key into it.

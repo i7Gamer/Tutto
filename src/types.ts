@@ -36,6 +36,11 @@ export const GAME_MODES: readonly GameMode[] = ['normalized', 'custom', 'classic
 // were understood before custom games got their own bucket.
 export const DEFAULT_GAME_MODE: GameMode = 'normalized';
 
+// A seat the app plays itself (local games only — see utils/bots.ts and
+// utils/botStrategies.ts). The value doubles as the strategy's name.
+export const BOT_PERSONALITIES = ['cautious', 'risky', 'optimal'] as const;
+export type BotPersonality = typeof BOT_PERSONALITIES[number];
+
 export interface Die {
   id: string;
   val: number;
@@ -164,6 +169,10 @@ export interface Player {
   // fall back to `name` when absent.
   id?: string;
   name: string;
+  // Set on a seat the app plays itself; absent on a human. Carried through
+  // startGame's roster reset and the local save (utils/bots.ts reads it
+  // defensively, since the save validator only knows it as a string).
+  bot?: BotPersonality;
   score: number;
   times1000PointsDeducted: number;
   timesKniffelCompleted: number;

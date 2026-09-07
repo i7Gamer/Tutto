@@ -14,6 +14,7 @@ import type {
   CardType,
   TurnSummary,
   DeviceStatsRow,
+  BotPersonality,
 } from '../types';
 
 export type GameMode = 'local' | 'online';
@@ -173,6 +174,7 @@ export interface GameStore extends CoreGameState {
   resetGeneralSettings: () => void;
   resetInitialCards: () => void;
   addPlayer: (name: string) => void;
+  addBot: (personality: BotPersonality) => void;
   removePlayer: (name: string) => void;
   reorderPlayers: (newPlayers: Player[]) => void;
   changePlayerColor: (name: string, color: string) => void;

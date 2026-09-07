@@ -5960,3 +5960,44 @@ describe('useGameStore', () => {
   });
 
 });
+
+describe('bot seats', () => {
+  beforeEach(() => {
+    useGameStore.getState().reset();
+    localStorage.clear();
+  });
+
+  it('addBot seats the personality under its reserved name, flagged and coloured', () => {
+    useGameStore.getState().addBot('cautious');
+    const [carl] = useGameStore.getState().players;
+    expect(carl.name).toBe('Carl');
+    expect(carl.bot).toBe('cautious');
+    expect(carl.color).toBeTruthy();
+    expect(carl.score).toBe(0);
+  });
+
+  it('refuses a bot whose reserved name a human already holds, case-insensitively', () => {
+    useGameStore.getState().addPlayer('carl');
+    useGameStore.getState().addBot('cautious');
+    expect(useGameStore.getState().players).toHaveLength(1);
+    expect(useGameStore.getState().players[0].bot).toBeUndefined();
+  });
+
+  it('refuses a human taking a seated bot\'s name, and the same bot twice', () => {
+    useGameStore.getState().addBot('risky');
+    useGameStore.getState().addPlayer('Rita');
+    useGameStore.getState().addBot('risky');
+    expect(useGameStore.getState().players).toHaveLength(1);
+  });
+
+  it('startGame keeps the bot flag through the roster reset', () => {
+    useGameStore.getState().addPlayer('Alice');
+    useGameStore.getState().addBot('optimal');
+    useGameStore.setState({ randomOrder: false });
+    useGameStore.getState().startGame();
+    const otto = useGameStore.getState().players.find(p => p.name === 'Otto');
+    expect(otto?.bot).toBe('optimal');
+    expect(otto?.score).toBe(0);
+    expect(useGameStore.getState().players.find(p => p.name === 'Alice')?.bot).toBeUndefined();
+  });
+});
