@@ -68,7 +68,12 @@ describe('soundEffects', () => {
     close: vi.fn().mockImplementation(() => { mockAudioContext.state = 'closed'; return Promise.resolve(); })
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // The module keeps its AudioContext across tests. Close whatever the
+    // previous test left open BEFORE the mocks are cleared, so "no context
+    // has been created yet" is true at the start of every test whatever the
+    // order (a shuffled run, seed 3, had a rattle test leave one behind).
+    await closeAudioContext();
     vi.clearAllMocks();
     mockAudioContext.state = 'running';
     window.AudioContext = vi.fn().mockImplementation(function() { return mockAudioContext; });

@@ -125,6 +125,13 @@ describe('Home handleModeChange', () => {
 });
 
 describe('Home handleClearCache', () => {
+  // Every test below swaps window.location for a plain object so it can spy
+  // on reload(). Neither vi.unstubAllGlobals nor vi.restoreAllMocks puts the
+  // real one back, and a plain object never follows history.replaceState —
+  // so under a shuffled order the join-link tests above read an address bar
+  // frozen at whatever this describe left there (seed 3 found it).
+  const originalLocation = Object.getOwnPropertyDescriptor(window, 'location');
+
   beforeEach(() => {
     localStorage.setItem('tutto_dice_turn_state', 'x');
     localStorage.setItem('tutto_local_game', 'x');
@@ -135,6 +142,7 @@ describe('Home handleClearCache', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    if (originalLocation) Object.defineProperty(window, 'location', originalLocation);
     localStorage.clear();
     sessionStorage.clear();
   });
