@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { seedLocalDeck, startLocalGame, rollUntilSelectable } from './helpers';
 
 test.describe('Tutto Local Game Flow', () => {
   test('should allow players to join and start a local game', async ({ page }) => {
@@ -122,5 +123,33 @@ test.describe('Game entrance animation stays within the viewport at 375px (findi
     ]);
 
     expect(maxScrollWidth).toBeLessThanOrEqual(375);
+  });
+});
+
+/**
+ * Proves the wiring and the locale, not the semantics: the exact count and
+ * value per card are covered by rollAnnouncement.test.ts's unit tests, and
+ * the regex below is deliberately loose so nobody "strengthens" it into a
+ * duplicate semantic oracle here. seedLocalDeck's ROLLING_DECK guarantees an
+ * ordinary bonus card (never Kniffel/Plus-Minus, whose wording differs), so
+ * the "scoring dice" branch of the message is the one on screen.
+ */
+test.describe('screen-reader roll narration', () => {
+  test('announces the landed roll through its own live region', async ({ page }) => {
+    await seedLocalDeck(page);
+    await page.goto('/');
+    await startLocalGame(page);
+
+    // rollUntilSelectable already waits out the one-in-forty opening bust,
+    // so by the time "Select all" is on screen the roll has settled and the
+    // announcement has fired.
+    await rollUntilSelectable(page);
+
+    // formatList speaks the values as an English list ("1, 2, 3, 4, 5, and 6";
+    // "1 and 2" for two dice), so the pattern allows the conjunction.
+    const announcer = page.getByRole('status', { name: /Roll results/i });
+    await expect.poll(() => announcer.textContent()).toMatch(
+      /^Rolled [1-6](, [1-6])*(,? and [1-6])?\. [0-6] (scoring dice|dice count)/,
+    );
   });
 });

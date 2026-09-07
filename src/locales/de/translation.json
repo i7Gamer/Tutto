@@ -460,5 +460,10 @@
   "history.success": "{{name}} erzielt {{score}} Pkt. bei {{card}}",
   "history.plusMinusDeducted": "{{name}} erzielt {{score}} Pkt. ({{deducted}})",
   "history.deductedEntry": "{{name}} verliert {{amount}}",
-  "history.kleeblatt": "{{name}} erzielt Kleeblatt und gewinnt!"
+  "history.kleeblatt": "{{name}} erzielt Kleeblatt und gewinnt!",
+  "dice.announce.live": "Wurfergebnisse",
+  "dice.announce.rollLanded": "Gewürfelt: {{values}}. {{count}} zählende Würfel, wert {{score}}.{{completesSuffix}}{{turnSoFarSuffix}}",
+  "dice.announce.rollLandedFixed": "Gewürfelt: {{values}}. {{count}} Würfel zählen für die Karte.{{completesSuffix}}{{turnSoFarSuffix}}",
+  "dice.announce.completesCard": "Das vervollständigt die Karte.",
+  "dice.announce.turnSoFar": "{{kept}} beiseitegelegt, {{turnScore}} in diesem Zug."
 }

@@ -14,6 +14,7 @@ import { getDisplayCardName } from '../utils/cardVisuals';
 import { useAutoContinueCountdown } from '../hooks/useAutoContinueCountdown';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useBotDriver } from '../hooks/useBotDriver';
+import { useRollAnnouncement } from '../hooks/useRollAnnouncement';
 import { chooseBotAction, chooseBotSelection, type BotSeat, type BotTurnContext } from '../utils/botStrategies';
 import {
   DIE_TUMBLE_MS, DIE_STAGGER_MS, DIE_FACE_SHUFFLE_MS, ROLL_SETTLE_BUFFER_MS,
@@ -24,6 +25,7 @@ import DrawnCardReveal from './game/DrawnCardReveal';
 import TurnScoreHeader from './game/TurnScoreHeader';
 import KeptDiceTray from './game/KeptDiceTray';
 import CurrentRollBoard from './game/CurrentRollBoard';
+import RollAnnouncer, { type RollAnnouncement } from './game/RollAnnouncer';
 import TurnActionBar from './game/TurnActionBar';
 import { MAX_CHAIN_CARDS } from '../types';
 import { DIE_FACES, TOTAL_DICE } from '../utils/turnShapes';
@@ -147,6 +149,15 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // the only place they see it: this modal covers the board, and the very next
   // thing to happen is a roll judged by the new card's rules.
   const [revealedCard, setRevealedCard] = useState<CardType | null>(null);
+
+  // The screen-reader narration of the roll that just landed (Feature A).
+  // `seq` increments on every announcement so RollAnnouncer can key its
+  // content on it, forcing a remount even when two rolls announce the exact
+  // same sentence back to back. Starts at 0 (nothing announced yet).
+  const [rollAnnouncement, setRollAnnouncement] = useState<{ announcement: RollAnnouncement; seq: number } | null>(null);
+  const announceRoll = useCallback((key: string, values: Record<string, unknown>) => {
+    setRollAnnouncement(prev => ({ announcement: { key, values }, seq: (prev?.seq ?? 0) + 1 }));
+  }, []);
 
   const selectedRolls = currentRoll.filter(d => d.selected);
 
@@ -745,6 +756,19 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     onDismissReveal: acknowledgeDrawnCard,
   });
 
+  useRollAnnouncement({
+    hasRolled,
+    isRolling,
+    bustState,
+    rollVals: currentRoll.map(d => d.val),
+    currentCard,
+    kniffelProgress,
+    ruleset,
+    keptCount: keptDice.length,
+    turnScore,
+    announce: announceRoll,
+  });
+
   return (
     <div ref={panelRef} className={`bg-white dark:bg-slate-800 sm:backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden rounded-3xl flex flex-col items-center w-full ${showSummary || revealedCard ? 'max-h-[90vh]' : 'h-[calc(100dvh-2rem)] sm:h-auto sm:max-h-[90vh]'}`}>
       {!showSummary && !revealedCard && (
@@ -805,6 +829,8 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
               onToggleDie={toggleDie}
               onSelectAllValid={selectAllValid}
             />
+
+            <RollAnnouncer announcement={rollAnnouncement?.announcement ?? null} seq={rollAnnouncement?.seq ?? 0} />
 
             <TurnActionBar
               show={hasRolled && !bustState}
