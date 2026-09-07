@@ -126,6 +126,11 @@ export function PlayerList({
                       <span className="inline-block w-4 h-4 rounded-full shadow-xs border border-black/10" style={{ backgroundColor: p.color || '#ffffff' }} />
                     )}
                     {p.name}
+                    {p.bot && (
+                      <span title={t('lobby.botTitle', 'Plays by itself')} className="text-indigo-700 dark:text-indigo-200 text-xs font-bold bg-indigo-100 dark:bg-indigo-900/40 px-2 py-0.5 rounded-full border border-indigo-100 dark:border-indigo-900/50 whitespace-nowrap">
+                        <span aria-hidden="true">🤖 </span><span>{t('lobby.bot', 'Bot')}</span>
+                      </span>
+                    )}
                     {isOnline && p.socketId === hostId && <Crown size={16} className="text-amber-500" />}
                     {streak !== undefined && streak >= HOT_WIN_STREAK && (
                       <span title={t('lobby.winStreakTitle', 'On a 🔥 {{streak}}-game win streak!', { streak })} className="text-amber-700 dark:text-amber-200 text-xs font-bold bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 rounded-full border border-amber-100 dark:border-amber-900/50 flex items-center gap-0.5 whitespace-nowrap">

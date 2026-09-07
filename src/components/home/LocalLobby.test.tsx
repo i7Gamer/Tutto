@@ -68,6 +68,39 @@ describe('LocalLobby', () => {
     expect(screen.getByText('lobby.addPlayerButton')).toBeInTheDocument();
   });
 
+  describe('bot seats', () => {
+    it('offers one button per personality and seats it through the store', () => {
+      const addBot = vi.fn();
+      act(() => { useGameStore.setState({ players: [], addBot }); });
+      render(<LocalLobby />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'lobby.addBotButton Carl' }));
+      fireEvent.click(screen.getByRole('button', { name: 'lobby.addBotButton Rita' }));
+      fireEvent.click(screen.getByRole('button', { name: 'lobby.addBotButton Otto' }));
+
+      expect(addBot.mock.calls).toEqual([['cautious'], ['risky'], ['optimal']]);
+      expect(screen.getByText('lobby.botCautious')).toBeInTheDocument();
+      expect(screen.getByText('lobby.botRisky')).toBeInTheDocument();
+      expect(screen.getByText('lobby.botOptimal')).toBeInTheDocument();
+    });
+
+    it('disables the button of a bot whose name is already at the table, however it is cased', () => {
+      act(() => {
+        useGameStore.setState({
+          players: [
+            { name: 'Carl', score: 0, bot: 'cautious' } as unknown as Player,
+            { name: 'rita', score: 0 } as unknown as Player,
+          ],
+        });
+      });
+      render(<LocalLobby />);
+
+      expect(screen.getByRole('button', { name: 'lobby.addBotButton Carl' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'lobby.addBotButton Rita' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'lobby.addBotButton Otto' })).toBeEnabled();
+    });
+  });
+
   it('gives the Add-player button an explicit aria-label, since its text label is hidden below sm', () => {
     render(<LocalLobby />);
     const button = screen.getByRole('button', { name: 'lobby.addPlayerButton' });

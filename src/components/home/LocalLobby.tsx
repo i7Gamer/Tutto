@@ -1,11 +1,13 @@
 import { useEffect, useId, useState } from 'react';
-import { UserPlus } from 'lucide-react';
+import { UserPlus, Bot } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { DiceModeSelector, RulesetSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, AudioSettingSelector, HapticsSettingSelector, AnimationsSettingSelector } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
 import { MAX_PLAYER_NAME_LENGTH } from '../../utils/configValidation';
+import { BOT_NAMES } from '../../utils/bots';
+import { BOT_PERSONALITIES, type BotPersonality } from '../../types';
 import { useGameStore } from '../../store/useGameStore';
 import { setHasFormDraft } from '../../utils/uiBusyState';
 
@@ -23,7 +25,7 @@ export default function LocalLobby() {
   // Selects only what this lobby renders — the whole store used to arrive as
   // a prop from Home, re-rendering the entire lobby tree on any store change.
   const {
-    players, addPlayer, removePlayer, startGame, reorderPlayers, changePlayerColor,
+    players, addPlayer, addBot, removePlayer, startGame, reorderPlayers, changePlayerColor,
     diceMode, setDiceMode, audioEnabled, setAudioEnabled, audioVolume, setAudioVolume, hapticsEnabled, setHapticsEnabled,
     motionOverride, setMotionOverride,
     initialCards, resetGeneralSettings, resetInitialCards, addToast,
@@ -31,6 +33,7 @@ export default function LocalLobby() {
   } = useGameStore(useShallow((s) => ({
     players: s.players,
     addPlayer: s.addPlayer,
+    addBot: s.addBot,
     removePlayer: s.removePlayer,
     startGame: s.startGame,
     reorderPlayers: s.reorderPlayers,
@@ -52,6 +55,18 @@ export default function LocalLobby() {
     ruleset: s.ruleset,
     setRuleset: s.setRuleset,
   })));
+
+  // Literal keys on purpose: translations.test only sees the calls it can
+  // read as written, so a key built from the personality would escape it.
+  const personalityLabel: Record<BotPersonality, string> = {
+    cautious: t('lobby.botCautious', 'Cautious'),
+    risky: t('lobby.botRisky', 'Risk-taker'),
+    optimal: t('lobby.botOptimal', 'Calculating'),
+  };
+  // A bot's name is reserved (utils/bots.ts); its button greys out while the
+  // name sits at the table, whoever holds it — the store would refuse the
+  // seat anyway, this just says so up front.
+  const isNameSeated = (name: string) => players.some(p => p.name.toLowerCase() === name.toLowerCase());
 
   const handleAddPlayer = () => {
     const trimmedName = newPlayerName.trim();
@@ -97,6 +112,31 @@ export default function LocalLobby() {
           >
             <UserPlus size={18} /> <span className="hidden sm:inline">{t('lobby.addPlayerButton', 'Add')}</span>
           </motion.button>
+        </div>
+        {/* Bots: one seat per personality, so playing alone is one tap away. */}
+        <div className="flex flex-wrap items-center gap-2 mb-6">
+          <span className="text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5 mr-1">
+            <Bot size={18} aria-hidden="true" /> {t('lobby.addBotTitle', 'Add a bot')}
+          </span>
+          {BOT_PERSONALITIES.map((personality) => {
+            const name = BOT_NAMES[personality];
+            return (
+              <button
+                key={personality}
+                type="button"
+                disabled={isNameSeated(name)}
+                onClick={() => addBot(personality)}
+                /* The name rides OUTSIDE t(): an interpolated name collapses to
+                   one identical label for all three under the unit i18n mock. */
+                aria-label={`${t('lobby.addBotButton', 'Add bot:')} ${name}`}
+                title={`${t('lobby.addBotButton', 'Add bot:')} ${name}`}
+                className="min-h-11 inline-flex items-center gap-1.5 px-3 rounded-lg border border-gray-300 dark:border-slate-500 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-slate-800/60 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <span className="font-bold">{name}</span>
+                <span className="text-gray-500 dark:text-gray-400">{personalityLabel[personality]}</span>
+              </button>
+            );
+          })}
         </div>
         <PlayerList
           players={players}

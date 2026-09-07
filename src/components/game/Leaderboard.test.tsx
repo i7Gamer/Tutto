@@ -32,6 +32,15 @@ const props = (over: Partial<LeaderboardProps> = {}): LeaderboardProps => ({
 });
 
 describe('Leaderboard', () => {
+  it('marks a bot seat, readably for a screen reader too', () => {
+    render(<Leaderboard {...props({
+      sortedPlayers: [player({ name: 'Otto', score: 900, position: 1, bot: 'optimal' }), player({ name: 'Ada', score: 300, position: 2 })],
+      isOnline: false,
+    })} />);
+    expect(screen.getAllByText('game.bot')).toHaveLength(1);
+    expect(screen.getByTitle('game.bot')).toBeInTheDocument();
+  });
+
   it('lists the players in the rank order it is given, with their positions and scores', () => {
     const { container } = render(<Leaderboard {...props()} />);
 

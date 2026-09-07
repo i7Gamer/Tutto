@@ -761,6 +761,21 @@ describe('AnimationsSettingSelector', () => {
   });
 });
 
+describe('PlayerList bot seats', () => {
+  it('marks a bot seat so the table can tell who plays by themselves', () => {
+    render(
+      <PlayerList
+        players={[makePlayer({ name: 'Alice' }), makePlayer({ name: 'Carl', bot: 'cautious' })]}
+        reorderPlayers={() => {}}
+        isOnline={false}
+        changeColor={() => {}}
+        onRemovePlayer={() => {}}
+      />,
+    );
+    expect(screen.getAllByText('lobby.bot')).toHaveLength(1);
+  });
+});
+
 describe('PlayerList win streak', () => {
   it('renders win streak badge for players with winStreak >= 3', () => {
     const players: Player[] = [

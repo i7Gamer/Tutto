@@ -15,12 +15,12 @@ test.describe('Tutto Local Game Flow', () => {
 
     // Add Player 1: Alice
     await playerInput.fill('Alice');
-    await page.getByRole('button', { name: /Add/i }).click();
+    await page.getByRole('button', { name: /^Add$/i }).click();
     await expect(page.getByText('Alice', { exact: true }).first()).toBeVisible();
 
     // Add Player 2: Bob
     await playerInput.fill('Bob');
-    await page.getByRole('button', { name: /Add/i }).click();
+    await page.getByRole('button', { name: /^Add$/i }).click();
     await expect(page.getByText('Bob', { exact: true }).first()).toBeVisible();
 
     // Start Game
@@ -39,11 +39,35 @@ test.describe('Tutto Local Game Flow', () => {
     await expect(page.getByRole('button', { name: /Undo/i })).toBeVisible();
   });
 
+  /**
+   * Two bots and nobody else: the game plays itself. Each bot's turn opens
+   * the dice panel on its own, plays it through, and the activity log gets
+   * the entry — so an entry for each of them is the whole feature working end
+   * to end, on the real timers (roughly ten seconds a turn).
+   */
+  test('two bots play the game by themselves', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Add bot: Carl' }).click();
+    await page.getByRole('button', { name: 'Add bot: Rita' }).click();
+    await expect(page.getByText('Bot', { exact: true })).toHaveCount(2);
+    await expect(page.getByRole('button', { name: 'Add bot: Carl' })).toBeDisabled();
+
+    await page.getByRole('button', { name: /Start Game!/i }).click();
+    await expect(page.getByText(/Current Player/i)).toBeVisible();
+    // Nothing for a human to press on a bot's turn.
+    await expect(page.getByRole('button', { name: /Roll Dice/i })).toHaveCount(0);
+
+    const log = page.getByText('Activity Log').locator('..');
+    const BOT_TURN_BUDGET_MS = 60_000;
+    await expect(log.getByText(/^Carl /).first()).toBeVisible({ timeout: BOT_TURN_BUDGET_MS });
+    await expect(log.getByText(/^Rita /).first()).toBeVisible({ timeout: BOT_TURN_BUDGET_MS });
+  });
+
   test('should persist local players after page reload', async ({ page }) => {
     await page.goto('/');
     const playerInput = page.getByPlaceholder(/Player name/i);
     await playerInput.fill('Charlie');
-    await page.getByRole('button', { name: /Add/i }).click();
+    await page.getByRole('button', { name: /^Add$/i }).click();
     await expect(page.getByText('Charlie', { exact: true }).first()).toBeVisible();
 
     await page.reload();
@@ -71,10 +95,10 @@ test.describe('Game entrance animation stays within the viewport at 375px (findi
 
     const playerInput = page.getByPlaceholder(/Player name/i);
     await playerInput.fill('Alice');
-    await page.getByRole('button', { name: /Add/i }).click();
+    await page.getByRole('button', { name: /^Add$/i }).click();
     await expect(page.getByText('Alice', { exact: true }).first()).toBeVisible();
     await playerInput.fill('Bob');
-    await page.getByRole('button', { name: /Add/i }).click();
+    await page.getByRole('button', { name: /^Add$/i }).click();
     await expect(page.getByText('Bob', { exact: true }).first()).toBeVisible();
 
     // Started before, and raced against, the click that mounts Game and

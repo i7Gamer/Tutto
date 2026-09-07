@@ -78,6 +78,12 @@ function Leaderboard({
                   <div className="w-12 font-medium text-gray-600 dark:text-gray-300">{p.position}.</div>
                   <div className="player-name flex-1 font-bold flex items-center flex-wrap gap-2" style={readableNameVars(p.color)}>
                     <span>{p.name}</span>
+                    {p.bot && (
+                      <span title={t('game.bot', 'Bot')} className="text-lg leading-none">
+                        <span aria-hidden="true">🤖</span>
+                        <span className="sr-only">{t('game.bot', 'Bot')}</span>
+                      </span>
+                    )}
                     {isOnline && hostId === p.socketId && (
                       <span title={t('game.host', 'Host')} className="text-lg leading-none">
                         <span aria-hidden="true">👑</span>
