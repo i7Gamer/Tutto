@@ -282,7 +282,6 @@ test.describe('the lobby row hover cue survives the cascade', () => {
     // Read alongside Bob's row below rather than in a separate test, so it
     // reuses this same online room instead of paying for a second one.
     const ownRow = pageA.locator('.player-name', { hasText: 'AliceHost' }).locator('xpath=..');
-    const ownBackground = () => ownRow.evaluate(el => getComputedStyle(el).backgroundColor);
 
     // transition-colors animates the background over ~150ms — settle before
     // sampling, or a resting/hover pair caught mid-animation can differ by
@@ -385,19 +384,29 @@ test.describe('the lobby row hover cue survives the cascade', () => {
         await pageA.getByLabel('Toggle theme').click();
       }
       await pageA.mouse.move(0, 0);
-      const resting = await settledBackground(background, `BobGuest's un-hovered roster row in ${theme} mode`);
 
+      // Polled, not sampled once after settledBackground: the theme flip
+      // tweens the row (transition-colors) and the body (index.css) to their
+      // dark colours, and a CSS transition's computed value only advances on
+      // animation frames — with no frame between the click and two
+      // back-to-back reads, both read the light colour, "settle", and the
+      // sample lands mid-flip (CI chromium read 0.33 three retries running:
+      // the light row tint over the already-dark card). Polling the
+      // assertion itself waits out the tween however the frames fall. Runs
+      // before Bob's resting read for the same reason: by the time this
+      // passes the flip is over, so `resting` really is the resting colour.
       await test.step(`AliceHost's own roster row reads as ${theme} in ${theme} mode`, async () => {
-        await settledBackground(ownBackground, `AliceHost's own roster row in ${theme} mode`);
-        const ownLuminance = await backgroundLuminance(ownRow);
+        const ownLuminance = expect.poll(() => backgroundLuminance(ownRow), {
+          message: `AliceHost's own row should read as ${theme} in ${theme} mode`,
+        });
         if (theme === 'dark') {
-          expect(ownLuminance, `AliceHost's own row luminance ${ownLuminance} should read as dark in dark mode`)
-            .toBeLessThan(DARK_LUMINANCE_CEILING);
+          await ownLuminance.toBeLessThan(DARK_LUMINANCE_CEILING);
         } else {
-          expect(ownLuminance, `AliceHost's own row luminance ${ownLuminance} should read as light in light mode`)
-            .toBeGreaterThan(LIGHT_LUMINANCE_FLOOR);
+          await ownLuminance.toBeGreaterThan(LIGHT_LUMINANCE_FLOOR);
         }
       });
+
+      const resting = await settledBackground(background, `BobGuest's un-hovered roster row in ${theme} mode`);
 
       await row.hover();
       await expect.poll(background, {
