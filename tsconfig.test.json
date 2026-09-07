@@ -50,6 +50,7 @@
        -- import.meta.env and window.__TEST_MODE__ live here, and without them
        the count below would be inflated by config artefacts. */
     "src/vite-env.d.ts",
+    "src/testing/jest-dom.d.ts",
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
     "src/**/*.integration.test.tsx",
