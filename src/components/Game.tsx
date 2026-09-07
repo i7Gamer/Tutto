@@ -15,6 +15,7 @@ import { gameModeOf, isCustomGameMode } from '../utils/statsApi';
 import { DICE_PANEL_ENTRANCE_MS, TURN_URGENT_SECONDS, BOT_OPEN_DELAY_MS } from '../utils/uiTimings';
 import { botOf } from '../utils/bots';
 import type { BotSeat } from '../utils/botStrategies';
+import type { CoachHintStandings } from '../utils/coachHint';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useDeviceStats } from '../hooks/useDeviceStats';
@@ -80,6 +81,7 @@ const useGameSlice = () => useGameStore(useShallow(state => ({
   addToast: state.addToast,
   sendReaction: state.sendReaction,
   hostId: state.hostId,
+  coachHintEnabled: state.coachHintEnabled,
   finished: state.finished,
   previousCard: state.previousCard,
   previousPlayerName: state.previousPlayerName,
@@ -114,6 +116,7 @@ export default function Game() {
     setPreGameStats,
     turnTimeRemaining,
     addToast,
+    coachHintEnabled,
   } = game;
 
   // Keeps the screen awake for the whole gameplay session, on every device —
@@ -530,16 +533,28 @@ export default function Game() {
     return () => clearTimeout(timer);
   }, [isBotTurn, isStopCard, showDiceGame, openDiceGame, turnSlot]);
 
-  // What the bot weighs its risk against: its own score and the table's best.
+  // What a seat weighs its risk against: its own score and the table's
+  // best — shared by a bot's own decision (botSeat below) and Otto's advice
+  // to a human (coachSeat below), so the two can never disagree about the
+  // standings they are judging a roll against. leaderScore includes the
+  // acting player themselves: when leading, the deficit is <= 0 and the
+  // trailing appetite both read as zero.
+  const seatStandings = useMemo<CoachHintStandings>(() => ({
+    myScore: currentPlayer?.score ?? 0,
+    leaderScore: players.reduce((best, p) => Math.max(best, p.score), 0),
+    winningScore,
+  }), [currentPlayer?.score, players, winningScore]);
+
   const botSeat = useMemo<BotSeat | undefined>(() => {
     if (botPersonality === null) return undefined;
-    return {
-      personality: botPersonality,
-      myScore: currentPlayer?.score ?? 0,
-      leaderScore: players.reduce((best, p) => Math.max(best, p.score), 0),
-      winningScore,
-    };
-  }, [botPersonality, currentPlayer?.score, players, winningScore]);
+    return { personality: botPersonality, ...seatStandings };
+  }, [botPersonality, seatStandings]);
+
+  // Otto's advice is offered only with the setting on and only for a human's
+  // own turn — never a spectator's (DiceGame mounts solely for the acting
+  // seat) and never a bot's (isBotTurn excludes it here, and DiceGame's own
+  // `!bot` guard excludes it again).
+  const coachSeat: CoachHintStandings | undefined = coachHintEnabled && !isBotTurn ? seatStandings : undefined;
 
   // Feuerwerk is the one card a chain cannot be carried off: the turn ends on
   // its null, banking whatever was accumulated, so there is never a tutto to
@@ -719,6 +734,7 @@ export default function Game() {
             ruleset={game.ruleset}
             onDrawCard={game.drawCardMidTurn}
             bot={botSeat}
+            coachSeat={coachSeat}
           />
         </ModalShell>
       )}

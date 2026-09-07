@@ -38,6 +38,7 @@ const createInitialLocalState = (): Omit<CoreGameState, never> & {
   audioVolume: number;
   hapticsEnabled: boolean;
   motionOverride: boolean;
+  coachHintEnabled: boolean;
   randomOrder: boolean;
   turnDuration: number;
   reconnectTimeout: number;
@@ -69,6 +70,9 @@ const createInitialLocalState = (): Omit<CoreGameState, never> & {
   audioVolume: DEFAULT_AUDIO_VOLUME,
   hapticsEnabled: true,
   motionOverride: false,
+  // Off by default: the optimal answer every turn would drain the tension a
+  // human's own choice carries (see coachHint.ts).
+  coachHintEnabled: false,
   randomOrder: true,
   turnDuration: DEFAULT_TURN_DURATION,
   reconnectTimeout: DEFAULT_RECONNECT_TIMEOUT,
@@ -241,6 +245,11 @@ export const useGameStore = create<GameStore>()(
       const storedMotionOverride = localStore.read('tutto_motionOverride');
       if (storedMotionOverride !== null) {
         set({ motionOverride: storedMotionOverride === 'true' });
+      }
+
+      const storedCoachHintEnabled = localStore.read('tutto_coachHintEnabled');
+      if (storedCoachHintEnabled !== null) {
+        set({ coachHintEnabled: storedCoachHintEnabled === 'true' });
       }
     },
 

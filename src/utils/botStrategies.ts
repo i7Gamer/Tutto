@@ -119,7 +119,13 @@ interface SelectionOutcome {
   diceAfter: number;
 }
 
-const outcomeOfSelection = (ctx: BotTurnContext): SelectionOutcome => {
+/**
+ * What a selection is worth if it is banked now and what rolling on would
+ * leave on the table — the two numbers every roll-or-stop and draw-or-stop
+ * comparison is built from. Exported so the coach hint can show a human the
+ * same arithmetic Otto decides with (coachHint.ts), not a second guess at it.
+ */
+export const outcomeOfSelection = (ctx: BotTurnContext): SelectionOutcome => {
   const picked = chooseBotSelection(ctx).map(i => ctx.rollVals[i]);
   // Plus/Minus pays for completion only; its dice never count (DiceGame's
   // countsDicePoints).
@@ -146,14 +152,38 @@ const cautious = (ctx: BotTurnContext, available: BotActionAvailability): BotAct
 const risky = (_ctx: BotTurnContext, available: BotActionAvailability): BotAction | null =>
   firstOffered(available, ['draw', 'roll', 'stop']);
 
+/** What Optimal Otto's roll-or-stop comparison found, and the numbers behind it. */
+export interface OptimalRollDecision {
+  bustProbability: number;
+  expectedGain: number;
+  /** The full expected value of rolling on: the bust-adjusted mean of bank + gain. */
+  rollValue: number;
+  /** The bank, discounted by `appetite` — what rollValue is measured against. */
+  threshold: number;
+  /** 0 when level with or ahead of the leader; grows with the deficit, capped at OPTIMAL_MAX_RISK_APPETITE. */
+  appetite: number;
+  action: 'roll' | 'stop';
+}
+
+/**
+ * Otto's roll-or-stop arithmetic, standalone: not raw EV-vs-bank, but EV
+ * against a bank discounted by a "trailing" appetite that grows with the gap
+ * to the leader. Exported so the coach hint can show the same comparison
+ * `optimal` decides with (coachHint.ts).
+ */
+export const optimalRollDecision = (ctx: BotTurnContext, bank: number, diceAfter: number): OptimalRollDecision => {
+  const { bustProbability, expectedGain } = evaluateRoll(diceAfter, ctx.currentCard, ctx.kniffelProgress, ctx.ruleset);
+  const rollValue = (1 - bustProbability) * (bank + expectedGain);
+  const deficit = ctx.winningScore > 0 ? (ctx.leaderScore - ctx.myScore) / ctx.winningScore : 0;
+  const appetite = Math.min(OPTIMAL_MAX_RISK_APPETITE, Math.max(0, deficit));
+  const threshold = bank * (1 - appetite);
+  return { bustProbability, expectedGain, rollValue, threshold, appetite, action: rollValue >= threshold ? 'roll' : 'stop' };
+};
+
 const optimal = (ctx: BotTurnContext, available: BotActionAvailability): BotAction | null => {
   const { bank, diceAfter } = outcomeOfSelection(ctx);
   if (available.stop && available.roll) {
-    const { bustProbability, expectedGain } = evaluateRoll(diceAfter, ctx.currentCard, ctx.kniffelProgress, ctx.ruleset);
-    const rollValue = (1 - bustProbability) * (bank + expectedGain);
-    const deficit = ctx.winningScore > 0 ? (ctx.leaderScore - ctx.myScore) / ctx.winningScore : 0;
-    const appetite = Math.min(OPTIMAL_MAX_RISK_APPETITE, Math.max(0, deficit));
-    return rollValue >= bank * (1 - appetite) ? 'roll' : 'stop';
+    return optimalRollDecision(ctx, bank, diceAfter).action;
   }
   if (available.stop && available.draw) {
     return bank <= OPTIMAL_DRAW_BANK_LIMIT ? 'draw' : 'stop';

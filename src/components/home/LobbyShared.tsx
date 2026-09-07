@@ -441,6 +441,35 @@ export function HapticsSettingSelector({ hapticsEnabled, setHapticsEnabled, name
   );
 }
 
+interface CoachSettingSelectorProps {
+  coachHintEnabled: boolean;
+  setCoachHintEnabled: (val: boolean) => void;
+  nameSuffix?: string;
+}
+
+// A two-radio pill copied from HapticsSettingSelector's shape — On / Off,
+// nameSuffix and all — but with neither its `sm:hidden` (Vibration only
+// makes sense on a phone; the coach's advice is useful anywhere) nor its
+// capability gate: unlike a haptics toggle with no vibration API behind it,
+// this one always does something the moment it is flipped on.
+export function CoachSettingSelector({ coachHintEnabled, setCoachHintEnabled, nameSuffix = 'Lobby' }: CoachSettingSelectorProps) {
+  const { t } = useTranslation();
+
+  return (
+    <fieldset className="flex flex-wrap items-center justify-center gap-2 sm:gap-6 bg-white dark:bg-slate-800/50 px-3 py-2 sm:px-6 sm:py-3 rounded-xl border border-gray-200 dark:border-slate-600 min-h-[50px] min-w-0 m-0">
+      <legend className="sr-only">{t('lobby.coachSetting', 'Coach Hint')}</legend>
+      <label className="radio-wrapper lobby-radio">
+        <input type="radio" name={`coachSetting${nameSuffix}`} checked={coachHintEnabled === true} onChange={() => setCoachHintEnabled(true)} />
+        <span className="font-medium">{t('lobby.coachOn', 'Ask Otto On')}</span>
+      </label>
+      <label className="radio-wrapper lobby-radio">
+        <input type="radio" name={`coachSetting${nameSuffix}`} checked={coachHintEnabled === false} onChange={() => setCoachHintEnabled(false)} />
+        <span className="font-medium">{t('lobby.coachOff', 'Ask Otto Off')}</span>
+      </label>
+    </fieldset>
+  );
+}
+
 interface AnimationsSettingSelectorProps {
   motionOverride: boolean;
   setMotionOverride: (val: boolean) => void;

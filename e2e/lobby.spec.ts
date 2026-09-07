@@ -214,3 +214,23 @@ test.describe('Lobby volume', () => {
     await expect(page.getByRole('slider', { name: 'Volume' })).toHaveValue('40');
   });
 });
+
+/**
+ * Otto's advice is a per-device preference kept in localStorage
+ * (tutto_coachHintEnabled), read back by the store's init() — the same way
+ * Sound, Vibration and Animations survive a reload. Copied from the
+ * Animations two-radio reload test, not the volume slider's.
+ */
+test.describe('Lobby coach hint (Ask Otto)', () => {
+  test('is off by default, and "On" survives a reload', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: /Local Play/i })).toBeVisible();
+    await expect(page.getByLabel('Ask Otto Off', { exact: true })).toBeChecked();
+
+    await page.getByLabel('Ask Otto On', { exact: true }).click();
+    await expect(page.getByLabel('Ask Otto On', { exact: true })).toBeChecked();
+
+    await page.reload();
+    await expect(page.getByLabel('Ask Otto On', { exact: true })).toBeChecked();
+  });
+});

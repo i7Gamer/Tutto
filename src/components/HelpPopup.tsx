@@ -320,6 +320,7 @@ export default function HelpPopup() {
                     <li>{t('help.settings.diceMode')}</li>
                     <li>{t('help.settings.deckComp')}</li>
                   </ul>
+                  <p>{t('help.settings.coach')}</p>
                 </Section>
 
                 <Section id="online" title={t('help.online.title', 'Playing Online')} isOpen={activeSection === 'online'} onToggle={toggleSection}>

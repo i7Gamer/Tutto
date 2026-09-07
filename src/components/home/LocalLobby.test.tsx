@@ -48,6 +48,7 @@ vi.mock('./LobbyShared', () => ({
   AudioSettingSelector: () => <div data-testid="audio-setting-selector" />,
   HapticsSettingSelector: () => <div data-testid="haptics-setting-selector" />,
   AnimationsSettingSelector: () => <div data-testid="animations-setting-selector" />,
+  CoachSettingSelector: () => <div data-testid="coach-setting-selector" />,
 }));
 
 describe('LocalLobby', () => {

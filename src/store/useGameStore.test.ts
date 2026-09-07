@@ -644,6 +644,12 @@ describe('useGameStore', () => {
       expect(localStorage.getItem('tutto_motionOverride')).toBe('true');
     });
 
+    it('setCoachHintEnabled updates state and persists to localStorage', () => {
+      useGameStore.getState().setCoachHintEnabled(true);
+      expect(useGameStore.getState().coachHintEnabled).toBe(true);
+      expect(localStorage.getItem('tutto_coachHintEnabled')).toBe('true');
+    });
+
     it('setInitialCards updates the deck composition', () => {
       const newCards = { Stop: 20, Kniffel: 0 };
       useGameStore.getState().setInitialCards(newCards as never);
@@ -5773,6 +5779,12 @@ describe('useGameStore', () => {
       localStorage.setItem('tutto_motionOverride', 'true');
       useGameStore.getState().init('test-device-id');
       expect(useGameStore.getState().motionOverride).toBe(true);
+    });
+
+    it('restores coachHintEnabled from localStorage', () => {
+      localStorage.setItem('tutto_coachHintEnabled', 'true');
+      useGameStore.getState().init('test-device-id');
+      expect(useGameStore.getState().coachHintEnabled).toBe(true);
     });
   });
 

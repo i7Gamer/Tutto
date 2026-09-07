@@ -3,7 +3,7 @@ import { UserPlus, Bot } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
-import { DiceModeSelector, RulesetSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, AudioSettingSelector, HapticsSettingSelector, AnimationsSettingSelector } from './LobbyShared';
+import { DiceModeSelector, RulesetSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, AudioSettingSelector, HapticsSettingSelector, AnimationsSettingSelector, CoachSettingSelector } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
 import { MAX_PLAYER_NAME_LENGTH } from '../../utils/configValidation';
 import { BOT_NAMES } from '../../utils/bots';
@@ -27,7 +27,7 @@ export default function LocalLobby() {
   const {
     players, addPlayer, addBot, removePlayer, startGame, reorderPlayers, changePlayerColor,
     diceMode, setDiceMode, audioEnabled, setAudioEnabled, audioVolume, setAudioVolume, hapticsEnabled, setHapticsEnabled,
-    motionOverride, setMotionOverride,
+    motionOverride, setMotionOverride, coachHintEnabled, setCoachHintEnabled,
     initialCards, resetGeneralSettings, resetInitialCards, addToast,
     ruleset, setRuleset,
   } = useGameStore(useShallow((s) => ({
@@ -48,6 +48,8 @@ export default function LocalLobby() {
     setHapticsEnabled: s.setHapticsEnabled,
     motionOverride: s.motionOverride,
     setMotionOverride: s.setMotionOverride,
+    coachHintEnabled: s.coachHintEnabled,
+    setCoachHintEnabled: s.setCoachHintEnabled,
     initialCards: s.initialCards,
     resetGeneralSettings: s.resetGeneralSettings,
     resetInitialCards: s.resetInitialCards,
@@ -155,6 +157,7 @@ export default function LocalLobby() {
         <AudioSettingSelector audioEnabled={audioEnabled} setAudioEnabled={setAudioEnabled} audioVolume={audioVolume} setAudioVolume={setAudioVolume} nameSuffix="Local" />
         <HapticsSettingSelector hapticsEnabled={hapticsEnabled} setHapticsEnabled={setHapticsEnabled} nameSuffix="Local" />
         <AnimationsSettingSelector motionOverride={motionOverride} setMotionOverride={setMotionOverride} nameSuffix="Local" />
+        <CoachSettingSelector coachHintEnabled={coachHintEnabled} setCoachHintEnabled={setCoachHintEnabled} nameSuffix="Local" />
         <AdvancedOptionsToggle showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} panelId={advancedOptionsPanelId} />
       </div>
 

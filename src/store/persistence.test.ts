@@ -31,6 +31,7 @@ describe('pickLocalGameState', () => {
       audioVolume: 0.5,
       hapticsEnabled: false,
       motionOverride: true,
+      coachHintEnabled: true,
     };
     expect(pickLocalGameState(parsed)).toEqual({ round: 3 });
   });

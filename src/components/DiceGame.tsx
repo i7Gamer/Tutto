@@ -7,7 +7,7 @@ import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus, getMaxValidSel
 import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../utils/coreGameEngine';
 import { DEFAULT_RULESET } from '../utils/configValidation';
 import { buildDiceSnapshot } from '../utils/diceTurnState';
-import { deriveTurnControls, sortKeptDiceForDisplay } from '../utils/diceTurnControls';
+import { deriveTurnControls, canDrawAfterTutto as computeCanDrawAfterTutto, sortKeptDiceForDisplay } from '../utils/diceTurnControls';
 import { readRestorableTurn, deriveRestoredTurn, type RestoredChain } from '../utils/diceTurnRestore';
 import { diceTurnReducer, initialDiceTurnState } from '../utils/diceTurnReducer';
 import { getDisplayCardName } from '../utils/cardVisuals';
@@ -16,6 +16,7 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useBotDriver } from '../hooks/useBotDriver';
 import { useRollAnnouncement } from '../hooks/useRollAnnouncement';
 import { chooseBotAction, chooseBotSelection, type BotSeat, type BotTurnContext } from '../utils/botStrategies';
+import { coachHint as computeCoachHint, type CoachHintStandings } from '../utils/coachHint';
 import {
   DIE_TUMBLE_MS, DIE_STAGGER_MS, DIE_FACE_SHUFFLE_MS, ROLL_SETTLE_BUFFER_MS,
   BUST_SUMMARY_DELAY_MS, LIVE_SNAPSHOT_DEBOUNCE_MS, DISCARDED_DRAW_RECOVERY_MS,
@@ -26,8 +27,8 @@ import TurnScoreHeader from './game/TurnScoreHeader';
 import KeptDiceTray from './game/KeptDiceTray';
 import CurrentRollBoard from './game/CurrentRollBoard';
 import RollAnnouncer, { type RollAnnouncement } from './game/RollAnnouncer';
+import CoachHintLine from './game/CoachHintLine';
 import TurnActionBar from './game/TurnActionBar';
-import { MAX_CHAIN_CARDS } from '../types';
 import { DIE_FACES, TOTAL_DICE } from '../utils/turnShapes';
 import type { CardType, Die as DieType, DiceSnapshot, Ruleset, TurnSummary } from '../types';
 
@@ -61,6 +62,12 @@ interface DiceGameProps {
   // every rule, sound, snapshot and undo path is the human one. Absent for
   // every human seat.
   bot?: BotSeat;
+  // The acting human's own standings, handed down only when Game.tsx has
+  // coachHintEnabled on and this is a human's turn — its presence is the
+  // gate, so DiceGame never has to ask the store itself. Otto's advice
+  // (coachHint.ts / CoachHintLine.tsx) is built from these the same way a
+  // bot's own decision is built from `bot` above.
+  coachSeat?: CoachHintStandings;
 }
 
 /**
@@ -79,7 +86,7 @@ const FIXED_CARD_AWARD: Partial<Record<CardType, number>> = {
   Kniffel: KNIFFEL_SCORE,
 };
 
-export default function DiceGame({ currentCard, turnKey, onComplete, onStateChange, panelReady = true, ruleset = DEFAULT_RULESET, onDrawCard, bot }: DiceGameProps) {
+export default function DiceGame({ currentCard, turnKey, onComplete, onStateChange, panelReady = true, ruleset = DEFAULT_RULESET, onDrawCard, bot, coachSeat }: DiceGameProps) {
   const { t } = useTranslation();
   const isClassic = ruleset === 'classic';
 
@@ -680,13 +687,12 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // Drawing on is offered next to Stop & Score, on the very selection that
   // completes the tutto — one choice, in the panel that asked it, instead of a
   // second panel offering to carry on under a heading that said the turn had
-  // stopped. Feuerwerk never gets here (its null banks and ends the turn) and
-  // a completed Kleeblatt has already won the game. Past MAX_CHAIN_CARDS the
-  // chain can only bank: every validator that carries one (resume cache,
-  // pushed snapshot, turn summary) refuses anything longer wholesale.
-  const canDrawAfterTutto = isClassic && !!onDrawCard && isMakingTutto && canStop
-    && currentCard !== 'Feuerwerk' && currentCard !== 'Kleeblatt'
-    && chainCardCount < MAX_CHAIN_CARDS;
+  // stopped. The clauses live in diceTurnControls.ts (canDrawAfterTutto),
+  // shared with the coach hint so the button and the advice can never
+  // disagree about what is offered.
+  const canDrawAfterTutto = computeCanDrawAfterTutto({
+    isClassic, hasDrawCard: !!onDrawCard, isMakingTutto, canStop, currentCard, chainCardCount,
+  });
 
   const displayKeptDice = sortKeptDiceForDisplay(keptDice, currentCard, kniffelProgress, ruleset);
 
@@ -696,6 +702,37 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // page. Listed for players in HelpPopup's shortcuts section.
   const canAct = hasRolled && !bustState && !isRolling && !showSummary && !revealedCard;
   const canSubmitSelection = canAct && validation.valid;
+
+  // Otto's advice for the panel this render is showing, or null — off unless
+  // Game.tsx handed down a coachSeat (coachHintEnabled AND a human's turn)
+  // and this is a human's own panel, never a bot's. Recomputed on every tap
+  // (currentRoll's identity changes with the selection), which is cheap:
+  // evaluateRoll memoises the 6^n enumeration per (dice, card, progress,
+  // rules) for the life of the tab, so this is arithmetic over that cache.
+  const coachHint = useMemo(() => {
+    if (!coachSeat || bot || !canAct) return null;
+    return computeCoachHint({
+      rollVals: currentRoll.map(d => d.val),
+      keptCount: keptDice.length,
+      turnScore,
+      currentCard,
+      ruleset,
+      kniffelProgress,
+      standings: coachSeat,
+      isClassic,
+      canDraw: !!onDrawCard,
+      chainCardCount,
+      tuttosThisTurn,
+      selectedIndices: currentRoll.reduce<number[]>((acc, d, i) => {
+        if (d.selected) acc.push(i);
+        return acc;
+      }, []),
+      isSelectionLocked,
+    });
+  }, [
+    coachSeat, bot, canAct, currentRoll, keptDice.length, turnScore, currentCard, ruleset,
+    kniffelProgress, isClassic, onDrawCard, chainCardCount, tuttosThisTurn, isSelectionLocked,
+  ]);
 
   // Game renders this panel inside a modal, so an aria-modal element is always
   // present around it — passed to the hook so the panel's own keys are not
@@ -831,6 +868,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
             />
 
             <RollAnnouncer announcement={rollAnnouncement?.announcement ?? null} seq={rollAnnouncement?.seq ?? 0} />
+            <CoachHintLine hint={coachHint} />
 
             <TurnActionBar
               show={hasRolled && !bustState}

@@ -1,9 +1,9 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
-import { isSpecialCard, hasScoreInput, deriveTurnControls, sortKeptDiceForDisplay, withForcedFeuerwerkSelection, parseScoreInput, clampScoreInputText } from './diceTurnControls';
+import { isSpecialCard, hasScoreInput, deriveTurnControls, canDrawAfterTutto, sortKeptDiceForDisplay, withForcedFeuerwerkSelection, parseScoreInput, clampScoreInputText } from './diceTurnControls';
 import { MAX_SCORE_MAGNITUDE } from './configValidation';
 import { VALID_CARD_TYPES } from './configValidation';
-import type { CardType, Die } from '../types';
+import { MAX_CHAIN_CARDS, type CardType, type Die } from '../types';
 
 describe('diceTurnControls', () => {
   // Sensible defaults for a mid-turn state; override per assertion.
@@ -101,6 +101,54 @@ describe('diceTurnControls', () => {
     it('shows Finish Card for a Tutto on other special cards', () => {
       const r = deriveTurnControls({ ...base, currentCard: 'Plus_Minus', isMakingTutto: true });
       expect(r.stopButtonText).toEqual({ key: 'dice.finish_card', fallback: 'Finish Card' });
+    });
+  });
+
+  describe('canDrawAfterTutto', () => {
+    // The one selection every clause below starts true and flips one field
+    // at a time — the pure form of the expression DiceGame.tsx computed
+    // inline, shared now with the coach hint (coachHint.ts) so the button and
+    // the advice can never disagree about what is offered.
+    const offered = {
+      isClassic: true,
+      hasDrawCard: true,
+      isMakingTutto: true,
+      canStop: true,
+      currentCard: '300' as CardType,
+      chainCardCount: 0,
+    };
+
+    it('is offered when every clause holds', () => {
+      expect(canDrawAfterTutto(offered)).toBe(true);
+    });
+
+    it('is refused outside a classic chain', () => {
+      expect(canDrawAfterTutto({ ...offered, isClassic: false })).toBe(false);
+    });
+
+    it('is refused with no onDrawCard to ask (online, mid-round-trip)', () => {
+      expect(canDrawAfterTutto({ ...offered, hasDrawCard: false })).toBe(false);
+    });
+
+    it('is refused unless the selection on the table completes a tutto', () => {
+      expect(canDrawAfterTutto({ ...offered, isMakingTutto: false })).toBe(false);
+    });
+
+    it('is refused when the turn cannot be stopped (mirrors deriveTurnControls.canStop)', () => {
+      expect(canDrawAfterTutto({ ...offered, canStop: false })).toBe(false);
+    });
+
+    it('is refused on Feuerwerk: its null already banks and ends the turn', () => {
+      expect(canDrawAfterTutto({ ...offered, currentCard: 'Feuerwerk' })).toBe(false);
+    });
+
+    it('is refused on Kleeblatt: a completed one has already won the game', () => {
+      expect(canDrawAfterTutto({ ...offered, currentCard: 'Kleeblatt' })).toBe(false);
+    });
+
+    it('is refused once the chain has reached MAX_CHAIN_CARDS', () => {
+      expect(canDrawAfterTutto({ ...offered, chainCardCount: MAX_CHAIN_CARDS - 1 })).toBe(true);
+      expect(canDrawAfterTutto({ ...offered, chainCardCount: MAX_CHAIN_CARDS })).toBe(false);
     });
   });
 

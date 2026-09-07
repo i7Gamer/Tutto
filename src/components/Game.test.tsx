@@ -51,15 +51,23 @@ const drawNextPhysicalCard = async () => {
 const diceComplete = vi.hoisted(() => (
   { score: 0, isSuccess: true, summary: undefined as unknown }
 ));
+// What the last render actually handed the real panel — read by the coach
+// hint wiring tests below, the same way botSeat's own props are otherwise
+// only exercised end to end (DiceGame.test.tsx takes bot/coachSeat directly;
+// this file cares only that Game.tsx computed the right value to hand down).
+const capturedDiceGameProps = vi.hoisted(() => ({ current: null as unknown }));
 vi.mock('./DiceGame', () => ({
-  default: ({ onComplete }: { onComplete: (s: number, ok: boolean, summary?: unknown) => void }) => (
-    <div data-testid="mock-dice-game">
-      Dice Game
-      <button onClick={() => onComplete(diceComplete.score, diceComplete.isSuccess, diceComplete.summary)}>
-        finish-dice-turn
-      </button>
-    </div>
-  ),
+  default: (props: { onComplete: (s: number, ok: boolean, summary?: unknown) => void }) => {
+    capturedDiceGameProps.current = props;
+    return (
+      <div data-testid="mock-dice-game">
+        Dice Game
+        <button onClick={() => props.onComplete(diceComplete.score, diceComplete.isSuccess, diceComplete.summary)}>
+          finish-dice-turn
+        </button>
+      </div>
+    );
+  },
 }));
 
 describe('Game Component Integration', () => {
@@ -159,6 +167,63 @@ describe('Game Component Integration', () => {
       act(() => { vi.advanceTimersByTime(CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS); });
       expect(mockNextTurn).toHaveBeenCalledWith(0, false);
       expect(screen.queryByTestId('mock-dice-game')).toBeNull();
+    });
+  });
+
+  describe('coach hint seat (coachSeat)', () => {
+    const seatHuman = () => {
+      useGameStore.setState({
+        isOnline: false,
+        hostId: null,
+        myName: null,
+        currentCard: 'x2',
+        currentPlayerIndex: 0,
+        diceMode: 'digital',
+        players: [
+          makePlayer({ name: 'Alice', position: 1, score: 100 }),
+          makePlayer({ name: 'Bob', position: 2, score: 4000 }),
+        ],
+      });
+    };
+
+    it('hands DiceGame the standings once coachHintEnabled is on, for a human\'s own turn', () => {
+      seatHuman();
+      useGameStore.setState({ coachHintEnabled: true });
+      render(<Game />);
+      fireEvent.click(screen.getByText('game.controls.rollDice'));
+
+      expect(capturedDiceGameProps.current).toMatchObject({
+        coachSeat: { myScore: 100, leaderScore: 4000, winningScore: expect.any(Number) },
+      });
+    });
+
+    it('passes no coachSeat while the setting is off', () => {
+      seatHuman();
+      useGameStore.setState({ coachHintEnabled: false });
+      render(<Game />);
+      fireEvent.click(screen.getByText('game.controls.rollDice'));
+
+      expect(capturedDiceGameProps.current).toMatchObject({ coachSeat: undefined });
+    });
+
+    it('passes no coachSeat for a bot\'s own turn, even with the setting on', () => {
+      useGameStore.setState({
+        isOnline: false,
+        hostId: null,
+        myName: null,
+        currentCard: 'x2',
+        currentPlayerIndex: 1,
+        diceMode: 'physical',
+        coachHintEnabled: true,
+        players: [
+          makePlayer({ name: 'Alice', position: 1 }),
+          makePlayer({ name: 'Carl', bot: 'cautious', position: 2 }),
+        ],
+      });
+      render(<Game />);
+      act(() => { vi.advanceTimersByTime(BOT_OPEN_DELAY_MS); });
+
+      expect(capturedDiceGameProps.current).toMatchObject({ coachSeat: undefined });
     });
   });
 

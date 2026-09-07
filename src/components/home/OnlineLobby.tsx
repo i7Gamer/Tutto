@@ -5,7 +5,7 @@ import { Copy, Check, X, Share2, QrCode, ScanLine } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   DiceModeSelector, AdvancedOptionsToggle, AdvancedOptionsPanel, StartGameButton, PlayerList, CustomGameBadge,
-  AudioSettingSelector, HapticsSettingSelector, AnimationsSettingSelector, EnforceDiceModeToggle, DiceModeEnforcedBadge,
+  AudioSettingSelector, HapticsSettingSelector, AnimationsSettingSelector, CoachSettingSelector, EnforceDiceModeToggle, DiceModeEnforcedBadge,
   RulesetSelector, RulesetBadge,
 } from './LobbyShared';
 import { hasPlayableDeck } from '../../utils/coreGameEngine';
@@ -128,7 +128,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     leaveRoom, roomId, myName, kickPlayer, addToast,
     diceMode, setDiceMode, enforcedDiceMode, setEnforcedDiceMode,
     audioEnabled, setAudioEnabled, audioVolume, setAudioVolume, hapticsEnabled, setHapticsEnabled,
-    motionOverride, setMotionOverride,
+    motionOverride, setMotionOverride, coachHintEnabled, setCoachHintEnabled,
     initialCards, resetGeneralSettings, resetInitialCards,
     ruleset, setRuleset,
   } = useGameStore(useShallow((s) => ({
@@ -156,6 +156,8 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     setHapticsEnabled: s.setHapticsEnabled,
     motionOverride: s.motionOverride,
     setMotionOverride: s.setMotionOverride,
+    coachHintEnabled: s.coachHintEnabled,
+    setCoachHintEnabled: s.setCoachHintEnabled,
     initialCards: s.initialCards,
     resetGeneralSettings: s.resetGeneralSettings,
     resetInitialCards: s.resetInitialCards,
@@ -574,6 +576,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
           <AudioSettingSelector audioEnabled={audioEnabled} setAudioEnabled={setAudioEnabled} audioVolume={audioVolume} setAudioVolume={setAudioVolume} nameSuffix="Online" />
           <HapticsSettingSelector hapticsEnabled={hapticsEnabled} setHapticsEnabled={setHapticsEnabled} nameSuffix="Online" />
           <AnimationsSettingSelector motionOverride={motionOverride} setMotionOverride={setMotionOverride} nameSuffix="Online" />
+          <CoachSettingSelector coachHintEnabled={coachHintEnabled} setCoachHintEnabled={setCoachHintEnabled} nameSuffix="Online" />
           {isHost && (
             <EnforceDiceModeToggle
               diceMode={diceMode}

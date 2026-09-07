@@ -1,4 +1,4 @@
-import type { CardType, Die, Ruleset } from '../types';
+import { MAX_CHAIN_CARDS, type CardType, type Die, type Ruleset } from '../types';
 import { DEFAULT_RULESET, MAX_SCORE_MAGNITUDE } from './configValidation';
 import { getMaxValidSelection } from './diceLogic';
 
@@ -99,6 +99,37 @@ export const deriveTurnControls = ({
 
   return { isSpecialCard: special, canStop, isRollAgainApplicable, stopButtonText };
 };
+
+interface CanDrawAfterTuttoInput {
+  isClassic: boolean;
+  // Whether the panel was handed an onDrawCard to ask (see DiceGame's own
+  // prop): online, the card is dealt by the server and the draw is a round
+  // trip, so the panel can be mid-request with nothing to call yet.
+  hasDrawCard: boolean;
+  isMakingTutto: boolean;
+  canStop: boolean;
+  currentCard: CardType | null;
+  chainCardCount: number;
+}
+
+/**
+ * Whether drawing the next card in a classic chain is offered next to Stop &
+ * Score, on the very selection that completes the tutto. Feuerwerk never
+ * gets here (its null banks and ends the turn) and a completed Kleeblatt has
+ * already won the game. Past MAX_CHAIN_CARDS the chain can only bank: every
+ * validator that carries one (resume cache, pushed snapshot, turn summary)
+ * refuses anything longer wholesale.
+ *
+ * Pulled out of DiceGame.tsx so the button and the coach hint (coachHint.ts)
+ * share one definition of "drawing on is offered" — they can never disagree
+ * about what the panel is showing.
+ */
+export const canDrawAfterTutto = ({
+  isClassic, hasDrawCard, isMakingTutto, canStop, currentCard, chainCardCount,
+}: CanDrawAfterTuttoInput): boolean =>
+  isClassic && hasDrawCard && isMakingTutto && canStop
+    && currentCard !== 'Feuerwerk' && currentCard !== 'Kleeblatt'
+    && chainCardCount < MAX_CHAIN_CARDS;
 
 /**
  * Official Feuerwerk keeps EVERY scoring die — the selection is forced, and

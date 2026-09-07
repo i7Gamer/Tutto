@@ -117,6 +117,11 @@ export interface GameStore extends CoreGameState {
   // in the first place, hence the hook gating the fieldset rather than this
   // flag alone.
   motionOverride: boolean;
+  // Per-device, off by default: shows Otto's advice under the dice after
+  // every settled roll (coachHint.ts / CoachHintLine.tsx). Its own
+  // localStorage key like the other device prefs above — never synced,
+  // never in the game save (persistence.test.ts pins it).
+  coachHintEnabled: boolean;
   randomOrder: boolean;
   turnDuration: number;
   reconnectTimeout: number;
@@ -163,6 +168,7 @@ export interface GameStore extends CoreGameState {
   setAudioVolume: (val: number) => void;
   setHapticsEnabled: (val: boolean) => void;
   setMotionOverride: (val: boolean) => void;
+  setCoachHintEnabled: (val: boolean) => void;
   updateConfig: (config: Partial<Pick<GameStore, ConfigKeys>>) => void;
   setWinningScore: (val: number) => void;
   setInitialCards: (val: InitialCards) => void;

@@ -473,5 +473,14 @@
   "installPrompt.installButton": "Install app",
   "installPrompt.dismissLabel": "Dismiss",
   "help.faq.q8": "Can I install Tutto as an app?",
-  "help.faq.a8": "Yes — a card offers this after your first finished game. On Android/Chrome tap Install app; on iPhone/iPad use Share → Add to Home Screen."
+  "help.faq.a8": "Yes — a card offers this after your first finished game. On Android/Chrome tap Install app; on iPhone/iPad use Share → Add to Home Screen.",
+  "lobby.coachSetting": "Coach Hint",
+  "lobby.coachOn": "Ask Otto On",
+  "lobby.coachOff": "Ask Otto Off",
+  "coach.roll": "Otto would keep {{keep}} and roll {{dice}} dice: {{bust}}% bust risk, rolling is worth {{rollValue}} against {{threshold}} for banking.",
+  "coach.stop": "Otto would keep {{keep}} and bank {{bank}}: {{bust}}% bust risk on {{dice}} dice.",
+  "coach.draw": "Otto would draw the next card with {{bank}} at stake.",
+  "coach.selectionDiffers": "Otto would keep different dice. ",
+  "coach.trailing": "You are behind, so Otto accepts more risk.",
+  "help.settings.coach": "Ask Otto: An optional hint under the dice, off by default. When on, it shows what Otto (the optimal bot) would keep and do after every roll, and why — it never selects dice or presses a button for you."
 }

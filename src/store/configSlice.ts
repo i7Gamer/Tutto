@@ -10,6 +10,7 @@ import type { GameStore, ImmerStateCreator } from './storeTypes';
 
 type ConfigSlice = Pick<GameStore,
   | 'setDiceMode' | 'setAudioEnabled' | 'setAudioVolume' | 'setHapticsEnabled' | 'setMotionOverride'
+  | 'setCoachHintEnabled'
   | 'updateConfig' | 'setWinningScore' | 'setInitialCards' | 'setRandomOrder'
   | 'setTurnDuration' | 'setReconnectTimeout' | 'setEnforcedDiceMode' | 'setRuleset'
   | 'resetGeneralSettings' | 'resetInitialCards'
@@ -48,6 +49,11 @@ export const createConfigSlice: ImmerStateCreator<ConfigSlice> = (set, get) => (
   setMotionOverride: (val) => {
     set({ motionOverride: val });
     localStore.write('tutto_motionOverride', String(val));
+  },
+
+  setCoachHintEnabled: (val) => {
+    set({ coachHintEnabled: val });
+    localStore.write('tutto_coachHintEnabled', String(val));
   },
 
   updateConfig: (config) => {

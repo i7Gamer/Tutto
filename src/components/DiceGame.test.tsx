@@ -1166,6 +1166,45 @@ describe('DiceGame driven by a bot', () => {
   });
 });
 
+describe('DiceGame coach hint (coachSeat)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  const standings = { myScore: 0, leaderScore: 0, winningScore: 6000 };
+
+  it('shows Otto\'s advice under the roll board once coachSeat is provided', async () => {
+    queueRoll([1, 5, 2, 2, 3, 4]);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} coachSeat={standings} />);
+    await flushRoll();
+
+    expect(screen.getByText('coach.roll')).toBeInTheDocument();
+  });
+
+  it('shows nothing without a coachSeat — the default, off state', async () => {
+    queueRoll([1, 5, 2, 2, 3, 4]);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+    await flushRoll();
+
+    expect(screen.queryByText('coach.roll')).not.toBeInTheDocument();
+    expect(screen.queryByText('coach.stop')).not.toBeInTheDocument();
+  });
+
+  it('never shows advice on a bot\'s own panel, even if a coachSeat were passed', async () => {
+    queueRoll([1, 5, 2, 2, 3, 4]);
+    queueRoll([1, 5, 2, 3]); // Cautious Carl rolls on, then banks
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} bot={{ personality: 'cautious', ...standings }} coachSeat={standings} />);
+    await flushRoll();
+
+    expect(screen.queryByText('coach.roll')).not.toBeInTheDocument();
+    expect(screen.queryByText('coach.stop')).not.toBeInTheDocument();
+  });
+});
+
 describe('DiceGame pending timer cleanup on unmount', () => {
   beforeEach(() => {
     localStorage.clear();

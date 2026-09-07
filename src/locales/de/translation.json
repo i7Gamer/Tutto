@@ -473,5 +473,14 @@
   "installPrompt.installButton": "App installieren",
   "installPrompt.dismissLabel": "Schließen",
   "help.faq.q8": "Kann ich Tutto als App installieren?",
-  "help.faq.a8": "Ja — nach deiner ersten beendeten Partie erscheint dafür ein Hinweis. Tippe auf Android/Chrome auf \"App installieren\"; nutze auf iPhone/iPad Teilen → Zum Home-Bildschirm."
+  "help.faq.a8": "Ja — nach deiner ersten beendeten Partie erscheint dafür ein Hinweis. Tippe auf Android/Chrome auf \"App installieren\"; nutze auf iPhone/iPad Teilen → Zum Home-Bildschirm.",
+  "lobby.coachSetting": "Otto fragen",
+  "lobby.coachOn": "Otto fragen An",
+  "lobby.coachOff": "Otto fragen Aus",
+  "coach.roll": "Otto würde {{keep}} behalten und {{dice}} Würfel werfen: {{bust}}% Nieten-Risiko, Weiterwürfeln ist {{rollValue}} wert gegenüber {{threshold}} beim Einlösen.",
+  "coach.stop": "Otto würde {{keep}} behalten und {{bank}} einlösen: {{bust}}% Nieten-Risiko bei {{dice}} Würfeln.",
+  "coach.draw": "Otto würde die nächste Karte ziehen, mit {{bank}} auf dem Spiel.",
+  "coach.selectionDiffers": "Otto würde andere Würfel behalten. ",
+  "coach.trailing": "Du liegst zurück, deshalb geht Otto mehr Risiko ein.",
+  "help.settings.coach": "Otto fragen: Ein optionaler Hinweis unter den Würfeln, standardmäßig aus. Wenn aktiviert, zeigt er nach jedem Wurf, was Otto (der optimale Bot) behalten und tun würde, und warum — er wählt nie Würfel aus und drückt nie einen Knopf für dich."
 }

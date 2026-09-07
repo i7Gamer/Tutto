@@ -153,3 +153,31 @@ test.describe('screen-reader roll narration', () => {
     );
   });
 });
+
+/**
+ * "Ask Otto" is off by default (feature_plan_coach_install_narration.md,
+ * Feature B) — the toggle itself and its reload survival are e2e/lobby.spec.ts's
+ * job. This proves the wiring into a real turn: with the setting on, Otto's
+ * advice appears under the roll board after the opening roll settles; with
+ * it off, the line never appears at all.
+ */
+test.describe('Coach hint (Ask Otto)', () => {
+  test('shows Otto\'s advice once the lobby toggle is on', async ({ page }) => {
+    await seedLocalDeck(page);
+    await page.goto('/');
+    await page.getByLabel('Ask Otto On', { exact: true }).click();
+    await startLocalGame(page);
+
+    await rollUntilSelectable(page);
+    await expect(page.getByText(/Otto would keep/)).toBeVisible();
+  });
+
+  test('shows nothing while the toggle is off, the default', async ({ page }) => {
+    await seedLocalDeck(page);
+    await page.goto('/');
+    await startLocalGame(page);
+
+    await rollUntilSelectable(page);
+    await expect(page.getByText(/Otto would keep/)).not.toBeVisible();
+  });
+});

@@ -25,7 +25,7 @@ vi.mock('../../utils/soundEffects', () => ({
 vi.mock('../../hooks/usePrefersReducedMotion', () => ({
   usePrefersReducedMotion: vi.fn(() => false),
 }));
-import { StartGameButton, PlayerList, AdvancedOptionsPanel, AdvancedOptionsToggle, HapticsSettingSelector, CustomGameBadge, RulesetSelector, RulesetBadge, DiceModeSelector, DiceModeEnforcedBadge, AudioSettingSelector, AnimationsSettingSelector } from './LobbyShared';
+import { StartGameButton, PlayerList, AdvancedOptionsPanel, AdvancedOptionsToggle, HapticsSettingSelector, CustomGameBadge, RulesetSelector, RulesetBadge, DiceModeSelector, DiceModeEnforcedBadge, AudioSettingSelector, AnimationsSettingSelector, CoachSettingSelector } from './LobbyShared';
 import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 import { useGameStore } from '../../store/useGameStore';
 import type { GameStore } from '../../store/useGameStore';
@@ -681,6 +681,37 @@ describe('HapticsSettingSelector', () => {
     const { container } = render(<HapticsSettingSelector hapticsEnabled={true} setHapticsEnabled={vi.fn()} />);
 
     expect(container.firstChild).toBeNull();
+  });
+});
+
+describe('CoachSettingSelector', () => {
+  it('exposes itself as a named group', () => {
+    render(<CoachSettingSelector coachHintEnabled={false} setCoachHintEnabled={vi.fn()} />);
+    expect(screen.getByRole('group', { name: 'lobby.coachSetting' })).toBeInTheDocument();
+  });
+
+  it('renders both radios, checked to match the current value', () => {
+    render(<CoachSettingSelector coachHintEnabled={true} setCoachHintEnabled={vi.fn()} />);
+
+    expect(screen.getByText('lobby.coachOn')).toBeInTheDocument();
+    expect(screen.getByText('lobby.coachOff')).toBeInTheDocument();
+    expect(screen.getByLabelText('lobby.coachOn')).toBeChecked();
+    expect(screen.getByLabelText('lobby.coachOff')).not.toBeChecked();
+  });
+
+  it('calls setCoachHintEnabled with the tapped value', async () => {
+    const user = userEvent.setup();
+    const setCoachHintEnabled = vi.fn();
+    render(<CoachSettingSelector coachHintEnabled={false} setCoachHintEnabled={setCoachHintEnabled} />);
+
+    await user.click(screen.getByLabelText('lobby.coachOn'));
+    expect(setCoachHintEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it('names its radio group per nameSuffix, like every other lobby pill', () => {
+    render(<CoachSettingSelector coachHintEnabled={false} setCoachHintEnabled={vi.fn()} nameSuffix="Online" />);
+    const on = screen.getByLabelText('lobby.coachOn') as HTMLInputElement;
+    expect(on.name).toBe('coachSettingOnline');
   });
 });
 
