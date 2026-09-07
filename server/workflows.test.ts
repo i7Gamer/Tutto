@@ -67,8 +67,16 @@ interface WorkflowStrategy {
   'fail-fast'?: boolean;
 }
 
+/**
+ * A `permissions:` declaration: the shorthand strings, or a per-scope map.
+ * A map is exhaustive — every scope it does not name is granted `none`.
+ */
+type Permissions = string | Record<string, string>;
+
 interface WorkflowJob {
   name?: string;
+  uses?: string;
+  permissions?: Permissions;
   steps?: WorkflowStep[];
   strategy?: WorkflowStrategy;
   'timeout-minutes'?: number;
@@ -80,6 +88,7 @@ interface WorkflowConcurrency {
 }
 
 interface Workflow {
+  permissions?: Permissions;
   jobs?: Record<string, WorkflowJob>;
   concurrency?: WorkflowConcurrency;
 }
@@ -855,5 +864,114 @@ describe('the e2e matrix runs exactly the browser projects playwright.config.ts 
     // upload-artifact refuses a second upload under a name another leg took.
     expect(report?.with?.name).toContain(MATRIX_PROJECT);
     expect(e2eJob()?.name, 'the check name must say which engine failed').toContain(MATRIX_PROJECT);
+  });
+});
+
+/**
+ * A called workflow can never hold more than the calling job grants. When a job
+ * inside a reusable workflow asks for a scope its caller does not have, the run
+ * does not merely lose that scope — GitHub refuses to parse the CALLER at all,
+ * before a single step runs:
+ *
+ *   The nested job 'build' is requesting 'security-events: write', but is only
+ *   allowed 'security-events: none'.
+ *
+ * docker-publish.yml's build job uploads a Trivy SARIF, so each of its three
+ * callers has to grant security-events: write as well. Adding the scope to the
+ * callee alone breaks every caller — and these publish workflows are
+ * workflow_dispatch only, so nothing notices until someone tries to ship a
+ * release and the Actions tab reports a broken workflow instead of running it.
+ */
+describe('every reusable-workflow call grants what the called workflow requests', () => {
+  const LOCAL_CALL_PREFIX = './.github/workflows/';
+  const NONE = 'none';
+  const READ = 'read';
+  const WRITE = 'write';
+  const READ_ALL = 'read-all';
+  const WRITE_ALL = 'write-all';
+  const PERMISSION_RANK: Record<string, number> = { [NONE]: 0, [READ]: 1, [WRITE]: 2 };
+
+  const rankOf = (level: string | undefined): number => PERMISSION_RANK[level ?? NONE] ?? 0;
+
+  /**
+   * The level a `permissions:` declaration grants for one scope.
+   *
+   * A map is exhaustive: every scope it omits is `none`, which is exactly how a
+   * caller declaring only `contents: read` ends up denying the security-events
+   * its callee needs. `undefined` means nothing was declared at all, and the
+   * level then comes from a repository setting this test cannot see.
+   */
+  const grantedLevel = (permissions: Permissions | undefined, scope: string): string | undefined => {
+    if (permissions === undefined) return undefined;
+    if (permissions === READ_ALL) return READ;
+    if (permissions === WRITE_ALL) return WRITE;
+    if (typeof permissions === 'string') return undefined;
+    return permissions[scope] ?? NONE;
+  };
+
+  /** Every job in this repository that calls a workflow from this repository. */
+  const localCalls = (): { file: string; job: string; definition: WorkflowJob; caller: Workflow }[] =>
+    workflowFiles().flatMap(file => {
+      const workflow = parseWorkflow(fs.readFileSync(path.join(WORKFLOWS_DIR, file), 'utf8'));
+      return Object.entries(workflow.jobs ?? {})
+        .filter(([, definition]) => definition.uses?.startsWith(LOCAL_CALL_PREFIX))
+        .map(([job, definition]) => ({ file, job, definition, caller: workflow }));
+    });
+
+  /**
+   * Every scope the called workflow's jobs ask for, at the highest level any of
+   * them asks for it. A job with no `permissions:` of its own inherits the
+   * called workflow's workflow-level block, so that is what is read for it.
+   */
+  const requestedScopes = (called: Workflow): Map<string, string> => {
+    const wanted = new Map<string, string>();
+    for (const definition of Object.values(called.jobs ?? {})) {
+      const declared = definition.permissions ?? called.permissions;
+      // A shorthand string names no individual scope to compare; neither
+      // workflow in this repository uses one, and the call below asserts that.
+      if (declared === undefined || typeof declared === 'string') continue;
+      for (const [scope, level] of Object.entries(declared)) {
+        if (rankOf(level) > rankOf(wanted.get(scope))) wanted.set(scope, level);
+      }
+    }
+    return wanted;
+  };
+
+  it('reads a permissions map as denying every scope it omits', () => {
+    expect(grantedLevel({ contents: READ }, 'security-events')).toBe(NONE);
+    expect(grantedLevel({ contents: READ, 'security-events': WRITE }, 'security-events')).toBe(WRITE);
+    expect(grantedLevel(READ_ALL, 'security-events')).toBe(READ);
+    expect(grantedLevel(WRITE_ALL, 'security-events')).toBe(WRITE);
+    expect(grantedLevel(undefined, 'contents')).toBeUndefined();
+  });
+
+  it('finds the reusable-workflow calls it is meant to be checking', () => {
+    const callers = localCalls().map(call => call.file);
+    // All three publish workflows call docker-publish.yml; a rename that left
+    // this list matching nothing would make the check below vacuously green.
+    expect(callers).toEqual(
+      expect.arrayContaining(['publish-latest.yml', 'publish-nightly.yml', 'publish-tag.yml']),
+    );
+  });
+
+  it('grants every scope the called workflow requests, at no lower a level', () => {
+    for (const call of localCalls()) {
+      const calledFile = (call.definition.uses ?? '').slice(LOCAL_CALL_PREFIX.length);
+      const called = parseWorkflow(fs.readFileSync(path.join(WORKFLOWS_DIR, calledFile), 'utf8'));
+      const scopes = [...requestedScopes(called)];
+      expect(scopes.length, `${calledFile} declares no permissions to compare against`).toBeGreaterThan(0);
+
+      for (const [scope, level] of scopes) {
+        const granted = grantedLevel(call.definition.permissions ?? call.caller.permissions, scope);
+        expect(
+          granted,
+          `${call.file} job '${call.job}' declares no permissions, so what ${calledFile} may hold is a repository setting`,
+        ).toBeDefined();
+        expect(
+          rankOf(granted),
+          `${call.file} job '${call.job}' grants ${scope}: ${granted}, but ${calledFile} requests ${scope}: ${level} — GitHub will refuse to run ${call.file} at all`,
+        ).toBeGreaterThanOrEqual(rankOf(level));
+      }
+    }
   });
 });

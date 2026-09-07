@@ -47,6 +47,12 @@ jobs:
   publish:
     name: Publish
     needs: validate
+    # security-events: write for the callee's Trivy SARIF upload — see the note
+    # on docker-publish.yml's build job. Omitting it here is a parse error on
+    # this file, not a lost scope.
+    permissions:
+      contents: read
+      security-events: write
     uses: ./.github/workflows/docker-publish.yml
     with:
       tags: ${{ needs.validate.outputs.tag }}

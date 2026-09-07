@@ -60,6 +60,14 @@ jobs:
   publish:
     name: Publish
     needs: version
+    # A called workflow never holds more than the calling job grants, and a job
+    # in there asking for more is not a lost scope but a parse error on THIS
+    # file ("The nested job 'build' is requesting 'security-events: write', but
+    # is only allowed 'security-events: none'"). docker-publish.yml's build job
+    # uploads its Trivy SARIF, so the scope has to be granted here as well.
+    permissions:
+      contents: read
+      security-events: write
     uses: ./.github/workflows/docker-publish.yml
     with:
       tags: latest,${{ needs.version.outputs.version }}

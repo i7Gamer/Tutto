@@ -212,6 +212,12 @@ jobs:
     # security-events: write is scoped to this job alone, not the workflow,
     # so `verify` and `merge` do not gain it — it is needed only to upload
     # the Trivy scan's SARIF file below.
+    #
+    # A called workflow never holds more than the calling job grants, so every
+    # publish-*.yml that calls this one has to grant security-events: write on
+    # its calling job too. Without it GitHub refuses to parse the CALLER —
+    # "the nested job 'build' is requesting 'security-events: write', but is
+    # only allowed 'security-events: none'" — and the publish never starts.
     permissions:
       contents: read
       security-events: write
