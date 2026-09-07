@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useId } from 'react';
 import type { InputHTMLAttributes, KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Play, ChevronUp, ChevronDown, Trash2, UserMinus, Crown, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Settings, Play, ChevronUp, ChevronDown, Trash2, UserMinus, Crown, RotateCcw, AlertTriangle, Volume2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   MIN_WINNING_SCORE, MAX_WINNING_SCORE, MAX_TURN_DURATION, MAX_RECONNECT_TIMEOUT,
@@ -13,6 +13,8 @@ import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../../store/useGameStore';
 import { readableNameVars } from '../../utils/contrastColor';
 import { supportsIOSSwitchHaptic } from '../../utils/iosSwitchHaptic';
+import { playSoundPreview } from '../../utils/soundEffects';
+import { MIN_AUDIO_VOLUME, VOLUME_STEPS } from '../../utils/audioVolume';
 import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 import { REORDER_PRESS_RELEASE_MS } from '../../utils/uiTimings';
 import { HOT_WIN_STREAK } from '../../utils/playerStats';
@@ -344,11 +346,18 @@ export function RulesetBadge({ ruleset }: { ruleset: Ruleset }) {
 interface AudioSettingSelectorProps {
   audioEnabled: boolean;
   setAudioEnabled: (val: boolean) => void;
+  /** 0..1 (see utils/audioVolume.ts); the slider shows it as 0..100. */
+  audioVolume: number;
+  setAudioVolume: (val: number) => void;
   nameSuffix?: string;
 }
 
-export function AudioSettingSelector({ audioEnabled, setAudioEnabled, nameSuffix = 'Lobby' }: AudioSettingSelectorProps) {
+export function AudioSettingSelector({
+  audioEnabled, setAudioEnabled, audioVolume, setAudioVolume, nameSuffix = 'Lobby',
+}: AudioSettingSelectorProps) {
   const { t } = useTranslation();
+  const sliderId = useId();
+  const volumePercent = Math.round(audioVolume * VOLUME_STEPS);
   return (
     <fieldset className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 bg-white dark:bg-slate-800/50 px-4 py-3 sm:px-6 rounded-xl border border-gray-200 dark:border-slate-600 min-h-[50px] min-w-0 m-0">
       {/* sr-only legend: names the pair as one group, as DiceModeSelector does. */}
@@ -361,6 +370,36 @@ export function AudioSettingSelector({ audioEnabled, setAudioEnabled, nameSuffix
         <input type="radio" name={`audioSetting${nameSuffix}`} checked={audioEnabled === false} onChange={() => setAudioEnabled(false)} />
         <span className="font-medium">{t('lobby.muted', 'Muted')}</span>
       </label>
+      {/* The level, on its own line under the mute pair. Muted greys it out
+          rather than hiding it, so the pill keeps its height and the level
+          the player set stays visible. */}
+      <div className="basis-full flex flex-wrap items-center justify-center gap-3 min-w-0">
+        {/* Labelled by id rather than by wrapping: a wrapping label would
+            fold the percent readout into the slider's accessible name. The
+            readout is hidden from AT — aria-valuetext already says it. */}
+        <label htmlFor={sliderId} className="lobby-radio font-medium">{t('lobby.volume', 'Volume')}</label>
+        <input
+          id={sliderId}
+          type="range"
+          min={MIN_AUDIO_VOLUME}
+          max={VOLUME_STEPS}
+          step={1}
+          value={volumePercent}
+          disabled={!audioEnabled}
+          aria-valuetext={`${volumePercent}%`}
+          onChange={(e) => setAudioVolume(Number(e.target.value) / VOLUME_STEPS)}
+          className="h-11 w-32 sm:w-40 cursor-pointer accent-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+        />
+        <span aria-hidden="true" className="lobby-radio tabular-nums w-10 text-right text-sm">{volumePercent}%</span>
+        <button
+          type="button"
+          onClick={playSoundPreview}
+          disabled={!audioEnabled}
+          className="min-h-11 inline-flex items-center gap-1.5 px-3 rounded-lg border border-gray-300 dark:border-slate-500 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          <Volume2 size={16} aria-hidden="true" /> {t('lobby.testSound', 'Test sound')}
+        </button>
+      </div>
     </fieldset>
   );
 }

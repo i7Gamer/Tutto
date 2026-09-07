@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 // AnimatePresence as a pass-through: tests in this file run on fake timers,
 // under which framer-motion's frame loop does not advance (and does not recover
 // once real timers return), so a dismissed dialog's exit animation (ModalShell)
@@ -14,6 +14,14 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 // Mocked so AnimationsSettingSelector's tests control the OS preference
 // directly instead of stubbing matchMedia — the hook itself is unit-tested on
 // its own (usePrefersReducedMotion.test.ts).
+// The preview is a Web Audio graph; this file only cares that the button
+// asks for it. closeAudioContext rides along because the store's
+// setAudioEnabled (reached by tests that flip the sound setting) calls it.
+vi.mock('../../utils/soundEffects', () => ({
+  playSoundPreview: vi.fn(),
+  closeAudioContext: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../../hooks/usePrefersReducedMotion', () => ({
   usePrefersReducedMotion: vi.fn(() => false),
 }));
@@ -25,6 +33,7 @@ import { VALID_CARD_TYPES } from '../../utils/configValidation';
 import { REORDER_PRESS_RELEASE_MS } from '../../utils/uiTimings';
 import type { Player } from '../../types';
 import { makePlayer, nonNull } from '../../testing/factories';
+import { playSoundPreview } from '../../utils/soundEffects';
 
 // AdvancedOptionsPanel subscribes to the store itself (no more `game` prop),
 // so its tests stage state/action-spies with setState and restore the
@@ -1116,22 +1125,65 @@ describe('DiceModeSelector', () => {
 });
 
 describe('AudioSettingSelector', () => {
+  const audioProps = (overrides: Partial<ComponentProps<typeof AudioSettingSelector>> = {}) => ({
+    audioEnabled: true,
+    setAudioEnabled: vi.fn(),
+    audioVolume: 1,
+    setAudioVolume: vi.fn(),
+    nameSuffix: 'Test',
+    ...overrides,
+  });
+
   it('exposes itself as a named group', () => {
-    render(<AudioSettingSelector audioEnabled={true} setAudioEnabled={vi.fn()} nameSuffix="Test" />);
+    render(<AudioSettingSelector {...audioProps()} />);
     expect(screen.getByRole('group', { name: 'lobby.soundSetting' })).toBeInTheDocument();
   });
 
   it('switches between sound on and muted', () => {
     const setAudioEnabled = vi.fn();
-    const { rerender } = render(<AudioSettingSelector audioEnabled={true} setAudioEnabled={setAudioEnabled} nameSuffix="Test" />);
+    const { rerender } = render(<AudioSettingSelector {...audioProps({ setAudioEnabled })} />);
     const radios = () => screen.getAllByRole('radio') as HTMLInputElement[];
 
     fireEvent.click(radios()[1]);
     expect(setAudioEnabled).toHaveBeenCalledWith(false);
 
-    rerender(<AudioSettingSelector audioEnabled={false} setAudioEnabled={setAudioEnabled} nameSuffix="Test" />);
+    rerender(<AudioSettingSelector {...audioProps({ audioEnabled: false, setAudioEnabled })} />);
     fireEvent.click(radios()[0]);
     expect(setAudioEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it('shows the volume as a labelled 0-100 slider with the level spelled out beside it', () => {
+    render(<AudioSettingSelector {...audioProps({ audioVolume: 0.4 })} />);
+    const slider = screen.getByRole('slider', { name: 'lobby.volume' }) as HTMLInputElement;
+    expect(slider.value).toBe('40');
+    expect(slider.min).toBe('0');
+    expect(slider.max).toBe('100');
+    expect(slider).toHaveAttribute('aria-valuetext', '40%');
+    expect(screen.getByText('40%')).toBeInTheDocument();
+  });
+
+  it('reports a slider move as a 0..1 fraction', () => {
+    const setAudioVolume = vi.fn();
+    render(<AudioSettingSelector {...audioProps({ setAudioVolume })} />);
+
+    fireEvent.change(screen.getByRole('slider', { name: 'lobby.volume' }), { target: { value: '65' } });
+
+    expect(setAudioVolume).toHaveBeenCalledWith(0.65);
+  });
+
+  it('plays the preview from the test button', () => {
+    render(<AudioSettingSelector {...audioProps()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'lobby.testSound' }));
+
+    expect(playSoundPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables the slider and the test button while muted', () => {
+    render(<AudioSettingSelector {...audioProps({ audioEnabled: false })} />);
+
+    expect(screen.getByRole('slider', { name: 'lobby.volume' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'lobby.testSound' })).toBeDisabled();
   });
 });
 

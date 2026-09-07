@@ -1147,6 +1147,17 @@ test.describe('tap targets ≥ 44px on game-time controls (C65)', () => {
     }
   });
 
+  test('the lobby volume slider and test-sound button are at least 44px tall on phone', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+    // A native range input's box is the thumb's height unless the input
+    // itself is sized (LobbyShared.tsx gives it h-11), and this file's other
+    // probes only ever measure hand-picked controls — so a new one gets a
+    // probe of its own or ships unmeasured.
+    await expectTapTarget(page.getByRole('slider', { name: 'Volume' }), ['height'], 'volume slider');
+    await expectTapTarget(page.getByRole('button', { name: 'Test sound' }), ['height'], 'test-sound button');
+  });
+
   test('the local lobby\'s reorder/kick controls are at least 44px tall on phone, and a 5-player roster still fits without new scrolling', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto('/');

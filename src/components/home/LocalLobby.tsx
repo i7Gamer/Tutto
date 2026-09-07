@@ -24,7 +24,7 @@ export default function LocalLobby() {
   // a prop from Home, re-rendering the entire lobby tree on any store change.
   const {
     players, addPlayer, removePlayer, startGame, reorderPlayers, changePlayerColor,
-    diceMode, setDiceMode, audioEnabled, setAudioEnabled, hapticsEnabled, setHapticsEnabled,
+    diceMode, setDiceMode, audioEnabled, setAudioEnabled, audioVolume, setAudioVolume, hapticsEnabled, setHapticsEnabled,
     motionOverride, setMotionOverride,
     initialCards, resetGeneralSettings, resetInitialCards, addToast,
     ruleset, setRuleset,
@@ -39,6 +39,8 @@ export default function LocalLobby() {
     setDiceMode: s.setDiceMode,
     audioEnabled: s.audioEnabled,
     setAudioEnabled: s.setAudioEnabled,
+    audioVolume: s.audioVolume,
+    setAudioVolume: s.setAudioVolume,
     hapticsEnabled: s.hapticsEnabled,
     setHapticsEnabled: s.setHapticsEnabled,
     motionOverride: s.motionOverride,
@@ -110,7 +112,7 @@ export default function LocalLobby() {
 
       <div className="flex flex-row flex-wrap justify-center items-stretch gap-2 sm:gap-4 mb-8">
         <DiceModeSelector diceMode={diceMode} setDiceMode={setDiceMode} nameSuffix="Local" />
-        <AudioSettingSelector audioEnabled={audioEnabled} setAudioEnabled={setAudioEnabled} nameSuffix="Local" />
+        <AudioSettingSelector audioEnabled={audioEnabled} setAudioEnabled={setAudioEnabled} audioVolume={audioVolume} setAudioVolume={setAudioVolume} nameSuffix="Local" />
         <HapticsSettingSelector hapticsEnabled={hapticsEnabled} setHapticsEnabled={setHapticsEnabled} nameSuffix="Local" />
         <AnimationsSettingSelector motionOverride={motionOverride} setMotionOverride={setMotionOverride} nameSuffix="Local" />
         <AdvancedOptionsToggle showAdvanced={showAdvanced} setShowAdvanced={setShowAdvanced} panelId={advancedOptionsPanelId} />

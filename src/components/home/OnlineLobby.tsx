@@ -127,7 +127,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     players, startGame, reorderPlayers, changeMyColor, isHost, hostId, joinRoom,
     leaveRoom, roomId, myName, kickPlayer, addToast,
     diceMode, setDiceMode, enforcedDiceMode, setEnforcedDiceMode,
-    audioEnabled, setAudioEnabled, hapticsEnabled, setHapticsEnabled,
+    audioEnabled, setAudioEnabled, audioVolume, setAudioVolume, hapticsEnabled, setHapticsEnabled,
     motionOverride, setMotionOverride,
     initialCards, resetGeneralSettings, resetInitialCards,
     ruleset, setRuleset,
@@ -150,6 +150,8 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
     setEnforcedDiceMode: s.setEnforcedDiceMode,
     audioEnabled: s.audioEnabled,
     setAudioEnabled: s.setAudioEnabled,
+    audioVolume: s.audioVolume,
+    setAudioVolume: s.setAudioVolume,
     hapticsEnabled: s.hapticsEnabled,
     setHapticsEnabled: s.setHapticsEnabled,
     motionOverride: s.motionOverride,
@@ -569,7 +571,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
           {!isHost && enforcedDiceMode && (
             <DiceModeEnforcedBadge enforcedDiceMode={enforcedDiceMode} />
           )}
-          <AudioSettingSelector audioEnabled={audioEnabled} setAudioEnabled={setAudioEnabled} nameSuffix="Online" />
+          <AudioSettingSelector audioEnabled={audioEnabled} setAudioEnabled={setAudioEnabled} audioVolume={audioVolume} setAudioVolume={setAudioVolume} nameSuffix="Online" />
           <HapticsSettingSelector hapticsEnabled={hapticsEnabled} setHapticsEnabled={setHapticsEnabled} nameSuffix="Online" />
           <AnimationsSettingSelector motionOverride={motionOverride} setMotionOverride={setMotionOverride} nameSuffix="Online" />
           {isHost && (

@@ -185,3 +185,32 @@ test.describe('Lobby animations override', () => {
     expect(new Set(heights).size, `heights on the pill's line: ${heights.join(', ')}`).toBe(1);
   });
 });
+
+/**
+ * The volume slider is a per-device preference kept in localStorage
+ * (tutto_audioVolume), read back by the store's init() — the same way Sound
+ * and Vibration survive a reload. Muting greys the slider and the test
+ * button out instead of hiding them.
+ */
+test.describe('Lobby volume', () => {
+  test('survives a reload and is disabled while muted', async ({ page }) => {
+    await page.goto('/');
+    const slider = page.getByRole('slider', { name: 'Volume' });
+    await expect(slider).toHaveValue('100');
+
+    await slider.fill('40');
+    await expect(slider).toHaveValue('40');
+    await expect(page.getByText('40%')).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByRole('slider', { name: 'Volume' })).toHaveValue('40');
+
+    await page.getByLabel('Muted').click();
+    await expect(page.getByRole('slider', { name: 'Volume' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Test sound' })).toBeDisabled();
+
+    await page.getByLabel('Sound On').click();
+    await expect(page.getByRole('slider', { name: 'Volume' })).toBeEnabled();
+    await expect(page.getByRole('slider', { name: 'Volume' })).toHaveValue('40');
+  });
+});

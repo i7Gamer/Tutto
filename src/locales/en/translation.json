@@ -176,6 +176,8 @@
   "lobby.soundSetting": "Sound",
   "lobby.soundOn": "Sound On",
   "lobby.muted": "Muted",
+  "lobby.volume": "Volume",
+  "lobby.testSound": "Test sound",
   "lobby.showAdvancedOptions": "Show Advanced Options",
   "lobby.hideAdvancedOptions": "Hide Advanced Options",
   "lobby.winningScore": "Winning Score",

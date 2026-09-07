@@ -176,6 +176,8 @@
   "lobby.soundSetting": "Ton",
   "lobby.soundOn": "Ton an",
   "lobby.muted": "Stumm",
+  "lobby.volume": "Lautstärke",
+  "lobby.testSound": "Ton testen",
   "lobby.showAdvancedOptions": "Erweiterte Optionen anzeigen",
   "lobby.hideAdvancedOptions": "Erweiterte Optionen verbergen",
   "lobby.winningScore": "Siegpunktzahl",
