@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ErrorBoundary } from './ErrorBoundary';
 import { blockStorage, restoreStorage } from '../testing/storageStubs';
@@ -460,12 +460,18 @@ describe('ErrorBoundary', () => {
 
       fireEvent.click(screen.getByText('Reset app data'));
       fireEvent.click(screen.getByText('common.cancel'));
-      await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+      // ModalShell closes through AnimatePresence, so the question stays
+      // mounted for the length of its exit transition. Flushing microtasks
+      // does not carry that to the end, and the assertion below would only
+      // ever see the dialog still there — waited out rather than asserted
+      // straight away.
+      await waitFor(() => {
+        expect(screen.queryByText('This also deletes the saved local game and the online session on this device. Continue?')).toBeNull();
+      });
 
       expect(localStorage.getItem('tutto_local_game')).toBe('{"players":["a"]}');
       expect(sessionStorage.getItem('tutto_online_session')).toBe('{"roomId":"r1"}');
       expect(reloadMock).not.toHaveBeenCalled();
-      expect(screen.queryByText('This also deletes the saved local game and the online session on this device. Continue?')).toBeNull();
     });
   });
 });
