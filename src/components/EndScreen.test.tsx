@@ -57,6 +57,14 @@ describe('EndScreen Component', () => {
     expect(confetti).toHaveBeenCalledTimes(1);
   });
 
+  it('marks this device as having finished a game, the gate the install prompt waits for', () => {
+    localStorage.removeItem('tutto_hasFinishedGame');
+
+    render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
+
+    expect(localStorage.getItem('tutto_hasFinishedGame')).toBe('true');
+  });
+
   it('calls onShowStats when View Statistics is clicked (host/local)', () => {
     const onShowStats = vi.fn();
     render(<EndScreen theme="light" deviceId="" onShowStats={onShowStats} />);

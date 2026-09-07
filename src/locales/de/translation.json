@@ -465,5 +465,13 @@
   "dice.announce.rollLanded": "Gewürfelt: {{values}}. {{count}} zählende Würfel, wert {{score}}.{{completesSuffix}}{{turnSoFarSuffix}}",
   "dice.announce.rollLandedFixed": "Gewürfelt: {{values}}. {{count}} Würfel zählen für die Karte.{{completesSuffix}}{{turnSoFarSuffix}}",
   "dice.announce.completesCard": "Das vervollständigt die Karte.",
-  "dice.announce.turnSoFar": "{{kept}} beiseitegelegt, {{turnScore}} in diesem Zug."
+  "dice.announce.turnSoFar": "{{kept}} beiseitegelegt, {{turnScore}} in diesem Zug.",
+  "installPrompt.regionLabel": "App installieren",
+  "installPrompt.title": "Tutto installieren",
+  "installPrompt.nativeBody": "Füge Tutto zum Startbildschirm hinzu, für ein schnelleres Vollbild-Erlebnis.",
+  "installPrompt.iosBody": "Tippe auf \"Teilen\" und dann auf \"Zum Home-Bildschirm\", für ein schnelleres Vollbild-Erlebnis.",
+  "installPrompt.installButton": "App installieren",
+  "installPrompt.dismissLabel": "Schließen",
+  "help.faq.q8": "Kann ich Tutto als App installieren?",
+  "help.faq.a8": "Ja — nach deiner ersten beendeten Partie erscheint dafür ein Hinweis. Tippe auf Android/Chrome auf \"App installieren\"; nutze auf iPhone/iPad Teilen → Zum Home-Bildschirm."
 }

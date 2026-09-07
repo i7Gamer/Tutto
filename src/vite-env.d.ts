@@ -9,3 +9,9 @@ declare const __APP_VERSION__: string;
 interface Window {
   webkitAudioContext?: typeof AudioContext;
 }
+
+interface Navigator {
+  // iOS Safari only, never standardized: true once the page is running from
+  // its home-screen icon. See src/utils/installPrompt.ts's isStandalone.
+  standalone?: boolean;
+}

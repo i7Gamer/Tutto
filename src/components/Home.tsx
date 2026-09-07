@@ -12,6 +12,7 @@ import LocalLobby from './home/LocalLobby';
 import OnlineLobby from './home/OnlineLobby';
 import ConfirmModal from './ConfirmModal';
 import PageContainer from './PageContainer';
+import InstallPrompt from './InstallPrompt';
 import { clearTurnCaches } from '../utils/diceTurnState';
 
 interface HomeProps {
@@ -123,6 +124,11 @@ export default function Home({ onShowStats }: HomeProps) {
         <div className="bg-black/5 dark:bg-white/5 rounded-2xl p-4 sm:p-6 border border-gray-100 dark:border-slate-700">
           {mode === 'local' ? <LocalLobby /> : <OnlineLobby initialRoomCode={linkedRoomId ?? undefined} />}
         </div>
+
+        {/* Home's narrow store subscription stays narrow — InstallPrompt reads
+            localStore itself rather than adding a store field just to render
+            a card. */}
+        <InstallPrompt />
 
         <div className="text-center mt-10 text-sm text-gray-500 dark:text-gray-400 font-medium">
           {t('home.notSeeingFeatures', 'Not seeing the latest features? ')}

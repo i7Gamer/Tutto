@@ -165,6 +165,7 @@ export default function HelpPopup() {
     { q: t('help.faq.q5'), a: isClassic ? t('help.faq.a5Classic') : t('help.faq.a5') },
     { q: t('help.faq.q6'), a: t('help.faq.a6') },
     { q: t('help.faq.q7'), a: t('help.faq.a7') },
+    { q: t('help.faq.q8'), a: t('help.faq.a8') },
   ], [t, isClassic]);
 
   return (

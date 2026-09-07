@@ -64,6 +64,13 @@
          actually pad around — without this the browser never reports a
          non-zero safe-area inset at all. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Without these, following the iOS instructions InstallPrompt.tsx shows
+         (Share -> Add to Home Screen) still opens the app inside Safari's own
+         chrome — the home-screen icon works, but it is not actually
+         "installed". apple-mobile-web-app-capable is Safari's own name for
+         the same thing mobile-web-app-capable asks Chromium for. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
     <title>Tutto</title>
   </head>
   <body>

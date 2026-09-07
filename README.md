@@ -12,6 +12,7 @@ Tutto Multi-Device is a dynamic web application that allows you to play the popu
 - **Invite Links & QR Codes:** Share a room as a link, a share-sheet entry or a QR code instead of a code to read out. Rooms you have played in are remembered for one-tap rejoining. See [Inviting players](#inviting-players).
 - **Keyboard Shortcuts:** Play a full turn without reaching for the mouse. See [Keyboard shortcuts](#keyboard-shortcuts).
 - **Screen-Reader Roll Narration:** Every landed roll is announced once through a live region — what came up, how many dice score and their value, and how many dice and points are already on the table this turn.
+- **Add to Home Screen:** After your first finished game, a dismissible card offers to install Tutto as an app — a one-tap install on Chromium, step-by-step instructions on iPhone/iPad Safari.
 - **Multi-Language Support (i18n):** Full support for English and German out of the box, with an extensible i18n configuration allowing for easy addition of more languages.
 - **Robust Sync & Reconnects:** Online mode keeps every device on the same game state, which the players' own devices author and the server relays — it is a game for people who trust each other, not a refereed one. If you accidentally close your tab or lose connection, you'll be able to reconnect automatically within your configured reconnect timeout.
 

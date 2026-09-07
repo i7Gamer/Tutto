@@ -465,5 +465,13 @@
   "dice.announce.rollLanded": "Rolled {{values}}. {{count}} scoring dice, worth {{score}}.{{completesSuffix}}{{turnSoFarSuffix}}",
   "dice.announce.rollLandedFixed": "Rolled {{values}}. {{count}} dice count toward the card.{{completesSuffix}}{{turnSoFarSuffix}}",
   "dice.announce.completesCard": "That completes the card.",
-  "dice.announce.turnSoFar": "{{kept}} kept, {{turnScore}} this turn."
+  "dice.announce.turnSoFar": "{{kept}} kept, {{turnScore}} this turn.",
+  "installPrompt.regionLabel": "Install this app",
+  "installPrompt.title": "Install Tutto",
+  "installPrompt.nativeBody": "Add Tutto to your home screen for a faster, full-screen experience.",
+  "installPrompt.iosBody": "Tap Share, then \"Add to Home Screen\", for a faster, full-screen experience.",
+  "installPrompt.installButton": "Install app",
+  "installPrompt.dismissLabel": "Dismiss",
+  "help.faq.q8": "Can I install Tutto as an app?",
+  "help.faq.a8": "Yes — a card offers this after your first finished game. On Android/Chrome tap Install app; on iPhone/iPad use Share → Add to Home Screen."
 }

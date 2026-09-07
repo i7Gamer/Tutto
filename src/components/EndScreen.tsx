@@ -17,6 +17,8 @@ import { Trophy, RotateCcw, Settings, Award, Zap, TrendingDown, Layers, Skull, B
 import { formatTime } from '../utils/formatTime';
 import { formatInt, formatFixed, AVG_DECIMALS } from '../utils/formatNumber';
 import { gameModeOf, isCustomGameMode } from '../utils/statsApi';
+import { localStore } from '../utils/storage';
+import { HAS_FINISHED_GAME_KEY, INSTALL_PROMPT_FLAG_VALUE } from '../utils/installPrompt';
 import { MIN_ONLINE_PLAYERS } from '../utils/configValidation';
 import { computeRankedPlayers, getLeaders } from '../utils/coreGameEngine';
 import { motion } from 'framer-motion';
@@ -177,6 +179,17 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
   // from the playerSnapshot/deviceStats effects re-rendering above.
   useEffect(() => {
     confetti({ particleCount: 150, spread: 100, origin: { y: 0.4 } });
+  }, []);
+
+  // Marks this device as having reached an end screen at least once — the
+  // gate useInstallPrompt.ts's card waits for (installPrompt.ts). Not
+  // `endGame`: that fires on a mid-game abandon, never on Play Again, and
+  // no-ops for an online non-host, so it isn't "this device finished a
+  // game". EndScreen's mount is the one signal every client reaches, host or
+  // not. A flag, not a counter — writing it again on a reload of an
+  // already-finished game is harmless.
+  useEffect(() => {
+    localStore.write(HAS_FINISHED_GAME_KEY, INSTALL_PROMPT_FLAG_VALUE);
   }, []);
 
   const textColor = theme === 'dark' ? '#f8fafc' : '#1a1a1a';
