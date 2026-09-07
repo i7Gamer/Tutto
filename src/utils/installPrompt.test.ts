@@ -37,6 +37,12 @@ describe('isIosSafari', () => {
   const IPHONE_FIREFOX_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/125.2 Mobile/15E148 Safari/604.1';
   const ANDROID_CHROME_UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36';
   const DESKTOP_FIREFOX_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0';
+  // In-app WebViews: a plain iPhone/Safari UA with a wrapper-specific token
+  // appended, and no Share sheet of their own to follow the "Share ->
+  // Add to Home Screen" instructions.
+  const IPHONE_FACEBOOK_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/FBIOS;FBAV/435.0.0.32.109;FBBV/463289849;FBDV/iPhone14,2;FBMD/iPhone;FBSN/iOS;FBSV/17.4;FBSS/3;FBID/phone;FBLC/en_US;FBOP/5;FBRV/0]';
+  const IPHONE_INSTAGRAM_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 309.0.0.31.117 (iPhone14,2; iOS 17_4; en_US; en-US; scale=3.00; 1170x2532; 494610199)';
+  const IPHONE_LINE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Line/13.5.0';
 
   it('is true for iPhone Safari', () => {
     expect(isIosSafari({ userAgent: IPHONE_SAFARI_UA })).toBe(true);
@@ -64,6 +70,21 @@ describe('isIosSafari', () => {
 
   it('is false for desktop Firefox', () => {
     expect(isIosSafari({ userAgent: DESKTOP_FIREFOX_UA })).toBe(false);
+  });
+
+  // These in-app WebViews carry an otherwise-unmodified iPhone/Safari UA, so
+  // without an explicit exclusion they read as Safari and get Share ->
+  // Add to Home Screen instructions for a Share sheet none of them expose.
+  it('is false for the Facebook in-app WebView', () => {
+    expect(isIosSafari({ userAgent: IPHONE_FACEBOOK_UA })).toBe(false);
+  });
+
+  it('is false for the Instagram in-app WebView', () => {
+    expect(isIosSafari({ userAgent: IPHONE_INSTAGRAM_UA })).toBe(false);
+  });
+
+  it('is false for the LINE in-app WebView', () => {
+    expect(isIosSafari({ userAgent: IPHONE_LINE_UA })).toBe(false);
   });
 });
 

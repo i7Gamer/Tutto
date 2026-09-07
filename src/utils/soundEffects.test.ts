@@ -134,6 +134,37 @@ describe('soundEffects', () => {
       await playTone(440, 'sine', 1);
       expect(mockAudioContext.createOscillator).not.toHaveBeenCalled();
     });
+
+    // The skip decision must depend only on the slider, not on a sound's own
+    // vol: a fixed absolute floor (`vol * volume² <= 0.01`) used to mute the
+    // quietest sound classes (playTone's own default among them) well above
+    // zero — 0.15 is a slider position no earlier sound class had cleared.
+    it('still plays at a low but non-zero slider position', async () => {
+      useGameStore.setState({ audioVolume: 0.15 });
+      await playTone(440, 'sine', 1, 0.1);
+      expect(mockAudioContext.createOscillator).toHaveBeenCalled();
+    });
+
+    it('still plays the dice rattle at a low but non-zero slider position', async () => {
+      useGameStore.setState({ audioVolume: 0.15 });
+      await playDiceRattle(6);
+      expect(mockAudioContext.createBufferSource).toHaveBeenCalled();
+    });
+
+    // The exponential ramp's floor is scaled off that sound's own peak now,
+    // not a fixed absolute value — it must stay strictly below the peak even
+    // when the peak itself has been scaled down to a small number by a low
+    // slider position, or the ramp has nowhere to go.
+    it('keeps the ramp floor below the peak even at a low slider position', async () => {
+      useGameStore.setState({ audioVolume: 0.15 });
+      await playTone(440, 'sine', 1, 0.1);
+
+      const [floorAtStart] = mockGainNode.gain.setValueAtTime.mock.calls[0];
+      const [peakValue] = mockGainNode.gain.exponentialRampToValueAtTime.mock.calls[0];
+
+      expect(floorAtStart).toBeGreaterThan(0);
+      expect(floorAtStart).toBeLessThan(peakValue);
+    });
   });
 
   describe('procedural sounds', () => {

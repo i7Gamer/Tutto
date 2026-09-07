@@ -423,4 +423,15 @@ describe('HistoryLog', () => {
     });
   });
 
+  // T-e2e-2: the bots e2e test used to locate this scroller via
+  // getByText('Activity Log').locator('..'), coupling it to the sibling
+  // structure of the heading above it. A test id lets it (and anything else)
+  // find the scroll container directly.
+  it('marks the scroll container with a test id', () => {
+    render(<HistoryLog />);
+    const scroller = screen.getByTestId('history-log-entries');
+
+    expect(scroller.className).toContain('overflow-y-auto');
+  });
+
 });

@@ -20,6 +20,10 @@ afterEach(() => {
 });
 
 describe('prefersReducedMotion', () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-motion');
+  });
+
   it('is true when the OS asks for reduced motion', () => {
     stubMatchMedia(true);
 
@@ -28,6 +32,19 @@ describe('prefersReducedMotion', () => {
 
   it('is false when it does not', () => {
     stubMatchMedia(false);
+
+    expect(prefersReducedMotion()).toBe(false);
+  });
+
+  // App.tsx sets data-motion="always" on <html> for the lobby's Animations
+  // override — the same attribute the CSS half of reduced motion already
+  // excludes (see "every selector...excludes the data-motion override"
+  // below). This is the third consumer c819e0d didn't wire up: an OS asking
+  // for less motion, with the override on, must still read as "no preference"
+  // here, the same way the stylesheet and MotionConfig already do.
+  it('is false when the lobby override is set, even though the OS asks for reduced motion', () => {
+    stubMatchMedia(true);
+    document.documentElement.setAttribute('data-motion', 'always');
 
     expect(prefersReducedMotion()).toBe(false);
   });
@@ -93,6 +110,23 @@ describe('the stylesheet half of reduced motion', () => {
     expect(block).toContain('scroll-behavior');
   });
 
+  // Finds the index just past the closing brace that matches the @media
+  // block's own opening brace, by counting nested braces from there — the
+  // block's real end, rather than a guessed number of characters presumed to
+  // reach past it.
+  const cssBlockEnd = (source: string, blockStart: number): number => {
+    const openBrace = source.indexOf('{', blockStart);
+    let depth = 0;
+    for (let i = openBrace; i < source.length; i++) {
+      if (source[i] === '{') depth += 1;
+      else if (source[i] === '}') {
+        depth -= 1;
+        if (depth === 0) return i + 1;
+      }
+    }
+    throw new Error('unbalanced braces: no closing brace found for the block');
+  };
+
   // B-motion-override: the Animations lobby setting (LobbyShared.tsx's
   // AnimationsSettingSelector) sets data-motion="always" on <html> (App.tsx)
   // when a player wants the animations despite their OS's reduced-motion
@@ -101,10 +135,8 @@ describe('the stylesheet half of reduced motion', () => {
   // motion's own MotionConfig is the other half, and reads the store
   // directly rather than the DOM attribute).
   it('every selector in the block excludes the data-motion="always" override', () => {
-    const block = css.slice(
-      css.search(/@media\s*\(prefers-reduced-motion:\s*reduce\)/),
-      css.search(/@media\s*\(prefers-reduced-motion:\s*reduce\)/) + 600,
-    );
+    const mediaStart = css.search(/@media\s*\(prefers-reduced-motion:\s*reduce\)/);
+    const block = css.slice(mediaStart, cssBlockEnd(css, mediaStart));
     const selectorLine = block.slice(block.indexOf('{') + 1, block.indexOf('{', block.indexOf('{') + 1));
     const selectors = selectorLine.split(',').map((s) => s.trim()).filter(Boolean);
 

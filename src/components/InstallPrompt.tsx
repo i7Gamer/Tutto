@@ -49,7 +49,7 @@ export default function InstallPrompt() {
       <button
         onClick={dismiss}
         aria-label={t('installPrompt.dismissLabel')}
-        className="shrink-0 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 cursor-pointer"
+        className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 cursor-pointer"
       >
         <X size={DISMISS_ICON_SIZE} />
       </button>

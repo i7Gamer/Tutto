@@ -151,6 +151,15 @@ type FieldKeptOnLeave =
   // sync replaces it.
   | 'enforcedDiceMode';
 
+// Client-only, room-scoped fields clearRoomState resets alongside the synced
+// half above — never one of SYNCED_GAME_STATE_KEYS, so FieldKeptOnLeave's
+// typo guard (which is keyed off SyncedGameStateKey) cannot see them. ad23229
+// added the four below by hand, after they'd sat here unlisted and untied to
+// anything for a while (see the comment above their assignments); the next
+// one filed only in the object literal deserves the same "tsc walks you
+// through it" property the synced half already has.
+type ClientOnlyRoomField = 'roomStateSynced' | 'justReconnected' | 'preGameStats' | 'gameStartTime';
+
 // Exported only so noUnusedLocals sees a use; nothing imports it. Each tuple
 // element must be `never`, or the build fails naming the offending key.
 export type ClearRoomStateLock = [
@@ -160,6 +169,8 @@ export type ClearRoomStateLock = [
   AssertNever<Extract<keyof ReturnType<typeof clearRoomState>, FieldKeptOnLeave>>,
   // The kept list holds only real synced fields (typo guard).
   AssertNever<Exclude<FieldKeptOnLeave, SyncedGameStateKey>>,
+  // Every listed client-only room field is actually cleared.
+  AssertNever<Exclude<ClientOnlyRoomField, keyof ReturnType<typeof clearRoomState>>>,
 ];
 
 // Tracks the in-flight cancelReconnect attempt (if any) so a second rapid

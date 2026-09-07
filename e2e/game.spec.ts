@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { seedLocalDeck, startLocalGame, rollUntilSelectable } from './helpers';
 
+// Each bot's turn plays out on the real timers (roughly ten seconds), and
+// two bots' worth of waiting is what the "two bots play the game by
+// themselves" test below budgets for.
+const BOT_TURN_BUDGET_MS = 60_000;
+
 test.describe('Tutto Local Game Flow', () => {
   test('should allow players to join and start a local game', async ({ page }) => {
     // Navigate to the app
@@ -47,6 +52,12 @@ test.describe('Tutto Local Game Flow', () => {
    * to end, on the real timers (roughly ten seconds a turn).
    */
   test('two bots play the game by themselves', async ({ page }) => {
+    // Two sequential BOT_TURN_BUDGET_MS waits below can together exceed
+    // Playwright's 30s default test timeout even though neither one alone
+    // does — every other test in this suite that runs that long calls
+    // test.setTimeout itself, same as here.
+    test.setTimeout(BOT_TURN_BUDGET_MS * 2);
+
     await page.goto('/');
     await page.getByRole('button', { name: 'Add bot: Carl' }).click();
     await page.getByRole('button', { name: 'Add bot: Rita' }).click();
@@ -58,8 +69,7 @@ test.describe('Tutto Local Game Flow', () => {
     // Nothing for a human to press on a bot's turn.
     await expect(page.getByRole('button', { name: /Roll Dice/i })).toHaveCount(0);
 
-    const log = page.getByText('Activity Log').locator('..');
-    const BOT_TURN_BUDGET_MS = 60_000;
+    const log = page.getByTestId('history-log-entries');
     await expect(log.getByText(/^Carl /).first()).toBeVisible({ timeout: BOT_TURN_BUDGET_MS });
     await expect(log.getByText(/^Rita /).first()).toBeVisible({ timeout: BOT_TURN_BUDGET_MS });
   });

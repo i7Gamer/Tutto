@@ -1,6 +1,6 @@
 import { useGameStore } from '../store/useGameStore';
 import { supportsIOSSwitchHaptic, triggerIOSSwitchHaptic } from './iosSwitchHaptic';
-import { volumeToGain } from './audioVolume';
+import { volumeToGain, MIN_AUDIO_VOLUME } from './audioVolume';
 import { TOTAL_DICE } from './turnShapes';
 
 // Spacing between the quick taps used to approximate a multi-pulse pattern
@@ -9,9 +9,18 @@ const IOS_SUCCESS_TAP_GAP_MS = 100;
 // How fast a tone swells from the floor to its peak.
 const TONE_ATTACK_S = 0.02;
 
-// Where every envelope starts and ends. An exponential ramp cannot reach 0,
-// so this is also the floor a sound's peak must clear to be worth building.
-const SILENT_GAIN = 0.01;
+// Where every envelope starts and ends, relative to that sound's own peak. An
+// exponential ramp cannot reach 0, so every envelope needs a floor above it —
+// but the floor must stay BELOW the peak whatever the peak is, including a
+// peak already scaled down by a quiet slider position. A fixed absolute floor
+// failed exactly that: below a slider position where `peak <= floor`, the
+// ramp had nowhere to go, and above it "peak" and "floor" were the same fixed
+// number for every sound regardless of that sound's own volume. Scaling the
+// floor off the peak keeps it below the peak at any slider position above
+// zero — see `isAudioAudible` for the "off entirely" decision, which is
+// deliberately independent of this ratio.
+const SILENT_FLOOR_RATIO = 0.01;
+const silentFloor = (peak: number): number => peak * SILENT_FLOOR_RATIO;
 
 // --- Procedural sound shapes -------------------------------------------------
 // One second of white noise, looped by every noise-based sound. Built once per
@@ -40,8 +49,19 @@ const DIE_CLICK_VOL = 0.15;
 let audioCtx: AudioContext | null = null;
 let noiseBuffer: AudioBuffer | null = null;
 
-/** A sound's peak gain after the lobby's volume slider — 0 means "skip it". */
+/** A sound's peak gain after the lobby's volume slider. */
 const scaledPeak = (vol: number): number => vol * volumeToGain(useGameStore.getState().audioVolume);
+
+// The one decision for "skip this sound entirely": sound off, or the lobby's
+// slider at MIN_AUDIO_VOLUME (the only position `storeTypes.ts` documents as
+// "plays nothing"). Deliberately independent of any one sound's own `vol` —
+// that only shapes how loud a sound is once it has been decided to play, and
+// used to also decide silence per sound class, which is what let the slider
+// go fully silent well above zero while still reading as "on".
+const isAudioAudible = (): boolean => {
+  const { audioEnabled, audioVolume } = useGameStore.getState();
+  return audioEnabled && audioVolume > MIN_AUDIO_VOLUME;
+};
 
 const getAudioContext = async (): Promise<AudioContext> => {
   if (!audioCtx || audioCtx.state === 'closed') {
@@ -86,9 +106,8 @@ interface NoiseVoice {
 // The noise loop -> filter -> gain -> out subgraph every noise sound is shaped
 // from. Returns null when nothing should play (sound off, slider at zero, or
 // no Web Audio), so callers only ever write the envelope.
-const buildNoiseVoice = async (filterType: BiquadFilterType, vol: number): Promise<NoiseVoice | null> => {
-  if (!useGameStore.getState().audioEnabled) return null;
-  if (scaledPeak(vol) <= SILENT_GAIN) return null;
+const buildNoiseVoice = async (filterType: BiquadFilterType): Promise<NoiseVoice | null> => {
+  if (!isAudioAudible()) return null;
   try {
     const ctx = await getAudioContext();
     const source = ctx.createBufferSource();
@@ -126,30 +145,33 @@ const rattleDurationS = (numDice: number): number => rattleShakes(numDice) * RAT
 
 /** Dice hitting the table: one pulse of lowpassed noise per die tumbling. */
 export const playDiceRattle = async (numDice: number): Promise<void> => {
-  const voice = await buildNoiseVoice('lowpass', RATTLE_VOL);
+  const voice = await buildNoiseVoice('lowpass');
   if (!voice) return;
   voice.filter.frequency.setValueAtTime(RATTLE_LOWPASS_HZ, voice.startTime);
   const peak = scaledPeak(RATTLE_VOL);
+  const floor = silentFloor(peak);
   const shakes = rattleShakes(numDice);
   for (let i = 0; i < shakes; i++) {
     const shakeStart = voice.startTime + i * RATTLE_SHAKE_S;
-    voice.gain.gain.setValueAtTime(SILENT_GAIN, shakeStart);
+    voice.gain.gain.setValueAtTime(floor, shakeStart);
     voice.gain.gain.exponentialRampToValueAtTime(peak, shakeStart + RATTLE_SHAKE_ATTACK_S);
-    voice.gain.gain.exponentialRampToValueAtTime(SILENT_GAIN, shakeStart + RATTLE_SHAKE_S);
+    voice.gain.gain.exponentialRampToValueAtTime(floor, shakeStart + RATTLE_SHAKE_S);
   }
   voice.play(voice.startTime + rattleDurationS(numDice));
 };
 
 /** A card being turned over: a bandpass sweeping up through the noise. */
 export const playCardSwoosh = async (): Promise<void> => {
-  const voice = await buildNoiseVoice('bandpass', SWOOSH_VOL);
+  const voice = await buildNoiseVoice('bandpass');
   if (!voice) return;
+  const peak = scaledPeak(SWOOSH_VOL);
+  const floor = silentFloor(peak);
   voice.filter.Q.value = SWOOSH_Q;
   voice.filter.frequency.setValueAtTime(SWOOSH_START_HZ, voice.startTime);
   voice.filter.frequency.exponentialRampToValueAtTime(SWOOSH_END_HZ, voice.startTime + SWOOSH_S);
-  voice.gain.gain.setValueAtTime(SILENT_GAIN, voice.startTime);
-  voice.gain.gain.exponentialRampToValueAtTime(scaledPeak(SWOOSH_VOL), voice.startTime + SWOOSH_ATTACK_S);
-  voice.gain.gain.exponentialRampToValueAtTime(SILENT_GAIN, voice.startTime + SWOOSH_S);
+  voice.gain.gain.setValueAtTime(floor, voice.startTime);
+  voice.gain.gain.exponentialRampToValueAtTime(peak, voice.startTime + SWOOSH_ATTACK_S);
+  voice.gain.gain.exponentialRampToValueAtTime(floor, voice.startTime + SWOOSH_S);
   voice.play(voice.startTime + SWOOSH_S);
 };
 
@@ -170,9 +192,9 @@ export const playTone = async (
   vol = 0.1,
   offset = 0,
 ): Promise<void> => {
-  if (!useGameStore.getState().audioEnabled) return;
+  if (!isAudioAudible()) return;
   const peak = scaledPeak(vol);
-  if (peak <= SILENT_GAIN) return;
+  const floor = silentFloor(peak);
   try {
     const ctx = await getAudioContext();
     const oscillator = ctx.createOscillator();
@@ -181,9 +203,9 @@ export const playTone = async (
 
     oscillator.type = type;
     oscillator.frequency.setValueAtTime(frequency, startTime);
-    gainNode.gain.setValueAtTime(SILENT_GAIN, startTime);
+    gainNode.gain.setValueAtTime(floor, startTime);
     gainNode.gain.exponentialRampToValueAtTime(peak, startTime + TONE_ATTACK_S);
-    gainNode.gain.exponentialRampToValueAtTime(SILENT_GAIN, startTime + duration);
+    gainNode.gain.exponentialRampToValueAtTime(floor, startTime + duration);
 
     oscillator.connect(gainNode);
     gainNode.connect(ctx.destination);

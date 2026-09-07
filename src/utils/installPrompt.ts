@@ -48,20 +48,30 @@ const IOS_DEVICE_UA_PATTERN = /iPhone|iPad|iPod/;
 // player to belongs to Safari specifically, not to whatever wraps CriOS/FxiOS.
 const CHROME_IOS_UA_PATTERN = /CriOS/;
 const FIREFOX_IOS_UA_PATTERN = /FxiOS/;
+// In-app WebViews (Facebook, Instagram, LINE) carry an otherwise-unmodified
+// iPhone/Safari UA with their own token appended, and none of them exposes
+// the Share sheet the instructions below rely on.
+const FACEBOOK_WEBVIEW_UA_PATTERN = /FBAN|FBAV/;
+const INSTAGRAM_WEBVIEW_UA_PATTERN = /Instagram/;
+const LINE_WEBVIEW_UA_PATTERN = /Line\//;
 
 /**
  * True for Mobile Safari on iPhone/iPad/iPod. False for every other browser,
- * including Chrome/Firefox on iOS and an iPad requesting the desktop site
- * (whose UA carries no iPhone/iPad/iPod token at all — it reads as a Mac, and
- * falls through to `installPromptState`'s "hidden" branch, which is the
- * correct outcome there: an iPad in desktop mode doesn't offer the same
- * Share → Add to Home Screen path a mobile-UA visit does).
+ * including Chrome/Firefox on iOS, the Facebook/Instagram/LINE in-app
+ * WebViews, and an iPad requesting the desktop site (whose UA carries no
+ * iPhone/iPad/iPod token at all — it reads as a Mac, and falls through to
+ * `installPromptState`'s "hidden" branch, which is the correct outcome
+ * there: an iPad in desktop mode doesn't offer the same Share → Add to Home
+ * Screen path a mobile-UA visit does).
  */
 export const isIosSafari = (navigator: UserAgentNavigator): boolean => {
   const ua = navigator.userAgent;
   if (!IOS_DEVICE_UA_PATTERN.test(ua)) return false;
   if (CHROME_IOS_UA_PATTERN.test(ua)) return false;
   if (FIREFOX_IOS_UA_PATTERN.test(ua)) return false;
+  if (FACEBOOK_WEBVIEW_UA_PATTERN.test(ua)) return false;
+  if (INSTAGRAM_WEBVIEW_UA_PATTERN.test(ua)) return false;
+  if (LINE_WEBVIEW_UA_PATTERN.test(ua)) return false;
   return true;
 };
 

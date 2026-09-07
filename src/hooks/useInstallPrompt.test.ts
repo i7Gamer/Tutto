@@ -1,5 +1,5 @@
 import { renderHook, act } from '@testing-library/react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useInstallPrompt } from './useInstallPrompt';
 import { localStore } from '../utils/storage';
 import {
@@ -21,9 +21,17 @@ const markFinishedGame = () => localStore.write(HAS_FINISHED_GAME_KEY, INSTALL_P
 
 const setUserAgent = (ua: string) =>
   Object.defineProperty(window.navigator, 'userAgent', { value: ua, configurable: true });
+const originalUA = window.navigator.userAgent;
 
 beforeEach(() => {
   localStorage.clear();
+});
+
+// A failure between setUserAgent(IPHONE_SAFARI_UA) and the restore line used
+// to leak the iPhone UA into every test that ran after it — the restore was
+// the line right after the assertion, never reached once the assertion threw.
+afterEach(() => {
+  setUserAgent(originalUA);
 });
 
 describe('useInstallPrompt', () => {
@@ -95,14 +103,23 @@ describe('useInstallPrompt', () => {
 
   it('shows the iOS variant on Mobile Safari with no native event', () => {
     markFinishedGame();
-    const originalUA = window.navigator.userAgent;
     setUserAgent(IPHONE_SAFARI_UA);
 
     const { result } = renderHook(() => useInstallPrompt());
 
     expect(result.current.state).toBe('ios');
+  });
 
-    setUserAgent(originalUA);
+  // The restore used to sit on the line right after the assertion above —
+  // never reached if that assertion threw, leaking the iPhone UA into every
+  // test that runs after it. This one would read 'ios' instead of 'hidden'
+  // if that ever happened again.
+  it('does not leak the iOS user agent from the previous test', () => {
+    markFinishedGame();
+
+    const { result } = renderHook(() => useInstallPrompt());
+
+    expect(result.current.state).toBe('hidden');
   });
 
   it('removes its beforeinstallprompt listener on unmount', () => {

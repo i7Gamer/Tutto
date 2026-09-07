@@ -88,4 +88,17 @@ describe('InstallPrompt', () => {
     expect(localStore.read(INSTALL_PROMPT_DISMISSED_KEY)).toBe(INSTALL_PROMPT_FLAG_VALUE);
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
   });
+
+  // U-1: the dismiss X carried no tap-target sizing at all — an ~18px hit
+  // area, well under the 44px target LanguageSwitcher.tsx's own icon button
+  // enforces (and this repo's e2e tap-target check assumes everywhere).
+  it('gives the dismiss button a 44px tap target', () => {
+    markFinishedGame();
+    setUserAgent(IPHONE_SAFARI_UA);
+    render(<InstallPrompt />);
+
+    const dismissButton = screen.getByRole('button', { name: 'installPrompt.dismissLabel' });
+
+    expect(dismissButton).toHaveClass('min-h-11', 'min-w-11');
+  });
 });
