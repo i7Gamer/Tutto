@@ -21,6 +21,7 @@ import { makePlayer, makeDiceSnapshot, mockFetchJson, nonNull } from '../testing
 vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
   playSuccess: vi.fn(),
+  playCardSwoosh: vi.fn(),
   vibrateYourTurn: vi.fn(),
   vibrateTurnUrgent: vi.fn(),
 }));

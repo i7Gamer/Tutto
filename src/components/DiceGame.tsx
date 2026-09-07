@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useReducer, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { v4 as uuidv4 } from 'uuid';
-import { playBuzzer, playSuccess, playTone, vibrateBust, vibrateSuccess } from '../utils/soundEffects';
+import { playBuzzer, playSuccess, playTone, playDiceRattle, playDieClick, vibrateBust, vibrateSuccess } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
 import { rollDie, isBust, checkValidityAndScore, applyTuttoBonus, getMaxValidSelection } from '../utils/diceLogic';
 import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../utils/coreGameEngine';
@@ -168,7 +168,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     pendingTimers.current = [];
     setIsRolling(true);
 
-    playTone(600, 'sine', 0.1);
+    void playDiceRattle(numDice);
 
     const newRollVals = Array.from({ length: numDice }, () => rollDie());
     // crypto.randomUUID() only exists in secure contexts (HTTPS/localhost) —
@@ -390,12 +390,19 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const toggleDie = (id: string) => {
     if (bustState || showSummary || isRolling) return;
     if (isSelectionLocked) return;
+    const die = currentRoll.find(d => d.id === id);
+    if (!die) return;
+    void playDieClick(!die.selected);
     dispatch({ type: 'DIE_TOGGLED', id });
   };
 
   const selectAllValid = () => {
     if (bustState || showSummary || isRolling || !hasRolled) return;
     const validIndices = new Set(getMaxValidSelection(currentRoll.map(d => d.val), currentCard, kniffelProgress, ruleset));
+    // Silent when the shortcut changes nothing — a click that picked up no
+    // die would be a lie about what just happened.
+    const alreadySelected = currentRoll.every((d, i) => !!d.selected === validIndices.has(i));
+    if (!alreadySelected) void playDieClick(true);
     dispatch({ type: 'SELECTION_SET', indices: validIndices });
   };
 

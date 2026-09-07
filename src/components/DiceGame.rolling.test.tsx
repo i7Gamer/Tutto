@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('canvas-confetti', () => ({ default: vi.fn() }));
 vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(), playSuccess: vi.fn(), playTone: vi.fn(),
+  playDiceRattle: vi.fn(), playDieClick: vi.fn(), playCardSwoosh: vi.fn(),
   vibrateBust: vi.fn(), vibrateSuccess: vi.fn(),
 }));
 // Every die shows a 1 — always scoring, never a bust.

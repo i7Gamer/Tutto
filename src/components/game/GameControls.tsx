@@ -7,6 +7,7 @@ import { useGameStore } from '../../store/useGameStore';
 import { sortKeptDiceForDisplay, hasScoreInput, isSpecialCard, clampScoreInputText } from '../../utils/diceTurnControls';
 import { formatInt } from '../../utils/formatNumber';
 import { CARD_FLIP_MS, SPECTATOR_LIVE_STATE_GRACE_MS } from '../../utils/uiTimings';
+import { playCardSwoosh } from '../../utils/soundEffects';
 import { BONUS_CARDS, MAX_SCORE_MAGNITUDE } from '../../utils/configValidation';
 import type { CardType, DiceMode } from '../../types';
 import { DiePips } from './Die';
@@ -186,6 +187,9 @@ export default function GameControls({
 
   useEffect(() => {
     if (isFlipping && currentCard) {
+      // The flip and its sound start together. Never on mount: a game
+      // reloaded mid-turn has nothing turning over.
+      void playCardSwoosh();
       const timer = setTimeout(() => setIsFlipping(false), CARD_FLIP_MS);
       return () => clearTimeout(timer);
     }

@@ -12,7 +12,10 @@ vi.mock('framer-motion', async (importOriginal) => ({
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ComponentProps } from 'react';
 import GameControls from './GameControls';
+import { playCardSwoosh } from '../../utils/soundEffects';
 import { useGameStore, type GameStore } from '../../store/useGameStore';
+
+vi.mock('../../utils/soundEffects', () => ({ playCardSwoosh: vi.fn() }));
 import type { CardType, DiceSnapshot } from '../../types';
 import { CARD_FLIP_MS, SPECTATOR_LIVE_STATE_GRACE_MS } from '../../utils/uiTimings';
 import { MAX_SCORE_MAGNITUDE } from '../../utils/configValidation';
@@ -97,6 +100,22 @@ describe('GameControls card-flip state', () => {
     await waitFor(() => {
       expect(scoreInputShown(), 'the controls never came back').toBe(true);
     }, { timeout: PAST_THE_FLIP_MS });
+  });
+
+  it('swooshes with each flip, and not for the card it mounted with', async () => {
+    // Owns its own count: the flip tests before it each played one.
+    vi.mocked(playCardSwoosh).mockClear();
+    setStore({ currentCard: '200', cards: Array.from({ length: 5 }) });
+    render(<GameControls {...flipProps()} />);
+    expect(playCardSwoosh).not.toHaveBeenCalled();
+
+    act(() => { useGameStore.setState({ currentCard: 'x2' }); });
+    await waitFor(() => expect(playCardSwoosh).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(scoreInputShown()).toBe(true), { timeout: PAST_THE_FLIP_MS });
+
+    act(() => { useGameStore.setState({ currentCard: '300', cards: Array.from({ length: 4 }) }); });
+    await waitFor(() => expect(playCardSwoosh).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(scoreInputShown()).toBe(true), { timeout: PAST_THE_FLIP_MS });
   });
 
   it('flips on a deck-size change too, not only on a new card', async () => {

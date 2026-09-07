@@ -1,7 +1,10 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import DrawnCardReveal from './DrawnCardReveal';
+import { playCardSwoosh } from '../../utils/soundEffects';
 import type { CardType } from '../../types';
+
+vi.mock('../../utils/soundEffects', () => ({ playCardSwoosh: vi.fn() }));
 
 describe('DrawnCardReveal', () => {
   const baseProps = {
@@ -48,6 +51,14 @@ describe('DrawnCardReveal', () => {
     // which would drop focus to <body> — outside the dialog's tab order.
     render(<DrawnCardReveal {...baseProps} />);
     expect(screen.getByTestId('drawn-card-continue')).toHaveFocus();
+  });
+
+  it('swooshes once as the card turns over, not again on a re-render', () => {
+    const { rerender } = render(<DrawnCardReveal {...baseProps} />);
+    expect(playCardSwoosh).toHaveBeenCalledTimes(1);
+
+    rerender(<DrawnCardReveal {...baseProps} turnScore={2300} />);
+    expect(playCardSwoosh).toHaveBeenCalledTimes(1);
   });
 
   it('resumes the turn on continue', () => {

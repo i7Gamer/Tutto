@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { ChevronRight } from 'lucide-react';
 import CardFace from './cards/CardFace';
+import { playCardSwoosh } from '../../utils/soundEffects';
 import type { CardType } from '../../types';
 
 interface DrawnCardRevealProps {
@@ -32,6 +33,10 @@ export default function DrawnCardReveal({ card, chainCardCount, turnScore, onCon
   // Anchor it on the one control this screen has.
   const continueRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { continueRef.current?.focus(); }, []);
+
+  // The card turns over as this mounts (the spring below); the sound goes
+  // with the motion, once — a re-render on a changed total is not a new card.
+  useEffect(() => { void playCardSwoosh(); }, []);
 
   return (
     <motion.div

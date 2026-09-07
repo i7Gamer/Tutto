@@ -4,13 +4,16 @@ import { render, screen, fireEvent, act, waitFor, cleanup } from '@testing-libra
 import { parseSavedDiceState } from '../utils/diceTurnState';
 import { MAX_CHAIN_CARDS } from '../types';
 import DiceGame from './DiceGame';
-import { playTone, playSuccess } from '../utils/soundEffects';
+import { playTone, playSuccess, playDiceRattle, playDieClick } from '../utils/soundEffects';
 import confetti from 'canvas-confetti';
 
 vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
   playSuccess: vi.fn(),
   playTone: vi.fn(),
+  playDiceRattle: vi.fn(),
+  playDieClick: vi.fn(),
+  playCardSwoosh: vi.fn(),
   vibrateBust: vi.fn(),
   vibrateSuccess: vi.fn(),
 }));
@@ -595,6 +598,51 @@ describe('DiceGame interactive turn logic', () => {
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(150, true));
   });
 
+  it('rattles once per roll, with as many dice as hit the table', async () => {
+    queueRoll([1, 5, 2, 2, 3, 4]);
+    queueRoll([5, 2, 3, 4, 6]); // includes a 5, so the reroll is not a bust
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+    await flushRoll();
+    expect(playDiceRattle).toHaveBeenCalledTimes(1);
+    expect(playDiceRattle).toHaveBeenLastCalledWith(6);
+
+    clickDie(1);
+    fireEvent.click(screen.getByText('dice.roll_again'));
+    await flushRoll();
+
+    expect(playDiceRattle).toHaveBeenCalledTimes(2);
+    expect(playDiceRattle).toHaveBeenLastCalledWith(5);
+  });
+
+  it('clicks when a die is picked up and, lower, when it is put back', async () => {
+    queueRoll([1, 5, 2, 2, 3, 4]);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+    await flushRoll();
+
+    clickDie(1);
+    expect(playDieClick).toHaveBeenCalledTimes(1);
+    expect(playDieClick).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(dieShowing(1, true));
+    expect(playDieClick).toHaveBeenCalledTimes(2);
+    expect(playDieClick).toHaveBeenLastCalledWith(false);
+  });
+
+  it('clicks once for "select all", and not at all when there is nothing to select', async () => {
+    queueRoll([1, 5, 2, 2, 3, 4]);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+    await flushRoll();
+
+    selectAllValid();
+    expect(playDieClick).toHaveBeenCalledTimes(1);
+    expect(playDieClick).toHaveBeenLastCalledWith(true);
+
+    // Everything valid is already selected — the shortcut changes nothing,
+    // so it must not sound like it did.
+    selectAllValid();
+    expect(playDieClick).toHaveBeenCalledTimes(1);
+  });
+
   it('renders kept dice as pip faces, not raw digits, matching the current-roll dice style', async () => {
     queueRoll([1, 5, 2, 2, 3, 4]); // first (auto) roll
     queueRoll([5, 2, 3, 4, 6]); // reroll of the 5 dice not kept — includes a 5 so it isn't a bust
@@ -977,6 +1025,7 @@ describe('DiceGame interactive turn logic', () => {
 
     expect(screen.queryAllByLabelText(/dice.die_showing/).length).toBe(0);
     expect(playTone).not.toHaveBeenCalled();
+    expect(playDiceRattle).not.toHaveBeenCalled();
   });
 
   it('auto-rolls as soon as panelReady flips to true', async () => {
@@ -1059,6 +1108,7 @@ describe('DiceGame pending timer cleanup on unmount', () => {
     // --sequence.shuffle, where any tone-playing test could run directly
     // before this one.
     vi.mocked(playTone).mockClear();
+    vi.mocked(playDiceRattle).mockClear();
     // Use the real (non-zero) durations so roll() actually schedules its
     // animation/finalize setTimeouts at meaningful delays instead of firing
     // on the next tick — otherwise there would be nothing queued to verify
@@ -1074,9 +1124,9 @@ describe('DiceGame pending timer cleanup on unmount', () => {
   });
 
   it('clears every pending timer on unmount so no callbacks fire afterward', () => {
-    // roll() calls playTone once synchronously (the initial "shake" tone) and
-    // then once per die via the staggered tumble timers that live in
-    // pendingTimers — that second batch is what unmount must actually cancel.
+    // roll() rattles once synchronously and then plays one settle tone per
+    // die via the staggered tumble timers that live in pendingTimers — that
+    // second batch is what unmount must actually cancel.
     // A prop-callback spy (onComplete/onStateChange) doesn't work here: they're
     // wired to *other*, independently-cleaned-up effects and would pass even
     // with pendingTimers cleanup deleted entirely (verified by temporarily
@@ -1085,11 +1135,11 @@ describe('DiceGame pending timer cleanup on unmount', () => {
       <DiceGame currentCard="200" onComplete={vi.fn()} />
     );
 
-    expect(playTone).toHaveBeenCalledTimes(1); // the synchronous "shake" tone only
+    expect(playDiceRattle).toHaveBeenCalledTimes(1); // the synchronous rattle only
+    expect(playTone).not.toHaveBeenCalled();
 
     // Unmount immediately — before any of the 6 staggered per-die timers fire.
     unmount();
-    vi.mocked(playTone).mockClear();
 
     // If pendingTimers cleanup didn't run, each die's tumble timer would call
     // playTone here.

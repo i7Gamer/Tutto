@@ -90,8 +90,14 @@ vi.mock('./utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
   playSuccess: vi.fn(),
   playTone: vi.fn(),
+  playDiceRattle: vi.fn(),
+  playDieClick: vi.fn(),
+  playCardSwoosh: vi.fn(),
+  playSoundPreview: vi.fn(),
   vibrateBust: vi.fn(),
   vibrateSuccess: vi.fn(),
+  vibrateYourTurn: vi.fn(),
+  vibrateTurnUrgent: vi.fn(),
 }));
 
 // Create a mock for socket.io-client that can be configured per test. Every

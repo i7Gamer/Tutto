@@ -27,6 +27,7 @@ import { MAX_HISTORY_LOG_SIZE, type HistoryEntry } from '../types';
 vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
   playSuccess: vi.fn(),
+  playCardSwoosh: vi.fn(),
   vibrateYourTurn: vi.fn(),
   vibrateTurnUrgent: vi.fn(),
 }));

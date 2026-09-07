@@ -25,6 +25,7 @@ import { CARD_FLIP_MS } from '../utils/uiTimings';
 vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
   playSuccess: vi.fn(),
+  playCardSwoosh: vi.fn(),
   vibrateYourTurn: vi.fn(),
   vibrateTurnUrgent: vi.fn(),
 }));
