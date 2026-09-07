@@ -2,7 +2,7 @@
  * Shared setup for the e2e specs. Not a spec itself — playwright only collects
  * *.spec.ts from this directory, so this file is only ever imported.
  */
-import { expect, type Page } from '@playwright/test';
+import { expect, type Page, type Locator } from '@playwright/test';
 
 /**
  * Cards that always play an ordinary turn: draw one and the player rolls.
@@ -106,3 +106,28 @@ export const startLocalGame = async (page: Page, names: string[] = DEFAULT_PLAYE
   await page.getByRole('button', { name: /Start Game!/i }).click();
   await expect(page.getByText(/Current Player/i)).toBeVisible();
 };
+
+// Opens the dice panel and waits until `ready` is on screen. The opening
+// auto-roll busts before any selection about once in forty runs (about one
+// in three full runs, over three engines); on a bust the summary
+// auto-continues to the next player, whose board offers a fresh roll, so the
+// helper simply rolls again (whose turn it is never matters to a layout or
+// contrast probe). Shared by EVERY spec that opens the panel: the one that
+// clicked Roll Dice on its own and waited for Select all was styling.spec's
+// flakiest test, and its trace showed exactly this -- the panel opened,
+// busted, and closed on its own before anything selectable appeared.
+const OPENING_ROLL_ATTEMPTS = 3;
+const OPENING_ROLL_TIMEOUT_MS = 15000;
+export const rollUntil = async (page: Page, ready: Locator): Promise<void> => {
+  const bust = page.getByText(/Bust!/i);
+  const rollDice = page.getByRole('button', { name: /Roll Dice/i });
+  for (let attempt = 0; attempt < OPENING_ROLL_ATTEMPTS; attempt++) {
+    await rollDice.click();
+    await expect(ready.or(bust)).toBeVisible({ timeout: OPENING_ROLL_TIMEOUT_MS });
+    if (await ready.isVisible()) return;
+    await expect(rollDice).toBeVisible({ timeout: OPENING_ROLL_TIMEOUT_MS });
+  }
+  throw new Error(`the opening roll busted ${OPENING_ROLL_ATTEMPTS} times in a row`);
+};
+export const rollUntilSelectable = (page: Page): Promise<void> =>
+  rollUntil(page, page.getByRole('button', { name: /Select all/i }));

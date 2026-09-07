@@ -7,5 +7,7 @@
  * has not played yet is a decision for the screen, so it stays with the
  * caller.
  */
+export const PERCENT = 100;
+
 export const percentageOf = (part: number, whole: number): number | null =>
-  whole > 0 ? Math.round((part / whole) * 100) : null;
+  whole > 0 ? Math.round((part / whole) * PERCENT) : null;

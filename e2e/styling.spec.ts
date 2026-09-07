@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator, type TestInfo } from '@playwright/test';
-import { seedLocalDeck, startLocalGame, joinOnlineRoomPair } from './helpers';
+import { seedLocalDeck, startLocalGame, joinOnlineRoomPair, rollUntil, rollUntilSelectable } from './helpers';
 
 /**
  * Tailwind v4 emits its utilities inside a real `@layer utilities`. Unlayered
@@ -16,34 +16,9 @@ import { seedLocalDeck, startLocalGame, joinOnlineRoomPair } from './helpers';
  * element rules (0,0,1) and the `*` reset (0,0,0), and LOSE to the app's own
  * class rules, which match at equal specificity and are written after them.
  */
-// Opens the dice panel and waits until `ready` is on screen. The opening
-// auto-roll busts before any selection about once in forty runs (about one
-// in three full runs, over three engines); on a bust the summary
-// auto-continues to the next player, whose board offers a fresh roll, so the
-// helper simply rolls again (whose turn it is never matters to a layout or
-// contrast probe). Shared by EVERY probe that opens the panel: the one that
-// clicked Roll Dice on its own and waited for Select all was this file's
-// flakiest test, and its trace showed exactly this -- the panel opened,
-// busted, and closed on its own before anything selectable appeared.
-const OPENING_ROLL_ATTEMPTS = 3;
-const OPENING_ROLL_TIMEOUT_MS = 15000;
 // Longer than framer-motion's default hover tween, so a scale that should no
 // longer exist would have fully landed before a measurement (B6).
 const HOVER_SETTLE_MS = 400;
-const rollUntil = async (page: Page, ready: Locator): Promise<void> => {
-  const bust = page.getByText(/Bust!/i);
-  const rollDice = page.getByRole('button', { name: /Roll Dice/i });
-  for (let attempt = 0; attempt < OPENING_ROLL_ATTEMPTS; attempt++) {
-    await rollDice.click();
-    await expect(ready.or(bust)).toBeVisible({ timeout: OPENING_ROLL_TIMEOUT_MS });
-    if (await ready.isVisible()) return;
-    await expect(rollDice).toBeVisible({ timeout: OPENING_ROLL_TIMEOUT_MS });
-  }
-  throw new Error(`the opening roll busted ${OPENING_ROLL_ATTEMPTS} times in a row`);
-};
-const rollUntilSelectable = (page: Page): Promise<void> =>
-  rollUntil(page, page.getByRole('button', { name: /Select all/i }));
-
 test.describe('stylesheet cascade', () => {
   // Probes are injected rather than looked for in the UI: this is about which
   // rule wins, and a real element would confound that with its own classes.
