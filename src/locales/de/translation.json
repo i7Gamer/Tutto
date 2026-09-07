@@ -478,10 +478,14 @@
   "lobby.coachOn": "Otto fragen An",
   "lobby.coachOff": "Otto fragen Aus",
   "coach.roll": "Otto würde {{keep}} behalten und {{dice}} Würfel werfen: {{bust}}% Nieten-Risiko, Weiterwürfeln ist {{rollValue}} wert gegenüber {{threshold}} beim Sichern.",
-  "coach.stop": "Otto würde {{keep}} behalten und {{bank}} sichern: {{bust}}% Nieten-Risiko bei {{dice}} Würfeln.",
+  "coach.stop": "Otto würde {{keep}} behalten und {{bank}} sichern, statt {{bust}}% Nieten-Risiko bei {{dice}} Würfeln einzugehen.",
   "coach.stopNoRoll": "Otto würde {{keep}} behalten und {{bank}} sichern.",
+  "coach.rollNoBank": "Otto würde {{keep}} behalten und {{dice}} Würfel werfen: {{bust}}% Nieten-Risiko.",
+  "coach.rollTie": "Otto würde {{keep}} behalten und {{dice}} Würfel werfen: {{bust}}% Nieten-Risiko, Weiterwürfeln ist etwa so viel wert wie Sichern.",
+  "coach.secondTutto": "Otto würde {{keep}} behalten und das zweite Tutto würfeln.",
+  "coach.winGame": "Otto würde {{keep}} behalten und die Karte beenden, um das Spiel zu gewinnen.",
   "coach.draw": "Otto würde die nächste Karte ziehen, mit {{bank}} auf dem Spiel.",
-  "coach.selectionDiffers": "Otto würde andere Würfel behalten. ",
+  "coach.selectionDiffers": "Deine Würfel weichen von Ottos ab. ",
   "coach.trailing": "Du liegst zurück, deshalb geht Otto mehr Risiko ein.",
   "help.settings.coach": "Otto fragen: Ein optionaler Hinweis unter den Würfeln, standardmäßig aus. Wenn aktiviert, zeigt er nach jedem Wurf, was Otto (der optimale Bot) behalten und tun würde, und warum — er wählt nie Würfel aus und drückt nie einen Knopf für dich."
 }

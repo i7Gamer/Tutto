@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import CoachHintLine from './CoachHintLine';
 import type { CoachHint } from '../../utils/coachHint';
 
@@ -22,6 +22,11 @@ vi.mock('react-i18next', () => ({
 }));
 
 describe('CoachHintLine', () => {
+  // The spy is hoisted once for the whole file, so without this every
+  // negative assertion below ("never interpolated a bank") would be reading
+  // the calls of the tests before it as well as its own.
+  beforeEach(() => translate.mockClear());
+
   const baseHint: CoachHint = {
     action: 'roll',
     keep: [1, 5],
@@ -32,6 +37,7 @@ describe('CoachHintLine', () => {
     threshold: 300,
     trailing: false,
     selectionDiffers: false,
+    stopMeans: 'bank',
   };
 
   it('renders nothing when there is no hint', () => {
@@ -77,6 +83,69 @@ describe('CoachHintLine', () => {
       expect.objectContaining({ keep: '1, 5', bank: 150 }),
     );
     expect(screen.queryByText('coach.stop')).toBeNull();
+  });
+
+  // Kniffel, Plus/Minus and Feuerwerk withhold the Stop button while the card
+  // is unfinished, so coachHint hands back null roll figures there: the line
+  // must advise the roll on its own rather than measure it against a bank
+  // nobody can take.
+  it('drops the banking comparison when there is no bank to compare against', () => {
+    render(<CoachHintLine hint={{ ...baseHint, rollValue: null, threshold: null }} />);
+
+    expect(screen.getByText('coach.rollNoBank')).toBeInTheDocument();
+    expect(translate).toHaveBeenCalledWith(
+      'coach.rollNoBank',
+      expect.any(String),
+      expect.objectContaining({ keep: '1, 5', dice: 4, bust: 20 }),
+    );
+    expect(screen.queryByText('coach.roll')).toBeNull();
+  });
+
+  // Both figures are rounded for display, so a near-tie prints as the same
+  // number twice ("worth 217 against 217") and reads like a coin flip.
+  it('says rolling is worth about the same when the two figures round together', () => {
+    render(<CoachHintLine hint={{ ...baseHint, rollValue: 217.4, threshold: 217.2 }} />);
+
+    expect(screen.getByText('coach.rollTie')).toBeInTheDocument();
+    expect(screen.queryByText('coach.roll')).toBeNull();
+  });
+
+  it('quotes both figures when they actually differ', () => {
+    render(<CoachHintLine hint={{ ...baseHint, rollValue: 217.4, threshold: 300.2 }} />);
+
+    expect(screen.getByText('coach.roll')).toBeInTheDocument();
+    expect(translate).toHaveBeenCalledWith(
+      'coach.roll',
+      expect.any(String),
+      expect.objectContaining({ rollValue: 217, threshold: 300 }),
+    );
+  });
+
+  // A Kleeblatt's Stop button rolls the second tutto, then wins the game —
+  // neither is a bank, and neither may be described with one.
+  it('calls the first Kleeblatt tutto a second tutto, with no bank figure', () => {
+    render(<CoachHintLine hint={{ ...baseHint, action: 'stop', stopMeans: 'secondTutto' }} />);
+
+    expect(screen.getByText('coach.secondTutto')).toBeInTheDocument();
+    expect(screen.queryByText('coach.stop')).toBeNull();
+    expect(screen.queryByText('coach.stopNoRoll')).toBeNull();
+    expect(translate).not.toHaveBeenCalledWith(
+      expect.stringContaining('coach.'),
+      expect.any(String),
+      expect.objectContaining({ bank: expect.anything() }),
+    );
+  });
+
+  it('calls the second Kleeblatt tutto a win, with no bank figure', () => {
+    render(<CoachHintLine hint={{ ...baseHint, action: 'stop', stopMeans: 'winGame' }} />);
+
+    expect(screen.getByText('coach.winGame')).toBeInTheDocument();
+    expect(screen.queryByText('coach.stop')).toBeNull();
+    expect(translate).not.toHaveBeenCalledWith(
+      expect.stringContaining('coach.'),
+      expect.any(String),
+      expect.objectContaining({ bank: expect.anything() }),
+    );
   });
 
   it('renders the draw verdict with the bank at stake', () => {

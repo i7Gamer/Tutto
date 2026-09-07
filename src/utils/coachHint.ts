@@ -34,6 +34,15 @@ export interface CoachHintInput {
   isSelectionLocked: boolean;
 }
 
+/**
+ * What the panel's Stop button would actually DO on this card, which is not
+ * always "bank": a Kleeblatt's first tutto rolls the second one, and its
+ * second completes the card, which wins the game outright for a turn that
+ * scores 0 (resolveKleeblattWin in coreGameEngine). Otto must never advise
+ * banking a number that no button on screen can bank.
+ */
+export type CoachStopMeans = 'bank' | 'secondTutto' | 'winGame';
+
 export interface CoachHint {
   action: BotAction;
   /** The die VALUES Otto would keep, not their indices. */
@@ -43,9 +52,20 @@ export interface CoachHint {
   // null unless a roll is actually on offer (available.roll) — never quote a
   // bust risk for a roll the panel is not showing a button for (S-3).
   bustPercent: number | null;
+  // Null unless BOTH halves of the comparison are on offer: Kniffel,
+  // Plus/Minus and Kleeblatt hold the Stop button back until the card is
+  // complete and Feuerwerk never offers it, so on those there is no bank to
+  // measure a roll against and no pair of figures to print.
   rollValue: number | null;
   threshold: number | null;
-  /** True once Otto's appetite for risk has grown above zero (behind the leader). */
+  /** What the Stop button on this table would do. Only read when `action` is 'stop'. */
+  stopMeans: CoachStopMeans;
+  /**
+   * True only on the roll Otto's trailing appetite actually bought: he is
+   * behind, rolling on is worth LESS than the bank he could have taken, and
+   * he rolls anyway. Anywhere else the clause explains a decision nobody
+   * made — worst of all on a stop, where it contradicts the advice.
+   */
   trailing: boolean;
   selectionDiffers: boolean;
 }
@@ -82,7 +102,7 @@ export const coachHint = (input: CoachHintInput): CoachHint | null => {
   if (ottoSelection.length === 0) return null;
 
   const isMakingTutto = input.keptCount + ottoSelection.length === TOTAL_DICE;
-  const { canStop, isRollAgainApplicable } = deriveTurnControls({
+  const { canStop, isRollAgainApplicable, stopButtonText } = deriveTurnControls({
     currentCard: input.currentCard,
     hasRolled: true,
     bustState: false,
@@ -113,6 +133,16 @@ export const coachHint = (input: CoachHintInput): CoachHint | null => {
   // roll not being on offer does not change how much risk he is willing to
   // take, only whether the roll figures are a real answer to show (S-3).
   const rollOffered = available.roll;
+  // Both figures are one comparison, and it only exists when the player can
+  // actually choose between its two sides.
+  const comparable = rollOffered && available.stop;
+  // The button's own label is the authority on what stopping means here —
+  // the same string the panel prints, so the advice and the button can never
+  // disagree about the move being advised.
+  const stopMeans: CoachStopMeans =
+    stopButtonText.key === 'dice.roll_2nd_tutto' ? 'secondTutto'
+      : input.currentCard === 'Kleeblatt' ? 'winGame'
+        : 'bank';
 
   return {
     action,
@@ -120,9 +150,10 @@ export const coachHint = (input: CoachHintInput): CoachHint | null => {
     diceAfter,
     bank,
     bustPercent: rollOffered ? Math.round(bustProbability * PERCENT) : null,
-    rollValue: rollOffered ? rollValue : null,
-    threshold: rollOffered ? threshold : null,
-    trailing: appetite > 0,
+    rollValue: comparable ? rollValue : null,
+    threshold: comparable ? threshold : null,
+    stopMeans,
+    trailing: appetite > 0 && action === 'roll' && available.stop && rollValue < bank,
     selectionDiffers,
   };
 };

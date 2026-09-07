@@ -157,6 +157,100 @@ describe('coachHint', () => {
     expect(hint!.threshold).not.toBeNull();
   });
 
+  /**
+   * Otto may never quote an option the panel is not offering. Kniffel,
+   * Plus/Minus and Kleeblatt withhold Stop until the card is complete
+   * (SPECIAL_CARDS in diceTurnControls), and Feuerwerk never offers it at
+   * all — so on any of them there is no bank for a roll to be measured
+   * against, and the figures that comparison is made of must not be there
+   * to print. Same rule as S-3 one step further: bustPercent is already
+   * null when the ROLL is not on offer; these two are null when the BANK
+   * is not.
+   */
+  describe('a bank the panel is not offering', () => {
+    const noBank: Array<[string, Partial<CoachHintInput>]> = [
+      ['a Kniffel still short of its straight', { currentCard: 'Kniffel', rollVals: [6, 5, 6, 2, 5, 1] }],
+      ['a Plus/Minus still short of its table', { currentCard: 'Plus_Minus', rollVals: [1, 2, 2, 2, 6, 4] }],
+      ['a Feuerwerk, which never banks mid-card', { currentCard: 'Feuerwerk', rollVals: [1, 2, 2, 2, 6, 4] }],
+    ];
+
+    it.each(noBank)('quotes no banking comparison on %s', (_label, overrides) => {
+      const hint = coachHint(input({ ...overrides, turnScore: 300 }));
+      expect(hint).not.toBeNull();
+      expect(hint!.action).toBe('roll');
+      expect(hint!.rollValue).toBeNull();
+      expect(hint!.threshold).toBeNull();
+      // The roll itself IS on offer, so its risk is still the player's to see.
+      expect(hint!.bustPercent).not.toBeNull();
+    });
+
+    it.each(noBank)('never explains the risk it did not take on %s', (_label, overrides) => {
+      // The trailing clause excuses rolling past a bank Otto could have
+      // taken. With no bank on offer the roll was forced, and the excuse
+      // reads as a decision nobody made.
+      const hint = coachHint(input({
+        ...overrides, turnScore: 300, standings: { myScore: 0, leaderScore: 3000, winningScore: 6000 },
+      }));
+      expect(hint!.trailing).toBe(false);
+    });
+  });
+
+  /**
+   * Kleeblatt's Stop button is not a bank in either of its two states: on the
+   * first tutto it rolls the second one (deriveTurnControls' own
+   * 'dice.roll_2nd_tutto'), and on the second it completes the card, which
+   * wins the game outright and scores the turn 0 (resolveKleeblattWin in
+   * coreGameEngine). Calling either one "bank 500" advises something that
+   * cannot happen.
+   */
+  describe('stopMeans', () => {
+    it('is a second tutto to roll on the first Kleeblatt tutto', () => {
+      const hint = coachHint(input({
+        currentCard: 'Kleeblatt', keptCount: 5, rollVals: [1], turnScore: 400, tuttosThisTurn: 0,
+      }));
+      expect(hint).not.toBeNull();
+      expect(hint!.action).toBe('stop');
+      expect(hint!.stopMeans).toBe('secondTutto');
+    });
+
+    it('is the game itself on the second Kleeblatt tutto', () => {
+      const hint = coachHint(input({
+        currentCard: 'Kleeblatt', keptCount: 5, rollVals: [1], turnScore: 400, tuttosThisTurn: 1,
+      }));
+      expect(hint).not.toBeNull();
+      expect(hint!.action).toBe('stop');
+      expect(hint!.stopMeans).toBe('winGame');
+    });
+
+    it('is a plain bank on every other card', () => {
+      const hint = coachHint(input({ keptCount: 4, rollVals: [5, 3], turnScore: 300 }));
+      expect(hint).not.toBeNull();
+      expect(hint!.action).toBe('stop');
+      expect(hint!.stopMeans).toBe('bank');
+    });
+  });
+
+  it('excuses the extra risk only on the roll that risk actually bought', () => {
+    // Behind, and rolling on (244) is worth less than the sure bank (300):
+    // the appetite is the whole reason this is not a stop, so the clause
+    // has something to explain.
+    const bought = coachHint(input({
+      keptCount: 3, rollVals: [1, 3, 4], turnScore: 200,
+      standings: { myScore: 0, leaderScore: 3000, winningScore: 6000 },
+    }));
+    expect(bought!.action).toBe('roll');
+    expect(bought!.trailing).toBe(true);
+
+    // Behind by the same margin, but Otto banks anyway — the appetite
+    // changed nothing, and the clause would contradict the advice.
+    const banked = coachHint(input({
+      keptCount: 4, rollVals: [5, 3], turnScore: 300,
+      standings: { myScore: 0, leaderScore: 3000, winningScore: 6000 },
+    }));
+    expect(banked!.action).toBe('stop');
+    expect(banked!.trailing).toBe(false);
+  });
+
   // S-5: CoachHintInput no longer carries isClassic at all — coachHint must
   // derive it from ruleset on its own (a classic tutto still offers the draw
   // its panel offers, with no isClassic field anywhere in this input).
