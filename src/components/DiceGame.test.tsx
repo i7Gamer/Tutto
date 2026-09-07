@@ -71,10 +71,13 @@ const selectedDice = (): HTMLElement[] =>
 // describes below (the ones actually testing the timed behavior) restore the
 // real values via `realTiming`.
 const { timing, realTiming, ZERO_TIMING } = vi.hoisted(() => {
-  const zero = { DIE_TUMBLE_MS: 0, DIE_STAGGER_MS: 0, ROLL_SETTLE_BUFFER_MS: 0, BUST_SUMMARY_DELAY_MS: 0, AUTO_CONTINUE_SECONDS: 0 };
+  const zero = {
+    DIE_TUMBLE_MS: 0, DIE_STAGGER_MS: 0, ROLL_SETTLE_BUFFER_MS: 0, BUST_SUMMARY_DELAY_MS: 0, AUTO_CONTINUE_SECONDS: 0,
+    BOT_THINK_MS: 0, BOT_REVEAL_MS: 0,
+  };
   return {
     timing: { ...zero },
-    realTiming: {} as Record<'DIE_TUMBLE_MS' | 'DIE_STAGGER_MS' | 'ROLL_SETTLE_BUFFER_MS' | 'BUST_SUMMARY_DELAY_MS' | 'AUTO_CONTINUE_SECONDS', number>,
+    realTiming: {} as Record<'DIE_TUMBLE_MS' | 'DIE_STAGGER_MS' | 'ROLL_SETTLE_BUFFER_MS' | 'BUST_SUMMARY_DELAY_MS' | 'AUTO_CONTINUE_SECONDS' | 'BOT_THINK_MS' | 'BOT_REVEAL_MS', number>,
     ZERO_TIMING: zero,
   };
 });
@@ -87,6 +90,8 @@ vi.mock('../utils/uiTimings', async (importOriginal) => {
     ROLL_SETTLE_BUFFER_MS: actual.ROLL_SETTLE_BUFFER_MS,
     BUST_SUMMARY_DELAY_MS: actual.BUST_SUMMARY_DELAY_MS,
     AUTO_CONTINUE_SECONDS: actual.AUTO_CONTINUE_SECONDS,
+    BOT_THINK_MS: actual.BOT_THINK_MS,
+    BOT_REVEAL_MS: actual.BOT_REVEAL_MS,
   });
   return {
     ...actual,
@@ -95,6 +100,8 @@ vi.mock('../utils/uiTimings', async (importOriginal) => {
     get ROLL_SETTLE_BUFFER_MS() { return timing.ROLL_SETTLE_BUFFER_MS; },
     get BUST_SUMMARY_DELAY_MS() { return timing.BUST_SUMMARY_DELAY_MS; },
     get AUTO_CONTINUE_SECONDS() { return timing.AUTO_CONTINUE_SECONDS; },
+    get BOT_THINK_MS() { return timing.BOT_THINK_MS; },
+    get BOT_REVEAL_MS() { return timing.BOT_REVEAL_MS; },
   };
 });
 
@@ -1096,6 +1103,66 @@ describe('DiceGame interactive turn logic', () => {
       selectAllValid();
       expect(scoreShown()).toBe('150'); // 100 + 50, and no card award until the tutto
     });
+  });
+});
+
+describe('DiceGame driven by a bot', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  const seat = (personality: 'cautious' | 'risky' | 'optimal') =>
+    ({ personality, myScore: 0, leaderScore: 0, winningScore: 6000 });
+
+  it('Cautious Carl plays a whole turn by himself and banks at the minimum', async () => {
+    const onComplete = vi.fn();
+    // 1 and 5 (150) with four dice left: rolls on. Then 1 and 5 again: 300, banks.
+    queueRoll([1, 5, 2, 2, 3, 4]);
+    queueRoll([1, 5, 2, 3]);
+    render(<DiceGame currentCard="200" onComplete={onComplete} bot={seat('cautious')} />);
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(300, true));
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('never touches a human\'s table', async () => {
+    const onComplete = vi.fn();
+    queueRoll([1, 5, 2, 2, 3, 4]);
+    render(<DiceGame currentCard="200" onComplete={onComplete} />);
+    await flushRoll();
+    // Every delay in this file is zero, so a driver that existed for this
+    // panel would already have selected and acted inside these flushes.
+    await flushRoll();
+    await flushRoll();
+
+    expect(selectedDice()).toHaveLength(0);
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it('Risk-Taker Rita draws on her tutto, dismisses the reveal herself, and plays the new card', async () => {
+    const onComplete = vi.fn();
+    const onDrawCard = vi.fn(async () => '500' as const);
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    const { rerender } = render(
+      <DiceGame currentCard="300" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} bot={seat('risky')} />,
+    );
+
+    await waitFor(() => expect(onDrawCard).toHaveBeenCalledTimes(1));
+    // The fresh roll waits for the drawn card to arrive through the prop, as
+    // it does for a human; the bot dismisses the reveal on its own.
+    queueRoll([1, 5, 2, 3, 4, 6]);
+    queueRoll([2, 3, 4, 6]); // the reroll of the four dice she did not keep busts
+    rerender(
+      <DiceGame currentCard="500" ruleset="classic" onDrawCard={onDrawCard} onComplete={onComplete} bot={seat('risky')} />,
+    );
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('drawn-card-continue')).not.toBeInTheDocument();
+    expect(onComplete).toHaveBeenCalledWith(0, false, expect.objectContaining({ tuttoCount: 1, ended: 'null' }));
   });
 });
 

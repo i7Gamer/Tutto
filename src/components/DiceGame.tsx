@@ -13,6 +13,8 @@ import { diceTurnReducer, initialDiceTurnState } from '../utils/diceTurnReducer'
 import { getDisplayCardName } from '../utils/cardVisuals';
 import { useAutoContinueCountdown } from '../hooks/useAutoContinueCountdown';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useBotDriver } from '../hooks/useBotDriver';
+import { chooseBotAction, chooseBotSelection, type BotSeat, type BotTurnContext } from '../utils/botStrategies';
 import {
   DIE_TUMBLE_MS, DIE_STAGGER_MS, DIE_FACE_SHUFFLE_MS, ROLL_SETTLE_BUFFER_MS,
   BUST_SUMMARY_DELAY_MS, LIVE_SNAPSHOT_DEBOUNCE_MS, DISCARDED_DRAW_RECOVERY_MS,
@@ -52,6 +54,11 @@ interface DiceGameProps {
   // whole chain on it. Resolving null still means "no card came", which is
   // what drawNextCard below already falls back on.
   onDrawCard?: () => Promise<CardType | null>;
+  // A bot holds this turn: the panel plays it through useBotDriver, taking
+  // exactly the paths a tap would (toggle/select-all and handleAction), so
+  // every rule, sound, snapshot and undo path is the human one. Absent for
+  // every human seat.
+  bot?: BotSeat;
 }
 
 /**
@@ -70,7 +77,7 @@ const FIXED_CARD_AWARD: Partial<Record<CardType, number>> = {
   Kniffel: KNIFFEL_SCORE,
 };
 
-export default function DiceGame({ currentCard, turnKey, onComplete, onStateChange, panelReady = true, ruleset = DEFAULT_RULESET, onDrawCard }: DiceGameProps) {
+export default function DiceGame({ currentCard, turnKey, onComplete, onStateChange, panelReady = true, ruleset = DEFAULT_RULESET, onDrawCard, bot }: DiceGameProps) {
   const { t } = useTranslation();
   const isClassic = ruleset === 'classic';
 
@@ -690,6 +697,53 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     a: canAct ? selectAllValid : undefined,
     d: canSubmitSelection && canDrawAfterTutto ? () => void handleAction('draw') : undefined,
   }, { ownerRef: panelRef });
+
+  // One step of a bot's turn on the table as this render committed it. Two
+  // steps per table, on purpose: the selection is dispatched first and acted
+  // on in the render that follows, because handleAction judges `validation`
+  // — the memo over the COMMITTED selection — and would refuse an action on
+  // a selection dispatched a moment ago in the same tick. The driver re-arms
+  // on the roll's identity, which the dispatch changes. The availability
+  // booleans are the very ones the buttons and shortcuts above are bound to,
+  // so the bot can never do what a tap could not.
+  const botStep = () => {
+    if (!bot) return;
+    const ctx: BotTurnContext = {
+      personality: bot.personality,
+      rollVals: currentRoll.map(d => d.val),
+      keptCount: keptDice.length,
+      turnScore,
+      currentCard,
+      ruleset,
+      kniffelProgress,
+      myScore: bot.myScore,
+      leaderScore: bot.leaderScore,
+      winningScore: bot.winningScore,
+    };
+    const wanted = new Set(chooseBotSelection(ctx));
+    const selectionMatches = currentRoll.every((d, i) => !!d.selected === wanted.has(i));
+    // A locked Feuerwerk keep is already the selection the rules force;
+    // re-dispatching it would only spin.
+    if (!selectionMatches && !isSelectionLocked) {
+      void playDieClick(true);
+      dispatch({ type: 'SELECTION_SET', indices: wanted });
+      return;
+    }
+    const action = chooseBotAction(ctx, {
+      roll: canSubmitSelection && isRollAgainApplicable,
+      stop: canSubmitSelection && canStop,
+      draw: canSubmitSelection && canDrawAfterTutto,
+    });
+    if (action) void handleAction(action);
+  };
+  useBotDriver({
+    active: !!bot,
+    idle: canAct,
+    revealPending: !!revealedCard,
+    tableKey: currentRoll,
+    onStep: botStep,
+    onDismissReveal: acknowledgeDrawnCard,
+  });
 
   return (
     <div ref={panelRef} className={`bg-white dark:bg-slate-800 sm:backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden rounded-3xl flex flex-col items-center w-full ${showSummary || revealedCard ? 'max-h-[90vh]' : 'h-[calc(100dvh-2rem)] sm:h-auto sm:max-h-[90vh]'}`}>

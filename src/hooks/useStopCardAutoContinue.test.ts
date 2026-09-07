@@ -49,6 +49,24 @@ describe('useStopCardAutoContinue', () => {
     expect(onAutoContinue).toHaveBeenCalledTimes(1);
   });
 
+  it('advances a local bot\'s Stop by itself — nobody at the table can press Continue for it', () => {
+    const onAutoContinue = vi.fn();
+    renderHook(() => useStopCardAutoContinue(base({ isOnline: false, isMyTurn: false, botTurn: true, onAutoContinue })));
+
+    act(() => vi.advanceTimersByTime(CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS - 1));
+    expect(onAutoContinue).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(onAutoContinue).toHaveBeenCalledTimes(1);
+  });
+
+  it('still waits for the Continue button on a local human\'s Stop', () => {
+    const onAutoContinue = vi.fn();
+    renderHook(() => useStopCardAutoContinue(base({ isOnline: false, isMyTurn: true, botTurn: false, onAutoContinue })));
+
+    act(() => vi.advanceTimersByTime(CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS * 2));
+    expect(onAutoContinue).not.toHaveBeenCalled();
+  });
+
   it('buzzes but never advances the turn for a player who is only watching', () => {
     const onAutoContinue = vi.fn();
     renderHook(() => useStopCardAutoContinue(base({ isMyTurn: false, onAutoContinue })));

@@ -28,6 +28,15 @@ export const HELP_SECTION_OPEN_ANIMATION_MS = 350;
 // animating in.
 export const DICE_PANEL_ENTRANCE_MS = 350;
 
+// A bot's turn (hooks/useBotDriver.ts, Game.tsx). Long enough that a human
+// at the table can follow what the bot is doing, short enough not to drag.
+/** From the table settling to the bot's next selection or action. */
+export const BOT_THINK_MS = 900;
+/** How long a bot leaves a mid-chain drawn card on screen before playing on. */
+export const BOT_REVEAL_MS = 1500;
+/** From a bot's turn beginning to its dice panel opening. */
+export const BOT_OPEN_DELAY_MS = 1200;
+
 // How long a join attempt may stay pending before its caller gives up.
 // joinRoom only resolves on the server's ack, and socket.io buffers the emit
 // while the server is unreachable — without this deadline the promise may

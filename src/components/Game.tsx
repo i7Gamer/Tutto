@@ -12,7 +12,9 @@ import { formatTime } from '../utils/formatTime';
 import { buildTurnKey } from '../utils/diceTurnState';
 import { hasScoreInput, isSpecialCard, parseScoreInput } from '../utils/diceTurnControls';
 import { gameModeOf, isCustomGameMode } from '../utils/statsApi';
-import { DICE_PANEL_ENTRANCE_MS, TURN_URGENT_SECONDS } from '../utils/uiTimings';
+import { DICE_PANEL_ENTRANCE_MS, TURN_URGENT_SECONDS, BOT_OPEN_DELAY_MS } from '../utils/uiTimings';
+import { botOf } from '../utils/bots';
+import type { BotSeat } from '../utils/botStrategies';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useDeviceStats } from '../hooks/useDeviceStats';
@@ -120,12 +122,20 @@ export default function Game() {
 
   const formattedTime = formatTime(gameTimeInSeconds);
 
+  const currentPlayer = currentPlayerIndex !== null ? players[currentPlayerIndex] : null;
+  // A seat the app plays itself — local games only (utils/bots.ts). Its turn
+  // is nobody's at the table: the panel opens on its own, the shortcuts and
+  // the Roll/Continue buttons stand down, and its dice are always digital —
+  // a physical-dice preference is a device setting that can flip mid-game,
+  // and physical mode has no table for a bot to play on.
+  const botPersonality = isOnline ? null : botOf(currentPlayer);
+  const isBotTurn = botPersonality !== null;
+
   // The host may pin a single dice mode for how every player takes their OWN
   // turn, overriding each player's personal device preference (offline has no
   // host to enforce anything, so it's always the personal preference there).
-  const effectiveDiceMode = isOnline && enforcedDiceMode ? enforcedDiceMode : diceMode;
+  const effectiveDiceMode = isBotTurn ? 'digital' : (isOnline && enforcedDiceMode ? enforcedDiceMode : diceMode);
 
-  const currentPlayer = currentPlayerIndex !== null ? players[currentPlayerIndex] : null;
   const sortedPlayers = useMemo(() => computeRankedPlayers(players), [players]);
   // Scoreboard is memoized (see Scoreboard.tsx) and reads only these 8
   // fields of the slice above — but `game` itself is a fresh object on every
@@ -138,7 +148,9 @@ export default function Game() {
     players, currentPlayerIndex, isOnline, myName, round, winningScore, turnTimeRemaining, hostId: game.hostId,
   }), [players, currentPlayerIndex, isOnline, myName, round, winningScore, turnTimeRemaining, game.hostId]);
 
-  const isMyTurn = !isOnline || (currentPlayer && currentPlayer.name === myName);
+  // Local hot-seat: every human turn is "mine" (one device goes round the
+  // table); a bot's is not, which is what keeps the human controls off it.
+  const isMyTurn = isOnline ? (currentPlayer && currentPlayer.name === myName) : !isBotTurn;
   useTurnAnnouncement({ isOnline, isMyTurn: !!isMyTurn, addToast });
   const isClassic = game.ruleset === 'classic';
   // Classic PHYSICAL chains live in usePhysicalChain (digital chains live
@@ -224,7 +236,7 @@ export default function Game() {
   // effect renders the stale value first and fixes it on the next pass, and
   // for the dice panel that stale frame is a modal covering the whole screen
   // on a turn that has already moved on to somebody else.
-  if (showDiceGame && !isMyTurn) setShowDiceGame(false);
+  if (showDiceGame && !isMyTurn && !isBotTurn) setShowDiceGame(false);
   // Readiness must not outlive the panel it belongs to, or the next opening
   // starts already "ready" and auto-rolls before its entrance has played.
   if (!showDiceGame && diceGamePanelReady) setDiceGamePanelReady(false);
@@ -332,6 +344,7 @@ export default function Game() {
     isOnline,
     isMyTurn: !!isMyTurn,
     showDiceGame,
+    botTurn: isBotTurn,
     onAutoContinue: commitStopCard,
   });
 
@@ -507,6 +520,26 @@ export default function Game() {
   const currentCardHasInput = hasScoreInput(currentCard);
   const currentCardHasYesNo = isSpecialCard(currentCard);
   const isStopCard = currentCard === 'Stop';
+
+  // A bot's turn opens its own dice panel after a beat. A Stop is left to
+  // useStopCardAutoContinue (botTurn above). Keyed on the turn slot as well:
+  // an undo back onto a bot's seat, or a rematch, is a new turn to open.
+  useEffect(() => {
+    if (!isBotTurn || isStopCard || showDiceGame) return;
+    const timer = setTimeout(openDiceGame, BOT_OPEN_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [isBotTurn, isStopCard, showDiceGame, openDiceGame, turnSlot]);
+
+  // What the bot weighs its risk against: its own score and the table's best.
+  const botSeat = useMemo<BotSeat | undefined>(() => {
+    if (botPersonality === null) return undefined;
+    return {
+      personality: botPersonality,
+      myScore: currentPlayer?.score ?? 0,
+      leaderScore: players.reduce((best, p) => Math.max(best, p.score), 0),
+      winningScore,
+    };
+  }, [botPersonality, currentPlayer?.score, players, winningScore]);
 
   // Feuerwerk is the one card a chain cannot be carried off: the turn ends on
   // its null, banking whatever was accumulated, so there is never a tutto to
@@ -685,6 +718,7 @@ export default function Game() {
             panelReady={diceGamePanelReady}
             ruleset={game.ruleset}
             onDrawCard={game.drawCardMidTurn}
+            bot={botSeat}
           />
         </ModalShell>
       )}

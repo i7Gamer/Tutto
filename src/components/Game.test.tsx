@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, type Mock }
 import Game from './Game';
 import { useGameStore, _resetTimersForTests } from '../store/useGameStore';
 import { MAX_CHAIN_CARDS, type TurnSummary } from '../types';
-import { STOP_CARD_AUTO_CONTINUE_MS, CARD_FLIP_MS } from '../utils/uiTimings';
+import { STOP_CARD_AUTO_CONTINUE_MS, CARD_FLIP_MS, BOT_OPEN_DELAY_MS } from '../utils/uiTimings';
 import { vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
 import { makePlayer, makeDiceSnapshot, mockFetchJson, nonNull } from '../testing/factories';
 
@@ -110,6 +110,56 @@ describe('Game Component Integration', () => {
     });
     vi.useRealTimers();
     vi.clearAllMocks();
+  });
+
+  describe('a local bot seat', () => {
+    const seatBot = (currentCard: 'x2' | 'Stop' = 'x2') => {
+      useGameStore.setState({
+        isOnline: false,
+        hostId: null,
+        myName: null,
+        currentCard,
+        currentPlayerIndex: 1,
+        diceMode: 'physical',
+        players: [
+          makePlayer({ name: 'Alice', position: 1 }),
+          makePlayer({ name: 'Carl', bot: 'cautious', position: 2 }),
+        ],
+      });
+    };
+
+    it('opens the dice panel by itself, digital whatever the device prefers, with no Roll Dice button', () => {
+      seatBot();
+      render(<Game />);
+
+      expect(screen.queryByText(/game.controls.rollDice/i)).toBeNull();
+      expect(screen.queryByTestId('mock-dice-game')).toBeNull();
+
+      act(() => { vi.advanceTimersByTime(BOT_OPEN_DELAY_MS - 1); });
+      expect(screen.queryByTestId('mock-dice-game')).toBeNull();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+    });
+
+    it('leaves the human seat alone: Roll Dice stays a button, nothing opens on its own', () => {
+      seatBot();
+      useGameStore.setState({ currentPlayerIndex: 0, diceMode: 'digital' });
+      render(<Game />);
+
+      expect(screen.getByText(/game.controls.rollDice/i)).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(BOT_OPEN_DELAY_MS * 2); });
+      expect(screen.queryByTestId('mock-dice-game')).toBeNull();
+    });
+
+    it('lets a bot\'s Stop card run out by itself instead of offering Continue', () => {
+      seatBot('Stop');
+      render(<Game />);
+
+      expect(screen.queryByText(/game.controls.continue/i)).toBeNull();
+      act(() => { vi.advanceTimersByTime(CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS); });
+      expect(mockNextTurn).toHaveBeenCalledWith(0, false);
+      expect(screen.queryByTestId('mock-dice-game')).toBeNull();
+    });
   });
 
   it('renders crown emoji for the host player in online games', () => {

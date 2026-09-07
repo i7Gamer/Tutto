@@ -16,10 +16,16 @@ export interface UseStopCardAutoContinueOptions {
   isMyTurn: boolean;
   showDiceGame: boolean;
   /**
+   * A local bot holds this turn (Game.tsx's isBotTurn). Nobody at the table
+   * can press Continue for it, so its Stop advances by itself the way an
+   * online player's does. Off (and irrelevant) online.
+   */
+  botTurn?: boolean;
+  /**
    * Commit the turn the Stop card ended. Only ever called for the active
-   * ONLINE player — a local game waits for the Continue button instead, since
-   * nobody else is being kept waiting. Give it a stable identity: it sits in
-   * this hook's effect dependency array.
+   * ONLINE player or a local bot — a local human waits for the Continue
+   * button instead, since nobody else is being kept waiting. Give it a
+   * stable identity: it sits in this hook's effect dependency array.
    */
   onAutoContinue: () => void;
 }
@@ -46,12 +52,16 @@ export const useStopCardAutoContinue = ({
   isOnline,
   isMyTurn,
   showDiceGame,
+  botTurn = false,
   onAutoContinue,
 }: UseStopCardAutoContinueOptions): number | null => {
   // A Stop drawn while the dice modal is open is a classic chain forfeit
   // that DiceGame itself commits (with its own summary) — the auto-continue
   // here would race it and commit the turn a second time.
   const armed = currentCard === 'Stop' && !showDiceGame;
+  // Whose Stop advances without a press: the active online seat's, and a
+  // local bot's.
+  const advancesItself = (isOnline && isMyTurn) || botTurn;
 
   useEffect(() => {
     let soundTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -59,7 +69,7 @@ export const useStopCardAutoContinue = ({
 
     if (armed) {
       soundTimeout = setTimeout(() => playBuzzer(), CARD_FLIP_MS);
-      if (isOnline && isMyTurn) {
+      if (advancesItself) {
         turnTimeout = setTimeout(onAutoContinue, CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS);
       }
     }
@@ -68,7 +78,7 @@ export const useStopCardAutoContinue = ({
       clearTimeout(soundTimeout);
       clearTimeout(turnTimeout);
     };
-  }, [armed, isOnline, isMyTurn, cardsLength, onAutoContinue]);
+  }, [armed, advancesItself, cardsLength, onAutoContinue]);
 
   // The visible countdown waits out the same flip delay the buzzer/turn
   // timers above do, so it never starts ticking while the card is still
@@ -87,7 +97,7 @@ export const useStopCardAutoContinue = ({
   }, [armed, cardsLength]);
 
   return useAutoContinueCountdown({
-    shouldStart: flipped && isOnline && isMyTurn,
+    shouldStart: flipped && advancesItself,
     seconds: STOP_CARD_AUTO_CONTINUE_SECONDS,
     // No-op: the turnTimeout in the effect above is the single thing allowed
     // to actually commit the turn (see the doc comment). This hook exists

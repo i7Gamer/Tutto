@@ -18,6 +18,14 @@ export interface BotActionAvailability {
   draw: boolean;
 }
 
+/** The standings a bot weighs its risk against — what Game hands DiceGame for a bot's seat. */
+export interface BotSeat {
+  personality: BotPersonality;
+  myScore: number;
+  leaderScore: number;
+  winningScore: number;
+}
+
 export interface BotTurnContext {
   personality: BotPersonality;
   /** Every die on the table (not yet kept), in table order. */
