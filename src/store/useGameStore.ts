@@ -10,6 +10,7 @@ import {
   DEFAULT_DICE_MODE, DEFAULT_RULESET, isValidDiceMode,
 } from '../utils/configValidation';
 import { roomPhase } from '../utils/roomPhase';
+import { DEFAULT_AUDIO_VOLUME, parseStoredAudioVolume } from '../utils/audioVolume';
 import type { CoreGameState, DiceSnapshot, DiceMode, Ruleset } from '../types';
 import type { GameStore, GameStatus, PreGameStats, FinishedGameSnapshot } from './storeTypes';
 import { validateOnlineConfig, reanchorLocalClock, attachPersistence, pickLocalGameState } from './persistence';
@@ -34,6 +35,7 @@ const createInitialLocalState = (): Omit<CoreGameState, never> & {
   enforcedDiceMode: DiceMode | null;
   ruleset: Ruleset;
   audioEnabled: boolean;
+  audioVolume: number;
   hapticsEnabled: boolean;
   motionOverride: boolean;
   randomOrder: boolean;
@@ -64,6 +66,7 @@ const createInitialLocalState = (): Omit<CoreGameState, never> & {
   enforcedDiceMode: null,
   ruleset: DEFAULT_RULESET,
   audioEnabled: true,
+  audioVolume: DEFAULT_AUDIO_VOLUME,
   hapticsEnabled: true,
   motionOverride: false,
   randomOrder: true,
@@ -226,6 +229,9 @@ export const useGameStore = create<GameStore>()(
       if (storedAudioEnabled !== null) {
         set({ audioEnabled: storedAudioEnabled === 'true' });
       }
+
+      const storedAudioVolume = parseStoredAudioVolume(localStore.read('tutto_audioVolume'));
+      if (storedAudioVolume !== null) set({ audioVolume: storedAudioVolume });
 
       const storedHapticsEnabled = localStore.read('tutto_hapticsEnabled');
       if (storedHapticsEnabled !== null) {

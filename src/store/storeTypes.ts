@@ -103,6 +103,11 @@ export interface GameStore extends CoreGameState {
   // in types.ts — synced to every client like the other config fields.
   ruleset: Ruleset;
   audioEnabled: boolean;
+  // 0..1 sound level behind the lobby's volume slider (see utils/audioVolume.ts).
+  // Per-device like audioEnabled: its own localStorage key, never synced or
+  // carried in the game save. audioEnabled stays the mute switch; a slider at
+  // 0 just plays nothing while leaving the audio context open.
+  audioVolume: number;
   hapticsEnabled: boolean;
   // Per-device override for a player whose OS asks for reduced motion but
   // wants the game's animations anyway — see usePrefersReducedMotion.ts and
@@ -154,6 +159,7 @@ export interface GameStore extends CoreGameState {
   removeReaction: (id: number) => void;
   setDiceMode: (val: DiceMode) => void;
   setAudioEnabled: (val: boolean) => void;
+  setAudioVolume: (val: number) => void;
   setHapticsEnabled: (val: boolean) => void;
   setMotionOverride: (val: boolean) => void;
   updateConfig: (config: Partial<Pick<GameStore, ConfigKeys>>) => void;

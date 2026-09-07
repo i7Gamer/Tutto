@@ -3,12 +3,13 @@ import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
 } from '../utils/configValidation';
 import { closeAudioContext } from '../utils/soundEffects';
+import { clampAudioVolume } from '../utils/audioVolume';
 import { validateOnlineConfig } from './persistence';
 import { getSocket } from './socketRef';
 import type { GameStore, ImmerStateCreator } from './storeTypes';
 
 type ConfigSlice = Pick<GameStore,
-  | 'setDiceMode' | 'setAudioEnabled' | 'setHapticsEnabled' | 'setMotionOverride'
+  | 'setDiceMode' | 'setAudioEnabled' | 'setAudioVolume' | 'setHapticsEnabled' | 'setMotionOverride'
   | 'updateConfig' | 'setWinningScore' | 'setInitialCards' | 'setRandomOrder'
   | 'setTurnDuration' | 'setReconnectTimeout' | 'setEnforcedDiceMode' | 'setRuleset'
   | 'resetGeneralSettings' | 'resetInitialCards'
@@ -31,6 +32,12 @@ export const createConfigSlice: ImmerStateCreator<ConfigSlice> = (set, get) => (
     set({ audioEnabled: val });
     localStore.write('tutto_audioEnabled', String(val));
     if (!val) void closeAudioContext();
+  },
+
+  setAudioVolume: (val) => {
+    const volume = clampAudioVolume(val);
+    set({ audioVolume: volume });
+    localStore.write('tutto_audioVolume', String(volume));
   },
 
   setHapticsEnabled: (val) => {

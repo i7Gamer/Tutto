@@ -65,6 +65,34 @@ if (typeof window !== 'undefined') {
         disconnect: vi.fn(),
       };
     }
+    // The procedural sounds (soundEffects.ts playDiceRattle/playCardSwoosh)
+    // build a noise buffer and filter it — any component test that rolls or
+    // draws reaches these through the real module.
+    get sampleRate() { return 8000; }
+    createBuffer(_channels: number, length: number) {
+      const data = new Float32Array(length);
+      return { getChannelData: () => data };
+    }
+    createBufferSource() {
+      return {
+        buffer: null,
+        loop: false,
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn(),
+        onended: null,
+      };
+    }
+    createBiquadFilter() {
+      return {
+        type: 'lowpass' as const,
+        frequency: { value: 0, setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() },
+        Q: { value: 0 },
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      };
+    }
     get destination() { return {} as AudioDestinationNode; }
     get currentTime() { return 0; }
   }

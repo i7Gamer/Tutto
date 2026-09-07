@@ -606,6 +606,32 @@ describe('useGameStore', () => {
       expect(localStorage.getItem('tutto_audioEnabled')).toBe('false');
     });
 
+    it('setAudioVolume clamps to the slider range and persists to localStorage', () => {
+      useGameStore.getState().setAudioVolume(0.4);
+      expect(useGameStore.getState().audioVolume).toBe(0.4);
+      expect(localStorage.getItem('tutto_audioVolume')).toBe('0.4');
+
+      useGameStore.getState().setAudioVolume(1.7);
+      expect(useGameStore.getState().audioVolume).toBe(1);
+      expect(localStorage.getItem('tutto_audioVolume')).toBe('1');
+
+      useGameStore.getState().setAudioVolume(-2);
+      expect(useGameStore.getState().audioVolume).toBe(0);
+    });
+
+    it('init restores tutto_audioVolume and leaves the default for an unreadable one', () => {
+      expect(useGameStore.getState().audioVolume).toBe(1);
+
+      localStorage.setItem('tutto_audioVolume', '0.25');
+      useGameStore.getState().init('device-123');
+      expect(useGameStore.getState().audioVolume).toBe(0.25);
+
+      useGameStore.setState({ audioVolume: 1 });
+      localStorage.setItem('tutto_audioVolume', 'loud');
+      useGameStore.getState().init('device-123');
+      expect(useGameStore.getState().audioVolume).toBe(1);
+    });
+
     it('setHapticsEnabled updates state and persists to localStorage', () => {
       useGameStore.getState().setHapticsEnabled(false);
       expect(useGameStore.getState().hapticsEnabled).toBe(false);

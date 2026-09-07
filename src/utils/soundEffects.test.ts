@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { playTone, playBuzzer, playSuccess, vibrateBust, vibrateSuccess, vibrateYourTurn, vibrateTurnUrgent, closeAudioContext } from './soundEffects';
+import {
+  playTone, playBuzzer, playSuccess, vibrateBust, vibrateSuccess, vibrateYourTurn, vibrateTurnUrgent, closeAudioContext,
+  playDiceRattle, playCardSwoosh, playDieClick, playSoundPreview, DIE_CLICK_SELECT_HZ, DIE_CLICK_DESELECT_HZ,
+} from './soundEffects';
 import { useGameStore } from '../store/useGameStore';
 import { supportsIOSSwitchHaptic, triggerIOSSwitchHaptic } from './iosSwitchHaptic';
 
@@ -28,11 +31,38 @@ describe('soundEffects', () => {
     disconnect: vi.fn(),
   };
 
+  const mockBufferSource = {
+    buffer: null as unknown,
+    loop: false,
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    start: vi.fn(),
+    stop: vi.fn(),
+    onended: null as null | (() => void),
+  };
+
+  const mockFilter = {
+    type: '',
+    frequency: { value: 0, setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() },
+    Q: { value: 0 },
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+  };
+
+  const MOCK_SAMPLE_RATE = 8000;
+
   const mockAudioContext = {
     state: 'running',
     currentTime: 0,
+    sampleRate: MOCK_SAMPLE_RATE,
     createOscillator: vi.fn(() => mockOscillator),
     createGain: vi.fn(() => mockGainNode),
+    createBuffer: vi.fn((_channels: number, length: number) => {
+      const data = new Float32Array(length);
+      return { getChannelData: () => data };
+    }),
+    createBufferSource: vi.fn(() => mockBufferSource),
+    createBiquadFilter: vi.fn(() => mockFilter),
     destination: {},
     resume: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockImplementation(() => { mockAudioContext.state = 'closed'; return Promise.resolve(); })
@@ -78,6 +108,154 @@ describe('soundEffects', () => {
 
     expect(mockOscillator.disconnect).toHaveBeenCalledTimes(1);
     expect(mockGainNode.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  describe('audioVolume', () => {
+    afterEach(() => {
+      useGameStore.setState({ audioVolume: 1 });
+    });
+
+    it('scales the tone peak by the slider volume on the perceptual curve', async () => {
+      useGameStore.setState({ audioVolume: 0.5 });
+      await playTone(440, 'sine', 1, 0.4);
+      // 0.4 * 0.5² — the ramp to the peak is the second exponential ramp
+      // (the first is the attack from the floor).
+      const peakRamp = mockGainNode.gain.exponentialRampToValueAtTime.mock.calls[0];
+      expect(peakRamp[0]).toBeCloseTo(0.1);
+    });
+
+    it('plays nothing at all at volume zero', async () => {
+      useGameStore.setState({ audioVolume: 0 });
+      await playTone(440, 'sine', 1);
+      expect(mockAudioContext.createOscillator).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('procedural sounds', () => {
+    afterEach(() => {
+      useGameStore.setState({ audioEnabled: true, audioVolume: 1 });
+    });
+
+    it('playDiceRattle loops the noise buffer through a lowpass into a gain and out', async () => {
+      await playDiceRattle(6);
+
+      expect(mockAudioContext.createBufferSource).toHaveBeenCalledTimes(1);
+      expect(mockBufferSource.loop).toBe(true);
+      expect(mockBufferSource.buffer).not.toBeNull();
+      expect(mockFilter.type).toBe('lowpass');
+      expect(mockBufferSource.connect).toHaveBeenCalledWith(mockFilter);
+      expect(mockFilter.connect).toHaveBeenCalledWith(mockGainNode);
+      expect(mockGainNode.connect).toHaveBeenCalledWith(mockAudioContext.destination);
+      expect(mockBufferSource.start).toHaveBeenCalledTimes(1);
+      expect(mockBufferSource.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('playDiceRattle shakes once per die, and at least twice', async () => {
+      await playDiceRattle(3);
+      expect(mockGainNode.gain.setValueAtTime).toHaveBeenCalledTimes(3);
+
+      vi.clearAllMocks();
+      await playDiceRattle(1);
+      expect(mockGainNode.gain.setValueAtTime).toHaveBeenCalledTimes(2);
+    });
+
+    it('fills the noise buffer with samples and builds it once per context', async () => {
+      // The buffer is module state and an earlier test may already have built
+      // it: start from no context so the count below is this test's own.
+      await closeAudioContext();
+      mockAudioContext.state = 'running';
+      vi.clearAllMocks();
+
+      await playDiceRattle(6);
+      await playCardSwoosh();
+      expect(mockAudioContext.createBuffer).toHaveBeenCalledTimes(1);
+      expect(mockAudioContext.createBuffer).toHaveBeenCalledWith(1, expect.any(Number), MOCK_SAMPLE_RATE);
+      const buffer = mockAudioContext.createBuffer.mock.results[0].value as { getChannelData: () => Float32Array };
+      const samples = buffer.getChannelData();
+      expect(samples.length).toBeGreaterThan(0);
+      expect(samples.some(v => v !== 0)).toBe(true);
+      expect(samples.every(v => v >= -1 && v <= 1)).toBe(true);
+
+      // Muting closes the context; the next sound gets a fresh context and
+      // must not reuse a buffer that belonged to the closed one.
+      await closeAudioContext();
+      mockAudioContext.state = 'running';
+      await playDiceRattle(6);
+      expect(mockAudioContext.createBuffer).toHaveBeenCalledTimes(2);
+    });
+
+    it('releases the noise source, filter and gain once the sound has finished', async () => {
+      await playDiceRattle(6);
+      expect(typeof mockBufferSource.onended).toBe('function');
+
+      mockBufferSource.onended!();
+
+      expect(mockBufferSource.disconnect).toHaveBeenCalledTimes(1);
+      expect(mockFilter.disconnect).toHaveBeenCalledTimes(1);
+      expect(mockGainNode.disconnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('playCardSwoosh sweeps a bandpass upwards over the noise', async () => {
+      await playCardSwoosh();
+
+      expect(mockFilter.type).toBe('bandpass');
+      const [startHz] = mockFilter.frequency.setValueAtTime.mock.calls[0];
+      const [endHz] = mockFilter.frequency.exponentialRampToValueAtTime.mock.calls[0];
+      expect(endHz).toBeGreaterThan(startHz);
+      expect(mockBufferSource.start).toHaveBeenCalledTimes(1);
+      expect(mockBufferSource.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('playDieClick pitches a select above a deselect', async () => {
+      expect(DIE_CLICK_SELECT_HZ).toBeGreaterThan(DIE_CLICK_DESELECT_HZ);
+
+      await playDieClick(true);
+      expect(mockOscillator.frequency.setValueAtTime).toHaveBeenCalledWith(DIE_CLICK_SELECT_HZ, expect.any(Number));
+
+      await playDieClick(false);
+      expect(mockOscillator.frequency.setValueAtTime).toHaveBeenCalledWith(DIE_CLICK_DESELECT_HZ, expect.any(Number));
+    });
+
+    it('stays silent when sound is off or the slider is at zero', async () => {
+      useGameStore.setState({ audioEnabled: false });
+      await playDiceRattle(6);
+      await playCardSwoosh();
+      await playDieClick(true);
+
+      useGameStore.setState({ audioEnabled: true, audioVolume: 0 });
+      await playDiceRattle(6);
+      await playCardSwoosh();
+      await playDieClick(true);
+
+      expect(mockAudioContext.createBufferSource).not.toHaveBeenCalled();
+      expect(mockAudioContext.createOscillator).not.toHaveBeenCalled();
+    });
+
+    it('scales the noise peak by the slider volume', async () => {
+      useGameStore.setState({ audioVolume: 1 });
+      await playDiceRattle(6);
+      const [peakAtFull] = mockGainNode.gain.exponentialRampToValueAtTime.mock.calls[0];
+
+      vi.clearAllMocks();
+      useGameStore.setState({ audioVolume: 0.5 });
+      await playDiceRattle(6);
+      const [peakAtHalf] = mockGainNode.gain.exponentialRampToValueAtTime.mock.calls[0];
+
+      expect(peakAtHalf).toBeCloseTo(peakAtFull * 0.25);
+    });
+
+    it('playSoundPreview plays the rattle and then the fanfare after it', async () => {
+      playSoundPreview();
+
+      await vi.waitFor(() => expect(mockAudioContext.createOscillator).toHaveBeenCalledTimes(3));
+      expect(mockAudioContext.createBufferSource).toHaveBeenCalledTimes(1);
+      const [rattleStart] = mockBufferSource.start.mock.calls[0];
+      const [rattleEnd] = mockBufferSource.stop.mock.calls[0];
+      for (const [fanfareStart] of mockOscillator.start.mock.calls) {
+        expect(fanfareStart).toBeGreaterThanOrEqual(rattleEnd);
+      }
+      expect(rattleStart).toBeLessThan(rattleEnd);
+    });
   });
 
   it('playBuzzer plays two tones', async () => {

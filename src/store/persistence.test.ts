@@ -19,6 +19,22 @@ describe('pickLocalGameState', () => {
     expect(pickLocalGameState(parsed)).toEqual(parsed);
   });
 
+  // Per-device preferences have their own localStorage keys that init()
+  // applies after this save (tutto_audioEnabled, tutto_audioVolume, ...). One
+  // that also rode the game save would be restored twice, and the save's copy
+  // would win over a choice made since — the diceMode bug all over again.
+  it('never carries a per-device preference', () => {
+    const parsed = {
+      round: 3,
+      diceMode: 'physical',
+      audioEnabled: false,
+      audioVolume: 0.5,
+      hapticsEnabled: false,
+      motionOverride: true,
+    };
+    expect(pickLocalGameState(parsed)).toEqual({ round: 3 });
+  });
+
   it('drops fields outside the known whitelist, including action names', () => {
     // A corrupted or hand-edited save must not be able to clobber a store
     // action (e.g. `startGame`) by Object.assign'ing an arbitrary key into it.
