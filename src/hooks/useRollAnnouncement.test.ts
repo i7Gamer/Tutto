@@ -75,6 +75,9 @@ describe('useRollAnnouncement', () => {
     expect(options.announce).not.toHaveBeenCalled();
   });
 
+  // MUTATION CHECK (see feature plan): deleting the `!bustState` guard in
+  // useRollAnnouncement.ts must make this test fail — proof the guard is
+  // load-bearing and not just decorative.
   it('does not announce a settle that busted', () => {
     const options = base({ isRolling: true, bustState: false });
     const { rerender } = renderHook(
@@ -85,9 +88,6 @@ describe('useRollAnnouncement', () => {
     expect(options.announce).not.toHaveBeenCalled();
   });
 
-  // MUTATION CHECK (see feature plan): deleting the `!bustState` guard in
-  // useRollAnnouncement.ts must make this test fail — proof the guard is
-  // load-bearing and not just decorative.
   it('does not announce on mount for a resumed turn that already has hasRolled true', () => {
     // DiceGame never restores isRolling to true on a resume (only hasRolled
     // is seeded), so there is no false-to-true edge to fire on at mount.
@@ -157,6 +157,22 @@ describe('useRollAnnouncement', () => {
     expect(translate).toHaveBeenCalledWith('dice.announce.turnSoFar', { kept: 2, turnScore: 350 });
     const [, values] = options.announce.mock.calls[0];
     expect(values.turnSoFarSuffix).toBe(' dice.announce.turnSoFar');
+  });
+
+  it('still reports the turn\'s worth when a tutto or chain draw has reset the kept count to zero', () => {
+    // CHAIN_DRAWN and a tutto's ROLL_ON_COMMITTED both reset keptDice to []
+    // while turnScore carries the running total forward — the clause must
+    // key off the score actually at stake, not the count of dice sitting on
+    // THIS fresh table.
+    const options = base({ isRolling: true, keptCount: 0, turnScore: 700 });
+    const { rerender } = renderHook(
+      (props: UseRollAnnouncementOptions) => useRollAnnouncement(props),
+      { initialProps: options },
+    );
+    rerender({ ...options, isRolling: false });
+
+    const [, values] = options.announce.mock.calls[0];
+    expect(values.turnSoFarSuffix).not.toBe('');
   });
 
   it('omits both suffixes when there is nothing kept and no tutto', () => {

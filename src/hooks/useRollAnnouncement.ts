@@ -89,7 +89,11 @@ export const useRollAnnouncement = ({
     // — so a single announce() call carries the whole composed message
     // instead of RollAnnouncer firing a second live-region update.
     const completesSuffix = completesTutto ? ` ${latestT('dice.announce.completesCard')}` : '';
-    const turnSoFarSuffix = latestKeptCount > 0
+    // Gated on the score, not just the count: a tutto's ROLL_ON_COMMITTED and
+    // a classic CHAIN_DRAWN both reset keptDice to [] while turnScore carries
+    // the running total forward onto the fresh table, so a count-only gate
+    // dropped the clause exactly when the most is at stake.
+    const turnSoFarSuffix = latestKeptCount > 0 || latestTurnScore > 0
       ? ` ${latestT('dice.announce.turnSoFar', { kept: latestKeptCount, turnScore: latestTurnScore })}`
       : '';
 

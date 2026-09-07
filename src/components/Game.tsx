@@ -127,10 +127,12 @@ export default function Game() {
 
   const currentPlayer = currentPlayerIndex !== null ? players[currentPlayerIndex] : null;
   // A seat the app plays itself — local games only (utils/bots.ts). Its turn
-  // is nobody's at the table: the panel opens on its own, the shortcuts and
-  // the Roll/Continue buttons stand down, and its dice are always digital —
-  // a physical-dice preference is a device setting that can flip mid-game,
-  // and physical mode has no table for a bot to play on.
+  // is nobody's at the table: the panel opens on its own and Game's own
+  // shortcuts and Roll/Continue buttons stand down (isMyTurn is false) — and,
+  // inside the dice panel itself, the tap/shortcut/action-bar guards on the
+  // `bot` prop (DiceGame.tsx) stand its controls down the same way. Its dice
+  // are always digital — a physical-dice preference is a device setting that
+  // can flip mid-game, and physical mode has no table for a bot to play on.
   const botPersonality = isOnline ? null : botOf(currentPlayer);
   const isBotTurn = botPersonality !== null;
 

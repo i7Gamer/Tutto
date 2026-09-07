@@ -32,9 +32,10 @@ export interface UseStopCardAutoContinueOptions {
 
 /**
  * What a Stop card does on its own once it has finished flipping: the buzzer
- * for everyone watching, and — online, for the seat whose turn it just ended —
- * the turn advancing by itself a few seconds later, so a disconnected or
- * distracted player cannot stall the table on a card that offers no choice.
+ * for everyone watching, and — online, for the seat whose turn it just ended,
+ * or a local bot's — the turn advancing by itself a few seconds later, so a
+ * disconnected or distracted player (or a bot nobody is going to press
+ * Continue for) cannot stall the table on a card that offers no choice.
  *
  * Both timers are torn down if anything about the card, the deck or the seat
  * changes first, so a card that comes and goes inside the delay never fires.

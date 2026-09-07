@@ -868,6 +868,24 @@ describe('DiceGame interactive turn logic', () => {
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(1900, true));
   });
 
+  it('keeps the roll live region mounted while the summary is showing, instead of unmounting it', async () => {
+    const onComplete = vi.fn();
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    render(<DiceGame currentCard="400" onComplete={onComplete} />);
+    await flushRoll();
+
+    selectAllValid();
+    fireEvent.click(screen.getByText('dice.stop_and_score'));
+
+    // The summary is up...
+    expect(screen.getByText('dice.tutto')).toBeInTheDocument();
+    // ...and the always-on live region (RollAnnouncer) is still in the DOM
+    // alongside it, not torn down with the rolling board it used to live
+    // inside — a live region that unmounts and remounts mid-turn is
+    // implementation-defined across screen readers.
+    expect(screen.getByLabelText('dice.announce.live')).toBeInTheDocument();
+  });
+
   // UI-2: unlike drawNextCard, the 'stop' and tutto-completing branches of
   // handleAction had no re-entrancy guard. Since neither branch awaits,
   // two sequential clicks can never actually overlap -- JS runs the first
@@ -1141,6 +1159,33 @@ describe('DiceGame driven by a bot', () => {
 
     expect(selectedDice()).toHaveLength(0);
     expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it("ignores a human's tap on a bot's table", async () => {
+    const originalThink = timing.BOT_THINK_MS;
+    // Parked well beyond this test's real-timer flushes below, so the bot
+    // never takes its own step — the point is to observe a human tap's
+    // effect (or lack of it) in isolation, not race the driver.
+    timing.BOT_THINK_MS = 10_000;
+    try {
+      const onComplete = vi.fn();
+      queueRoll([1, 5, 2, 2, 3, 4]);
+      render(<DiceGame currentCard="200" onComplete={onComplete} bot={seat('cautious')} />);
+      await flushRoll();
+
+      const die = dieShowing(1, false);
+      expect(die).toBeDisabled();
+      fireEvent.click(die);
+      expect(playDieClick).not.toHaveBeenCalled();
+      expect(selectedDice()).toHaveLength(0);
+
+      const stopButton = screen.getByText('dice.stop_and_score').closest('button');
+      expect(stopButton).toBeDisabled();
+      fireEvent.click(screen.getByText('dice.stop_and_score'));
+      expect(onComplete).not.toHaveBeenCalled();
+    } finally {
+      timing.BOT_THINK_MS = originalThink;
+    }
   });
 
   it('Risk-Taker Rita draws on her tutto, dismisses the reveal herself, and plays the new card', async () => {

@@ -76,6 +76,12 @@ describe('Game Component Integration', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockNextTurn = vi.fn();
+    // capturedDiceGameProps is written by the DiceGame mock on every render
+    // and outlives the test that triggered it — without this reset, a test
+    // whose panel never renders (a regression the coachSeat assertions below
+    // exist to catch) would silently read the PREVIOUS test's props instead
+    // of failing.
+    capturedDiceGameProps.current = null;
     // Start from a pristine store: the setState below is partial, and the
     // store outlives each test. Without this a test that set
     // enforcedDiceMode: 'digital' hid the score input from every physical-mode
@@ -203,7 +209,12 @@ describe('Game Component Integration', () => {
       render(<Game />);
       fireEvent.click(screen.getByText('game.controls.rollDice'));
 
-      expect(capturedDiceGameProps.current).toMatchObject({ coachSeat: undefined });
+      // Asserted rather than assumed: toMatchObject's coachSeat: undefined
+      // cannot tell "the field is undefined" from "the panel never rendered
+      // and this is still the PREVIOUS test's props" — this failed to catch
+      // exactly that with a stale capturedDiceGameProps (see beforeEach).
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+      expect((nonNull(capturedDiceGameProps.current) as { coachSeat?: unknown }).coachSeat).toBeUndefined();
     });
 
     it('passes no coachSeat for a bot\'s own turn, even with the setting on', () => {
@@ -223,7 +234,8 @@ describe('Game Component Integration', () => {
       render(<Game />);
       act(() => { vi.advanceTimersByTime(BOT_OPEN_DELAY_MS); });
 
-      expect(capturedDiceGameProps.current).toMatchObject({ coachSeat: undefined });
+      expect(screen.getByTestId('mock-dice-game')).toBeInTheDocument();
+      expect((nonNull(capturedDiceGameProps.current) as { coachSeat?: unknown }).coachSeat).toBeUndefined();
     });
   });
 

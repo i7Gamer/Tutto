@@ -123,8 +123,8 @@ describe('soundEffects', () => {
     it('scales the tone peak by the slider volume on the perceptual curve', async () => {
       useGameStore.setState({ audioVolume: 0.5 });
       await playTone(440, 'sine', 1, 0.4);
-      // 0.4 * 0.5² — the ramp to the peak is the second exponential ramp
-      // (the first is the attack from the floor).
+      // 0.4 * 0.5² — the ramp to the peak is the first exponential ramp
+      // (the second ramps back down to the floor at the end of the tone).
       const peakRamp = mockGainNode.gain.exponentialRampToValueAtTime.mock.calls[0];
       expect(peakRamp[0]).toBeCloseTo(0.1);
     });

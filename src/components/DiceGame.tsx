@@ -413,6 +413,11 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   const isSelectionLocked = isClassic && currentCard === 'Feuerwerk';
 
   const toggleDie = (id: string) => {
+    // A bot plays its own selection through botStep's direct SELECTION_SET
+    // dispatch below, never through this tap handler — so a human tapping a
+    // die on a bot's table (anyone else at the table, in local hot-seat) must
+    // be a no-op, the same way a locked Feuerwerk selection already is.
+    if (bot) return;
     if (bustState || showSummary || isRolling) return;
     if (isSelectionLocked) return;
     const die = currentRoll.find(d => d.id === id);
@@ -422,6 +427,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   };
 
   const selectAllValid = () => {
+    if (bot) return;
     if (bustState || showSummary || isRolling || !hasRolled) return;
     const validIndices = new Set(getMaxValidSelection(currentRoll.map(d => d.val), currentCard, kniffelProgress, ruleset));
     // Silent when the shortcut changes nothing — a click that picked up no
@@ -740,10 +746,10 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // top still silences them).
   const panelRef = useRef<HTMLDivElement>(null);
   useKeyboardShortcuts({
-    r: canSubmitSelection && isRollAgainApplicable ? () => void handleAction('roll') : undefined,
-    s: canSubmitSelection && canStop ? () => void handleAction('stop') : undefined,
-    a: canAct ? selectAllValid : undefined,
-    d: canSubmitSelection && canDrawAfterTutto ? () => void handleAction('draw') : undefined,
+    r: !bot && canSubmitSelection && isRollAgainApplicable ? () => void handleAction('roll') : undefined,
+    s: !bot && canSubmitSelection && canStop ? () => void handleAction('stop') : undefined,
+    a: !bot && canAct ? selectAllValid : undefined,
+    d: !bot && canSubmitSelection && canDrawAfterTutto ? () => void handleAction('draw') : undefined,
   }, { ownerRef: panelRef });
 
   // One step of a bot's turn on the table as this render committed it. Two
@@ -825,6 +831,15 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
           `sm` up, where the HUD only ever sits beside a centred panel that
           never grows tall enough to reach it. */}
       <div className="px-8 pt-6 pb-16 sm:p-8 w-full flex-1 overflow-y-auto overscroll-contain">
+        {/* Mounted for the whole life of the panel, not just the rolling
+            board's branch below: a live region only announces on a DOM
+            mutation (see the component's own doc comment), so tearing it
+            down and rebuilding it on every reveal/summary transition risks a
+            spurious re-read of the last roll on remount, or an AT that has
+            only just re-registered the region when the next roll's mutation
+            arrives. Only its keyed child (RollAnnouncer's own `seq`) ever
+            changes; the region itself stays put. */}
+        <RollAnnouncer announcement={rollAnnouncement?.announcement ?? null} seq={rollAnnouncement?.seq ?? 0} />
         {revealedCard ? (
           <DrawnCardReveal
             card={revealedCard}
@@ -859,7 +874,11 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
               rollingDiceIndices={rollingDiceIndices}
               bustState={bustState}
               isRolling={isRolling}
-              isSelectionLocked={isSelectionLocked}
+              // A bot's own table reuses the locked-selection look and
+              // behavior: the dice are not this human's to tap (see toggleDie
+              // above), so they read the same as an official Feuerwerk's
+              // forced keep — disabled, not merely inert.
+              isSelectionLocked={isSelectionLocked || !!bot}
               hasRolled={hasRolled}
               selectionValid={validation.valid}
               selectedCount={selectedRolls.length}
@@ -867,12 +886,13 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
               onSelectAllValid={selectAllValid}
             />
 
-            <RollAnnouncer announcement={rollAnnouncement?.announcement ?? null} seq={rollAnnouncement?.seq ?? 0} />
             <CoachHintLine hint={coachHint} />
 
             <TurnActionBar
               show={hasRolled && !bustState}
-              actionable={validation.valid && !isRolling}
+              // The panel is showing the bot's decision, not offering one —
+              // only botStep (below) may act on this table.
+              actionable={!bot && validation.valid && !isRolling}
               isRollAgainApplicable={isRollAgainApplicable}
               canStop={canStop}
               stopButtonText={stopButtonText}
