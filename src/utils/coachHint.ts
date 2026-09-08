@@ -93,6 +93,7 @@ export const coachHint = (input: CoachHintInput): CoachHint | null => {
     currentCard: input.currentCard,
     ruleset: input.ruleset,
     kniffelProgress: input.kniffelProgress,
+    tuttosThisTurn: input.tuttosThisTurn,
     myScore: input.standings.myScore,
     leaderScore: input.standings.leaderScore,
     winningScore: input.standings.winningScore,

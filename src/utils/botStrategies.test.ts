@@ -6,8 +6,15 @@ import {
   type BotTurnContext, type BotActionAvailability, type BotAction,
 } from './botStrategies';
 import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from './coreGameEngine';
+import { checkValidityAndScore, getMaxValidSelection } from './diceLogic';
 import { BOT_PERSONALITIES, type CardType } from '../types';
 import { TOTAL_DICE, DIE_FACES } from './turnShapes';
+
+// A deterministic generator so the property runs are repeatable.
+const lcg = (seed: number) => () => {
+  seed = (seed * 1664525 + 1013904223) % 4294967296;
+  return seed / 4294967296;
+};
 
 const ctx = (overrides: Partial<BotTurnContext> = {}): BotTurnContext => ({
   personality: 'cautious',
@@ -17,6 +24,7 @@ const ctx = (overrides: Partial<BotTurnContext> = {}): BotTurnContext => ({
   currentCard: '200',
   ruleset: 'modernized',
   kniffelProgress: [],
+  tuttosThisTurn: 0,
   myScore: 0,
   leaderScore: 0,
   winningScore: 6000,
@@ -67,6 +75,81 @@ describe('chooseBotSelection', () => {
 
   it('follows the card: a modernized Kniffel builds its run', () => {
     expect(chooseBotSelection(ctx({ currentCard: 'Kniffel', rollVals: [3, 1, 2, 6, 6, 4] }))).toEqual([1, 2, 0, 5]);
+  });
+
+  // Otto keeps whatever the REST of the turn is worth most with, not the
+  // most dice (feature_plan_otto_full_info.md): early in a turn fewer dice
+  // kept means more dice rolled, and the bonus for a tutto is closer.
+  describe('Optimal Otto keeps what the whole turn is worth most with', () => {
+    const otto = (o: Partial<BotTurnContext> = {}) => ctx({ personality: 'optimal', ...o });
+
+    it('keeps only the 1 beside three 2s on a fresh table', () => {
+      // 100 in hand with five dice to roll is worth 369; the 300 for all four
+      // dice would be banked on the spot, because two dice are not worth rolling.
+      expect(chooseBotSelection(otto({ rollVals: [1, 2, 2, 2, 3, 4] }))).toEqual([0]);
+    });
+
+    it('keeps all four once the turn is already worth 1000', () => {
+      expect(chooseBotSelection(otto({ rollVals: [1, 2, 2, 2, 3, 4], turnScore: 1000 }))).toEqual([0, 1, 2, 3]);
+    });
+
+    it('keeps the lone 1 rather than the 1 and the 5', () => {
+      expect(chooseBotSelection(otto({ rollVals: [1, 5, 2, 3, 4, 6] }))).toEqual([0]);
+    });
+
+    it('keeps one 5 of two', () => {
+      expect(chooseBotSelection(otto({ rollVals: [5, 5, 2, 3, 4, 6] }))).toEqual([0]);
+    });
+
+    it('keeps only the 1 on Plus/Minus and Kleeblatt too: five dice reach the tutto more often than two', () => {
+      // Finishing is all that counts there, and the odds are not monotone in
+      // the dice (turnValue.test.ts): 26.1% from five dice, 25.9% from two,
+      // 24.5% from three. The plan's hand reasoning had this the other way
+      // round; the value function settled it.
+      expect(chooseBotSelection(otto({ currentCard: 'Plus_Minus', rollVals: [1, 2, 2, 2, 3, 4] }))).toEqual([0]);
+      expect(chooseBotSelection(otto({ currentCard: 'Kleeblatt', rollVals: [1, 2, 2, 2, 3, 4] }))).toEqual([0]);
+    });
+
+    it('keeps a scoring pair whole on Plus/Minus when one die left beats two', () => {
+      // Four kept, a 1 and a 5 on the table: both dice make the tutto now.
+      expect(chooseBotSelection(otto({ currentCard: 'Plus_Minus', keptCount: 4, rollVals: [1, 5] }))).toEqual([0, 1]);
+      // Three kept, 1 5 and a 3: keeping both leaves one die (33%), one leaves two (26%).
+      expect(chooseBotSelection(otto({ currentCard: 'Plus_Minus', keptCount: 3, rollVals: [1, 5, 3] }))).toEqual([0, 1]);
+    });
+
+    it('builds a Kniffel run like everyone else', () => {
+      expect(chooseBotSelection(otto({ currentCard: 'Kniffel', rollVals: [3, 1, 2, 6, 6, 4] }))).toEqual([1, 2, 0, 5]);
+    });
+
+    it('keeps every scoring die on Feuerwerk for now', () => {
+      expect(chooseBotSelection(otto({ currentCard: 'Feuerwerk', rollVals: [1, 5, 2, 3, 4, 6] }))).toEqual([0, 1]);
+    });
+
+    it('only ever keeps a valid subset of what the rules allow', () => {
+      const rand = lcg(5);
+      const cards: (CardType | null)[] = ['200', '600', 'x2', null, 'Plus_Minus', 'Kleeblatt', 'Feuerwerk', 'Kniffel'];
+      for (let trial = 0; trial < 300; trial++) {
+        const keptCount = Math.floor(rand() * TOTAL_DICE);
+        const rollVals = Array.from({ length: TOTAL_DICE - keptCount }, () => Math.floor(rand() * DIE_FACES) + 1);
+        const context = otto({
+          rollVals, keptCount, turnScore: Math.floor(rand() * 40) * 50,
+          currentCard: cards[Math.floor(rand() * cards.length)],
+        });
+        const keep = chooseBotSelection(context);
+        const allowed = new Set(getMaxValidSelection(rollVals, context.currentCard, [], context.ruleset));
+        keep.forEach(i => expect(allowed.has(i)).toBe(true));
+        if (keep.length > 0) {
+          expect(checkValidityAndScore(keep.map(i => rollVals[i]), context.currentCard, [], context.ruleset).valid).toBe(true);
+        } else {
+          expect(allowed.size).toBe(0);
+        }
+      }
+    });
+  });
+
+  it('Carl and Rita still keep every scoring die', () => {
+    expect(chooseBotSelection(ctx({ personality: 'cautious', rollVals: [1, 2, 2, 2, 3, 4] }))).toEqual([0, 1, 2, 3]);
+    expect(chooseBotSelection(ctx({ personality: 'risky', rollVals: [1, 2, 2, 2, 3, 4] }))).toEqual([0, 1, 2, 3]);
   });
 });
 
@@ -204,34 +287,35 @@ describe('Optimal Otto', () => {
   });
 
   // T-2: the exact tie of the roll-or-stop branch (rollValue === threshold
-  // rolls — the comparison is `>=`). No real dice roll lands this exactly (the
-  // outcomes are sixths, the threshold a bank times a deficit-derived
-  // appetite), so this calls optimalRollDecision directly with a hand-built
-  // bank/diceAfter/standings rather than going through a selection: one die
-  // left ('200', bustProbability 2/3, expectedGain 75 exactly, both proven in
-  // the evaluateRoll describe above) and a deficit at least half the winning
-  // score, which caps the appetite at exactly 0.5 —
-  //   rollValue  = (1 - 2/3) * (150 + 75) = 75
-  //   threshold  = 150 * (1 - 0.5)        = 75
+  // rolls — the comparison is `>=`). No real dice roll lands this exactly, so
+  // this calls optimalRollDecision directly with a hand-built bank and
+  // standings. Every number is exact in floating point: one die on a 200
+  // card with 400 in hand banks 700 on a 1 (400 + 100 + 200) and 650 on a 5,
+  // so rolling is worth (700 + 650) / 6 = 225 — an integer sum over an integer
+  // multiplicity, divided once; and a deficit of 700 on a 1600 winning score
+  // is an appetite of exactly 7/16, so the threshold is 400 * 9/16 = 225.
   it('rolls at the exact tie (rollValue === threshold)', () => {
-    const tied = otto({ myScore: 0, leaderScore: 3000, winningScore: 6000 });
-    const decision = optimalRollDecision(tied, 150, 1, []);
-    // Both sides land on 75, but via different floating-point paths (a 2/3
-    // built from division vs. a 0.5 appetite cap) — compare with tolerance,
-    // the tie itself is what `action` below is really asserting.
-    expect(decision.rollValue).toBeCloseTo(75, 10);
-    expect(decision.threshold).toBeCloseTo(75, 10);
+    const tied = otto({ myScore: 0, leaderScore: 700, winningScore: 1600 });
+    const decision = optimalRollDecision(tied, 400, 1, []);
+    expect(decision.rollValue).toBe(225);
+    expect(decision.threshold).toBe(225);
     expect(decision.action).toBe('roll');
+  });
+
+  it('rolls the last die when the card\'s bonus makes it worth it, which the one-roll view never saw', () => {
+    // Four kept on 250 with a 5 and a 3 on the table: keeping the 5 leaves
+    // 300 in hand and one die on a 600 card. A 1 banks 300 + 100 + 600, a 5
+    // banks 300 + 50 + 600: rolling is worth (1000 + 950) / 6 = 325 against
+    // banking 300.
+    const worthIt = otto({ currentCard: '600', keptCount: 4, rollVals: [5, 3], turnScore: 250 });
+    expect(chooseBotAction(worthIt, ROLL_OR_STOP)).toBe('roll');
+    // Fifty more in hand and it is not: 342 against 350.
+    const notQuite = otto({ currentCard: '600', keptCount: 4, rollVals: [5, 3], turnScore: 300 });
+    expect(chooseBotAction(notQuite, ROLL_OR_STOP)).toBe('stop');
   });
 });
 
 describe('every personality', () => {
-  // A deterministic generator so the property run is repeatable.
-  const lcg = (seed: number) => () => {
-    seed = (seed * 1664525 + 1013904223) % 4294967296;
-    return seed / 4294967296;
-  };
-
   it('only ever picks an action that is on offer, and nothing when none is', () => {
     const rand = lcg(7);
     const cards: (CardType | null)[] = ['200', '300', 'x2', 'Feuerwerk', 'Kniffel', 'Plus_Minus', 'Kleeblatt', null];

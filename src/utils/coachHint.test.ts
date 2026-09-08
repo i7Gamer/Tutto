@@ -76,6 +76,19 @@ describe('coachHint', () => {
     expect(hint!.bank).toBe(100);
   });
 
+  it('advises keeping the 1 alone on a fresh 1-5 table, and flags a Select-all tap', () => {
+    // 1 5 2 2 3 4 on a 200 card with nothing banked: the lone 1 with five
+    // dice to roll is worth more than the 1 and the 5 with four
+    // (feature_plan_otto_full_info.md), so Select all is exactly the tap the
+    // hint is there to question.
+    const hint = coachHint(input({ selectedIndices: [0, 1] }));
+    expect(hint).not.toBeNull();
+    expect(hint!.keep).toEqual([1]);
+    expect(hint!.diceAfter).toBe(5);
+    expect(hint!.action).toBe('roll');
+    expect(hint!.selectionDiffers).toBe(true);
+  });
+
   it('is trailing only when the leader is actually ahead', () => {
     // Mirrors botStrategies.test.ts's "takes more risk the further behind".
     const level = coachHint(input({ keptCount: 3, rollVals: [1, 3, 4], turnScore: 200, standings: { myScore: 0, leaderScore: 0, winningScore: 6000 } }));
@@ -231,7 +244,7 @@ describe('coachHint', () => {
   });
 
   it('excuses the extra risk only on the roll that risk actually bought', () => {
-    // Behind, and rolling on (244) is worth less than the sure bank (300):
+    // Behind, and rolling on (239) is worth less than the sure bank (300):
     // the appetite is the whole reason this is not a stop, so the clause
     // has something to explain.
     const bought = coachHint(input({
@@ -241,10 +254,11 @@ describe('coachHint', () => {
     expect(bought!.action).toBe('roll');
     expect(bought!.trailing).toBe(true);
 
-    // Behind by the same margin, but Otto banks anyway — the appetite
-    // changed nothing, and the clause would contradict the advice.
+    // Behind by the same margin, but Otto banks anyway — with 650 in hand
+    // the last die is worth 308 against a bank discounted to 325, so the
+    // appetite changed nothing, and the clause would contradict the advice.
     const banked = coachHint(input({
-      keptCount: 4, rollVals: [5, 3], turnScore: 300,
+      keptCount: 4, rollVals: [5, 3], turnScore: 600,
       standings: { myScore: 0, leaderScore: 3000, winningScore: 6000 },
     }));
     expect(banked!.action).toBe('stop');

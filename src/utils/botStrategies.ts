@@ -1,7 +1,12 @@
 import type { BotPersonality, CardType, Ruleset } from '../types';
-import { applyTuttoBonus, checkValidityAndScore, getMaxValidSelection, isBust } from './diceLogic';
+import { applyTuttoBonus, checkValidityAndScore, getMaxValidSelection } from './diceLogic';
 import { fixedCardAward } from './coreGameEngine';
-import { DIE_FACES, TOTAL_DICE } from './turnShapes';
+import { deriveTurnControls } from './diceTurnControls';
+import { TOTAL_DICE } from './turnShapes';
+import {
+  continuationValue, countsToVals, diceCounts, keepIndices, legalKeeps, outcomeSpace, tableOutcomes, tuttoValue,
+  type Keep, type ValueContext,
+} from './turnValue';
 
 /**
  * What a bot decides with, and nothing else: it never drives the turn itself.
@@ -38,6 +43,8 @@ export interface BotTurnContext {
   currentCard: CardType | null;
   ruleset: Ruleset;
   kniffelProgress: number[];
+  /** Tuttos already rolled this turn — a Kleeblatt's first has the second still to come. */
+  tuttosThisTurn: number;
   myScore: number;
   leaderScore: number;
   winningScore: number;
@@ -62,13 +69,13 @@ export interface RollEvaluation {
   expectedGain: number;
 }
 
-const evaluationCache = new Map<string, RollEvaluation>();
-
 /**
  * Exact odds of rolling `numDice` under the card's own bust and scoring rules:
- * every one of the 6^n outcomes is scored with the same helpers the table
- * uses, so a Kniffel run or a Feuerwerk keep is judged as the game judges
- * it. At most 46 656 outcomes, memoised per (dice, card, progress, rules).
+ * every multiset the dice can land as is judged with the same helpers the
+ * table uses (turnValue's tableOutcomes, memoised per dice, card, progress
+ * and rules), so a Kniffel run or a Feuerwerk keep is judged as the game
+ * judges it. The bust odds are what the coach prints; the gain is the
+ * one-roll plan's mean, kept for Feuerwerk and for the tests that pin it.
  */
 export const evaluateRoll = (
   numDice: number,
@@ -76,42 +83,74 @@ export const evaluateRoll = (
   kniffelProgress: number[],
   ruleset: Ruleset,
 ): RollEvaluation => {
-  if (!Number.isInteger(numDice) || numDice < 1 || numDice > TOTAL_DICE) {
-    throw new RangeError(`evaluateRoll: ${numDice} dice is not a table`);
-  }
-  const key = `${numDice}|${card}|${kniffelProgress.join(',')}|${ruleset}`;
-  const cached = evaluationCache.get(key);
-  if (cached) return cached;
-
-  const outcomes = DIE_FACES ** numDice;
   let busts = 0;
   let gainSum = 0;
-  const vals = new Array<number>(numDice).fill(1);
-  for (let outcome = 0; outcome < outcomes; outcome++) {
-    let rest = outcome;
-    for (let i = 0; i < numDice; i++) {
-      vals[i] = (rest % DIE_FACES) + 1;
-      rest = Math.floor(rest / DIE_FACES);
-    }
-    if (isBust(vals, card, kniffelProgress, ruleset)) {
-      busts++;
-      continue;
-    }
-    const picked = getMaxValidSelection(vals, card, kniffelProgress, ruleset).map(i => vals[i]);
-    gainSum += checkValidityAndScore(picked, card, kniffelProgress, ruleset).score;
+  for (const { multiplicity, bust, maxKeepScore } of tableOutcomes(numDice, card, kniffelProgress, ruleset)) {
+    if (bust) busts += multiplicity;
+    else gainSum += multiplicity * maxKeepScore;
   }
+  const outcomes = outcomeSpace(numDice);
   const survivors = outcomes - busts;
-  const evaluation = {
+  return {
     bustProbability: busts / outcomes,
     expectedGain: survivors === 0 ? 0 : gainSum / survivors,
   };
-  evaluationCache.set(key, evaluation);
-  return evaluation;
 };
 
-/** Every personality keeps every scoring die the rules allow. */
-export const chooseBotSelection = (ctx: BotTurnContext): number[] =>
+const maxKeep = (ctx: BotTurnContext): number[] =>
   getMaxValidSelection(ctx.rollVals, ctx.currentCard, ctx.kniffelProgress, ctx.ruleset);
+
+const valueContext = (ctx: BotTurnContext): ValueContext => ({
+  card: ctx.currentCard,
+  ruleset: ctx.ruleset,
+  myScore: ctx.myScore,
+  winningScore: ctx.winningScore,
+  tuttosThisTurn: ctx.tuttosThisTurn,
+});
+
+/**
+ * Two keeps whose values differ by less than this are the same keep to Otto
+ * (symmetric keeps land a few ulps apart), and the one with more dice wins —
+ * what he always did, and the easier of the two to explain.
+ */
+const VALUE_TIE_EPSILON = 1e-9;
+
+/**
+ * Otto's keep: of every valid selection of the table, the one the rest of the
+ * turn is worth most with — banked now if Stop is on offer for it, or rolled
+ * on, whichever is more (turnValue.ts). A Kniffel has one legal keep, and
+ * Feuerwerk is still priced one roll deep (slice 2), so both keep the most.
+ */
+const bestKeep = (ctx: BotTurnContext): number[] => {
+  if (ctx.currentCard === 'Kniffel' || ctx.currentCard === 'Feuerwerk') return maxKeep(ctx);
+  const value = valueContext(ctx);
+  // Whether a keep that does NOT complete the table could be banked: the
+  // panel's own rule (never on Feuerwerk, only a tutto on a special card).
+  const { canStop } = deriveTurnControls({
+    currentCard: ctx.currentCard, hasRolled: true, bustState: false, isMakingTutto: false, tuttosThisTurn: ctx.tuttosThisTurn,
+  });
+  let best: { worth: number; keep: Keep } | null = null;
+  for (const keep of legalKeeps(diceCounts(ctx.rollVals), ctx.currentCard, ctx.kniffelProgress, ctx.ruleset)) {
+    const { bank, diceAfter, progressAfter } = outcomeOfPicked(ctx, countsToVals(keep.counts));
+    const isTutto = ctx.keptCount + keep.dice === TOTAL_DICE;
+    const worth = isTutto ? tuttoValue(value, bank)
+      : canStop ? Math.max(bank, continuationValue(value, bank, diceAfter, progressAfter))
+        : continuationValue(value, bank, diceAfter, progressAfter);
+    if (!best || worth > best.worth + VALUE_TIE_EPSILON
+      || (Math.abs(worth - best.worth) <= VALUE_TIE_EPSILON && keep.dice > best.keep.dice)) {
+      best = { worth, keep };
+    }
+  }
+  return best ? keepIndices(ctx.rollVals, best.keep.counts) : [];
+};
+
+/**
+ * Carl and Rita keep every scoring die the rules allow; Otto keeps what the
+ * rest of the turn is worth most with (bestKeep), which early in a turn is
+ * often fewer dice than he could.
+ */
+export const chooseBotSelection = (ctx: BotTurnContext): number[] =>
+  ctx.personality === 'optimal' ? bestKeep(ctx) : maxKeep(ctx);
 
 interface SelectionOutcome {
   /** The turn total if the selection is banked now, tutto bonus and any fixed card award included. */
@@ -123,13 +162,12 @@ interface SelectionOutcome {
 }
 
 /**
- * What a selection is worth if it is banked now and what rolling on would
- * leave on the table — the two numbers every roll-or-stop and draw-or-stop
- * comparison is built from. Exported so the coach hint can show a human the
- * same arithmetic Otto decides with (coachHint.ts), not a second guess at it.
+ * What keeping exactly `picked` (die values) is worth if it is banked now and
+ * what rolling on would leave on the table — the two numbers every
+ * roll-or-stop and draw-or-stop comparison is built from, and what bestKeep
+ * ranks each candidate keep by.
  */
-export const outcomeOfSelection = (ctx: BotTurnContext): SelectionOutcome => {
-  const picked = chooseBotSelection(ctx).map(i => ctx.rollVals[i]);
+const outcomeOfPicked = (ctx: BotTurnContext, picked: number[]): SelectionOutcome => {
   const validation = checkValidityAndScore(picked, ctx.currentCard, ctx.kniffelProgress, ctx.ruleset);
   // A fixed-award card (coreGameEngine.fixedCardAward) pays for completing
   // it, not for the dice it was rolled with — Plus/Minus discards its dice
@@ -147,6 +185,14 @@ export const outcomeOfSelection = (ctx: BotTurnContext): SelectionOutcome => {
   };
 };
 
+/**
+ * outcomeOfPicked for the selection chooseBotSelection makes on this table.
+ * Exported so the coach hint can show a human the same arithmetic Otto
+ * decides with (coachHint.ts), not a second guess at it.
+ */
+export const outcomeOfSelection = (ctx: BotTurnContext): SelectionOutcome =>
+  outcomeOfPicked(ctx, chooseBotSelection(ctx).map(i => ctx.rollVals[i]));
+
 const firstOffered = (available: BotActionAvailability, order: BotAction[]): BotAction | null =>
   order.find(action => available[action]) ?? null;
 
@@ -162,8 +208,7 @@ const risky = (_ctx: BotTurnContext, available: BotActionAvailability): BotActio
 /** What Optimal Otto's roll-or-stop comparison found, and the numbers behind it. */
 export interface OptimalRollDecision {
   bustProbability: number;
-  expectedGain: number;
-  /** The full expected value of rolling on: the bust-adjusted mean of bank + gain. */
+  /** What rolling on is worth under best play for the rest of the turn (turnValue.continuationValue). */
   rollValue: number;
   /** The bank, discounted by `appetite` — what rollValue is measured against. */
   threshold: number;
@@ -173,10 +218,13 @@ export interface OptimalRollDecision {
 }
 
 /**
- * Otto's roll-or-stop arithmetic, standalone: not raw EV-vs-bank, but EV
- * against a bank discounted by a "trailing" appetite that grows with the gap
- * to the leader. Exported so the coach hint can show the same comparison
- * `optimal` decides with (coachHint.ts).
+ * Otto's roll-or-stop arithmetic, standalone: not raw value-vs-bank, but the
+ * value of rolling on against a bank discounted by a "trailing" appetite
+ * that grows with the gap to the leader. The appetite is Otto's character
+ * and stays out of the value function: bestKeep ranks keeps by the
+ * undiscounted numbers, and only this final comparison leans. Exported so
+ * the coach hint can show the same comparison `optimal` decides with
+ * (coachHint.ts).
  *
  * `progressAfter` is the straight as THIS selection leaves it (outcomeOfSelection's
  * own return value), not `ctx.kniffelProgress` — the odds of the roll that
@@ -185,12 +233,12 @@ export interface OptimalRollDecision {
  * move with this, since modernized Kniffel always needs exactly one value).
  */
 export const optimalRollDecision = (ctx: BotTurnContext, bank: number, diceAfter: number, progressAfter: number[]): OptimalRollDecision => {
-  const { bustProbability, expectedGain } = evaluateRoll(diceAfter, ctx.currentCard, progressAfter, ctx.ruleset);
-  const rollValue = (1 - bustProbability) * (bank + expectedGain);
+  const { bustProbability } = evaluateRoll(diceAfter, ctx.currentCard, progressAfter, ctx.ruleset);
+  const rollValue = continuationValue(valueContext(ctx), bank, diceAfter, progressAfter);
   const deficit = ctx.winningScore > 0 ? (ctx.leaderScore - ctx.myScore) / ctx.winningScore : 0;
   const appetite = Math.min(OPTIMAL_MAX_RISK_APPETITE, Math.max(0, deficit));
   const threshold = bank * (1 - appetite);
-  return { bustProbability, expectedGain, rollValue, threshold, appetite, action: rollValue >= threshold ? 'roll' : 'stop' };
+  return { bustProbability, rollValue, threshold, appetite, action: rollValue >= threshold ? 'roll' : 'stop' };
 };
 
 const optimal = (ctx: BotTurnContext, available: BotActionAvailability): BotAction | null => {

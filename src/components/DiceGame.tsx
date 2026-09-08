@@ -753,6 +753,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
       currentCard,
       ruleset,
       kniffelProgress,
+      tuttosThisTurn,
       myScore: bot.myScore,
       leaderScore: bot.leaderScore,
       winningScore: bot.winningScore,
