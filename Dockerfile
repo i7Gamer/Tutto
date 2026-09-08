@@ -60,6 +60,25 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
+# The base image brings in two things npm audit — which only ever sees this
+# repository's lockfiles — cannot: Alpine's OS packages, and the npm CLI with
+# its own vendored node_modules. The Trivy scan in docker-publish.yml (note N1)
+# flagged both on 2026-09-07: libssl3/libcrypto3 at 3.5.7-r0 with the fix
+# already in Alpine's repo, and tar/undici/ip-address/brace-expansion inside
+# npm's tree. Neither is a tag bump away — docker-library rebuilds the tag on
+# its own schedule (node:24-alpine was the same build a day later), and a
+# newer npm vendors the same versions (checked at 12.0.2 on 2026-09-08).
+#
+# So the OS layer is upgraded here, and npm is removed outright: nothing in
+# this stage runs it. The CMD is node with tsx as an import hook out of
+# ./node_modules, the HEALTHCHECK is `node -e`, and the build stages above keep
+# their own npm for `npm ci`. Both need root, hence before USER node. Placed
+# ahead of the COPYs so an application change never rebuilds this layer; what
+# does is the base digest, or docker-publish.yml's no-cache-filters on the
+# build that is scanned. server/packaging.test.ts pins all of it.
+RUN apk upgrade --no-cache \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+
 COPY --from=builder     --chown=node:node /app/dist                ./dist
 # Installed at the image root, not under ./server: Node resolves bare imports
 # by walking node_modules upward from the importing file, and the server also

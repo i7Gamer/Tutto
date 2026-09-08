@@ -179,6 +179,29 @@ const readDockerfileCopySources = (): string[] =>
 
 const readDockerfile = (): string => fs.readFileSync(path.join(REPO_ROOT, 'Dockerfile'), 'utf8');
 
+const RUNTIME_STAGE = 'runtime';
+const BUILDER_STAGE = 'builder';
+const SERVER_DEPS_STAGE = 'server-deps';
+
+/**
+ * One named stage of the Dockerfile: its `FROM ... AS <name>` up to the next
+ * FROM. Comment lines are dropped and `\`-continued lines joined, so an
+ * instruction reads as one line whatever its formatting — and so a comment
+ * describing an instruction can never stand in for it.
+ */
+const readDockerfileStage = (name: string): string => {
+  const stage = readDockerfile()
+    .replace(/\\\r?\n[ \t]*/g, ' ')
+    .split('\n')
+    .filter(line => !line.trim().startsWith('#'))
+    .join('\n')
+    .split(/^(?=FROM\s)/m)
+    .find(candidate => new RegExp(`^FROM\\s+\\S+\\s+AS\\s+${name}\\s*$`, 'mi').test(candidate));
+  expect(stage, `no \`FROM ... AS ${name}\` stage in the Dockerfile`).toBeDefined();
+  return stage as string;
+};
+
+
 /**
  * One glob array out of tsconfig.server.json.
  *
@@ -653,6 +676,66 @@ describe('the image runs the server as PID 1', () => {
     expect(launcher![1], 'the tsx CLI forks the server and relays signals to it')
       .toBe('--import');
     expect(startProd).toContain('node --import tsx server/index.ts');
+  });
+});
+
+/**
+ * npm audit only ever sees this repository's two lockfiles. The base image
+ * brings in two more things it cannot: Alpine's OS packages, and the npm CLI
+ * with ITS vendored node_modules. Both reached the Security tab on
+ * 2026-09-07 — 20 findings in libssl3/libcrypto3, 9 in npm's tar, undici,
+ * ip-address and brace-expansion — and neither was a bump away: docker-library
+ * had not rebuilt the tag (node:24-alpine was the same build a day later), and
+ * a newer npm vendors the same four (checked at 12.0.2).
+ *
+ * So the runtime stage upgrades the OS layer itself and drops npm outright:
+ * the container runs `node` (CMD, HEALTHCHECK) with tsx as an import hook out
+ * of the copied node_modules, and never calls npm. Both need root, so both
+ * have to come before `USER node`.
+ */
+describe('the runtime image carries only what the server runs', () => {
+  const APK_UPGRADE = 'apk upgrade --no-cache';
+  const REMOVE = 'rm -rf';
+  const NPM_PREFIX = '/usr/local/lib/node_modules/npm';
+  const NPM_LAUNCHERS = ['/usr/local/bin/npm', '/usr/local/bin/npx'];
+  const NPM_CI = 'npm ci';
+  const USER_NODE_PATTERN = /^USER\s+node\s*$/m;
+
+  /** The RUN instructions of a stage, each as one line, in order. */
+  const runInstructionsOf = (stage: string): string[] =>
+    stage
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.toUpperCase().startsWith('RUN '));
+
+  /** Where the stage drops root; everything checked below has to come first. */
+  const dropsRootAt = (stage: string): number => {
+    const at = stage.search(USER_NODE_PATTERN);
+    expect(at, 'the runtime stage never switches to USER node').toBeGreaterThan(-1);
+    return at;
+  };
+
+  it('upgrades the OS packages the base image pins, while still root', () => {
+    const runtime = readDockerfileStage(RUNTIME_STAGE);
+    const upgrade = runInstructionsOf(runtime).find(run => run.includes(APK_UPGRADE));
+    expect(upgrade, `no RUN in the ${RUNTIME_STAGE} stage does \`${APK_UPGRADE}\``).toBeDefined();
+    expect(runtime.indexOf(upgrade as string)).toBeLessThan(dropsRootAt(runtime));
+  });
+
+  it('removes npm and its launchers: the CLI vendors dependencies the server never loads', () => {
+    const runtime = readDockerfileStage(RUNTIME_STAGE);
+    const removal = runInstructionsOf(runtime).find(run => run.includes(REMOVE) && run.includes(NPM_PREFIX));
+    expect(removal, `no RUN in the ${RUNTIME_STAGE} stage removes ${NPM_PREFIX}`).toBeDefined();
+    for (const launcher of NPM_LAUNCHERS) expect(removal).toContain(launcher);
+    expect(runtime.indexOf(removal as string)).toBeLessThan(dropsRootAt(runtime));
+  });
+
+  it('keeps npm in the stages that install with it', () => {
+    for (const name of [BUILDER_STAGE, SERVER_DEPS_STAGE]) {
+      const stage = readDockerfileStage(name);
+      expect(stage, `${name} runs ${NPM_CI}`).toContain(NPM_CI);
+      expect(stage, `${name} installs with npm and must not remove it`).not.toContain(NPM_PREFIX);
+    }
   });
 });
 
