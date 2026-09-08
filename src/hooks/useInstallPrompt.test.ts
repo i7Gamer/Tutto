@@ -83,6 +83,30 @@ describe('useInstallPrompt', () => {
     expect(second.result.current.state).toBe('native');
   });
 
+  it('retains an event received on Home through the first game and prompts with it on return', async () => {
+    const home = renderHook(() => useInstallPrompt());
+    const event = new FakeBeforeInstallPromptEvent();
+
+    act(() => { window.dispatchEvent(event); });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(home.result.current.state).toBe('hidden');
+    expect(event.prompt).not.toHaveBeenCalled();
+
+    // Starting the first game unmounts Home. EndScreen later records the
+    // finished-game flag before the player returns; no new event is fired.
+    home.unmount();
+    markFinishedGame();
+    const returnedHome = renderHook(() => useInstallPrompt());
+
+    expect(returnedHome.result.current.state).toBe('native');
+    await act(async () => { await returnedHome.result.current.install(); });
+
+    expect(event.prompt).toHaveBeenCalledTimes(1);
+    expect(returnedHome.result.current.state).toBe('hidden');
+    expect(localStore.read(INSTALL_PROMPT_DISMISSED_KEY)).toBe(INSTALL_PROMPT_FLAG_VALUE);
+  });
+
   it('install() on an accepted outcome writes the dismissed flag and hides the card', async () => {
     markFinishedGame();
     const { result } = renderHook(() => useInstallPrompt());
