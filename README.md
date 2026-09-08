@@ -162,15 +162,50 @@ Statistics live in a SQLite database at `/data/stats.db`, which the examples abo
 
 A named volume like `tutto-data` needs no extra setup — Docker gives it to the `node` user automatically. A bind mount (`-v ./data:/data`) is different: the container runs as `node` (uid/gid 1000), and a host directory it does not own fails to open the database at startup. Before first use, run `chown -R 1000:1000 ./data` on the host.
 
-To copy the database out for backup:
+SQLite uses write-ahead logging (WAL): committed statistics can still be in `stats.db-wal`, so copying only the live `stats.db` can lose data. Do not copy the live database and WAL files independently either; they can change between copies.
+
+For a backup before upgrading, finish active games and stop Tutto before copying. Stop any other process writing to the same database too. Both deployment examples name the container `tutto`; `--volumes-from` uses its actual mounts, including Compose's project-prefixed volume name. Adjust the container name and `/data/stats.db` if you changed them.
 
 ```bash
-docker run --rm -v tutto-data:/data -v "$(pwd):/backup" alpine cp /data/stats.db /backup/stats.db
+(
+  set -eu
+  backup_dir="$(mktemp -d "$(pwd)/tutto-backup.XXXXXX")"
+  docker stop tutto
+  test "$(docker inspect --format '{{.State.ExitCode}}' tutto)" -eq 0
+  docker run --rm --volumes-from tutto:ro -v "$backup_dir:/backup" alpine sh -eu -c '
+    test ! -s /data/stats.db-wal
+    cp /data/stats.db /backup/stats.db
+  '
+  printf 'Backup saved to %s/stats.db\n' "$backup_dir"
+)
 ```
 
-Schema migrations run automatically at startup, so upgrading is just pulling a newer image.
+The checks require a clean shutdown and no remaining WAL content. If either fails, resolve the shutdown or other writer before copying; do not delete the WAL. Leave Tutto stopped until the backup succeeds, then follow [Updating](#updating). For a routine backup without an upgrade, restart it with `docker start tutto` after success. Stopping the server discards in-memory rooms.
 
-> Migrations rebuild `device_statistics` and `global_statistics` to split normal and custom games apart (SQLite cannot alter a primary key). They run in transactions and existing rows are carried over as normal games, but taking the backup above before that upgrade is worth the minute it costs.
+For an **online backup without stopping games**, a temporary SQLite container can create a consistent snapshot using [`VACUUM INTO`](https://www.sqlite.org/lang_vacuum.html#vacuum_with_an_into_clause). It reads the running container's database and WAL together and writes a fresh destination. The temporary container installs the SQLite CLI and requires network access for that installation.
+
+```bash
+(
+  set -eu
+  backup_dir="$(mktemp -d "$(pwd)/tutto-backup.XXXXXX")"
+  docker run --rm -i --volumes-from tutto:ro -v "$backup_dir:/backup" alpine sh -eu <<'BACKUP'
+apk add --no-cache sqlite
+test -f /data/stats.db
+test ! -e /backup/stats.db
+sqlite3 -readonly /data/stats.db <<'SQL'
+.bail on
+.timeout 5000
+VACUUM INTO '/backup/stats.db';
+SQL
+test "$(sqlite3 -readonly /backup/stats.db 'PRAGMA integrity_check;')" = ok
+BACKUP
+  printf 'Backup verified at %s/stats.db\n' "$backup_dir"
+)
+```
+
+Each command creates a new backup directory. Keep only a backup whose command completed successfully; an interrupted `VACUUM INTO` can leave an incomplete destination. The online snapshot contains the committed statistics at its snapshot time, not the in-memory state of active games.
+
+Schema migrations run automatically when the new version starts. Take the stopped backup **before** starting the upgrade so it remains a copy of the old schema. Migrations run in transactions and preserve existing statistics, but an older image cannot open a database migrated by a newer one.
 
 ### Behind a reverse proxy
 
@@ -179,6 +214,8 @@ Point the proxy at the container's port and forward WebSocket upgrades (`Upgrade
 Terminating TLS here is also what makes the in-app QR [scanner](#inviting-players) usable — browsers only grant camera access on a secure origin. Everything else works the same over plain http.
 
 ### Updating
+
+Complete the stopped backup in [Data and backups](#data-and-backups) first, then pull and start the new image:
 
 ```bash
 docker compose pull && docker compose up -d

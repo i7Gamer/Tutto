@@ -7,6 +7,7 @@ import { hasScoreInput } from '../src/utils/diceTurnControls';
 import { roomPhase } from '../src/utils/roomPhase';
 import type { Room, ServerPlayer } from './roomTypes';
 import { rooms, calculateRemainingTurnTime, emitRoomState, idleTurnTimerState, recordDealtCard, rememberCurrentTurn, roomChannel } from './rooms';
+import { randomUUID } from 'node:crypto';
 import { MAX_CHART_POINTS } from './pushValidation';
 import { clearDeck } from './deckAuthority';
 import { MS_PER_SECOND } from '../src/utils/time';
@@ -259,6 +260,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       startServerTurnTimer(io, roomId);
     }
 
+    room.gameplayToken = randomUUID();
     emitRoomState(io, roomId);
   } catch (err) {
     // Backstop: pushState's own validation should make a malformed room state

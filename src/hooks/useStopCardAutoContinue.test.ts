@@ -15,6 +15,7 @@ describe('useStopCardAutoContinue', () => {
   const base = (over: Partial<UseStopCardAutoContinueOptions> = {}): UseStopCardAutoContinueOptions => ({
     currentCard: STOP,
     cardsLength: DECK_SIZE,
+    turnSlot: '1:0',
     isOnline: true,
     isMyTurn: true,
     showDiceGame: false,
@@ -117,6 +118,23 @@ describe('useStopCardAutoContinue', () => {
     rerender(base({ cardsLength: DECK_SIZE - 1 }));
     act(() => vi.advanceTimersByTime(CARD_FLIP_MS));
     expect(playBuzzer).toHaveBeenCalledTimes(2);
+  });
+
+  it('restarts the full Stop lifecycle for the next bot turn when a one-Stop deck leaves the size unchanged', () => {
+    const onAutoContinue = vi.fn();
+    const { rerender } = renderHook(
+      (props: UseStopCardAutoContinueOptions) => useStopCardAutoContinue(props),
+      { initialProps: base({ cardsLength: 0, isOnline: false, isMyTurn: false, botTurn: true, onAutoContinue }) },
+    );
+
+    act(() => vi.advanceTimersByTime(CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS));
+    expect(onAutoContinue).toHaveBeenCalledTimes(1);
+
+    rerender(base({ cardsLength: 0, isOnline: false, isMyTurn: false, botTurn: true, onAutoContinue, turnSlot: '1:1' }));
+    act(() => vi.advanceTimersByTime(CARD_FLIP_MS + STOP_CARD_AUTO_CONTINUE_MS));
+
+    expect(playBuzzer).toHaveBeenCalledTimes(2);
+    expect(onAutoContinue).toHaveBeenCalledTimes(2);
   });
 
   it('exposes a countdown for the online active player, starting once the flip finishes', () => {

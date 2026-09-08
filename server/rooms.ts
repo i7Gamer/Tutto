@@ -1,4 +1,5 @@
 import type { Server, Socket } from 'socket.io';
+import { randomUUID } from 'node:crypto';
 import { buildDeck, getLeaders, noUndoableTurn } from '../src/utils/coreGameEngine';
 import { getEffectiveTurnDuration } from '../src/utils/turnDuration';
 import {
@@ -139,6 +140,8 @@ export const createRoom = (hostSocketId: string, createdBy = ''): Room => ({
   // The first broadcast this room makes is version 1 (emitRoomState bumps
   // before it sends), so nothing a client can apply ever carries 0.
   stateVersion: 0,
+  gameplayToken: randomUUID(),
+  finishedGameToken: null,
   gameActualStartTime: null,
   turnTimerState: null,
   // Null-prototype for the same reason `rooms` is: the keys are client-supplied
@@ -257,6 +260,7 @@ export const drawNextCardForRoom = (state: RoomState): void => {
 };
 
 export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void => {
+  room.gameplayToken = randomUUID();
   const state = room.state;
   // chartValues/chartNames are player-indexed (one entry per player), so the
   // removed player's slot is spliced out of both. chartLabels is NOT spliced
@@ -524,9 +528,11 @@ const recordDepartedSeatsStats = (room: Room): void => {
 const rememberFinishedGame = (room: Room): void => {
   if (!room.state.finished) {
     room.finishedGame = null;
+    room.finishedGameToken = null;
     return;
   }
   if (room.finishedGame) return;
+  room.finishedGameToken = room.gameplayToken;
   room.finishedGame = {
     winners: getLeaders(room.state.players).map(p => p.name),
     playerCount: room.startRoster?.length ?? room.state.players.length,
@@ -555,6 +561,8 @@ const buildGameStatePayload = (room: Room) => ({
   turnTimeRemaining: calculateRemainingTurnTime(room),
   gameTimeInSeconds: calculateGameTime(room),
   stateVersion: room.stateVersion,
+  gameplayToken: room.gameplayToken,
+  finishedGameToken: room.finishedGameToken,
 });
 
 /**

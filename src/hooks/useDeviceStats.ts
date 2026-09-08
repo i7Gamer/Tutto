@@ -43,6 +43,10 @@ export interface UseDeviceStatsOptions<T> {
   // sits in this hook's effect dependency array, and a fresh object literal
   // on every render would restart the fetch on every render.
   retry?: DeviceStatsRetryOptions<T>;
+  // A committed statistics submission may arrive after this hook has already
+  // accepted an older positive total. Changing this stable identity cancels
+  // that run and fetches the matching bucket again.
+  refreshKey?: string;
 }
 
 export interface UseDeviceStatsResult<T> {
@@ -64,7 +68,7 @@ export function useDeviceStats<T>(
   mode: GameMode,
   options: UseDeviceStatsOptions<T> = {},
 ): UseDeviceStatsResult<T> {
-  const { enabled = true, retry } = options;
+  const { enabled = true, retry, refreshKey } = options;
   const [stats, setStats] = useState<T | null>(null);
   const [status, setStatus] = useState<DeviceStatsStatus>('idle');
 
@@ -134,7 +138,7 @@ export function useDeviceStats<T>(
       inFlight?.abort();
       clearTimeout(timerId);
     };
-  }, [deviceId, mode, enabled, retry]);
+  }, [deviceId, mode, enabled, retry, refreshKey]);
 
   return { stats, status };
 }

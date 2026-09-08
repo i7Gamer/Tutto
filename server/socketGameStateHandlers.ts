@@ -8,6 +8,10 @@ import { clearServerTurnTimer, startServerTurnTimer } from './turnTimers';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
 import type { DrawCardAck, DrawRefusalReason, PushRefusalReason, PushStateAck } from '../src/types';
+import { randomUUID } from 'node:crypto';
+
+// UUIDs are correlation identities, not credentials. Authorization remains below.
+const GAMEPLAY_TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const PUSH_STATE_LIMIT = { windowMs: 1_000, max: 20 };
 // liveTurnState fires ~every 300ms while a player is rolling.
@@ -50,7 +54,7 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
   const drawCardLimiter = createSocketEventLimiter(DRAW_CARD_LIMIT);
 
   safeOn(socket, 'pushState', (
-    data: { roomId?: string; newState?: Record<string, unknown> } | null | undefined,
+    data: { roomId?: string; newState?: Record<string, unknown>; base?: unknown; mutationId?: unknown } | null | undefined,
     ack?: PushStateAckFn,
   ) => {
     // Every bail-out below now names itself to the sender. The gates
@@ -69,6 +73,15 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     const roomId = normalizeRoomId(rawRoomId);
     const room = rooms[roomId];
     if (!room) return refuse('no-room');
+
+    // Optional for old clients. A present invalid precondition must never fall
+    // back to the unguarded legacy path. Check before ANY room mutation.
+    if ('base' in data || 'mutationId' in data) {
+      if (typeof data.base !== 'string' || !GAMEPLAY_TOKEN_PATTERN.test(data.base) ||
+          typeof data.mutationId !== 'string' || !GAMEPLAY_TOKEN_PATTERN.test(data.mutationId) ||
+          data.mutationId === data.base) return refuse('refused');
+      if (data.base !== room.gameplayToken) return refuse('stale-base');
+    }
 
     const isHost = room.host === socket.id;
     const activePlayer = room.state.currentPlayerIndex !== null
@@ -241,6 +254,10 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
       room.turnTimerState = idleTurnTimerState();
     }
 
+    // The server adopts the proposed next identity only after acceptance.
+    // Clients can chain optimistic actions without waiting for a round trip;
+    // a timeout, undo or rematch breaks that chain even if round/seat repeat.
+    if (applied) room.gameplayToken = typeof data.mutationId === 'string' ? data.mutationId : randomUUID();
     emitRoomState(io, roomId);
 
     // After the broadcast, so the version reported is the one the sender's own
@@ -249,7 +266,7 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     // bookkeeping above ran either way and the sender must re-derive from an
     // authoritative state; it is simply not reported as accepted.
     if (typeof ack === 'function') {
-      ack(applied ? { ok: true, stateVersion: room.stateVersion } : { ok: false, reason: 'stale-roster' });
+      ack(applied ? { ok: true, stateVersion: room.stateVersion, ...(data.base ? { gameplayToken: room.gameplayToken } : {}) } : { ok: false, reason: 'stale-roster' });
     }
   });
 
@@ -330,6 +347,7 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     // Broadcast BEFORE the ack: every other client has to see the same chain
     // the drawer is about to roll on, and the drawer's own gameState carries
     // the card as well — the ack is what lets it act without waiting.
+    room.gameplayToken = randomUUID();
     emitRoomState(io, roomId);
     answer({ ok: true, card });
   });

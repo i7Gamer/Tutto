@@ -49,12 +49,185 @@ describe('joinRoom vs a disconnect during its stats await', () => {
 
     // The disconnect lands while the handler is parked on the await…
     (socket as unknown as { connected: boolean }).connected = false;
+    handlers['disconnect']();
     releases.forEach(release => release());
 
     await vi.waitFor(() => expect(callback).toHaveBeenCalled());
     expect(callback).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
     // …and no ghost room exists afterwards.
     expect(rooms['GHOST-ROOM']).toBeUndefined();
+  });
+
+  it('does not seat a join canceled by an explicit leave', async () => {
+    const releases: Array<() => void> = [];
+    vi.mocked(getDeviceStats).mockImplementation(() =>
+      new Promise(resolve => { releases.push(() => resolve(null)); }));
+
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('leave-while-joining');
+    const session: ConnectionSession = { roomId: null, username: null };
+    registerRoomHandlers({ io, socket, session });
+
+    const callback = vi.fn();
+    handlers['joinRoom']({ roomId: 'CANCELED-JOIN-ROOM', name: 'Alice', deviceId: 'dev-canceled' }, callback);
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+
+    handlers['leaveRoom']();
+    releases.forEach(release => release());
+
+    await vi.waitFor(() => expect(callback).toHaveBeenCalled());
+    expect(callback).toHaveBeenCalledWith({ success: false, error: 'Join attempt superseded' });
+    expect(rooms['CANCELED-JOIN-ROOM']).toBeUndefined();
+    expect(session).toEqual({ roomId: null, username: null });
+  });
+
+  it('lets the newest join win when it resolves before the older join', async () => {
+    const releases: Array<() => void> = [];
+    vi.mocked(getDeviceStats).mockImplementation(() =>
+      new Promise(resolve => { releases.push(() => resolve(null)); }));
+
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('overlapping-joins');
+    const session: ConnectionSession = { roomId: null, username: null };
+    registerRoomHandlers({ io, socket, session });
+
+    const firstCallback = vi.fn();
+    const secondCallback = vi.fn();
+    handlers['joinRoom']({ roomId: 'OVERLAP-FIRST', name: 'Alice', deviceId: 'dev-first' }, firstCallback);
+    handlers['joinRoom']({ roomId: 'OVERLAP-SECOND', name: 'Bob', deviceId: 'dev-second' }, secondCallback);
+    await vi.waitFor(() => expect(releases).toHaveLength(4));
+
+    // Resolve the newer join first; the older continuation must then be stale
+    // regardless of which order its own reads eventually complete in.
+    releases[2]();
+    releases[3]();
+    await vi.waitFor(() => expect(secondCallback).toHaveBeenCalled());
+    releases[0]();
+    releases[1]();
+    await vi.waitFor(() => expect(firstCallback).toHaveBeenCalled());
+
+    expect(secondCallback).toHaveBeenCalledWith(expect.objectContaining({ success: true, roomId: 'OVERLAP-SECOND' }));
+    expect(firstCallback).toHaveBeenCalledWith({ success: false, error: 'Join attempt superseded' });
+    expect(rooms['OVERLAP-FIRST']).toBeUndefined();
+    expect(rooms['OVERLAP-SECOND']?.state.players.map(player => player.name)).toEqual(['Bob']);
+    expect(session).toMatchObject({ roomId: 'OVERLAP-SECOND', username: 'Bob' });
+  });
+
+  it('rejects an older join that resolves while the newer join is still pending', async () => {
+    const releases: Array<() => void> = [];
+    vi.mocked(getDeviceStats).mockImplementation(() =>
+      new Promise(resolve => { releases.push(() => resolve(null)); }));
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('older-resolves-first');
+    const session: ConnectionSession = { roomId: null, username: null };
+    registerRoomHandlers({ io, socket, session });
+    const firstCallback = vi.fn();
+    const secondCallback = vi.fn();
+    handlers['joinRoom']({ roomId: 'PENDING-FIRST', name: 'Alice', deviceId: 'dev-first' }, firstCallback);
+    const olderReads = releases.splice(0);
+    handlers['joinRoom']({ roomId: 'PENDING-SECOND', name: 'Bob', deviceId: 'dev-second' }, secondCallback);
+
+    olderReads.forEach(release => release());
+    await vi.waitFor(() => expect(firstCallback).toHaveBeenCalled());
+    expect(firstCallback).toHaveBeenCalledWith({ success: false, error: 'Join attempt superseded' });
+    expect(secondCallback).not.toHaveBeenCalled();
+    expect(Object.keys(rooms)).toEqual([]);
+    expect(socket.join).not.toHaveBeenCalled();
+    expect(session).toEqual({ roomId: null, username: null });
+
+    releases.forEach(release => release());
+    await vi.waitFor(() => expect(secondCallback).toHaveBeenCalled());
+    expect(secondCallback).toHaveBeenCalledWith(expect.objectContaining({ success: true, roomId: 'PENDING-SECOND' }));
+    expect(rooms['PENDING-SECOND'].state.players.map(player => player.name)).toEqual(['Bob']);
+    expect(rooms['PENDING-FIRST']).toBeUndefined();
+    expect(session).toMatchObject({ roomId: 'PENDING-SECOND', username: 'Bob' });
+  });
+
+  it.each([
+    { label: 'invalid', payload: { roomId: '', name: 'Bob', deviceId: 'dev-newer' }, code: 'invalid_room' },
+    { label: 'refused after its reads', payload: { roomId: 'GONE-NEWER', name: 'Bob', deviceId: 'dev-newer', isReconnect: true }, code: 'room-gone' },
+  ])('a $label newer join still invalidates the pending older join', async ({ payload, code }) => {
+    const releases: Array<() => void> = [];
+    vi.mocked(getDeviceStats).mockImplementation(() =>
+      new Promise(resolve => { releases.push(() => resolve(null)); }));
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('newer-join-refused');
+    const session: ConnectionSession = { roomId: null, username: null };
+    registerRoomHandlers({ io, socket, session });
+    const olderCallback = vi.fn();
+    handlers['joinRoom']({ roomId: 'STALE-OLDER', name: 'Alice', deviceId: 'dev-older' }, olderCallback);
+
+    vi.mocked(getDeviceStats).mockResolvedValue(null);
+    const newerCallback = await joinAndWait(handlers, payload);
+    expect(newerCallback).toHaveBeenCalledWith(expect.objectContaining({ success: false, code }));
+    expect(olderCallback).not.toHaveBeenCalled();
+    releases.forEach(release => release());
+    await vi.waitFor(() => expect(olderCallback).toHaveBeenCalled());
+
+    expect(olderCallback).toHaveBeenCalledWith({ success: false, error: 'Join attempt superseded' });
+    expect(Object.keys(rooms)).toEqual([]);
+    expect(socket.join).not.toHaveBeenCalled();
+    expect(session).toEqual({ roomId: null, username: null });
+  });
+
+  it('a canceled rejoin preserves the disconnected seat and its removal timer', async () => {
+    vi.mocked(getDeviceStats).mockResolvedValue(null);
+    const roomId = 'CANCELED-REJOIN';
+    const deviceId = 'dev-disconnected';
+    const { io } = makeFakeIo();
+    const original = makeFakeSocket('original-disconnected');
+    registerRoomHandlers({ io, socket: original.socket, session: { roomId: null, username: null } });
+    await joinAndWait(original.handlers, { roomId, name: 'Alice', deviceId });
+    const peer = makeFakeSocket('connected-peer');
+    registerRoomHandlers({ io, socket: peer.socket, session: { roomId: null, username: null } });
+    await joinAndWait(peer.handlers, { roomId, name: 'Bob', deviceId: 'dev-peer' });
+    (original.socket as unknown as { connected: boolean }).connected = false;
+    original.handlers['disconnect']();
+    const room = rooms[roomId];
+    const removalTimer = room.disconnectTimers[deviceId];
+    expect(removalTimer).toBeDefined();
+
+    try {
+      const releases: Array<() => void> = [];
+      vi.mocked(getDeviceStats).mockImplementation(() =>
+        new Promise(resolve => { releases.push(() => resolve(null)); }));
+      const replacement = makeFakeSocket('canceled-replacement');
+      const session: ConnectionSession = { roomId: null, username: null };
+      registerRoomHandlers({ io, socket: replacement.socket, session });
+      const callback = vi.fn();
+      replacement.handlers['joinRoom']({ roomId, name: 'Alice', deviceId, isReconnect: true }, callback);
+      replacement.handlers['leaveRoom']();
+      releases.forEach(release => release());
+      await vi.waitFor(() => expect(callback).toHaveBeenCalled());
+
+      expect(callback).toHaveBeenCalledWith({ success: false, error: 'Join attempt superseded' });
+      expect(room.state.players.map(player => [player.socketId, player.disconnected])).toEqual([
+        [original.socket.id, true], [peer.socket.id, false],
+      ]);
+      expect(room.disconnectTimers[deviceId]).toBe(removalTimer);
+      expect(replacement.socket.join).not.toHaveBeenCalled();
+      expect(session).toEqual({ roomId: null, username: null });
+    } finally {
+      deleteRoom(roomId);
+    }
+  });
+
+  it('completes a successful room switch after internally leaving the old room', async () => {
+    vi.mocked(getDeviceStats).mockResolvedValue(null);
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('switching-socket');
+    const session: ConnectionSession = { roomId: null, username: null };
+    registerRoomHandlers({ io, socket, session });
+    const identity = { name: 'Alice', deviceId: 'dev-switching' };
+    await joinAndWait(handlers, { roomId: 'SWITCH-OLD', ...identity });
+
+    const callback = await joinAndWait(handlers, { roomId: 'SWITCH-NEW', ...identity });
+
+    expect(callback).toHaveBeenCalledWith(expect.objectContaining({ success: true, roomId: 'SWITCH-NEW' }));
+    expect(rooms['SWITCH-OLD']).toBeUndefined();
+    expect(socket.leave).toHaveBeenCalledWith(roomChannel('SWITCH-OLD'));
+    expect(rooms['SWITCH-NEW'].state.players.map(player => player.socketId)).toEqual([socket.id]);
+    expect(session).toMatchObject({ roomId: 'SWITCH-NEW', username: 'Alice' });
   });
 
   it('still seats a socket that stayed connected across the await', async () => {

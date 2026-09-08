@@ -26,6 +26,9 @@ import { PLAYER_STAT_FIELDS, PLAYER_NUMERIC_FIELDS, PLAYER_RECORD_FIELDS } from 
 import type { RoomState, ServerPlayer } from './roomTypes';
 import { makeServerPlayer as makePlayer } from './socketTestHarness';
 import type { DiceSnapshot } from '../src/types';
+import { calculateNextTurn, calculateUndo } from '../src/utils/coreGameEngine';
+import { makeGameState } from '../src/testing/factories';
+import { serializePlayersForPush } from '../src/store/playerPushDto';
 
 const makeState = (playerNames: string[] = ['Alice', 'Bob']): RoomState => {
   const state = createRoom('sock-Alice').state;
@@ -39,6 +42,7 @@ const makeState = (playerNames: string[] = ['Alice', 'Bob']): RoomState => {
 const asHost = { isHost: true, startingGame: false, pusherName: null };
 const asActivePlayer = { isHost: false, startingGame: false, pusherName: 'Alice' };
 const asHostStarting = { isHost: true, startingGame: true, pusherName: null };
+const asActiveBob = { isHost: false, startingGame: false, pusherName: 'Bob' };
 
 describe('applyPushedState', () => {
   it('accepts every stat a player accumulates', () => {
@@ -791,6 +795,91 @@ describe('applyPushedState', () => {
 
       expect(state.players[0].highestTurnScore).toBe(3000);
       expect(state.players[0].mostCardsInTurn).toBe(5);
+    });
+
+    it('clears an absent record encoded as null for host and non-host undo pushes', () => {
+      const initial = makeGameState({
+        players: [
+          { ...makeGameState().players[0], name: 'Alice' },
+          { ...makeGameState().players[1], name: 'Bob' },
+        ],
+        currentPlayerIndex: 0,
+        currentCard: '200',
+        cards: ['300'],
+        initialCards: { '300': 1 },
+      });
+      const next = calculateNextTurn(initial, 1200, true);
+      const afterTurn = {
+        ...initial,
+        players: next.players,
+        currentPlayerIndex: next.nextIndex,
+        round: next.nextRound,
+        cards: next.newDeck,
+        currentCard: next.drawnCard,
+        previousCard: next.previousCard,
+        previousScore: next.previousScore,
+        previousLeaders: next.previousLeaders,
+        previousWasBust: next.previousWasBust,
+        previousWasSuccess: next.previousWasSuccess,
+        previousHighestTurnScore: next.previousHighestTurnScore,
+        previousHighestFeuerwerkTurnScore: next.previousHighestFeuerwerkTurnScore,
+        previousHighestX2TurnScore: next.previousHighestX2TurnScore,
+        previousPlayerName: next.previousPlayerName,
+        previousTurnSummary: next.previousTurnSummary,
+      };
+      const undo = calculateUndo(afterTurn);
+      expect(undo).not.toBeNull();
+      if (!undo) return;
+      expect(next.players[0].highestTurnScore).toBe(1200);
+      expect(undo.players[0].highestTurnScore).toBeUndefined();
+
+      const playersJson = JSON.parse(JSON.stringify(serializePlayersForPush(undo.players))) as Record<string, unknown>[];
+      const makeAfterTurnServerState = (): RoomState => {
+        const state = makeState();
+        state.currentPlayerIndex = 1;
+        state.currentCard = afterTurn.currentCard;
+        state.cards = afterTurn.cards;
+        state.round = afterTurn.round;
+        Object.assign(state.players[0], afterTurn.players[0]);
+        Object.assign(state.players[1], afterTurn.players[1]);
+        return state;
+      };
+
+      const hostState = makeAfterTurnServerState();
+      applyPushedState(hostState, {
+        currentPlayerIndex: undo.nextIndex,
+        previousCard: null,
+        players: playersJson,
+      }, asHost);
+      expect(hostState.players[0].highestTurnScore).toBeUndefined();
+
+      const activeState = makeAfterTurnServerState();
+      applyPushedState(activeState, {
+        currentPlayerIndex: undo.nextIndex,
+        previousCard: null,
+        players: playersJson,
+      }, asActiveBob);
+      expect(activeState.players[0].highestTurnScore).toBeUndefined();
+    });
+
+    it('does not let a non-host undo null an optional record on an unrelated seat', () => {
+      const state = makeState(['Alice', 'Bob', 'Carol']);
+      state.currentPlayerIndex = 1;
+      state.players[0].highestTurnScore = 700;
+      state.players[2].highestTurnScore = 900;
+
+      applyPushedState(state, {
+        currentPlayerIndex: 0,
+        previousCard: null,
+        players: [
+          { name: 'Alice', highestTurnScore: null },
+          { name: 'Bob' },
+          { name: 'Carol', highestTurnScore: null },
+        ],
+      }, asActiveBob);
+
+      expect(state.players[0].highestTurnScore).toBeUndefined();
+      expect(state.players[2].highestTurnScore).toBe(900);
     });
 
     it('rejects the whole players push when the pushed list has duplicate names (SERVER-PV-1)', () => {

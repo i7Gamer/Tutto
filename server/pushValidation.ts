@@ -555,6 +555,14 @@ const mergeMutable = (
       continue;
     }
     const v = p[f];
+    if (v === null && PLAYER_OPTIONAL_RECORDS.includes(f)) {
+      // A pushed null is the wire representation of the engine's
+      // "no record yet" value (undefined). Only optional record fields in the
+      // already-selected writable set may be deleted; null on any other field
+      // remains invalid and a foreign seat cannot use this branch to change it.
+      delete (updated as Record<string, unknown>)[f];
+      continue;
+    }
     if (f === 'color') {
       if (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) updated.color = v;
       // Same sanity cap as previousScore/previousHighestTurnScore below — these
@@ -573,8 +581,7 @@ const mergeMutable = (
       // Absent-existing reads as -Infinity, not 0: the probe above found no
       // legitimate undo push that ever needs to WRITE a still-absent field a
       // defined value under this grant (restoring a record to "no value yet"
-      // omits the key rather than sending a number, and the `!(f in p)` branch
-      // above already leaves that alone) — so there is no push this direction
+      // sends null, handled above) — so there is no push this direction
       // could wrongly refuse, while reading it as 0 would let an attacker plant
       // a first value on a record this seat has never touched.
       if (undoDirectionOnly && !PLAYER_CROSS_SEAT_MUTABLE.includes(f)

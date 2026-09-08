@@ -10,6 +10,9 @@ import { validateOnlineConfig } from './persistence';
 import { getSocket, setSocket } from './socketRef';
 import { REACTION_DISPLAY_MS } from '../utils/reactions';
 import { roomPhase } from '../utils/roomPhase';
+import { v4 as uuidv4 } from 'uuid';
+import { gameModeOf } from '../utils/statsApi';
+import { serializePlayersForPush } from './playerPushDto';
 import { SYNCED_GAME_STATE_KEYS } from '../types';
 import type {
   Reaction, CardType, DiceSnapshot, AssertNever, SyncedGameStateKey, DrawCardAck, PushStateAck,
@@ -53,7 +56,7 @@ export const clearRoomState = (): Pick<GameStore,
   | 'previousWasSuccess' | 'previousHighestTurnScore'
   | 'previousHighestFeuerwerkTurnScore' | 'previousHighestX2TurnScore'
   | 'previousPlayerName' | 'previousTurnSummary' | 'finishedGameSnapshot'
-  | 'lastAppliedStateVersion' | 'gameTimeInSeconds' | 'showReconnectPopup' | 'reactions'
+  | 'lastAppliedStateVersion' | 'gameplayToken' | 'finishedGameToken' | 'deviceStatsAcknowledgment' | 'gameTimeInSeconds' | 'showReconnectPopup' | 'reactions'
   | 'roomStateSynced' | 'justReconnected' | 'preGameStats' | 'gameStartTime'
 > => ({
   players: [],
@@ -95,6 +98,9 @@ export const clearRoomState = (): Pick<GameStore,
   // a floor carried out of the room just left would make the next room's whole
   // opening sequence look stale and be ignored.
   lastAppliedStateVersion: null,
+  gameplayToken: null,
+  finishedGameToken: null,
+  deviceStatsAcknowledgment: null,
   // startGame resets this to 0 before anything can read it again while a game
   // is running, but an abandoned room is not restarted — it is simply left.
   // Formerly kept (see FieldKeptOnLeave's history), on the theory that "no
@@ -183,22 +189,10 @@ let pendingCancelReconnectCleanup: (() => void) | null = null;
  * below) may be when that rejoin finally acks. Past it the park is dropped
  * unsent.
  *
- * Nothing else bounds the wait: socket.io-client retries forever, so a tab
- * suspended mid-turn can reconnect an hour later and flush a full-state
- * snapshot into a room that has long since moved on — or, since Play Again
- * resets the server's per-game stats dedup, get the finished game's stats
- * recorded against the NEXT one. A room only holds a disconnected seat for its
- * own kick timer, so past the DEFAULT one the rejoin doing the flushing is far
- * more likely to be a fresh seat than the one the emit was made for. Written
- * as that expression rather than a number so the two cannot drift apart.
- *
- * It NARROWS that window; it does not close it. Everything above is still
- * reachable inside the bound: the host drops, another player is promoted and
- * starts a new game, and the original host rejoins forty seconds later with a
- * park the server happily records against the game now running. Widening the
- * fix would mean carrying a game identity on the emit and having the server
- * check it, which is a protocol change; this is the cheap half of it, and the
- * remaining exposure is one kick-timer's worth rather than unbounded.
+ * socket.io-client retries forever. Keep the original age bound as a limit
+ * on recovery work and for older servers. Token-aware servers additionally
+ * reject a stale gameplay base or a different finished-game identity even
+ * INSIDE this window; age alone never proved that the move still belonged.
  *
  * flushParkedPush and flushParkedStats also evaluate the bound independently,
  * against their own park stamps, so the two halves of one finished game can
@@ -227,7 +221,18 @@ interface ParkedEmit<T> {
 interface PushStatePayload {
   roomId: string | null;
   newState: Record<SyncedGameStateKey, unknown>;
+  base?: string;
+  mutationId?: string;
 }
+
+// Ignore an intermediate echo while later optimistic actions still depend on it.
+const pendingMutationIds = new Set<string>();
+let pendingMutationBase: string | null = null;
+
+const clearPushPredictions = (): void => {
+  pendingMutationIds.clear();
+  pendingMutationBase = null;
+};
 
 /**
  * The one push that could not be sent, held until this client's rejoin lands.
@@ -248,6 +253,9 @@ let parkedPush: ParkedEmit<PushStatePayload> | null = null;
 // The single retry armed for a push refused as 'unauthorized' right after a
 // reconnect (see emitPushState). Held so every teardown path can cancel it.
 let pushRejoinRetryTimer: ReturnType<typeof setTimeout> | null = null;
+// Only a known rejoin-authorization refusal may coalesce a later snapshot
+// against this ancestor. Never rebase after an authoritative stale-base refusal.
+let pushRejoinRetryBase: string | undefined;
 
 // When this client last reconnected, or null if it has not. An 'unauthorized'
 // refusal within PUSH_REJOIN_RACE_WINDOW_MS of that is read as the rejoin race
@@ -299,6 +307,7 @@ export const clearRejoinWatchdog = (): void => {
  * lastReconnectAt (whose clearing means exactly that) must stay put.
  */
 const clearPendingPushRetry = (): void => {
+  pushRejoinRetryBase = undefined;
   if (pushRejoinRetryTimer !== null) {
     clearTimeout(pushRejoinRetryTimer);
     pushRejoinRetryTimer = null;
@@ -306,6 +315,7 @@ const clearPendingPushRetry = (): void => {
 };
 
 export const clearPendingPush = (): void => {
+  clearPushPredictions();
   parkedPush = null;
   clearPendingPushRetry();
   lastReconnectAt = null;
@@ -417,6 +427,7 @@ type StatsSubmitEvent = (typeof STATS_SUBMIT_EVENTS)[number];
 // explicitly, or a resend for a room this client already left would go out
 // from a socket that no longer holds that seat.
 type PendingStatsSubmit = {
+  onSuccess?: () => void;
   resendTimer: ReturnType<typeof setTimeout> | null;
   ackDeadline: ReturnType<typeof setTimeout> | null;
   // Bumped by every clearStatsSubmit — including the one an attempt's own
@@ -461,6 +472,7 @@ const clearStatsSubmit = (event: StatsSubmitEvent): void => {
   // server — its per-game dedup reset by the Play Again in between — records
   // the finished game's row against the new game.
   pending.parked = null;
+  pending.onSuccess = undefined;
 };
 
 /** Forgets every stats attempt this client still owes. */
@@ -472,13 +484,14 @@ type EndGameStatsPayload = {
   roomId: string | null;
   deviceId: string | null;
   stats: DeviceStatsPayload;
+  finishedGameToken?: string;
 };
 
 // No roomId: the server resolves the room from the session and ignores
 // whatever the wire payload claims (see submitGlobalStats in
 // server/socketStatsHandlers.ts). A field nobody reads only invites the next
 // reader to think it is authoritative.
-type GlobalStatsSubmission = { payload: GlobalStatsPayload };
+type GlobalStatsSubmission = { payload: GlobalStatsPayload; finishedGameToken?: string };
 
 /**
  * Sends one game's stats and resends them if the server lost the write.
@@ -522,7 +535,7 @@ const emitStatsSubmission = (
   const socket = getSocket();
   if (!socket) return;
   const pending = pendingStatsSubmits[event];
-  if (!socket.connected) {
+  if (!socket.connected || parkedPush !== null) {
     // Parked BEFORE the ack deadline is armed: nothing is in flight to answer
     // it, so arming one here would burn this submission's whole retry budget
     // against a socket that cannot carry it.
@@ -535,16 +548,19 @@ const emitStatsSubmission = (
   // longer owns from one still live, even though those cancellations can
   // reach the timers but never this closure.
   const epoch = pending.epoch;
+  const onSuccess = pending.onSuccess;
 
   // Whichever arrives first — the ack or the deadline — settles this attempt;
   // a late ack after the deadline has already armed a resend must not arm a
   // second one, and neither may fire once this attempt's epoch is stale.
   let settled = false;
-  const settle = (resend: boolean): void => {
+  const settle = (resend: boolean, success = false): void => {
     if (settled || pending.epoch !== epoch) return;
     settled = true;
     clearStatsSubmit(event);
+    if (success) onSuccess?.();
     if (!resend || attempt >= STATS_SUBMIT_MAX_ATTEMPTS) return;
+    pending.onSuccess = onSuccess;
     pending.resendTimer = setTimeout(() => {
       pending.resendTimer = null;
       // Carrying this attempt's stamp, for the same reason flushParkedStats
@@ -564,7 +580,7 @@ const emitStatsSubmission = (
   pending.ackDeadline = setTimeout(() => settle(true), STATS_SUBMIT_ACK_TIMEOUT_MS);
 
   socket.emit(event, payload, (ack?: StatsSubmitAck) => {
-    settle(ack !== undefined && !ack.ok && isRetryableStatsRefusal(ack.reason));
+    settle(ack !== undefined && !ack.ok && isRetryableStatsRefusal(ack.reason), ack?.ok === true);
   });
 };
 
@@ -584,7 +600,7 @@ const submitGlobalStats = (get: SocketSliceGet): void => {
   clearStatsSubmit('submitGlobalStats');
   emitStatsSubmission(
     'submitGlobalStats',
-    { payload: get().buildGlobalStatsPayload() },
+    { payload: get().buildGlobalStatsPayload(), ...(get().finishedGameToken ? { finishedGameToken: get().finishedGameToken! } : {}) },
     FIRST_STATS_ATTEMPT,
   );
 };
@@ -604,10 +620,9 @@ const submitGlobalStats = (get: SocketSliceGet): void => {
  *    seatTakenOver handlers give it up (see surrenderSeat), rather than the
  *    player being left in a room that does not exist, where every action
  *    silently does nothing.
- *  - 'rate-limited' says nothing is wrong with what this client is holding —
- *    it is simply pushing faster than the limiter allows, and the next
- *    legitimate push lands normally. A toast per dropped push would be a burst
- *    of alarming noise, and a requestState per dropped push feeds the flood.
+ *  - 'rate-limited' stays quiet. A token-aware prediction still needs a
+ *    resync: its proposed identity was not accepted, so later actions cannot
+ *    depend on it. Legacy pushes retain their existing silent behavior.
  *  - anything else — and a second 'unauthorized' — is a push the room has
  *    genuinely thrown away. The player is told, and a fresh snapshot is pulled
  *    so the client stops rendering a turn the room never accepted.
@@ -626,13 +641,18 @@ const emitPushState = (
 ): void => {
   sock.emit('pushState', payload, (ack?: PushStateAck) => {
     if (!ack || ack.ok) return;
+    // A newer authoritative state has already superseded this prediction.
+    // Its late refusal must not tear down a newer room or cancel new actions.
+    if (payload.mutationId && !pendingMutationIds.has(payload.mutationId)) return;
 
     const racedOwnRejoin = ack.reason === 'unauthorized' && retryable &&
       lastReconnectAt !== null && Date.now() - lastReconnectAt <= PUSH_REJOIN_RACE_WINDOW_MS;
     if (racedOwnRejoin) {
       if (pushRejoinRetryTimer !== null) clearTimeout(pushRejoinRetryTimer);
+      pushRejoinRetryBase = payload.base;
       pushRejoinRetryTimer = setTimeout(() => {
         pushRejoinRetryTimer = null;
+        pushRejoinRetryBase = undefined;
         const current = getSocket();
         // Connected, not merely present. This retry is armed for a flaky
         // reconnect, so the transport dropping again inside its delay is the
@@ -661,7 +681,15 @@ const emitPushState = (
       return;
     }
 
-    if (ack.reason === 'rate-limited') return;
+    if (ack.reason === 'rate-limited') {
+      if (payload.mutationId) {
+        clearPushPredictions();
+        getSocket()?.emit('requestState', { roomId: payload.roomId });
+      }
+      return;
+    }
+
+    clearPushPredictions();
 
     get().addToast(i18n.t('game.toastPushRefused',
       'Your last move was not accepted by the server; the game state was refreshed.'));
@@ -691,8 +719,10 @@ const flushParkedPush = (get: SocketSliceGet): void => {
   const parked = parkedPush;
   parkedPush = null;
   if (!parked) return;
-  if (Date.now() - parked.parkedAt > PARKED_EMIT_MAX_AGE_MS) return;
-  if (parked.payload.roomId !== get().roomId) return;
+  if (Date.now() - parked.parkedAt > PARKED_EMIT_MAX_AGE_MS || parked.payload.roomId !== get().roomId) {
+    clearPushPredictions();
+    return;
+  }
   const sock = getSocket();
   if (!sock) return;
   if (!sock.connected) {
@@ -787,6 +817,29 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     const floor = get().lastAppliedStateVersion;
     if (typeof incomingVersion === 'number' && floor !== null && incomingVersion < floor) return;
 
+    const incomingToken = serverState.gameplayToken;
+    if (pendingMutationIds.size > 0 && incomingToken === pendingMutationBase) {
+      // Presence can broadcast the unchanged ancestor while our move is in
+      // flight. It is not an authoritative gameplay correction.
+      if (typeof incomingVersion === 'number') set({ lastAppliedStateVersion: incomingVersion });
+      return;
+    }
+    if (typeof incomingToken === 'string' && pendingMutationIds.has(incomingToken)) {
+      // Socket order makes this an accepted prefix of our optimistic chain.
+      for (const id of pendingMutationIds) {
+        pendingMutationIds.delete(id);
+        if (id === incomingToken) break;
+      }
+      if (pendingMutationIds.size > 0) {
+        pendingMutationBase = incomingToken;
+        if (typeof incomingVersion === 'number') set({ lastAppliedStateVersion: incomingVersion });
+        return;
+      }
+      pendingMutationBase = null;
+    } else {
+      clearPushPredictions();
+    }
+
     const wasFinished = get().finished;
     set((prev) => {
       const wasDisconnected = prev.showReconnectPopup;
@@ -844,6 +897,9 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
         if (key in serverState) (prev as Record<string, unknown>)[key] = serverState[key];
       }
       if (typeof incomingVersion === 'number') prev.lastAppliedStateVersion = incomingVersion;
+      prev.gameplayToken = typeof incomingToken === 'string' ? incomingToken : null;
+      prev.finishedGameToken = serverState.finishedGameToken ?? null;
+      if (!prev.finished) prev.deviceStatsAcknowledgment = null;
 
       const isNewReconnect = wasDisconnected && serverState.status === 'playing';
       if (isNewReconnect) {
@@ -1255,6 +1311,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           set({
             roomId: canonicalRoomId, isHost: res.isHost ?? false, myName: seatedName,
             mode: 'online', isOnline: true, lastAppliedStateVersion: null,
+            gameplayToken: null, finishedGameToken: null, deviceStatsAcknowledgment: null,
           });
           sessionStore.write(ONLINE_SESSION_KEY, JSON.stringify({ roomId: canonicalRoomId, myName: seatedName }));
 
@@ -1374,11 +1431,10 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     });
   }),
 
-  pushState: () => {
-    // A newer full snapshot supersedes any retry still queued for an older
-    // one (see clearPendingPushRetry) — otherwise that stale resend can land
-    // AFTER this push and the server, which tracks no version for pushState
-    // payloads by design, would apply it right over the top.
+  pushState: (base) => {
+    // Keep the legacy retry behavior; token-aware pushes additionally carry
+    // the authoritative ancestor captured before the caller's local mutation.
+    const retryBase = pushRejoinRetryBase;
     clearPendingPushRetry();
     const s = get();
     const socket = getSocket();
@@ -1395,7 +1451,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       const payload: PushStatePayload = {
         roomId: s.roomId,
         newState: {
-          players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
+          players: serializePlayersForPush(players), currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
           randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
           previousScore, previousCard, previousLeaders, previousWasBust, previousWasSuccess,
           previousHighestTurnScore,
@@ -1415,12 +1471,21 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         } satisfies Record<SyncedGameStateKey, unknown>,
       };
 
+      const baseToken = base === undefined ? s.gameplayToken : base;
+      if (baseToken) {
+        payload.base = parkedPush?.payload.base ?? retryBase ?? baseToken;
+        payload.mutationId = uuidv4();
+        if (pendingMutationIds.size === 0) pendingMutationBase = payload.base;
+        pendingMutationIds.add(payload.mutationId);
+        set({ gameplayToken: payload.mutationId, ...(s.finished ? { finishedGameToken: payload.mutationId } : {}) });
+      }
+
       // Park rather than let socket.io buffer it — see parkedPush for why
       // the library's own buffering is the bug and not the fix. Stamped so
       // the flush can tell a snapshot worth sending from one the room has
       // long since moved past (PARKED_EMIT_MAX_AGE_MS).
-      if (!socket.connected) {
-        parkedPush = { payload, parkedAt: Date.now() };
+      if (!socket.connected || parkedPush !== null) {
+        parkedPush = { payload, parkedAt: parkedPush?.parkedAt ?? Date.now() };
         return;
       }
       emitPushState(socket, payload, get, true);
@@ -1442,9 +1507,18 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     // seatless one either — same reason pushState clears its own retry first.
     clearPendingStatsSubmit();
     if (stats && socket) {
+      const submissionId = uuidv4();
+      const snapshot = s.finishedGameSnapshot;
+      const mode = gameModeOf(s, s.ruleset);
+      pendingStatsSubmits.endGameStats.onSuccess = () => {
+        const current = get();
+        if (!s.deviceId || current.deviceId !== s.deviceId || current.roomId !== s.roomId ||
+            !current.isOnline || !current.finished || current.finishedGameSnapshot !== snapshot) return;
+        set({ deviceStatsAcknowledgment: { deviceId: s.deviceId, mode, submissionId } });
+      };
       emitStatsSubmission(
         'endGameStats',
-        { roomId: s.roomId, deviceId: s.deviceId, stats },
+        { roomId: s.roomId, deviceId: s.deviceId, stats, ...(s.finishedGameToken ? { finishedGameToken: s.finishedGameToken } : {}) },
         FIRST_STATS_ATTEMPT,
       );
     }

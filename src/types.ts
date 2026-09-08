@@ -339,6 +339,8 @@ export const PUSH_REFUSAL_REASONS = [
   // The snapshot describes a table that no longer exists (applyPushedState's
   // whole-push roster bail-out).
   'stale-roster',
+  // The gameplay the move was based on has already changed.
+  'stale-base',
   // The payload itself was not a usable pushState.
   'refused',
   // No such room (deleted while the push was in flight).
@@ -354,7 +356,7 @@ export type PushRefusalReason = (typeof PUSH_REFUSAL_REASONS)[number];
  * A client that passes none (an older one) is served exactly as before.
  */
 export type PushStateAck =
-  | { ok: true; stateVersion: number }
+  | { ok: true; stateVersion: number; gameplayToken?: string }
   | { ok: false; reason: PushRefusalReason };
 
 /**

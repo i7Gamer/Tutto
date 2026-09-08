@@ -13,8 +13,8 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      # The SQLite database (see DB_PATH in the image). Back Tutto up by
-      # copying stats.db out of this volume.
+      # The SQLite database uses WAL. Stop Tutto before copying stats.db,
+      # or use the README's online VACUUM INTO backup procedure.
       - tutto-data:/data
     environment:
       # REQUIRED. Guards the admin HTTP endpoints (POST /api/stats/*); players

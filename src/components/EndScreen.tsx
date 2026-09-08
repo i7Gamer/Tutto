@@ -90,6 +90,7 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
     winningScore: state.winningScore,
     initialCards: state.initialCards,
     ruleset: state.ruleset,
+    deviceStatsAcknowledgment: state.deviceStatsAcknowledgment,
   })));
   const { players, round, gameTimeInSeconds, startGame, endGame, chartLabels, chartNames, chartValues, leaveRoom, myName, preGameStats } = game;
 
@@ -118,6 +119,14 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
   // presented as the player's record.
   const gameMode = gameModeOf({ winningScore: game.winningScore, initialCards: game.initialCards }, game.ruleset);
   const isCustomGame = isCustomGameMode(gameMode);
+  // A successful device submission proves this bucket has changed, even when
+  // the first fetch already accepted a positive total from an earlier game.
+  // Ignore acknowledgments for another device or bucket: they must not spend a
+  // request or replace the numbers this end screen is presenting.
+  const matchingStatsAcknowledgment = game.deviceStatsAcknowledgment?.deviceId === deviceId
+    && game.deviceStatsAcknowledgment.mode === gameMode
+    ? game.deviceStatsAcknowledgment.submissionId
+    : undefined;
 
   // "Did I set a new personal record this game?" — compared against the
   // snapshot fetched when the game STARTED (game.preGameStats, see Game.tsx),
@@ -171,7 +180,7 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
   // gamesPlayed > 0, wasting requests and time for nothing.
   const { stats: deviceStats } = useDeviceStats<DeviceStats>(
     deviceId, gameMode,
-    { enabled: game.isOnline, retry: LIFETIME_STATS_RETRY },
+    { enabled: game.isOnline, retry: LIFETIME_STATS_RETRY, refreshKey: matchingStatsAcknowledgment },
   );
 
   // Fires once per mount (EndScreen only mounts when a game just finished —

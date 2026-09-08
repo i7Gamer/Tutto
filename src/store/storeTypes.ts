@@ -93,6 +93,9 @@ export interface GameStore extends CoreGameState {
   // which is where every join and every leave puts it: a new room's versions
   // start over at zero, and a floor carried across would ignore all of them.
   lastAppliedStateVersion: number | null;
+  gameplayToken: string | null;
+  finishedGameToken: string | null;
+  deviceStatsAcknowledgment: { deviceId: string; mode: import('../types').GameMode; submissionId: string } | null;
   toasts: Toast[];
   reactions: Reaction[];
   diceMode: DiceMode;
@@ -190,7 +193,7 @@ export interface GameStore extends CoreGameState {
   leaveRoom: () => void;
   kickPlayer: (targetSocketId: string) => void;
   setLiveTurnState: (snapshot: DiceSnapshot | null) => void;
-  pushState: () => void;
+  pushState: (base?: string | null) => void;
   pushLiveTurnState: (snapshot: DiceSnapshot | null) => void;
   // Asks the SERVER for the next card of a classic chain and resolves what it
   // dealt, or null if it dealt nothing (refused, or no answer at all). Online

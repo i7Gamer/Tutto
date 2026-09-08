@@ -166,6 +166,9 @@ export default function Game() {
   const [scoreInput, setScoreInput] = useState(() => (classicPhysical ? readPhysicalChainCache(physicalTurnKey)?.scoreInput : null) ?? '');
   const [applyBonus, setApplyBonus] = useState(false);
   const [showDiceGame, setShowDiceGame] = useState(false);
+  // Declared before the turn-slot reset below because an external turn advance
+  // must dismiss this confirmation in the same render that adopts the new turn.
+  const [pendingBustConfirm, setPendingBustConfirm] = useState(false);
   // The physical counterpart of the digital panel's onStateChange (wired at
   // the bottom of this file). Straight to pushLiveTurnState rather than
   // setLiveTurnState: that one also writes the DIGITAL resume cache, and a
@@ -203,6 +206,7 @@ export default function Game() {
     setPrevTurnSlot(turnSlot);
     if (scoreInput !== '') setScoreInput('');
     if (applyBonus) setApplyBonus(false);
+    if (pendingBustConfirm) setPendingBustConfirm(false);
   }
   // D-15: the CARD_FLIP_MS gate hides the NEXT render, but the exiting
   // AnimatePresence node (GameControls' whole input-controls panel) keeps its
@@ -346,6 +350,7 @@ export default function Game() {
   const stopCardCountdown = useStopCardAutoContinue({
     currentCard,
     cardsLength: cards?.length,
+    turnSlot,
     isOnline,
     isMyTurn: !!isMyTurn,
     showDiceGame,
@@ -394,8 +399,6 @@ export default function Game() {
   // on the SAME parsedScore commitNextTurn would use, not on scoreInput's raw
   // text, so a bonus-checkbox-only submit (parses to 0 before the bonus is
   // even considered) is caught the same way a truly empty box is.
-  const [pendingBustConfirm, setPendingBustConfirm] = useState(false);
-
   const handleNextTurn = useCallback(() => {
     if (!isClassic && effectiveDiceMode === 'physical' && parseScoreInput(scoreInput) === 0) {
       setPendingBustConfirm(true);
