@@ -121,8 +121,15 @@ describe('chooseBotSelection', () => {
       expect(chooseBotSelection(otto({ currentCard: 'Kniffel', rollVals: [3, 1, 2, 6, 6, 4] }))).toEqual([1, 2, 0, 5]);
     });
 
-    it('keeps every scoring die on Feuerwerk for now', () => {
-      expect(chooseBotSelection(otto({ currentCard: 'Feuerwerk', rollVals: [1, 5, 2, 3, 4, 6] }))).toEqual([0, 1]);
+    it('keeps only the 1 on a fresh modernized Feuerwerk, where the turn ends only on a bust', () => {
+      // 100 and five dice still earning beats 150 and four (610 against 527).
+      expect(chooseBotSelection(otto({ currentCard: 'Feuerwerk', rollVals: [1, 5, 2, 3, 4, 6] }))).toEqual([0]);
+      // Three kept: the 1 and the 5 together leave one die, which tuttos one time in three.
+      expect(chooseBotSelection(otto({ currentCard: 'Feuerwerk', keptCount: 3, rollVals: [1, 5, 3] }))).toEqual([0, 1]);
+    });
+
+    it('keeps every scoring die on a classic Feuerwerk, where the keep is forced', () => {
+      expect(chooseBotSelection(otto({ currentCard: 'Feuerwerk', ruleset: 'classic', rollVals: [1, 5, 2, 3, 4, 6] }))).toEqual([0, 1]);
     });
 
     it('only ever keeps a valid subset of what the rules allow', () => {

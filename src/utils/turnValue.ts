@@ -22,7 +22,9 @@ import { DIE_FACES, TOTAL_DICE } from './turnShapes';
  *    on offer, a tutto ending the turn with its bonus applied;
  *  - Plus/Minus, Kleeblatt and Kniffel: the probability of FINISHING — the
  *    dice are worth nothing, only the tutto (or the straight) pays;
- *  - Feuerwerk: one roll deep still (slice 2 of the plan gives it its own).
+ *  - Feuerwerk: the expected total before the bust, since nothing is ever
+ *    banked by choice there — a fixed point, because a tutto rolls six
+ *    fresh dice and the six-dice gain is defined in terms of itself.
  *
  * Every keep's validity and score comes from diceLogic's own helpers, so the
  * arithmetic here can never disagree with the table's; rolls are enumerated as
@@ -268,8 +270,8 @@ export const holdValue = (bank: number, dice: number, card: CardType | null, rul
 
 /**
  * The one-roll plan Otto used to price everything with: survive the next
- * roll, keep the most, bank. Kept for Feuerwerk until slice 2, and as the
- * floor every deeper value must clear (turnValue.test.ts).
+ * roll, keep the most, bank. Kept as the floor every deeper value must
+ * clear (turnValue.test.ts).
  */
 export const onePlyValue = (
   bank: number,
@@ -283,6 +285,67 @@ export const onePlyValue = (
     if (!bust) sum += multiplicity * (bank + maxKeepScore);
   }
   return sum / outcomeSpace(dice);
+};
+
+/**
+ * The six-dice gain is a contraction of itself (some roll eventually busts,
+ * and only a tutto's share of the outcomes refers back to it), so plain
+ * iteration converges — about twenty rounds to this tolerance. The cap is
+ * a guard against a loop, not a limit anyone expects to reach; past it the
+ * last iterate is used rather than a throw inside a render.
+ */
+export const FEUERWERK_FIXED_POINT_EPSILON = 1e-9;
+export const FEUERWERK_FIXED_POINT_MAX_ITERATIONS = 200;
+
+// Classic Feuerwerk forces getMaxValidSelection's keep (diceTurnControls'
+// withForcedFeuerwerkSelection): of the legal keeps, the one with every
+// scoring die — the only one with the most dice.
+const feuerwerkChoices = (keeps: Keep[], ruleset: Ruleset): Keep[] => {
+  if (ruleset !== 'classic') return keeps;
+  const most = Math.max(...keeps.map(k => k.dice));
+  return keeps.filter(k => k.dice === most);
+};
+
+/** The gains from one to six dice, given a guess at what six fresh dice earn. */
+const feuerwerkGainsGiven = (sixDice: number, ruleset: Ruleset): number[] => {
+  const gains = new Array<number>(TOTAL_DICE + 1).fill(0);
+  for (let dice = 1; dice <= TOTAL_DICE; dice++) {
+    let sum = 0;
+    for (const { multiplicity, bust, keeps } of tableOutcomes(dice, 'Feuerwerk', [], ruleset)) {
+      if (bust) continue;
+      let best = 0;
+      for (const keep of feuerwerkChoices(keeps, ruleset)) {
+        const worth = keep.score + (keep.dice === dice ? sixDice : gains[dice - keep.dice]);
+        if (worth > best) best = worth;
+      }
+      sum += multiplicity * best;
+    }
+    gains[dice] = sum / outcomeSpace(dice);
+  }
+  return gains;
+};
+
+const feuerwerkGains = new Map<Ruleset, number[]>();
+
+/**
+ * What `dice` dice still earn on a Feuerwerk before the bust, on top of
+ * whatever is in hand: no Stop is ever offered, a bust keeps everything
+ * earned so far, and a tutto rolls six again with no bonus. Modernized, the
+ * keep is free and the best one is taken; classic, it is forced.
+ */
+export const feuerwerkGain = (dice: number, ruleset: Ruleset): number => {
+  let gains = feuerwerkGains.get(ruleset);
+  if (!gains) {
+    let sixDice = 0;
+    gains = feuerwerkGainsGiven(sixDice, ruleset);
+    for (let round = 0; round < FEUERWERK_FIXED_POINT_MAX_ITERATIONS
+      && Math.abs(gains[TOTAL_DICE] - sixDice) > FEUERWERK_FIXED_POINT_EPSILON; round++) {
+      sixDice = gains[TOTAL_DICE];
+      gains = feuerwerkGainsGiven(sixDice, ruleset);
+    }
+    feuerwerkGains.set(ruleset, gains);
+  }
+  return gains[dice];
 };
 
 /** What the value of a table depends on beyond the dice: the card, the rules and the standings a Kleeblatt win is measured in. */
@@ -322,7 +385,7 @@ export const continuationValue = (ctx: ValueContext, bank: number, dice: number,
       return completionProbability(dice, ctx.card, [], ctx.ruleset) * secondTuttoOdds(ctx)
         * kleeblattWinValue(bank, ctx.myScore, ctx.winningScore);
     case 'Feuerwerk':
-      return onePlyValue(bank, dice, ctx.card, progress, ctx.ruleset);
+      return bank + feuerwerkGain(dice, ctx.ruleset);
     default:
       return rollOnValue(bank, dice, ctx.card, ctx.ruleset);
   }

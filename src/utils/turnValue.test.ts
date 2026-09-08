@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   diceCounts, legalKeeps, rollOutcomes, tableOutcomes, completionProbability, rollOnValue,
-  continuationValue, tuttoValue, kleeblattWinValue, keepIndices, onePlyValue,
+  continuationValue, tuttoValue, kleeblattWinValue, keepIndices, onePlyValue, feuerwerkGain,
   type Keep, type ValueContext,
 } from './turnValue';
 import { checkValidityAndScore, isBust } from './diceLogic';
@@ -248,8 +248,46 @@ describe('continuationValue', () => {
     expect(continuationValue(vctx({ card: 'Kleeblatt', tuttosThisTurn: 1 }), 0, 2, [])).toBeCloseTo(p2 * win, 10);
   });
 
-  it('still prices Feuerwerk one roll deep', () => {
-    expect(continuationValue(vctx({ card: 'Feuerwerk' }), 300, 1, [])).toBe(onePlyValue(300, 1, 'Feuerwerk', [], 'modernized'));
+  it('prices Feuerwerk by the bank plus what the dice will still earn before the bust', () => {
+    expect(continuationValue(vctx({ card: 'Feuerwerk' }), 300, 1, [])).toBe(300 + feuerwerkGain(1, 'modernized'));
+    expect(continuationValue(vctx({ card: 'Feuerwerk', ruleset: 'classic' }), 300, 4, [])).toBe(300 + feuerwerkGain(4, 'classic'));
+  });
+});
+
+describe('feuerwerkGain', () => {
+  // On a Feuerwerk nothing is ever banked by choice: the dice roll until
+  // they bust and everything earned before that stays. So the gain from
+  // `dice` dice is a plain expectation with one twist — a tutto rolls six
+  // fresh dice, so the six-dice gain is defined in terms of itself.
+  it('satisfies the one-die relation: a 1 or a 5 completes the tutto and rolls six fresh dice', () => {
+    const six = feuerwerkGain(TOTAL_DICE, 'modernized');
+    expect(feuerwerkGain(1, 'modernized')).toBeCloseTo((100 + six + 50 + six) / 6, 6);
+  });
+
+  it('satisfies the two-dice relation by hand', () => {
+    // 36 ordered rolls: 1-1, 1-5 twice and 5-5 keep both and tutto (200,
+    // 150, 150, 100 plus the six-dice gain); a lone 1 or a lone 5 beside a
+    // blank (8 rolls each) keeps it and rolls the other die; 16 bust.
+    const six = feuerwerkGain(TOTAL_DICE, 'modernized');
+    const one = feuerwerkGain(1, 'modernized');
+    expect(feuerwerkGain(2, 'modernized')).toBeCloseTo((1800 + 4 * six + 16 * one) / 36, 6);
+  });
+
+  it('is not monotone either: one die, which tuttos one time in three, out-earns two', () => {
+    expect(feuerwerkGain(1, 'modernized')).toBeGreaterThan(feuerwerkGain(2, 'modernized'));
+    expect(feuerwerkGain(TOTAL_DICE, 'modernized')).toBeGreaterThan(feuerwerkGain(5, 'modernized'));
+  });
+
+  it('is never higher under classic rules, where every scoring die must be kept', () => {
+    for (let dice = 1; dice <= TOTAL_DICE; dice++) {
+      expect(feuerwerkGain(dice, 'classic')).toBeLessThanOrEqual(feuerwerkGain(dice, 'modernized') + 1e-9);
+    }
+    expect(feuerwerkGain(TOTAL_DICE, 'classic')).toBeLessThan(feuerwerkGain(TOTAL_DICE, 'modernized'));
+  });
+
+  it('is what a forced keep earns on its own: the classic one-die relation holds too', () => {
+    const six = feuerwerkGain(TOTAL_DICE, 'classic');
+    expect(feuerwerkGain(1, 'classic')).toBeCloseTo((100 + six + 50 + six) / 6, 6);
   });
 });
 

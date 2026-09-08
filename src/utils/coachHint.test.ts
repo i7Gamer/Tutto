@@ -76,6 +76,15 @@ describe('coachHint', () => {
     expect(hint!.bank).toBe(100);
   });
 
+  it('advises the lone 1 on a modernized Feuerwerk as well, with a bust risk and no bank to compare', () => {
+    const hint = coachHint(input({ currentCard: 'Feuerwerk' }));
+    expect(hint).not.toBeNull();
+    expect(hint!.keep).toEqual([1]);
+    expect(hint!.action).toBe('roll');
+    expect(hint!.bustPercent).not.toBeNull();
+    expect(hint!.rollValue).toBeNull();
+  });
+
   it('advises keeping the 1 alone on a fresh 1-5 table, and flags a Select-all tap', () => {
     // 1 5 2 2 3 4 on a 200 card with nothing banked: the lone 1 with five
     // dice to roll is worth more than the 1 and the 5 with four

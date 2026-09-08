@@ -118,11 +118,11 @@ const VALUE_TIE_EPSILON = 1e-9;
 /**
  * Otto's keep: of every valid selection of the table, the one the rest of the
  * turn is worth most with — banked now if Stop is on offer for it, or rolled
- * on, whichever is more (turnValue.ts). A Kniffel has one legal keep, and
- * Feuerwerk is still priced one roll deep (slice 2), so both keep the most.
+ * on, whichever is more (turnValue.ts). A Kniffel has one legal keep and a
+ * classic Feuerwerk's is forced, so both keep the most.
  */
 const bestKeep = (ctx: BotTurnContext): number[] => {
-  if (ctx.currentCard === 'Kniffel' || ctx.currentCard === 'Feuerwerk') return maxKeep(ctx);
+  if (ctx.currentCard === 'Kniffel' || (ctx.currentCard === 'Feuerwerk' && ctx.ruleset === 'classic')) return maxKeep(ctx);
   const value = valueContext(ctx);
   // Whether a keep that does NOT complete the table could be banked: the
   // panel's own rule (never on Feuerwerk, only a tutto on a special card).
