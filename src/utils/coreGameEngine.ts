@@ -10,6 +10,7 @@ import type {
   HistoryEventType,
   TurnSummary,
   TurnCardPlayed,
+  Ruleset,
 } from '../types';
 import { isSpecialCard } from './diceTurnControls';
 // Re-exported below: buildGlobalStatsPayload/buildDeviceStatsPayload live in
@@ -38,6 +39,43 @@ export const fixedCardAward = (card: CardType | null): number => {
   if (card === 'Kniffel') return KNIFFEL_SCORE;
   if (card === 'Plus_Minus') return PLUS_MINUS_SCORE;
   return 0;
+};
+
+/**
+ * Apply one successful Plus/Minus deduction to score values only.
+ *
+ * The acting player's score is never changed by this helper. Classic uses the
+ * score held before the card only while deciding who is tied for the lead;
+ * modernized deliberately ignores that value. The caller owns counters,
+ * snapshots and history, which need player identities rather than numbers.
+ */
+export const applyPlusMinusScores = (
+  scores: readonly number[],
+  actingIndex: number,
+  scoreBeforeCard: number,
+  ruleset: Ruleset,
+): number[] => {
+  const result = [...scores];
+  if (!Number.isInteger(actingIndex) || actingIndex < 0 || actingIndex >= scores.length) return result;
+
+  const leaderScores = scores.map((score, index) => (
+    ruleset === 'classic' && index === actingIndex ? score + scoreBeforeCard : score
+  ));
+  const highest = Math.max(...leaderScores);
+  const leaders = leaderScores
+    .map((score, index) => score === highest ? index : -1)
+    .filter(index => index >= 0);
+
+  if (ruleset !== 'classic' && leaders.includes(actingIndex)) return result;
+  for (const leader of leaders) {
+    if (leader === actingIndex) continue;
+    if (ruleset === 'classic') {
+      result[leader] = Math.max(0, result[leader] - PLUS_MINUS_SCORE);
+    } else {
+      result[leader] -= PLUS_MINUS_SCORE;
+    }
+  }
+  return result;
 };
 
 // How a per-turn record a player has not set yet is carried in the pre-turn
@@ -308,31 +346,24 @@ const applyClassicPlusMinus = (
   // because it cannot be recomputed later — once the scores have moved,
   // nothing left in the entry says whether the floor swallowed part of it.
   const deductedAmounts: number[] = [];
+  const actingIndex = newPlayers.findIndex(p => p.name === currentPlayer.name);
 
   for (const scoreBeforeCard of turnSummary.plusMinusScores) {
-    const asOfThisCard = newPlayers.map(p => (
-      p.name === currentPlayer.name ? { ...p, score: p.score + scoreBeforeCard } : p
-    ));
-    const victims = getLeaders(asOfThisCard).filter(l => l.name !== currentPlayer.name);
-    victims.forEach(l => {
-      const p = newPlayers.find(np => np.name === l.name);
-      if (!p) return;
-      // Official rule: "a player can never have less than 0 points" —
-      // clamped here (classic) only; the modernized path keeps its
-      // long-standing negative-scores behavior.
-      const clamped = Math.max(0, p.score - PLUS_MINUS_SCORE);
+    const beforeScores = newPlayers.map(p => p.score);
+    const afterScores = applyPlusMinusScores(beforeScores, actingIndex, scoreBeforeCard, 'classic');
+    afterScores.forEach((score, index) => {
+      const p = newPlayers[index];
       // A leader already sitting on 0 loses nothing, and an untouched score
-      // is not a deduction to record, display or undo. This is not
-      // hypothetical: before anyone has scored, EVERY player is tied on 0,
-      // so the game's first Plus/Minus would otherwise report the whole
-      // table as deducted while changing nobody's score.
-      if (clamped === p.score) return;
+      // is not a deduction to record, display or undo. Preserve the legacy
+      // transition behavior for malformed negative starting scores: flooring
+      // them to 0 is still recorded as a deduction when the value changes.
+      if (score === beforeScores[index]) return;
       // First touch snapshots the true pre-commit score, so undo can restore
       // absolutely however many deductions follow.
       if (!preScores.has(p.name)) preScores.set(p.name, { ...p });
       p.times1000PointsDeducted = (p.times1000PointsDeducted ?? 0) + 1;
-      deductedAmounts.push(p.score - clamped);
-      p.score = clamped;
+      deductedAmounts.push(beforeScores[index] - score);
+      p.score = score;
       deducted.push(p.name);
     });
   }
@@ -582,13 +613,17 @@ export const calculateNextTurn = (
 
     if (currentCard === 'Plus_Minus' && isSuccess) {
       turnScore = PLUS_MINUS_SCORE;
-      const leaders = getLeaders(newPlayers);
-      const isLeader = leaders.find(l => l.name === currentPlayer.name);
-      if (!isLeader) {
-        snapshotLeaders = leaders.map(l => ({ ...l }));
-        leaders.forEach(l => {
-          const p = newPlayers.find(np => np.name === l.name);
-          if (p) { p.times1000PointsDeducted = (p.times1000PointsDeducted ?? 0) + 1; p.score -= PLUS_MINUS_SCORE; }
+      const beforeScores = newPlayers.map(p => p.score);
+      const afterScores = applyPlusMinusScores(beforeScores, currentPlayerIndex, turnScore, 'modernized');
+      const deductedIndices = afterScores
+        .map((score, index) => score < beforeScores[index] ? index : -1)
+        .filter(index => index >= 0);
+      if (deductedIndices.length > 0) {
+        snapshotLeaders = deductedIndices.map(index => ({ ...newPlayers[index] }));
+        deductedIndices.forEach(index => {
+          const p = newPlayers[index];
+          p.times1000PointsDeducted = (p.times1000PointsDeducted ?? 0) + 1;
+          p.score = afterScores[index];
         });
       }
       currentPlayer.timesPlusMinusCompleted = (currentPlayer.timesPlusMinusCompleted ?? 0) + 1;

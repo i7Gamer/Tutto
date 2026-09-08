@@ -155,6 +155,35 @@ describe('CoachHintLine', () => {
     expect(translate).toHaveBeenCalledWith('coach.draw', expect.any(String), expect.objectContaining({ bank: 450 }));
   });
 
+  it('explains a bank that immediately wins without a points comparison', () => {
+    render(<CoachHintLine hint={{ ...baseHint, action: 'stop', reason: 'bankWin' }} />);
+
+    expect(screen.getByText('coach.bankWin')).toBeInTheDocument();
+    expect(screen.queryByText('coach.stop')).toBeNull();
+    expect(translate).toHaveBeenCalledWith(
+      'coach.bankWin',
+      expect.any(String),
+      expect.objectContaining({ keep: '1, 5', bank: 150 }),
+    );
+  });
+
+  it('explains rolling to avoid an immediate loss without the ordinary comparison', () => {
+    render(<CoachHintLine hint={{ ...baseHint, reason: 'avoidLoss', action: 'roll', trailing: true }} />);
+
+    expect(screen.getByText('coach.avoidLossRoll')).toBeInTheDocument();
+    expect(screen.queryByText('coach.trailing')).toBeNull();
+    expect(translate).toHaveBeenCalledWith('coach.avoidLossRoll', expect.any(String), { keep: '1, 5' });
+  });
+
+  it('explains drawing to avoid an immediate loss', () => {
+    render(<CoachHintLine hint={{ ...baseHint, reason: 'avoidLoss', action: 'draw', trailing: true }} />);
+
+    expect(screen.getByText('coach.avoidLossDraw')).toBeInTheDocument();
+    expect(screen.queryByText('coach.draw')).toBeNull();
+    expect(screen.queryByText('coach.trailing')).toBeNull();
+    expect(translate).toHaveBeenCalledWith('coach.avoidLossDraw', expect.any(String), { keep: '1, 5' });
+  });
+
   it('prefixes the line when the player has tapped a different die than Otto would keep', () => {
     render(<CoachHintLine hint={{ ...baseHint, selectionDiffers: true }} />);
     expect(screen.getByText('coach.selectionDiffers')).toBeInTheDocument();

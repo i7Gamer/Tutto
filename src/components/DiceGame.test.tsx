@@ -1230,6 +1230,38 @@ describe('DiceGame coach hint (coachSeat)', () => {
     expect(screen.getByText('coach.roll')).toBeInTheDocument();
   });
 
+  it('restores pending classic Plus/Minus deductions into endgame coach advice', () => {
+    // The open 200 card brings the chain to 2,600 when its final 1 is kept:
+    // the two earlier Plus/Minus cards have to be replayed first for that bank
+    // to be a unique win over the two opponents.
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      turnScore: 2300,
+      keptDice: [1, 5, 5, 5, 5].map((val, i) => ({ id: `k${i}`, val })),
+      currentRoll: [{ id: 'r0', val: 1, selected: false }],
+      kniffelProgress: [],
+      tuttosThisTurn: 0,
+      cardsThisTurn: ['Plus_Minus', 'Plus_Minus', '200'],
+      plusMinusScores: [0, 1000],
+      chainTuttoCount: 2,
+      turnKey: 'K',
+    }));
+
+    render(<DiceGame
+      currentCard="200"
+      turnKey="K"
+      ruleset="classic"
+      onComplete={vi.fn()}
+      coachSeat={{
+        myScore: 3900,
+        leaderScore: 6500,
+        winningScore: 6000,
+        endgame: { opponentScores: [6500, 6200] },
+      }}
+    />);
+
+    expect(screen.getByText('coach.bankWin')).toBeInTheDocument();
+  });
+
   it('shows nothing without a coachSeat — the default, off state', async () => {
     queueRoll([1, 5, 2, 2, 3, 4]);
     render(<DiceGame currentCard="200" onComplete={vi.fn()} />);

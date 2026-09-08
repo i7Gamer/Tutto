@@ -282,6 +282,70 @@ describe('coachHint', () => {
     expect(banked!.trailing).toBe(false);
   });
 
+  describe('last-seat endgame advice', () => {
+    const endgame = { opponentScores: [5000] };
+
+    it('names a bank that guarantees the win and hides ordinary comparison figures', () => {
+      const hint = coachHint(input({
+        rollVals: [1, 2, 2, 2, 3, 4],
+        standings: { myScore: 5900, leaderScore: 5900, winningScore: 6000, endgame },
+      }));
+
+      expect(hint).toMatchObject({ action: 'stop', reason: 'bankWin', trailing: false });
+      expect(hint!.rollValue).toBeNull();
+      expect(hint!.threshold).toBeNull();
+    });
+
+    it('rolls when a reachable roll is the only way to avoid losing', () => {
+      const hint = coachHint(input({
+        rollVals: [1, 1, 1, 1, 2, 3],
+        standings: { myScore: 4900, leaderScore: 6100, winningScore: 6000, endgame: { opponentScores: [6100] } },
+      }));
+
+      expect(hint).toMatchObject({ action: 'roll', reason: 'avoidLoss', trailing: false });
+      expect(hint!.rollValue).toBeNull();
+      expect(hint!.threshold).toBeNull();
+    });
+
+    it('draws when a reachable next card is the only way to avoid losing', () => {
+      const hint = coachHint(input({
+        ruleset: 'classic', canDraw: true, chainCardCount: 0,
+        deck: { Stop: 99, Kniffel: 1 }, keptCount: 5, rollVals: [1], turnScore: 800,
+        standings: { myScore: 4900, leaderScore: 6100, winningScore: 6000, endgame: { opponentScores: [6100] } },
+      }));
+
+      expect(hint).toMatchObject({ action: 'draw', reason: 'avoidLoss', trailing: false });
+      expect(hint!.rollValue).toBeNull();
+      expect(hint!.threshold).toBeNull();
+    });
+
+    it('keeps the old arithmetic when endgame context is absent', () => {
+      const hint = coachHint(input({ rollVals: [1, 2, 2, 2, 3, 4] }));
+
+      expect(hint).not.toBeNull();
+      expect(hint!.reason).toBeUndefined();
+      expect(hint!.rollValue).not.toBeNull();
+      expect(hint!.threshold).not.toBeNull();
+    });
+
+    it('replays pending classic Plus/Minus deductions before deciding a win', () => {
+      const endgameInput = {
+        ruleset: 'classic' as const,
+        currentCard: '200' as CardType,
+        keptCount: 5,
+        rollVals: [1],
+        turnScore: 2300,
+        standings: { myScore: 3900, leaderScore: 6500, winningScore: 6000, endgame: { opponentScores: [6500, 6200] } },
+        plusMinusScores: [0, 1000],
+      };
+      const withPending = coachHint(input(endgameInput));
+      const withoutPending = coachHint(input({ ...endgameInput, plusMinusScores: [] }));
+
+      expect(withPending).toMatchObject({ action: 'stop', reason: 'bankWin' });
+      expect(withoutPending?.reason).toBeUndefined();
+    });
+  });
+
   // S-5: CoachHintInput no longer carries isClassic at all — coachHint must
   // derive it from ruleset on its own (a classic tutto still offers the draw
   // its panel offers, with no isClassic field anywhere in this input).

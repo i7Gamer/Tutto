@@ -123,6 +123,10 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // state deps ticks.
   const [initialChain] = useState<RestoredChain>(() => restore.initialChain);
   const chainRef = useRef(initialChain);
+  // The chain ref is authoritative for callbacks, but coach/bot decisions are
+  // render-time computations. Keep the pending Plus/Minus deductions in state
+  // so those decisions never read a mutable ref during render.
+  const [plusMinusScores, setPlusMinusScores] = useState<readonly number[]>(() => [...initialChain.plusMinusScores]);
   // Its render-safe length mirror is machine.chainCardCount (refs must not be
   // read during render); only CHAIN_DRAWN / DRAW_ABANDONED ever move it.
   // A draw was requested but the new card hasn't arrived through the
@@ -333,6 +337,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
           // what the player held when the card resolved, and you are not yet
           // holding the 1000 the card is about to pay you.
           chainRef.current.plusMinusScores.push(newTurnScore);
+          setPlusMinusScores([...chainRef.current.plusMinusScores]);
           newTurnScore += PLUS_MINUS_SCORE;
         }
         const chain = chainRef.current.cards;
@@ -720,6 +725,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
       deck,
       canDraw: !!onDrawCard,
       chainCardCount,
+      plusMinusScores,
       tuttosThisTurn,
       selectedIndices: currentRoll.reduce<number[]>((acc, d, i) => {
         if (d.selected) acc.push(i);
@@ -729,7 +735,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     });
   }, [
     coachSeat, bot, canAct, currentRoll, keptDice.length, turnScore, currentCard, ruleset,
-    kniffelProgress, deck, onDrawCard, chainCardCount, tuttosThisTurn, isSelectionLocked,
+    kniffelProgress, deck, onDrawCard, chainCardCount, plusMinusScores, tuttosThisTurn, isSelectionLocked,
   ]);
 
   // Game renders this panel inside a modal, so an aria-modal element is always
@@ -767,6 +773,10 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
       myScore: bot.myScore,
       leaderScore: bot.leaderScore,
       winningScore: bot.winningScore,
+      endgame: bot.endgame,
+      canDraw: !!onDrawCard,
+      chainCardCount,
+      plusMinusScores,
     };
     const wanted = new Set(chooseBotSelection(ctx));
     const selectionMatches = currentRoll.every((d, i) => !!d.selected === wanted.has(i));

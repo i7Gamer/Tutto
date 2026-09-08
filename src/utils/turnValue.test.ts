@@ -16,6 +16,54 @@ const keepVals = (keep: Keep): number[] => keep.counts.flatMap((c, i) => Array<n
 const keepStrings = (keeps: Keep[]): string[] => keeps.map(k => keepVals(k).join('')).sort();
 const outcomeSpace = (dice: number): number => DIE_FACES ** dice;
 
+/**
+ * Independent classic-Kniffel oracle: enumerate ordered rolls, count newly
+ * seen missing faces, then recurse only on how many dice remain. Consistent
+ * states always have `progress.length + dice === DIE_FACES`, so face identity
+ * does not affect the future state; this intentionally does not enumerate
+ * production keep subsets.
+ */
+const oracleKniffelProbability = (dice: number, progress: number[]): number => {
+  const missingAtStart = DIE_FACES - progress.length;
+  if (missingAtStart !== dice) throw new Error('oracle requires a consistent Kniffel state');
+  const cache = new Map<number, number>();
+  const bitCount = (mask: number): number => {
+    let count = 0;
+    for (let bit = mask; bit !== 0; bit &= bit - 1) count++;
+    return count;
+  };
+  const probability = (remainingDice: number): number => {
+    if (remainingDice === 0) return 1;
+    const cached = cache.get(remainingDice);
+    if (cached !== undefined) return cached;
+
+    let successfulOutcomes = 0;
+    const totalOutcomes = DIE_FACES ** remainingDice;
+    const currentCollectedCount = DIE_FACES - remainingDice;
+    const visitRoll = (depth: number, newlySeenMask: number): void => {
+      if (depth < remainingDice) {
+        for (let face = 1; face <= DIE_FACES; face++) {
+          const isMissing = face > currentCollectedCount && !(newlySeenMask & (1 << (face - 1)));
+          visitRoll(depth + 1, isMissing ? newlySeenMask | (1 << (face - 1)) : newlySeenMask);
+        }
+        return;
+      }
+
+      const distinctMissing = bitCount(newlySeenMask);
+      let best = 0;
+      for (let kept = 1; kept <= distinctMissing; kept++) {
+        best = Math.max(best, probability(remainingDice - kept));
+      }
+      successfulOutcomes += best;
+    };
+    visitRoll(0, 0);
+    const value = successfulOutcomes / totalOutcomes;
+    cache.set(remainingDice, value);
+    return value;
+  };
+  return probability(dice);
+};
+
 const vctx = (overrides: Partial<ValueContext> = {}): ValueContext => ({
   card: '200',
   ruleset: 'modernized',
@@ -95,6 +143,22 @@ describe('legalKeeps', () => {
     const keeps = legalKeeps(counts(5, 5), 'Kniffel', [1, 2, 3, 4], 'classic');
     expect(keeps).toHaveLength(1);
     expect(keeps[0]).toMatchObject({ dice: 1, progressAfter: [1, 2, 3, 4, 5] });
+  });
+
+  it('offers every nonempty subset of distinct missing classic faces in stable order', () => {
+    const keeps = legalKeeps(counts(3, 4, 4, 4), 'Kniffel', [1, 2], 'classic');
+    expect(keepStrings(keeps)).toEqual(['3', '34', '4']);
+    expect(keeps.map(keep => keep.progressAfter)).toEqual([[1, 2, 3], [1, 2, 4], [1, 2, 3, 4]]);
+  });
+
+  it('excludes collected faces and duplicate copies from classic Kniffel keeps', () => {
+    const keeps = legalKeeps(counts(1, 3, 3, 4, 5, 5), 'Kniffel', [1, 2], 'classic');
+    expect(keepStrings(keeps)).toEqual(['3', '34', '345', '35', '4', '45', '5']);
+    expect(keeps.every(keep => keepVals(keep).every((face, i, vals) => vals.indexOf(face) === i))).toBe(true);
+  });
+
+  it('has no classic Kniffel keep when every rolled face is already collected', () => {
+    expect(legalKeeps(counts(1, 2, 2, 3), 'Kniffel', [1, 2, 3], 'classic')).toEqual([]);
   });
 
   it('is empty when the Kniffel run cannot grow', () => {
@@ -183,6 +247,26 @@ describe('completionProbability', () => {
     const fresh = completionProbability(TOTAL_DICE, 'Kniffel', [], 'modernized');
     expect(fresh).toBeGreaterThan(0);
     expect(fresh).toBeLessThan(1);
+  });
+
+  it('matches an independent ordered-roll oracle for every consistent classic state', () => {
+    for (let dice = 1; dice <= TOTAL_DICE; dice++) {
+      const progress = Array.from({ length: TOTAL_DICE - dice }, (_, i) => i + 1);
+      expect(completionProbability(dice, 'Kniffel', progress, 'classic'))
+        .toBeCloseTo(oracleKniffelProbability(dice, progress), 10);
+    }
+  });
+
+  it('prefers keeping one face over all distinct faces in a classic duplicate-heavy roll', () => {
+    const progress = [1, 2];
+    const table = counts(3, 4, 4, 4);
+    const keeps = legalKeeps(table, 'Kniffel', progress, 'classic');
+    const oneFace = keeps.find(keep => keepVals(keep).join('') === '3');
+    const bothFaces = keeps.find(keep => keepVals(keep).join('') === '34');
+    expect(oneFace).toBeDefined();
+    expect(bothFaces).toBeDefined();
+    expect(oracleKniffelProbability(3, oneFace!.progressAfter))
+      .toBeGreaterThan(oracleKniffelProbability(2, bothFaces!.progressAfter));
   });
 });
 

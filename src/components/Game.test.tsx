@@ -203,6 +203,22 @@ describe('Game Component Integration', () => {
       });
     });
 
+    it('hands endgame standings only to the final roster seat', () => {
+      seatHuman();
+      useGameStore.setState({ coachHintEnabled: true, currentPlayerIndex: 1 });
+      render(<Game />);
+      fireEvent.click(screen.getByText('game.controls.rollDice'));
+
+      expect(capturedDiceGameProps.current).toMatchObject({
+        coachSeat: {
+          endgame: { opponentScores: [100] },
+        },
+      });
+
+      act(() => { useGameStore.setState({ currentPlayerIndex: 0 }); });
+      expect(capturedDiceGameProps.current).toMatchObject({ coachSeat: { endgame: undefined } });
+    });
+
     it('hands DiceGame the remaining deck by composition, never by order', () => {
       seatHuman();
       useGameStore.setState({ cards: ['Stop', '200', 'Stop', 'Feuerwerk'] });

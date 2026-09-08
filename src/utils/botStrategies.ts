@@ -2,6 +2,7 @@ import type { BotPersonality, CardType, Ruleset } from '../types';
 import { applyTuttoBonus, checkValidityAndScore, getMaxValidSelection } from './diceLogic';
 import { fixedCardAward } from './coreGameEngine';
 import { deriveTurnControls } from './diceTurnControls';
+import { afterCardCompletion, bankOutcome, canReachNonLosingDraw, canReachNonLosingRoll, hasClassicDraw, type EndgameStandings } from './botEndgame';
 import { TOTAL_DICE } from './turnShapes';
 import {
   completionProbability, continuationValue, countsToVals, diceCounts, drawValue, keepIndices, legalKeeps, outcomeSpace, tableOutcomes, tuttoValue,
@@ -30,6 +31,7 @@ export interface BotSeat {
   myScore: number;
   leaderScore: number;
   winningScore: number;
+  endgame?: EndgameStandings;
 }
 
 export interface BotTurnContext {
@@ -50,6 +52,10 @@ export interface BotTurnContext {
   myScore: number;
   leaderScore: number;
   winningScore: number;
+  endgame?: EndgameStandings;
+  plusMinusScores?: readonly number[];
+  canDraw?: boolean;
+  chainCardCount?: number;
 }
 
 /** Cautious Carl banks the moment a turn is worth this much... */
@@ -107,7 +113,7 @@ const valueContext = (ctx: BotTurnContext): ValueContext => ({
   winningScore: ctx.winningScore,
   tuttosThisTurn: ctx.tuttosThisTurn,
   // Only classic offers a draw after a tutto; modernized ends the turn there.
-  chain: ctx.ruleset === 'classic' ? { deck: ctx.deck, myScore: ctx.myScore, winningScore: ctx.winningScore } : undefined,
+  chain: hasClassicDraw(ctx) ? { deck: ctx.deck, myScore: ctx.myScore, winningScore: ctx.winningScore } : undefined,
 });
 
 /**
@@ -130,33 +136,26 @@ const CERTAIN_COMPLETION = 1;
 
 /**
  * Otto's keep: of every valid selection of the table, the one the rest of the
- * turn is worth most with — banked now if Stop is on offer for it, or rolled
- * on, whichever is more (turnValue.ts). A Kniffel has one legal keep and a
- * classic Feuerwerk's is forced, so both keep the most.
+ * turn is worth most with under the action he will actually choose. Classic
+ * Kniffel and Kleeblatt compare completion odds, independent of dice points.
  */
 const bestKeep = (ctx: BotTurnContext): number[] => {
-  if (ctx.currentCard === 'Kniffel' || (ctx.currentCard === 'Feuerwerk' && ctx.ruleset === 'classic')) return maxKeep(ctx);
-  const value = valueContext(ctx);
-  // Whether a keep that does NOT complete the table could be banked: the
-  // panel's own rule (never on Feuerwerk, only a tutto on a special card).
-  const { canStop } = deriveTurnControls({
-    currentCard: ctx.currentCard, hasRolled: true, bustState: false, isMakingTutto: false, tuttosThisTurn: ctx.tuttosThisTurn,
-  });
-  let best: { worth: number; keep: Keep } | null = null;
+  if ((ctx.currentCard === 'Kniffel' && ctx.ruleset !== 'classic') || (ctx.currentCard === 'Feuerwerk' && ctx.ruleset === 'classic')) return maxKeep(ctx);
+  let best: { worth: number; priority: number; keep: Keep } | null = null;
   for (const keep of legalKeeps(diceCounts(ctx.rollVals), ctx.currentCard, ctx.kniffelProgress, ctx.ruleset)) {
-    const { bank, diceAfter, progressAfter } = outcomeOfPicked(ctx, countsToVals(keep.counts));
+    const outcome = outcomeOfPicked(ctx, countsToVals(keep.counts));
+    const { diceAfter, progressAfter } = outcome;
     const isTutto = ctx.keptCount + keep.dice === TOTAL_DICE;
     // Kleeblatt's dice points never count toward its win. Rank its keeps by
     // completion odds directly, including when the win-value heuristic is
     // zero or the accumulated dice score exceeds the remaining score gap.
-    const worth = ctx.currentCard === 'Kleeblatt'
-      ? isTutto ? CERTAIN_COMPLETION : completionProbability(diceAfter, ctx.currentCard, [], ctx.ruleset)
-      : isTutto ? tuttoValue(value, bank)
-      : canStop ? Math.max(bank, continuationValue(value, bank, diceAfter, progressAfter))
-        : continuationValue(value, bank, diceAfter, progressAfter);
-    if (!best || worth > best.worth + VALUE_TIE_EPSILON
-      || (Math.abs(worth - best.worth) <= VALUE_TIE_EPSILON && keep.dice > best.keep.dice)) {
-      best = { worth, keep };
+    const decision = decisionForKeep(ctx, outcome, isTutto, actionsForKeep(ctx, isTutto));
+    const worth = ctx.currentCard === 'Kleeblatt' || ctx.currentCard === 'Kniffel'
+      ? isTutto ? CERTAIN_COMPLETION : completionProbability(diceAfter, ctx.currentCard, progressAfter, ctx.ruleset)
+      : decision.worth;
+    if (!best || decision.priority > best.priority || (decision.priority === best.priority && (worth > best.worth + VALUE_TIE_EPSILON
+      || (Math.abs(worth - best.worth) <= VALUE_TIE_EPSILON && keep.dice > best.keep.dice)))) {
+      best = { worth, priority: decision.priority, keep };
     }
   }
   return best ? keepIndices(ctx.rollVals, best.keep.counts) : [];
@@ -239,10 +238,10 @@ export interface OptimalRollDecision {
  * Otto's roll-or-stop arithmetic, standalone: not raw value-vs-bank, but the
  * value of rolling on against a bank discounted by a "trailing" appetite
  * that grows with the gap to the leader. The appetite is Otto's character
- * and stays out of the value function: bestKeep ranks keeps by the
- * undiscounted numbers, and only this final comparison leans. Exported so
- * the coach hint can show the same comparison `optimal` decides with
- * (coachHint.ts).
+ * and stays out of the value function. Each keep is ranked by the objective
+ * value of the action this comparison selects. Endgame priorities are applied
+ * separately by decisionForKeep; the coach uses this arithmetic only when
+ * that comparison explains the final decision.
  *
  * `progressAfter` is the straight as THIS selection leaves it (outcomeOfSelection's
  * own return value), not `ctx.kniffelProgress` — the odds of the roll that
@@ -283,16 +282,69 @@ export const optimalDrawDecision = (ctx: BotTurnContext, bank: number): OptimalD
   return { drawValue: worth, threshold, appetite, action: anyCard && worth >= threshold ? 'draw' : 'stop' };
 };
 
-const optimal = (ctx: BotTurnContext, available: BotActionAvailability): BotAction | null => {
-  const { bank, diceAfter, progressAfter } = outcomeOfSelection(ctx);
-  if (available.stop && available.roll) {
-    return optimalRollDecision(ctx, bank, diceAfter, progressAfter).action;
-  }
-  if (available.stop && available.draw) {
-    return optimalDrawDecision(ctx, bank).action;
-  }
-  return firstOffered(available, ['roll', 'stop', 'draw']);
+const FORCED_LOSS_PRIORITY = 0;
+const ORDINARY_PRIORITY = 1;
+const WIN_PRIORITY = 2;
+
+export interface OptimalActionDecision {
+  action: BotAction | null;
+  reason?: 'bankWin' | 'avoidLoss';
+  worth: number;
+  priority: number;
+}
+
+const actionsForKeep = (ctx: BotTurnContext, isTutto: boolean): BotActionAvailability => {
+  const controls = deriveTurnControls({ currentCard: ctx.currentCard, hasRolled: true, bustState: false,
+    isMakingTutto: isTutto, tuttosThisTurn: ctx.tuttosThisTurn });
+  return { roll: controls.isRollAgainApplicable, stop: controls.canStop, draw: isTutto && hasClassicDraw(ctx) };
 };
+
+/** Resolves an evaluated keep without calling selection again. */
+const decisionForKeep = (
+  ctx: BotTurnContext, outcome: SelectionOutcome, isTutto: boolean, available: BotActionAvailability,
+): OptimalActionDecision => {
+  const { bank, diceAfter, progressAfter } = outcome;
+  const roll = available.roll ? optimalRollDecision(ctx, bank, diceAfter, progressAfter) : null;
+  const draw = available.draw ? optimalDrawDecision(ctx, bank) : null;
+  let action = available.stop && roll ? roll.action
+    : available.stop && draw ? draw.action
+      : firstOffered(available, ['roll', 'stop', 'draw']);
+  let reason: OptimalActionDecision['reason'];
+  let priority = ORDINARY_PRIORITY;
+  // Kleeblatt's Stop advances/completes its win condition; it never banks dice points.
+  if (ctx.currentCard !== 'Kleeblatt' && ctx.endgame) {
+    const completed = isTutto ? afterCardCompletion(ctx, ctx.turnScore) : ctx;
+    const settlement = available.stop ? bankOutcome(completed, bank) : null;
+    if (settlement === 'win') {
+      action = 'stop';
+      reason = 'bankWin';
+      priority = WIN_PRIORITY;
+    } else {
+      const usefulRoll = available.roll && canReachNonLosingRoll(ctx, bank, diceAfter);
+      const usefulDraw = available.draw && canReachNonLosingDraw(completed, bank);
+      if (settlement === 'loss' && (usefulRoll || usefulDraw)) {
+        action = usefulRoll ? 'roll' : 'draw';
+        reason = 'avoidLoss';
+      } else if (settlement === 'loss' || (settlement === null && !usefulRoll && !usefulDraw)) {
+        priority = FORCED_LOSS_PRIORITY;
+      }
+    }
+  }
+  const worth = action === 'roll' ? roll?.rollValue ?? 0
+    : action === 'draw' ? draw?.drawValue ?? 0
+      : action === 'stop' ? ctx.currentCard === 'Kleeblatt' ? tuttoValue(valueContext(ctx), bank) : bank : 0;
+  return { action, reason, priority, worth };
+};
+
+/** The same candidate decision used by keep selection, the bot, and the coach. */
+export const optimalActionDecision = (ctx: BotTurnContext, available: BotActionAvailability): OptimalActionDecision => {
+  const selected = chooseBotSelection(ctx);
+  return decisionForKeep(ctx, outcomeOfPicked(ctx, selected.map(i => ctx.rollVals[i])),
+    ctx.keptCount + selected.length === TOTAL_DICE, available);
+};
+
+const optimal = (ctx: BotTurnContext, available: BotActionAvailability): BotAction | null =>
+  optimalActionDecision(ctx, available).action;
 
 const STRATEGIES: Record<BotPersonality, (ctx: BotTurnContext, available: BotActionAvailability) => BotAction | null> = {
   cautious,

@@ -1,6 +1,6 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
-import { getLeaders, buildGlobalStatsPayload, shuffleArray, buildDeck, calculateNextTurn, calculateUndo, canUndoState, computeRankedPlayers, hasPlayableDeck, PLUS_MINUS_SCORE } from './coreGameEngine';
+import { getLeaders, buildGlobalStatsPayload, shuffleArray, buildDeck, calculateNextTurn, calculateUndo, canUndoState, computeRankedPlayers, hasPlayableDeck, PLUS_MINUS_SCORE, applyPlusMinusScores } from './coreGameEngine';
 // The consumer of the recorded amounts: what the activity log will actually
 // print for an entry is what makes "no amounts here" right or wrong.
 import { summarizeDeductions } from './deductionSummary';
@@ -100,6 +100,48 @@ describe('coreGameEngine', () => {
         makePlayer('A', { score: 200 }),
         makePlayer('B', { score: 200 })
       ]);
+    });
+  });
+
+  describe('applyPlusMinusScores', () => {
+    it('leaves scores unchanged when there is no valid acting seat', () => {
+      expect(applyPlusMinusScores([], 0, 0, 'classic')).toEqual([]);
+      for (const index of [-1, 2, 0.5]) {
+        expect(applyPlusMinusScores([1000, 2000], index, 0, 'classic')).toEqual([1000, 2000]);
+      }
+    });
+
+    it('does not deduct opponents when the classic acting seat has passed them', () => {
+      expect(applyPlusMinusScores([1000, 1500], 0, 1000, 'classic')).toEqual([1000, 1500]);
+    });
+
+    it('returns a copy and floors classic opponent deductions at zero', () => {
+      const scores = [400, 0];
+      const result = applyPlusMinusScores(scores, 1, 0, 'classic');
+
+      expect(result).toEqual([0, 0]);
+      expect(result).not.toBe(scores);
+      expect(scores).toEqual([400, 0]);
+    });
+
+    it('deducts every classic opponent co-leader', () => {
+      expect(applyPlusMinusScores([2000, 2000, 1000, 0], 3, 0, 'classic'))
+        .toEqual([1000, 1000, 1000, 0]);
+    });
+
+    it('uses the acting score before the card to find classic co-leaders while leaving own score unchanged', () => {
+      expect(applyPlusMinusScores([1000, 2000, 0], 0, 1000, 'classic'))
+        .toEqual([1000, 1000, 0]);
+    });
+
+    it('does not deduct when the acting player is already a modernized leader', () => {
+      expect(applyPlusMinusScores([2000, 2000, 0], 0, 1000, 'modernized'))
+        .toEqual([2000, 2000, 0]);
+    });
+
+    it('deducts all modernized opponent leaders without a floor', () => {
+      expect(applyPlusMinusScores([400, 400, 0], 2, 5000, 'modernized'))
+        .toEqual([-600, -600, 0]);
     });
   });
 
@@ -1873,6 +1915,27 @@ describe('coreGameEngine', () => {
       tuttoCount: 2,
       plusMinusScores: [0, 1000],
       ...extra,
+    });
+
+    it('records a classic floor transition when a leader starts below zero', () => {
+      const result = calculateNextTurn(
+        makeState({
+          players: [makePlayer('Alice', { score: -400 }), makePlayer('Bob', { score: -500 })],
+          currentPlayerIndex: 1,
+          currentCard: 'Plus_Minus',
+        }),
+        1000,
+        true,
+        summary({
+          cards: [{ card: 'Plus_Minus', completed: true }],
+          plusMinusScores: [0],
+        }),
+      );
+
+      expect(result.players[0].score).toBe(0);
+      expect(result.players[0].times1000PointsDeducted).toBe(1);
+      expect(result.historyEntry.deductedPlayers).toEqual(['Alice']);
+      expect(result.historyEntry.deductedAmounts).toEqual([-400]);
     });
 
     it('atomic Plus/Minus: the chain stops deducting once its own gains take the lead', () => {

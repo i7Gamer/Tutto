@@ -38,6 +38,8 @@ export type FaceCounts = readonly number[];
 
 const ONES = 0;
 const FIVES = 4;
+const DIE_FACE_VALUES: readonly number[] = Array.from({ length: DIE_FACES }, (_, i) => i + 1);
+const FIRST_NON_EMPTY_SUBSET_MASK = 1;
 /** Faces that only score three at a time. */
 const TRIPLE_FACES: readonly number[] = [2, 3, 4, 6];
 const TRIPLE = 3;
@@ -73,10 +75,11 @@ export interface Keep {
  * Every valid selection of a table. On a points card (and on Plus/Minus,
  * Kleeblatt and Feuerwerk, whose dice follow the same rules) that is any
  * number of the 1s, any number of the 5s and whole triples of the other
- * faces, never nothing. A Kniffel has exactly one: getMaxValidSelection's.
- * Modernized, the longer run (the two directions are symmetric when equal);
- * classic, one die per still-missing number — the dice on the table always
- * number the missing values, so declining one only rolls it again.
+ * faces, never nothing. A modernized Kniffel has exactly one:
+ * getMaxValidSelection's; classic Kniffel offers every nonempty subset of
+ * distinct missing faces. Modernized, the longer run (the two directions are
+ * symmetric when equal); classic, every nonempty subset is considered because
+ * keeping more distinct faces is not always optimal.
  */
 export const legalKeeps = (
   counts: FaceCounts,
@@ -86,6 +89,17 @@ export const legalKeeps = (
 ): Keep[] => {
   if (card === 'Kniffel') {
     const vals = countsToVals(counts);
+    if (ruleset === 'classic') {
+      const collected = new Set(progress);
+      const missing = DIE_FACE_VALUES.filter(face => counts[face - 1] > 0 && !collected.has(face));
+      const keeps: Keep[] = [];
+      for (let mask = FIRST_NON_EMPTY_SUBSET_MASK; mask < (1 << missing.length); mask++) {
+        const picked = missing.filter((_, i) => (mask & (1 << i)) !== 0);
+        const { valid, score, newKniffelProgress } = checkValidityAndScore(picked, card, progress, ruleset);
+        if (valid) keeps.push({ counts: diceCounts(picked), dice: picked.length, score, progressAfter: newKniffelProgress });
+      }
+      return keeps;
+    }
     const picked = getMaxValidSelection(vals, card, progress, ruleset).map(i => vals[i]);
     if (picked.length === 0) return [];
     const { score, newKniffelProgress } = checkValidityAndScore(picked, card, progress, ruleset);

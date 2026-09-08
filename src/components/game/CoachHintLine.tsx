@@ -30,6 +30,29 @@ interface Message {
  * the pair a ternary chain buries deepest.
  */
 const messageFor = (hint: CoachHint, keep: string): Message => {
+  if (hint.reason === 'bankWin') {
+    return {
+      key: 'coach.bankWin',
+      fallback: 'Otto would keep {{keep}} and bank {{bank}} to win the game.',
+      values: { keep, bank: hint.bank },
+    };
+  }
+
+  if (hint.reason === 'avoidLoss') {
+    if (hint.action === 'draw') {
+      return {
+        key: 'coach.avoidLossDraw',
+        fallback: 'Otto would keep {{keep}} and draw the next card to avoid losing the game.',
+        values: { keep },
+      };
+    }
+    return {
+      key: 'coach.avoidLossRoll',
+      fallback: 'Otto would keep {{keep}} and roll on to avoid losing the game.',
+      values: { keep },
+    };
+  }
+
   if (hint.action === 'draw') {
     return {
       key: 'coach.draw',
@@ -111,7 +134,7 @@ export default function CoachHintLine({ hint }: CoachHintLineProps) {
           <span>{t('coach.selectionDiffers', 'Your dice differ from Otto\'s. ')}</span>
         )}
         <span>{t(message.key, message.fallback, message.values)}</span>
-        {hint.trailing && (
+        {!hint.reason && hint.trailing && (
           <span> {t('coach.trailing', 'You are behind, so Otto accepts more risk.')}</span>
         )}
       </span>

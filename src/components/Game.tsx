@@ -551,7 +551,13 @@ export default function Game() {
     myScore: currentPlayer?.score ?? 0,
     leaderScore: players.reduce((best, p) => Math.max(best, p.score), 0),
     winningScore,
-  }), [currentPlayer?.score, players, winningScore]);
+    // Only the final seat can end a round without another seat's turn between
+    // this bank and the win check. Keep the context absent for every other
+    // seat so the strategy retains its normal behavior there.
+    endgame: currentPlayerIndex === players.length - 1
+      ? { opponentScores: players.filter((_, index) => index !== currentPlayerIndex).map(player => player.score) }
+      : undefined,
+  }), [currentPlayer?.score, currentPlayerIndex, players, winningScore]);
 
   const botSeat = useMemo<BotSeat | undefined>(() => {
     if (botPersonality === null) return undefined;

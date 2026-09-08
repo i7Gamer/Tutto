@@ -2,8 +2,9 @@ import type { CardType, Ruleset } from '../types';
 import { TOTAL_DICE } from './turnShapes';
 import { deriveTurnControls, canDrawAfterTutto } from './diceTurnControls';
 import {
-  chooseBotSelection, chooseBotAction, outcomeOfSelection, optimalRollDecision,
+  chooseBotSelection, outcomeOfSelection, optimalRollDecision,
   type BotAction, type BotActionAvailability, type BotTurnContext,
+  optimalActionDecision,
 } from './botStrategies';
 import { PERCENT } from './percentage';
 import type { DeckCounts } from './turnValue';
@@ -12,6 +13,7 @@ export interface CoachHintStandings {
   myScore: number;
   leaderScore: number;
   winningScore: number;
+  endgame?: { opponentScores: readonly number[] };
 }
 
 export interface CoachHintInput {
@@ -29,6 +31,7 @@ export interface CoachHintInput {
   // knowing it is a function.
   canDraw: boolean;
   chainCardCount: number;
+  plusMinusScores?: readonly number[];
   tuttosThisTurn: number;
   // Indices into rollVals the PLAYER currently has toggled on. Read only to
   // decide selectionDiffers — never to decide what is available. See the
@@ -71,6 +74,7 @@ export interface CoachHint {
    */
   trailing: boolean;
   selectionDiffers: boolean;
+  reason?: 'bankWin' | 'avoidLoss';
 }
 
 /**
@@ -101,6 +105,10 @@ export const coachHint = (input: CoachHintInput): CoachHint | null => {
     myScore: input.standings.myScore,
     leaderScore: input.standings.leaderScore,
     winningScore: input.standings.winningScore,
+    endgame: input.standings.endgame,
+    canDraw: input.canDraw,
+    chainCardCount: input.chainCardCount,
+    plusMinusScores: input.plusMinusScores,
   };
 
   const ottoSelection = chooseBotSelection(ctx);
@@ -124,7 +132,8 @@ export const coachHint = (input: CoachHintInput): CoachHint | null => {
   });
   const available: BotActionAvailability = { roll: isRollAgainApplicable, stop: canStop, draw };
 
-  const action = chooseBotAction(ctx, available);
+  const decision = optimalActionDecision(ctx, available);
+  const action = decision.action;
   if (!action) return null;
 
   const { bank, diceAfter, progressAfter } = outcomeOfSelection(ctx);
@@ -155,10 +164,11 @@ export const coachHint = (input: CoachHintInput): CoachHint | null => {
     diceAfter,
     bank,
     bustPercent: rollOffered ? Math.round(bustProbability * PERCENT) : null,
-    rollValue: comparable ? rollValue : null,
-    threshold: comparable ? threshold : null,
+    rollValue: !decision.reason && comparable ? rollValue : null,
+    threshold: !decision.reason && comparable ? threshold : null,
     stopMeans,
-    trailing: appetite > 0 && action === 'roll' && available.stop && rollValue < bank,
+    trailing: !decision.reason && appetite > 0 && action === 'roll' && available.stop && rollValue < bank,
     selectionDiffers,
+    reason: decision.reason,
   };
 };
