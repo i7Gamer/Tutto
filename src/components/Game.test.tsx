@@ -219,13 +219,22 @@ describe('Game Component Integration', () => {
       expect(capturedDiceGameProps.current).toMatchObject({ coachSeat: { endgame: undefined } });
     });
 
-    it('hands DiceGame the remaining deck by composition, never by order', () => {
+    it('hands DiceGame public remaining counts and completed reveals, never live chain snapshots or order', () => {
       seatHuman();
-      useGameStore.setState({ cards: ['Stop', '200', 'Stop', 'Feuerwerk'] });
+      useGameStore.setState({
+        cards: ['Stop', '200', 'Stop', 'Feuerwerk'],
+        historyLog: [makeHistoryEntry({ card: '300', cards: ['300', '300'] })],
+        liveTurnState: makeDiceSnapshot({ cardsThisTurn: ['200', '200', '200'] }),
+      });
       render(<Game />);
       fireEvent.click(screen.getByText('game.controls.rollDice'));
 
-      expect(capturedDiceGameProps.current).toMatchObject({ deck: { Stop: 2, '200': 1, Feuerwerk: 1 } });
+      expect(capturedDiceGameProps.current).toMatchObject({
+        drawStrategyInputs: {
+          remainingCounts: { Stop: 2, '200': 1, Feuerwerk: 1 },
+          completedReveals: ['300', '300'],
+        },
+      });
     });
 
     it('hands DiceGame a fresh deck\'s composition once the deck has run out', () => {
@@ -234,10 +243,12 @@ describe('Game Component Integration', () => {
       render(<Game />);
       fireEvent.click(screen.getByText('game.controls.rollDice'));
 
-      expect(capturedDiceGameProps.current).toMatchObject({ deck: { '300': 2, Stop: 1 } });
+      expect(capturedDiceGameProps.current).toMatchObject({
+        drawStrategyInputs: { remainingCounts: { '300': 2, Stop: 1 } },
+      });
     });
 
-    it('uses revealed cards across turns and within a live chain for draw odds', () => {
+    it('does not route a debounced live chain into DiceGame strategy inputs', () => {
       seatHuman();
       useGameStore.setState({
         ruleset: 'classic', currentCard: '200', initialCards: { '200': 5, Stop: 1 },
@@ -246,7 +257,8 @@ describe('Game Component Integration', () => {
       });
       render(<Game />);
       fireEvent.click(screen.getByText('game.controls.rollDice'));
-      expect((capturedDiceGameProps.current as { deck: unknown }).deck).toEqual({ Stop: 1 });
+      expect((capturedDiceGameProps.current as { drawStrategyInputs: { completedReveals: unknown } }).drawStrategyInputs.completedReveals)
+        .toEqual(['200', '200']);
 
       act(() => {
         useGameStore.setState({
@@ -254,16 +266,8 @@ describe('Game Component Integration', () => {
           liveTurnState: makeDiceSnapshot({ cardsThisTurn: ['200', '200', '200'] }),
         });
       });
-      expect((capturedDiceGameProps.current as { deck: unknown }).deck).toEqual({ Stop: 1 });
-
-      // A snapshot from before the current card was dealt must not supply
-      // another turn's run; the current card is the only reliable reveal.
-      act(() => {
-        useGameStore.setState({
-          liveTurnState: makeDiceSnapshot({ cardsThisTurn: ['200', '200', 'Stop'] }),
-        });
-      });
-      expect(capturedDiceGameProps.current).toMatchObject({ deck: { '200': 2, Stop: 1 } });
+      expect((capturedDiceGameProps.current as { drawStrategyInputs: { completedReveals: unknown } }).drawStrategyInputs.completedReveals)
+        .toEqual([]);
     });
 
     it('passes no coachSeat while the setting is off', () => {

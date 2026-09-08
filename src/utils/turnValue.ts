@@ -2,6 +2,8 @@ import type { CardType, InitialCards, Ruleset } from '../types';
 import { applyTuttoBonus, checkValidityAndScore, getMaxValidSelection, isBust } from './diceLogic';
 import { deckDrawOptions, fixedCardAward } from './coreGameEngine';
 import { DIE_FACES, TOTAL_DICE } from './turnShapes';
+import { RULESETS } from './configValidation';
+import { BoundedValueCache, ChainValueCache } from './turnValueCache';
 
 /**
  * What a turn is worth from any point in it under best play — exact, for the
@@ -186,7 +188,17 @@ export interface TableOutcome extends RollOutcome {
 const progressKey = (card: CardType | null, progress: number[]): string =>
   card === 'Kniffel' ? progress.join(',') : '';
 
-const tables = new Map<string, TableOutcome[]>();
+export const TABLE_CACHE_MAX_ENTRIES = 1024;
+export const COMPLETION_CACHE_MAX_ENTRIES = 2000;
+export const CHAIN_FREE_CACHE_MAX_ENTRIES = 10_000;
+export const CHAIN_CACHE_MAX_BUCKETS = 4;
+export const CHAIN_BUCKET_MAX_ENTRIES = 4000;
+export const DRAW_CACHE_MAX_ENTRIES = 10_000;
+// These two caches have exhaustive, validated key spaces and need no eviction.
+export const ROLL_OUTCOME_CACHE_MAX_ENTRIES = TOTAL_DICE;
+export const FEUERWERK_GAIN_CACHE_MAX_ENTRIES = RULESETS.length;
+
+const tables = new BoundedValueCache<string, TableOutcome[]>(TABLE_CACHE_MAX_ENTRIES);
 
 /** The multisets of a roll, each judged by the card: bust or not, and every legal keep. */
 export const tableOutcomes = (
@@ -210,7 +222,7 @@ export const tableOutcomes = (
   return table;
 };
 
-const completionOdds = new Map<string, number>();
+const completionOdds = new BoundedValueCache<string, number>(COMPLETION_CACHE_MAX_ENTRIES);
 
 /**
  * The probability of reaching the tutto (or completing the straight) from
@@ -243,6 +255,13 @@ export const completionProbability = (
 /** What a deck holds, by card — its composition only, never its order. */
 export type DeckCounts = Partial<Record<CardType, number>>;
 
+/** Public inputs from Game; the active chain is supplied by DiceGame itself. */
+export interface DrawStrategyInputs {
+  remainingCounts: DeckCounts;
+  initialCards: InitialCards;
+  completedReveals: readonly CardType[];
+}
+
 /**
  * The composition of the deck the next classic draw comes from: the cards
  * still in it, or a fresh deck's once it has run out (gameSlice rebuilds it
@@ -266,10 +285,18 @@ export const nextDrawWeights = (
   cards: readonly CardType[],
   initialCards: InitialCards,
   revealedCards: readonly CardType[],
+): DeckCounts => nextDrawWeightsFromCounts(remainingDeckCounts(cards, initialCards), initialCards, revealedCards);
+
+/** Composition-only variant used by live strategy consumers; never receives deck order. */
+export const nextDrawWeightsFromCounts = (
+  remainingCounts: DeckCounts,
+  initialCards: InitialCards,
+  revealedCards: readonly CardType[],
 ): DeckCounts => {
-  const remaining = new Map(deckEntries(remainingDeckCounts(cards, initialCards)));
+  const remainingSize = deckEntries(remainingCounts).reduce((sum, [, count]) => sum + count, 0);
+  const remaining = new Map(deckEntries(remainingSize === 0 ? initialCards : remainingCounts));
   const initialSize = Object.values(initialCards).reduce((sum, count) => sum + (count ?? 0), 0);
-  const drawnCount = cards.length === 0 ? 0 : Math.max(0, initialSize - cards.length);
+  const drawnCount = remainingSize === 0 ? 0 : Math.max(0, initialSize - remainingSize);
   const firstReveal = Math.max(0, revealedCards.length - drawnCount);
   const lastCard = revealedCards.at(-1) ?? null;
   let runLength = 0;
@@ -303,17 +330,12 @@ const chainKey = (chain: ChainContext | undefined): string => chain
  * The bank is part of a points card's state, so these caches grow with
  * every distinct bank a game visits (multiples of 50, a few hundred per
  * card) and, in a classic chain, with every deck composition — unlike the
- * tables above, which are bounded by dice × cards × rulesets.
+ * tables above. They live for the page, including across dice-panel unmounts.
+ * Composition-only draw odds cannot expose deterministic replay order after
+ * undo; restored contexts still use their full keys and can reuse a bucket.
  */
-export const TURN_VALUE_CACHE_MAX_ENTRIES = 20_000;
-
-const remember = (cache: Map<string, number>, key: string, value: number): number => {
-  if (cache.size >= TURN_VALUE_CACHE_MAX_ENTRIES) cache.clear();
-  cache.set(key, value);
-  return value;
-};
-
-const rollOnValues = new Map<string, number>();
+const chainFreeRollValues = new BoundedValueCache<string, number>(CHAIN_FREE_CACHE_MAX_ENTRIES);
+const chainRollValues = new ChainValueCache(CHAIN_CACHE_MAX_BUCKETS, CHAIN_BUCKET_MAX_ENTRIES);
 
 /**
  * Points cards only: what rolling `dice` dice with `bank` in hand is worth,
@@ -329,7 +351,8 @@ export const rollOnValue = (
   ruleset: Ruleset,
   chain?: ChainContext,
 ): number => {
-  const key = `${bank}|${dice}|${card}|${ruleset}|${chainKey(chain)}`;
+  const rollOnValues = chain ? chainRollValues.forChain(chainKey(chain)) : chainFreeRollValues;
+  const key = `${bank}|${dice}|${card}|${ruleset}`;
   const cached = rollOnValues.get(key);
   if (cached !== undefined) return cached;
   let sum = 0;
@@ -345,7 +368,7 @@ export const rollOnValue = (
     }
     sum += multiplicity * best;
   }
-  return remember(rollOnValues, key, sum / outcomeSpace(dice));
+  return rollOnValues.set(key, sum / outcomeSpace(dice));
 };
 
 /** Holding `bank` with `dice` still to roll on a points card, where Stop is always on offer. */
@@ -489,7 +512,19 @@ const drawnCardValue = (chain: ChainContext, card: CardType, bank: number, rules
   }
 };
 
-const drawValues = new Map<string, number>();
+const drawValues = new BoundedValueCache<string, number>(DRAW_CACHE_MAX_ENTRIES);
+
+/** Read-only occupancy for deterministic bounds tests and local profiling. */
+export const turnValueCacheSizes = () => ({
+  chainFree: chainFreeRollValues.size,
+  chainBuckets: chainRollValues.bucketCount,
+  chainEntries: chainRollValues.bucketSizes,
+  draw: drawValues.size,
+  tables: tables.size,
+  completion: completionOdds.size,
+  outcomes: outcomesByDice.size,
+  feuerwerk: feuerwerkGains.size,
+});
 
 /**
  * What drawing the next card is worth with `bank` at stake: every card the
@@ -504,8 +539,8 @@ export const drawValue = (chain: ChainContext, bank: number, ruleset: Ruleset): 
   const key = `${bank}|${ruleset}|${chainKey(chain)}`;
   const cached = drawValues.get(key);
   if (cached !== undefined) return cached;
-  const value = entries.reduce((sum, [card, count]) => sum + (count / total) * drawnCardValue(chain, card, bank, ruleset), 0);
-  return remember(drawValues, key, value);
+  const value = entries.reduce((sum, [card, count]) => sum + count * drawnCardValue(chain, card, bank, ruleset), 0) / total;
+  return drawValues.set(key, value);
 };
 
 /**

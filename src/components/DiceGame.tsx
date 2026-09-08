@@ -15,8 +15,11 @@ import { useAutoContinueCountdown } from '../hooks/useAutoContinueCountdown';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useBotDriver } from '../hooks/useBotDriver';
 import { useRollAnnouncement } from '../hooks/useRollAnnouncement';
-import { chooseBotAction, chooseBotSelection, type BotSeat, type BotTurnContext } from '../utils/botStrategies';
-import type { DeckCounts } from '../utils/turnValue';
+import {
+  chooseBotAction, chooseBotSelection, evaluateOttoDecision, resolveOttoAction,
+  type BotSeat, type BotTurnContext,
+} from '../utils/botStrategies';
+import { nextDrawWeightsFromCounts, type DrawStrategyInputs } from '../utils/turnValue';
 import { coachHint as computeCoachHint, type CoachHintStandings } from '../utils/coachHint';
 import {
   DIE_TUMBLE_MS, DIE_STAGGER_MS, DIE_FACE_SHUFFLE_MS, ROLL_SETTLE_BUFFER_MS,
@@ -69,16 +72,17 @@ interface DiceGameProps {
   // (coachHint.ts / CoachHintLine.tsx) is built from these the same way a
   // bot's own decision is built from `bot` above.
   coachSeat?: CoachHintStandings;
-  // Relative next-card weights from counts and revealed cards (Game.tsx
-  // derives them through turnValue.nextDrawWeights). Read by a bot's draw-or-bank decision and
-  // by Otto's advice on a classic tutto; absent means no card can come, which
-  // is what an empty deck means to both.
-  deck?: DeckCounts;
+  // Public deck composition and completed reveals. DiceGame appends its own
+  // render-safe active chain before deriving weights, so a coach never reads
+  // the debounced liveTurnState relay immediately after a chain draw.
+  drawStrategyInputs?: DrawStrategyInputs;
 }
 
-const NO_DECK: DeckCounts = {};
+const NO_DRAW_STRATEGY_INPUTS: DrawStrategyInputs = {
+  remainingCounts: {}, initialCards: {}, completedReveals: [],
+};
 
-export default function DiceGame({ currentCard, turnKey, onComplete, onStateChange, panelReady = true, ruleset = DEFAULT_RULESET, onDrawCard, bot, coachSeat, deck = NO_DECK }: DiceGameProps) {
+export default function DiceGame({ currentCard, turnKey, onComplete, onStateChange, panelReady = true, ruleset = DEFAULT_RULESET, onDrawCard, bot, coachSeat, drawStrategyInputs = NO_DRAW_STRATEGY_INPUTS }: DiceGameProps) {
   const { t } = useTranslation();
   const isClassic = ruleset === 'classic';
 
@@ -123,6 +127,12 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // state deps ticks.
   const [initialChain] = useState<RestoredChain>(() => restore.initialChain);
   const chainRef = useRef(initialChain);
+  // Unlike chainRef this is safe to consume during render. It carries every
+  // card (including repeated types), because a count plus currentCard cannot
+  // reconstruct the constrained-shuffle prefix after a chain draw.
+  const [activeChainCards, setActiveChainCards] = useState<readonly CardType[]>(
+    () => initialChain.cards.map(entry => entry.card),
+  );
   // The chain ref is authoritative for callbacks, but coach/bot decisions are
   // render-time computations. Keep the pending Plus/Minus deductions in state
   // so those decisions never read a mutable ref during render.
@@ -455,6 +465,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     }
     if (!newCard) return false;
     chainRef.current.cards.push({ card: newCard, completed: false });
+    setActiveChainCards(chainRef.current.cards.map(entry => entry.card));
     dispatch({ type: 'CHAIN_DRAWN', card: newCard, base });
     setDisplayRoll([]);
     if (newCard === 'Stop') {
@@ -514,6 +525,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     pendingChainRollRef.current = null;
     drawnCardWasCurrentRef.current = false;
     chainRef.current.cards.pop();
+    setActiveChainCards(chainRef.current.cards.map(entry => entry.card));
     chainRef.current.ended = 'banked';
     setRevealedCard(null);
     dispatch({ type: 'DRAW_ABANDONED', summary: { won: true, score: base, isTutto: true } });
@@ -697,14 +709,89 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     isClassic, hasDrawCard: !!onDrawCard, isMakingTutto, canStop, currentCard, chainCardCount,
   });
 
+  // The reveal prefix is entirely synchronous at the point strategy reads it:
+  // completed history from Game plus the active panel's own chain mirror.
+  // Do not substitute the debounced live snapshot here; it can be one or more
+  // cards behind immediately after a successful chain draw.
+  const deck = useMemo(() => nextDrawWeightsFromCounts(
+    drawStrategyInputs.remainingCounts,
+    drawStrategyInputs.initialCards,
+    [...drawStrategyInputs.completedReveals, ...activeChainCards],
+  ), [drawStrategyInputs, activeChainCards]);
+
   const displayKeptDice = sortKeptDiceForDisplay(keptDice, currentCard, kniffelProgress, ruleset);
+
+  // Never price a bot table while it is empty, tumbling, busted or already
+  // decided. Besides wasting the animation window, an empty committed table
+  // has no legal keep for the decision evaluator to inspect.
+  const canAct = hasRolled && !bustState && !isRolling && !showSummary && !revealedCard;
+  const canSubmitSelection = canAct && validation.valid;
+
+  // Selection flags are intentionally absent: Otto evaluates the table before
+  // committing a keep, then the bot driver takes a second step on that same
+  // table to execute the action. Equivalent data objects must reuse the exact
+  // decision rather than restart the DP because React or the store allocated.
+  const botDecisionKey = [
+    bot?.personality, currentRoll.map(die => die.val).join(','), keptDice.length,
+    turnScore, currentCard, ruleset, kniffelProgress.join(','), tuttosThisTurn,
+    Object.entries(deck).sort(([a], [b]) => a.localeCompare(b)).map(([card, count]) => `${card}:${count}`).join(','),
+    bot?.myScore, bot?.leaderScore, bot?.winningScore,
+    !!bot?.endgame, bot?.endgame?.opponentScores.join(','), !!onDrawCard, chainCardCount, plusMinusScores.join(','),
+  ].join('|');
+  const botContext = useMemo<BotTurnContext | null>(() => {
+    if (!bot) return null;
+    return {
+      personality: bot.personality,
+      rollVals: currentRoll.map(d => d.val),
+      keptCount: keptDice.length,
+      turnScore,
+      currentCard,
+      ruleset,
+      kniffelProgress,
+      tuttosThisTurn,
+      deck,
+      myScore: bot.myScore,
+      leaderScore: bot.leaderScore,
+      winningScore: bot.winningScore,
+      endgame: bot.endgame,
+      canDraw: !!onDrawCard,
+      chainCardCount,
+      plusMinusScores,
+    };
+    // `botDecisionKey` names every strategy-relevant field by content, including
+    // deck weights and endgame scores; selected flags remain deliberately out.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [botDecisionKey]);
+  const optimalBotDecision = useMemo(() =>
+    botContext?.personality === 'optimal' && canAct && currentRoll.length > 0
+      ? evaluateOttoDecision(botContext)
+      : null,
+  [botContext, canAct, currentRoll.length]);
 
   // A turn is select → roll or stop, repeated. Each shortcut is bound only when
   // its button is enabled, so a key can never do something a click could not —
   // an unavailable action passes `undefined` and the key falls through to the
   // page. Listed for players in HelpPopup's shortcuts section.
-  const canAct = hasRolled && !bustState && !isRolling && !showSummary && !revealedCard;
-  const canSubmitSelection = canAct && validation.valid;
+  // A player's toggles only alter the hint's "your dice differ" copy. Otto's
+  // selection itself is keyed by strategy content and survives that render.
+  const coachDecisionKey = [
+    coachSeat?.myScore, coachSeat?.leaderScore, coachSeat?.winningScore,
+    !!coachSeat?.endgame, coachSeat?.endgame?.opponentScores.join(','), currentRoll.map(die => die.val).join(','),
+    keptDice.length, turnScore, currentCard, ruleset, kniffelProgress.join(','), tuttosThisTurn,
+    Object.entries(deck).sort(([a], [b]) => a.localeCompare(b)).map(([card, count]) => `${card}:${count}`).join(','),
+    !!onDrawCard, chainCardCount, plusMinusScores.join(','),
+  ].join('|');
+  const coachDecision = useMemo(() => {
+    if (!coachSeat || bot || !canAct || currentRoll.length === 0) return null;
+    return evaluateOttoDecision({
+      personality: 'optimal', rollVals: currentRoll.map(die => die.val), keptCount: keptDice.length,
+      turnScore, currentCard, ruleset, kniffelProgress, tuttosThisTurn, deck,
+      myScore: coachSeat.myScore, leaderScore: coachSeat.leaderScore, winningScore: coachSeat.winningScore,
+      endgame: coachSeat.endgame, canDraw: !!onDrawCard, chainCardCount, plusMinusScores,
+    });
+    // `coachDecisionKey` has every decision input and deliberately omits selected flags.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coachDecisionKey, bot, canAct]);
 
   // Otto's advice for the panel this render is showing, or null — off unless
   // Game.tsx handed down a coachSeat (coachHintEnabled AND a human's turn)
@@ -732,10 +819,10 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         return acc;
       }, []),
       isSelectionLocked,
-    });
+    }, coachDecision ?? undefined);
   }, [
     coachSeat, bot, canAct, currentRoll, keptDice.length, turnScore, currentCard, ruleset,
-    kniffelProgress, deck, onDrawCard, chainCardCount, plusMinusScores, tuttosThisTurn, isSelectionLocked,
+    kniffelProgress, deck, onDrawCard, chainCardCount, plusMinusScores, tuttosThisTurn, isSelectionLocked, coachDecision,
   ]);
 
   // Game renders this panel inside a modal, so an aria-modal element is always
@@ -759,40 +846,31 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // booleans are the very ones the buttons and shortcuts above are bound to,
   // so the bot can never do what a tap could not.
   const botStep = () => {
-    if (!bot) return;
-    const ctx: BotTurnContext = {
-      personality: bot.personality,
-      rollVals: currentRoll.map(d => d.val),
-      keptCount: keptDice.length,
-      turnScore,
-      currentCard,
-      ruleset,
-      kniffelProgress,
-      tuttosThisTurn,
-      deck,
-      myScore: bot.myScore,
-      leaderScore: bot.leaderScore,
-      winningScore: bot.winningScore,
-      endgame: bot.endgame,
-      canDraw: !!onDrawCard,
-      chainCardCount,
-      plusMinusScores,
-    };
-    const wanted = new Set(chooseBotSelection(ctx));
+    if (!botContext) return;
+    const wanted = new Set(optimalBotDecision?.selectedIndices ?? chooseBotSelection(botContext));
     const selectionMatches = currentRoll.every((d, i) => !!d.selected === wanted.has(i));
     // A locked Feuerwerk keep is already the selection the rules force;
     // re-dispatching it would only spin.
-    if (!selectionMatches && !isSelectionLocked) {
-      void playDieClick(true);
-      dispatch({ type: 'SELECTION_SET', indices: wanted });
+    if (!selectionMatches) {
+      if (!isSelectionLocked) {
+        void playDieClick(true);
+        dispatch({ type: 'SELECTION_SET', indices: wanted });
+      }
       return;
     }
-    const action = chooseBotAction(ctx, {
+    const actualAvailability = {
       roll: canSubmitSelection && isRollAgainApplicable,
       stop: canSubmitSelection && canStop,
       draw: canSubmitSelection && canDrawAfterTutto,
-    });
-    if (action) void handleAction(action);
+    };
+    const action = optimalBotDecision
+      ? (actualAvailability.roll === optimalBotDecision.available.roll
+        && actualAvailability.stop === optimalBotDecision.available.stop
+        && actualAvailability.draw === optimalBotDecision.available.draw
+          ? optimalBotDecision.action
+          : resolveOttoAction(botContext, optimalBotDecision, actualAvailability).action)
+      : chooseBotAction(botContext, actualAvailability);
+    if (action && actualAvailability[action]) void handleAction(action);
   };
   useBotDriver({
     active: !!bot,

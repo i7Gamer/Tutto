@@ -2,9 +2,9 @@ import type { CardType, Ruleset } from '../types';
 import { TOTAL_DICE } from './turnShapes';
 import { deriveTurnControls, canDrawAfterTutto } from './diceTurnControls';
 import {
-  chooseBotSelection, outcomeOfSelection, optimalRollDecision,
+  evaluateOttoDecision,
   type BotAction, type BotActionAvailability, type BotTurnContext,
-  optimalActionDecision,
+  type OttoDecisionResult,
 } from './botStrategies';
 import { PERCENT } from './percentage';
 import type { DeckCounts } from './turnValue';
@@ -88,7 +88,7 @@ export interface CoachHint {
  * at the moment it is promised, the moment the dice settle and before
  * anyone has tapped a thing.
  */
-export const coachHint = (input: CoachHintInput): CoachHint | null => {
+export const coachHint = (input: CoachHintInput, evaluated?: OttoDecisionResult): CoachHint | null => {
   // S-5: one spelling of "which ruleset" — derived here instead of carried
   // twice in the input, where nothing reconciled it with `ruleset` itself.
   const isClassic = input.ruleset === 'classic';
@@ -111,7 +111,8 @@ export const coachHint = (input: CoachHintInput): CoachHint | null => {
     plusMinusScores: input.plusMinusScores,
   };
 
-  const ottoSelection = chooseBotSelection(ctx);
+  const decision = evaluated ?? evaluateOttoDecision(ctx);
+  const ottoSelection = decision.selectedIndices;
   if (ottoSelection.length === 0) return null;
 
   const isMakingTutto = input.keptCount + ottoSelection.length === TOTAL_DICE;
@@ -132,12 +133,14 @@ export const coachHint = (input: CoachHintInput): CoachHint | null => {
   });
   const available: BotActionAvailability = { roll: isRollAgainApplicable, stop: canStop, draw };
 
-  const decision = optimalActionDecision(ctx, available);
   const action = decision.action;
   if (!action) return null;
 
-  const { bank, diceAfter, progressAfter } = outcomeOfSelection(ctx);
-  const { bustProbability, rollValue, threshold, appetite } = optimalRollDecision(ctx, bank, diceAfter, progressAfter);
+  const { bank, diceAfter } = decision.outcome;
+  const bustProbability = decision.roll?.bustProbability ?? 0;
+  const rollValue = decision.roll?.rollValue ?? 0;
+  const threshold = decision.roll?.threshold ?? 0;
+  const appetite = decision.roll?.appetite ?? decision.draw?.appetite ?? 0;
 
   const ottoSet = new Set(ottoSelection);
   const selectionDiffers = input.selectedIndices.length > 0 && !input.isSelectionLocked

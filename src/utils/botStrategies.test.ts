@@ -1,7 +1,8 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
 import {
-  chooseBotSelection, chooseBotAction, evaluateRoll, outcomeOfSelection, optimalRollDecision, optimalDrawDecision, optimalActionDecision,
+  chooseBotSelection, chooseBotAction, evaluateOttoDecision, resolveOttoAction,
+  evaluateRoll, outcomeOfSelection, optimalRollDecision, optimalDrawDecision, optimalActionDecision,
   CAUTIOUS_BANK_MIN, CAUTIOUS_MIN_DICE_TO_ROLL,
   type BotTurnContext, type BotActionAvailability, type BotAction,
 } from './botStrategies';
@@ -10,7 +11,7 @@ import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from './coreGameEngine';
 import { applyTuttoBonus, checkValidityAndScore, getMaxValidSelection } from './diceLogic';
 import { BOT_PERSONALITIES, MAX_CHAIN_CARDS, type CardType } from '../types';
 import { TOTAL_DICE, DIE_FACES } from './turnShapes';
-import { continuationValue, diceCounts, drawValue, legalKeeps, nextDrawWeights } from './turnValue';
+import { diceCounts, keepIndices, legalKeeps, nextDrawWeights } from './turnValue';
 
 // A deterministic generator so the property runs are repeatable.
 const lcg = (seed: number) => () => {
@@ -68,6 +69,138 @@ describe('Otto strategy regressions', () => {
     expect(chooseBotAction(input, ROLL_OR_STOP)).toBe('roll');
   });
 
+  it('repairs a dominated stopping bank while preserving the larger keep\'s action', () => {
+    const input = otto({ ruleset: 'classic', currentCard: '300', turnScore: 800,
+      rollVals: [6, 6, 5, 5, 6, 1], leaderScore: 2000, deck: DEFAULT_INITIAL_CARDS,
+      canDraw: true, chainCardCount: 1 });
+    const result = evaluateOttoDecision(input);
+    expect([...result.selectedIndices].sort()).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(result.outcome.bank).toBe(1900);
+    expect(result.action).toBe('draw');
+    expect(result.comparisonUtility).toBe(result.draw?.drawValue);
+    expect(result.comparisonUtility).toBeCloseTo(1541.53, 2);
+    expect(result.comparisonUtility).toBeGreaterThan(1900 * (1 - result.draw!.appetite));
+
+    const level = evaluateOttoDecision({ ...input, leaderScore: 0 });
+    expect([...level.selectedIndices].sort()).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(level.action).toBe('stop');
+    expect(level.rawWorth).toBe(1900);
+  });
+
+  it('selects the keep that can bank a certain last-seat win', () => {
+    const input = otto({ rollVals: [1, 2, 2, 2, 3, 4], myScore: 5700, leaderScore: 5700,
+      endgame: { opponentScores: [5000] } });
+    const result = evaluateOttoDecision(input);
+    expect(result.selectedIndices).toEqual([0, 1, 2, 3]);
+    expect(result.outcome.bank).toBe(300);
+    expect(result).toMatchObject({ action: 'stop', reason: 'bankWin' });
+  });
+
+  it('re-resolves actual availability without selecting another keep', () => {
+    const input = otto({ keptCount: 5, rollVals: [5], turnScore: 200, ruleset: 'classic' });
+    const evaluated = evaluateOttoDecision(input);
+    const resolved = resolveOttoAction(input, evaluated, { roll: false, stop: true, draw: false });
+    expect(resolved).toMatchObject({ action: 'stop', rawWorth: evaluated.outcome.bank });
+    expect(resolved.selectedIndices).toBe(evaluated.selectedIndices);
+    expect(resolved.outcome).toBe(evaluated.outcome);
+  });
+
+  it('only resolves actions actually offered, including all controls disabled', () => {
+    const contexts = [
+      otto({ rollVals: [1, 2, 3, 4, 6, 6] }),
+      otto({ keptCount: 5, rollVals: [5], ruleset: 'classic', turnScore: 200 }),
+    ];
+    for (const input of contexts) {
+      const evaluated = evaluateOttoDecision(input);
+      for (const roll of [false, true]) for (const stop of [false, true]) for (const draw of [false, true]) {
+        const available = { roll, stop, draw };
+        const resolved = resolveOttoAction(input, evaluated, available);
+        expect(resolved.selectedIndices).toBe(evaluated.selectedIndices);
+        if (!roll && !stop && !draw) expect(resolved.action).toBeNull();
+        else expect(resolved.action && available[resolved.action]).toBe(true);
+      }
+    }
+  });
+
+  it.each([
+    { label: 'a bust table', keptCount: 0, rollVals: [2, 3, 4, 6, 6, 4] },
+    { label: 'an empty table', keptCount: 0, rollVals: [] },
+    { label: 'a committed six-die table', keptCount: TOTAL_DICE, rollVals: [] },
+  ])('returns a terminal empty decision for $label', ({ keptCount, rollVals }) => {
+    const input = otto({ keptCount, rollVals });
+    const evaluated = evaluateOttoDecision(input);
+    expect(evaluated).toMatchObject({ selectedIndices: [], available: NONE, action: null, roll: null, draw: null });
+    expect(resolveOttoAction(input, evaluated, ALL)).toBe(evaluated);
+  });
+
+  it('never stops for a smaller point bank than another legal keep', () => {
+    const random = lcg(163);
+    const trials = 240;
+    const cards = ['200', '300', 'x2'] as const;
+    const drawModes = [
+      { canDraw: false, chainCardCount: 1, deck: DEFAULT_INITIAL_CARDS },
+      { canDraw: true, chainCardCount: 1, deck: {} },
+      { canDraw: true, chainCardCount: 1, deck: { Stop: 4 } },
+      { canDraw: true, chainCardCount: MAX_CHAIN_CARDS, deck: DEFAULT_INITIAL_CARDS },
+    ] as const;
+    for (let trial = 0; trial < trials; trial++) {
+      const keptCount = Math.floor(random() * TOTAL_DICE);
+      const input = otto({
+        ruleset: trial % 2 ? 'classic' : 'modernized', currentCard: cards[trial % cards.length],
+        keptCount, rollVals: Array.from({ length: TOTAL_DICE - keptCount }, () => 1 + Math.floor(random() * DIE_FACES)),
+        turnScore: Math.floor(random() * 20) * 50, leaderScore: trial % 2 ? 0 : 6000,
+        ...drawModes[trial % drawModes.length],
+      });
+      const keeps = legalKeeps(diceCounts(input.rollVals), input.currentCard, [], input.ruleset);
+      if (!keeps.length) continue;
+      const result = evaluateOttoDecision(input);
+      if (result.action !== 'stop') continue;
+      const candidateBanks = keeps.map(keep => {
+        const total = input.turnScore + keep.score;
+        return input.keptCount + keep.dice === TOTAL_DICE ? applyTuttoBonus(total, input.currentCard) : total;
+      });
+      expect(result.outcome.bank).toBeGreaterThanOrEqual(Math.max(...candidateBanks));
+    }
+  });
+
+  it('differs from frozen raw-worth ranking only to repair a dominated stopping bank', () => {
+    const random = lcg(1701);
+    const trials = 1000;
+    const cards = [null, '200', '300', '400', '500', '600', 'x2'] as const;
+    for (let trial = 0; trial < trials; trial++) {
+      const keptCount = Math.floor(random() * TOTAL_DICE);
+      const input = otto({
+        currentCard: cards[trial % cards.length], ruleset: trial % 2 ? 'classic' : 'modernized', keptCount,
+        rollVals: Array.from({ length: TOTAL_DICE - keptCount }, () => 1 + Math.floor(random() * DIE_FACES)),
+        turnScore: Math.floor(random() * 24) * 50, leaderScore: Math.floor(random() * 6001),
+        canDraw: trial % 4 !== 0, chainCardCount: trial % 5 === 0 ? MAX_CHAIN_CARDS : 1,
+        deck: trial % 6 === 0 ? { Stop: 3 } : DEFAULT_INITIAL_CARDS,
+      });
+      const keeps = legalKeeps(diceCounts(input.rollVals), input.currentCard, [], input.ruleset);
+      if (!keeps.length) continue;
+      const evaluated = keeps.map(keep => {
+        const selectedIndices = keepIndices(input.rollVals, keep.counts);
+        const isTutto = keptCount + keep.dice === TOTAL_DICE;
+        const bank = isTutto ? applyTuttoBonus(input.turnScore + keep.score, input.currentCard) : input.turnScore + keep.score;
+        const roll = !isTutto ? optimalRollDecision(input, bank, TOTAL_DICE - keptCount - keep.dice, []) : null;
+        const canDraw = isTutto && input.ruleset === 'classic' && input.canDraw
+          && input.chainCardCount! < MAX_CHAIN_CARDS;
+        const draw = canDraw ? optimalDrawDecision(input, bank) : null;
+        const action = roll?.action ?? draw?.action ?? 'stop';
+        const rawWorth = action === 'roll' ? roll!.rollValue : action === 'draw' ? draw!.drawValue : bank;
+        return { selectedIndices, keep, bank, action, rawWorth };
+      });
+      const baseline = evaluated.reduce((best, candidate) => candidate.rawWorth > best.rawWorth + 1e-9
+        || (Math.abs(candidate.rawWorth - best.rawWorth) <= 1e-9 && candidate.keep.dice > best.keep.dice)
+        ? candidate : best);
+      const actual = evaluateOttoDecision(input);
+      if (actual.selectedIndices.join(',') === baseline.selectedIndices.join(',')) continue;
+      expect(baseline.action).toBe('stop');
+      expect(actual.outcome.bank).toBeGreaterThan(baseline.bank);
+      expect(actual.outcome.bank).toBe(Math.max(...evaluated.map(candidate => candidate.bank)));
+    }
+  });
+
   it('banks a guaranteed last-seat win instead of chasing expected points', () => {
     const input = otto({ myScore: 5900, leaderScore: 5900, endgame: { opponentScores: [5000] },
       rollVals: [1, 2, 2, 2, 3, 4] });
@@ -122,7 +255,7 @@ describe('Otto strategy regressions', () => {
       .toMatchObject({ action: 'roll', reason: undefined });
   });
 
-  it('chooses the best actual action value across seeded reachable points-card states', () => {
+  it('keeps action wrappers aligned across seeded reachable points-card states', () => {
     const random = lcg(29);
     const trials = 80;
     const cards = ['200', '600', 'x2'] as const;
@@ -137,26 +270,13 @@ describe('Otto strategy regressions', () => {
         currentCard: cards[trial % cards.length], leaderScore: 3000,
         deck: { Feuerwerk: 1 }, canDraw: trial % 3 !== 0,
         chainCardCount: trial % 5 === 0 ? MAX_CHAIN_CARDS : 1 });
-      const keeps = legalKeeps(diceCounts(input.rollVals), input.currentCard, [], input.ruleset);
-      if (!keeps.length) continue;
+      if (!legalKeeps(diceCounts(input.rollVals), input.currentCard, [], input.ruleset).length) continue;
       const canDraw = input.ruleset === 'classic' && input.canDraw && input.chainCardCount! < MAX_CHAIN_CARDS;
-      const chain = canDraw ? { deck: input.deck, myScore: input.myScore, winningScore: input.winningScore } : undefined;
-      const candidateValues = keeps.map(keep => {
-        const complete = keptCount + keep.dice === TOTAL_DICE;
-        const bank = complete ? applyTuttoBonus(input.turnScore + keep.score, input.currentCard) : input.turnScore + keep.score;
-        if (complete) {
-          const value = chain ? drawValue(chain, bank, input.ruleset) : 0;
-          return chain && value >= bank / 2 ? value : bank;
-        }
-        const value = continuationValue({ card: input.currentCard, ruleset: input.ruleset, myScore: input.myScore,
-          winningScore: input.winningScore, tuttosThisTurn: 0, chain }, bank, TOTAL_DICE - keptCount - keep.dice, []);
-        return value >= bank / 2 ? value : bank;
-      });
       const selected = chooseBotSelection(input);
       const complete = keptCount + selected.length === TOTAL_DICE;
       const available = { roll: !complete, stop: true, draw: complete && !!canDraw };
       const decision = optimalActionDecision(input, available);
-      expect(decision.worth).toBeCloseTo(Math.max(...candidateValues), 8);
+      expect(evaluateOttoDecision(input).selectedIndices).toEqual(selected);
       expect(chooseBotAction(input, available)).toBe(decision.action);
     }
   });
@@ -526,7 +646,7 @@ describe('every personality', () => {
       const available: BotActionAvailability = { roll: rand() < 0.5, stop: rand() < 0.5, draw: rand() < 0.5 };
       const action = chooseBotAction(context, available);
       const offered = (Object.keys(available) as BotAction[]).filter(a => available[a]);
-      if (offered.length === 0) {
+      if (offered.length === 0 || (context.personality === 'optimal' && chooseBotSelection(context).length === 0)) {
         expect(action).toBeNull();
       } else {
         expect(offered).toContain(action);

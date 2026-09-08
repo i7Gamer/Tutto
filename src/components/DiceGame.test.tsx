@@ -25,6 +25,9 @@ vi.mock('canvas-confetti', () => ({
 // Deterministic dice: rollDie() drains this queue and falls back to the real
 // implementation when empty (so tests that don't care keep working).
 const { rollQueue } = vi.hoisted(() => ({ rollQueue: [] as number[] }));
+const capturedCoachInput = vi.hoisted(() => ({ current: null as unknown }));
+const botDecisionCalls = vi.hoisted(() => ({ evaluate: 0, resolve: 0 }));
+const capturedDrawInputs = vi.hoisted(() => ({ revealedCards: null as unknown }));
 
 vi.mock('../utils/diceLogic', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../utils/diceLogic')>();
@@ -33,6 +36,44 @@ vi.mock('../utils/diceLogic', async (importOriginal) => {
     rollDie: () => (rollQueue.length > 0 ? rollQueue.shift()! : actual.rollDie()),
   };
 });
+
+vi.mock('../utils/coachHint', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/coachHint')>();
+  return {
+    ...actual,
+    coachHint: (...args: Parameters<typeof actual.coachHint>) => {
+      capturedCoachInput.current = args[0];
+      return actual.coachHint(...args);
+    },
+  };
+});
+
+vi.mock('../utils/botStrategies', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/botStrategies')>();
+  return {
+    ...actual,
+    evaluateOttoDecision: (input: Parameters<typeof actual.evaluateOttoDecision>[0]) => {
+      botDecisionCalls.evaluate++;
+      return actual.evaluateOttoDecision(input);
+    },
+    resolveOttoAction: (...args: Parameters<typeof actual.resolveOttoAction>) => {
+      botDecisionCalls.resolve++;
+      return actual.resolveOttoAction(...args);
+    },
+  };
+});
+
+vi.mock('../utils/turnValue', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/turnValue')>();
+  return {
+    ...actual,
+    nextDrawWeightsFromCounts: (...args: Parameters<typeof actual.nextDrawWeightsFromCounts>) => {
+      capturedDrawInputs.revealedCards = args[2];
+      return actual.nextDrawWeightsFromCounts(...args);
+    },
+  };
+});
+
 
 // Each roll consumes 2N rollDie() calls: N for the real values and N for the
 // initial display values (which the test-env path immediately overwrites), so
@@ -44,6 +85,10 @@ const queueRoll = (vals: number[]) => { rollQueue.push(...vals, ...vals); };
 // to run next — invisible in declaration order, real under --sequence.shuffle.
 beforeEach(() => {
   rollQueue.length = 0;
+  capturedCoachInput.current = null;
+  botDecisionCalls.evaluate = 0;
+  botDecisionCalls.resolve = 0;
+  capturedDrawInputs.revealedCards = null;
 });
 
 // The die's accessible name is `${t('dice.die_showing')} ${val}` — under the
@@ -1147,6 +1192,39 @@ describe('DiceGame driven by a bot', () => {
     expect(onComplete).toHaveBeenCalledTimes(1);
   });
 
+  it('does not evaluate Otto while the table is empty, tumbling, busted, or decided', async () => {
+    const originalTumble = timing.DIE_TUMBLE_MS;
+    timing.DIE_TUMBLE_MS = 10_000;
+    try {
+      queueRoll([1, 5, 2, 2, 3, 4]);
+      const { unmount } = render(<DiceGame currentCard="200" onComplete={vi.fn()} bot={seat('optimal')} />);
+      // ROLL_STARTED has committed, but the dice are still tumbling.
+      expect(botDecisionCalls.evaluate).toBe(0);
+      unmount();
+    } finally {
+      timing.DIE_TUMBLE_MS = originalTumble;
+    }
+
+    queueRoll([2, 3, 4, 6, 6, 4]);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} bot={seat('optimal')} />);
+    await flushRoll();
+    expect(botDecisionCalls.evaluate).toBe(0);
+  });
+
+  it('evaluates Otto once across bot selection and action, then resolves against real controls', async () => {
+    queueRoll([1, 2, 2, 2, 3, 4]);
+    const onComplete = vi.fn();
+    render(<DiceGame
+      currentCard="200"
+      onComplete={onComplete}
+      bot={{ personality: 'optimal', myScore: 5700, leaderScore: 5700, winningScore: 6000, endgame: { opponentScores: [5000] } }}
+    />);
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    expect(botDecisionCalls.evaluate).toBe(1);
+    expect(botDecisionCalls.resolve).toBe(0);
+  });
+
   it('never touches a human\'s table', async () => {
     const onComplete = vi.fn();
     queueRoll([1, 5, 2, 2, 3, 4]);
@@ -1228,6 +1306,89 @@ describe('DiceGame coach hint (coachSeat)', () => {
     await flushRoll();
 
     expect(screen.getByText('coach.roll')).toBeInTheDocument();
+  });
+
+  it('keeps Otto\'s coach decision across equal-value replacement props and player selection flags', async () => {
+    const props = {
+      currentCard: '200' as const,
+      onComplete: vi.fn(),
+      coachSeat: { ...standings },
+      drawStrategyInputs: {
+        remainingCounts: { Stop: 2, '200': 3 }, initialCards: { Stop: 2, '200': 4 }, completedReveals: [],
+      },
+    };
+    queueRoll([1, 5, 2, 2, 3, 4]);
+    const { rerender } = render(<DiceGame {...props} />);
+    await flushRoll();
+    const settledEvaluations = botDecisionCalls.evaluate;
+
+    rerender(<DiceGame {...props} coachSeat={{ ...standings }} drawStrategyInputs={{
+      remainingCounts: { Stop: 2, '200': 3 }, initialCards: { Stop: 2, '200': 4 }, completedReveals: [],
+    }} />);
+    fireEvent.click(dieShowing(1, false));
+
+    expect(botDecisionCalls.evaluate).toBe(settledEvaluations);
+  });
+
+  it('uses the restored active chain for first-roll draw weights before any live snapshot debounce', async () => {
+    // The active panel has drawn three consecutive 200s. Two completed x2s
+    // precede it in history; with seven cards remaining, this is the whole
+    // current-deck prefix. A fourth 200 is therefore impossible even though
+    // three remain in the deck composition.
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      keptDice: [], currentRoll: [], kniffelProgress: [], turnScore: 0,
+      tuttosThisTurn: 0, cardsThisTurn: ['200', '200', '200'],
+      plusMinusScores: [], chainTuttoCount: 2, turnKey: 'coach-chain',
+    }));
+    queueRoll([1, 5, 2, 2, 3, 4]);
+    render(<DiceGame
+      currentCard="200"
+      turnKey="coach-chain"
+      ruleset="classic"
+      onComplete={vi.fn()}
+      onDrawCard={vi.fn()}
+      coachSeat={standings}
+      drawStrategyInputs={{
+        remainingCounts: { Stop: 3, x2: 1, '200': 3 },
+        initialCards: { Stop: 3, x2: 3, '200': 6 },
+        completedReveals: ['x2', 'x2'],
+      }}
+    />);
+    await flushRoll();
+
+    expect((capturedCoachInput.current as { deck: unknown }).deck).toEqual({ Stop: 3, x2: 1 });
+  });
+
+  it('adds an accepted same-type draw to the live strategy prefix before its first settled roll', async () => {
+    localStorage.setItem('tutto_dice_turn_state', JSON.stringify({
+      keptDice: [], currentRoll: [], kniffelProgress: [], turnScore: 0,
+      tuttosThisTurn: 0, cardsThisTurn: ['200', '200'],
+      plusMinusScores: [], chainTuttoCount: 1, turnKey: 'same-type-chain',
+    }));
+    const onDrawCard = vi.fn(async () => '200' as const);
+    const baseProps = {
+      currentCard: '200' as const, turnKey: 'same-type-chain', ruleset: 'classic' as const,
+      onComplete: vi.fn(), onDrawCard, coachSeat: standings,
+      drawStrategyInputs: {
+        remainingCounts: { Stop: 3, '200': 4 }, initialCards: { Stop: 3, '200': 6 }, completedReveals: [],
+      },
+    };
+    queueRoll([1, 1, 1, 5, 5, 5]);
+    const { rerender } = render(<DiceGame {...baseProps} />);
+    await flushRoll();
+    fireEvent.click(screen.getByText('dice.select_all_valid'));
+    await clickDraw();
+
+    // This is the parent Game's synchronous remaining-count update; no live
+    // snapshot has arrived, and the card prop is unchanged because it is 200 again.
+    rerender(<DiceGame {...baseProps} drawStrategyInputs={{
+      ...baseProps.drawStrategyInputs, remainingCounts: { Stop: 3, '200': 3 },
+    }} />);
+    queueRoll([1, 5, 2, 2, 3, 4]);
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
+    await flushRoll();
+
+    expect((capturedCoachInput.current as { deck: unknown }).deck).toEqual({ Stop: 3 });
   });
 
   it('restores pending classic Plus/Minus deductions into endgame coach advice', () => {
@@ -1462,6 +1623,9 @@ describe('DiceGame chain draw the server discards', () => {
     // The same fallback a draw the store refuses already takes: bank the tutto
     // that was already committed.
     expect(screen.getByText('dice.bank_points')).toBeInTheDocument();
+    // The rejected draw is popped from the render-safe active prefix before
+    // this summary render. A later panel must not price the discarded 500.
+    expect(capturedDrawInputs.revealedCards).toEqual(['300']);
     expect(onComplete).toHaveBeenCalledWith(1800, true, expect.objectContaining({
       // The card that never became this turn's must not ride into the summary
       // — nor count against the chain cap.

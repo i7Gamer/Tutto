@@ -1,6 +1,7 @@
 /** @vitest-environment node */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { coachHint, type CoachHintInput } from './coachHint';
+import * as botStrategies from './botStrategies';
 import { DEFAULT_INITIAL_CARDS } from './configValidation';
 import { KNIFFEL_SCORE } from './coreGameEngine';
 import { MAX_CHAIN_CARDS, type CardType } from '../types';
@@ -355,5 +356,21 @@ describe('coachHint', () => {
     }));
     expect(hint).not.toBeNull();
     expect(hint!.action).toBe('draw');
+  });
+
+  it('consumes a supplied table decision without evaluating Otto again', () => {
+    const values = input({ rollVals: [1, 2, 3, 4, 6, 6] });
+    const evaluated = botStrategies.evaluateOttoDecision({
+      personality: 'optimal', rollVals: values.rollVals, keptCount: values.keptCount,
+      turnScore: values.turnScore, currentCard: values.currentCard, ruleset: values.ruleset,
+      kniffelProgress: values.kniffelProgress, tuttosThisTurn: values.tuttosThisTurn,
+      deck: values.deck, myScore: values.standings.myScore, leaderScore: values.standings.leaderScore,
+      winningScore: values.standings.winningScore, endgame: values.standings.endgame,
+      canDraw: values.canDraw, chainCardCount: values.chainCardCount, plusMinusScores: values.plusMinusScores,
+    });
+    const evaluateSpy = vi.spyOn(botStrategies, 'evaluateOttoDecision');
+    expect(coachHint(values, evaluated)).toMatchObject({ action: evaluated.action, keep: [1] });
+    expect(evaluateSpy).not.toHaveBeenCalled();
+    evaluateSpy.mockRestore();
   });
 });

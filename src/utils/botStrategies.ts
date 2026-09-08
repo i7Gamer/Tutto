@@ -4,8 +4,9 @@ import { fixedCardAward } from './coreGameEngine';
 import { deriveTurnControls } from './diceTurnControls';
 import { afterCardCompletion, bankOutcome, canReachNonLosingDraw, canReachNonLosingRoll, hasClassicDraw, type EndgameStandings } from './botEndgame';
 import { TOTAL_DICE } from './turnShapes';
+import { BONUS_CARDS } from './configValidation';
 import {
-  completionProbability, continuationValue, countsToVals, diceCounts, drawValue, keepIndices, legalKeeps, outcomeSpace, tableOutcomes, tuttoValue,
+  completionProbability, continuationValue, diceCounts, drawValue, keepIndices, legalKeeps, outcomeSpace, tableOutcomes, tuttoValue,
   type DeckCounts, type Keep, type ValueContext,
 } from './turnValue';
 
@@ -133,33 +134,59 @@ const riskAppetite = (ctx: BotTurnContext): number => {
  */
 const VALUE_TIE_EPSILON = 1e-9;
 const CERTAIN_COMPLETION = 1;
+const isOrdinaryPointsCard = (card: CardType | null): boolean => card === null || card === 'x2' || BONUS_CARDS.includes(card);
 
 /**
  * Otto's keep: of every valid selection of the table, the one the rest of the
  * turn is worth most with under the action he will actually choose. Classic
  * Kniffel and Kleeblatt compare completion odds, independent of dice points.
  */
-const bestKeep = (ctx: BotTurnContext): number[] => {
-  if ((ctx.currentCard === 'Kniffel' && ctx.ruleset !== 'classic') || (ctx.currentCard === 'Feuerwerk' && ctx.ruleset === 'classic')) return maxKeep(ctx);
-  let best: { worth: number; priority: number; keep: Keep } | null = null;
+const bestEvaluatedKeep = (ctx: BotTurnContext): EvaluatedKeep | null => {
+  if ((ctx.currentCard === 'Kniffel' && ctx.ruleset !== 'classic') || (ctx.currentCard === 'Feuerwerk' && ctx.ruleset === 'classic')) {
+    const selectedIndices = maxKeep(ctx);
+    return selectedIndices.length ? evaluateKeep(ctx, selectedIndices) : null;
+  }
+  type Candidate = { worth: number; priority: number; keep: Keep; evaluated: EvaluatedKeep; decision: OptimalActionDecision };
+  const candidates: Candidate[] = [];
+  let best: Candidate | null = null;
+  const beats = (candidate: Candidate, incumbent: Candidate): boolean => candidate.priority > incumbent.priority
+    || (candidate.priority === incumbent.priority && (candidate.worth > incumbent.worth + VALUE_TIE_EPSILON
+      || (Math.abs(candidate.worth - incumbent.worth) <= VALUE_TIE_EPSILON && candidate.keep.dice > incumbent.keep.dice)));
   for (const keep of legalKeeps(diceCounts(ctx.rollVals), ctx.currentCard, ctx.kniffelProgress, ctx.ruleset)) {
-    const outcome = outcomeOfPicked(ctx, countsToVals(keep.counts));
+    const selectedIndices = keepIndices(ctx.rollVals, keep.counts);
+    const evaluated = evaluateKeep(ctx, selectedIndices);
+    const { outcome, isTutto } = evaluated;
     const { diceAfter, progressAfter } = outcome;
-    const isTutto = ctx.keptCount + keep.dice === TOTAL_DICE;
     // Kleeblatt's dice points never count toward its win. Rank its keeps by
     // completion odds directly, including when the win-value heuristic is
     // zero or the accumulated dice score exceeds the remaining score gap.
-    const decision = decisionForKeep(ctx, outcome, isTutto, actionsForKeep(ctx, isTutto));
+    const decision = decisionForKeep(ctx, evaluated, evaluated.available);
     const worth = ctx.currentCard === 'Kleeblatt' || ctx.currentCard === 'Kniffel'
       ? isTutto ? CERTAIN_COMPLETION : completionProbability(diceAfter, ctx.currentCard, progressAfter, ctx.ruleset)
-      : decision.worth;
-    if (!best || decision.priority > best.priority || (decision.priority === best.priority && (worth > best.worth + VALUE_TIE_EPSILON
-      || (Math.abs(worth - best.worth) <= VALUE_TIE_EPSILON && keep.dice > best.keep.dice)))) {
-      best = { worth, priority: decision.priority, keep };
-    }
+      : decision.rawWorth;
+    const candidate = { worth, priority: decision.priority, keep, evaluated, decision };
+    candidates.push(candidate);
+    if (!best || beats(candidate, best)) best = candidate;
   }
-  return best ? keepIndices(ctx.rollVals, best.keep.counts) : [];
+  // Preserve Otto's established raw-worth ranking except for its concrete
+  // dominance bug: never stop on a point keep while an equal-priority legal
+  // keep could bank strictly more. The replacement keeps its own action, so a
+  // draw or roll that already beats its threshold remains a draw or roll.
+  if (best && isOrdinaryPointsCard(ctx.currentCard) && best.decision.action === 'stop') {
+    const dominatedBank = best.evaluated.outcome.bank;
+    const rescue = candidates.filter(candidate => candidate.priority === best!.priority
+      && candidate.evaluated.available.stop && candidate.evaluated.outcome.bank > dominatedBank)
+      .reduce<Candidate | null>((chosen, candidate) => {
+        if (!chosen || candidate.evaluated.outcome.bank > chosen.evaluated.outcome.bank) return candidate;
+        if (candidate.evaluated.outcome.bank < chosen.evaluated.outcome.bank) return chosen;
+        return beats(candidate, chosen) ? candidate : chosen;
+      }, null);
+    if (rescue) best = rescue;
+  }
+  return best?.evaluated ?? null;
 };
+
+const bestKeep = (ctx: BotTurnContext): number[] => bestEvaluatedKeep(ctx)?.selectedIndices ?? [];
 
 /**
  * Carl and Rita keep every scoring die the rules allow; Otto keeps what the
@@ -169,7 +196,7 @@ const bestKeep = (ctx: BotTurnContext): number[] => {
 export const chooseBotSelection = (ctx: BotTurnContext): number[] =>
   ctx.personality === 'optimal' ? bestKeep(ctx) : maxKeep(ctx);
 
-interface SelectionOutcome {
+export interface SelectionOutcome {
   /** The turn total if the selection is banked now, tutto bonus and any fixed card award included. */
   bank: number;
   /** Dice on the next table if the bot rolls on. */
@@ -238,8 +265,9 @@ export interface OptimalRollDecision {
  * Otto's roll-or-stop arithmetic, standalone: not raw value-vs-bank, but the
  * value of rolling on against a bank discounted by a "trailing" appetite
  * that grows with the gap to the leader. The appetite is Otto's character
- * and stays out of the value function. Each keep is ranked by the objective
- * value of the action this comparison selects. Endgame priorities are applied
+ * and stays out of the value function. Keep ranking normally uses raw chosen-
+ * action worth; the narrow dominated-bank repair is documented at bestEvaluatedKeep.
+ * Endgame priorities are applied
  * separately by decisionForKeep; the coach uses this arithmetic only when
  * that comparison explains the final decision.
  *
@@ -282,6 +310,8 @@ export const optimalDrawDecision = (ctx: BotTurnContext, bank: number): OptimalD
   return { drawValue: worth, threshold, appetite, action: anyCard && worth >= threshold ? 'draw' : 'stop' };
 };
 
+// All keeps share this priority when banking certainly loses and no offered
+// gamble can avoid that result; ordinary point utility then chooses among them.
 const FORCED_LOSS_PRIORITY = 0;
 const ORDINARY_PRIORITY = 1;
 const WIN_PRIORITY = 2;
@@ -290,7 +320,29 @@ export interface OptimalActionDecision {
   action: BotAction | null;
   reason?: 'bankWin' | 'avoidLoss';
   worth: number;
+  /** Undiscounted value of the chosen action. */
+  rawWorth: number;
+  /** Risk-adjusted utility of this action comparison; keep ranking normally uses rawWorth. */
+  comparisonUtility: number;
   priority: number;
+}
+
+export interface OttoDecisionResult extends OptimalActionDecision {
+  readonly selectedIndices: number[];
+  readonly outcome: SelectionOutcome;
+  /** Actions the selected keep would offer after it is committed. */
+  readonly available: BotActionAvailability;
+  readonly roll: OptimalRollDecision | null;
+  readonly draw: OptimalDrawDecision | null;
+}
+
+interface EvaluatedKeep {
+  readonly selectedIndices: number[];
+  readonly outcome: SelectionOutcome;
+  readonly isTutto: boolean;
+  readonly available: BotActionAvailability;
+  readonly roll: OptimalRollDecision | null;
+  readonly draw: OptimalDrawDecision | null;
 }
 
 const actionsForKeep = (ctx: BotTurnContext, isTutto: boolean): BotActionAvailability => {
@@ -301,11 +353,12 @@ const actionsForKeep = (ctx: BotTurnContext, isTutto: boolean): BotActionAvailab
 
 /** Resolves an evaluated keep without calling selection again. */
 const decisionForKeep = (
-  ctx: BotTurnContext, outcome: SelectionOutcome, isTutto: boolean, available: BotActionAvailability,
+  ctx: BotTurnContext, evaluated: EvaluatedKeep, available: BotActionAvailability,
 ): OptimalActionDecision => {
+  const { outcome, isTutto } = evaluated;
   const { bank, diceAfter, progressAfter } = outcome;
-  const roll = available.roll ? optimalRollDecision(ctx, bank, diceAfter, progressAfter) : null;
-  const draw = available.draw ? optimalDrawDecision(ctx, bank) : null;
+  const roll = available.roll ? evaluated.roll ?? optimalRollDecision(ctx, bank, diceAfter, progressAfter) : null;
+  const draw = available.draw ? evaluated.draw ?? optimalDrawDecision(ctx, bank) : null;
   let action = available.stop && roll ? roll.action
     : available.stop && draw ? draw.action
       : firstOffered(available, ['roll', 'stop', 'draw']);
@@ -323,6 +376,8 @@ const decisionForKeep = (
       const usefulRoll = available.roll && canReachNonLosingRoll(ctx, bank, diceAfter);
       const usefulDraw = available.draw && canReachNonLosingDraw(completed, bank);
       if (settlement === 'loss' && (usefulRoll || usefulDraw)) {
+        // Reachability decides whether an escape exists; keeps within the same
+        // terminal priority still use point utility, not whole-game win probability.
         action = usefulRoll ? 'roll' : 'draw';
         reason = 'avoidLoss';
       } else if (settlement === 'loss' || (settlement === null && !usefulRoll && !usefulDraw)) {
@@ -330,17 +385,76 @@ const decisionForKeep = (
       }
     }
   }
-  const worth = action === 'roll' ? roll?.rollValue ?? 0
+  const rawWorth = action === 'roll' ? roll?.rollValue ?? 0
     : action === 'draw' ? draw?.drawValue ?? 0
       : action === 'stop' ? ctx.currentCard === 'Kleeblatt' ? tuttoValue(valueContext(ctx), bank) : bank : 0;
-  return { action, reason, priority, worth };
+  const comparisonUtility = action === 'stop' && ctx.currentCard !== 'Kleeblatt'
+    ? bank * (1 - riskAppetite(ctx))
+    : rawWorth;
+  return { action, reason, priority, worth: rawWorth, rawWorth, comparisonUtility };
 };
+
+const evaluateKeep = (ctx: BotTurnContext, selectedIndices: number[]): EvaluatedKeep => {
+  const outcome = outcomeOfPicked(ctx, selectedIndices.map(i => ctx.rollVals[i]));
+  const isTutto = ctx.keptCount + selectedIndices.length === TOTAL_DICE;
+  const available = actionsForKeep(ctx, isTutto);
+  return {
+    selectedIndices,
+    outcome,
+    isTutto,
+    available,
+    roll: available.roll ? optimalRollDecision(ctx, outcome.bank, outcome.diceAfter, outcome.progressAfter) : null,
+    draw: available.draw ? optimalDrawDecision(ctx, outcome.bank) : null,
+  };
+};
+
+const noKeepDecision = (ctx: BotTurnContext): OttoDecisionResult => ({
+  selectedIndices: [],
+  outcome: {
+    bank: ctx.turnScore,
+    diceAfter: Math.max(0, TOTAL_DICE - ctx.keptCount),
+    progressAfter: [...ctx.kniffelProgress],
+  },
+  available: { roll: false, stop: false, draw: false },
+  roll: null,
+  draw: null,
+  action: null,
+  worth: 0,
+  rawWorth: 0,
+  comparisonUtility: 0,
+  priority: ORDINARY_PRIORITY,
+});
 
 /** The same candidate decision used by keep selection, the bot, and the coach. */
 export const optimalActionDecision = (ctx: BotTurnContext, available: BotActionAvailability): OptimalActionDecision => {
-  const selected = chooseBotSelection(ctx);
-  return decisionForKeep(ctx, outcomeOfPicked(ctx, selected.map(i => ctx.rollVals[i])),
-    ctx.keptCount + selected.length === TOTAL_DICE, available);
+  const evaluated = bestEvaluatedKeep(ctx);
+  if (!evaluated) return noKeepDecision(ctx);
+  return decisionForKeep(ctx, evaluated, available);
+};
+
+/** Evaluates Otto's keep and its hypothetical post-selection action exactly once. */
+export const evaluateOttoDecision = (ctx: BotTurnContext): OttoDecisionResult => {
+  const evaluated = bestEvaluatedKeep(ctx);
+  if (!evaluated) return noKeepDecision(ctx);
+  return { ...evaluated, ...decisionForKeep(ctx, evaluated, evaluated.available) };
+};
+
+/** Reuses an evaluated keep while respecting the controls the panel actually offers. */
+export const resolveOttoAction = (
+  ctx: BotTurnContext, evaluated: OttoDecisionResult, available: BotActionAvailability,
+): OttoDecisionResult => {
+  if (evaluated.selectedIndices.length === 0) return evaluated;
+  const keep: EvaluatedKeep = {
+    selectedIndices: evaluated.selectedIndices,
+    outcome: evaluated.outcome,
+    isTutto: ctx.keptCount + evaluated.selectedIndices.length === TOTAL_DICE,
+    available: evaluated.available,
+    roll: evaluated.roll ?? (available.roll
+      ? optimalRollDecision(ctx, evaluated.outcome.bank, evaluated.outcome.diceAfter, evaluated.outcome.progressAfter)
+      : null),
+    draw: evaluated.draw ?? (available.draw ? optimalDrawDecision(ctx, evaluated.outcome.bank) : null),
+  };
+  return { ...evaluated, roll: keep.roll, draw: keep.draw, ...decisionForKeep(ctx, keep, available) };
 };
 
 const optimal = (ctx: BotTurnContext, available: BotActionAvailability): BotAction | null =>

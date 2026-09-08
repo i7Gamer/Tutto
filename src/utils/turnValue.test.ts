@@ -3,7 +3,10 @@ import { describe, it, expect } from 'vitest';
 import {
   diceCounts, legalKeeps, rollOutcomes, tableOutcomes, completionProbability, rollOnValue,
   continuationValue, tuttoValue, kleeblattWinValue, keepIndices, onePlyValue, feuerwerkGain,
-  drawValue, remainingDeckCounts, nextDrawWeights,
+  drawValue, remainingDeckCounts, nextDrawWeights, nextDrawWeightsFromCounts,
+  turnValueCacheSizes, CHAIN_FREE_CACHE_MAX_ENTRIES, CHAIN_CACHE_MAX_BUCKETS,
+  CHAIN_BUCKET_MAX_ENTRIES, DRAW_CACHE_MAX_ENTRIES, TABLE_CACHE_MAX_ENTRIES,
+  COMPLETION_CACHE_MAX_ENTRIES, ROLL_OUTCOME_CACHE_MAX_ENTRIES, FEUERWERK_GAIN_CACHE_MAX_ENTRIES,
   type Keep, type ValueContext, type ChainContext, type DeckCounts,
 } from './turnValue';
 import { checkValidityAndScore, isBust } from './diceLogic';
@@ -477,6 +480,14 @@ describe('remainingDeckCounts', () => {
 });
 
 describe('nextDrawWeights', () => {
+  it('accepts public counts and the complete current chain without an ordered deck', () => {
+    const initial = { Stop: 3, x2: 3, '200': 6 };
+    expect(nextDrawWeightsFromCounts({ Stop: 3, x2: 1, '200': 3 }, initial,
+      ['x2', 'x2', '200', '200', '200'])).toEqual({ Stop: 3, x2: 1 });
+    expect(nextDrawWeightsFromCounts({}, initial, ['200', '200', '200'])).toEqual(initial);
+    expect(nextDrawWeightsFromCounts({}, {}, [])).toEqual({});
+  });
+
   it('excludes the fourth identical card, without consulting undrawn order', () => {
     const initial = { '200': 5, Stop: 1 };
     const revealed: CardType[] = ['200', '200', '200'];
@@ -530,5 +541,49 @@ describe('keepIndices', () => {
     expect(keepIndices([1, 2, 2, 2, 3, 4], counts(1))).toEqual([0]);
     expect(keepIndices([5, 3, 5], counts(5))).toEqual([0]);
     expect(keepIndices([2, 2, 2, 5, 1, 3], counts(1, 2, 2, 2, 5))).toEqual([4, 3, 0, 1, 2]);
+  });
+});
+
+describe('page-lifetime value cache bounds', () => {
+  it('retains exact values across inner and whole-context eviction', () => {
+    const BANK_STEP = 50;
+    const ORIGINAL_BANK = 300;
+    const originalChain: ChainContext = { deck: { Stop: 1 }, myScore: 0, winningScore: 6000 };
+    const expected = rollOnValue(ORIGINAL_BANK, 1, '200', 'classic', originalChain);
+    const staticTable = tableOutcomes(1, '200', [], 'classic');
+    for (let index = 0; index <= CHAIN_BUCKET_MAX_ENTRIES; index++) {
+      rollOnValue(index * BANK_STEP, 1, '200', 'classic', originalChain);
+    }
+    expect(rollOnValue(ORIGINAL_BANK, 1, '200', 'classic', originalChain)).toBe(expected);
+    for (let index = 1; index <= CHAIN_CACHE_MAX_BUCKETS; index++) {
+      const other = { ...originalChain, myScore: index * BANK_STEP };
+      expect(rollOnValue(ORIGINAL_BANK, 1, '200', 'classic', other)).toBe(expected);
+    }
+    expect(rollOnValue(ORIGINAL_BANK, 1, '200', 'classic', originalChain)).toBe(expected);
+    expect(tableOutcomes(1, '200', [], 'classic')).toBe(staticTable);
+    const sizes = turnValueCacheSizes();
+    expect(sizes.chainBuckets).toBeLessThanOrEqual(CHAIN_CACHE_MAX_BUCKETS);
+    expect(sizes.chainEntries.every(size => size <= CHAIN_BUCKET_MAX_ENTRIES)).toBe(true);
+  });
+
+  it('does not erase independent values during classic deck churn and bounds every cache', () => {
+    const BANK_STEP = 50;
+    const expected = rollOnValue(300, 1, 'x2', 'modernized');
+    for (let index = 0; index <= CHAIN_FREE_CACHE_MAX_ENTRIES; index++) {
+      rollOnValue(index * BANK_STEP, 1, 'x2', 'modernized');
+    }
+    expect(rollOnValue(300, 1, 'x2', 'modernized')).toBe(expected);
+    const independentSize = turnValueCacheSizes().chainFree;
+    for (let index = 0; index <= DRAW_CACHE_MAX_ENTRIES; index++) {
+      drawValue({ deck: { Stop: 1 }, myScore: index, winningScore: 6000 }, 300, 'classic');
+    }
+    expect(turnValueCacheSizes().chainFree).toBe(independentSize);
+    const sizes = turnValueCacheSizes();
+    expect(sizes.chainFree).toBeLessThanOrEqual(CHAIN_FREE_CACHE_MAX_ENTRIES);
+    expect(sizes.draw).toBeLessThanOrEqual(DRAW_CACHE_MAX_ENTRIES);
+    expect(sizes.tables).toBeLessThanOrEqual(TABLE_CACHE_MAX_ENTRIES);
+    expect(sizes.completion).toBeLessThanOrEqual(COMPLETION_CACHE_MAX_ENTRIES);
+    expect(sizes.outcomes).toBeLessThanOrEqual(ROLL_OUTCOME_CACHE_MAX_ENTRIES);
+    expect(sizes.feuerwerk).toBeLessThanOrEqual(FEUERWERK_GAIN_CACHE_MAX_ENTRIES);
   });
 });
