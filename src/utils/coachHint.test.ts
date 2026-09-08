@@ -1,7 +1,7 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
 import { coachHint, type CoachHintInput } from './coachHint';
-import { OPTIMAL_DRAW_BANK_LIMIT } from './botStrategies';
+import { DEFAULT_INITIAL_CARDS } from './configValidation';
 import { KNIFFEL_SCORE } from './coreGameEngine';
 import { MAX_CHAIN_CARDS, type CardType } from '../types';
 
@@ -13,6 +13,7 @@ const input = (overrides: Partial<CoachHintInput> = {}): CoachHintInput => ({
   ruleset: 'modernized',
   kniffelProgress: [],
   standings: { myScore: 0, leaderScore: 0, winningScore: 6000 },
+  deck: DEFAULT_INITIAL_CARDS,
   canDraw: false,
   chainCardCount: 0,
   tuttosThisTurn: 0,
@@ -45,10 +46,8 @@ describe('coachHint', () => {
     expect(hint!.bank).toBe(350);
   });
 
-  it('advises drawing a classic tutto whose chain is still cheap to lose', () => {
-    // Five kept on a 200 total, the sixth a 5: 250 plus the card's 200 = 450,
-    // under OPTIMAL_DRAW_BANK_LIMIT.
-    expect(OPTIMAL_DRAW_BANK_LIMIT).toBe(600);
+  it('advises drawing a classic tutto whose chain is still cheap to lose into the standard deck', () => {
+    // Five kept on a 200 total, the sixth a 5: 250 plus the card's 200 = 450.
     const hint = coachHint(input({
       ruleset: 'classic', canDraw: true,
       keptCount: 5, rollVals: [5], turnScore: 200, chainCardCount: 0,
@@ -56,6 +55,15 @@ describe('coachHint', () => {
     expect(hint).not.toBeNull();
     expect(hint!.action).toBe('draw');
     expect(hint!.bank).toBe(450);
+  });
+
+  it('reads the deck before advising a draw: never into nothing but Stop cards', () => {
+    const hint = coachHint(input({
+      ruleset: 'classic', canDraw: true, deck: { Stop: 4 },
+      keptCount: 5, rollVals: [5], turnScore: 200, chainCardCount: 0,
+    }));
+    expect(hint).not.toBeNull();
+    expect(hint!.action).toBe('stop');
   });
 
   it('will not advise drawing past MAX_CHAIN_CARDS — the panel refuses it too', () => {

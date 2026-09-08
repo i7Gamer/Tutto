@@ -3,7 +3,8 @@ import { describe, it, expect } from 'vitest';
 import {
   diceCounts, legalKeeps, rollOutcomes, tableOutcomes, completionProbability, rollOnValue,
   continuationValue, tuttoValue, kleeblattWinValue, keepIndices, onePlyValue, feuerwerkGain,
-  type Keep, type ValueContext,
+  drawValue, remainingDeckCounts,
+  type Keep, type ValueContext, type ChainContext, type DeckCounts,
 } from './turnValue';
 import { checkValidityAndScore, isBust } from './diceLogic';
 import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from './coreGameEngine';
@@ -306,6 +307,88 @@ describe('tuttoValue', () => {
 
   it('rolls six fresh dice on a Feuerwerk tutto, since nothing else is offered', () => {
     expect(tuttoValue(vctx({ card: 'Feuerwerk' }), 500)).toBe(continuationValue(vctx({ card: 'Feuerwerk' }), 500, TOTAL_DICE, []));
+  });
+});
+
+describe('drawValue', () => {
+  // Drawing on in a classic chain puts the whole bank on the next card:
+  // priced one card deep against the composition of the remaining deck.
+  const chain = (deck: DeckCounts): ChainContext => ({ deck, myScore: 0, winningScore: 6000 });
+
+  it('is the bank itself when no card can come', () => {
+    expect(drawValue(chain({}), 500, 'classic')).toBe(500);
+    expect(drawValue(chain({ Stop: 0, '200': 0 }), 500, 'classic')).toBe(500);
+  });
+
+  it('is nothing when only Stop cards are left: the draw forfeits the chain', () => {
+    expect(drawValue(chain({ Stop: 3 }), 500, 'classic')).toBe(0);
+  });
+
+  it('is pure upside into Feuerwerk, whose null banks the whole chain', () => {
+    expect(drawValue(chain({ Feuerwerk: 2 }), 500, 'classic')).toBe(500 + feuerwerkGain(TOTAL_DICE, 'classic'));
+  });
+
+  it('prices a points card as six fresh dice that must be rolled, its own tutto banked', () => {
+    expect(drawValue(chain({ '200': 1 }), 500, 'classic')).toBe(rollOnValue(500, TOTAL_DICE, '200', 'classic'));
+    expect(drawValue(chain({ x2: 1 }), 500, 'classic')).toBe(rollOnValue(500, TOTAL_DICE, 'x2', 'classic'));
+  });
+
+  it('prices the finishing cards by their odds from six dice, the chain lost otherwise', () => {
+    const p6 = (card: CardType) => completionProbability(TOTAL_DICE, card, [], 'classic');
+    expect(drawValue(chain({ Plus_Minus: 1 }), 500, 'classic')).toBeCloseTo(p6('Plus_Minus') * (500 + PLUS_MINUS_SCORE), 10);
+    expect(drawValue(chain({ Kniffel: 1 }), 500, 'classic')).toBeCloseTo(p6('Kniffel') * (500 + KNIFFEL_SCORE), 10);
+    // A Kleeblatt needs two tuttos in a row and then wins the game outright.
+    expect(drawValue(chain({ Kleeblatt: 1 }), 500, 'classic'))
+      .toBeCloseTo(p6('Kleeblatt') * p6('Kleeblatt') * kleeblattWinValue(500, 0, 6000), 10);
+  });
+
+  it('weights the cards by their share of the deck', () => {
+    const feuerwerk = drawValue(chain({ Feuerwerk: 1 }), 500, 'classic');
+    expect(drawValue(chain({ Stop: 1, Feuerwerk: 1 }), 500, 'classic')).toBeCloseTo(feuerwerk / 2, 10);
+    expect(drawValue(chain({ Stop: 3, Feuerwerk: 1 }), 500, 'classic')).toBeCloseTo(feuerwerk / 4, 10);
+  });
+});
+
+describe('the draw inside the value function', () => {
+  const feuerwerkOnly: ChainContext = { deck: { Feuerwerk: 1 }, myScore: 0, winningScore: 6000 };
+  const stopOnly: ChainContext = { deck: { Stop: 1 }, myScore: 0, winningScore: 6000 };
+
+  it('makes a classic tutto worth the better of banking and drawing on', () => {
+    // One die with 300 in hand on a 200 card: the tutto banks 600 on a 1 and
+    // 550 on a 5 — or draws into a Feuerwerk-only deck, which only adds.
+    const gain = feuerwerkGain(TOTAL_DICE, 'classic');
+    expect(rollOnValue(300, 1, '200', 'classic', feuerwerkOnly)).toBeCloseTo((600 + gain + 550 + gain) / 6, 10);
+    // Into a Stop-only deck the draw is worthless and the tutto is banked as before.
+    expect(rollOnValue(300, 1, '200', 'classic', stopOnly)).toBe(rollOnValue(300, 1, '200', 'classic'));
+  });
+
+  it('reaches Plus/Minus, Kniffel and the tutto value through the context', () => {
+    const gain = feuerwerkGain(TOTAL_DICE, 'classic');
+    const ctx = vctx({ ruleset: 'classic', chain: feuerwerkOnly });
+    expect(tuttoValue({ ...ctx, card: '300' }, 900)).toBe(900 + gain);
+    expect(tuttoValue({ ...ctx, card: 'Plus_Minus' }, 1000)).toBe(1000 + gain);
+    expect(continuationValue({ ...ctx, card: 'Plus_Minus' }, 0, 1, []))
+      .toBeCloseTo(completionProbability(1, 'Plus_Minus', [], 'classic') * (PLUS_MINUS_SCORE + gain), 10);
+    expect(continuationValue({ ...ctx, card: 'Kniffel' }, 0, 1, [1, 2, 3, 4, 5]))
+      .toBeCloseTo((1 / 6) * (KNIFFEL_SCORE + gain), 10);
+    // A completed Kleeblatt has won the game and a Feuerwerk rolls on: neither draws.
+    expect(tuttoValue({ ...ctx, card: 'Kleeblatt', tuttosThisTurn: 1 }, 0)).toBe(kleeblattWinValue(0, 0, 6000));
+    expect(tuttoValue({ ...ctx, card: 'Feuerwerk' }, 500)).toBe(500 + gain);
+  });
+
+  it('changes nothing without a chain: modernized and a deck-less classic agree', () => {
+    expect(rollOnValue(300, 2, '200', 'classic')).toBe(rollOnValue(300, 2, '200', 'modernized'));
+    expect(tuttoValue(vctx({ ruleset: 'classic' }), 900)).toBe(900);
+  });
+});
+
+describe('remainingDeckCounts', () => {
+  it('counts the cards still in the deck, order forgotten', () => {
+    expect(remainingDeckCounts(['Stop', '200', 'Stop', 'Feuerwerk'], { Kleeblatt: 1 })).toEqual({ Stop: 2, '200': 1, Feuerwerk: 1 });
+  });
+
+  it('falls back to a fresh deck once this one has run out, as the store does', () => {
+    expect(remainingDeckCounts([], { Stop: 2, '200': 1 })).toEqual({ Stop: 2, '200': 1 });
   });
 });
 

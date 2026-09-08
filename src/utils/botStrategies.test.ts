@@ -1,10 +1,11 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
 import {
-  chooseBotSelection, chooseBotAction, evaluateRoll, outcomeOfSelection, optimalRollDecision,
-  CAUTIOUS_BANK_MIN, CAUTIOUS_MIN_DICE_TO_ROLL, OPTIMAL_DRAW_BANK_LIMIT,
+  chooseBotSelection, chooseBotAction, evaluateRoll, outcomeOfSelection, optimalRollDecision, optimalDrawDecision,
+  CAUTIOUS_BANK_MIN, CAUTIOUS_MIN_DICE_TO_ROLL,
   type BotTurnContext, type BotActionAvailability, type BotAction,
 } from './botStrategies';
+import { DEFAULT_INITIAL_CARDS } from './configValidation';
 import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from './coreGameEngine';
 import { checkValidityAndScore, getMaxValidSelection } from './diceLogic';
 import { BOT_PERSONALITIES, type CardType } from '../types';
@@ -25,6 +26,7 @@ const ctx = (overrides: Partial<BotTurnContext> = {}): BotTurnContext => ({
   ruleset: 'modernized',
   kniffelProgress: [],
   tuttosThisTurn: 0,
+  deck: DEFAULT_INITIAL_CARDS,
   myScore: 0,
   leaderScore: 0,
   winningScore: 6000,
@@ -253,14 +255,44 @@ describe('Optimal Otto', () => {
     expect(chooseBotAction(behind, ROLL_OR_STOP)).toBe('roll');
   });
 
-  it('draws on a classic tutto only while the chain is still cheap to lose', () => {
-    expect(OPTIMAL_DRAW_BANK_LIMIT).toBe(600);
-    // Six dice all scoring: 1,1,1 (1000) + 5,5,5 (500) is far past the limit.
+  it('draws a cheap classic tutto into the standard deck and banks a rich one', () => {
+    // Six dice all scoring: 1,1,1 (1000) + 5,5,5 (500) plus the card's 200 —
+    // ten Stop cards in 56 forfeit that one draw in six, more than any card
+    // adds back.
     const rich = otto({ ruleset: 'classic', rollVals: [1, 1, 1, 5, 5, 5] });
     expect(chooseBotAction(rich, STOP_OR_DRAW)).toBe('stop');
     // Five kept on a 200 total, the sixth a 5: 250 plus the card's 200.
     const cheap = otto({ ruleset: 'classic', keptCount: 5, rollVals: [5], turnScore: 200 });
     expect(chooseBotAction(cheap, STOP_OR_DRAW)).toBe('draw');
+  });
+
+  it('reads the deck: never into nothing but Stop cards, always into nothing but Feuerwerk', () => {
+    const cheap = otto({ ruleset: 'classic', keptCount: 5, rollVals: [5], turnScore: 200, deck: { Stop: 3 } });
+    expect(chooseBotAction(cheap, STOP_OR_DRAW)).toBe('stop');
+    const rich = otto({ ruleset: 'classic', rollVals: [1, 1, 1, 5, 5, 5], deck: { Feuerwerk: 2 } });
+    expect(chooseBotAction(rich, STOP_OR_DRAW)).toBe('draw');
+  });
+
+  it('banks when no card can come', () => {
+    const cheap = otto({ ruleset: 'classic', keptCount: 5, rollVals: [5], turnScore: 200, deck: {} });
+    expect(chooseBotAction(cheap, STOP_OR_DRAW)).toBe('stop');
+  });
+
+  it('draws with more appetite when trailing', () => {
+    // A bank the standard deck says to keep when level: 1000 + 200.
+    const level = otto({ ruleset: 'classic', keptCount: 3, rollVals: [1, 1, 1], turnScore: 200 });
+    expect(chooseBotAction(level, STOP_OR_DRAW)).toBe('stop');
+    const behind = otto({ ruleset: 'classic', keptCount: 3, rollVals: [1, 1, 1], turnScore: 200, myScore: 0, leaderScore: 3000 });
+    expect(chooseBotAction(behind, STOP_OR_DRAW)).toBe('draw');
+  });
+
+  it('shows the draw comparison it decides with', () => {
+    const cheap = otto({ ruleset: 'classic', keptCount: 5, rollVals: [5], turnScore: 200 });
+    const { bank } = outcomeOfSelection(cheap);
+    const decision = optimalDrawDecision(cheap, bank);
+    expect(decision.drawValue).toBeGreaterThan(bank);
+    expect(decision.threshold).toBe(bank);
+    expect(decision.action).toBe('draw');
   });
 
   // S-1: a completed Kniffel/Plus-Minus used to bank as 0 (checkValidityAndScore
@@ -282,15 +314,6 @@ describe('Optimal Otto', () => {
     });
     expect(outcomeOfSelection(done).bank).toBe(PLUS_MINUS_SCORE);
     expect(chooseBotAction(done, STOP_OR_DRAW)).toBe('stop');
-  });
-
-  // T-3: the exact boundary of the draw-or-stop branch (bank === the limit
-  // itself draws — the comparison is `<=`). Five kept on a 350 total, the
-  // sixth a 5 (50 dice points) plus the '200' bonus card's 200 = exactly 600.
-  it('draws at the exact draw limit (bank === OPTIMAL_DRAW_BANK_LIMIT)', () => {
-    const atLimit = otto({ ruleset: 'classic', keptCount: 5, rollVals: [5], turnScore: 350 });
-    expect(outcomeOfSelection(atLimit).bank).toBe(OPTIMAL_DRAW_BANK_LIMIT);
-    expect(chooseBotAction(atLimit, STOP_OR_DRAW)).toBe('draw');
   });
 
   // T-2: the exact tie of the roll-or-stop branch (rollValue === threshold

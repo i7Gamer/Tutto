@@ -16,6 +16,7 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useBotDriver } from '../hooks/useBotDriver';
 import { useRollAnnouncement } from '../hooks/useRollAnnouncement';
 import { chooseBotAction, chooseBotSelection, type BotSeat, type BotTurnContext } from '../utils/botStrategies';
+import type { DeckCounts } from '../utils/turnValue';
 import { coachHint as computeCoachHint, type CoachHintStandings } from '../utils/coachHint';
 import {
   DIE_TUMBLE_MS, DIE_STAGGER_MS, DIE_FACE_SHUFFLE_MS, ROLL_SETTLE_BUFFER_MS,
@@ -68,9 +69,17 @@ interface DiceGameProps {
   // (coachHint.ts / CoachHintLine.tsx) is built from these the same way a
   // bot's own decision is built from `bot` above.
   coachSeat?: CoachHintStandings;
+  // What the deck the next classic draw comes from holds, by card — its
+  // composition, never its order (Game.tsx derives it through
+  // turnValue.remainingDeckCounts). Read by a bot's draw-or-bank decision and
+  // by Otto's advice on a classic tutto; absent means no card can come, which
+  // is what an empty deck means to both.
+  deck?: DeckCounts;
 }
 
-export default function DiceGame({ currentCard, turnKey, onComplete, onStateChange, panelReady = true, ruleset = DEFAULT_RULESET, onDrawCard, bot, coachSeat }: DiceGameProps) {
+const NO_DECK: DeckCounts = {};
+
+export default function DiceGame({ currentCard, turnKey, onComplete, onStateChange, panelReady = true, ruleset = DEFAULT_RULESET, onDrawCard, bot, coachSeat, deck = NO_DECK }: DiceGameProps) {
   const { t } = useTranslation();
   const isClassic = ruleset === 'classic';
 
@@ -709,6 +718,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
       ruleset,
       kniffelProgress,
       standings: coachSeat,
+      deck,
       canDraw: !!onDrawCard,
       chainCardCount,
       tuttosThisTurn,
@@ -720,7 +730,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     });
   }, [
     coachSeat, bot, canAct, currentRoll, keptDice.length, turnScore, currentCard, ruleset,
-    kniffelProgress, onDrawCard, chainCardCount, tuttosThisTurn, isSelectionLocked,
+    kniffelProgress, deck, onDrawCard, chainCardCount, tuttosThisTurn, isSelectionLocked,
   ]);
 
   // Game renders this panel inside a modal, so an aria-modal element is always
@@ -754,6 +764,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
       ruleset,
       kniffelProgress,
       tuttosThisTurn,
+      deck,
       myScore: bot.myScore,
       leaderScore: bot.leaderScore,
       winningScore: bot.winningScore,

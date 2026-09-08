@@ -4,8 +4,8 @@ import { fixedCardAward } from './coreGameEngine';
 import { deriveTurnControls } from './diceTurnControls';
 import { TOTAL_DICE } from './turnShapes';
 import {
-  continuationValue, countsToVals, diceCounts, keepIndices, legalKeeps, outcomeSpace, tableOutcomes, tuttoValue,
-  type Keep, type ValueContext,
+  continuationValue, countsToVals, diceCounts, drawValue, keepIndices, legalKeeps, outcomeSpace, tableOutcomes, tuttoValue,
+  type DeckCounts, type Keep, type ValueContext,
 } from './turnValue';
 
 /**
@@ -45,6 +45,8 @@ export interface BotTurnContext {
   kniffelProgress: number[];
   /** Tuttos already rolled this turn — a Kleeblatt's first has the second still to come. */
   tuttosThisTurn: number;
+  /** What the deck the next classic draw comes from holds (turnValue.remainingDeckCounts); composition only. */
+  deck: DeckCounts;
   myScore: number;
   leaderScore: number;
   winningScore: number;
@@ -54,8 +56,6 @@ export interface BotTurnContext {
 export const CAUTIOUS_BANK_MIN = 300;
 /** ...and never rolls fewer dice than this. */
 export const CAUTIOUS_MIN_DICE_TO_ROLL = 3;
-/** Optimal Otto risks a classic chain on the next card only up to this total. */
-export const OPTIMAL_DRAW_BANK_LIMIT = 600;
 /**
  * How far below the sure bank Otto will accept a roll's expected value when
  * trailing: the appetite grows with the gap to the leader as a share of the
@@ -106,7 +106,19 @@ const valueContext = (ctx: BotTurnContext): ValueContext => ({
   myScore: ctx.myScore,
   winningScore: ctx.winningScore,
   tuttosThisTurn: ctx.tuttosThisTurn,
+  // Only classic offers a draw after a tutto; modernized ends the turn there.
+  chain: ctx.ruleset === 'classic' ? { deck: ctx.deck, myScore: ctx.myScore, winningScore: ctx.winningScore } : undefined,
 });
+
+/**
+ * How far below the sure bank Otto accepts a gamble: 0 when level with or
+ * ahead of the leader, growing with the deficit as a share of the winning
+ * score, capped at OPTIMAL_MAX_RISK_APPETITE.
+ */
+const riskAppetite = (ctx: BotTurnContext): number => {
+  const deficit = ctx.winningScore > 0 ? (ctx.leaderScore - ctx.myScore) / ctx.winningScore : 0;
+  return Math.min(OPTIMAL_MAX_RISK_APPETITE, Math.max(0, deficit));
+};
 
 /**
  * Two keeps whose values differ by less than this are the same keep to Otto
@@ -235,10 +247,34 @@ export interface OptimalRollDecision {
 export const optimalRollDecision = (ctx: BotTurnContext, bank: number, diceAfter: number, progressAfter: number[]): OptimalRollDecision => {
   const { bustProbability } = evaluateRoll(diceAfter, ctx.currentCard, progressAfter, ctx.ruleset);
   const rollValue = continuationValue(valueContext(ctx), bank, diceAfter, progressAfter);
-  const deficit = ctx.winningScore > 0 ? (ctx.leaderScore - ctx.myScore) / ctx.winningScore : 0;
-  const appetite = Math.min(OPTIMAL_MAX_RISK_APPETITE, Math.max(0, deficit));
+  const appetite = riskAppetite(ctx);
   const threshold = bank * (1 - appetite);
   return { bustProbability, rollValue, threshold, appetite, action: rollValue >= threshold ? 'roll' : 'stop' };
+};
+
+/** What Optimal Otto's draw-or-bank comparison on a classic tutto found, and the numbers behind it. */
+export interface OptimalDrawDecision {
+  /** What drawing the next card is worth with the bank at stake (turnValue.drawValue). */
+  drawValue: number;
+  /** The bank, discounted by the same trailing appetite the roll uses. */
+  threshold: number;
+  appetite: number;
+  action: 'draw' | 'stop';
+}
+
+/**
+ * Otto's draw-or-bank arithmetic on a classic tutto: the draw priced
+ * against the deck it comes from (turnValue.drawValue) and measured against
+ * the bank the same way a roll is. Banks when no card can come — the store
+ * would refuse the draw and bank anyway.
+ */
+export const optimalDrawDecision = (ctx: BotTurnContext, bank: number): OptimalDrawDecision => {
+  const appetite = riskAppetite(ctx);
+  const threshold = bank * (1 - appetite);
+  const chain = { deck: ctx.deck, myScore: ctx.myScore, winningScore: ctx.winningScore };
+  const worth = drawValue(chain, bank, ctx.ruleset);
+  const anyCard = Object.values(ctx.deck).some(count => (count ?? 0) > 0);
+  return { drawValue: worth, threshold, appetite, action: anyCard && worth >= threshold ? 'draw' : 'stop' };
 };
 
 const optimal = (ctx: BotTurnContext, available: BotActionAvailability): BotAction | null => {
@@ -247,7 +283,7 @@ const optimal = (ctx: BotTurnContext, available: BotActionAvailability): BotActi
     return optimalRollDecision(ctx, bank, diceAfter, progressAfter).action;
   }
   if (available.stop && available.draw) {
-    return bank <= OPTIMAL_DRAW_BANK_LIMIT ? 'draw' : 'stop';
+    return optimalDrawDecision(ctx, bank).action;
   }
   return firstOffered(available, ['roll', 'stop', 'draw']);
 };

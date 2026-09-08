@@ -203,6 +203,24 @@ describe('Game Component Integration', () => {
       });
     });
 
+    it('hands DiceGame the remaining deck by composition, never by order', () => {
+      seatHuman();
+      useGameStore.setState({ cards: ['Stop', '200', 'Stop', 'Feuerwerk'] });
+      render(<Game />);
+      fireEvent.click(screen.getByText('game.controls.rollDice'));
+
+      expect(capturedDiceGameProps.current).toMatchObject({ deck: { Stop: 2, '200': 1, Feuerwerk: 1 } });
+    });
+
+    it('hands DiceGame a fresh deck\'s composition once the deck has run out', () => {
+      seatHuman();
+      useGameStore.setState({ cards: [], initialCards: { '300': 2, Stop: 1 } });
+      render(<Game />);
+      fireEvent.click(screen.getByText('game.controls.rollDice'));
+
+      expect(capturedDiceGameProps.current).toMatchObject({ deck: { '300': 2, Stop: 1 } });
+    });
+
     it('passes no coachSeat while the setting is off', () => {
       seatHuman();
       useGameStore.setState({ coachHintEnabled: false });

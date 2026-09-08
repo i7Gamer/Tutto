@@ -16,6 +16,7 @@ import { DICE_PANEL_ENTRANCE_MS, TURN_URGENT_SECONDS, BOT_OPEN_DELAY_MS } from '
 import { botOf } from '../utils/bots';
 import type { BotSeat } from '../utils/botStrategies';
 import type { CoachHintStandings } from '../utils/coachHint';
+import { remainingDeckCounts } from '../utils/turnValue';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useDeviceStats } from '../hooks/useDeviceStats';
@@ -561,6 +562,12 @@ export default function Game() {
   // `!bot` guard excludes it again).
   const coachSeat: CoachHintStandings | undefined = coachHintEnabled && !isBotTurn ? seatStandings : undefined;
 
+  // What the next classic draw could be, for a bot's draw-or-bank decision
+  // and for Otto's advice on it: the remaining deck by composition only
+  // (never its order, which would name the next card), or a fresh deck's once
+  // it has run out — the same fallback the store draws from.
+  const deck = useMemo(() => remainingDeckCounts(cards ?? [], initialCards), [cards, initialCards]);
+
   // Feuerwerk is the one card a chain cannot be carried off: the turn ends on
   // its null, banking whatever was accumulated, so there is never a tutto to
   // draw on. Digital mode has always refused it (canDrawAfterTutto in
@@ -740,6 +747,7 @@ export default function Game() {
             onDrawCard={game.drawCardMidTurn}
             bot={botSeat}
             coachSeat={coachSeat}
+            deck={deck}
           />
         </ModalShell>
       )}

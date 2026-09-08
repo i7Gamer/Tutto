@@ -6,6 +6,7 @@ import {
   type BotAction, type BotActionAvailability, type BotTurnContext,
 } from './botStrategies';
 import { PERCENT } from './percentage';
+import type { DeckCounts } from './turnValue';
 
 export interface CoachHintStandings {
   myScore: number;
@@ -21,6 +22,8 @@ export interface CoachHintInput {
   ruleset: Ruleset;
   kniffelProgress: number[];
   standings: CoachHintStandings;
+  /** What the deck the next classic draw comes from holds — composition only (turnValue.remainingDeckCounts). */
+  deck: DeckCounts;
   // Whether the panel was handed an onDrawCard to ask (DiceGame's own prop) —
   // named for what it decides, not what it is: the coach has no business
   // knowing it is a function.
@@ -94,6 +97,7 @@ export const coachHint = (input: CoachHintInput): CoachHint | null => {
     ruleset: input.ruleset,
     kniffelProgress: input.kniffelProgress,
     tuttosThisTurn: input.tuttosThisTurn,
+    deck: input.deck,
     myScore: input.standings.myScore,
     leaderScore: input.standings.leaderScore,
     winningScore: input.standings.winningScore,

@@ -1,4 +1,4 @@
-import type { CardType, Ruleset } from '../types';
+import type { CardType, InitialCards, Ruleset } from '../types';
 import { applyTuttoBonus, checkValidityAndScore, getMaxValidSelection, isBust } from './diceLogic';
 import { fixedCardAward } from './coreGameEngine';
 import { DIE_FACES, TOTAL_DICE } from './turnShapes';
@@ -226,23 +226,71 @@ export const completionProbability = (
   return odds;
 };
 
+/** What a deck holds, by card — its composition only, never its order. */
+export type DeckCounts = Partial<Record<CardType, number>>;
+
 /**
- * The bank is part of a points card's state, so this cache grows with every
- * distinct bank a game visits (multiples of 50, a few hundred per card) —
- * unlike the tables above, which are bounded by dice × cards × rulesets.
+ * The composition of the deck the next classic draw comes from: the cards
+ * still in it, or a fresh deck's once it has run out (gameSlice rebuilds it
+ * from initialCards on the draw that finds it empty). Composition is all a
+ * fair player may know — the order would name the next card.
+ */
+export const remainingDeckCounts = (cards: readonly CardType[], initialCards: InitialCards): DeckCounts => {
+  if (cards.length === 0) return { ...initialCards };
+  const counts: DeckCounts = {};
+  for (const card of cards) counts[card] = (counts[card] ?? 0) + 1;
+  return counts;
+};
+
+/**
+ * A classic chain's draw option: what the next card could be, and the
+ * standings a Kleeblatt among them would be judged by. Absent under
+ * modernized rules, where a completed card ends the turn.
+ */
+export interface ChainContext {
+  deck: DeckCounts;
+  myScore: number;
+  winningScore: number;
+}
+
+const deckEntries = (deck: DeckCounts): [CardType, number][] =>
+  (Object.entries(deck) as [CardType, number][]).filter(([, count]) => count > 0);
+
+const chainKey = (chain: ChainContext | undefined): string => chain
+  ? `${deckEntries(chain.deck).map(([card, count]) => `${card}:${count}`).sort().join(',')}|${chain.myScore}|${chain.winningScore}`
+  : '';
+
+/**
+ * The bank is part of a points card's state, so these caches grow with
+ * every distinct bank a game visits (multiples of 50, a few hundred per
+ * card) and, in a classic chain, with every deck composition — unlike the
+ * tables above, which are bounded by dice × cards × rulesets.
  */
 export const TURN_VALUE_CACHE_MAX_ENTRIES = 20_000;
+
+const remember = (cache: Map<string, number>, key: string, value: number): number => {
+  if (cache.size >= TURN_VALUE_CACHE_MAX_ENTRIES) cache.clear();
+  cache.set(key, value);
+  return value;
+};
 
 const rollOnValues = new Map<string, number>();
 
 /**
  * Points cards only: what rolling `dice` dice with `bank` in hand is worth,
  * keeping whatever the rest of the turn is worth most with. A bust loses the
- * bank, a tutto ends the turn with the card's bonus applied, and anything in
- * between is held (holdValue) — banked or rolled on, whichever is worth more.
+ * bank, a tutto ends the turn with the card's bonus applied — or, in a
+ * classic chain, offers the draw (afterTutto) — and anything in between is
+ * held (holdValue): banked or rolled on, whichever is worth more.
  */
-export const rollOnValue = (bank: number, dice: number, card: CardType | null, ruleset: Ruleset): number => {
-  const key = `${bank}|${dice}|${card}|${ruleset}`;
+export const rollOnValue = (
+  bank: number,
+  dice: number,
+  card: CardType | null,
+  ruleset: Ruleset,
+  chain?: ChainContext,
+): number => {
+  const key = `${bank}|${dice}|${card}|${ruleset}|${chainKey(chain)}`;
   const cached = rollOnValues.get(key);
   if (cached !== undefined) return cached;
   let sum = 0;
@@ -252,21 +300,22 @@ export const rollOnValue = (bank: number, dice: number, card: CardType | null, r
     for (const keep of keeps) {
       const bankAfter = bank + keep.score;
       const value = keep.dice === dice
-        ? applyTuttoBonus(bankAfter, card)
-        : holdValue(bankAfter, dice - keep.dice, card, ruleset);
+        ? afterTutto(applyTuttoBonus(bankAfter, card), ruleset, chain)
+        : holdValue(bankAfter, dice - keep.dice, card, ruleset, chain);
       if (value > best) best = value;
     }
     sum += multiplicity * best;
   }
-  const value = sum / outcomeSpace(dice);
-  if (rollOnValues.size >= TURN_VALUE_CACHE_MAX_ENTRIES) rollOnValues.clear();
-  rollOnValues.set(key, value);
-  return value;
+  return remember(rollOnValues, key, sum / outcomeSpace(dice));
 };
 
 /** Holding `bank` with `dice` still to roll on a points card, where Stop is always on offer. */
-export const holdValue = (bank: number, dice: number, card: CardType | null, ruleset: Ruleset): number =>
-  Math.max(bank, rollOnValue(bank, dice, card, ruleset));
+export const holdValue = (bank: number, dice: number, card: CardType | null, ruleset: Ruleset, chain?: ChainContext): number =>
+  Math.max(bank, rollOnValue(bank, dice, card, ruleset, chain));
+
+/** A completed card's bank, or the draw it offers in a classic chain, whichever is worth more. */
+const afterTutto = (bank: number, ruleset: Ruleset, chain: ChainContext | undefined): number =>
+  chain ? Math.max(bank, drawValue(chain, bank, ruleset)) : bank;
 
 /**
  * The one-roll plan Otto used to price everything with: survive the next
@@ -348,13 +397,18 @@ export const feuerwerkGain = (dice: number, ruleset: Ruleset): number => {
   return gains[dice];
 };
 
-/** What the value of a table depends on beyond the dice: the card, the rules and the standings a Kleeblatt win is measured in. */
+/**
+ * What the value of a table depends on beyond the dice: the card, the rules,
+ * the standings a Kleeblatt win is measured in, and — in a classic chain —
+ * the deck the next draw comes from.
+ */
 export interface ValueContext {
   card: CardType | null;
   ruleset: Ruleset;
   myScore: number;
   winningScore: number;
   tuttosThisTurn: number;
+  chain?: ChainContext;
 }
 
 /**
@@ -372,6 +426,50 @@ const secondTuttoOdds = (ctx: ValueContext): number =>
   ctx.tuttosThisTurn === 0 ? completionProbability(TOTAL_DICE, 'Kleeblatt', [], ctx.ruleset) : 1;
 
 /**
+ * What the card just drawn is worth with `bank` already on the line: six
+ * fresh dice that must be rolled, priced one card deep (its own tutto banks).
+ * A Stop forfeits the chain (drawNextCard), a Feuerwerk can only add (its
+ * null banks everything), a Kleeblatt wins the game on two tuttos and loses
+ * the chain otherwise, and the two fixed-award cards pay on their tutto.
+ */
+const drawnCardValue = (chain: ChainContext, card: CardType, bank: number, ruleset: Ruleset): number => {
+  switch (card) {
+    case 'Stop':
+      return 0;
+    case 'Feuerwerk':
+      return bank + feuerwerkGain(TOTAL_DICE, ruleset);
+    case 'Kleeblatt': {
+      const tutto = completionProbability(TOTAL_DICE, card, [], ruleset);
+      return tutto * tutto * kleeblattWinValue(bank, chain.myScore, chain.winningScore);
+    }
+    case 'Kniffel':
+    case 'Plus_Minus':
+      return completionProbability(TOTAL_DICE, card, [], ruleset) * (bank + fixedCardAward(card));
+    default:
+      return rollOnValue(bank, TOTAL_DICE, card, ruleset);
+  }
+};
+
+const drawValues = new Map<string, number>();
+
+/**
+ * What drawing the next card is worth with `bank` at stake: every card the
+ * deck still holds, weighted by its share. When no card can come the draw
+ * is refused and the bank stands (DiceGame's drawNextCard falls back to
+ * banking), so that is what it is worth.
+ */
+export const drawValue = (chain: ChainContext, bank: number, ruleset: Ruleset): number => {
+  const entries = deckEntries(chain.deck);
+  const total = entries.reduce((sum, [, count]) => sum + count, 0);
+  if (total === 0) return bank;
+  const key = `${bank}|${ruleset}|${chainKey(chain)}`;
+  const cached = drawValues.get(key);
+  if (cached !== undefined) return cached;
+  const value = entries.reduce((sum, [card, count]) => sum + (count / total) * drawnCardValue(chain, card, bank, ruleset), 0);
+  return remember(drawValues, key, value);
+};
+
+/**
  * What rolling `dice` dice with `bank` in hand is worth, in points, on this
  * card — the number Otto's roll-or-stop measures against the bank, and the
  * number every candidate keep is ranked by.
@@ -380,24 +478,25 @@ export const continuationValue = (ctx: ValueContext, bank: number, dice: number,
   switch (ctx.card) {
     case 'Plus_Minus':
     case 'Kniffel':
-      return completionProbability(dice, ctx.card, progress, ctx.ruleset) * (bank + fixedCardAward(ctx.card));
+      return completionProbability(dice, ctx.card, progress, ctx.ruleset)
+        * afterTutto(bank + fixedCardAward(ctx.card), ctx.ruleset, ctx.chain);
     case 'Kleeblatt':
       return completionProbability(dice, ctx.card, [], ctx.ruleset) * secondTuttoOdds(ctx)
         * kleeblattWinValue(bank, ctx.myScore, ctx.winningScore);
     case 'Feuerwerk':
       return bank + feuerwerkGain(dice, ctx.ruleset);
     default:
-      return rollOnValue(bank, dice, ctx.card, ctx.ruleset);
+      return rollOnValue(bank, dice, ctx.card, ctx.ruleset, ctx.chain);
   }
 };
 
 /**
  * What a keep that completes the table is worth, given the bank AFTER the
  * tutto's bonus or the card's award (outcomeOfSelection's own number). The
- * turn ends there on every card but two: a first Kleeblatt tutto still has
- * the second to roll, and a Feuerwerk rolls six fresh dice whether it wants
- * to or not. A classic chain's draw is not priced yet (slice 3): the tutto
- * is worth its bank, which undervalues it by whatever drawing on adds.
+ * turn ends there — or, in a classic chain, the draw is on offer — on every
+ * card but two: a first Kleeblatt tutto still has the second to roll (and a
+ * completed one has won the game), and a Feuerwerk rolls six fresh dice
+ * whether it wants to or not.
  */
 export const tuttoValue = (ctx: ValueContext, bankAfter: number): number => {
   switch (ctx.card) {
@@ -406,7 +505,7 @@ export const tuttoValue = (ctx: ValueContext, bankAfter: number): number => {
     case 'Feuerwerk':
       return continuationValue(ctx, bankAfter, TOTAL_DICE, []);
     default:
-      return bankAfter;
+      return afterTutto(bankAfter, ctx.ruleset, ctx.chain);
   }
 };
 
