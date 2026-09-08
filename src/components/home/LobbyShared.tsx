@@ -91,7 +91,7 @@ export function PlayerList({
         initial={{ opacity: 0, height: 0 }}
         animate={{ opacity: 1, height: 'auto' }}
         exit={{ opacity: 0, height: 0 }}
-        className="bg-white dark:bg-slate-800/40 rounded-xl overflow-hidden mb-6 border border-gray-100 dark:border-slate-700"
+        className="bg-white dark:bg-slate-800/40 rounded-xl overflow-hidden mb-2 sm:mb-6 border border-gray-100 dark:border-slate-700"
       >
         <div className="w-full flex flex-col">
           <AnimatePresence>
@@ -308,7 +308,7 @@ interface RulesetSelectorProps {
 export function RulesetSelector({ ruleset, setRuleset, nameSuffix = 'Lobby' }: RulesetSelectorProps) {
   const { t } = useTranslation();
   return (
-    <div className="flex flex-col items-center gap-2 bg-white dark:bg-slate-800/50 px-4 py-3 sm:px-6 rounded-xl border border-gray-200 dark:border-slate-600 mb-4">
+    <div className="flex flex-col items-center gap-2 bg-white dark:bg-slate-800/50 px-4 py-3 sm:px-6 rounded-xl border border-gray-200 dark:border-slate-600 mb-2 sm:mb-4">
       <fieldset className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 m-0 p-0 border-0 min-w-0">
         {/* sr-only: "Rules" already reads visibly right beside the radios
             (below); the legend exists only so a screen reader announces this
@@ -342,7 +342,7 @@ export function RulesetBadge({ ruleset }: { ruleset: Ruleset }) {
     ? t('lobby.rulesetClassic', 'Classic')
     : t('lobby.rulesetModernized', 'Modernized');
   return (
-    <div className="flex items-center justify-center gap-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-4 py-3 rounded-xl border border-indigo-100 dark:border-indigo-800 mb-4 font-medium">
+    <div className="flex items-center justify-center gap-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-4 py-3 rounded-xl border border-indigo-100 dark:border-indigo-800 mb-2 sm:mb-4 font-medium">
       {t('lobby.rulesetBadge', 'Rules: {{mode}} (set by host)', { mode: label })}
     </div>
   );
@@ -561,7 +561,7 @@ export function CustomGameBadge() {
   if (isNormalizedConfig(config)) return null;
 
   return (
-    <div className="flex items-center justify-center gap-2 text-sm text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 mb-4">
+    <div className="flex items-center justify-center gap-2 text-sm text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 mb-2 sm:mb-4">
       <AlertTriangle size={16} className="shrink-0" />
       <span>{t('lobby.customGameNoStats', 'Custom game — this game will not count toward the statistics')}</span>
     </div>
@@ -703,7 +703,7 @@ export function AdvancedOptionsPanel({
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: 'auto' }}
           exit={{ opacity: 0, height: 0 }}
-          className="overflow-hidden mb-8"
+          className="overflow-hidden mb-2 sm:mb-8"
         >
           {readOnly ? (
             <div className="bg-white dark:bg-slate-800/40 p-3 sm:p-5 rounded-xl border border-gray-200 dark:border-slate-600">

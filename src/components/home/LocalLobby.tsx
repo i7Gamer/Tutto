@@ -93,9 +93,9 @@ export default function LocalLobby() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
-      <div className="mb-8">
-        <h3 className="text-xl font-bold mb-4">{t('lobby.playersTitle', 'Players')}</h3>
-        <div className="flex items-center gap-3 mb-6">
+      <div className="mb-2 sm:mb-8">
+        <h3 className="text-xl font-bold mb-2 sm:mb-4">{t('lobby.playersTitle', 'Players')}</h3>
+        <div className="flex items-center gap-2 sm:gap-3 mb-2 sm:mb-6">
           <input
             type="text"
             maxLength={MAX_PLAYER_NAME_LENGTH}
@@ -103,7 +103,7 @@ export default function LocalLobby() {
             value={newPlayerName}
             onChange={(e) => setNewPlayerName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleAddPlayer()}
-            className="flex-1 bg-white dark:bg-slate-800/60 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-3 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 transition-all"
+            className="flex-1 min-w-0 bg-white dark:bg-slate-800/60 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-3 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 transition-all"
           />
           <motion.button
             whileHover={{ scale: 1.05 }}
@@ -116,7 +116,7 @@ export default function LocalLobby() {
           </motion.button>
         </div>
         {/* Bots: one seat per personality, so playing alone is one tap away. */}
-        <div className="flex flex-wrap items-center gap-2 mb-6">
+        <div className="flex flex-wrap items-center gap-2 mb-2 sm:mb-6">
           <span className="text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5 mr-1">
             <Bot size={18} aria-hidden="true" /> {t('lobby.addBotTitle', 'Add a bot')}
           </span>
@@ -152,7 +152,8 @@ export default function LocalLobby() {
 
       <RulesetSelector ruleset={ruleset} setRuleset={setRuleset} nameSuffix="Local" />
 
-      <div className="flex flex-row flex-wrap justify-center items-stretch gap-2 sm:gap-4 mb-8">
+      {/* Sections and full-width phone settings share Tailwind's gap-2 spacing token. */}
+      <div className="flex flex-col sm:flex-row flex-wrap justify-center items-stretch gap-2 sm:gap-4 mb-2 sm:mb-8">
         <DiceModeSelector diceMode={diceMode} setDiceMode={setDiceMode} nameSuffix="Local" />
         <AudioSettingSelector audioEnabled={audioEnabled} setAudioEnabled={setAudioEnabled} audioVolume={audioVolume} setAudioVolume={setAudioVolume} nameSuffix="Local" />
         <HapticsSettingSelector hapticsEnabled={hapticsEnabled} setHapticsEnabled={setHapticsEnabled} nameSuffix="Local" />

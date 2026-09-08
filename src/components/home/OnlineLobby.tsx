@@ -475,12 +475,12 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
-      <div className="mb-8">
+      <div className="mb-2 sm:mb-8">
         {/* flex-wrap and the min-w-0/truncate/shrink-0 below: this row holds a
             heading of unbounded length plus up to four buttons, and on a narrow
             phone the fixed-width ones would otherwise push the whole row past
             the container rather than the heading giving way. */}
-        <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
+        <div className="flex flex-wrap justify-between items-center gap-2 mb-2 sm:mb-4">
           <div className="flex items-center gap-1 min-w-0">
             {/* mb-0 is belt-and-suspenders: index.css's base heading margin
                 already excludes a heading that is a flex/grid item (this h3
@@ -538,12 +538,12 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
         </div>
 
         {showQr && <RoomQrCode link={roomLink} />}
-        <p className="mb-6 text-gray-700 dark:text-gray-200 text-lg">
+        <p className="mb-2 sm:mb-6 text-gray-700 dark:text-gray-200 text-lg">
           {t('lobby.online.youAre', 'You are:')} <strong className="text-indigo-600 dark:text-indigo-400">{myName}</strong>{' '}
           {isHost ? <span className="text-amber-500 font-medium">({t('lobby.online.hostBadge', 'Host')})</span> : ''}
         </p>
 
-        <h4 className="font-bold text-gray-800 dark:text-gray-100 mb-3">{t('lobby.online.playersInLobby', 'Players in Lobby:')}</h4>
+        <h4 className="font-bold text-gray-800 dark:text-gray-100 mb-2 sm:mb-3">{t('lobby.online.playersInLobby', 'Players in Lobby:')}</h4>
         <PlayerList
           players={players}
           reorderPlayers={reorderPlayers}
@@ -559,7 +559,7 @@ export default function OnlineLobby({ initialRoomCode }: OnlineLobbyProps) {
           ? <RulesetSelector ruleset={ruleset} setRuleset={setRuleset} nameSuffix="Online" />
           : <RulesetBadge ruleset={ruleset} />}
 
-        <div className="flex flex-row flex-wrap justify-center items-stretch gap-2 sm:gap-4 mb-8">
+        <div className="flex flex-col sm:flex-row flex-wrap justify-center items-stretch gap-2 sm:gap-4 mb-2 sm:mb-8">
           {/* diceMode is deliberately per-device, not room config by default: it
               decides how THIS player enters their own turns (digital dice vs
               typing a physical-dice score). Spectators see the active player's

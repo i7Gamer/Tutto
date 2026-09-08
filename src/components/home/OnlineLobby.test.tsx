@@ -632,14 +632,14 @@ describe('OnlineLobby start button / waiting indicator', () => {
     expect(screen.queryByText('lobby.startGame')).not.toBeInTheDocument();
   });
 
-  it('places start button outside the mb-8 room-header section', () => {
+  it('places start button outside the room-header section', () => {
     stageRoom();
     render(<OnlineLobby />);
     const startText = screen.getByText('lobby.startGame');
     const leaveText = screen.getByText('lobby.online.leaveRoom');
-    // Leave button lives inside the mb-8 wrapper; start button must not
-    expect(leaveText.closest('.mb-8')).not.toBeNull();
-    expect(startText.closest('.mb-8')).toBeNull();
+    const roomSection = leaveText.closest('button')!.parentElement!.parentElement!;
+    expect(roomSection).toContainElement(screen.getByText('lobby.online.playersInLobby'));
+    expect(roomSection).not.toContainElement(startText);
   });
 });
 
@@ -1475,4 +1475,3 @@ describe('OnlineLobby reporting a form draft to uiBusyState', () => {
     expect(uiBusyState.getState().hasFormDraft).toBe(false);
   });
 });
-

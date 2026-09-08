@@ -1,7 +1,6 @@
 import { useGameStore } from '../store/useGameStore';
 import { supportsIOSSwitchHaptic, triggerIOSSwitchHaptic } from './iosSwitchHaptic';
 import { volumeToGain, MIN_AUDIO_VOLUME } from './audioVolume';
-import { TOTAL_DICE } from './turnShapes';
 
 // Spacing between the quick taps used to approximate a multi-pulse pattern
 // via the single-tick iOS switch-haptic fallback (see below).
@@ -179,10 +178,9 @@ export const playCardSwoosh = async (): Promise<void> => {
 export const playDieClick = (selected: boolean): Promise<void> =>
   playTone(selected ? DIE_CLICK_SELECT_HZ : DIE_CLICK_DESELECT_HZ, 'triangle', DIE_CLICK_S, DIE_CLICK_VOL);
 
-/** The lobby's "test sound" button: a full roll's rattle, then the scoring fanfare. */
+/** Preview the scoring chime immediately; the noise-based rattle can sound like static on its own. */
 export const playSoundPreview = (): void => {
-  void playDiceRattle(TOTAL_DICE);
-  playSuccess(rattleDurationS(TOTAL_DICE));
+  playSuccess();
 };
 
 export const playTone = async (

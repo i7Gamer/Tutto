@@ -254,11 +254,13 @@ describe('soundEffects', () => {
 
     it('stays silent when sound is off or the slider is at zero', async () => {
       useGameStore.setState({ audioEnabled: false });
+      playSoundPreview();
       await playDiceRattle(6);
       await playCardSwoosh();
       await playDieClick(true);
 
       useGameStore.setState({ audioEnabled: true, audioVolume: 0 });
+      playSoundPreview();
       await playDiceRattle(6);
       await playCardSwoosh();
       await playDieClick(true);
@@ -280,17 +282,12 @@ describe('soundEffects', () => {
       expect(peakAtHalf).toBeCloseTo(peakAtFull * 0.25);
     });
 
-    it('playSoundPreview plays the rattle and then the fanfare after it', async () => {
+    it('playSoundPreview immediately plays the scoring chime without noise', async () => {
       playSoundPreview();
 
       await vi.waitFor(() => expect(mockAudioContext.createOscillator).toHaveBeenCalledTimes(3));
-      expect(mockAudioContext.createBufferSource).toHaveBeenCalledTimes(1);
-      const [rattleStart] = mockBufferSource.start.mock.calls[0];
-      const [rattleEnd] = mockBufferSource.stop.mock.calls[0];
-      for (const [fanfareStart] of mockOscillator.start.mock.calls) {
-        expect(fanfareStart).toBeGreaterThanOrEqual(rattleEnd);
-      }
-      expect(rattleStart).toBeLessThan(rattleEnd);
+      expect(mockAudioContext.createBufferSource).not.toHaveBeenCalled();
+      expect(mockOscillator.start).toHaveBeenNthCalledWith(1, mockAudioContext.currentTime);
     });
   });
 
