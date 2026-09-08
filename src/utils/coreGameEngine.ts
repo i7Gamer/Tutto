@@ -109,6 +109,21 @@ export const shuffleArray = <T>(array: T[]): T[] => {
 // runs longer than that are avoided.
 const MAX_CLUSTER = 3;
 
+/** The same next-card choices for deck generation and a player's draw odds. */
+export const deckDrawOptions = (
+  remaining: ReadonlyMap<CardType, number>,
+  lastCard: CardType | null,
+  runLength: number,
+): { candidates: [CardType, number][]; forced: [CardType, number] | undefined } => {
+  const entries = Array.from(remaining.entries()).filter(([, count]) => count > 0);
+  const total = entries.reduce((sum, [, count]) => sum + count, 0);
+  const blocked = runLength >= MAX_CLUSTER ? lastCard : null;
+  let candidates = entries.filter(([type]) => type !== blocked);
+  if (candidates.length === 0) candidates = entries;
+  const forced = candidates.find(([, count]) => count > MAX_CLUSTER * (total - count));
+  return { candidates, forced };
+};
+
 // Builds the deck as a uniform random shuffle constrained to "no more than
 // MAX_CLUSTER identical cards adjacent": each card is drawn randomly among the
 // still-eligible types, weighted by remaining copies (sampling without
@@ -134,17 +149,12 @@ export const buildDeck = (initialCards: InitialCards): CardType[] => {
   });
 
   const deckSize = Array.from(remaining.values()).reduce((sum, c) => sum + c, 0);
-  let remainingTotal = deckSize;
   const deck: CardType[] = [];
   let lastCard: CardType | null = null;
   let runLength = 0;
 
   while (deck.length < deckSize) {
-    const blocked: CardType | null = runLength >= MAX_CLUSTER ? lastCard : null;
-    let candidates: [CardType, number][] = Array.from(remaining.entries()).filter(([type, count]) => count > 0 && type !== blocked);
-    if (candidates.length === 0) candidates = Array.from(remaining.entries()).filter(([, count]) => count > 0);
-
-    const forced = candidates.find(([, count]) => count > MAX_CLUSTER * (remainingTotal - count));
+    const { candidates, forced } = deckDrawOptions(remaining, lastCard, runLength);
 
     let chosen: CardType;
     if (forced) {
@@ -161,7 +171,6 @@ export const buildDeck = (initialCards: InitialCards): CardType[] => {
 
     deck.push(chosen);
     remaining.set(chosen, (remaining.get(chosen) ?? 0) - 1);
-    remainingTotal--;
     runLength = chosen === lastCard ? runLength + 1 : 1;
     lastCard = chosen;
   }

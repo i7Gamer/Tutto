@@ -1,6 +1,6 @@
 import type { CardType, InitialCards, Ruleset } from '../types';
 import { applyTuttoBonus, checkValidityAndScore, getMaxValidSelection, isBust } from './diceLogic';
-import { fixedCardAward } from './coreGameEngine';
+import { deckDrawOptions, fixedCardAward } from './coreGameEngine';
 import { DIE_FACES, TOTAL_DICE } from './turnShapes';
 
 /**
@@ -243,11 +243,36 @@ export const remainingDeckCounts = (cards: readonly CardType[], initialCards: In
 };
 
 /**
+ * Relative weights of the next draw, using only counts and revealed cards.
+ * The shuffle excludes a fourth repeat and sometimes forces a dominant
+ * type. A rebuild starts a new run, including when it happened mid-chain:
+ * the remaining deck's size tells us how many reveals belong to this deck.
+ */
+export const nextDrawWeights = (
+  cards: readonly CardType[],
+  initialCards: InitialCards,
+  revealedCards: readonly CardType[],
+): DeckCounts => {
+  const remaining = new Map(deckEntries(remainingDeckCounts(cards, initialCards)));
+  const initialSize = Object.values(initialCards).reduce((sum, count) => sum + (count ?? 0), 0);
+  const drawnCount = cards.length === 0 ? 0 : Math.max(0, initialSize - cards.length);
+  const firstReveal = Math.max(0, revealedCards.length - drawnCount);
+  const lastCard = revealedCards.at(-1) ?? null;
+  let runLength = 0;
+  for (let i = revealedCards.length - 1; i >= firstReveal && revealedCards[i] === lastCard; i--) {
+    runLength++;
+  }
+  const { candidates, forced } = deckDrawOptions(remaining, lastCard, runLength);
+  return Object.fromEntries(forced ? [forced] : candidates);
+};
+
+/**
  * A classic chain's draw option: what the next card could be, and the
  * standings a Kleeblatt among them would be judged by. Absent under
  * modernized rules, where a completed card ends the turn.
  */
 export interface ChainContext {
+  /** Relative next-card weights from nextDrawWeights, after shuffle constraints. */
   deck: DeckCounts;
   myScore: number;
   winningScore: number;
@@ -415,8 +440,8 @@ export interface ValueContext {
  * What winning the game outright is worth to a player who needs
  * `winningScore - myScore` more points: at least that, at least the bank the
  * Kleeblatt is putting at stake, never negative. A heuristic — the one number
- * in this file that is not derived from the rules — and it only ever scales a
- * Kleeblatt's odds, so it never decides which dice to keep.
+ * in this file that is not derived from the rules. Used to compare a draw
+ * against banking; bestKeep ranks Kleeblatt keeps by probability alone.
  */
 export const kleeblattWinValue = (bank: number, myScore: number, winningScore: number): number =>
   Math.max(bank, winningScore - myScore, 0);
@@ -454,7 +479,7 @@ const drawValues = new Map<string, number>();
 
 /**
  * What drawing the next card is worth with `bank` at stake: every card the
- * deck still holds, weighted by its share. When no card can come the draw
+ * deck can draw, weighted by nextDrawWeights' constrained distribution. When no card can come the draw
  * is refused and the bank stands (DiceGame's drawNextCard falls back to
  * banking), so that is what it is worth.
  */

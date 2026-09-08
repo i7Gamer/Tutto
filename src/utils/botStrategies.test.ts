@@ -10,6 +10,7 @@ import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from './coreGameEngine';
 import { checkValidityAndScore, getMaxValidSelection } from './diceLogic';
 import { BOT_PERSONALITIES, type CardType } from '../types';
 import { TOTAL_DICE, DIE_FACES } from './turnShapes';
+import { nextDrawWeights } from './turnValue';
 
 // A deterministic generator so the property runs are repeatable.
 const lcg = (seed: number) => () => {
@@ -342,6 +343,42 @@ describe('Optimal Otto', () => {
     // Fifty more in hand and it is not: 342 against 350.
     const notQuite = otto({ currentCard: '600', keptCount: 4, rollVals: [5, 3], turnScore: 300 });
     expect(chooseBotAction(notQuite, ROLL_OR_STOP)).toBe('stop');
+  });
+});
+
+describe('Otto review regressions', () => {
+  it('banks a tutto when the revealed run guarantees a Stop next', () => {
+    const context = ctx({
+      personality: 'optimal', ruleset: 'classic', currentCard: '200',
+      rollVals: [1], keptCount: 5, turnScore: 200,
+      deck: nextDrawWeights(['Stop', '200', '200'], { '200': 5, Stop: 1 }, ['200', '200', '200']),
+    });
+    expect(outcomeOfSelection(context).bank).toBe(500);
+    expect(optimalDrawDecision(context, 500)).toMatchObject({ drawValue: 0, action: 'stop' });
+    expect(chooseBotAction(context, STOP_OR_DRAW)).toBe('stop');
+  });
+
+  it('maximizes Kleeblatt completion probability regardless of standings or turn points', () => {
+    const standings = [0, 5900, 6000, 7000];
+    const turnScores = [0, 500, 10000];
+    const tuttoCounts = [0, 1];
+    const rulesets = ['modernized', 'classic'] as const;
+    for (const ruleset of rulesets) {
+      for (const myScore of standings) {
+        for (const turnScore of turnScores) {
+          for (const tuttosThisTurn of tuttoCounts) {
+            const context = ctx({
+              personality: 'optimal', currentCard: 'Kleeblatt',
+              rollVals: [1, 2, 2, 2, 3, 4], ruleset, myScore, turnScore, tuttosThisTurn,
+            });
+            expect(chooseBotSelection(context)).toEqual([0]);
+            // A certain tutto must still beat every partial keep, even when
+            // the score threshold has already been reached.
+            expect(chooseBotSelection({ ...context, rollVals: [1], keptCount: 5 })).toEqual([0]);
+          }
+        }
+      }
+    }
   });
 });
 

@@ -69,9 +69,8 @@ interface DiceGameProps {
   // (coachHint.ts / CoachHintLine.tsx) is built from these the same way a
   // bot's own decision is built from `bot` above.
   coachSeat?: CoachHintStandings;
-  // What the deck the next classic draw comes from holds, by card — its
-  // composition, never its order (Game.tsx derives it through
-  // turnValue.remainingDeckCounts). Read by a bot's draw-or-bank decision and
+  // Relative next-card weights from counts and revealed cards (Game.tsx
+  // derives them through turnValue.nextDrawWeights). Read by a bot's draw-or-bank decision and
   // by Otto's advice on a classic tutto; absent means no card can come, which
   // is what an empty deck means to both.
   deck?: DeckCounts;

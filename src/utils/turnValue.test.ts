@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   diceCounts, legalKeeps, rollOutcomes, tableOutcomes, completionProbability, rollOnValue,
   continuationValue, tuttoValue, kleeblattWinValue, keepIndices, onePlyValue, feuerwerkGain,
-  drawValue, remainingDeckCounts,
+  drawValue, remainingDeckCounts, nextDrawWeights,
   type Keep, type ValueContext, type ChainContext, type DeckCounts,
 } from './turnValue';
 import { checkValidityAndScore, isBust } from './diceLogic';
@@ -389,6 +389,46 @@ describe('remainingDeckCounts', () => {
 
   it('falls back to a fresh deck once this one has run out, as the store does', () => {
     expect(remainingDeckCounts([], { Stop: 2, '200': 1 })).toEqual({ Stop: 2, '200': 1 });
+  });
+});
+
+describe('nextDrawWeights', () => {
+  it('excludes the fourth identical card, without consulting undrawn order', () => {
+    const initial = { '200': 5, Stop: 1 };
+    const revealed: CardType[] = ['200', '200', '200'];
+    expect(nextDrawWeights(['Stop', '200', '200'], initial, revealed)).toEqual({ Stop: 1 });
+    expect(nextDrawWeights(['200', 'Stop', '200'], initial, revealed)).toEqual({ Stop: 1 });
+  });
+
+  it('retains count weights below the run limit and after a different card', () => {
+    expect(nextDrawWeights(['200', '200', 'Stop'], { '200': 4, Stop: 1 }, ['200', '200']))
+      .toEqual({ '200': 2, Stop: 1 });
+    expect(nextDrawWeights(['200', '200', 'Stop'], { '200': 5, Stop: 2 }, ['200', '200', '200', 'Stop']))
+      .toEqual({ '200': 2, Stop: 1 });
+  });
+
+  it('forces a dominant card while respecting the run limit', () => {
+    const remaining: CardType[] = ['200', '200', '200', '200', 'Stop'];
+    expect(nextDrawWeights(remaining, { '200': 5, Stop: 1 }, ['200'])).toEqual({ '200': 4 });
+    expect(nextDrawWeights(remaining, { '200': 7, Stop: 1 }, ['200', '200', '200'])).toEqual({ Stop: 1 });
+  });
+
+  it('forgets the previous run when the next draw rebuilds the deck', () => {
+    expect(nextDrawWeights([], { '200': 2, Stop: 1 }, ['200', '200', '200']))
+      .toEqual({ '200': 2, Stop: 1 });
+    expect(nextDrawWeights([], { '200': 4, Stop: 1 }, [])).toEqual({ '200': 4 });
+  });
+
+  it('does not extend a run across the most recent deck rebuild', () => {
+    // Only the last 200 belongs to this deck; the other two preceded its rebuild.
+    expect(nextDrawWeights(['200', '200', 'Stop'], { '200': 3, Stop: 1 }, ['200', '200', '200']))
+      .toEqual({ '200': 2, Stop: 1 });
+  });
+
+  it('allows unavoidable repeats and handles empty or missing history', () => {
+    expect(nextDrawWeights(['200'], { '200': 4 }, ['200', '200', '200'])).toEqual({ '200': 1 });
+    expect(nextDrawWeights([], {}, [])).toEqual({});
+    expect(nextDrawWeights(['200', 'Stop'], { '200': 2, Stop: 1 }, [])).toEqual({ '200': 1, Stop: 1 });
   });
 });
 

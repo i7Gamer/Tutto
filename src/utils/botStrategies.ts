@@ -4,7 +4,7 @@ import { fixedCardAward } from './coreGameEngine';
 import { deriveTurnControls } from './diceTurnControls';
 import { TOTAL_DICE } from './turnShapes';
 import {
-  continuationValue, countsToVals, diceCounts, drawValue, keepIndices, legalKeeps, outcomeSpace, tableOutcomes, tuttoValue,
+  completionProbability, continuationValue, countsToVals, diceCounts, drawValue, keepIndices, legalKeeps, outcomeSpace, tableOutcomes, tuttoValue,
   type DeckCounts, type Keep, type ValueContext,
 } from './turnValue';
 
@@ -45,7 +45,7 @@ export interface BotTurnContext {
   kniffelProgress: number[];
   /** Tuttos already rolled this turn — a Kleeblatt's first has the second still to come. */
   tuttosThisTurn: number;
-  /** What the deck the next classic draw comes from holds (turnValue.remainingDeckCounts); composition only. */
+  /** Relative next-card weights (turnValue.nextDrawWeights), using counts and revealed cards. */
   deck: DeckCounts;
   myScore: number;
   leaderScore: number;
@@ -126,6 +126,7 @@ const riskAppetite = (ctx: BotTurnContext): number => {
  * what he always did, and the easier of the two to explain.
  */
 const VALUE_TIE_EPSILON = 1e-9;
+const CERTAIN_COMPLETION = 1;
 
 /**
  * Otto's keep: of every valid selection of the table, the one the rest of the
@@ -145,7 +146,12 @@ const bestKeep = (ctx: BotTurnContext): number[] => {
   for (const keep of legalKeeps(diceCounts(ctx.rollVals), ctx.currentCard, ctx.kniffelProgress, ctx.ruleset)) {
     const { bank, diceAfter, progressAfter } = outcomeOfPicked(ctx, countsToVals(keep.counts));
     const isTutto = ctx.keptCount + keep.dice === TOTAL_DICE;
-    const worth = isTutto ? tuttoValue(value, bank)
+    // Kleeblatt's dice points never count toward its win. Rank its keeps by
+    // completion odds directly, including when the win-value heuristic is
+    // zero or the accumulated dice score exceeds the remaining score gap.
+    const worth = ctx.currentCard === 'Kleeblatt'
+      ? isTutto ? CERTAIN_COMPLETION : completionProbability(diceAfter, ctx.currentCard, [], ctx.ruleset)
+      : isTutto ? tuttoValue(value, bank)
       : canStop ? Math.max(bank, continuationValue(value, bank, diceAfter, progressAfter))
         : continuationValue(value, bank, diceAfter, progressAfter);
     if (!best || worth > best.worth + VALUE_TIE_EPSILON

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../store/useGameStore';
 import { vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
-import { computeRankedPlayers, canUndoState } from '../utils/coreGameEngine';
+import { computeRankedPlayers, canUndoState, inProgressChainCards } from '../utils/coreGameEngine';
 import { applyTuttoBonus } from '../utils/diceLogic';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -16,7 +16,7 @@ import { DICE_PANEL_ENTRANCE_MS, TURN_URGENT_SECONDS, BOT_OPEN_DELAY_MS } from '
 import { botOf } from '../utils/bots';
 import type { BotSeat } from '../utils/botStrategies';
 import type { CoachHintStandings } from '../utils/coachHint';
-import { remainingDeckCounts } from '../utils/turnValue';
+import { nextDrawWeights } from '../utils/turnValue';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useDeviceStats } from '../hooks/useDeviceStats';
@@ -56,6 +56,7 @@ const turnSlotKey = (round: number, currentPlayerIndex: number | null) => `${rou
 const useGameSlice = () => useGameStore(useShallow(state => ({
   currentCard: state.currentCard,
   cards: state.cards,
+  historyLog: state.historyLog,
   nextTurn: state.nextTurn,
   drawCardMidTurn: state.drawCardMidTurn,
   isOnline: state.isOnline,
@@ -95,6 +96,7 @@ export default function Game() {
   const {
     currentCard,
     cards,
+    historyLog,
     nextTurn,
     drawCardMidTurn,
     isOnline,
@@ -563,10 +565,13 @@ export default function Game() {
   const coachSeat: CoachHintStandings | undefined = coachHintEnabled && !isBotTurn ? seatStandings : undefined;
 
   // What the next classic draw could be, for a bot's draw-or-bank decision
-  // and for Otto's advice on it: the remaining deck by composition only
-  // (never its order, which would name the next card), or a fresh deck's once
-  // it has run out — the same fallback the store draws from.
-  const deck = useMemo(() => remainingDeckCounts(cards ?? [], initialCards), [cards, initialCards]);
+  // and for Otto's advice on it: counts plus publicly revealed cards, judged
+  // by the same constrained shuffle that built the deck. Include the live
+  // chain because its cards enter historyLog only when the turn ends.
+  const deck = useMemo(() => nextDrawWeights(cards ?? [], initialCards, [
+    ...historyLog.flatMap(entry => entry.cards?.length ? entry.cards : [entry.card]),
+    ...inProgressChainCards(currentCard, liveTurnState),
+  ]), [cards, initialCards, historyLog, currentCard, liveTurnState]);
 
   // Feuerwerk is the one card a chain cannot be carried off: the turn ends on
   // its null, banking whatever was accumulated, so there is never a tutto to

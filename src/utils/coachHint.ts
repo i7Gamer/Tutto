@@ -22,7 +22,7 @@ export interface CoachHintInput {
   ruleset: Ruleset;
   kniffelProgress: number[];
   standings: CoachHintStandings;
-  /** What the deck the next classic draw comes from holds — composition only (turnValue.remainingDeckCounts). */
+  /** Relative next-card weights from counts and revealed cards (turnValue.nextDrawWeights). */
   deck: DeckCounts;
   // Whether the panel was handed an onDrawCard to ask (DiceGame's own prop) —
   // named for what it decides, not what it is: the coach has no business

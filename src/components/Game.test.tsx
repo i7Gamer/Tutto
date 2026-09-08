@@ -16,7 +16,7 @@ import { useGameStore, _resetTimersForTests } from '../store/useGameStore';
 import { MAX_CHAIN_CARDS, type TurnSummary } from '../types';
 import { STOP_CARD_AUTO_CONTINUE_MS, CARD_FLIP_MS, BOT_OPEN_DELAY_MS } from '../utils/uiTimings';
 import { vibrateYourTurn, vibrateTurnUrgent } from '../utils/soundEffects';
-import { makePlayer, makeDiceSnapshot, mockFetchJson, nonNull } from '../testing/factories';
+import { makePlayer, makeDiceSnapshot, makeHistoryEntry, mockFetchJson, nonNull } from '../testing/factories';
 
 vi.mock('../utils/soundEffects', () => ({
   playBuzzer: vi.fn(),
@@ -219,6 +219,35 @@ describe('Game Component Integration', () => {
       fireEvent.click(screen.getByText('game.controls.rollDice'));
 
       expect(capturedDiceGameProps.current).toMatchObject({ deck: { '300': 2, Stop: 1 } });
+    });
+
+    it('uses revealed cards across turns and within a live chain for draw odds', () => {
+      seatHuman();
+      useGameStore.setState({
+        ruleset: 'classic', currentCard: '200', initialCards: { '200': 5, Stop: 1 },
+        cards: ['Stop', '200', '200'],
+        historyLog: [makeHistoryEntry({ card: '200', cards: ['200', '200'] })],
+      });
+      render(<Game />);
+      fireEvent.click(screen.getByText('game.controls.rollDice'));
+      expect((capturedDiceGameProps.current as { deck: unknown }).deck).toEqual({ Stop: 1 });
+
+      act(() => {
+        useGameStore.setState({
+          historyLog: [],
+          liveTurnState: makeDiceSnapshot({ cardsThisTurn: ['200', '200', '200'] }),
+        });
+      });
+      expect((capturedDiceGameProps.current as { deck: unknown }).deck).toEqual({ Stop: 1 });
+
+      // A snapshot from before the current card was dealt must not supply
+      // another turn's run; the current card is the only reliable reveal.
+      act(() => {
+        useGameStore.setState({
+          liveTurnState: makeDiceSnapshot({ cardsThisTurn: ['200', '200', 'Stop'] }),
+        });
+      });
+      expect(capturedDiceGameProps.current).toMatchObject({ deck: { '200': 2, Stop: 1 } });
     });
 
     it('passes no coachSeat while the setting is off', () => {
