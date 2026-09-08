@@ -250,12 +250,23 @@ jobs:
       # before it is published. The push step below reuses this build from the
       # GHA cache — no second build. Both runners are native, so each arch is
       # smoke tested on its own hardware rather than only amd64.
+      #
+      # no-cache-filters: the runtime stage's `apk upgrade` (Dockerfile) is
+      # only as fresh as the last time its layer was actually built, and the
+      # GHA cache keeps that layer until the base digest or an instruction
+      # above it changes — a comment edit or anything below it does not count.
+      # Rebuilding the stage here (a few COPYs and an apk download; the builder
+      # and server-deps stages stay cached) is what makes the scan below
+      # describe the image that gets pushed. The push step must NOT carry the
+      # filter: it reads what this build writes to the cache, and that is what
+      # keeps the two identical. server/workflows.test.ts pins both sides.
       - name: Build image for smoke test
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           platforms: ${{ matrix.platform }}
           load: true
+          no-cache-filters: runtime
           tags: tutto-smoke:${{ matrix.arch }}
           cache-from: type=gha,scope=docker-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
@@ -345,25 +356,33 @@ jobs:
       # N1: npm audit (verify job, and audit.yml) only ever sees this
       # project's own two lockfiles — it has no visibility into the Alpine OS
       # packages the base image brings in, or into Node's own bundled npm CLI
-      # and ITS vendored dependencies. A real scan of node:24.20.0-alpine
-      # (2026-09-03) found exactly that gap: 1 HIGH in libcrypto3/libssl3 (the
-      # OS layer) and 4 more HIGH across brace-expansion, ip-address and tar
-      # inside npm's own node_modules — none of which npm audit, run against
-      # THIS repo's lockfiles, can ever see.
+      # and ITS vendored dependencies. This scan's first upload (2026-09-07,
+      # node:24.20.0-alpine) found exactly that gap: 20 findings in
+      # libssl3/libcrypto3 (the OS layer) and 9 across brace-expansion,
+      # ip-address, tar and undici inside npm's own node_modules — none of
+      # which npm audit, run against THIS repo's lockfiles, can ever see, and
+      # none a base-tag bump could fix while docker-library had not rebuilt
+      # the tag. The Dockerfile's runtime stage now closes both: `apk upgrade`
+      # for the OS layer, and npm removed outright since nothing at runtime
+      # calls it (server/packaging.test.ts pins both). That apk layer is only
+      # as fresh as its last uncached build, which is what the smoke build's
+      # no-cache-filters above is for.
       #
       # ignore-unfixed + exit-code: '0' is deliberate, not a placeholder: a
       # Trivy failure on an Alpine CVE with no upstream fix yet would block
       # every release until Alpine ships one, on a timeline this repo does
       # not control — the same shape of false alarm docker-publish.yml's own
-      # CodeQL notes above already describe for a different scanner. Every
-      # finding in the run above had a fix available (0 unfixed, at least on
-      # this date), but that is not guaranteed to stay true, so the policy
-      # must not depend on it. Findings still surface: uploaded as SARIF to
-      # the Security tab (informational, dismissible, same review flow as the
-      # existing CodeQL alerts) rather than only living in a build log nobody
-      # reads unless something already failed. Only amd64 scans — the OS
-      # layer does not meaningfully differ by architecture, and scanning both
-      # legs would just double the upload with no new information.
+      # CodeQL notes above already describe for a different scanner. Findings
+      # still surface: uploaded as SARIF to the Security tab (informational,
+      # dismissible, same review flow as the existing CodeQL alerts) rather
+      # than only living in a build log nobody reads unless something already
+      # failed. `severity` alone does not narrow that upload — trivy-action
+      # writes every severity to SARIF unless limit-severities-for-sarif is
+      # set as well, which is how the first upload became 29 alerts (23 of
+      # them LOW/MEDIUM) under a step that names CRITICAL,HIGH. Only amd64
+      # scans — the OS layer does not meaningfully differ by architecture, and
+      # scanning both legs would just double the upload with no new
+      # information.
       - name: Scan the image for vulnerabilities
         if: matrix.arch == 'amd64'
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
@@ -372,6 +391,7 @@ jobs:
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
+          limit-severities-for-sarif: true
           ignore-unfixed: true
           exit-code: '0'
 

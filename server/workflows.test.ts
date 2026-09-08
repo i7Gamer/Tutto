@@ -975,3 +975,94 @@ describe('every reusable-workflow call grants what the called workflow requests'
     }
   });
 });
+
+/**
+ * docker-publish.yml's build job scans the smoke-tested image with Trivy and
+ * uploads the SARIF. Two inputs decide whether what reaches the Security tab
+ * is what the step says it is:
+ *
+ * - `severity:` alone does NOT narrow a SARIF upload. trivy-action writes every
+ *   severity to SARIF unless `limit-severities-for-sarif` is set as well; the
+ *   first upload (2026-09-07) put 23 LOW/MEDIUM alerts beside the 6 HIGH the
+ *   step claimed to be limited to.
+ * - The Dockerfile's `apk upgrade` runs in a layer the GHA cache keeps until
+ *   an instruction above it or the base digest changes, so a scan of a cached
+ *   runtime stage grades packages that were current at some earlier publish.
+ *   `no-cache-filters: runtime` on the build that is smoke tested and scanned
+ *   rebuilds that stage every time. The push step must NOT carry it: it reads
+ *   the cache the first build just wrote, and that is what keeps the pushed
+ *   image identical to the scanned one.
+ */
+describe('docker-publish.yml scans the image it pushes, at the severities it names', () => {
+  const DOCKER_PUBLISH_WORKFLOW = 'docker-publish.yml';
+  const BUILD_JOB = 'build';
+  const TRIVY_ACTION = 'aquasecurity/trivy-action';
+  const BUILD_PUSH_ACTION = 'docker/build-push-action';
+  const SEVERITY_INPUT = 'severity';
+  const LIMIT_SEVERITIES_INPUT = 'limit-severities-for-sarif';
+  const NO_CACHE_FILTERS_INPUT = 'no-cache-filters';
+  const CACHE_TO_INPUT = 'cache-to';
+  const CACHE_FROM_INPUT = 'cache-from';
+  const PUSH_INPUT = 'push';
+  const RUNTIME_STAGE = 'runtime';
+  const DOCKERFILE = path.join(REPO_ROOT, 'Dockerfile');
+  // YAML hands the action a boolean; Actions coerces it to the string it reads.
+  const ENABLED = [true, 'true'];
+
+  const buildSteps = (): WorkflowStep[] =>
+    parseWorkflow(fs.readFileSync(path.join(WORKFLOWS_DIR, DOCKER_PUBLISH_WORKFLOW), 'utf8')).jobs?.[BUILD_JOB]
+      ?.steps ?? [];
+  const usesAction = (step: WorkflowStep, action: string): boolean => step.uses?.startsWith(`${action}@`) === true;
+
+  const scanStep = (): WorkflowStep | undefined => buildSteps().find(step => usesAction(step, TRIVY_ACTION));
+  const imageBuilds = (): WorkflowStep[] => buildSteps().filter(step => usesAction(step, BUILD_PUSH_ACTION));
+  /** The build that is loaded into the daemon, smoke tested and scanned: the one that writes the cache. */
+  const smokeBuildOf = (builds: WorkflowStep[]): WorkflowStep | undefined =>
+    builds.find(step => step.with?.[CACHE_TO_INPUT] !== undefined);
+  /** The build that publishes: reads the cache, writes nothing. */
+  const pushBuildOf = (builds: WorkflowStep[]): WorkflowStep | undefined =>
+    builds.find(step => step.with?.[PUSH_INPUT] === true);
+
+  /** The stages a step's `no-cache-filters` names (the action takes a comma-separated list). */
+  const uncachedStagesOf = (step: WorkflowStep | undefined): string[] =>
+    String(step?.with?.[NO_CACHE_FILTERS_INPUT] ?? '')
+      .split(',')
+      .map(stage => stage.trim())
+      .filter(stage => stage.length > 0);
+
+  it('finds the scan step and both image builds it is meant to be checking', () => {
+    // The self-oracle: matching nothing must not read as everything passing.
+    expect(scanStep()).toBeDefined();
+    const builds = imageBuilds();
+    expect(smokeBuildOf(builds)).toBeDefined();
+    expect(pushBuildOf(builds)).toBeDefined();
+    expect(smokeBuildOf(builds)).not.toBe(pushBuildOf(builds));
+  });
+
+  it('limits the SARIF upload to the severities the scan step names', () => {
+    const scan = scanStep();
+    expect(scan?.with?.[SEVERITY_INPUT], 'the scan names no severities, so there is nothing to limit to').toBeDefined();
+    expect(ENABLED).toContain(scan?.with?.[LIMIT_SEVERITIES_INPUT]);
+  });
+
+  it('rebuilds the runtime stage uncached on the build that is smoke tested and scanned', () => {
+    expect(uncachedStagesOf(smokeBuildOf(imageBuilds()))).toContain(RUNTIME_STAGE);
+  });
+
+  it('lets the push reuse exactly the build that was scanned', () => {
+    const builds = imageBuilds();
+    const push = pushBuildOf(builds);
+    expect(push?.with?.[NO_CACHE_FILTERS_INPUT]).toBeUndefined();
+    expect(push?.with?.[CACHE_FROM_INPUT]).toBeDefined();
+    expect(push?.with?.[CACHE_FROM_INPUT]).toBe(smokeBuildOf(builds)?.with?.[CACHE_FROM_INPUT]);
+  });
+
+  it('names only stages the Dockerfile actually has', () => {
+    const dockerfile = fs.readFileSync(DOCKERFILE, 'utf8');
+    for (const stage of uncachedStagesOf(smokeBuildOf(imageBuilds()))) {
+      expect(dockerfile, `no \`AS ${stage}\` stage in the Dockerfile`).toMatch(
+        new RegExp(`^FROM\\s+\\S+\\s+AS\\s+${stage}\\s*$`, 'mi'),
+      );
+    }
+  });
+});
