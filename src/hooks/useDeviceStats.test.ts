@@ -171,4 +171,48 @@ describe('useDeviceStats', () => {
     ));
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+
+  it('refetches only when the explicit refresh key changes', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ gamesPlayed: 3, wins: 1 }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { rerender } = renderHook(
+      ({ refreshKey }: { refreshKey?: string }) => useDeviceStats<Stats>('device-1', 'normalized', { refreshKey }),
+      { initialProps: { refreshKey: 'submission-1' } },
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    rerender({ refreshKey: 'submission-1' });
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    rerender({ refreshKey: 'submission-2' });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('cancels an in-flight retrying request before a refresh-key fetch replaces it', async () => {
+    vi.useFakeTimers();
+    const abortSignals: AbortSignal[] = [];
+    const fetchMock = vi.fn((_: string, init?: { signal?: AbortSignal }) => {
+      if (init?.signal) abortSignals.push(init.signal);
+      return new Promise(() => {});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { rerender } = renderHook(
+      ({ refreshKey }: { refreshKey: string }) => useDeviceStats<Stats>('device-1', 'normalized', { retry: RETRY_OPTIONS, refreshKey }),
+      { initialProps: { refreshKey: 'submission-1' } },
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(STATS_FETCH_INITIAL_DELAY_MS); });
+    expect(abortSignals).toHaveLength(1);
+
+    rerender({ refreshKey: 'submission-2' });
+    expect(abortSignals[0].aborted).toBe(true);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(STATS_FETCH_INITIAL_DELAY_MS); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });

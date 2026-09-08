@@ -179,6 +179,9 @@ export interface Room {
    * reverting state the receiving client has already moved past.
    */
   stateVersion: number;
+  // Compare-and-swap identity for gameplay, independent of presence broadcasts.
+  gameplayToken: string;
+  finishedGameToken: string | null;
   // The client address this room was created from, for the per-address
   // creation cap (countRoomsCreatedBy). '' means it was not attributed to
   // any client — a room seeded directly by a test.

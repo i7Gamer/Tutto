@@ -1263,6 +1263,10 @@ describe('useGameStore', () => {
       expect(statsEmits()[0][2], 'and it carries an ack callback').toBeTypeOf('function');
 
       ackLast({ ok: true });
+      const acknowledgment = useGameStore.getState().deviceStatsAcknowledgment;
+      expect(acknowledgment).toMatchObject({ deviceId: 'dev-alice', mode: 'normalized' });
+      expect(acknowledgment?.submissionId).toEqual(expect.any(String));
+      expect(acknowledgment?.submissionId.length).toBeGreaterThan(0);
       vi.advanceTimersByTime(STATS_SUBMIT_ACK_TIMEOUT_MS + statsSubmitRetryDelayMs(1));
 
       expect(statsEmits(), 'nothing to retry').toHaveLength(1);
@@ -1281,8 +1285,58 @@ describe('useGameStore', () => {
         .toEqual(statsEmits()[0][1]);
 
       ackLast({ ok: true });
+      const acknowledgment = useGameStore.getState().deviceStatsAcknowledgment;
+      expect(acknowledgment, 'the retry carries the original success identity').toMatchObject({
+        deviceId: 'dev-alice', mode: 'normalized', submissionId: expect.any(String),
+      });
       vi.advanceTimersByTime(STATS_SUBMIT_ACK_TIMEOUT_MS + statsSubmitRetryDelayMs(2));
       expect(statsEmits(), 'the second attempt landed').toHaveLength(2);
+    });
+
+    it('does not signal a device refresh for the global ack or a duplicate device refusal', () => {
+      stageFinishedGame();
+      useGameStore.setState({ isHost: true });
+
+      useGameStore.getState().sendOnlineStats();
+      const globalAck = nonNull(mockEmit.mock.calls.find(([event]) => event === 'submitGlobalStats'))[2];
+      globalAck({ ok: true });
+      expect(useGameStore.getState().deviceStatsAcknowledgment).toBeNull();
+
+      ackLast({ ok: false, reason: 'duplicate' });
+      expect(useGameStore.getState().deviceStatsAcknowledgment).toBeNull();
+    });
+
+    it.each([
+      ['a restarted game', () => {
+        useGameStore.setState({ isHost: true });
+        useGameStore.getState().startGame();
+      }],
+      ['an ended game', () => {
+        useGameStore.setState({ isHost: true });
+        useGameStore.getState().endGame();
+      }],
+      ['a left room', () => { useGameStore.getState().leaveRoom(); }],
+      ['a newer finished snapshot', () => {
+        const snapshot = nonNull(useGameStore.getState().finishedGameSnapshot);
+        useGameStore.setState({
+          finishedGameSnapshot: { ...snapshot, players: [...snapshot.players] },
+        });
+      }],
+    ])('does not signal a device refresh when the ack belongs to %s', (_case, advanceGame) => {
+      stageFinishedGame();
+      const snapshot = {
+        players: useGameStore.getState().players,
+        round: useGameStore.getState().round,
+        gameTimeInSeconds: useGameStore.getState().gameTimeInSeconds,
+      };
+      useGameStore.setState({ finishedGameSnapshot: snapshot });
+      useGameStore.getState().sendOnlineStats();
+      const staleAck = nonNull(statsEmits().at(-1))[2];
+
+      advanceGame();
+      staleAck({ ok: true });
+
+      expect(useGameStore.getState().deviceStatsAcknowledgment).toBeNull();
     });
 
     it('gives up after STATS_SUBMIT_MAX_ATTEMPTS rather than resending forever', () => {

@@ -12,6 +12,12 @@ export interface UseStopCardAutoContinueOptions {
    * apart so the buzzer sounds again for the second one.
    */
   cardsLength: number | undefined;
+  /**
+   * The active turn occurrence. A one-Stop deck can draw Stop for consecutive
+   * seats without changing cardsLength, so the deck alone cannot tell those
+   * lifecycles apart.
+   */
+  turnSlot: string;
   isOnline: boolean;
   isMyTurn: boolean;
   showDiceGame: boolean;
@@ -50,6 +56,7 @@ export interface UseStopCardAutoContinueOptions {
 export const useStopCardAutoContinue = ({
   currentCard,
   cardsLength,
+  turnSlot,
   isOnline,
   isMyTurn,
   showDiceGame,
@@ -79,7 +86,7 @@ export const useStopCardAutoContinue = ({
       clearTimeout(soundTimeout);
       clearTimeout(turnTimeout);
     };
-  }, [armed, advancesItself, cardsLength, onAutoContinue]);
+  }, [armed, advancesItself, cardsLength, turnSlot, onAutoContinue]);
 
   // The visible countdown waits out the same flip delay the buzzer/turn
   // timers above do, so it never starts ticking while the card is still
@@ -95,7 +102,12 @@ export const useStopCardAutoContinue = ({
       clearTimeout(id);
       setFlipped(false);
     };
-  }, [armed, cardsLength]);
+  }, [armed, cardsLength, turnSlot]);
+
+  // Both values identify a Stop instance: the deck distinguishes chained Stop
+  // draws within one turn, while the slot distinguishes successive turns from
+  // a one-Stop deck whose post-draw length remains zero.
+  const restartKey = JSON.stringify([turnSlot, cardsLength]);
 
   return useAutoContinueCountdown({
     shouldStart: flipped && advancesItself,
@@ -104,6 +116,6 @@ export const useStopCardAutoContinue = ({
     // to actually commit the turn (see the doc comment). This hook exists
     // only to drive the on-screen countdown.
     onElapsed: () => {},
-    restartKey: cardsLength,
+    restartKey,
   });
 };

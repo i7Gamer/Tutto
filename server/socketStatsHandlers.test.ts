@@ -24,6 +24,109 @@ const makePlayer = (name: string, socketId: string, deviceId: string) =>
 // test (deleteRoom clears it afterwards) — only its EXISTENCE is read.
 const RECONNECT_TIMER_MS = 60_000;
 
+describe('statistics submission game identity', () => {
+  const roomId = 'STATS-GAME-IDENTITY';
+  const hostSocket = 'identity-host';
+  const deviceId = 'identity-device';
+  const firstFinishToken = 'first-finished-game';
+  const nextFinishToken = 'next-finished-game';
+  const submissionCases = [
+    { event: 'endGameStats', payload: { deviceId, stats: { gamesPlayed: 1, wins: 1, totalTurns: 3 } } },
+    { event: 'submitGlobalStats', payload: { payload: { gamesPlayed: 1 } } },
+  ] as const;
+  let handlers: Record<string, Handler>;
+
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.mocked(getDeviceStats).mockReset().mockResolvedValue(null);
+    vi.mocked(updateDeviceStats).mockReset().mockResolvedValue(true);
+    vi.mocked(updateGlobalStats).mockReset().mockResolvedValue(1);
+    const room = rooms[roomId] = createRoom(hostSocket);
+    room.finishedGameToken = firstFinishToken;
+    Object.assign(room.state, {
+      status: 'playing', finished: true, currentPlayerIndex: null,
+      players: [makePlayer('Alice', hostSocket, deviceId)],
+    });
+    room.finishedGame = { winners: ['Alice'], playerCount: 1 };
+    const fake = makeFakeSocket(hostSocket);
+    handlers = fake.handlers;
+    registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Alice' } });
+  });
+
+  afterEach(() => { deleteRoom(roomId); });
+
+  it.each(submissionCases)('$event rejects an accepted old-game retry after the next game finishes', async ({ event, payload }) => {
+    const firstAck = vi.fn();
+    const originalSubmission = { ...payload, finishedGameToken: firstFinishToken };
+    await handlers[event](originalSubmission, firstAck);
+    expect(firstAck).toHaveBeenCalledWith({ ok: true });
+
+    // A rematch rotates identity and resets dedup; by the retry it has also
+    // finished, so the existing finished/duplicate guards cannot distinguish it.
+    const room = rooms[roomId];
+    room.finishedGameToken = nextFinishToken;
+    room.statsRecordedForGame = { devices: new Map(), global: false };
+    vi.mocked(updateDeviceStats).mockClear();
+    vi.mocked(updateGlobalStats).mockClear();
+    const retryAck = vi.fn();
+    await handlers[event](originalSubmission, retryAck);
+
+    expect(retryAck).toHaveBeenCalledWith({ ok: false, reason: 'invalid' });
+    expect(updateDeviceStats).not.toHaveBeenCalled();
+    expect(updateGlobalStats).not.toHaveBeenCalled();
+    expect(room.statsRecordedForGame.devices.size).toBe(0);
+    expect(room.statsRecordedForGame.global).toBe(false);
+  });
+
+  it.each(submissionCases)('$event accepts the matching game after a presence broadcast', async ({ event, payload }) => {
+    emitRoomState(makeFakeIo().io, roomId);
+    expect(rooms[roomId].finishedGameToken).toBe(firstFinishToken);
+    const ack = vi.fn();
+    await handlers[event]({ ...payload, finishedGameToken: firstFinishToken }, ack);
+    expect(ack).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it.each(submissionCases)('$event preserves legacy submissions that omit finishedGameToken', async ({ event, payload }) => {
+    const ack = vi.fn();
+    await handlers[event](payload, ack);
+    expect(ack).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it.each(submissionCases)('$event refuses a token when the room has no frozen finish', async ({ event, payload }) => {
+    rooms[roomId].finishedGameToken = null;
+    const ack = vi.fn();
+    await handlers[event]({ ...payload, finishedGameToken: firstFinishToken }, ack);
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'invalid' });
+    expect(updateDeviceStats).not.toHaveBeenCalled();
+    expect(updateGlobalStats).not.toHaveBeenCalled();
+  });
+
+  describe.each(submissionCases)('$event malformed game identity', ({ event, payload }) => {
+    it.each([undefined, null, '', 1, {}, []].map(value => ({ value })))('rejects a present invalid finishedGameToken: $value', async ({ value }) => {
+      const ack = vi.fn();
+      await handlers[event]({ ...payload, finishedGameToken: value }, ack);
+      expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'invalid' });
+      expect(updateDeviceStats).not.toHaveBeenCalled();
+      expect(updateGlobalStats).not.toHaveBeenCalled();
+      expect(rooms[roomId].statsRecordedForGame.devices.size).toBe(0);
+      expect(rooms[roomId].statsRecordedForGame.global).toBe(false);
+    });
+  });
+
+  it('allows a matching-game verdict top-up without rotating identity or counting the verdict twice', async () => {
+    const room = rooms[roomId];
+    room.statsRecordedForGame.devices.set(deviceId, 'verdict-only');
+    emitRoomState(makeFakeIo().io, roomId);
+    const ack = vi.fn();
+    await handlers.endGameStats({ ...submissionCases[0].payload, finishedGameToken: firstFinishToken }, ack);
+    expect(ack).toHaveBeenCalledWith({ ok: true });
+    expect(updateDeviceStats).toHaveBeenCalledWith(deviceId, expect.objectContaining({ gamesPlayed: 0, totalTurns: 3 }), 'normalized');
+    expect(vi.mocked(updateDeviceStats).mock.calls[0]?.[1]).not.toHaveProperty('wins');
+    expect(room.finishedGameToken).toBe(firstFinishToken);
+    expect(room.statsRecordedForGame.devices.get(deviceId)).toBe('full');
+  });
+});
+
 describe('endGameStats win-streak refresh', () => {
   const roomId = 'STREAK-ROOM';
 

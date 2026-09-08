@@ -73,8 +73,14 @@ const refuse = (
  */
 export const registerRoomHandlers = ({ io, socket, session }: SocketContext): void => {
   const joinRoomLimiter = createSocketEventLimiter(JOIN_ROOM_LIMIT);
+  // A join waits for the two device-statistics reads below. While it is
+  // waiting, the socket may leave, disconnect, or start a newer join. The
+  // continuation must then become a no-op rather than seating a ghost or
+  // overwriting the newer session.
+  let joinGeneration = 0;
 
-  const handlePlayerLeave = (isExplicitLeave = false): void => {
+  const handlePlayerLeave = (isExplicitLeave = false, invalidatePendingJoin = true): void => {
+    if (invalidatePendingJoin) joinGeneration++;
     const currentRoom = session.roomId;
     if (!currentRoom || !rooms[currentRoom]) return;
     const room = rooms[currentRoom];
@@ -198,6 +204,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
     payload: { roomId?: string; name?: string; deviceId?: string; color?: string; initialConfig?: Record<string, unknown>; isReconnect?: boolean } | null | undefined,
     callback: (result: { success: boolean; isHost?: boolean; socketId?: string; error?: string; code?: JoinRefusal; name?: string; roomId?: string }) => void
   ) => {
+    const generation = ++joinGeneration;
     // Reject malformed payloads before any field is used. Without these guards a
     // client that omits the ack callback or sends a non-string name crashes the
     // handler (e.g. name.toLowerCase() throws), which can take down the server.
@@ -257,6 +264,15 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       console.error('[joinRoom] getDeviceStats error:', err);
     }
 
+    // A leave, disconnect, or newer join may have happened while the stats
+    // reads were pending. A stale continuation must not mutate membership or
+    // session state. The callback still receives a terminal answer so callers
+    // awaiting this attempt cannot hang; this path predates any translated
+    // refusal code, so keep the message as the fallback.
+    if (generation !== joinGeneration) {
+      return callback({ success: false, error: 'Join attempt superseded' });
+    }
+
     // The await above is also the one window in which this socket can die
     // mid-handler — and its 'disconnect' event cleans up nothing: a fresh
     // join has no session.roomId yet, and a rejoin's seat still carries the
@@ -276,7 +292,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       socket.leave(roomChannel(session.roomId));
       // handlePlayerLeave reads the room off the session itself
       // (emitRoomState, delete rooms[...], etc.) — clear it only AFTER.
-      handlePlayerLeave(true);
+      handlePlayerLeave(true, false);
       session.roomId = null;
       session.username = null;
     }

@@ -125,6 +125,24 @@ describe('Game double-commit (D-15)', () => {
     expect(useGameStore.getState().currentPlayerIndex).toBe(1);
   });
 
+  it('an exiting bust confirmation cannot record the next player\'s turn', () => {
+    useGameStore.setState({ currentCard: '300' });
+    render(<Game />);
+
+    fireEvent.click(screen.getByText('game.controls.nextTurn'));
+    const staleConfirm = screen.getByText('game.confirmBustYes');
+
+    // The actual turn changes outside the confirmation handler: an online
+    // timeout or Stop auto-continue has the same ownership shape.
+    act(() => { useGameStore.getState().nextTurn(400, true); });
+    fireEvent.click(staleConfirm);
+
+    const state = useGameStore.getState();
+    expect(state.historyLog).toHaveLength(1);
+    expect(state.players.find(p => p.name === 'Alice')?.score).toBe(400);
+    expect(state.players.find(p => p.name === 'Bob')?.score).toBe(0);
+  });
+
   it('a dice completion that fires twice for one turn banks the roll only once', () => {
     useGameStore.setState({ diceMode: 'digital', currentCard: '300' });
     render(<Game />);

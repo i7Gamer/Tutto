@@ -205,11 +205,13 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       // `finished` edge that re-arms it) would submit the game before this one
       // all over again, and this one not at all.
       state.finishedGameSnapshot = null;
+      state.finishedGameToken = null;
+      state.deviceStatsAcknowledgment = null;
     });
     clearTurnCaches();
 
     if (get().isOnline) {
-      get().pushState();
+      get().pushState(s.gameplayToken);
       get().syncOnlineTimers();
     } else {
       get().startLocalTimers();
@@ -217,7 +219,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
   },
 
   endGame: () => {
-    if (get().isOnline && !get().isHost) return;
+    const s = get();
+    if (s.isOnline && !s.isHost) return;
     get().stopLocalTimers();
     // And the online pair, which stopLocalTimers does not cover: the turn
     // countdown is a second interval, and it re-derives turnTimeRemaining from
@@ -245,9 +248,11 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       historyLog: [],
       // Same reason as startGame's: the game it describes is over and gone.
       finishedGameSnapshot: null,
+      finishedGameToken: null,
+      deviceStatsAcknowledgment: null,
     });
     clearTurnCaches();
-    if (get().isOnline) get().pushState();
+    if (get().isOnline) get().pushState(s.gameplayToken);
   },
 
   // Classic chains only: the active player reveals the next card mid-turn
@@ -364,7 +369,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     // Stats are intentionally only tracked for online games. Local games do not
     // submit statistics — by design, not an oversight.
     if (get().isOnline) {
-      get().pushState();
+      get().pushState(s.gameplayToken);
       // Only AFTER pushState: the server refuses end-game stats until it has
       // seen finished=true, and socket.io preserves per-connection event
       // order — pushing first is what makes the winner's own submission land.
@@ -409,7 +414,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     clearTurnCaches();
 
     if (get().isOnline) {
-      get().pushState();
+      get().pushState(s.gameplayToken);
       get().syncOnlineTimers();
     }
   },

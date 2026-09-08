@@ -43,6 +43,7 @@ describe('EndScreen Component', () => {
     cleanup();
     useGameStore.setState({
       isOnline: false, isHost: false, myName: null, preGameStats: null,
+      deviceStatsAcknowledgment: null,
       ruleset: 'modernized',
     });
     vi.useRealTimers();
@@ -579,6 +580,92 @@ describe('EndScreen Component', () => {
         // objectContaining, not an exact match: the request also carries the
         // AbortSignal that cancels it on unmount, which is not what this asserts.
         expect.objectContaining({ headers: { 'x-tutto-device': 'device-online-1' } }),
+      );
+      vi.useRealTimers();
+    });
+
+    it('refetches an already-positive lifetime total after this device\'s matching submission is acknowledged', async () => {
+      vi.useFakeTimers();
+      const fetchMock = vi.fn(() => Promise.resolve(mockFetchJson({
+        gamesPlayed: 5, wins: 2, pointsDeducted: 0, kniffelCompleted: 0,
+      })));
+      global.fetch = fetchMock;
+      useGameStore.setState({ isOnline: true });
+
+      render(<EndScreen theme="light" deviceId="device-refresh-1" onShowStats={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(STATS_FETCH_INITIAL_DELAY_MS); });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        useGameStore.setState({
+          deviceStatsAcknowledgment: { deviceId: 'device-refresh-1', mode: 'normalized', submissionId: 'finish-1' },
+        });
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(STATS_FETCH_INITIAL_DELAY_MS); });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      // A duplicate callback must retain the same submission identity, which
+      // keeps a completed refresh from restarting again.
+      act(() => {
+        useGameStore.setState({
+          deviceStatsAcknowledgment: { deviceId: 'device-refresh-1', mode: 'normalized', submissionId: 'finish-1' },
+        });
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(STATS_FETCH_INITIAL_DELAY_MS * 2); });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      vi.useRealTimers();
+    });
+
+    it('does not refetch for an acknowledgment from another device or mode', async () => {
+      vi.useFakeTimers();
+      const fetchMock = vi.fn(() => Promise.resolve(mockFetchJson({
+        gamesPlayed: 5, wins: 2, pointsDeducted: 0, kniffelCompleted: 0,
+      })));
+      global.fetch = fetchMock;
+      useGameStore.setState({ isOnline: true });
+
+      render(<EndScreen theme="light" deviceId="device-refresh-2" onShowStats={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(STATS_FETCH_INITIAL_DELAY_MS); });
+
+      act(() => {
+        useGameStore.setState({
+          deviceStatsAcknowledgment: { deviceId: 'other-device', mode: 'normalized', submissionId: 'other-device' },
+        });
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(STATS_FETCH_INITIAL_DELAY_MS * 2); });
+
+      act(() => {
+        useGameStore.setState({
+          deviceStatsAcknowledgment: { deviceId: 'device-refresh-2', mode: 'custom', submissionId: 'other-mode' },
+        });
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(STATS_FETCH_INITIAL_DELAY_MS * 2); });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
+    it.each([
+      { mode: 'custom', ruleset: 'modernized', winningScore: 1000 },
+      { mode: 'classic', ruleset: 'classic', winningScore: 6000 },
+    ] as const)('uses a retained matching $mode acknowledgment when the end screen mounts', async ({ mode, ruleset, winningScore }) => {
+      vi.useFakeTimers();
+      const fetchMock = vi.fn(() => Promise.resolve(mockFetchJson({
+        gamesPlayed: 5, wins: 2, pointsDeducted: 0, kniffelCompleted: 0,
+      })));
+      global.fetch = fetchMock;
+      useGameStore.setState({
+        isOnline: true,
+        ruleset,
+        winningScore,
+        deviceStatsAcknowledgment: { deviceId: 'device-before-mount', mode, submissionId: `finish-${mode}` },
+      });
+
+      render(<EndScreen theme="light" deviceId="device-before-mount" onShowStats={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(STATS_FETCH_INITIAL_DELAY_MS); });
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/stats/device?mode=${mode}`,
+        expect.objectContaining({ headers: { 'x-tutto-device': 'device-before-mount' } }),
       );
       vi.useRealTimers();
     });

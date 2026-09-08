@@ -78,7 +78,7 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
   const endGameStatsLimiter = createSocketEventLimiter(END_GAME_STATS_LIMIT);
 
   safeOn(socket, 'submitGlobalStats', async (
-    data: { roomId?: string; payload?: unknown } | null | undefined,
+    data: { roomId?: string; payload?: unknown; finishedGameToken?: string } | null | undefined,
     ack?: StatsSubmitAckFn,
   ) => {
     // Every bail-out below names itself to the sender; the gates themselves
@@ -103,6 +103,14 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     const room = roomId ? rooms[roomId] : null;
     if (!room) return refuse('no-room');
     if (room.host !== socket.id) return refuse('unauthorized');
+    // A finish can be followed by Play Again while a stats retry is in flight.
+    // Match the frozen finish, not the latest room mutation or the current
+    // finished flag: the next game may already have finished too. Omission
+    // preserves older clients; a present malformed or stale token never writes.
+    if ('finishedGameToken' in data &&
+        (typeof data.finishedGameToken !== 'string' || data.finishedGameToken !== room.finishedGameToken)) {
+      return refuse('invalid');
+    }
     // Stats only exist for a game that actually reached its end — without
     // this gate, a host could submit fabricated stats straight from the
     // lobby, and repeat at will by re-triggering pushState's startingGame
@@ -178,7 +186,7 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
   });
 
   safeOn(socket, 'endGameStats', async (
-    data: { deviceId?: string; stats?: unknown } | null | undefined,
+    data: { deviceId?: string; stats?: unknown; finishedGameToken?: string } | null | undefined,
     ack?: StatsSubmitAckFn,
   ) => {
     // Every bail-out below now names itself to the sender; the gates
@@ -200,6 +208,13 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     if (!room) return refuse('no-room');
     const player = room.state.players.find(p => p.socketId === socket.id);
     if (!player || player.deviceId !== deviceId) return refuse('unauthorized');
+    // Same finish identity as the global row above, checked before the dedup
+    // is reserved or any database work starts. Presence broadcasts and a
+    // verdict-only top-up keep this identity; a rematch gets a different one.
+    if ('finishedGameToken' in data &&
+        (typeof data.finishedGameToken !== 'string' || data.finishedGameToken !== room.finishedGameToken)) {
+      return refuse('invalid');
+    }
     // See submitGlobalStats above — stats are only accepted for a game that
     // actually reached its end.
     if (!room.state.finished) return refuse('not-finished');

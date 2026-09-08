@@ -1,6 +1,7 @@
 import { renderHook, act } from '@testing-library/react';
+import { useLayoutEffect, type PropsWithChildren } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { useInstallPrompt } from './useInstallPrompt';
+import { _resetInstallPromptForTests, useInstallPrompt } from './useInstallPrompt';
 import { localStore } from '../utils/storage';
 import {
   HAS_FINISHED_GAME_KEY, INSTALL_PROMPT_DISMISSED_KEY, INSTALL_PROMPT_FLAG_VALUE,
@@ -25,6 +26,7 @@ const originalUA = window.navigator.userAgent;
 
 beforeEach(() => {
   localStorage.clear();
+  _resetInstallPromptForTests();
 });
 
 // A failure between setUserAgent(IPHONE_SAFARI_UA) and the restore line used
@@ -54,6 +56,57 @@ describe('useInstallPrompt', () => {
     expect(result.current.state).toBe('native');
   });
 
+  it('observes an event dispatched during the layout phase before passive subscriptions run', () => {
+    markFinishedGame();
+    const event = new FakeBeforeInstallPromptEvent();
+    const DispatchEventDuringLayout = ({ children }: PropsWithChildren) => {
+      useLayoutEffect(() => { window.dispatchEvent(event); }, []);
+      return children;
+    };
+
+    const { result } = renderHook(() => useInstallPrompt(), { wrapper: DispatchEventDuringLayout });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(result.current.state).toBe('native');
+  });
+
+  it('keeps an event received while Home is unmounted for its next mount', () => {
+    markFinishedGame();
+    const first = renderHook(() => useInstallPrompt());
+    first.unmount();
+    const event = new FakeBeforeInstallPromptEvent();
+
+    act(() => { window.dispatchEvent(event); });
+
+    const second = renderHook(() => useInstallPrompt());
+    expect(event.defaultPrevented).toBe(true);
+    expect(second.result.current.state).toBe('native');
+  });
+
+  it('retains an event received on Home through the first game and prompts with it on return', async () => {
+    const home = renderHook(() => useInstallPrompt());
+    const event = new FakeBeforeInstallPromptEvent();
+
+    act(() => { window.dispatchEvent(event); });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(home.result.current.state).toBe('hidden');
+    expect(event.prompt).not.toHaveBeenCalled();
+
+    // Starting the first game unmounts Home. EndScreen later records the
+    // finished-game flag before the player returns; no new event is fired.
+    home.unmount();
+    markFinishedGame();
+    const returnedHome = renderHook(() => useInstallPrompt());
+
+    expect(returnedHome.result.current.state).toBe('native');
+    await act(async () => { await returnedHome.result.current.install(); });
+
+    expect(event.prompt).toHaveBeenCalledTimes(1);
+    expect(returnedHome.result.current.state).toBe('hidden');
+    expect(localStore.read(INSTALL_PROMPT_DISMISSED_KEY)).toBe(INSTALL_PROMPT_FLAG_VALUE);
+  });
+
   it('install() on an accepted outcome writes the dismissed flag and hides the card', async () => {
     markFinishedGame();
     const { result } = renderHook(() => useInstallPrompt());
@@ -77,6 +130,22 @@ describe('useInstallPrompt', () => {
 
     expect(localStore.read(INSTALL_PROMPT_DISMISSED_KEY)).toBeNull();
     expect(result.current.state).toBe('hidden');
+  });
+
+  it('calls a held browser prompt only once while its choice is pending', async () => {
+    markFinishedGame();
+    const { result } = renderHook(() => useInstallPrompt());
+    const event = new FakeBeforeInstallPromptEvent();
+    let resolveChoice!: (choice: { outcome: 'accepted' | 'dismissed' }) => void;
+    event.userChoice = new Promise(resolve => { resolveChoice = resolve; });
+    act(() => { window.dispatchEvent(event); });
+
+    const first = result.current.install();
+    const second = result.current.install();
+    expect(event.prompt).toHaveBeenCalledTimes(1);
+
+    resolveChoice({ outcome: 'dismissed' });
+    await act(async () => { await Promise.all([first, second]); });
   });
 
   it('install() is a no-op with no event held', async () => {
@@ -122,13 +191,4 @@ describe('useInstallPrompt', () => {
     expect(result.current.state).toBe('hidden');
   });
 
-  it('removes its beforeinstallprompt listener on unmount', () => {
-    const removeSpy = vi.spyOn(window, 'removeEventListener');
-
-    const { unmount } = renderHook(() => useInstallPrompt());
-    unmount();
-
-    expect(removeSpy).toHaveBeenCalledWith('beforeinstallprompt', expect.any(Function));
-    removeSpy.mockRestore();
-  });
 });
