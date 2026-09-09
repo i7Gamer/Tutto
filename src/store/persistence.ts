@@ -343,6 +343,15 @@ export const reanchorLocalClock = (state: {
 
 // Wires the localStorage persistence subscribers onto the composed store.
 // Called once at module init in useGameStore.ts.
+let localGameWritesPaused = false;
+
+/** Change the displayed lobby without replacing the user's resumable game. */
+export const withLocalGameWritesPaused = (change: () => void): void => {
+  const wasPaused = localGameWritesPaused;
+  localGameWritesPaused = true;
+  try { change(); } finally { localGameWritesPaused = wasPaused; }
+};
+
 export const attachPersistence = (store: Pick<StoreApi<GameStore>, 'subscribe'>): void => {
   // The 1s game timer mutates gameTimeInSeconds every tick; persisting the whole
   // snapshot on each tick would rewrite localStorage once per second for the entire
@@ -372,6 +381,9 @@ export const attachPersistence = (store: Pick<StoreApi<GameStore>, 'subscribe'>)
       STABLE_LOCAL_GAME_KEYS.some((key) => stable[key] !== lastLocalStable![key]);
     if (!changed) return;
     lastLocalStable = stable;
+    // Still advance change detection, so a subsequent toast/timer does not
+    // write the deliberately unpersisted empty lobby over the saved game.
+    if (localGameWritesPaused) return;
     // The latest gameTimeInSeconds still rides along whenever a real change is saved.
     const localStateToSave = {
       ...stable,

@@ -35,6 +35,7 @@ import CoachHintLine from './game/CoachHintLine';
 import TurnActionBar from './game/TurnActionBar';
 import { DIE_FACES, TOTAL_DICE } from '../utils/turnShapes';
 import type { CardType, Die as DieType, DiceSnapshot, Ruleset, TurnSummary } from '../types';
+import { prefersReducedMotion } from '../utils/reducedMotion';
 
 interface DiceGameProps {
   currentCard: CardType | null;
@@ -120,6 +121,9 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   } = machine;
   const [displayRoll, setDisplayRoll] = useState<DieType[]>(restored?.currentRoll ?? []);
   const [rollingDiceIndices, setRollingDiceIndices] = useState<Set<string>>(new Set());
+  // Timers and the shuffle interval can land in the same React batch. Keep an
+  // immediate copy so the interval never redraws a die a settle timer ended.
+  const rollingDiceIdsRef = useRef<Set<string>>(new Set());
   const [isRolling, setIsRolling] = useState(false);
 
   // The classic chain, held in a ref so summary/bust callbacks always read the
@@ -210,10 +214,12 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     setDisplayRoll(finalRolls.map(r => ({ ...r, val: rollDie() })));
 
     const initialRolling = new Set(finalRolls.map(r => r.id));
+    rollingDiceIdsRef.current = new Set(initialRolling);
     setRollingDiceIndices(initialRolling);
 
     finalRolls.forEach((r, idx) => {
       pendingTimers.current.push(setTimeout(() => {
+        rollingDiceIdsRef.current.delete(r.id);
         setRollingDiceIndices(prev => {
           const next = new Set(prev);
           next.delete(r.id);
@@ -285,10 +291,12 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     if (rollingDiceIndices.size === 0) return;
     const interval = setInterval(() => {
       setDisplayRoll(prev => prev.map(d => {
-        const isDieRolling = rollingDiceIndices.has(d.id);
-        const correctVal = currentRoll.find(cr => cr.id === d.id)?.val;
-        const isSettled = correctVal !== undefined && d.val === correctVal;
-        return isDieRolling && !isSettled ? { ...d, val: Math.floor(Math.random() * DIE_FACES) + 1 } : d;
+        const isDieRolling = rollingDiceIdsRef.current.has(d.id);
+        if (!isDieRolling) return d;
+        // A shuffle face matching its final value is still a shuffle face; only
+        // the scheduled settle path may stop this die from tumbling.
+        const nextVal = Math.floor(Math.random() * DIE_FACES) + 1;
+        return nextVal === d.val ? d : { ...d, val: nextVal };
       }));
     }, DIE_FACE_SHUFFLE_MS);
     return () => clearInterval(interval);
@@ -313,7 +321,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     if (isTutto) {
       newTurnScore = applyTuttoBonus(newTurnScore, currentCard);
       if (isClassic) chainRef.current.tuttoCount += 1;
-      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+      if (!prefersReducedMotion()) confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
       playSuccess();
       vibrateSuccess();
 

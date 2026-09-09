@@ -108,6 +108,12 @@ describe('LocalLobby', () => {
     expect(button).toHaveAttribute('aria-label', 'lobby.addPlayerButton');
   });
 
+  it('gives the new-player input an associated label as well as its placeholder', () => {
+    render(<LocalLobby />);
+
+    expect(screen.getByLabelText('lobby.newPlayerPlaceholder')).toHaveAttribute('id', 'local-player-name');
+  });
+
   it('disables StartGameButton when player count is less than 2', () => {
     useGameStore.setState({ players: [] });
     render(<LocalLobby />);

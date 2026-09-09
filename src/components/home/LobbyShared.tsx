@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useId } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useId } from 'react';
 import type { InputHTMLAttributes, KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, Play, ChevronUp, ChevronDown, Trash2, UserMinus, Crown, RotateCcw, AlertTriangle, Volume2 } from 'lucide-react';
@@ -53,7 +53,19 @@ export function PlayerList({
   // been computed from the same pre-swap roster, so applying both would just
   // replay the earlier, stale one — last press wins instead.
   const pendingReorderTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const reorderedFocus = useRef<HTMLButtonElement | null>(null);
   useEffect(() => () => clearTimeout(pendingReorderTimer.current), []);
+  useLayoutEffect(() => {
+    const button = reorderedFocus.current;
+    reorderedFocus.current = null;
+    if (!button?.isConnected || (document.activeElement !== button && document.activeElement !== document.body)) return;
+    // At an endpoint the pressed arrow becomes hidden and disabled. Keep the
+    // keyboard on the same player's remaining arrow after React moves the row.
+    const target = button.disabled
+      ? button.parentElement?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+      : button;
+    target?.focus();
+  }, [players]);
 
   // Kicking a connected player out of a live room is not reversible the way
   // reordering or a colour change is — the same reason End Game/Leave/Undo
@@ -66,7 +78,11 @@ export function PlayerList({
   const deferReorder = (newPlayers: Player[]) => {
     if (!reorderPlayers) return;
     clearTimeout(pendingReorderTimer.current);
-    pendingReorderTimer.current = setTimeout(() => reorderPlayers(newPlayers), REORDER_PRESS_RELEASE_MS);
+    const focused = document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
+    pendingReorderTimer.current = setTimeout(() => {
+      reorderedFocus.current = focused && document.activeElement === focused ? focused : null;
+      reorderPlayers(newPlayers);
+    }, REORDER_PRESS_RELEASE_MS);
   };
 
   const handleMoveUp = (index: number) => {
@@ -158,7 +174,7 @@ export function PlayerList({
                               padding grows. */}
                           <button
                             className={`text-gray-500 dark:text-gray-400 w-8 min-h-11 sm:h-8 -my-1.5 sm:my-0 flex items-center justify-center rounded-sm transition-colors ${idx === 0 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
-                            onClick={(e) => { e.currentTarget.blur(); if (idx > 0) handleMoveUp(idx); }}
+                            onClick={(e) => { if (e.detail !== 0) e.currentTarget.blur(); if (idx > 0) handleMoveUp(idx); }}
                             aria-label={`${t('lobby.movePlayerUp', 'Move up:')} ${p.name}`}
                             title={`${t('lobby.movePlayerUp', 'Move up:')} ${p.name}`}
                             aria-hidden={idx === 0}
@@ -168,7 +184,7 @@ export function PlayerList({
                           </button>
                           <button
                             className={`text-gray-500 dark:text-gray-400 w-8 min-h-11 sm:h-8 -my-1.5 sm:my-0 flex items-center justify-center rounded-sm transition-colors ${idx === players.length - 1 ? 'opacity-0' : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-slate-700 dark:active:bg-slate-600'}`}
-                            onClick={(e) => { e.currentTarget.blur(); if (idx < players.length - 1) handleMoveDown(idx); }}
+                            onClick={(e) => { if (e.detail !== 0) e.currentTarget.blur(); if (idx < players.length - 1) handleMoveDown(idx); }}
                             aria-label={`${t('lobby.movePlayerDown', 'Move down:')} ${p.name}`}
                             title={`${t('lobby.movePlayerDown', 'Move down:')} ${p.name}`}
                             aria-hidden={idx === players.length - 1}
@@ -563,7 +579,7 @@ export function CustomGameBadge() {
   return (
     <div className="flex items-center justify-center gap-2 text-sm text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 mb-2 sm:mb-4">
       <AlertTriangle size={16} className="shrink-0" />
-      <span>{t('lobby.customGameNoStats', 'Custom game — this game will not count toward the statistics')}</span>
+      <span>{t('lobby.customGameNoStats', 'Custom game — counted under Custom in your statistics, not toward your lifetime records')}</span>
     </div>
   );
 }

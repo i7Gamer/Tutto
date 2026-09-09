@@ -52,6 +52,11 @@ export interface UseDeviceStatsOptions<T> {
 export interface UseDeviceStatsResult<T> {
   stats: T | null;
   status: DeviceStatsStatus;
+  // The inputs the current render asks for, and the inputs that produced the
+  // currently stored outcome. Consumers that relabel a bucket can keep stale
+  // data hidden during the render before this hook's effect sets `loading`.
+  requestKey: string;
+  resultKey: string | null;
 }
 
 // The fetch/parse/cancel-on-unmount boilerplate that used to be written out
@@ -60,17 +65,19 @@ export interface UseDeviceStatsResult<T> {
 // the device-stats request, check the response, parse it as JSON, and only
 // apply the result if this effect run is still the current one.
 //
-// `stats` is not reset to null when a new fetch starts (only on an error, or
-// on a fresh success) — Statistics.tsx relies on the previous bucket's
-// numbers staying on screen while a newly selected bucket loads.
+// `stats` is not reset to null when a new fetch starts. `resultKey` identifies
+// the inputs that produced it, so consumers can hide stale values when their
+// labels change before this effect announces its loading state.
 export function useDeviceStats<T>(
   deviceId: string | null | undefined,
   mode: GameMode,
   options: UseDeviceStatsOptions<T> = {},
 ): UseDeviceStatsResult<T> {
   const { enabled = true, retry, refreshKey } = options;
+  const requestKey = JSON.stringify([deviceId ?? null, mode, enabled, refreshKey ?? null]);
   const [stats, setStats] = useState<T | null>(null);
   const [status, setStatus] = useState<DeviceStatsStatus>('idle');
+  const [resultKey, setResultKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!enabled || !deviceId) {
@@ -109,6 +116,7 @@ export function useDeviceStats<T>(
           return;
         }
         setStats(data);
+        setResultKey(requestKey);
         setStatus('ready');
       } catch (err) {
         if (cancelled || (err instanceof DOMException && err.name === 'AbortError')) return;
@@ -118,6 +126,7 @@ export function useDeviceStats<T>(
           return;
         }
         setStats(null);
+        setResultKey(requestKey);
         setStatus('error');
       }
     };
@@ -138,7 +147,7 @@ export function useDeviceStats<T>(
       inFlight?.abort();
       clearTimeout(timerId);
     };
-  }, [deviceId, mode, enabled, retry, refreshKey]);
+  }, [deviceId, mode, enabled, retry, refreshKey, requestKey]);
 
-  return { stats, status };
+  return { stats, status, requestKey, resultKey };
 }

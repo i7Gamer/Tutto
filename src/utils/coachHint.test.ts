@@ -24,6 +24,23 @@ const input = (overrides: Partial<CoachHintInput> = {}): CoachHintInput => ({
 });
 
 describe('coachHint', () => {
+  it('explains appetite-driven draws independently of keep-ranking repairs', () => {
+    const context = input({ ruleset: 'classic', keptCount: 5, rollVals: [1], turnScore: 1600,
+      canDraw: true, chainCardCount: 1,
+      standings: { myScore: 0, leaderScore: 2000, winningScore: 6000 } });
+    expect(coachHint(context)).toMatchObject({ action: 'draw', bank: 1900, trailing: true });
+    expect(coachHint({ ...context, standings: { ...context.standings, leaderScore: 0 } }))
+      .toMatchObject({ action: 'stop', trailing: false });
+    expect(coachHint({ ...context, turnScore: 0 })).toMatchObject({ action: 'draw', trailing: false });
+  });
+
+  it('describes a repaired stopping bank without excusing a gamble', () => {
+    expect(coachHint(input({ ruleset: 'classic', currentCard: '300', turnScore: 800,
+      rollVals: [6, 6, 5, 5, 6, 1], canDraw: true, chainCardCount: 1,
+      standings: { myScore: 0, leaderScore: 2000, winningScore: 6000 },
+    }))).toMatchObject({ action: 'stop', bank: 1900, trailing: false });
+  });
+
   // The review's blocker: DiceGame's own availability booleans are all false
   // on a freshly landed roll (every die lands unselected), so a hint built
   // from the PLAYER's selection would never show at the moment it is

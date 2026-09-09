@@ -67,6 +67,10 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     // Persist + report the crash BEFORE the auto-reload below wipes all traces.
     recordCrash(error, errorInfo.componentStack);
 
+    // Automatic cleanup would destroy the only available offline app shell.
+    // Keep the crash log and fallback; explicit recovery remains available.
+    if (navigator.onLine === false) return;
+
     const lastCrash = localStore.read('last_crash_time');
     const now = Date.now();
 
@@ -157,7 +161,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
           className="bg-[#f4f7f6] text-[#1a1a1a] dark:bg-slate-900 dark:text-slate-50"
           style={{ padding: '2rem', textAlign: 'center', fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}
         >
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem', color: '#dc2626' }}>{i18n.t('errorBoundary.title', 'Oops! Something went wrong.')}</h2>
+          <h2 className="text-red-700 dark:text-red-300" style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem' }}>{i18n.t('errorBoundary.title', 'Oops! Something went wrong.')}</h2>
           <p style={{ marginBottom: '2rem' }}>{i18n.t('errorBoundary.description', 'The application encountered an unexpected error and needs to reload.')}</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'center' }}>
             <button
@@ -168,7 +172,8 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
             </button>
             <button
               onClick={this.handleResetAppDataClick}
-              style={{ padding: '12px 24px', fontSize: '16px', cursor: 'pointer', background: 'transparent', color: '#dc2626', border: '1px solid #dc2626', borderRadius: '8px', fontWeight: 'bold' }}
+              className="text-red-700 dark:text-red-300 border border-current"
+              style={{ padding: '12px 24px', fontSize: '16px', cursor: 'pointer', background: 'transparent', borderRadius: '8px', fontWeight: 'bold' }}
             >
               {i18n.t('errorBoundary.resetAppData', 'Reset app data')}
             </button>

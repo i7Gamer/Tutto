@@ -786,7 +786,7 @@ describe('turnTimers', () => {
         liveTurnState: {
           turnScore: 3000,
           keptDice: [1, 2, 3, 4, 5, 6].map(v => ({ id: `d${v}`, val: v })),
-          currentRoll: [], kniffelProgress: [], tuttosThisTurn: 1, stopped: true,
+          currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0, stopped: true,
         },
       });
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
@@ -799,6 +799,45 @@ describe('turnTimers', () => {
       // A special card never counted the bust to begin with.
       expect(state.players[0].busts).toBe(0);
       expect(state.currentPlayerIndex).toBe(1);
+    });
+
+    it('awards a proven second classic Kleeblatt tutto exactly once on timeout', () => {
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', ruleset: 'classic', currentPlayerIndex: 0,
+        currentCard: 'Kleeblatt', cards: ['200'], round: 1, winningScore: 6000,
+        players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 0,
+          keptDice: [1, 2, 3, 4, 5, 6].map(v => ({ id: `d${v}`, val: v })),
+          currentRoll: [], kniffelProgress: [], tuttosThisTurn: 1,
+          stopped: true, cardsThisTurn: ['Kleeblatt'], chainTuttoCount: 2,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+      const state = rooms[roomId].state;
+      expect(state.finished).toBe(true);
+      expect(state.players[0].timesKleeblattCompleted).toBe(1);
+      expect(state.players[0].timesKleeblattFailed).toBe(0);
+    });
+
+    it('awards a committed modernized second Kleeblatt tutto on timeout', () => {
+      rooms[roomId] = createRoom('host-1');
+      Object.assign(rooms[roomId].state, {
+        status: 'playing', ruleset: 'modernized', currentPlayerIndex: 0,
+        currentCard: 'Kleeblatt', cards: ['200'], round: 1, winningScore: 6000,
+        players: [makePlayer('Alice'), makePlayer('Bob')],
+        liveTurnState: {
+          turnScore: 0,
+          keptDice: [1, 2, 3, 4, 5, 6].map(v => ({ id: `d${v}`, val: v })),
+          currentRoll: [], kniffelProgress: [], tuttosThisTurn: 1, stopped: true,
+        },
+      });
+      advanceTurnOnTimeout(makeFakeIo().io, roomId);
+      const state = rooms[roomId].state;
+      expect(state.finished).toBe(true);
+      expect(state.players[0].timesKleeblattCompleted).toBe(1);
+      expect(state.players[0].timesKleeblattFailed).toBe(0);
     });
 
     it('backstop: swallows an exception from a corrupted room state instead of crashing the process', () => {

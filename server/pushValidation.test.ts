@@ -1444,7 +1444,7 @@ describe('applyPushedState', () => {
     // in every real push. Deleting the branch ships green and every remote
     // client silently falls back to the score comparison the source itself
     // flags as wrong.
-    it('previousWasSuccess: boolean only', () => {
+    it('previousWasSuccess: boolean or explicit null reset', () => {
       const state = makeState();
       applyPushedState(state, { previousWasSuccess: true }, asActivePlayer);
       expect(state.previousWasSuccess).toBe(true);
@@ -1452,6 +1452,8 @@ describe('applyPushedState', () => {
       expect(state.previousWasSuccess).toBe(true);
       applyPushedState(state, { previousWasSuccess: false }, asActivePlayer);
       expect(state.previousWasSuccess).toBe(false);
+      applyPushedState(state, { previousWasSuccess: null }, asActivePlayer);
+      expect(state.previousWasSuccess).toBeUndefined();
     });
 
     it('previousWasBust: boolean only', () => {
@@ -1604,6 +1606,17 @@ describe('applyPushedState', () => {
       applyPushedState(state, { liveTurnState: { ...snapshot, keptDice: Array(7).fill({}) } }, asActivePlayer);
       expect(state.liveTurnState).toEqual(snapshot);
       applyPushedState(state, { liveTurnState: null }, asActivePlayer);
+      expect(state.liveTurnState).toBeNull();
+    });
+
+    it('liveTurnState: a non-active host may clear but not replace the active turn snapshot', () => {
+      const state = makeState();
+      state.currentPlayerIndex = 0;
+      const snapshot = { turnScore: 100, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0 };
+      applyPushedState(state, { liveTurnState: snapshot }, asHost);
+      expect(state.liveTurnState).toBeNull();
+      state.liveTurnState = snapshot;
+      applyPushedState(state, { liveTurnState: null }, asHost);
       expect(state.liveTurnState).toBeNull();
     });
 
@@ -1977,6 +1990,23 @@ describe('classic chain fields (snapshot / history / turn summary)', () => {
     const clean = sanitizeTurnSummary(withExtra as never);
     expect(clean).toEqual({ ...validSummary, deductedPlayers: ['Bob', 'Bob'] });
     expect('junk' in clean).toBe(false);
+  });
+
+  it('accepts start-roster deductions and rejects unknown names', () => {
+    const state = makeState(['Alice']);
+    const base = { ...validSummary, deductedAmounts: [400] };
+    applyPushedState(state, { previousTurnSummary: { ...base, deductedPlayers: ['Departed'] } }, {
+      ...asActivePlayer, allowedPlayerNames: ['Alice', 'Departed'],
+    });
+    expect(state.previousTurnSummary?.deductedPlayers).toEqual(['Departed']);
+    applyPushedState(state, { previousTurnSummary: { ...base, deductedPlayers: ['Mallory'] } }, {
+      ...asActivePlayer, allowedPlayerNames: ['Alice', 'Departed'],
+    });
+    expect(state.previousTurnSummary?.deductedPlayers).toEqual(['Departed']);
+    applyPushedState(state, {
+      previousTurnSummary: { ...base, deductedPlayers: ['Alice', 'Alice'], deductedAmounts: [400, 400] },
+    }, asActivePlayer);
+    expect(state.previousTurnSummary?.deductedPlayers).toEqual(['Alice', 'Alice']);
   });
 
   // The shape checks are shared with the two local caches (src/utils/turnShapes.ts);

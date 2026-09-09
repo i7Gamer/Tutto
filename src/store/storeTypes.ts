@@ -161,7 +161,7 @@ export interface GameStore extends CoreGameState {
   clearPendingReconnect: () => void;
   cancelReconnect: (roomId?: string | null, name?: string | null) => void;
   init: (deviceId: string) => void;
-  setMode: (mode: GameMode) => void;
+  setMode: (mode: GameMode, options?: { resume?: boolean }) => void;
   addToast: (message: string) => void;
   removeToast: (id: number) => void;
   sendReaction: (emoji: string) => void;

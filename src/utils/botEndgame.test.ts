@@ -36,6 +36,23 @@ describe('endgame settlement and bounded reachability', () => {
     expect(canReachNonLosingRoll(turn({ currentCard: 'Kniffel' }), 0, 1)).toBe(true);
   });
 
+  it.each([
+    { card: '200' as const, bank: 1000, best: 1300 },
+    { card: 'x2' as const, bank: 550, best: 1300 },
+  ])('includes the $card tutto bonus at the losing/tied/winning boundary', ({ card, bank, best }) => {
+    const myScore = 4900;
+    const oneDie = 1;
+    const scoreStep = 50;
+    for (const ruleset of ['classic', 'modernized'] as const) {
+      for (const margin of [-scoreStep, 0, scoreStep]) {
+        const input = turn({ currentCard: card, ruleset, myScore, canDraw: false,
+          endgame: { opponentScores: [myScore + best + margin] } });
+        expect(canReachNonLosingRoll(input, bank, oneDie)).toBe(margin <= 0);
+        expect(canReachNonLosingRoll({ ...input, currentCard: null }, bank, oneDie)).toBe(false);
+      }
+    }
+  });
+
   it('handles special cards and constrained classic draws within one card', () => {
     const classic = turn({ ruleset: 'classic', deck: { Kniffel: 1 }, canDraw: true });
     expect(canReachNonLosingDraw(classic, 0)).toBe(true);

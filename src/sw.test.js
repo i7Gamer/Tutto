@@ -83,9 +83,9 @@ let listeners;
 let cacheStorage;
 let fetchMock;
 
-const loadSw = async ({ manifest = DEFAULT_MANIFEST } = {}) => {
+const loadSw = async ({ manifest = DEFAULT_MANIFEST, storage = makeCacheStorage() } = {}) => {
   listeners = {};
-  cacheStorage = makeCacheStorage();
+  cacheStorage = storage;
   vi.stubGlobal('self', {
     __WB_MANIFEST: manifest,
     location: { href: `${ORIGIN}/index.html`, origin: ORIGIN },
@@ -138,6 +138,58 @@ afterEach(() => {
 });
 
 describe('service worker install', () => {
+  it('keeps generation A usable offline after failed B install, then activates coherent B', async () => {
+    await loadSw();
+    const generationA = await runInstall();
+    const storage = cacheStorage;
+    const listenersA = listeners;
+    const assetB = `${ORIGIN}/assets/index-bbb222.js`;
+    const manifestB = [{ url: 'index.html', revision: 'b' }, { url: assetB, revision: null }];
+    fetchMock.mockImplementation(async (url) => url === SHELL
+      ? makeResponse('shell unavailable', { ok: false }) : makeResponse('asset B'));
+    await loadSw({ manifest: manifestB, storage });
+    await expect(runInstall()).rejects.toThrow('app shell');
+    listeners = listenersA;
+    fetchMock.mockRejectedValue(new Error('offline'));
+    expect((await runFetch(makeRequest(`${ORIGIN}/`, { mode: 'navigate' }))).response.body).toBe(`network:${SHELL}`);
+    const assetA = `${ORIGIN}/assets/index-aaa111.js`;
+    expect((await runFetch(makeRequest(assetA))).response.body).toBe(`network:${assetA}`);
+    expect(storage.stores.has(generationA)).toBe(true);
+
+    fetchMock.mockImplementation(async (url) => makeResponse(url === SHELL ? 'shell B' : 'asset B'));
+    await loadSw({ manifest: manifestB, storage });
+    await runInstall();
+    await runActivate();
+    fetchMock.mockRejectedValue(new Error('offline'));
+    expect((await runFetch(makeRequest(`${ORIGIN}/`, { mode: 'navigate' }))).response.body).toBe('shell B');
+    expect((await runFetch(makeRequest(assetB))).response.body).toBe('asset B');
+  });
+
+  it.each(['network', 'http', 'storage'])('rejects an install without its own shell (%s), preserving the old generation', async (failure) => {
+    await loadSw();
+    const previousName = 'tutto-precache-previous';
+    cacheStorage.stores.set(previousName, new Map([[SHELL, makeResponse('old installed shell')]]));
+    if (failure === 'storage') {
+      const realOpen = cacheStorage.open.bind(cacheStorage);
+      vi.spyOn(cacheStorage, 'open').mockImplementation(async (name) => {
+        const cache = await realOpen(name);
+        return { ...cache, put: async (url, response) => {
+          if (url === SHELL) throw new Error('quota');
+          return cache.put(url, response);
+        } };
+      });
+    } else {
+      fetchMock.mockImplementation(async (url) => {
+        if (url !== SHELL) return makeResponse(`network:${url}`);
+        if (failure === 'network') throw new Error('offline');
+        return makeResponse('unavailable', { ok: false });
+      });
+    }
+    await expect(runInstall()).rejects.toThrow('app shell');
+    expect(await cacheStorage.keys()).toEqual([previousName]);
+    expect(cacheStorage.stores.get(previousName).get(SHELL).body).toBe('old installed shell');
+  });
+
   it('precaches every manifest entry, resolved against the worker scope', async () => {
     await loadSw();
     const cacheName = await runInstall();
@@ -674,7 +726,7 @@ describe('service worker fetch', () => {
     expect(handled).toBe(false);
   });
 
-  it('tries the network first for a navigation and refreshes the cached shell', async () => {
+  it('serves new network HTML without replacing the installed generation offline', async () => {
     await loadSw();
     const cacheName = await runInstall();
     fetchMock.mockResolvedValueOnce(makeResponse('fresh shell'));
@@ -685,8 +737,13 @@ describe('service worker fetch', () => {
 
     expect(handled).toBe(true);
     expect(response.body).toBe('fresh shell');
-    // Stored under the shell URL regardless of the query it was asked for.
-    expect(cacheStorage.stores.get(cacheName).get(SHELL).body).toBe('fresh shell');
+    const installedShell = 'network:https://tutto.example/index.html';
+    expect(cacheStorage.stores.get(cacheName).get(SHELL).body).toBe(installedShell);
+    fetchMock.mockRejectedValue(new Error('offline before next worker installed'));
+    const offline = await runFetch(makeRequest(`${ORIGIN}/?room=ABC`, { mode: 'navigate' }));
+    expect(offline.response.body).toBe(installedShell);
+    const installedAsset = `${ORIGIN}/assets/index-aaa111.js`;
+    expect((await runFetch(makeRequest(installedAsset))).response.body).toBe(`network:${installedAsset}`);
   });
 
   it('does not overwrite the app shell with a same-origin response that is not a document', async () => {

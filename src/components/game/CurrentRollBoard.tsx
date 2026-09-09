@@ -66,7 +66,7 @@ export default function CurrentRollBoard({
         // Losing the turn is the most consequential thing that happens on this
         // board, and it was conveyed by colour alone.
         <motion.div role="alert" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="text-center text-red-500 text-2xl font-black mt-6 bg-red-50 py-3 rounded-xl border border-red-100">
-          {t('dice.bust_description', 'Bust! (Volltreffer/Niete)')}
+          {t('dice.bust_description', 'Bust!')}
         </motion.div>
       )}
       {!bustState && (

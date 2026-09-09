@@ -9,14 +9,15 @@ import type { CoachHint } from '../../utils/coachHint';
 // behind Otto's advice are observable, so this file replaces it with a spy
 // that still returns the bare key (every screen.getByText below keeps
 // working) but also records what it was called with.
-const { translate } = vi.hoisted(() => ({
+const { translate, language } = vi.hoisted(() => ({
   translate: vi.fn<(key: string, fallback?: string, opts?: Record<string, unknown>) => string>(key => key),
+  language: { current: 'en' },
 }));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: translate,
-    i18n: { changeLanguage: () => Promise.resolve() },
+    i18n: { language: language.current, changeLanguage: () => Promise.resolve() },
   }),
   initReactI18next: { type: '3rdParty', init: () => {} },
 }));
@@ -25,7 +26,10 @@ describe('CoachHintLine', () => {
   // The spy is hoisted once for the whole file, so without this every
   // negative assertion below ("never interpolated a bank") would be reading
   // the calls of the tests before it as well as its own.
-  beforeEach(() => translate.mockClear());
+  beforeEach(() => {
+    translate.mockClear();
+    language.current = 'en';
+  });
 
   const baseHint: CoachHint = {
     action: 'roll',
@@ -52,7 +56,7 @@ describe('CoachHintLine', () => {
     expect(translate).toHaveBeenCalledWith(
       'coach.roll',
       expect.any(String),
-      expect.objectContaining({ keep: '1, 5', dice: 4, bust: 20, rollValue: 217, threshold: 300 }),
+      expect.objectContaining({ keep: '1, 5', dice: 4, bust: 20, rollValue: '217', bank: '150' }),
     );
   });
 
@@ -63,7 +67,7 @@ describe('CoachHintLine', () => {
     expect(translate).toHaveBeenCalledWith(
       'coach.stop',
       expect.any(String),
-      expect.objectContaining({ keep: '1, 5', bank: 150, bust: 20, dice: 4 }),
+      expect.objectContaining({ keep: '1, 5', bank: '150', bust: 20, dice: 4 }),
     );
   });
 
@@ -80,7 +84,7 @@ describe('CoachHintLine', () => {
     expect(translate).toHaveBeenCalledWith(
       'coach.stopNoRoll',
       expect.any(String),
-      expect.objectContaining({ keep: '1, 5', bank: 150 }),
+      expect.objectContaining({ keep: '1, 5', bank: '150' }),
     );
     expect(screen.queryByText('coach.stop')).toBeNull();
   });
@@ -104,7 +108,7 @@ describe('CoachHintLine', () => {
   // Both figures are rounded for display, so a near-tie prints as the same
   // number twice ("worth 217 against 217") and reads like a coin flip.
   it('says rolling is worth about the same when the two figures round together', () => {
-    render(<CoachHintLine hint={{ ...baseHint, rollValue: 217.4, threshold: 217.2 }} />);
+    render(<CoachHintLine hint={{ ...baseHint, rollValue: 217.4, bank: 217.2, threshold: 100 }} />);
 
     expect(screen.getByText('coach.rollTie')).toBeInTheDocument();
     expect(screen.queryByText('coach.roll')).toBeNull();
@@ -117,8 +121,31 @@ describe('CoachHintLine', () => {
     expect(translate).toHaveBeenCalledWith(
       'coach.roll',
       expect.any(String),
-      expect.objectContaining({ rollValue: 217, threshold: 300 }),
+      expect.objectContaining({ rollValue: '217', bank: '150' }),
     );
+  });
+
+  it('does not call a discounted threshold tie a banking tie', () => {
+    render(<CoachHintLine hint={{ ...baseHint, bank: 400, rollValue: 225, threshold: 225 }} />);
+    expect(screen.queryByText('coach.rollTie')).toBeNull();
+    expect(translate).toHaveBeenCalledWith('coach.roll', expect.any(String),
+      expect.objectContaining({ rollValue: '225', bank: '400' }));
+  });
+
+  it.each([
+    { lang: 'en', bank: '1,900', rollValue: '1,542' },
+    { lang: 'de', bank: '1.900', rollValue: '1.542' },
+  ])('formats point amounts in the selected $lang language', ({ lang, bank, rollValue }) => {
+    language.current = lang;
+    const hint = { ...baseHint, bank: 1900, rollValue: 1541.53 };
+    const { rerender } = render(<CoachHintLine hint={hint} />);
+    expect(translate).toHaveBeenLastCalledWith('coach.roll', expect.any(String),
+      expect.objectContaining({ bank, rollValue }));
+    for (const action of ['draw', 'stop'] as const) {
+      rerender(<CoachHintLine hint={{ ...hint, action }} />);
+      expect(translate).toHaveBeenLastCalledWith(`coach.${action}`, expect.any(String),
+        expect.objectContaining({ bank }));
+    }
   });
 
   // A Kleeblatt's Stop button rolls the second tutto, then wins the game —
@@ -152,7 +179,7 @@ describe('CoachHintLine', () => {
     render(<CoachHintLine hint={{ ...baseHint, action: 'draw', bank: 450 }} />);
 
     expect(screen.getByText('coach.draw')).toBeInTheDocument();
-    expect(translate).toHaveBeenCalledWith('coach.draw', expect.any(String), expect.objectContaining({ bank: 450 }));
+    expect(translate).toHaveBeenCalledWith('coach.draw', expect.any(String), expect.objectContaining({ bank: '450' }));
   });
 
   it('explains a bank that immediately wins without a points comparison', () => {
@@ -163,7 +190,7 @@ describe('CoachHintLine', () => {
     expect(translate).toHaveBeenCalledWith(
       'coach.bankWin',
       expect.any(String),
-      expect.objectContaining({ keep: '1, 5', bank: 150 }),
+      expect.objectContaining({ keep: '1, 5', bank: '150' }),
     );
   });
 

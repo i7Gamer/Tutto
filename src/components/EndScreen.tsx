@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useTranslation } from 'react-i18next';
 import { Line } from 'react-chartjs-2';
 import confetti from 'canvas-confetti';
+import { prefersReducedMotion } from '../utils/reducedMotion';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -15,7 +16,7 @@ import {
 } from 'chart.js';
 import { Trophy, RotateCcw, Settings, Award, Zap, TrendingDown, Layers, Skull, BarChart2 } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
-import { formatInt, formatFixed, AVG_DECIMALS } from '../utils/formatNumber';
+import { formatInt, formatFixed, AVG_DECIMALS, localeTagFor } from '../utils/formatNumber';
 import { gameModeOf, isCustomGameMode } from '../utils/statsApi';
 import { localStore } from '../utils/storage';
 import { HAS_FINISHED_GAME_KEY, INSTALL_PROMPT_FLAG_VALUE } from '../utils/installPrompt';
@@ -187,7 +188,7 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
   // see App.tsx's finished/status-gated rendering), so this can't double-fire
   // from the playerSnapshot/deviceStats effects re-rendering above.
   useEffect(() => {
-    confetti({ particleCount: 150, spread: 100, origin: { y: 0.4 } });
+    if (!prefersReducedMotion()) confetti({ particleCount: 150, spread: 100, origin: { y: 0.4 } });
   }, []);
 
   // Marks this device as having reached an end screen at least once — the
@@ -228,6 +229,7 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
   }), [chartSnapshot, playerSnapshot]);
 
   const chartOptions = useMemo(() => ({
+    locale: localeTagFor(i18n.language),
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
@@ -238,7 +240,7 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
       y: { ticks: { color: textColor }, grid: { color: gridColor } },
       x: { ticks: { color: textColor }, grid: { color: gridColor } },
     },
-  }), [textColor, gridColor, t]);
+  }), [textColor, gridColor, t, i18n.language]);
 
   if (!winner) return null;
 
@@ -257,11 +259,11 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
 
         <div className="flex flex-wrap justify-center gap-6 mb-10">
           <div className="bg-black/5 dark:bg-white/5 border border-gray-200 dark:border-slate-600 rounded-2xl p-6 min-w-[180px] shadow-xs">
-            <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('end.playedRounds', 'Played Rounds')}</div>
+            <div className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">{t('end.playedRounds', 'Played Rounds')}</div>
             <div className="text-4xl font-black accent-number">{formatInt(round, i18n.language)}</div>
           </div>
           <div className="bg-black/5 dark:bg-white/5 border border-gray-200 dark:border-slate-600 rounded-2xl p-6 min-w-[180px] shadow-xs">
-            <div className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('end.playtime', 'Playtime')}</div>
+            <div className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">{t('end.playtime', 'Playtime')}</div>
             <div className="text-4xl font-black accent-number">{formattedTime}</div>
           </div>
         </div>
@@ -387,7 +389,7 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
           {/* The numbers below are the custom bucket's, not the player's
               record — saying so is what keeps them from being read as one. */}
           {isCustomGame && (
-            <p className="text-sm text-center text-gray-500 dark:text-gray-400 mb-6 sm:mb-8">
+            <p className="text-sm text-center text-gray-700 dark:text-gray-300 mb-6 sm:mb-8">
               {t('end.customGameNotice', 'Custom game — counted under Custom in your statistics, not toward your normal record.')}
             </p>
           )}
@@ -454,7 +456,7 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
                 { label: t('end.avgPtsPerRound', 'Avg Pts / Round'), render: (p: Player) => <span className="font-bold text-emerald-600 dark:text-emerald-400">{formatInt(Math.round(p.score / Math.max(1, round)), i18n.language)}</span> },
                 { label: t('end.pointsEatenStat', 'Hit by −1000'), render: (p: Player) => formatInt(p.times1000PointsDeducted, i18n.language) },
                 { label: t('end.plusMinusStat', 'Plus/Minus (Success/Fail)'), render: (p: Player) => <span><span className="text-emerald-600 dark:text-emerald-400">{formatInt(p.timesPlusMinusCompleted, i18n.language)}</span> / <span className="text-red-600 dark:text-red-400">{formatInt(p.timesPlusMinusFailed, i18n.language)}</span></span> },
-                { label: t('end.kniffelStat', 'Kniffel (Success/Fail)'), render: (p: Player) => <span><span className="text-emerald-500">{formatInt(p.timesKniffelCompleted, i18n.language)}</span> / <span className="text-red-500">{formatInt(p.timesKniffelFailed, i18n.language)}</span></span> },
+                { label: t('end.kniffelStat', 'Kniffel (Success/Fail)'), render: (p: Player) => <span><span className="text-emerald-700 dark:text-emerald-400">{formatInt(p.timesKniffelCompleted, i18n.language)}</span> / <span className="text-red-700 dark:text-red-400">{formatInt(p.timesKniffelFailed, i18n.language)}</span></span> },
                 { label: t('end.skipped', 'Skipped'), render: (p: Player) => formatInt(p.timesSkipped, i18n.language) },
                 // Classic never attributes points to the Feuerwerk card (the
                 // engine's summary path skips it, same as the Statistics
@@ -462,7 +464,7 @@ export default function EndScreen({ theme, deviceId, onShowStats }: EndScreenPro
                 // invented "0 points".
                 game.ruleset === 'classic'
                   ? { label: t('end.feuerwerkReceivedStat', 'Feuerwerk (Received)'), render: (p: Player) => formatInt(p.timesFeuerwerkReceived ?? 0, i18n.language) }
-                  : { label: t('end.feuerwerkStat', 'Feuerwerk (Received/Pts)'), render: (p: Player) => <span>{formatInt(p.timesFeuerwerkReceived, i18n.language)} / <span className="text-amber-500 font-bold">{formatInt(p.feuerwerkPointsScored || 0, i18n.language)}</span></span> },
+                  : { label: t('end.feuerwerkStat', 'Feuerwerk (Received/Pts)'), render: (p: Player) => <span>{formatInt(p.timesFeuerwerkReceived, i18n.language)} / <span className="text-amber-800 dark:text-amber-400 font-bold">{formatInt(p.feuerwerkPointsScored || 0, i18n.language)}</span></span> },
               ].map(({ label, render }) => (
                 <div key={label} className="flex border-b border-gray-100 dark:border-slate-700/50 last:border-0 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                   <div className="p-4 w-56 shrink-0 font-medium text-gray-600 dark:text-gray-300">{label}</div>

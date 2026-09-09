@@ -34,6 +34,15 @@ export default function DrawnCardReveal({ card, chainCardCount, turnScore, onCon
   const continueRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { continueRef.current?.focus(); }, []);
 
+  const continueWithinDialog = () => {
+    // Continue removes this focused button. Hand focus to its stable owning
+    // panel before the swap, so the next roll's keyboard trap remains active.
+    // A confirmation owning focus must keep it, even if this callback fires.
+    const dialog = continueRef.current?.closest<HTMLElement>('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]');
+    if (dialog && document.activeElement === continueRef.current) dialog.focus();
+    onContinue();
+  };
+
   // The card turns over as this mounts (the spring below); the sound goes
   // with the motion, once — a re-render on a changed total is not a new card.
   useEffect(() => { void playCardSwoosh(); }, []);
@@ -71,7 +80,7 @@ export default function DrawnCardReveal({ card, chainCardCount, turnScore, onCon
         ref={continueRef}
         data-testid="drawn-card-continue"
         className="bg-indigo-600 hover:bg-indigo-700 text-white w-full max-w-sm py-3 rounded-xl text-lg font-bold flex justify-center items-center gap-2 shadow-lg shadow-indigo-500/30 transition-all"
-        onClick={onContinue}
+        onClick={continueWithinDialog}
       >
         {t('dice.drawn_card_continue', 'Continue')} <ChevronRight size={22} />
       </button>

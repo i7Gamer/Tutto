@@ -47,7 +47,7 @@ describe('statistics submission game identity', () => {
       status: 'playing', finished: true, currentPlayerIndex: null,
       players: [makePlayer('Alice', hostSocket, deviceId)],
     });
-    room.finishedGame = { winners: ['Alice'], playerCount: 1 };
+    room.finishedGame = { winners: ['Alice'], playerCount: 1, round: room.state.round };
     const fake = makeFakeSocket(hostSocket);
     handlers = fake.handlers;
     registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Alice' } });
@@ -90,6 +90,28 @@ describe('statistics submission game identity', () => {
     const ack = vi.fn();
     await handlers[event](payload, ack);
     expect(ack).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it('overrides client-supplied round totals and records with the frozen finish round', async () => {
+    rooms[roomId].finishedGame = { winners: ['Alice'], playerCount: 1, round: 7 };
+    await handlers.submitGlobalStats({
+      roomId, payload: { totalRoundsSum: 100_000, longestGameRounds: 100_000 },
+      finishedGameToken: firstFinishToken,
+    }, vi.fn());
+    expect(updateGlobalStats).toHaveBeenCalledWith(expect.objectContaining({
+      totalRoundsSum: 7, longestGameRounds: 7,
+    }), expect.anything());
+  });
+
+  it('overrides device round values with the frozen finish round', async () => {
+    rooms[roomId].finishedGame = { winners: ['Alice'], playerCount: 1, round: 7 };
+    await handlers.endGameStats({
+      roomId, deviceId, stats: { totalRoundsSum: 100_000, longestGameRounds: 100_000 },
+      finishedGameToken: firstFinishToken,
+    }, vi.fn());
+    expect(updateDeviceStats).toHaveBeenCalledWith(deviceId, expect.objectContaining({
+      totalRoundsSum: 7, longestGameRounds: 7,
+    }), expect.anything());
   });
 
   it.each(submissionCases)('$event refuses a token when the room has no frozen finish', async ({ event, payload }) => {

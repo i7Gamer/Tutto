@@ -143,9 +143,8 @@ self.addEventListener('install', event => {
         .map(name => caches.open(name)),
     );
 
-    // Individually rather than addAll, which rejects the whole install if any
-    // single request fails — one missing asset should not cost offline support
-    // entirely.
+    // Optional assets may be repaired by the runtime path. The app shell is
+    // mandatory: navigation cannot safely repair it from a different build.
     await Promise.all(PRECACHE_URLS.map(async url => {
       // Only a hashed asset (revision: null) is safe to copy forward: its URL
       // encodes its content, so a same-URL hit in a previous generation is
@@ -174,6 +173,10 @@ self.addEventListener('install', event => {
         // Leave it out; the runtime handler below still falls back to network.
       }
     }));
+    if (PRECACHED.has(SHELL_URL) && !(await cache.match(SHELL_URL))) {
+      await caches.delete(PRECACHE);
+      throw new Error('Cannot install without the app shell');
+    }
   })());
 });
 
@@ -257,49 +260,19 @@ const OPAQUE_REDIRECT_TYPE = 'opaqueredirect';
 const isOpaqueRedirect = response => response.type === OPAQUE_REDIRECT_TYPE;
 
 /**
- * Whether a response is a document, and so a candidate for the app shell.
- *
- * Every mode 'navigate' request lands in handleNavigation — the origin and
- * asset filtering in the fetch handler sits BELOW that branch and never sees
- * one. So the shell used to be whatever a navigation last returned: opening
- * /api/health (the endpoint the README documents), /manifest.webmanifest,
- * /favicon.svg or a direct /assets/... URL in the browser that has Tutto
- * installed replaced the cached shell with that, and the next offline start —
- * or the 502-during-restart fallback this whole function exists for — rendered
- * it instead of the app.
- */
-const isDocument = response =>
-  (response.headers?.get('content-type') ?? '').toLowerCase().includes('text/html');
-
-/**
  * Network first, so a new deploy reaches a client on its next launch instead of
  * being shadowed by a stale shell. The cached copy is what makes an offline
  * start — including one from an invite link — possible at all.
  *
- * Every navigation stores under the same SHELL_URL regardless of its query, so
- * `/?room=ABC` is served by the shell cached for `/`.
+ * Offline navigations share the installed SHELL_URL regardless of query.
+ * Network HTML belongs to a potentially newer build. Never overwrite this
+ * worker's shell with it before the matching asset generation is installed.
  */
-const handleNavigation = async (event, request) => {
+const handleNavigation = async (request) => {
   let response;
   try {
     response = await fetchWithTimeout(request, NAVIGATION_NETWORK_TIMEOUT_MS);
     if (response && response.ok) {
-      // Through waitUntil and swallowing its own failure, for the same reason
-      // the asset branch below does it: awaiting the put here means a
-      // rejecting write — QuotaExceededError on a device out of storage —
-      // leaves the try, and the fallback then serves the CACHED shell over the
-      // fresher one already in hand. A full phone would sit on an old build
-      // every start while perfectly online, and never self-heal, because the
-      // next generation's cache is created empty and the old shell keeps
-      // matching. waitUntil still keeps the worker alive until the write lands.
-      if (isDocument(response)) {
-        const copy = response.clone();
-        event.waitUntil(
-          caches.open(PRECACHE)
-            .then(cache => cache.put(SHELL_URL, copy))
-            .catch(() => {}),
-        );
-      }
       return response;
     }
     // Not ok, but not ours to second-guess: a redirect the browser has to
@@ -325,7 +298,7 @@ self.addEventListener('fetch', event => {
   if (request.method !== 'GET') return;
 
   if (request.mode === 'navigate') {
-    event.respondWith(handleNavigation(event, request));
+    event.respondWith(handleNavigation(request));
     return;
   }
 

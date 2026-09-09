@@ -30,6 +30,7 @@ describe('ErrorBoundary', () => {
   // stubbed fetch into whichever test runs next and turning one red test into
   // a confusing cascade.
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     restoreStorage();
 
@@ -42,6 +43,19 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>
     );
     expect(screen.getByText('All good here')).toBeInTheDocument();
+  });
+
+  it('keeps the offline app shell and crash record on a first crash', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    const deleteCache = vi.fn();
+    vi.stubGlobal('caches', { keys: vi.fn().mockResolvedValue(['offline-shell']), delete: deleteCache });
+    render(<ErrorBoundary><ProblemChild /></ErrorBoundary>);
+    await act(async () => { await Promise.resolve(); });
+    expect(clearTurnCaches).not.toHaveBeenCalled();
+    expect(deleteCache).not.toHaveBeenCalled();
+    expect(localStorage.getItem('tutto_crash_log')).toContain('I crashed!');
+    expect(localStorage.getItem('last_crash_time')).toBeNull();
+    expect(screen.getByText('Oops! Something went wrong.')).toBeInTheDocument();
   });
 
   it('catches error and displays fallback UI', () => {

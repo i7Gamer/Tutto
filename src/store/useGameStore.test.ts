@@ -84,6 +84,29 @@ const makeSnapshot = (overrides: Partial<DiceSnapshot> = {}): DiceSnapshot => ({
 });
 
 describe('useGameStore', () => {
+  it.each([false, true])('enters local Home without resuming or overwriting a saved game (finished=%s)', (finished) => {
+    useGameStore.setState({ ...seatedInRoom, status: 'playing', currentPlayerIndex: 0 });
+    const saved = JSON.stringify({ players: [makeFullPlayer({ name: 'Saved' })], finished, status: 'playing', currentPlayerIndex: 0 });
+    localStorage.setItem('tutto_local_game', saved);
+    useGameStore.getState().setMode('local', { resume: false });
+    expect(useGameStore.getState()).toMatchObject({ mode: 'local', status: 'lobby', currentPlayerIndex: null, finished: false, players: [] });
+    useGameStore.getState().addToast('Returned home');
+    expect(localStorage.getItem('tutto_local_game')).toBe(saved);
+    useGameStore.getState().setMode('local');
+    expect(useGameStore.getState().players[0].name).toBe('Saved');
+    expect(useGameStore.getState().finished).toBe(finished);
+  });
+
+  it.each(['kicked', 'seatTakenOver'])('does not resurrect a saved finished local game on %s', (event) => {
+    useGameStore.setState(seatedInRoom);
+    useGameStore.getState().connectSocket();
+    const saved = JSON.stringify({ players: [makeFullPlayer({ name: 'Saved' })], finished: true, currentPlayerIndex: 0, status: 'playing' });
+    localStorage.setItem('tutto_local_game', saved);
+    mockOnHandlers[event]();
+    expect(useGameStore.getState()).toMatchObject({ mode: 'local', status: 'lobby', finished: false, currentPlayerIndex: null });
+    expect(localStorage.getItem('tutto_local_game')).toBe(saved);
+  });
+
   beforeEach(() => {
     // Reset state before each test
     useGameStore.getState().reset();
@@ -2195,7 +2218,7 @@ describe('useGameStore', () => {
       const pushes = () => mockEmit.mock.calls.filter(([event]) => event === 'pushState');
 
       const ackRejoin = (res: { success: boolean; isHost?: boolean; name?: string; code?: string; error?: string }) => {
-        const join = nonNull(mockEmit.mock.calls.find(([event]) => event === 'joinRoom'));
+        const join = nonNull(mockEmit.mock.calls.findLast(([event]) => event === 'joinRoom'));
         expect(join, 'the reconnect must have attempted a rejoin').toBeTruthy();
         join[2](res);
       };

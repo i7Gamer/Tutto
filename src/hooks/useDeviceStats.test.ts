@@ -162,7 +162,12 @@ describe('useDeviceStats', () => {
     expect(result.current.stats).toEqual({ gamesPlayed: 3, wins: 1 });
 
     rerender({ deviceId: 'device-1', mode: 'custom' });
+    // Effects have not started the custom request yet. The old normalized
+    // outcome is still retained, but consumers can identify it as stale in
+    // this render instead of relabelling it as Custom.
+    expect(result.current.requestKey).not.toBe(result.current.resultKey);
     await waitFor(() => expect(result.current.stats).toEqual({ gamesPlayed: 9, wins: 1 }));
+    expect(result.current.requestKey).toBe(result.current.resultKey);
 
     rerender({ deviceId: 'device-2', mode: 'custom' });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(

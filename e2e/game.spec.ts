@@ -6,6 +6,46 @@ import { seedLocalDeck, startLocalGame, rollUntilSelectable } from './helpers';
 // themselves" test below budgets for.
 const BOT_TURN_BUDGET_MS = 60_000;
 
+test.describe('Drawn card continuation keyboard focus', () => {
+  for (const drawnCard of ['300', 'Stop'] as const) {
+    test(`keeps focus inside the dice dialog after continuing ${drawnCard}`, async ({ page }) => {
+      const deck = drawnCard === 'Stop' ? { '300': 1, Stop: 1 } : { '300': 2 };
+      await page.addInitScript(initialCards => {
+        localStorage.setItem('tutto_local_game', JSON.stringify({ initialCards, ruleset: 'classic' }));
+        // Numeric card keys precede Stop, and the first weighted choice picks
+        // 300. Every die then rolls one: a deterministic six-dice tutto.
+        const LOW_RANDOM_SAMPLE = 0.01;
+        Math.random = () => LOW_RANDOM_SAMPLE;
+      }, deck);
+      await page.goto('/');
+      await startLocalGame(page);
+      await rollUntilSelectable(page);
+      await page.getByRole('button', { name: /Select all/i }).click();
+      await page.getByTestId('draw-next-card').click();
+
+      const dialog = page.getByRole('dialog', { name: /Dice Game/i });
+      const continueButton = page.getByTestId('drawn-card-continue');
+      await expect(continueButton).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(continueButton).toHaveCount(0);
+      await expect(dialog).toBeVisible();
+      if (drawnCard === 'Stop') {
+        await expect(dialog.getByText('Stop card! All points from this turn are lost.')).toBeVisible();
+      } else {
+        await expect(dialog.getByTestId('dice-current-score')).toBeVisible();
+      }
+
+      // Checking before Tab catches focus falling to body on removal; checking
+      // both directions afterward also exercises the existing modal trap.
+      expect(await dialog.evaluate(element => element.contains(document.activeElement))).toBe(true);
+      for (const key of ['Tab', 'Shift+Tab']) {
+        await page.keyboard.press(key);
+        expect(await dialog.evaluate(element => element.contains(document.activeElement))).toBe(true);
+      }
+    });
+  }
+});
+
 test.describe('Tutto Local Game Flow', () => {
   test('should allow players to join and start a local game', async ({ page }) => {
     // Navigate to the app

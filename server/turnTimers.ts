@@ -12,6 +12,15 @@ import { MAX_CHART_POINTS } from './pushValidation';
 import { clearDeck } from './deckAuthority';
 import { MS_PER_SECOND } from '../src/utils/time';
 
+const KLEEBLATT_TUTTOS_REQUIRED = 2;
+const DEFAULT_TUTTOS_PER_COMPLETED_CARD = 1;
+
+const minimumTuttosForCompletedCard = (card: TurnSummary['cards'][number]['card']): number => {
+  if (card === 'Kleeblatt') return KLEEBLATT_TUTTOS_REQUIRED;
+  if (card === 'Feuerwerk') return 0;
+  return DEFAULT_TUTTOS_PER_COMPLETED_CARD;
+};
+
 // Milliseconds for a server timer armed from a duration in seconds — the turn
 // expiry below and socketRoomHandlers' seat reconnect timer both arm through
 // this. TEST_TIMER_SCALE (set by vite.config.ts for the suite and by
@@ -95,6 +104,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
     // so undoing a timed-out chain restores the consumed cards to the deck.
     const snapshot = room.state.liveTurnState;
     let timeoutSummary: TurnSummary | undefined;
+    let completedKleeblatt = false;
     if (snapshot?.cardsThisTurn && snapshot.cardsThisTurn.length > 0) {
       const chainCards = snapshot.cardsThisTurn;
       const lastCard = chainCards[chainCards.length - 1];
@@ -156,6 +166,16 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       // snapshot neither asideCount nor `busted` can answer it, so a classic
       // physical turn says so outright (see DiceSnapshot.lastCardCompleted).
       const lastCompleted = atBankChoice || feuerwerkBanked || !!snapshot.lastCardCompleted;
+      const priorTuttoFloor = chainCards.slice(0, -1)
+        .reduce((total, card) => total + minimumTuttosForCompletedCard(card), 0);
+      const hasKleeblattTuttoProof = (snapshot.chainTuttoCount ?? 0) >=
+        priorTuttoFloor + KLEEBLATT_TUTTOS_REQUIRED;
+      const digitalCompletion = !!snapshot.stopped && atBankChoice && snapshot.tuttosThisTurn >= 1;
+      const physicalCompletion = snapshot.lastCardCompleted === true &&
+        snapshot.keptDice.length === 0 && snapshot.currentRoll.length === 0;
+      completedKleeblatt = room.state.ruleset === 'classic' && room.state.currentCard === 'Kleeblatt' &&
+        lastCard === 'Kleeblatt' && !snapshot.busted &&
+        hasKleeblattTuttoProof && (digitalCompletion || physicalCompletion);
       timeoutSummary = {
         // Every card before the last was completed (the chain only continues
         // on a completion).
@@ -185,6 +205,10 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
     // for no gain: a special card is exempt from the bust to begin with.
     const decidedBeforeTimeout = !timeoutSummary && !!snapshot?.stopped && !snapshot.busted &&
       hasScoreInput(room.state.currentCard);
+    const modernKleeblattCompleted = !timeoutSummary && room.state.ruleset === 'modernized' &&
+      room.state.currentCard === 'Kleeblatt' && !!snapshot?.stopped && !snapshot.busted &&
+      snapshot.tuttosThisTurn >= 1 &&
+      snapshot.keptDice.length + snapshot.currentRoll.filter(die => die.selected).length === TOTAL_DICE;
 
     // Timeout = the player neither scored nor answered in time, same as a manual
     // "Stop & Score 0" — matches what the client used to send on host-side expiry.
@@ -196,7 +220,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
     const result = calculateNextTurn(
       stateForCalc as CoreGameState & { currentPlayerIndex: number },
       0,
-      decidedBeforeTimeout,
+      completedKleeblatt || modernKleeblattCompleted || decidedBeforeTimeout,
       timeoutSummary,
       true,
     );

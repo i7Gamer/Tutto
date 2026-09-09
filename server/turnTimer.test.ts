@@ -534,14 +534,17 @@ describe('Server-side turn timer', () => {
       turnScore: 350, keptDice: [{ id: 'd1', val: 1 }], currentRoll: [],
       kniffelProgress: [], tuttosThisTurn: 0,
     };
-    const setup = waitForState(hostSock, (s) => s.liveTurnState?.turnScore === 350);
+    const turnStarted = waitForState(hostSock, (s) => s.currentPlayerIndex === 1);
     hostSock.emit('pushState', {
       roomId,
       newState: {
         players, status: 'playing', currentPlayerIndex: 1, currentCard: '200',
-        cards: ['300', '400'], round: 1, turnDuration: TURN_DURATION_S, liveTurnState,
+        cards: ['300', '400'], round: 1, turnDuration: TURN_DURATION_S,
       },
     });
+    await turnStarted;
+    const setup = waitForState(hostSock, (s) => s.liveTurnState?.turnScore === 350);
+    bobSock.emit('pushState', { roomId, newState: { liveTurnState } });
     await setup;
 
     // Kicking Bob must drop his snapshot — otherwise the remaining players keep

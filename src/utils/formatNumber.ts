@@ -18,7 +18,7 @@ const LOCALE_TAGS: Record<string, string> = {
 // test double, a future language mid-rollout) gets the same fallback here.
 const DEFAULT_LOCALE_TAG = LOCALE_TAGS.en;
 
-const localeTagFor = (lang: string): string => LOCALE_TAGS[lang] ?? DEFAULT_LOCALE_TAG;
+export const localeTagFor = (lang: string): string => LOCALE_TAGS[lang] ?? DEFAULT_LOCALE_TAG;
 
 // Non-finite input renders as this rather than "NaN"/"Infinity" — the same
 // reasoning as formatTime's zero clock: nothing in the store should produce

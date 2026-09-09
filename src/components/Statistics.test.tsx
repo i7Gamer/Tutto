@@ -56,6 +56,22 @@ describe('Statistics Component', () => {
     expect(screen.getByText('statistics.loading')).toBeInTheDocument();
   });
 
+  it('shows the selected personal statistics when only the unselected global request is pending', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (url.includes('global')) return new Promise<Response>(() => {});
+      return Promise.resolve(mockFetchJson({ gamesPlayed: 9, wins: 4, totalPlaytime: 100, totalTurns: 10 }));
+    }));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('9')).toBeInTheDocument());
+    expect(screen.queryByText('statistics.loading')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: /statistics\.globalCommunity/i }));
+    await waitFor(() => expect(screen.getByText('statistics.loading')).toBeInTheDocument());
+    expect(screen.queryByText('statistics.noGlobalGames')).toBeNull();
+  });
+
   it('keeps the way back open while the statistics are still loading', () => {
     // A request that never settles (server down mid-fetch) used to leave the
     // spinner as the whole page, with a browser reload the only way out.
@@ -441,6 +457,61 @@ describe('Statistics Component', () => {
     consoleSpy.mockRestore();
   });
 
+  it('keeps personal statistics available when only the inactive global source fails', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(mockFetchJson(
+      url.includes('global')
+        ? {}
+        : { gamesPlayed: 7, wins: 3, totalPlaytime: 100, totalTurns: 10 },
+      url.includes('global') ? { ok: false, status: 500 } : undefined,
+    ))));
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+    // A global outage must not replace the selected personal tab with an error.
+    expect(screen.getByText('7')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: /statistics\.globalCommunity/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('statistics.loadFailed');
+  });
+
+  it('retries only the currently failed statistics source without requiring a tab switch', async () => {
+    let shouldFailGlobal = true;
+    let personalCalls = 0;
+    const fetchMock = vi.fn((url: string) => Promise.resolve(mockFetchJson(
+      url.includes('global')
+        ? { totalGamesPlayed: 42, totalPlaytime: 1000 }
+        : { gamesPlayed: 4, wins: 1, totalPlaytime: 100, totalTurns: 10 },
+      url.includes('global') && shouldFailGlobal ? { ok: false, status: 500 } : undefined,
+    )));
+    fetchMock.mockImplementation((url: string) => {
+      if (!url.includes('global')) personalCalls += 1;
+      return Promise.resolve(mockFetchJson(
+        url.includes('global')
+          ? { totalGamesPlayed: 42, totalPlaytime: 1000 }
+          : { gamesPlayed: 4, wins: 1, totalPlaytime: 100, totalTurns: 10 },
+        url.includes('global') && shouldFailGlobal ? { ok: false, status: 500 } : undefined,
+      ));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+    fireEvent.click(screen.getByRole('tab', { name: /statistics\.globalCommunity/i }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    const callsBeforeRetry = fetchMock.mock.calls.length;
+    const personalCallsBeforeRetry = personalCalls;
+
+    shouldFailGlobal = false;
+    fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(callsBeforeRetry);
+    expect(personalCalls).toBe(personalCallsBeforeRetry);
+    expect(screen.getByText('42')).toBeInTheDocument();
+  });
+
   it('renders currentWinStreak and bestWinStreak correctly', async () => {
     const mockPersonalStats = {
       gamesPlayed: 10,
@@ -676,7 +747,7 @@ describe('Statistics Component', () => {
     // (5-10)/10 * 100 = -50% -> 50% better (lower bust rate is better)
     const betterBadge = screen.getByText(/50% statistics\.betterThanGlobalAvg/);
     expect(betterBadge).toBeInTheDocument();
-    expect(betterBadge).toHaveClass('text-green-500');
+    expect(betterBadge).toHaveClass('text-green-700');
   });
 
   it('shows a red "worse than global avg" badge when personal avg points/turn is lower than global', async () => {
@@ -701,7 +772,7 @@ describe('Statistics Component', () => {
     // (400-500)/500 * 100 = -20% -> 20% worse (lower avg points/turn is worse)
     const worseBadge = screen.getByText(/20% statistics\.worseThanGlobalAvg/);
     expect(worseBadge).toBeInTheDocument();
-    expect(worseBadge).toHaveClass('text-red-500');
+    expect(worseBadge).toHaveClass('text-red-700');
   });
 
   it('hides the comparison badge when there is no global baseline yet', async () => {
@@ -850,6 +921,34 @@ describe('Statistics Component', () => {
       expect(screen.queryByText('11')).not.toBeInTheDocument();
       expect(requestedUrls.some(u => u.includes('mode=classic') && !u.includes('classic_custom'))).toBe(true);
       expect(requestedUrls.some(u => u.includes('ruleset=classic'))).toBe(true);
+    });
+
+    it('does not compare a new classic personal bucket with the previous ruleset global row', async () => {
+      let resolveClassicGlobal!: (response: Response) => void;
+      vi.stubGlobal('fetch', vi.fn((url: string) => {
+        if (url.includes('global') && url.includes('ruleset=classic')) {
+          return new Promise<Response>((resolve) => { resolveClassicGlobal = resolve; });
+        }
+        if (url.includes('global')) {
+          return Promise.resolve(mockFetchJson({ totalGamesPlayed: 50, totalPlaytime: 1000, mostCardsInTurn: 4 }));
+        }
+        const mode = new URL(url, 'http://localhost').searchParams.get('mode');
+        return Promise.resolve(mockFetchJson(mode === 'classic'
+          ? { gamesPlayed: 33, wins: 30, mostCardsInTurn: 4 }
+          : { gamesPlayed: 11, wins: 5 }));
+      }));
+
+      render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+      await waitFor(() => expect(screen.queryByText('statistics.loading')).toBeNull());
+
+      fireEvent.click(screen.getByRole('tab', { name: /lobby\.rulesetClassic/i }));
+      await waitFor(() => expect(screen.getByText('33')).toBeInTheDocument());
+
+      // The previous modernized global record happens to tie this classic
+      // value. It must stay unavailable until the classic global response is
+      // associated with the same ruleset key.
+      expect(screen.queryByText('statistics.globalRecord')).not.toBeInTheDocument();
+      resolveClassicGlobal(mockFetchJson({ totalGamesPlayed: 50, totalPlaytime: 1000, mostCardsInTurn: 4 }));
     });
 
     it('maps the custom tab to the classic_custom bucket under classic', async () => {

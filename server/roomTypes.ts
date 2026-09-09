@@ -156,6 +156,8 @@ export interface FinishedGame {
    * game and must still count.
    */
   playerCount: number;
+  /** The authoritative round at the moment this verdict was frozen. */
+  round: number;
 }
 
 /** One seat's identity at the moment the CURRENT game started. */

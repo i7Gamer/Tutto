@@ -122,7 +122,7 @@ const { timing, realTiming, ZERO_TIMING } = vi.hoisted(() => {
   };
   return {
     timing: { ...zero },
-    realTiming: {} as Record<'DIE_TUMBLE_MS' | 'DIE_STAGGER_MS' | 'ROLL_SETTLE_BUFFER_MS' | 'BUST_SUMMARY_DELAY_MS' | 'AUTO_CONTINUE_SECONDS' | 'BOT_THINK_MS' | 'BOT_REVEAL_MS', number>,
+    realTiming: {} as Record<'DIE_TUMBLE_MS' | 'DIE_STAGGER_MS' | 'DIE_FACE_SHUFFLE_MS' | 'ROLL_SETTLE_BUFFER_MS' | 'BUST_SUMMARY_DELAY_MS' | 'AUTO_CONTINUE_SECONDS' | 'BOT_THINK_MS' | 'BOT_REVEAL_MS', number>,
     ZERO_TIMING: zero,
   };
 });
@@ -132,6 +132,7 @@ vi.mock('../utils/uiTimings', async (importOriginal) => {
   Object.assign(realTiming, {
     DIE_TUMBLE_MS: actual.DIE_TUMBLE_MS,
     DIE_STAGGER_MS: actual.DIE_STAGGER_MS,
+    DIE_FACE_SHUFFLE_MS: actual.DIE_FACE_SHUFFLE_MS,
     ROLL_SETTLE_BUFFER_MS: actual.ROLL_SETTLE_BUFFER_MS,
     BUST_SUMMARY_DELAY_MS: actual.BUST_SUMMARY_DELAY_MS,
     AUTO_CONTINUE_SECONDS: actual.AUTO_CONTINUE_SECONDS,
@@ -1819,6 +1820,22 @@ describe('DiceGame dice settled before the roll finalizes', () => {
   // beforeEach overrides `timing`), not the live mocked import — this
   // constant is computed once, at collection time, before any beforeEach runs.
   const LAST_DIE_SETTLES_MS = realTiming.DIE_TUMBLE_MS + (DICE_IN_A_ROLL - 1) * realTiming.DIE_STAGGER_MS;
+
+  it('keeps shuffling after a random face happens to equal the final value', () => {
+    // The opening display is deliberately the eventual 1. The first shuffle
+    // also lands on 1, then the next lands on 3: the collision must not stop
+    // later interval ticks before the scheduled settle timer runs.
+    queueRoll([1, 2, 3, 4, 5, 6]);
+    const random = vi.spyOn(Math, 'random')
+      .mockReturnValueOnce(0)
+      .mockReturnValue(0.4);
+    render(<DiceGame currentCard="200" onComplete={vi.fn()} />);
+
+    act(() => { vi.advanceTimersByTime(realTiming.DIE_FACE_SHUFFLE_MS * 2); });
+
+    expect(diceShowing(3, false)).not.toHaveLength(0);
+    random.mockRestore();
+  });
 
   it('renders a settled die disabled while the roll as a whole is still pending', () => {
     // The die had stopped moving and looked clickable — pointer cursor, hover

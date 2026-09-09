@@ -8,10 +8,11 @@ import { useGameStore } from '../store/useGameStore';
 import { makePlayer, makePreGameStats, mockFetchJson } from '../testing/factories';
 
 // Capture the chart's `data` prop instead of rendering a real canvas.
-const chartCapture = vi.hoisted(() => ({ data: null as unknown }));
+const chartCapture = vi.hoisted(() => ({ data: null as unknown, options: null as unknown }));
 vi.mock('react-chartjs-2', () => ({
-  Line: (props: { data: unknown }) => {
+  Line: (props: { data: unknown; options: unknown }) => {
     chartCapture.data = props.data;
+    chartCapture.options = props.options;
     return null;
   },
 }));
@@ -217,6 +218,13 @@ describe('EndScreen Component', () => {
     render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
 
     expect(chartCapture.data, 'the chart rendered with no rounds to plot').toBeNull();
+  });
+
+  it('passes the active language locale to Chart.js number formatting', () => {
+    useGameStore.setState({ chartLabels: [1, 2], chartValues: [[1000, 2000]], chartNames: ['Alice'] });
+    render(<EndScreen theme="light" deviceId="" onShowStats={vi.fn()} />);
+
+    expect((chartCapture.options as { locale: string }).locale).toBe('en-US');
   });
 
   it('keeps a departed player\'s chart line, frozen with the roster snapshot', () => {

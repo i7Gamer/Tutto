@@ -32,6 +32,17 @@ function getAllFiles(dirPath: string, arrayOfFiles: string[] = []) {
 }
 
 describe('Translation Keys Validation', () => {
+  it('uses actual banking values and visible language abbreviations in both locales', () => {
+    for (const locale of [readLocale(enPath), readLocale(dePath)]) {
+      expect(locale['coach.roll']).toContain('{{bank}}');
+      expect(locale['coach.roll']).not.toContain('{{threshold}}');
+      expect(locale['app.switchToEnglish']).toContain('EN');
+      expect(locale['app.switchToGerman']).toContain('DE');
+      expect(locale['common.retry']).toBeTruthy();
+    }
+    expect(readLocale(dePath)['cards.stop']).toBe('Stop');
+  });
+
   it('should have all used translation keys present in both en and de translation.json', () => {
     const srcDir = path.resolve(__dirname, '..');
     const files = getAllFiles(srcDir);

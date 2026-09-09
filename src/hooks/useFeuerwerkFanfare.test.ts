@@ -88,4 +88,15 @@ describe('useFeuerwerkFanfare', () => {
 
     expect(confetti).not.toHaveBeenCalled();
   });
+
+  it('keeps the success sound but omits the burst when reduced motion is requested', () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+    renderFanfare({ card: FEUERWERK, deck: DECK_SIZE });
+
+    act(() => vi.advanceTimersByTime(CARD_FLIP_MS));
+
+    expect(confetti).not.toHaveBeenCalled();
+    expect(playSuccess).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
 });

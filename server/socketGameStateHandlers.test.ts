@@ -58,6 +58,9 @@ describe('pushState turn-timer restarts', () => {
 
   it('a player change always restarts and resets the budget', () => {
     rooms[roomId].turnTimerState!.restartsThisTurn = MAX_TIMER_RESTARTS_PER_TURN;
+    rooms[roomId].state.liveTurnState = {
+      turnScore: 300, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+    };
 
     // A real turn hand-over, which is also what makes the server deal the
     // next seat its card (see the deck-authority suite below).
@@ -65,6 +68,17 @@ describe('pushState turn-timer restarts', () => {
 
     expect(rooms[roomId].state.turnStartTime).toBe(PUSH_TIME);
     expect(rooms[roomId].turnTimerState?.restartsThisTurn).toBe(0);
+    expect(rooms[roomId].state.liveTurnState).toBeNull();
+  });
+
+  it('clears live state when a one-player game advances to a new round on the same seat', () => {
+    const room = rooms[roomId];
+    room.state.players = [room.state.players[0]];
+    room.state.liveTurnState = {
+      turnScore: 300, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+    };
+    pushState({ roomId, newState: { currentPlayerIndex: 0, round: 2, previousCard: '300' } });
+    expect(room.state.liveTurnState).toBeNull();
   });
 
   // The mid-chain draw used to arrive here, as a pushed deck one card shorter,
@@ -145,6 +159,14 @@ describe('pushState authorization', () => {
     alice.pushState({ roomId, newState: { currentPlayerIndex: 2 } });
 
     expect(rooms[roomId].state.currentPlayerIndex).toBe(2);
+  });
+
+  it('does not let the non-active host replace the active player live snapshot through pushState', () => {
+    const alice = seat('host-sock', 'Alice');
+    alice.pushState({ roomId, newState: { liveTurnState: {
+      turnScore: 900, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+    } } });
+    expect(rooms[roomId].state.liveTurnState).toBeNull();
   });
 });
 
@@ -925,6 +947,7 @@ describe('drawCard', () => {
     Object.assign(rooms[roomId].state, {
       status: 'playing', finished: false, currentPlayerIndex: 1, currentCard: 'Kniffel',
       cards: [...DECK], round: 1, turnDuration: 60, turnStartTime: Date.now(),
+      ruleset: 'classic',
       players: [makePlayer('Alice', 'host-sock'), makePlayer('Bob', 'active-sock')],
     });
   });
@@ -1021,6 +1044,16 @@ describe('drawCard', () => {
     expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'rate-limited' });
   });
 
+  it('refuses mid-turn draws in a modernized game without mutating the deck', () => {
+    rooms[roomId].state.ruleset = 'modernized';
+    const bob = seat('active-sock', 'Bob');
+    const ack = vi.fn();
+    bob.drawCard({ roomId }, ack);
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'refused' });
+    expect(rooms[roomId].state.cards).toEqual(DECK);
+    expect(rooms[roomId].state.currentCard).toBe('Kniffel');
+  });
+
   it('stops restarting the clock past the per-turn budget', () => {
     // The bound that used to sit on pushState's deck-triggered restarts, now
     // that the draw is the only thing that can shrink the deck mid-turn: a
@@ -1059,7 +1092,7 @@ describe('drawCard', () => {
     beforeEach(() => { vi.useFakeTimers(); });
     afterEach(() => { vi.useRealTimers(); });
 
-    it('101 chain draws in one turn leave dealtThisTurn at MAX_CHAIN_CARDS, not 101', () => {
+    it('refuses a draw once the authoritative per-turn ledger reaches MAX_CHAIN_CARDS', () => {
       // With turnDuration: 0 (a lobby option — see beforeEach) nothing else
       // ends the turn, so the draw rate limiter is the only brake left on how
       // many cards one turn can log — MAX_CHAIN_CARDS must be the other one.
@@ -1068,7 +1101,7 @@ describe('drawCard', () => {
       // so this proves the deal-log cap specifically, not the rate limit.
       rooms[roomId].state.turnDuration = 0;
       const bob = seat('active-sock', 'Bob');
-      const draws = MAX_CHAIN_CARDS + 1;
+      const draws = MAX_CHAIN_CARDS;
 
       for (let i = 0; i < draws; i++) {
         if (i > 0 && i % DRAW_CARD_LIMIT.max === 0) vi.advanceTimersByTime(DRAW_CARD_LIMIT.windowMs);
@@ -1076,6 +1109,12 @@ describe('drawCard', () => {
       }
 
       expect(rooms[roomId].dealtThisTurn.length).toBe(MAX_CHAIN_CARDS);
+      const deckBefore = [...rooms[roomId].state.cards];
+      const ack = vi.fn();
+      vi.advanceTimersByTime(DRAW_CARD_LIMIT.windowMs);
+      bob.drawCard({ roomId }, ack);
+      expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'refused' });
+      expect(rooms[roomId].state.cards).toEqual(deckBefore);
     });
   });
 });

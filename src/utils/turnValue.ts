@@ -2,7 +2,7 @@ import type { CardType, InitialCards, Ruleset } from '../types';
 import { applyTuttoBonus, checkValidityAndScore, getMaxValidSelection, isBust } from './diceLogic';
 import { deckDrawOptions, fixedCardAward } from './coreGameEngine';
 import { DIE_FACES, TOTAL_DICE } from './turnShapes';
-import { RULESETS } from './configValidation';
+import { BONUS_CARDS, RULESETS } from './configValidation';
 import { BoundedValueCache, ChainValueCache } from './turnValueCache';
 
 /**
@@ -207,7 +207,9 @@ export const tableOutcomes = (
   progress: number[],
   ruleset: Ruleset,
 ): TableOutcome[] => {
-  const key = `${dice}|${card}|${progressKey(card, progress)}|${ruleset}`;
+  // Ordinary cards differ only when banking a tutto, never in table scoring.
+  const tableCard = card === null || card === 'x2' || BONUS_CARDS.includes(card) ? 'standard' : card;
+  const key = `${dice}|${tableCard}|${progressKey(card, progress)}|${ruleset}`;
   const cached = tables.get(key);
   if (cached) return cached;
   const table = rollOutcomes(dice).map(({ counts, multiplicity }) => {

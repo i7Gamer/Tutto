@@ -170,8 +170,8 @@ const bestEvaluatedKeep = (ctx: BotTurnContext): EvaluatedKeep | null => {
   }
   // Preserve Otto's established raw-worth ranking except for its concrete
   // dominance bug: never stop on a point keep while an equal-priority legal
-  // keep could bank strictly more. The replacement keeps its own action, so a
-  // draw or roll that already beats its threshold remains a draw or roll.
+  // keep could bank strictly more. Preserve that banking decision as well as
+  // the richer keep; recomputing its appetite could turn the bank into a gamble.
   if (best && isOrdinaryPointsCard(ctx.currentCard) && best.decision.action === 'stop') {
     const dominatedBank = best.evaluated.outcome.bank;
     const rescue = candidates.filter(candidate => candidate.priority === best!.priority
@@ -181,7 +181,7 @@ const bestEvaluatedKeep = (ctx: BotTurnContext): EvaluatedKeep | null => {
         if (candidate.evaluated.outcome.bank < chosen.evaluated.outcome.bank) return chosen;
         return beats(candidate, chosen) ? candidate : chosen;
       }, null);
-    if (rescue) best = rescue;
+    if (rescue) return { ...rescue.evaluated, bankRescue: true };
   }
   return best?.evaluated ?? null;
 };
@@ -328,6 +328,8 @@ export interface OptimalActionDecision {
 }
 
 export interface OttoDecisionResult extends OptimalActionDecision {
+  /** A richer ordinary keep chosen to stop; preserve it only while Stop is offered. */
+  readonly bankRescue?: true;
   readonly selectedIndices: number[];
   readonly outcome: SelectionOutcome;
   /** Actions the selected keep would offer after it is committed. */
@@ -337,6 +339,7 @@ export interface OttoDecisionResult extends OptimalActionDecision {
 }
 
 interface EvaluatedKeep {
+  readonly bankRescue?: true;
   readonly selectedIndices: number[];
   readonly outcome: SelectionOutcome;
   readonly isTutto: boolean;
@@ -359,9 +362,10 @@ const decisionForKeep = (
   const { bank, diceAfter, progressAfter } = outcome;
   const roll = available.roll ? evaluated.roll ?? optimalRollDecision(ctx, bank, diceAfter, progressAfter) : null;
   const draw = available.draw ? evaluated.draw ?? optimalDrawDecision(ctx, bank) : null;
-  let action = available.stop && roll ? roll.action
-    : available.stop && draw ? draw.action
-      : firstOffered(available, ['roll', 'stop', 'draw']);
+  let action: BotAction | null = available.stop && evaluated.bankRescue ? 'stop'
+    : available.stop && roll ? roll.action
+      : available.stop && draw ? draw.action
+        : firstOffered(available, ['roll', 'stop', 'draw']);
   let reason: OptimalActionDecision['reason'];
   let priority = ORDINARY_PRIORITY;
   // Kleeblatt's Stop advances/completes its win condition; it never banks dice points.
@@ -445,6 +449,7 @@ export const resolveOttoAction = (
 ): OttoDecisionResult => {
   if (evaluated.selectedIndices.length === 0) return evaluated;
   const keep: EvaluatedKeep = {
+    bankRescue: evaluated.bankRescue,
     selectedIndices: evaluated.selectedIndices,
     outcome: evaluated.outcome,
     isTutto: ctx.keptCount + evaluated.selectedIndices.length === TOTAL_DICE,

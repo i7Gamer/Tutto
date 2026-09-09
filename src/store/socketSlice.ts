@@ -229,7 +229,26 @@ interface PushStatePayload {
 const pendingMutationIds = new Set<string>();
 let pendingMutationBase: string | null = null;
 
+// Acknowledgement and authoritative echo are separate delivery events. Neither
+// phase may leave an optimistic ancestor hidden indefinitely.
+export const PUSH_RECONCILE_TIMEOUT_MS = 5000;
+interface PushWatchdog {
+  mutationId?: string;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+const pushWatchdogs = new Set<PushWatchdog>();
+
+const clearPushWatchdog = (watchdog: PushWatchdog): void => {
+  if (watchdog.timer !== null) clearTimeout(watchdog.timer);
+  pushWatchdogs.delete(watchdog);
+};
+
+const clearPushWatchdogs = (): void => {
+  for (const watchdog of pushWatchdogs) clearPushWatchdog(watchdog);
+};
+
 const clearPushPredictions = (): void => {
+  clearPushWatchdogs();
   pendingMutationIds.clear();
   pendingMutationBase = null;
 };
@@ -270,6 +289,7 @@ let lastReconnectAt: number | null = null;
 // toasted "No response from the server" and tore the reconnect popup down
 // JOIN_TIMEOUT_MS after the newer rejoin had already succeeded.
 let rejoinWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
+let rejoinEpoch = 0;
 
 /**
  * Disarms the pending rejoin watchdog, if any.
@@ -281,6 +301,7 @@ let rejoinWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
  * for the same reason: `set(clearRoomState())` cannot reach module state.
  */
 export const clearRejoinWatchdog = (): void => {
+  rejoinEpoch++;
   if (rejoinWatchdogTimer !== null) {
     clearTimeout(rejoinWatchdogTimer);
     rejoinWatchdogTimer = null;
@@ -639,8 +660,32 @@ const emitPushState = (
   retryable: boolean,
   parkedAt?: number,
 ): void => {
+  const watchdog: PushWatchdog = { mutationId: payload.mutationId, timer: null };
+  pushWatchdogs.add(watchdog);
+  const armReconciliation = (): void => {
+    if (watchdog.timer !== null) clearTimeout(watchdog.timer);
+    watchdog.timer = setTimeout(() => {
+      if (!pushWatchdogs.has(watchdog)) return;
+      clearPushWatchdog(watchdog);
+      if (getSocket() !== sock || get().roomId !== payload.roomId || !sock.connected) return;
+      // The move may already have landed. Pull state; never replay on silence.
+      clearPushPredictions();
+      clearPendingPushRetry();
+      sock.emit('requestState', { roomId: payload.roomId });
+    }, PUSH_RECONCILE_TIMEOUT_MS);
+  };
+  armReconciliation();
   sock.emit('pushState', payload, (ack?: PushStateAck) => {
-    if (!ack || ack.ok) return;
+    if (!pushWatchdogs.has(watchdog)) return;
+    if (!ack) return;
+    if (ack.ok) {
+      if (payload.mutationId && pendingMutationIds.has(payload.mutationId)) {
+        // Accepted, but a missing echo still needs a bounded requestState.
+        armReconciliation();
+      } else clearPushWatchdog(watchdog);
+      return;
+    }
+    clearPushWatchdog(watchdog);
     // A newer authoritative state has already superseded this prediction.
     // Its late refusal must not tear down a newer room or cancel new actions.
     if (payload.mutationId && !pendingMutationIds.has(payload.mutationId)) return;
@@ -677,7 +722,7 @@ const emitPushState = (
       // no longer has; setMode('local') completes it, exactly as the
       // room-gone branch of the rejoin handler does.
       get().leaveRoom();
-      get().setMode('local');
+      get().setMode('local', { resume: false });
       return;
     }
 
@@ -828,6 +873,9 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
       // Socket order makes this an accepted prefix of our optimistic chain.
       for (const id of pendingMutationIds) {
         pendingMutationIds.delete(id);
+        for (const watchdog of pushWatchdogs) {
+          if (watchdog.mutationId === id) clearPushWatchdog(watchdog);
+        }
         if (id === incomingToken) break;
       }
       if (pendingMutationIds.size > 0) {
@@ -1025,7 +1073,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     // re-seat the store on its way in (see abandonJoinAttempt).
     abandonJoinAttempt();
     set(clearRoomState());
-    get().setMode('local');
+    get().setMode('local', { resume: false });
   };
 
   // Guarded like every other room broadcast, and for a sharper reason than
@@ -1057,6 +1105,10 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
   });
 
   sock.on('disconnect', () => {
+    // Old transport callbacks cannot speak for the replacement connection.
+    // Retain lineage until rejoin decides whether a parked push still needs it.
+    clearPushWatchdogs();
+    clearRejoinWatchdog();
     // Only a client holding a seat has anything to reconnect TO. Online mode
     // alone is not enough: sitting on the join form (after leaving a room or
     // finishing a game) there is no room to recover, and the 'connect' handler
@@ -1101,8 +1153,11 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
       set({ showReconnectPopup: false });
     }, JOIN_TIMEOUT_MS);
     rejoinWatchdogTimer = watchdog;
+    const attemptEpoch = rejoinEpoch;
 
     sock.emit('joinRoom', { roomId, name: myName, deviceId, color: savedColor, isReconnect: true }, (res: JoinRoomResponse) => {
+      if (attemptEpoch !== rejoinEpoch) return;
+      rejoinEpoch++;
       clearTimeout(watchdog);
       // Only if this ack's own watchdog is still the pending one — a late ack
       // from a superseded attempt must not disarm the live attempt's deadline
@@ -1122,9 +1177,16 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
         // recreated under the same id while this client was away, and its
         // versions then start over below whatever floor was carried in.
         set({ isHost: res.isHost ?? false, myName: res.name ?? myName, lastAppliedStateVersion: null });
+        const hadOrphanedPrediction = pendingMutationIds.size > 0 && !parkedPush;
+        clearPushPredictions();
+        if (parkedPush?.payload.mutationId) {
+          pendingMutationIds.add(parkedPush.payload.mutationId);
+          pendingMutationBase = parkedPush.payload.base ?? null;
+        }
         // Only now: the seat is this socket's again, so the push made during
         // the drop can finally pass the server's authorization gate.
         flushParkedPush(get);
+        if (hadOrphanedPrediction) sock.emit('requestState', { roomId });
         // Strictly after the push, never before: the server refuses end-game
         // stats until it has seen finished=true, with 'not-finished' — a
         // terminal refusal — so the winning push has to land first. Same order
@@ -1151,7 +1213,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
       // stale restore prompt this device might also be holding.
       if (res.code === 'room-gone') {
         set({ pendingReconnectSession: null });
-        get().setMode('local');
+        get().setMode('local', { resume: false });
       }
     });
   });
@@ -1453,7 +1515,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         newState: {
           players: serializePlayersForPush(players), currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
           randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
-          previousScore, previousCard, previousLeaders, previousWasBust, previousWasSuccess,
+          previousScore, previousCard, previousLeaders, previousWasBust, previousWasSuccess: previousWasSuccess ?? null,
           previousHighestTurnScore,
           previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore,
           previousPlayerName, previousTurnSummary, chartValues, chartNames, chartLabels, status,

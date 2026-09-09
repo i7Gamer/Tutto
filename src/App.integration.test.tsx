@@ -758,6 +758,19 @@ describe('App Integration (End-to-End)', () => {
     cancelReconnectSpy.mockRestore();
   });
 
+  it('ReconnectPopup Return button explicitly declines resuming a saved local game', () => {
+    const setModeSpy = vi.spyOn(useGameStore.getState(), 'setMode');
+    act(() => {
+      useGameStore.setState({ showReconnectPopup: true });
+    });
+
+    render(<App />);
+    fireEvent.click(screen.getByText('home.reconnect.returnMenu'));
+
+    expect(setModeSpy).toHaveBeenCalledWith('local', { resume: false });
+    setModeSpy.mockRestore();
+  });
+
   it('RestoreSessionPopup Cancel handles socket timeout gracefully', async () => {
     let connectErrorHandler: ((...args: unknown[]) => void) | undefined;
 
@@ -1374,10 +1387,19 @@ describe('App Integration (End-to-End)', () => {
 
       fireEvent.click(screen.getByText(/end.viewStatistics/i));
 
-      // Statistics is showing now (its own Back button), and the end screen
-      // — including the winner's name — is off-screen, not just covered.
+      // Statistics is showing now (its own Back button), while the mounted
+      // end screen is hidden from both layout and the accessibility tree.
       const backButton = await screen.findByRole('button', { name: /common.back/i }, { timeout: 5000 });
-      expect(screen.queryByText('Alice')).toBeNull();
+      expect(screen.getByText('Alice')).not.toBeVisible();
+
+      // A post-game online departure can update the live roster while the
+      // reader is on Statistics. EndScreen's mount-time snapshot must survive
+      // that round trip rather than rebuilding from this shortened roster.
+      act(() => {
+        useGameStore.setState({
+          players: [makePlayer({ name: 'Alice', score: 10000, position: 1 })],
+        });
+      });
 
       fireEvent.click(backButton);
 
@@ -1387,6 +1409,7 @@ describe('App Integration (End-to-End)', () => {
       // (see App.tsx), and the very first dynamic import a test file makes
       // can outlast the 1s default under a cold/loaded transform.
       expect(await screen.findByText('Alice', {}, { timeout: 5000 })).toBeInTheDocument();
+      expect(screen.getByText('Bob')).toBeInTheDocument();
       expect(useGameStore.getState().finished).toBe(true);
     });
   });

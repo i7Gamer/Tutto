@@ -102,7 +102,7 @@ function Leaderboard({
                     })()}
                     {p.disconnected && (
                       <>
-                        <span className="text-red-500 text-[10px] sm:text-xs font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50 whitespace-nowrap">{t('game.disconnected', 'Disconnected')}</span>
+                        <span className="text-red-700 dark:text-red-300 text-[10px] sm:text-xs font-normal bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-100 dark:border-red-900/50 whitespace-nowrap">{t('game.disconnected', 'Disconnected')}</span>
                         {isOnline && isHost && (
                           <button
                             onClick={() => { if (p.socketId) setPendingKick({ socketId: p.socketId, name: p.name }); }}

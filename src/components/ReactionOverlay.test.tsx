@@ -118,4 +118,18 @@ describe('ReactionOverlay', () => {
     expect(translate.mock.calls.filter(([key]) => key === 'game.reacted')).toHaveLength(2);
     expect(screen.getByRole('status')).toHaveTextContent('game.reacted');
   });
+
+  it('remounts live content for consecutive reactions with identical words', () => {
+    useGameStore.setState({ reactions: [{ id: 1, emoji: '🔥', senderName: 'Alice' }] });
+    const { rerender } = render(<ReactionOverlay />);
+    const firstAnnouncement = screen.getByRole('status').firstElementChild;
+
+    useGameStore.setState({ reactions: [
+      { id: 1, emoji: '🔥', senderName: 'Alice' },
+      { id: 2, emoji: '🔥', senderName: 'Alice' },
+    ] });
+    rerender(<ReactionOverlay />);
+
+    expect(screen.getByRole('status').firstElementChild).not.toBe(firstAnnouncement);
+  });
 });

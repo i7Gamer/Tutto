@@ -604,6 +604,9 @@ type ApplyContext = {
   // See applyPushedState's own parameter doc below: the seat the sender
   // occupies, captured before this push touched anything.
   pusherName: string | null;
+  activePlayerNameBeforePush: string | null;
+  allowedPlayerNames: ReadonlySet<string>;
+  enforceDeductedPlayerMembership: boolean;
   // The RAW snapshot this push carries, so a handler can read a sibling field
   // as the sender SENT it. ctx.state is not a substitute: by the time a late
   // handler runs, an earlier one has already written its field onto the state
@@ -859,7 +862,17 @@ const applyPreviousWasSuccess: FieldHandler = (value, ctx) => {
   // A client predating this field omits the key entirely, so the loop skips
   // it and the room keeps what it had — which is exactly the "no outcome
   // recorded" state undo's fallback expects.
-  if (typeof value === 'boolean') ctx.state.previousWasSuccess = value;
+  if (value === null) ctx.state.previousWasSuccess = undefined;
+  else if (typeof value === 'boolean') ctx.state.previousWasSuccess = value;
+};
+
+const hasValidDeductedPlayers = (
+  value: { deductedPlayers?: string[] },
+  allowedPlayerNames: ReadonlySet<string>,
+  enforceMembership: boolean,
+): boolean => {
+  const names = value.deductedPlayers;
+  return names === undefined || !enforceMembership || names.every(name => allowedPlayerNames.has(name));
 };
 
 // The chain's three byte-identical branches, collapsed into one handler bound
@@ -881,7 +894,8 @@ const applyPreviousPlayerName: FieldHandler = (value, ctx) => {
 const applyPreviousTurnSummary: FieldHandler = (value, ctx) => {
   if (value === null) {
     ctx.state.previousTurnSummary = null;
-  } else if (isValidTurnSummary(value)) {
+  } else if (isValidTurnSummary(value) &&
+      hasValidDeductedPlayers(value, ctx.allowedPlayerNames, ctx.enforceDeductedPlayerMembership)) {
     ctx.state.previousTurnSummary = sanitizeTurnSummary(value);
   }
 };
@@ -929,7 +943,7 @@ const applyGameTimeInSeconds: FieldHandler = (value, ctx) => {
 const applyLiveTurnState: FieldHandler = (value, ctx) => {
   if (value === null) {
     ctx.state.liveTurnState = null;
-  } else if (isValidDiceSnapshot(value)) {
+  } else if (ctx.pusherName === ctx.activePlayerNameBeforePush && isValidDiceSnapshot(value)) {
     ctx.state.liveTurnState = sanitizeDiceSnapshot(value);
   }
 };
@@ -948,7 +962,9 @@ const applyRuleset: FieldHandler = (value, ctx) => {
 };
 
 const applyHistoryLog: FieldHandler = (value, ctx) => {
-  if (Array.isArray(value) && value.length <= MAX_HISTORY_LOG_SIZE && value.every(isValidHistoryEntry)) {
+  if (Array.isArray(value) && value.length <= MAX_HISTORY_LOG_SIZE &&
+      value.every(entry => isValidHistoryEntry(entry) &&
+        hasValidDeductedPlayers(entry, ctx.allowedPlayerNames, ctx.enforceDeductedPlayerMembership))) {
     ctx.state.historyLog = value.map(sanitizeHistoryEntry);
   }
 };
@@ -1018,6 +1034,7 @@ export const applyPushedState = (
     isHost,
     startingGame,
     pusherName,
+    allowedPlayerNames,
   }: {
     isHost: boolean;
     startingGame: boolean;
@@ -1032,8 +1049,12 @@ export const applyPushedState = (
     // path ignores it. (The predecessor only gets the wider set on a push
     // shaped like an undo; see looksLikeUndo in applyPlayers.)
     pusherName: string | null;
+    allowedPlayerNames?: readonly string[];
   },
 ): boolean => {
+  const activePlayerNameBeforePush = state.currentPlayerIndex === null
+    ? (isHost ? null : pusherName)
+    : state.players[state.currentPlayerIndex]?.name ?? null;
   const allowedFields = isHost ? ALL_FIELDS : ACTIVE_PLAYER_FIELDS;
 
   // Kept for the coherence check after the loop. All three, not just the
@@ -1073,7 +1094,12 @@ export const applyPushedState = (
     return false;
   }
 
-  const ctx: ApplyContext = { state, isHost, startingGame, pusherName, pushedState: newState };
+  const ctx: ApplyContext = {
+    state, isHost, startingGame, pusherName, activePlayerNameBeforePush,
+    allowedPlayerNames: new Set(allowedPlayerNames ?? state.players.map(player => player.name)),
+    enforceDeductedPlayerMembership: allowedPlayerNames !== undefined,
+    pushedState: newState,
+  };
   for (const key of allowedFields) {
     if (!(key in newState)) continue;
     // One check for the whole config set rather than a condition repeated in

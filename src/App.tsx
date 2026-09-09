@@ -99,7 +99,7 @@ function ReconnectPopup() {
         <div className="flex flex-col gap-3">
           <button
             className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-xl transition-colors"
-            onClick={() => { cancelReconnect(); setMode('local'); }}
+            onClick={() => { cancelReconnect(); setMode('local', { resume: false }); }}
           >
             {t('home.reconnect.returnMenu', 'Return to Main Menu')}
           </button>
@@ -324,19 +324,22 @@ export default function App() {
           earlier version reserved a top strip on phones for the HUD — the
           HUD now sits at the bottom at every width (see above). */}
       <div>
+        {hasWinner && (
+          <div className={showStats ? 'hidden' : undefined} aria-hidden={showStats}>
+            <Suspense fallback={<RouteSpinner />}>
+              <EndScreen theme={theme} deviceId={deviceId} onShowStats={() => setShowStats(true)} />
+            </Suspense>
+          </div>
+        )}
         {showStats ? (
           <Suspense fallback={<RouteSpinner />}>
             <Statistics deviceId={deviceId} onBack={() => setShowStats(false)} />
           </Suspense>
-        ) : hasWinner ? (
-          <Suspense fallback={<RouteSpinner />}>
-            <EndScreen theme={theme} deviceId={deviceId} onShowStats={() => setShowStats(true)} />
-          </Suspense>
-        ) : isPlaying ? (
+        ) : !hasWinner && isPlaying ? (
           <Game />
-        ) : (
+        ) : !hasWinner ? (
           <Home onShowStats={() => setShowStats(true)} />
-        )}
+        ) : null}
       </div>
     </MotionConfig>
   );

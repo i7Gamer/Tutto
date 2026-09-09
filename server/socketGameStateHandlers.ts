@@ -7,7 +7,7 @@ import { MS_PER_SECOND } from '../src/utils/time';
 import { clearServerTurnTimer, startServerTurnTimer } from './turnTimers';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
-import type { DrawCardAck, DrawRefusalReason, PushRefusalReason, PushStateAck } from '../src/types';
+import { MAX_CHAIN_CARDS, type DrawCardAck, type DrawRefusalReason, type PushRefusalReason, type PushStateAck } from '../src/types';
 import { randomUUID } from 'node:crypto';
 
 // UUIDs are correlation identities, not credentials. Authorization remains below.
@@ -129,8 +129,12 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     // this push made by comparing the two moments, and applyPushedState
     // mutates the room in place — so the earlier one has to be taken first.
     const deckBefore = readDeckContext(room.state);
+    const roundBefore = room.state.round;
 
-    const applied = applyPushedState(room.state, newState, { isHost, startingGame, pusherName });
+    const applied = applyPushedState(room.state, newState, {
+      isHost, startingGame, pusherName,
+      allowedPlayerNames: room.startRoster?.map(player => player.name),
+    });
 
     // Whether a game ACTUALLY started, read off the state applyPushedState
     // left behind rather than off the push's intent. `startingGame` is decided
@@ -232,6 +236,9 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     // any real chain, so it cannot become a way to hold a turn open.
     const playerChanged = room.state.currentPlayerIndex !== room.turnTimerState.lastPlayerIndex;
     const deckChanged = room.state.cards.length !== room.turnTimerState.lastDeckSize;
+    const turnBoundary = playerChanged || room.state.round !== roundBefore || startedGame;
+
+    if (applied && turnBoundary) room.state.liveTurnState = null;
 
     if (room.state.status === 'playing' && room.state.currentPlayerIndex !== null &&
         (playerChanged || (deckChanged && room.turnTimerState.restartsThisTurn < MAX_TIMER_RESTARTS_PER_TURN))) {
@@ -312,6 +319,8 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     if (room.state.players[room.state.currentPlayerIndex]?.socketId !== socket.id) {
       return refuse('unauthorized');
     }
+    if (room.state.ruleset !== 'classic') return refuse('refused');
+    if (room.dealtThisTurn.length >= MAX_CHAIN_CARDS) return refuse('refused');
 
     drawNextCardForRoom(room.state);
     const card = room.state.currentCard;

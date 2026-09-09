@@ -13,7 +13,7 @@ import { roomPhase } from '../utils/roomPhase';
 import { DEFAULT_AUDIO_VOLUME, parseStoredAudioVolume } from '../utils/audioVolume';
 import type { CoreGameState, DiceSnapshot, DiceMode, Ruleset } from '../types';
 import type { GameStore, GameStatus, PreGameStats, FinishedGameSnapshot } from './storeTypes';
-import { validateOnlineConfig, reanchorLocalClock, attachPersistence, pickLocalGameState } from './persistence';
+import { validateOnlineConfig, reanchorLocalClock, attachPersistence, pickLocalGameState, withLocalGameWritesPaused } from './persistence';
 import { createTimerSlice } from './timers';
 import { createConfigSlice } from './configSlice';
 import { createSocketSlice, clearRoomState, clearPendingPush, clearRejoinWatchdog, abandonJoinAttempt } from './socketSlice';
@@ -256,14 +256,15 @@ export const useGameStore = create<GameStore>()(
       }
     },
 
-    setMode: (mode) => {
+    setMode: (mode, options) => {
       const isLocal = mode === 'local';
+      const skipResume = isLocal && options?.resume === false;
 
       let parsed: Partial<GameStore> | null = null;
-      if (isLocal) {
+      if (isLocal && !skipResume) {
         const rawLocal = parseJsonString<Partial<GameStore>>(localStore.read('tutto_local_game'));
         parsed = rawLocal ? pickLocalGameState(rawLocal) : null;
-      } else {
+      } else if (!isLocal) {
         const raw = localStore.read('tutto_online_config');
         if (raw) {
           try {
@@ -276,7 +277,8 @@ export const useGameStore = create<GameStore>()(
 
       const defaults = createInitialLocalState();
 
-      set((state) => {
+      const applyMode = () => set((state) => {
+        if (skipResume) Object.assign(state, clearRoomState());
         state.mode = mode;
         state.isOnline = !isLocal;
 
@@ -303,6 +305,8 @@ export const useGameStore = create<GameStore>()(
           reanchorLocalClock(state);
         }
       });
+      if (skipResume) withLocalGameWritesPaused(applyMode);
+      else applyMode();
 
       if (mode === 'local') {
         disconnectSocket();

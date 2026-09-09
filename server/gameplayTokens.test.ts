@@ -91,6 +91,7 @@ describe('gameplay token CAS', () => {
 
   it('rotates for a server-dealt draw', () => {
     const room = makePlayingRoom();
+    room.state.ruleset = 'classic';
     room.state.turnDuration = 60;
     room.turnTimerState = { lastCard: '300', lastPlayerIndex: 0, lastDeckSize: 2, restartsThisTurn: 0 };
     const fake = makeFakeSocket(ACTIVE_SOCKET);

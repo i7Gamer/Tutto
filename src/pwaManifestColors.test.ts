@@ -123,6 +123,10 @@ describe('the home-screen icon for iOS', () => {
     expect(href.endsWith('.png')).toBe(true);
     expect(fs.existsSync(path.join(REPO_ROOT, 'public', href.replace(/^\//, '')))).toBe(true);
   });
+
+  it('uses the opaque maskable artwork rather than the transparent any-purpose icon', () => {
+    expect(indexHtml).toContain('href="/icons/icon-512-maskable.png"');
+  });
 });
 
 // Everything under public/ is copied into dist/ verbatim, and server/index.ts

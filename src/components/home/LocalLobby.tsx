@@ -96,7 +96,9 @@ export default function LocalLobby() {
       <div className="mb-2 sm:mb-8">
         <h3 className="text-xl font-bold mb-2 sm:mb-4">{t('lobby.playersTitle', 'Players')}</h3>
         <div className="flex items-center gap-2 sm:gap-3 mb-2 sm:mb-6">
+          <label htmlFor="local-player-name" className="sr-only">{t('lobby.newPlayerPlaceholder', 'Name of new player')}</label>
           <input
+            id="local-player-name"
             type="text"
             maxLength={MAX_PLAYER_NAME_LENGTH}
             placeholder={t('lobby.newPlayerPlaceholder', 'Name of new player')}

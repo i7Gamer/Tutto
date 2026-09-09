@@ -3,6 +3,7 @@ import confetti from 'canvas-confetti';
 import { playSuccess } from '../utils/soundEffects';
 import { CARD_FLIP_MS } from '../utils/uiTimings';
 import type { CardType } from '../types';
+import { prefersReducedMotion } from '../utils/reducedMotion';
 
 // The burst itself: enough pieces to read as a celebration on a phone screen,
 // thrown wide, from just below the middle of the viewport so it rises past the
@@ -34,11 +35,13 @@ export const useFeuerwerkFanfare = (currentCard: CardType | null, cardsLength: n
     if (currentCard === 'Feuerwerk' && !confettiFiredRef.current) {
       timeout = setTimeout(() => {
         if (!confettiFiredRef.current) {
-          confetti({
-            particleCount: FANFARE_PARTICLE_COUNT,
-            spread: FANFARE_SPREAD_DEGREES,
-            origin: { y: FANFARE_ORIGIN_Y },
-          });
+          if (!prefersReducedMotion()) {
+            confetti({
+              particleCount: FANFARE_PARTICLE_COUNT,
+              spread: FANFARE_SPREAD_DEGREES,
+              origin: { y: FANFARE_ORIGIN_Y },
+            });
+          }
           playSuccess();
           confettiFiredRef.current = true;
         }

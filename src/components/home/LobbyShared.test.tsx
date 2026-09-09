@@ -943,6 +943,52 @@ describe('PlayerList reordering', () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
 
+  it.each([
+    ['Alice', 'Down', 'Down'],
+    ['Charlie', 'Up', 'Up'],
+    ['Bob', 'Up', 'Down'],
+    ['Bob', 'Down', 'Up'],
+  ])('keeps keyboard focus on an available control for %s moving %s', (name, direction, expectedDirection) => {
+    const reorder = vi.fn((players: Player[]) => view.rerender(
+      <PlayerList players={players} reorderPlayers={reorder} changeColor={vi.fn()} onRemovePlayer={vi.fn()} />,
+    ));
+    const view = renderList(reorder);
+    const button = screen.getByRole('button', { name: `lobby.movePlayer${direction} ${name}` });
+    button.focus();
+    fireEvent.click(button, { detail: 0 });
+    act(() => { vi.advanceTimersByTime(REORDER_PRESS_RELEASE_MS); });
+    const target = screen.getByRole('button', { name: `lobby.movePlayer${expectedDirection} ${name}` });
+    expect(target).toBeEnabled();
+    expect(target).toHaveFocus();
+  });
+
+  it('still clears pointer focus before the rows move', () => {
+    const reorder = vi.fn((players: Player[]) => view.rerender(
+      <PlayerList players={players} reorderPlayers={reorder} changeColor={vi.fn()} onRemovePlayer={vi.fn()} />,
+    ));
+    const view = renderList(reorder);
+    const button = screen.getByRole('button', { name: 'lobby.movePlayerDown Alice' });
+    button.focus();
+    fireEvent.click(button, { detail: 1 });
+    expect(button).not.toHaveFocus();
+    act(() => { vi.advanceTimersByTime(REORDER_PRESS_RELEASE_MS); });
+    expect(button).not.toHaveFocus();
+  });
+
+  it('does not steal focus moved elsewhere during the deferred keyboard swap', () => {
+    const reorder = vi.fn((players: Player[]) => view.rerender(
+      <PlayerList players={players} reorderPlayers={reorder} changeColor={vi.fn()} onRemovePlayer={vi.fn()} />,
+    ));
+    const view = renderList(reorder);
+    const button = screen.getByRole('button', { name: 'lobby.movePlayerUp Bob' });
+    const otherControl = screen.getByRole('button', { name: 'lobby.removePlayer Alice' });
+    button.focus();
+    fireEvent.click(button, { detail: 0 });
+    otherControl.focus();
+    act(() => { vi.advanceTimersByTime(REORDER_PRESS_RELEASE_MS); });
+    expect(otherControl).toHaveFocus();
+  });
+
   it('defers the swap by one press-release window, then applies it', () => {
     const reorder = vi.fn();
     renderList(reorder);

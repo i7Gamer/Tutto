@@ -67,9 +67,9 @@ export interface CoachHint {
   /** What the Stop button on this table would do. Only read when `action` is 'stop'. */
   stopMeans: CoachStopMeans;
   /**
-   * True only on the roll Otto's trailing appetite actually bought: he is
-   * behind, rolling on is worth LESS than the bank he could have taken, and
-   * he rolls anyway. Anywhere else the clause explains a decision nobody
+   * True only on the roll or draw Otto's trailing appetite actually bought:
+   * he is behind, continuing is worth LESS than the bank he could have taken,
+   * and he continues anyway. Anywhere else the clause explains a decision nobody
    * made — worst of all on a stop, where it contradicts the advice.
    */
   trailing: boolean;
@@ -141,6 +141,7 @@ export const coachHint = (input: CoachHintInput, evaluated?: OttoDecisionResult)
   const rollValue = decision.roll?.rollValue ?? 0;
   const threshold = decision.roll?.threshold ?? 0;
   const appetite = decision.roll?.appetite ?? decision.draw?.appetite ?? 0;
+  const actionValue = action === 'draw' ? decision.draw?.drawValue ?? 0 : rollValue;
 
   const ottoSet = new Set(ottoSelection);
   const selectionDiffers = input.selectedIndices.length > 0 && !input.isSelectionLocked
@@ -170,7 +171,8 @@ export const coachHint = (input: CoachHintInput, evaluated?: OttoDecisionResult)
     rollValue: !decision.reason && comparable ? rollValue : null,
     threshold: !decision.reason && comparable ? threshold : null,
     stopMeans,
-    trailing: !decision.reason && appetite > 0 && action === 'roll' && available.stop && rollValue < bank,
+    trailing: !decision.reason && appetite > 0 && (action === 'roll' || action === 'draw')
+      && available.stop && actionValue < bank,
     selectionDiffers,
     reason: decision.reason,
   };

@@ -131,11 +131,21 @@ const ComparisonBadge = ({ comparison }: { comparison: GlobalComparison | null }
   const { t } = useTranslation();
   if (!comparison) return null;
   return (
-    <span className={comparison.isBetter ? 'text-green-500 dark:text-green-400' : 'text-red-500 dark:text-red-400'}>
+    <span className={comparison.isBetter ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}>
       {comparison.pct}% {comparison.isBetter
         ? t('statistics.betterThanGlobalAvg', 'better than global avg')
         : t('statistics.worseThanGlobalAvg', 'worse than global avg')}
     </span>
+  );
+};
+
+const StatisticsLoadingPanel = () => {
+  const { t } = useTranslation();
+  return (
+    <div role="status" className="flex flex-col items-center justify-center gap-4 py-10 text-gray-700 dark:text-gray-200">
+      <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+      <p className="font-bold">{t('statistics.loading', 'Loading Statistics…')}</p>
+    </div>
   );
 };
 
@@ -271,11 +281,11 @@ const CardRow = ({ label, icon, count, wins, fails, avgPoints, hideRate, failsLa
         {wins !== undefined && (
           <>
             <div className="text-center min-w-[40px] hidden sm:block">
-              <div className="font-black text-lg text-emerald-500 dark:text-emerald-400">{formatInt(wins, lang)}</div>
+              <div className="font-black text-lg text-emerald-700 dark:text-emerald-400">{formatInt(wins, lang)}</div>
               <div className="stat-caption">{t('statistics.won', 'Won')}</div>
             </div>
             <div className="text-center min-w-[40px] hidden sm:block">
-              <div className="font-black text-lg text-red-500 dark:text-red-400">{formatInt(fails ?? 0, lang)}</div>
+              <div className="font-black text-lg text-red-700 dark:text-red-400">{formatInt(fails ?? 0, lang)}</div>
               <div className="stat-caption">{failsLabel || t('statistics.lost', 'Lost')}</div>
             </div>
             {!hideRate && (
@@ -288,7 +298,7 @@ const CardRow = ({ label, icon, count, wins, fails, avgPoints, hideRate, failsLa
         )}
         {avgPoints !== undefined && (
           <div className="text-center min-w-[50px]">
-            <div className="font-black text-lg text-amber-500 dark:text-amber-400">{formatInt(count > 0 ? Math.round(avgPoints / count) : 0, lang)}</div>
+            <div className="font-black text-lg text-amber-800 dark:text-amber-400">{formatInt(count > 0 ? Math.round(avgPoints / count) : 0, lang)}</div>
             <div className="stat-caption">{t('statistics.avgPts', 'Avg Pts')}</div>
           </div>
         )}
@@ -349,8 +359,15 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   // The personal bucket: deviceId + the selected ruleset/mode pair, via the
   // shared device-stats hook (Game.tsx's pre-game snapshot and EndScreen's
   // lifetime stats fetch the same shape the same way).
-  const { stats: personalStats, status: personalStatus } = useDeviceStats<PersonalStats>(
-    deviceId, bucketMode(statsRuleset, mode),
+  const [personalRefreshNonce, setPersonalRefreshNonce] = useState(0);
+  const [globalRefreshNonce, setGlobalRefreshNonce] = useState(0);
+  const {
+    stats: personalStats,
+    status: personalStatus,
+    requestKey: personalRequestKey,
+    resultKey: personalResultKey,
+  } = useDeviceStats<PersonalStats>(
+    deviceId, bucketMode(statsRuleset, mode), { refreshKey: String(personalRefreshNonce) },
   );
 
   // The matching global row — not a device-stats fetch (no deviceId, a
@@ -358,6 +375,8 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
   // fetch/parse/cancel effect rather than going through the hook above.
   const [globalStats, setGlobalStats] = useState<GlobalStats | null>(null);
   const [globalStatus, setGlobalStatus] = useState<DeviceStatsStatus>('idle');
+  const globalRequestKey = JSON.stringify([statsRuleset, globalRefreshNonce]);
+  const [globalResultKey, setGlobalResultKey] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -374,39 +393,51 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
         const data = await parseJsonObject<GlobalStats>(res);
         if (cancelled) return;
         setGlobalStats(data);
+        setGlobalResultKey(globalRequestKey);
         setGlobalStatus('ready');
       } catch (err) {
         if (cancelled) return;
         console.error('Failed to load statistics:', err);
         setGlobalStats(null);
+        setGlobalResultKey(globalRequestKey);
         setGlobalStatus('error');
       }
     })();
 
     return () => { cancelled = true; };
-  }, [statsRuleset]);
+  }, [statsRuleset, globalRefreshNonce, globalRequestKey]);
 
   const isSettled = (status: DeviceStatsStatus) => status === 'ready' || status === 'error';
   // A failed re-fetch (tab switch during a server hiccup) must not leave the
   // PREVIOUS bucket's numbers on screen under the new tab's label — that
   // reads as data. The failed view shows an error instead.
-  const fetchFailed = personalStatus === 'error' || globalStatus === 'error';
+  const personalMatchesRequest = personalResultKey === personalRequestKey;
+  const globalMatchesRequest = globalResultKey === globalRequestKey;
+  const fetchFailed = tab === 'personal'
+    ? personalMatchesRequest && personalStatus === 'error'
+    : globalMatchesRequest && globalStatus === 'error';
+  const selectedLoading = tab === 'personal'
+    ? !personalMatchesRequest || personalStatus === 'idle' || personalStatus === 'loading'
+    : !globalMatchesRequest || globalStatus === 'idle' || globalStatus === 'loading';
 
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     // Deliberately not reset to true on a later mode/ruleset switch — the
-    // first render already starts in the loading state, and re-entering it
-    // would replace the whole page — the tabs that were just clicked included
-    // — with the spinner. The previous bucket's numbers stay put for the
-    // moment the new ones take to arrive (or the error panel, if they don't).
-    if (isSettled(personalStatus) && isSettled(globalStatus)) {
+    // first render already starts in the loading state. Later bucket changes
+    // retain the navigation and replace only the selected panel with its
+    // spinner, rather than presenting stale data as the new bucket.
+    const selectedStatus = tab === 'personal' ? personalStatus : globalStatus;
+    if (isSettled(selectedStatus)) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- see above
       setLoading(false);
     }
-  }, [personalStatus, globalStatus]);
+  }, [tab, personalStatus, globalStatus]);
 
-  const p = personalStats;
-  const g = globalStats;
+  // Cross-bucket comparisons are meaningful only when both results belong to
+  // the current selection. A previous ruleset's global row must not decorate
+  // a newly arrived personal row while its matching global request is pending.
+  const p = personalMatchesRequest && personalStatus === 'ready' ? personalStats : null;
+  const g = globalMatchesRequest && globalStatus === 'ready' ? globalStats : null;
 
   // These tiles read 0% with nothing played yet, rather than the dash the card
   // breakdown uses: they sit beside a "Games Played: 0" that already says so.
@@ -541,8 +572,11 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
             rather than sitting beside them. */}
         <div id={rulesetPanelId} role="tabpanel" aria-labelledby={rulesetTabId(rulesetSelectedIndex)}>
         {fetchFailed ? (
-          <div role="alert" className="text-center text-red-500 py-10 bg-red-50 dark:bg-red-900/20 rounded-2xl border border-red-100 dark:border-red-900/50">
-            {t('statistics.loadFailed', "Couldn't load these statistics — check your connection and switch tabs to retry.")}
+          <div role="alert" className="text-center text-red-700 dark:text-red-300 py-10 bg-red-50 dark:bg-red-900/20 rounded-2xl border border-red-100 dark:border-red-900/50">
+            <p>{t('statistics.loadFailed', "Couldn't load these statistics — check your connection and try again.")}</p>
+            <button type="button" onClick={() => (tab === 'personal' ? setPersonalRefreshNonce(value => value + 1) : setGlobalRefreshNonce(value => value + 1))} className="mt-4 rounded-lg bg-red-700 px-4 py-2 font-bold text-white hover:bg-red-800">
+              {t('common.retry', 'Retry')}
+            </button>
           </div>
         ) : (
         <AnimatePresence mode="wait">
@@ -573,6 +607,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                   normal/custom picks a bucket within the ALREADY-selected
                   ruleset and top-level tab, so it owns a panel inside theirs. */}
               <div id={modePanelId} role="tabpanel" aria-labelledby={modeTabId(modeSelectedIndex)}>
+              {selectedLoading ? <StatisticsLoadingPanel /> : <>
               {isCustomView && (
                 <p className="text-sm text-center text-gray-500 dark:text-gray-400 mb-6 max-w-xl mx-auto">
                   {t('statistics.customGamesExplainer', 'Games with a changed winning score or deck. They are kept separately and never count toward your normal record or the global statistics.')}
@@ -662,6 +697,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                   <CardBreakdown rows={personalCardBreakdown(p, isClassicView)} />
                 </div>
               )}
+              </>}
               </div>
             </motion.div>
           )}
@@ -680,7 +716,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                   </p>
                 )}
               </div>
-              {!g || !g.totalGamesPlayed ? (
+              {selectedLoading ? <StatisticsLoadingPanel /> : (!g || !g.totalGamesPlayed ? (
                 <div className="text-center text-gray-500 dark:text-gray-400 py-10 bg-black/5 dark:bg-white/5 rounded-2xl border border-gray-100 dark:border-slate-700">
                   <div className="text-4xl mb-4">🌍</div>
                   {t('statistics.noGlobalGames', 'No games have been played on the server yet!')}
@@ -727,7 +763,7 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
                   </div>
                   <CardBreakdown rows={globalCardBreakdown(g, isClassicView)} />
                 </div>
-              )}
+              ))}
             </motion.div>
           )}
         </AnimatePresence>

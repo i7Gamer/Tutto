@@ -9,10 +9,11 @@ import {
   COMPLETION_CACHE_MAX_ENTRIES, ROLL_OUTCOME_CACHE_MAX_ENTRIES, FEUERWERK_GAIN_CACHE_MAX_ENTRIES,
   type Keep, type ValueContext, type ChainContext, type DeckCounts,
 } from './turnValue';
-import { checkValidityAndScore, isBust } from './diceLogic';
+import { checkValidityAndScore, getMaxValidSelection, isBust } from './diceLogic';
 import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from './coreGameEngine';
 import { DIE_FACES, TOTAL_DICE } from './turnShapes';
 import type { CardType, Ruleset } from '../types';
+import { BONUS_CARDS } from './configValidation';
 
 const counts = (...vals: number[]) => diceCounts(vals);
 const keepVals = (keep: Keep): number[] => keep.counts.flatMap((c, i) => Array<number>(c).fill(i + 1));
@@ -83,6 +84,32 @@ const lcg = (seed: number) => () => {
 };
 
 describe('rollOutcomes', () => {
+  it('reuses ordinary scoring tables while keeping special cards and rulesets separate', () => {
+    const ordinary: (CardType | null)[] = [null, 'x2', ...BONUS_CARDS];
+    for (const ruleset of ['classic', 'modernized'] as const) {
+      for (let dice = 1; dice <= TOTAL_DICE; dice++) {
+        const standard = tableOutcomes(dice, null, [], ruleset);
+        for (const card of ordinary) {
+          const table = tableOutcomes(dice, card, [1, 2], ruleset);
+          expect(table).toBe(standard);
+          // Check card scoring independently of the now-shared cache object.
+          for (const outcome of table) {
+            const vals = outcome.counts.flatMap((count, face) => Array<number>(count).fill(face + 1));
+            const bust = isBust(vals, card, [], ruleset);
+            expect(outcome.bust).toBe(bust);
+            expect(outcome.keeps).toEqual(bust ? [] : legalKeeps(outcome.counts, card, [], ruleset));
+            const picked = getMaxValidSelection(vals, card, [], ruleset).map(index => vals[index]);
+            expect(outcome.maxKeepScore).toBe(bust ? 0 : checkValidityAndScore(picked, card, [], ruleset).score);
+          }
+        }
+        expect(tableOutcomes(dice, 'Kniffel', [], ruleset)).not.toBe(standard);
+        expect(tableOutcomes(dice, 'Feuerwerk', [], ruleset)).not.toBe(standard);
+      }
+    }
+    expect(tableOutcomes(TOTAL_DICE, null, [], 'classic'))
+      .not.toBe(tableOutcomes(TOTAL_DICE, null, [], 'modernized'));
+  });
+
   // Multisets of n dice over 6 faces: C(n + 5, 5) of them.
   const MULTISET_COUNTS = [6, 21, 56, 126, 252, 462];
 

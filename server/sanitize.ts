@@ -26,7 +26,7 @@ const ANSI_ESCAPE = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
 // which cannot forge an entry and whose removal would mangle legitimately
 // tab-separated messages.
 // eslint-disable-next-line no-control-regex -- matching control characters is the point
-const LOG_CONTROL_CHARS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+const LOG_CONTROL_CHARS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u0080-\u0084\u0086-\u009f]/g;
 
 const stripLogControlChars = (value: string): string =>
   value.replace(ANSI_ESCAPE, '').replace(LOG_CONTROL_CHARS, '');

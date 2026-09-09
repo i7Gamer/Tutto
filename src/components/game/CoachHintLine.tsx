@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Lightbulb } from 'lucide-react';
 import type { CoachHint } from '../../utils/coachHint';
+import { formatInt } from '../../utils/formatNumber';
 
 interface CoachHintLineProps {
   hint: CoachHint | null;
@@ -29,12 +30,13 @@ interface Message {
  * seven of them, and the pair that matters most (rollNoBank, secondTutto) is
  * the pair a ternary chain buries deepest.
  */
-const messageFor = (hint: CoachHint, keep: string): Message => {
+const messageFor = (hint: CoachHint, keep: string, language: string): Message => {
+  const bank = formatInt(Math.round(hint.bank), language);
   if (hint.reason === 'bankWin') {
     return {
       key: 'coach.bankWin',
       fallback: 'Otto would keep {{keep}} and bank {{bank}} to win the game.',
-      values: { keep, bank: hint.bank },
+      values: { keep, bank },
     };
   }
 
@@ -57,7 +59,7 @@ const messageFor = (hint: CoachHint, keep: string): Message => {
     return {
       key: 'coach.draw',
       fallback: 'Otto would draw the next card with {{bank}} at stake.',
-      values: { bank: hint.bank },
+      values: { bank },
     };
   }
 
@@ -72,12 +74,12 @@ const messageFor = (hint: CoachHint, keep: string): Message => {
     // hands back a null bust risk rather than quoting one for a roll that was
     // never on offer (S-3) — the copy drops that clause entirely then.
     if (hint.bustPercent === null) {
-      return { key: 'coach.stopNoRoll', fallback: 'Otto would keep {{keep}} and bank {{bank}}.', values: { keep, bank: hint.bank } };
+      return { key: 'coach.stopNoRoll', fallback: 'Otto would keep {{keep}} and bank {{bank}}.', values: { keep, bank } };
     }
     return {
       key: 'coach.stop',
       fallback: 'Otto would keep {{keep}} and bank {{bank}} rather than risk a {{bust}}% bust on {{dice}} dice.',
-      values: { keep, bank: hint.bank, bust: hint.bustPercent, dice: hint.diceAfter },
+      values: { keep, bank, bust: hint.bustPercent, dice: hint.diceAfter },
     };
   }
 
@@ -97,8 +99,7 @@ const messageFor = (hint: CoachHint, keep: string): Message => {
   // will ever actually show — rounded here, for display only; coachHint keeps
   // the exact figures for whatever reads them next.
   const rollValue = Math.round(hint.rollValue);
-  const threshold = Math.round(hint.threshold);
-  if (rollValue === threshold) {
+  if (rollValue === Math.round(hint.bank)) {
     return {
       key: 'coach.rollTie',
       fallback: 'Otto would keep {{keep}} and roll {{dice}} dice: {{bust}}% bust risk, and rolling is worth about as much as banking.',
@@ -107,8 +108,8 @@ const messageFor = (hint: CoachHint, keep: string): Message => {
   }
   return {
     key: 'coach.roll',
-    fallback: 'Otto would keep {{keep}} and roll {{dice}} dice: {{bust}}% bust risk, rolling is worth {{rollValue}} against {{threshold}} for banking.',
-    values: { ...rollValues, rollValue, threshold },
+    fallback: 'Otto would keep {{keep}} and roll {{dice}} dice: {{bust}}% bust risk, rolling is worth {{rollValue}} against {{bank}} for banking.',
+    values: { ...rollValues, rollValue: formatInt(rollValue, language), bank },
   };
 };
 
@@ -120,11 +121,11 @@ const messageFor = (hint: CoachHint, keep: string): Message => {
  * anyone.
  */
 export default function CoachHintLine({ hint }: CoachHintLineProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   if (!hint) return null;
 
-  const message = messageFor(hint, hint.keep.join(KEEP_SEPARATOR));
+  const message = messageFor(hint, hint.keep.join(KEEP_SEPARATOR), i18n.language);
 
   return (
     <p className="mt-4 flex items-start gap-2 text-sm text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl px-4 py-3">

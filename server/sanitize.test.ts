@@ -368,6 +368,8 @@ describe('sanitizeLogHeaderField', () => {
     // bare ESC survive the CSI pattern the previous test covers.
     expect(sanitizeLogHeaderField('visible\x00hidden')).toBe('visiblehidden');
     expect(sanitizeLogHeaderField('a\x07b\x1bc\x08d')).toBe('abcd');
+    expect(sanitizeLogHeaderField('a\u009bb\u009dc')).toBe('abc');
+    expect(indentLogContinuationLines('a\u0080b\u009fc')).toBe('abc');
   });
 
   it('leaves single-line values untouched', () => {

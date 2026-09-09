@@ -69,6 +69,34 @@ describe('DrawnCardReveal', () => {
     expect(baseProps.onContinue).toHaveBeenCalledOnce();
   });
 
+  it.each(['500', 'Stop'] as const)('keeps focus in the owning dialog when %s continuation removes the reveal', card => {
+    const onContinue = vi.fn(() => view.rerender(
+      <div role="dialog" aria-modal="true" tabIndex={-1}><p>Next turn view</p></div>,
+    ));
+    const view = render(
+      <div role="dialog" aria-modal="true" tabIndex={-1}>
+        <DrawnCardReveal {...baseProps} card={card} onContinue={onContinue} />
+      </div>,
+    );
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
+    expect(onContinue).toHaveBeenCalledOnce();
+    expect(screen.getByRole('dialog')).toHaveFocus();
+  });
+
+  it('does not reclaim focus from a stacked confirmation when continuation fires', () => {
+    render(<>
+      <div role="dialog" aria-modal="true" tabIndex={-1}>
+        <DrawnCardReveal {...baseProps} />
+      </div>
+      <div role="alertdialog" aria-modal="true"><button>Cancel confirmation</button></div>
+    </>);
+    const cancel = screen.getByRole('button', { name: 'Cancel confirmation' });
+    cancel.focus();
+    fireEvent.click(screen.getByTestId('drawn-card-continue'));
+    expect(cancel).toHaveFocus();
+    expect(baseProps.onContinue).toHaveBeenCalledOnce();
+  });
+
   it('reveals a drawn Stop like any other card', () => {
     // The forfeit summary follows it — the reveal's job is only that the
     // player sees which card ended their chain.

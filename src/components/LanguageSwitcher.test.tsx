@@ -49,8 +49,8 @@ describe('LanguageSwitcher', () => {
 
     render(<LanguageSwitcher />);
 
-    const enButton = screen.getByRole('button', { name: 'Switch to English' });
-    const deButton = screen.getByRole('button', { name: 'Switch to German' });
+    const enButton = screen.getByRole('button', { name: 'Switch to English (EN)' });
+    const deButton = screen.getByRole('button', { name: 'Switch to German (DE)' });
     expect(enButton).toHaveAttribute('aria-pressed', 'true');
     expect(deButton).toHaveAttribute('aria-pressed', 'false');
   });
@@ -65,8 +65,8 @@ describe('LanguageSwitcher', () => {
 
     render(<LanguageSwitcher />);
 
-    const enButton = screen.getByRole('button', { name: 'Switch to English' });
-    const deButton = screen.getByRole('button', { name: 'Switch to German' });
+    const enButton = screen.getByRole('button', { name: 'Switch to English (EN)' });
+    const deButton = screen.getByRole('button', { name: 'Switch to German (DE)' });
 
     // Both buttons keep the 44px tap target and stay visually transparent —
     // no pill background/shadow/rounding on the button itself.
@@ -97,8 +97,8 @@ describe('LanguageSwitcher', () => {
 
     render(<LanguageSwitcher />);
 
-    const enButton = screen.getByRole('button', { name: 'Switch to English' });
-    const deButton = screen.getByRole('button', { name: 'Switch to German' });
+    const enButton = screen.getByRole('button', { name: 'Switch to English (EN)' });
+    const deButton = screen.getByRole('button', { name: 'Switch to German (DE)' });
     for (const button of [enButton, deButton]) {
       expect(button).toHaveClass('group', 'focus-visible:outline-hidden');
     }

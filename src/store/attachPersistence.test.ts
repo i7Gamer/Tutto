@@ -5,7 +5,7 @@
  * environment deliberately.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { attachPersistence, LOCAL_GAME_SCHEMA_VERSION } from './persistence';
+import { attachPersistence, LOCAL_GAME_SCHEMA_VERSION, withLocalGameWritesPaused } from './persistence';
 import type { GameStore } from './useGameStore';
 import { makeGameState, makePlayer } from '../testing/factories';
 
@@ -59,6 +59,23 @@ describe('attachPersistence', () => {
   });
 
   const saved = () => JSON.parse(localStorage.getItem('tutto_local_game') ?? 'null');
+
+  it('preserves a saved game during nested pauses and resumes writes after an exception', () => {
+    const { store, emit } = makeStore();
+    attachPersistence(store);
+    const state = localState();
+    emit(state);
+    const pausedState = { ...state, round: 2 };
+    expect(() => withLocalGameWritesPaused(() => {
+      withLocalGameWritesPaused(() => emit(pausedState));
+      expect(saved().round).toBe(1);
+      throw new Error('mode change failed');
+    })).toThrow('mode change failed');
+    emit({ ...pausedState, gameTimeInSeconds: 1 });
+    expect(saved().round).toBe(1);
+    emit({ ...pausedState, round: 3 });
+    expect(saved().round).toBe(3);
+  });
 
   it('writes the local game on a real change', () => {
     const { store, emit, listeners } = makeStore();

@@ -21,7 +21,7 @@ import { makeFakeSocket, makeFakeIo, makeServerPlayer } from '../../server/socke
 import { advanceTurnOnTimeout } from '../../server/turnTimers';
 import { registerStatsHandlers } from '../../server/socketStatsHandlers';
 import { updateDeviceStats, updateGlobalStats } from '../../server/database';
-import { PARKED_EMIT_MAX_AGE_MS } from './socketSlice';
+import { PARKED_EMIT_MAX_AGE_MS, PUSH_RECONCILE_TIMEOUT_MS as PUSH_SILENCE_MS } from './socketSlice';
 
 const ROOM = 'PROTOCOL-ROOM';
 const SCORE = 500;
@@ -75,6 +75,116 @@ function stage() {
 }
 
 describe('gameplay preconditions through the real store and JSON transport', () => {
+  it('reconciles a silent optimistic chain once and ignores its late callbacks', async () => {
+    const { fake } = stage();
+    const callbacks: Handler[] = [];
+    client.emit.mockImplementation((event: string, payload: unknown, ack: Handler) => {
+      if (event === 'pushState') callbacks.push(ack);
+      else fake.handlers[event]?.(wire(payload), ack);
+    });
+    useGameStore.getState().nextTurn(SCORE);
+    useGameStore.getState().nextTurn(SCORE);
+    await vi.advanceTimersByTimeAsync(PUSH_SILENCE_MS);
+    expect(client.emit.mock.calls.filter(([event]) => event === 'requestState')).toHaveLength(1);
+    callbacks.forEach(reply => reply({ ok: false, reason: 'no-room' }));
+    expect(useGameStore.getState().roomId).toBe(ROOM);
+    expect(useGameStore.getState().players.map(player => player.score)).toEqual([0, 0]);
+  });
+
+  it.each([true, false])('ignores a superseded same-room rejoin acknowledgement (success=%s)', async (success) => {
+    const { fake } = stage();
+    const rejoins: Handler[] = [];
+    client.emit.mockImplementation((event: string, payload: unknown, ack: Handler) => {
+      if (event === 'joinRoom') rejoins.push(ack);
+      else if (event !== 'pushState') fake.handlers[event]?.(wire(payload), ack);
+    });
+    client.handlers.connect();
+    client.handlers.connect();
+    rejoins[1]({ success: true, isHost: true, name: 'Alice' });
+    useGameStore.getState().nextTurn(SCORE);
+    rejoins[0]({ success, code: 'room-gone' });
+    expect(useGameStore.getState().roomId).toBe(ROOM);
+    await vi.advanceTimersByTimeAsync(PUSH_SILENCE_MS);
+    expect(useGameStore.getState().players[0].score).toBe(0);
+  });
+
+  it('reconciles a silent lost push instead of suppressing ancestor state forever', async () => {
+    const { room, io } = stage();
+    client.emit.mockImplementationOnce(() => undefined);
+    useGameStore.getState().nextTurn(SCORE);
+    emitRoomState(io, ROOM);
+    expect(useGameStore.getState().players[0].score).toBe(SCORE);
+    await vi.advanceTimersByTimeAsync(PUSH_SILENCE_MS);
+    expect(client.emit).toHaveBeenCalledWith('requestState', { roomId: ROOM });
+    expect(useGameStore.getState().players[0].score).toBe(0);
+    expect(useGameStore.getState().gameplayToken).toBe(room.gameplayToken);
+  });
+
+  it('reconciles an accepted push with no echo without replaying it', async () => {
+    const { room, emit, io } = stage();
+    emit.mockImplementation(() => undefined);
+    useGameStore.getState().nextTurn(SCORE);
+    expect(room.state.players[0].score).toBe(SCORE);
+    const sendCount = client.emit.mock.calls.filter(([event]) => event === 'pushState').length;
+    await vi.advanceTimersByTimeAsync(PUSH_SILENCE_MS);
+    expect(client.emit).toHaveBeenCalledWith('requestState', { roomId: ROOM });
+    expect(client.emit.mock.calls.filter(([event]) => event === 'pushState')).toHaveLength(sendCount);
+    expect(useGameStore.getState().gameplayToken).toBe(room.gameplayToken);
+    emitRoomState(io, ROOM);
+    expect(useGameStore.getState().players[0].score).toBe(SCORE);
+  });
+
+  it('settles a matching echo even when its acknowledgement is lost', async () => {
+    const { fake } = stage();
+    client.emit.mockImplementationOnce((event: string, payload: unknown) => fake.handlers[event](wire(payload), undefined));
+    useGameStore.getState().nextTurn(SCORE);
+    await vi.advanceTimersByTimeAsync(PUSH_SILENCE_MS);
+    expect(client.emit.mock.calls.filter(([event]) => event === 'requestState')).toHaveLength(0);
+    expect(useGameStore.getState().players[0].score).toBe(SCORE);
+  });
+
+  it('forgets orphaned predictions and applies unchanged state after rejoining', async () => {
+    const { fake, room } = stage();
+    client.emit.mockImplementationOnce(() => undefined);
+    useGameStore.getState().nextTurn(SCORE);
+    client.connected = false;
+    client.handlers.disconnect();
+    fake.handlers.disconnect();
+    client.connected = true;
+    client.handlers.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useGameStore.getState().players[0].score).toBe(0);
+    expect(useGameStore.getState().gameplayToken).toBe(room.gameplayToken);
+  });
+
+  it('ignores a late refusal after silence has reconciled the move', async () => {
+    stage();
+    let reply: Handler = () => undefined;
+    client.emit.mockImplementationOnce((_event: string, _payload: unknown, ack: Handler) => { reply = ack; });
+    useGameStore.getState().nextTurn(SCORE);
+    await vi.advanceTimersByTimeAsync(PUSH_SILENCE_MS);
+    reply({ ok: false, reason: 'no-room' });
+    expect(useGameStore.getState().roomId).toBe(ROOM);
+  });
+
+  it('cancels silent-push reconciliation when leaving the room', async () => {
+    stage();
+    client.emit.mockImplementationOnce(() => undefined);
+    useGameStore.getState().nextTurn(SCORE);
+    useGameStore.getState().leaveRoom();
+    client.emit.mockClear();
+    await vi.advanceTimersByTimeAsync(PUSH_SILENCE_MS);
+    expect(client.emit.mock.calls.filter(([event]) => event === 'requestState')).toHaveLength(0);
+  });
+
+  it('serializes absent undo success as an explicit clear', () => {
+    stage();
+    useGameStore.setState({ previousWasSuccess: undefined });
+    useGameStore.getState().pushState();
+    const payload = client.emit.mock.calls.find(([event]) => event === 'pushState')![1];
+    expect(wire(payload).newState.previousWasSuccess).toBeNull();
+  });
+
   it('refuses a parked host move after timeout even with no guest action', async () => {
     const { fake, io, room } = stage();
     client.connected = false;

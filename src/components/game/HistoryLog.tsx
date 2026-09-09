@@ -137,7 +137,7 @@ function HistoryLog() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="px-4 py-8 text-center text-gray-400 dark:text-gray-500 font-medium"
+                className="px-4 py-8 text-center text-gray-600 dark:text-gray-400 font-medium"
               >
                 {t('history.empty', 'No turns taken yet.')}
               </motion.div>
@@ -154,7 +154,7 @@ function HistoryLog() {
                     className="flex items-center px-4 py-3 border-b border-gray-50 dark:border-slate-700/50 last:border-0 hover:bg-black/5 dark:hover:bg-white/5 transition-colors overflow-hidden"
                   >
                     <div className="w-12 flex justify-center">
-                      <span className="text-[11px] font-bold text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-slate-700 px-2 py-0.5 rounded-full whitespace-nowrap">
+                      <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-700 px-2 py-0.5 rounded-full whitespace-nowrap">
                         R{entry.round}
                       </span>
                     </div>

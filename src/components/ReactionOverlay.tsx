@@ -50,13 +50,13 @@ export default function ReactionOverlay() {
   // diff by index would re-announce a still-visible one that merely shifted
   // position when an older reaction dropped out.
   const announcedIdsRef = useRef<Set<Reaction['id']>>(new Set());
-  const [announcement, setAnnouncement] = useState('');
+  const [announcement, setAnnouncement] = useState({ text: '', seq: 0 });
   useEffect(() => {
     const liveIds = new Set(reactions?.map(r => r.id));
     for (const r of reactions ?? []) {
       if (announcedIdsRef.current.has(r.id)) continue;
       announcedIdsRef.current.add(r.id);
-      setAnnouncement(t('game.reacted', { name: r.senderName }));
+      setAnnouncement(previous => ({ text: t('game.reacted', { name: r.senderName }), seq: previous.seq + 1 }));
     }
     // Drops ids that have already expired, so the set does not grow for the
     // life of the session.
@@ -70,7 +70,9 @@ export default function ReactionOverlay() {
       {/* Named, because App.tsx's toast region is a role="status" live region
           too — two anonymous status regions are indistinguishable in a screen
           reader's region list (and to a test asking for "the" status). */}
-      <div role="status" aria-live="polite" aria-label={t('game.reactionsLive', 'Reactions')} className="sr-only">{announcement}</div>
+      <div role="status" aria-live="polite" aria-label={t('game.reactionsLive', 'Reactions')} className="sr-only">
+        {announcement.text && <span key={announcement.seq}>{announcement.text}</span>}
+      </div>
       <AnimatePresence>
         {reactions?.map((r) => (
           <motion.div

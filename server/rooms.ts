@@ -536,6 +536,7 @@ const rememberFinishedGame = (room: Room): void => {
   room.finishedGame = {
     winners: getLeaders(room.state.players).map(p => p.name),
     playerCount: room.startRoster?.length ?? room.state.players.length,
+    round: room.state.round,
   };
   recordDepartedSeatsStats(room);
 };

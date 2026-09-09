@@ -165,6 +165,8 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     if (room.finishedGame) {
       globalStats.totalPlayersSum = room.finishedGame.playerCount;
       globalStats.mostPlayersInGame = room.finishedGame.playerCount;
+      globalStats.totalRoundsSum = room.finishedGame.round;
+      globalStats.longestGameRounds = room.finishedGame.round;
     }
     try {
       await updateGlobalStats(globalStats, room.ruleset);
@@ -287,6 +289,8 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
       clean.fastestLossTurns = !won && turns > 0 ? turns : null;
       clean.totalPlayersSum = finishedGame.playerCount;
       clean.mostPlayersInGame = finishedGame.playerCount;
+      clean.totalRoundsSum = finishedGame.round;
+      clean.longestGameRounds = finishedGame.round;
     }
 
     // A merge tops up a row the server already wrote from the same verdict,

@@ -28,7 +28,7 @@ export default function LanguageSwitcher() {
           Contrast (forced-colours) mode draws regardless of CSS. */}
       <button
         onClick={() => void i18n.changeLanguage('en')}
-        aria-label={t('app.switchToEnglish', 'Switch to English')}
+        aria-label={t('app.switchToEnglish', 'Switch to English (EN)')}
         aria-pressed={currentLanguage.startsWith('en')}
         className="group min-h-11 min-w-11 flex items-center justify-center -my-2 focus-visible:outline-hidden"
       >
@@ -38,7 +38,7 @@ export default function LanguageSwitcher() {
       </button>
       <button
         onClick={() => void i18n.changeLanguage('de')}
-        aria-label={t('app.switchToGerman', 'Switch to German')}
+        aria-label={t('app.switchToGerman', 'Switch to German (DE)')}
         aria-pressed={currentLanguage.startsWith('de')}
         className="group min-h-11 min-w-11 flex items-center justify-center -my-2 focus-visible:outline-hidden"
       >
