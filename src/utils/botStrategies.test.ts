@@ -44,6 +44,26 @@ const NONE: BotActionAvailability = { roll: false, stop: false, draw: false };
 describe('Otto strategy regressions', () => {
   const otto = (overrides: Partial<BotTurnContext> = {}) => ctx({ personality: 'optimal', ...overrides });
 
+  it.each(['classic', 'modernized'] as const)('does not prefer 1 and 5 over two available 1s on %s point cards', ruleset => {
+    const cards = [null, '200', '300', '400', '500', '600', 'x2'] as const;
+    const table = [1, 5, 1, 2, 3, 4];
+    const minimumTableSize = 3;
+    const keptSingleScore = 50;
+    for (let dice = minimumTableSize; dice <= TOTAL_DICE; dice++) {
+      const rollVals = table.slice(0, dice);
+      const keptCount = TOTAL_DICE - dice;
+      for (const currentCard of cards) for (const priorScore of [0, 300, 1000]) for (const leaderScore of [0, 3000]) {
+        const input = otto({ ruleset, currentCard, rollVals, keptCount,
+          turnScore: priorScore + keptCount * keptSingleScore, leaderScore, canDraw: true, chainCardCount: 1 });
+        const result = evaluateOttoDecision(input);
+        const keptValues = result.selectedIndices.map(index => rollVals[index]).sort();
+        // Replacing the 5 with the second 1 leaves the same number of dice
+        // to roll and scores more. Keeping just one die can still be better.
+        expect(keptValues, JSON.stringify(input)).not.toEqual([1, 5]);
+      }
+    }
+  });
+
   it('keeps one missing classic Kniffel face when leaving three dice improves completion odds', () => {
     expect(chooseBotSelection(otto({ ruleset: 'classic', currentCard: 'Kniffel',
       keptCount: 2, kniffelProgress: [1, 2], rollVals: [3, 4, 4, 4] }))).toEqual([0]);

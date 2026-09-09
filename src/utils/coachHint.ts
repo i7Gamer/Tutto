@@ -7,7 +7,7 @@ import {
   type OttoDecisionResult,
 } from './botStrategies';
 import { PERCENT } from './percentage';
-import type { DeckCounts } from './turnValue';
+import { diceCounts, type DeckCounts } from './turnValue';
 
 export interface CoachHintStandings {
   myScore: number;
@@ -143,9 +143,12 @@ export const coachHint = (input: CoachHintInput, evaluated?: OttoDecisionResult)
   const appetite = decision.roll?.appetite ?? decision.draw?.appetite ?? 0;
   const actionValue = action === 'draw' ? decision.draw?.drawValue ?? 0 : rollValue;
 
-  const ottoSet = new Set(ottoSelection);
+  const keep = ottoSelection.map(i => input.rollVals[i]);
+  // Equal-valued dice are interchangeable, but their multiplicity still matters.
+  const ottoCounts = diceCounts(keep);
+  const selectedCounts = diceCounts(input.selectedIndices.map(i => input.rollVals[i]));
   const selectionDiffers = input.selectedIndices.length > 0 && !input.isSelectionLocked
-    && (input.selectedIndices.length !== ottoSet.size || input.selectedIndices.some(i => !ottoSet.has(i)));
+    && (input.selectedIndices.length !== keep.length || selectedCounts.some((count, face) => count !== ottoCounts[face]));
 
   // Otto's own EV arithmetic (appetite included) is computed either way — a
   // roll not being on offer does not change how much risk he is willing to
@@ -164,7 +167,7 @@ export const coachHint = (input: CoachHintInput, evaluated?: OttoDecisionResult)
 
   return {
     action,
-    keep: ottoSelection.map(i => input.rollVals[i]),
+    keep,
     diceAfter,
     bank,
     bustPercent: rollOffered ? Math.round(bustProbability * PERCENT) : null,

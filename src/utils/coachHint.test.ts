@@ -138,6 +138,29 @@ describe('coachHint', () => {
   });
 
   describe('selectionDiffers', () => {
+    it.each([0, 1])('accepts either occurrence of a recommended 1 (index %i)', selectedIndex => {
+      const hint = coachHint(input({ rollVals: [1, 1, 2, 3, 4, 6], selectedIndices: [selectedIndex] }));
+      expect(hint!.keep).toEqual([1]);
+      expect(hint!.selectionDiffers).toBe(false);
+    });
+
+    it('ignores selection order while preserving repeated face counts', () => {
+      const values = input({ rollVals: [1, 1, 5, 5, 2, 3], turnScore: 1000 });
+      expect(coachHint({ ...values, selectedIndices: [3, 1, 2, 0] }))
+        .toMatchObject({ keep: [1, 1, 5, 5], selectionDiffers: false });
+      expect(coachHint({ ...values, selectedIndices: [0, 2] })!.selectionDiffers).toBe(true);
+      expect(coachHint({ ...values, selectedIndices: [0, 1, 2, 4] })!.selectionDiffers).toBe(true);
+    });
+
+    it('accepts interchangeable dice in a mixed keep but rejects different face counts', () => {
+      const values = input({ currentCard: 'Kniffel', rollVals: [1, 1, 2, 2, 4, 6] });
+      expect(coachHint({ ...values, selectedIndices: [3, 1] }))
+        .toMatchObject({ keep: [1, 2], selectionDiffers: false });
+      for (const selectedIndices of [[0, 1], [2, 3]]) {
+        expect(coachHint({ ...values, selectedIndices })!.selectionDiffers).toBe(true);
+      }
+    });
+
     it('is false with no selection on the table', () => {
       const hint = coachHint(input({ rollVals: [1, 2, 3, 4, 6, 6], selectedIndices: [] }));
       expect(hint!.selectionDiffers).toBe(false);
