@@ -18,6 +18,8 @@ import {
   PUBLISHED_API_TOKENS,
   WILDCARD_CORS_ORIGIN,
   DEFAULT_PORT,
+  MIN_PRODUCTION_API_TOKEN_BYTES,
+  validateConcurrentTransportLimitForStartup,
 } from './startupGuards';
 import knexConfig, { resolveDbFilename } from './knexfile';
 
@@ -25,7 +27,7 @@ const ENV_EXAMPLE_PATH = path.join(__dirname, '..', '.env.example');
 // Stands in for the secret the README tells a deployer to export before
 // `npm run start:prod`. Any non-published value works; the point is that it
 // comes from the environment rather than from the example file.
-const OPERATOR_SUPPLIED_API_TOKEN = 'a-strong-production-token';
+const OPERATOR_SUPPLIED_API_TOKEN = 'a'.repeat(MIN_PRODUCTION_API_TOKEN_BYTES);
 
 describe('validateApiTokenForStartup', () => {
   it('allows any (or no) API_TOKEN outside production', () => {
@@ -80,11 +82,55 @@ describe('validateApiTokenForStartup', () => {
       .toMatch(/API_TOKEN is not set/);
   });
 
-  it('allows a real API_TOKEN in production', () => {
-    expect(validateApiTokenForStartup({ NODE_ENV: 'production', API_TOKEN: 'a-strong-production-token' })).toBeNull();
-    // Whitespace inside a genuine token is not what the trim is about — the
-    // value still authenticates exactly as configured.
-    expect(validateApiTokenForStartup({ NODE_ENV: 'production', API_TOKEN: ' a-strong-production-token ' })).toBeNull();
+  it('requires at least 32 UTF-8 bytes and rejects surrounding whitespace', () => {
+    expect(validateApiTokenForStartup({
+      NODE_ENV: 'production', API_TOKEN: 'a'.repeat(MIN_PRODUCTION_API_TOKEN_BYTES - 1),
+    })).toMatch(/32 UTF-8 bytes/);
+    expect(validateApiTokenForStartup({
+      NODE_ENV: 'production', API_TOKEN: 'a'.repeat(MIN_PRODUCTION_API_TOKEN_BYTES),
+    })).toBeNull();
+    expect(validateApiTokenForStartup({
+      NODE_ENV: 'production', API_TOKEN: ` ${'a'.repeat(MIN_PRODUCTION_API_TOKEN_BYTES)} `,
+    })).toMatch(/whitespace/);
+  });
+
+  it('measures token length in UTF-8 bytes, not JavaScript characters', () => {
+    const fourByteCodePoint = '\u{1F512}';
+    expect(validateApiTokenForStartup({
+      NODE_ENV: 'production', API_TOKEN: fourByteCodePoint.repeat(7),
+    })).toMatch(/32 UTF-8 bytes/);
+    expect(validateApiTokenForStartup({
+      NODE_ENV: 'production', API_TOKEN: fourByteCodePoint.repeat(8),
+    })).toBeNull();
+  });
+});
+
+describe('validateConcurrentTransportLimitForStartup', () => {
+  it.each(['9'.repeat(400), '9007199254740993'])('rejects non-finite or unsafe integer %s', raw => {
+    expect(validateConcurrentTransportLimitForStartup({ MAX_CONCURRENT_TRANSPORTS: raw })).not.toBeNull();
+  });
+  it('allows an unset limit and plain positive integers', () => {
+    expect(validateConcurrentTransportLimitForStartup({})).toBeNull();
+    expect(validateConcurrentTransportLimitForStartup({ MAX_CONCURRENT_TRANSPORTS: '1' })).toBeNull();
+    expect(validateConcurrentTransportLimitForStartup({ MAX_CONCURRENT_TRANSPORTS: '51000' })).toBeNull();
+  });
+
+  it.each(['0', '-1', '1.5', 'abc', ' 2'])('rejects invalid limit %j', raw => {
+    expect(validateConcurrentTransportLimitForStartup({ MAX_CONCURRENT_TRANSPORTS: raw }))
+      .toMatch(/MAX_CONCURRENT_TRANSPORTS/);
+  });
+});
+
+describe('production origin behind a declared proxy', () => {
+  it('requires an explicit public origin when proxy trust is enabled', () => {
+    expect(validateCorsOriginForStartup({ NODE_ENV: 'production', TRUST_PROXY: '1' }))
+      .toMatch(/CORS_ORIGIN/);
+    expect(validateCorsOriginForStartup({ NODE_ENV: 'production', TRUST_PROXY: '1', CORS_ORIGIN: 'https://tutto.rzipas.win' }))
+      .toBeNull();
+  });
+  it('retains direct production same-origin and development defaults', () => {
+    expect(validateCorsOriginForStartup({ NODE_ENV: 'production' })).toBeNull();
+    expect(validateCorsOriginForStartup({ NODE_ENV: 'development', TRUST_PROXY: '1' })).toBeNull();
   });
 });
 

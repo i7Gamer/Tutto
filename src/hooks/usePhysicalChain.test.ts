@@ -360,6 +360,7 @@ describe('usePhysicalChain', () => {
       const { result } = mount({ currentCard: '600' });
       expect(result.current.buildSummary('null', false)).toEqual({
         cards: [{ card: '600', completed: false }],
+        outcomes: [{ card: '600', scoreBefore: 0, scoreAfter: 0, tuttos: 0 }],
         tuttoCount: 0,
         plusMinusScores: [],
         ended: 'null',

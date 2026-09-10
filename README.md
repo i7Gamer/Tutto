@@ -146,13 +146,16 @@ All configuration is environment variables — the image contains no `.env` file
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `API_TOKEN` | **yes** | — | Guards the admin HTTP endpoints (`POST /api/stats/*`). Players never use it; they submit stats over the WebSocket. The server refuses to start without it, or if it is set to any placeholder published in this repository. Generate with `openssl rand -hex 32`. |
-| `CORS_ORIGIN` | no | same-origin only | Set only if the frontend is served from a *different* origin than the API. Leaving it unset is correct for a normal deployment, including behind a reverse proxy on one domain. Setting it to `*` in production is refused at startup. |
+| `API_TOKEN` | **yes** | — | Guards the admin HTTP endpoints (`POST /api/stats/*`). Production requires at least 32 UTF-8 bytes, no surrounding whitespace, and no published placeholder. Generate with `openssl rand -hex 32`. |
+| `CORS_ORIGIN` | with `TRUST_PROXY=1` | direct same-origin only | Complete public `http(s)` origin accepted by browser socket handshakes. Required behind a declared proxy in production; also set it when the frontend is hosted separately. Unset derives only the direct Host and socket scheme; forwarded origin headers are never trusted. `*` is refused in production. Origin-less native clients remain allowed. |
 | `PORT` | no | `3001` | Port inside the container. |
 | `TRUST_PROXY` | no | unset | Set to `1` **only** when the server sits behind exactly one reverse proxy: per-IP rate limiting then reads real client addresses from `X-Forwarded-For`. Leave unset for a directly exposed server (including LAN play) — trusting the header there would let clients forge their own rate-limit identities. A production start without it logs a one-line reminder. |
 | `SOCKET_CONN_LIMIT_MAX` | no | `30` | Per-IP cap on new WebSocket connections per 10-second window. Raise it only when one address legitimately stands for many players (e.g. a venue where everyone shares one NAT'd IP). |
+| `MAX_CONCURRENT_TRANSPORTS` | no | `51000` | Global active Engine.IO transport ceiling, including clients that never complete Socket.IO setup. The default preserves the documented room/seat maximum plus reconnect overlap; it is not capacity-tuned. Lower after deployment measurement. |
+| `ROOM_PUSH_WORK_LIMIT_MAX` | no | `100` | Authorized `pushState` attempts shared by all sockets in one room per second, including invalid/stale/no-op requests. |
 | `MAX_ROOMS_PER_ADDRESS` | no | `20` | Per-IP cap on rooms held open at once (the server holds 500 in total). Stops one client parking every slot with rooms whose players have "dropped", which would make the server refuse everyone else. Raise it in the same situations as `SOCKET_CONN_LIMIT_MAX`. |
 | `STATS_RATE_LIMIT_MAX` | no | `60` | Per-IP cap on GET requests to `/api/stats/*` (device and global statistics) per 60-second window. A valid device id also gets its own sub-bucket capped at this value, so one chatty device can't starve its neighbours' share of the shared IP bucket. Raise it in the same situations as `SOCKET_CONN_LIMIT_MAX`. |
+| `ADMIN_AUTH_FAILURE_LIMIT_MAX` | no | `10` | Failed `API_TOKEN` attempts per client IP per 60 seconds, shared across both protected stats POST routes. Valid requests do not consume it. JSON parsing remains bounded and runs before this check. |
 | `DB_PATH` | no | `/data/stats.db` | Location of the SQLite database. Change it only if you mount the volume elsewhere. |
 | `TZ` | no | `UTC` | Affects timestamps in the container logs. |
 
@@ -209,7 +212,9 @@ Schema migrations run automatically when the new version starts. Take the stoppe
 
 ### Behind a reverse proxy
 
-Point the proxy at the container's port and forward WebSocket upgrades (`Upgrade` and `Connection` headers) — the game will not sync without them. Leave `CORS_ORIGIN` unset: the frontend is served by the same server, so it is already same-origin. Set `TRUST_PROXY=1` so per-IP rate limiting sees real client addresses from `X-Forwarded-For` rather than the proxy's — it is deliberately not automatic, because a server that is *not* behind a proxy must ignore that header (any client can write it).
+Online clients and the server must both use protocol v2. After upgrading, refresh older cached clients before joining again; no legacy deck-revealing protocol is retained. The server now derives scores, turn history and saved statistics from validated actions. Dice outcomes and manually entered points are still player-reported, not cheat-proof measurements.
+
+Point the proxy at the container's port and forward WebSocket upgrades (`Upgrade` and `Connection` headers) — the game will not sync without them. Set `CORS_ORIGIN` to the browser-visible public origin (for example `https://tutto.example.com`), especially when the proxy terminates TLS: the server deliberately does not derive it from forgeable forwarded Host/protocol headers. Set `TRUST_PROXY=1` so per-IP rate limiting sees real client addresses from `X-Forwarded-For` rather than the proxy's — it is deliberately not automatic, because a server that is *not* behind a proxy must ignore that header (any client can write it).
 
 Terminating TLS here is also what makes the in-app QR [scanner](#inviting-players) usable — browsers only grant camera access on a secure origin. Everything else works the same over plain http.
 
@@ -280,7 +285,7 @@ docker build -t tutto:local .
    ```
    This builds the frontend into `dist/`, then starts the Express server with `NODE_ENV=production`. The server serves the static frontend and refuses to start if `API_TOKEN` is missing.
 
-In production, an unset `CORS_ORIGIN` means same-origin requests only, which is what you want when the frontend is served by this same server. Set it only if the frontend lives on a different origin; setting it to `*` is refused at startup.
+In production, an unset `CORS_ORIGIN` means direct same-origin requests only. Set the explicit browser-visible origin when a reverse proxy terminates TLS or the frontend lives elsewhere; setting it to `*` is refused at startup.
 
 ### Restart safety
 

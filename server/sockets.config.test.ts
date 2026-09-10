@@ -7,7 +7,7 @@
  */
 import type { ChildProcess } from 'child_process';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { io } from 'socket.io-client';
+import { protocolClient as io, joinTestRoom, acceptOnlineAction, requestPublicState, configureTestRoom } from './onlineTestClient';
 import { startTestServer, testDelay, connected } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
@@ -99,64 +99,27 @@ describe('Server Socket E2E — configuration & player order', () => {
     });
   }, 10000);
 
-  it('adopts the host-chosen player order when the game starts (online random shuffle)', () => {
-    return new Promise<void>((resolve, reject) => {
-      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
-      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob
-
-      const timeoutId = setTimeout(() => {
-        s1.disconnect();
-        s2.disconnect();
-        reject(new Error('Test timed out'));
-      }, 5000);
-
-      s1.on('connect', () => {
-        s1.emit('joinRoom', { roomId: 'E2E_STARTORDER', name: 'Alice', deviceId: 'dev-so-a', color: '#ff0000' }, () => {
-          s2.emit('joinRoom', { roomId: 'E2E_STARTORDER', name: 'Bob', deviceId: 'dev-so-b', color: '#00ff00' }, () => {
-            // Players joined as [Alice, Bob]. The host starts the game with a shuffled
-            // order [Bob, Alice] and chart arrays built in that same order.
-            const shuffled = [
-              { name: 'Bob', deviceId: 'dev-so-b', socketId: s2.id, disconnected: false, score: 0 },
-              { name: 'Alice', deviceId: 'dev-so-a', socketId: s1.id, disconnected: false, score: 0 },
-            ];
-            s1.emit('pushState', {
-              roomId: 'E2E_STARTORDER',
-              newState: {
-                players: shuffled,
-                status: 'playing',
-                currentPlayerIndex: 0,
-                chartNames: ['Bob', 'Alice'],
-                chartValues: [[], []],
-                chartLabels: [],
-              },
-            });
-          });
-        });
+  it('starts from the canonical lobby order and ignores injected player and chart fields', async () => {
+    const roomId = 'E2E_STARTORDER';
+    const host = io(`http://127.0.0.1:${PORT}`);
+    const guest = io(`http://127.0.0.1:${PORT}`);
+    try {
+      await joinTestRoom(host, roomId, 'Alice', { randomOrder: false, turnDuration: 0 });
+      await joinTestRoom(guest, roomId, 'Bob');
+      host.emit('reorderPlayers', { roomId, newPlayers: [{ name: 'Bob' }, { name: 'Alice' }] });
+      await requestPublicState(host, roomId);
+      const state = await acceptOnlineAction(host, roomId, { type: 'start' }, {
+        players: [{ name: 'Alice', score: 99999 }, { name: 'Bob', score: 99999 }],
+        chartNames: ['forged'], chartValues: [[99999]], chartLabels: [9],
       });
-
-      s1.on('gameState', (state) => {
-        if (state.status === 'playing' && state.players && state.players.length === 2) {
-          // Server must adopt the host's order so the turn order and the chart arrays
-          // agree: Bob first, Alice second — not the original join order.
-          expect(state.players[0].name).toBe('Bob');
-          expect(state.players[0].socketId).toBe(s2.id);
-          expect(state.players[1].name).toBe('Alice');
-          expect(state.players[1].socketId).toBe(s1.id);
-          // deviceId is a reconnect credential and must never be broadcast.
-          expect('deviceId' in state.players[0]).toBe(false);
-          expect('deviceId' in state.players[1]).toBe(false);
-          // Identities/colors are kept from the server side, in the new order.
-          expect(state.players[0].color).toBe('#00ff00');
-          expect(state.players[1].color).toBe('#ff0000');
-          expect(state.chartNames).toEqual(['Bob', 'Alice']);
-          clearTimeout(timeoutId);
-          s1.disconnect();
-          s2.disconnect();
-          resolve();
-        }
-      });
-    });
-  }, 10000);
+      expect(state.players?.map(player => player.name)).toEqual(['Bob', 'Alice']);
+      expect(state.players?.map(player => player.socketId)).toEqual([guest.id, host.id]);
+      expect(state.players?.map(player => player.score)).toEqual([0, 0]);
+      expect(state.players?.every(player => !('deviceId' in player))).toBe(true);
+      expect(state.chartNames).toEqual(['Bob', 'Alice']);
+      expect(state.chartValues).toEqual([[], []]);
+    } finally { host.disconnect(); guest.disconnect(); }
+  });
 
   it('reorderPlayers preserves server-side player objects, ignoring injected client fields', () => {
     return new Promise<void>((resolve, reject) => {
@@ -260,166 +223,57 @@ describe('Server Socket E2E — configuration & player order', () => {
     });
   }, 10000);
 
-  it('reorderPlayers is blocked when the game is already playing', () => {
-    return new Promise<void>((resolve, reject) => {
-      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
-      const s2 = io(`http://127.0.0.1:${PORT}`); // Bob
+  const playingPair = async (roomId: string) => {
+    const host = io(`http://127.0.0.1:${PORT}`);
+    const guest = io(`http://127.0.0.1:${PORT}`);
+    await joinTestRoom(host, roomId, 'Alice', { randomOrder: false, turnDuration: 0, initialCards: { '200': 8 } });
+    await joinTestRoom(guest, roomId, 'Bob');
+    await acceptOnlineAction(host, roomId, { type: 'start' });
+    return { host, guest, cleanup: () => { host.disconnect(); guest.disconnect(); } };
+  };
 
-      const cleanup = () => { s1.disconnect(); s2.disconnect(); };
-      const timeoutId = setTimeout(() => {
-        cleanup();
-        reject(new Error('Server never broadcast the valid follow-up push'));
-      }, 4000);
+  it('reorderPlayers is blocked when the game is already playing', async () => {
+    const roomId = 'REORDER_MIDGAME';
+    const { host, cleanup } = await playingPair(roomId);
+    try {
+      host.emit('reorderPlayers', { roomId, newPlayers: [{ name: 'Bob' }, { name: 'Alice' }] });
+      const state = await acceptOnlineAction(host, roomId, { type: 'commit', score: 100, success: false });
+      expect(state.players?.map(player => player.name)).toEqual(['Alice', 'Bob']);
+      expect(state.currentPlayerIndex).toBe(1);
+    } finally { cleanup(); }
+  });
 
-      let reorderAttempted = false;
+  it('updateConfig is blocked when the game is already playing', async () => {
+    const roomId = 'UPDATECONFIG_MIDGAME';
+    const { host, cleanup } = await playingPair(roomId);
+    try {
+      host.emit('updateConfig', { roomId, winningScore: 1000 });
+      const state = await acceptOnlineAction(host, roomId, { type: 'commit', score: 100, success: false });
+      expect(state.winningScore).toBe(6000);
+      expect(state.currentPlayerIndex).toBe(1);
+    } finally { cleanup(); }
+  });
 
-      s1.on('connect', () => {
-        s1.emit('joinRoom', { roomId: 'REORDER_MIDGAME', name: 'Alice', deviceId: 'dev-rmg-a', color: '#ff0000' }, () => {
-          s2.emit('joinRoom', { roomId: 'REORDER_MIDGAME', name: 'Bob', deviceId: 'dev-rmg-b', color: '#00ff00' }, () => {
-            const players = [
-              { name: 'Alice', deviceId: 'dev-rmg-a', socketId: s1.id, disconnected: false, score: 0 },
-              { name: 'Bob', deviceId: 'dev-rmg-b', socketId: s2.id, disconnected: false, score: 0 },
-            ];
-            // Host starts the game
-            s1.emit('pushState', { roomId: 'REORDER_MIDGAME', newState: { players, status: 'playing', currentPlayerIndex: 0 } });
-
-            setTimeout(() => {
-              reorderAttempted = true;
-              // Attempt to reorder mid-game (Bob first)
-              s1.emit('reorderPlayers', {
-                roomId: 'REORDER_MIDGAME',
-                newPlayers: [{ name: 'Bob' }, { name: 'Alice' }]
-              });
-              // A push the host IS allowed to make, behind the one it is not.
-              // Its arrival is what ends the test, and it can only arrive from
-              // a live room — so the roster below is unchanged rather than
-              // merely unobserved.
-              setTimeout(() => {
-                s1.emit('pushState', { roomId: 'REORDER_MIDGAME', newState: { round: 2 } });
-              }, testDelay(200));
-            }, testDelay(300));
-          });
-        });
-      });
-
-      s1.on('gameState', (state) => {
-        if (!reorderAttempted || state.status !== 'playing' || state.players?.length !== 2) return;
-        // If the server accepted the reorder, Bob would now be first — that must not happen
-        if (state.players[0].name === 'Bob') {
-          clearTimeout(timeoutId);
-          cleanup();
-          reject(new Error('Server allowed reorderPlayers during a live game'));
-        } else if (state.round === 2) {
-          clearTimeout(timeoutId);
-          cleanup();
-          resolve();
-        }
-      });
-    });
-  }, 10000);
-
-  it('updateConfig is blocked when the game is already playing', () => {
-    // Same rule reorderPlayers already enforces (test above): config is a
-    // lobby-only concept. Without this, a client could flip the win condition
-    // (winningScore) or rebuild the deck (initialCards) out from under an
-    // in-progress game.
-    return new Promise<void>((resolve, reject) => {
-      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
-
-      const timeoutId = setTimeout(() => {
-        s1.disconnect();
-        reject(new Error('Server never broadcast the valid follow-up push'));
-      }, 4000);
-
-      let gameStarted = false;
-
-      s1.on('connect', () => {
-        s1.emit('joinRoom', { roomId: 'UPDATECONFIG_MIDGAME', name: 'Alice', deviceId: 'dev-ucmg-a', color: '#ff0000' }, () => {
-          const players = [
-            { name: 'Alice', deviceId: 'dev-ucmg-a', socketId: s1.id, disconnected: false, score: 0 },
-          ];
-          s1.emit('pushState', { roomId: 'UPDATECONFIG_MIDGAME', newState: { players, status: 'playing', currentPlayerIndex: 0, winningScore: 6000 } });
-
-          setTimeout(() => {
-            gameStarted = true;
-            s1.emit('updateConfig', { roomId: 'UPDATECONFIG_MIDGAME', winningScore: 1000 });
-            // The legitimate push behind the rejected config: its arrival ends
-            // the test, and proves the room was live enough to have applied
-            // the config had the server been willing to.
-            setTimeout(() => {
-              s1.emit('pushState', { roomId: 'UPDATECONFIG_MIDGAME', newState: { round: 2 } });
-            }, testDelay(200));
-          }, testDelay(300));
-        });
-      });
-
-      s1.on('gameState', (state) => {
-        if (!gameStarted || state.status !== 'playing') return;
-        if (state.winningScore === 1000) {
-          clearTimeout(timeoutId);
-          s1.disconnect();
-          reject(new Error('Server allowed updateConfig during a live game'));
-        } else if (state.round === 2) {
-          clearTimeout(timeoutId);
-          s1.disconnect();
-          resolve();
-        }
-      });
-    });
-  }, 10000);
-
-  it('ruleset: applied from the lobby, refused mid-game on both write paths', () => {
-    // The lobby updateConfig sets classic; once the game runs, neither
-    // updateConfig nor a host pushState may flip it back — a mid-game rules
-    // change would desync every client's turn logic.
-    return new Promise<void>((resolve, reject) => {
-      const s1 = io(`http://127.0.0.1:${PORT}`); // Alice — host
-
-      const timeoutId = setTimeout(() => {
-        s1.disconnect();
-        reject(new Error('Server never broadcast the valid follow-up push'));
-      }, 4000);
-
-      let gameStarted = false;
-
-      s1.on('connect', () => {
-        s1.emit('joinRoom', { roomId: 'RULESET_MIDGAME', name: 'Alice', deviceId: 'dev-rs-a', color: '#ff0000' }, () => {
-          s1.emit('updateConfig', { roomId: 'RULESET_MIDGAME', ruleset: 'classic' });
-          setTimeout(() => {
-            const players = [
-              { name: 'Alice', deviceId: 'dev-rs-a', socketId: s1.id, disconnected: false, score: 0 },
-            ];
-            s1.emit('pushState', { roomId: 'RULESET_MIDGAME', newState: { players, status: 'playing', currentPlayerIndex: 0, ruleset: 'classic' } });
-
-            setTimeout(() => {
-              gameStarted = true;
-              s1.emit('updateConfig', { roomId: 'RULESET_MIDGAME', ruleset: 'modernized' });
-              s1.emit('pushState', { roomId: 'RULESET_MIDGAME', newState: { ruleset: 'modernized' } });
-              // The legitimate follow-up that ends the test (see the comment
-              // at the top of this suite for why not a timer).
-              setTimeout(() => {
-                s1.emit('pushState', { roomId: 'RULESET_MIDGAME', newState: { round: 2 } });
-              }, testDelay(200));
-            }, testDelay(300));
-          }, testDelay(200));
-        });
-      });
-
-      s1.on('gameState', (state) => {
-        if (!gameStarted || state.status !== 'playing') return;
-        if (state.ruleset === 'modernized') {
-          clearTimeout(timeoutId);
-          s1.disconnect();
-          reject(new Error('Server allowed a mid-game ruleset change'));
-        } else if (state.round === 2) {
-          clearTimeout(timeoutId);
-          s1.disconnect();
-          expect(state.ruleset).toBe('classic');
-          resolve(undefined);
-        }
-      });
-    });
-  }, 10000);
+  it('ruleset is applied in the lobby and cannot change through either midgame path', async () => {
+    const roomId = 'RULESET_MIDGAME';
+    const host = io(`http://127.0.0.1:${PORT}`);
+    const guest = io(`http://127.0.0.1:${PORT}`);
+    try {
+      await joinTestRoom(host, roomId, 'Alice', { randomOrder: false, turnDuration: 0, initialCards: { '200': 8 } });
+      await joinTestRoom(guest, roomId, 'Bob');
+      expect((await configureTestRoom(host, roomId, { ruleset: 'classic' })).ruleset).toBe('classic');
+      await acceptOnlineAction(host, roomId, { type: 'start' });
+      host.emit('updateConfig', { roomId, ruleset: 'modernized' });
+      const state = await acceptOnlineAction(host, roomId, {
+        type: 'commit', score: 100, success: true, summary: {
+          cards: [{ card: '200', completed: false }], ended: 'banked', tuttoCount: 0, plusMinusScores: [],
+          outcomes: [{ card: '200', scoreBefore: 0, scoreAfter: 100, tuttos: 0 }],
+        },
+      }, { ruleset: 'modernized' });
+      expect(state.ruleset).toBe('classic');
+      expect(state.currentPlayerIndex).toBe(1);
+    } finally { host.disconnect(); guest.disconnect(); }
+  });
 
   it('rejects updateConfig with invalid initialCards (unknown type, negative count, non-integer, over limit)', () => {
     return new Promise<void>((resolve, reject) => {

@@ -1,7 +1,10 @@
 /** @vitest-environment node */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type express from 'express';
-import { createRateLimiter, createSocketEventLimiter, createKeyedEventLimiter } from './rateLimit';
+import {
+  createRateLimiter, createSocketEventLimiter, createKeyedEventLimiter,
+  createObjectWorkBudget,
+} from './rateLimit';
 
 const makeReq = (ip: string): { ip: string } => ({ ip });
 
@@ -307,5 +310,21 @@ describe('createKeyedEventLimiter', () => {
     // Nothing expired, so the oldest entry ('a') is evicted before this call —
     // it is treated as a fresh key rather than blocked by its stale hit.
     expect(allow('a')).toBe(true);
+  });
+});
+
+describe('createObjectWorkBudget', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('shares a budget by room identity and resets after the window', () => {
+    const budget = createObjectWorkBudget({ windowMs: 1000, max: 1 });
+    const roomA = {};
+    const roomB = {};
+    expect(budget.tryConsume(roomA)).toBe(true);
+    expect(budget.tryConsume(roomA)).toBe(false);
+    expect(budget.tryConsume(roomB)).toBe(true);
+    vi.advanceTimersByTime(1001);
+    expect(budget.tryConsume(roomA)).toBe(true);
   });
 });

@@ -1,11 +1,13 @@
 import { rooms, drawNextCardForRoom, emitRoomState, emitRoomStateTo, idleTurnTimerState, recordDealtCard, rememberCurrentTurn, roomChannel } from './rooms';
-import { applyPushedState, isValidDiceSnapshot, sanitizeDiceSnapshot } from './pushValidation';
+import { isValidDiceSnapshot, sanitizeDiceSnapshot } from './pushValidation';
+import { applyOnlineGameAction } from './gameActionAuthority';
 import { readDeckContext, settleDeck } from './deckAuthority';
-import { isNormalizedConfig, normalizeRoomId } from '../src/utils/configValidation';
+import { isNormalizedConfig, normalizeRoomId, MAX_PLAYERS_PER_ROOM } from '../src/utils/configValidation';
 import { roomPhase } from '../src/utils/roomPhase';
 import { MS_PER_SECOND } from '../src/utils/time';
 import { clearServerTurnTimer, startServerTurnTimer } from './turnTimers';
-import { createSocketEventLimiter } from './rateLimit';
+import { createSocketEventLimiter, createObjectWorkBudget } from './rateLimit';
+import { envLimitOr } from './envLimits';
 import { safeOn, type SocketContext } from './socketContext';
 import { MAX_CHAIN_CARDS, type DrawCardAck, type DrawRefusalReason, type PushRefusalReason, type PushStateAck } from '../src/types';
 import { randomUUID } from 'node:crypto';
@@ -14,6 +16,8 @@ import { randomUUID } from 'node:crypto';
 const GAMEPLAY_TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const PUSH_STATE_LIMIT = { windowMs: 1_000, max: 20 };
+export const ROOM_PUSH_WORK_LIMIT = { windowMs: 1_000, max: MAX_PLAYERS_PER_ROOM };
+const roomWorkBudgets = new WeakMap<SocketContext['io'], ReturnType<typeof createObjectWorkBudget>>();
 // liveTurnState fires ~every 300ms while a player is rolling.
 const LIVE_TURN_STATE_LIMIT = { windowMs: 1_000, max: 15 };
 // requestState is a client's recovery path after a refused push — one round
@@ -36,7 +40,7 @@ export const DRAW_CARD_LIMIT = { windowMs: 1_000, max: 5 };
  */
 type PushStateAckFn = (result: PushStateAck) => void;
 
-/** drawCard's answer. Not optional: a client that cannot hear it cannot draw. */
+/** drawCard's direct answer; a correlated gameState receipt is the recovery path. */
 type DrawCardAckFn = (result: DrawCardAck) => void;
 
 // How many card-triggered turn-timer restarts one player's turn may earn.
@@ -48,13 +52,19 @@ export const MAX_TIMER_RESTARTS_PER_TURN = 50;
 
 /** The authoritative game state, and the live dice view that rides alongside it. */
 export const registerGameStateHandlers = ({ io, socket, session }: SocketContext): void => {
+  let roomWorkBudget = roomWorkBudgets.get(io);
+  if (!roomWorkBudget) {
+    roomWorkBudget = createObjectWorkBudget({ ...ROOM_PUSH_WORK_LIMIT,
+      max: envLimitOr(process.env.ROOM_PUSH_WORK_LIMIT_MAX, ROOM_PUSH_WORK_LIMIT.max) });
+    roomWorkBudgets.set(io, roomWorkBudget);
+  }
   const pushStateLimiter = createSocketEventLimiter(PUSH_STATE_LIMIT);
   const liveTurnStateLimiter = createSocketEventLimiter(LIVE_TURN_STATE_LIMIT);
   const requestStateLimiter = createSocketEventLimiter(REQUEST_STATE_LIMIT);
   const drawCardLimiter = createSocketEventLimiter(DRAW_CARD_LIMIT);
 
   safeOn(socket, 'pushState', (
-    data: { roomId?: string; newState?: Record<string, unknown>; base?: unknown; mutationId?: unknown } | null | undefined,
+    data: { roomId?: string; newState?: Record<string, unknown>; base?: unknown; mutationId?: unknown; action?: unknown } | null | undefined,
     ack?: PushStateAckFn,
   ) => {
     // Every bail-out below now names itself to the sender. The gates
@@ -74,15 +84,6 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     const room = rooms[roomId];
     if (!room) return refuse('no-room');
 
-    // Optional for old clients. A present invalid precondition must never fall
-    // back to the unguarded legacy path. Check before ANY room mutation.
-    if ('base' in data || 'mutationId' in data) {
-      if (typeof data.base !== 'string' || !GAMEPLAY_TOKEN_PATTERN.test(data.base) ||
-          typeof data.mutationId !== 'string' || !GAMEPLAY_TOKEN_PATTERN.test(data.mutationId) ||
-          data.mutationId === data.base) return refuse('refused');
-      if (data.base !== room.gameplayToken) return refuse('stale-base');
-    }
-
     const isHost = room.host === socket.id;
     const activePlayer = room.state.currentPlayerIndex !== null
       ? room.state.players[room.state.currentPlayerIndex]
@@ -94,124 +95,54 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     // retries such a refusal once (see emitPushState in socketSlice.ts) rather
     // than the seat being loosened here.
     if (!isHost && !isActivePlayer) return refuse('unauthorized');
+    if (!roomWorkBudget.tryConsume(room)) return refuse('rate-limited');
+    // Charge authorized attempts before deep or stale validation, including
+    // malformed/no-op spam. Unauthorized sockets cannot exhaust this budget.
+    if (typeof data.base !== 'string' || !GAMEPLAY_TOKEN_PATTERN.test(data.base) ||
+        typeof data.mutationId !== 'string' || !GAMEPLAY_TOKEN_PATTERN.test(data.mutationId) ||
+        data.mutationId === data.base) return refuse('refused');
+    if (data.base !== room.gameplayToken) return refuse('stale-base');
 
-    // The host may legitimately reorder players (e.g. the random shuffle) only at
-    // the moment the game starts. Outside that transition the server keeps its own
-    // authoritative order so a stray push can never scramble the roster mid-game.
-    // A game starts either from the lobby, or from the end screen's "Play Again",
-    // which never passes through the lobby — see roomPhase for why that leaves
-    // the room reading as 'finished' rather than 'lobby' right up to this push.
+    // Start/rematch is an explicit host action; the server selects the order.
     const currentPhase = roomPhase(room.state);
-    // Read from the push's INTENT (newState.status), not from whether the
-    // phase actually moved — but a finished room already reads status:
-    // 'playing' (roomPhase folds status+finished together), so a hand-built
-    // push that un-finishes the game without repeating status: 'playing' —
-    // {finished: false, currentPlayerIndex: 0}, say — has an unambiguous
-    // intent to restart play but fails `newState.status === 'playing'` simply
-    // because a real client would have sent that field and this one omitted
-    // it. `wantsPlay` covers that case too: a finished room with no `status`
-    // in the push is still asking to move to playing: a finished room that
-    // clears `finished` has nowhere else to go. (Worded so as not to read
-    // like an import statement — server/packaging.test.ts scans comments too.)
-    const wantsPlay = newState.status === 'playing' ||
-      (currentPhase === 'finished' && newState.status === undefined);
-    const startingGame = isHost && wantsPlay &&
-      (currentPhase === 'lobby' || (currentPhase === 'finished' && newState.finished === false));
+    const startingGame = isHost && !!data.action && typeof data.action === 'object' &&
+      (data.action as { type?: unknown }).type === 'start';
 
-    // Resolved from the socket rather than from currentPlayerIndex at merge
-    // time: that index is itself a pushable field, so by the time the roster
-    // is merged this same push may already have advanced it to the next seat.
-    // Looked up over the whole roster, not just activePlayer, so it stays
-    // correct if the host ever loses its blanket roster authority.
-    const pusherName = room.state.players.find(p => p.socketId === socket.id)?.name ?? null;
-
-    // The deck as it stands BEFORE the merge. settleDeck decides which move
-    // this push made by comparing the two moments, and applyPushedState
-    // mutates the room in place — so the earlier one has to be taken first.
+    // Capture the private deck before applying the action so advancement and
+    // undo can use the server's deal ledger.
     const deckBefore = readDeckContext(room.state);
     const roundBefore = room.state.round;
 
-    const applied = applyPushedState(room.state, newState, {
-      isHost, startingGame, pusherName,
-      allowedPlayerNames: room.startRoster?.map(player => player.name),
-    });
+    const applied = applyOnlineGameAction(room, data.action, socket.id);
+    if (!applied) return refuse('refused');
 
-    // Whether a game ACTUALLY started, read off the state applyPushedState
-    // left behind rather than off the push's intent. `startingGame` is decided
-    // before the merge (applyPushedState needs it to allow the kickoff's
-    // config write), and `applied` only says the snapshot was not discarded
-    // wholesale — neither of them sees the coherence repair, which puts a
-    // status back to 'lobby' (or a `finished` back to true) for a push that
-    // named no player to act. All the bookkeeping below then ran for a start
-    // the room had already reverted: the stats dedup was cleared, letting the
-    // still-finished game be submitted a second time, and startRoster/
-    // normalizedGame/ruleset were re-frozen from a game that never began.
-    //
-    // A MOVED phase, not specifically 'playing': the repair's two undos are
-    // precisely "the room is still in the phase it was pushed out of" — back
-    // to 'lobby' for the first disjunct below, back to 'finished' for Play
-    // Again's. A kickoff that legitimately lands somewhere else (a push that
-    // starts and finishes a game in one go) is a start like any other.
     const startedGame = startingGame && applied && roomPhase(room.state) !== currentPhase;
 
-    // Gated on the push having landed, and therefore only readable AFTER it:
-    // applyPushedState discards a whole snapshot whose roster no longer
-    // matches the server's, and clearing the dedup for a game that never
-    // started let the host submit the still-finished game's statistics a
-    // second time.
+    // Only an accepted start resets accounting for the next game.
     if (startedGame) {
       room.statsRecordedForGame = { devices: new Map(), global: false };
+      room.participantStats = new Map();
       // The only record of who was actually at the table when THIS game
       // began — a seat that leaves, is kicked, or times out before the
       // finish is broadcast is spliced out of room.state.players by then, and
       // this is what lets recordDepartedSeatsStats (rooms.ts) still find it.
-      // Read after applyPushedState, same as normalizedGame/ruleset below:
-      // the opening push may itself carry the roster (a fresh shuffle, or
-      // Play Again's new order), so the pre-push players would miss it.
       room.startRoster = room.state.players.map(p => ({ deviceId: p.deviceId, name: p.name }));
     }
 
-    // Decided AFTER the push is applied: the opening push carries winningScore
-    // and initialCards itself, so reading the pre-push state would see only the
-    // lobby's config and miss a custom one smuggled in with the kickoff.
-    //
-    // Kickoff alone was not enough either: the push path used to accept
-    // winningScore and initialCards at any time, so "start on the default
-    // config, shorten the winning score once running, win in two turns" would
-    // have been recorded as a normal game. Both paths now refuse a mid-game
-    // config write (LOBBY_ONLY_CONFIG_FIELDS), so the downgrade below is a
-    // backstop rather than the rule — kept because it costs one `&&=` and
-    // because relabelling a game's statistics bucket is not recoverable. It
-    // only ever goes one way: restoring the defaults before the end must not
-    // relabel a game that ran custom.
-    //
-    // Gated on `startedGame` for the same reason as the dedup reset above: a
-    // push that started no game — discarded, or reverted by the coherence
-    // repair — would have this re-derive the label from the STILL-finished
-    // game's current config and relabel its statistics bucket, exactly the
-    // upgrade the sticky downgrade below exists to prevent. The `else if` then
-    // keeps the downgrade running, which for an unchanged state is a no-op.
+    // Freeze statistics configuration at kickoff; later changes can only
+    // downgrade normalized status, never relabel a custom game as default.
     if (startedGame) {
       room.normalizedGame = isNormalizedConfig(room.state);
       // Frozen for the same reason as normalizedGame: the stats handlers
       // must bucket by the rule set the game actually STARTED with, not by
       // whatever the state holds at submission time. No downgrade branch —
-      // state.ruleset is immutable mid-game (see applyPushedState).
+      // state.ruleset is immutable mid-game.
       room.ruleset = room.state.ruleset;
     } else if (room.state.status === 'playing') {
       room.normalizedGame &&= isNormalizedConfig(room.state);
     }
 
-    // roomPhase, not the status field alone: a finished game's finishing push
-    // already nulled gameActualStartTime after banking the elapsed time, so
-    // without excluding 'finished' here, any later push against the finished
-    // room (still status 'playing' — see roomPhase) re-armed the clock to now
-    // — and the finished branch below then recomputed gameTimeInSeconds as
-    // now-minus-now = 0 and broadcast it, repainting every end screen to
-    // 00:00. It also happens for a push that was DISCARDED (a stale roster
-    // bails out of applyPushedState, but this bookkeeping runs regardless),
-    // and a player who rejoins after that broadcast then submits
-    // totalPlaytime: 0 to the stats.
+    // A finished room still has status 'playing'; do not restart its clock.
     if (roomPhase(room.state) === 'playing' && !room.gameActualStartTime) {
       room.gameActualStartTime = Date.now();
     }
@@ -261,19 +192,13 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
       room.turnTimerState = idleTurnTimerState();
     }
 
-    // The server adopts the proposed next identity only after acceptance.
-    // Clients can chain optimistic actions without waiting for a round trip;
-    // a timeout, undo or rematch breaks that chain even if round/seat repeat.
-    if (applied) room.gameplayToken = typeof data.mutationId === 'string' ? data.mutationId : randomUUID();
+    // Acceptance advances lineage; presence-only broadcasts do not.
+    room.gameplayToken = data.mutationId;
     emitRoomState(io, roomId);
 
-    // After the broadcast, so the version reported is the one the sender's own
-    // push produced. A discarded snapshot (the roster bail-out — the only way
-    // applyPushedState returns false) still broadcasts, because the
-    // bookkeeping above ran either way and the sender must re-derive from an
-    // authoritative state; it is simply not reported as accepted.
+    // Report the canonical broadcast's identity, never the discarded snapshot.
     if (typeof ack === 'function') {
-      ack(applied ? { ok: true, stateVersion: room.stateVersion, ...(data.base ? { gameplayToken: room.gameplayToken } : {}) } : { ok: false, reason: 'stale-roster' });
+      ack({ ok: true, stateVersion: room.stateVersion, gameplayToken: room.gameplayToken });
     }
   });
 
@@ -293,7 +218,7 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
    * restarted underneath them.
    */
   safeOn(socket, 'drawCard', (
-    data: { roomId?: string } | null | undefined,
+    data: { roomId?: string; base?: unknown; drawId?: unknown } | null | undefined,
     ack?: DrawCardAckFn,
   ) => {
     const answer = (result: DrawCardAck): void => {
@@ -301,7 +226,6 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     };
     const refuse = (reason: DrawRefusalReason): void => answer({ ok: false, reason });
 
-    if (!drawCardLimiter()) return refuse('rate-limited');
     if (!data || typeof data !== 'object') return refuse('refused');
     const { roomId: rawRoomId } = data;
     if (typeof rawRoomId !== 'string') return refuse('refused');
@@ -316,11 +240,29 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     if (roomPhase(room.state) !== 'playing' || room.state.currentPlayerIndex === null) {
       return refuse('not-playing');
     }
-    if (room.state.players[room.state.currentPlayerIndex]?.socketId !== socket.id) {
+    const activePlayer = room.state.players[room.state.currentPlayerIndex];
+    if (activePlayer?.socketId !== socket.id) {
       return refuse('unauthorized');
     }
+    if (typeof data.base !== 'string' || !GAMEPLAY_TOKEN_PATTERN.test(data.base) ||
+        typeof data.drawId !== 'string' || !GAMEPLAY_TOKEN_PATTERN.test(data.drawId)) return refuse('refused');
+
+    // The first deal may have reached the room while only its callback packet
+    // was lost. Re-answer that exact device/request/base tuple while the deal's
+    // lineage is still current; never spend another card for a retry.
+    const receipt = room.acceptedDraw;
+    if (receipt && receipt.drawId === data.drawId && receipt.deviceId === activePlayer.deviceId &&
+        receipt.base === data.base && receipt.gameplayToken === room.gameplayToken) {
+      return answer({ ok: true, card: receipt.card });
+    }
+
+    if (!drawCardLimiter()) return refuse('rate-limited');
+    if (data.base !== room.gameplayToken) return refuse('refused');
     if (room.state.ruleset !== 'classic') return refuse('refused');
     if (room.dealtThisTurn.length >= MAX_CHAIN_CARDS) return refuse('refused');
+    // These cards end their turn rather than continuing a chain.
+    if (room.state.currentCard === 'Stop' || room.state.currentCard === 'Kleeblatt' ||
+        room.state.currentCard === 'Feuerwerk') return refuse('refused');
 
     drawNextCardForRoom(room.state);
     const card = room.state.currentCard;
@@ -357,6 +299,10 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     // the drawer is about to roll on, and the drawer's own gameState carries
     // the card as well — the ack is what lets it act without waiting.
     room.gameplayToken = randomUUID();
+    room.acceptedDraw = {
+      drawId: data.drawId, deviceId: activePlayer.deviceId, base: data.base,
+      card, gameplayToken: room.gameplayToken,
+    };
     emitRoomState(io, roomId);
     answer({ ok: true, card });
   });
@@ -382,7 +328,7 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
    * calls a second, for as long as it stayed connected. The seat lookup is the
    * thing those two paths actually revoke.
    */
-  safeOn(socket, 'requestState', (data: { roomId?: string } | null | undefined) => {
+  safeOn(socket, 'requestState', (data: { roomId?: string; requestId?: unknown } | null | undefined) => {
     if (!requestStateLimiter()) return;
     if (!data || typeof data !== 'object') return;
     const { roomId: rawRoomId } = data;
@@ -395,7 +341,10 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     const room = rooms[roomId];
     if (!room) return;
     if (!room.state.players.some(p => p.socketId === socket.id)) return;
-    emitRoomStateTo(socket, roomId);
+    const requestId = typeof data.requestId === 'string' && GAMEPLAY_TOKEN_PATTERN.test(data.requestId)
+      ? data.requestId
+      : undefined;
+    emitRoomStateTo(socket, roomId, requestId ? { stateRequestId: requestId } : undefined);
   });
 
   // Dedicated low-overhead path for live dice-roll updates (fired ~every
@@ -407,7 +356,7 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
   // field and broadcasts a small, standalone event instead — pushState,
   // applyPushedState, and emitRoomState are untouched and still carry
   // liveTurnState as part of the full sync for reconnect/fresh-join.
-  safeOn(socket, 'liveTurnState', (data: { roomId?: string; liveTurnState?: unknown } | null | undefined) => {
+  safeOn(socket, 'liveTurnState', (data: { roomId?: string; base?: unknown; liveTurnState?: unknown } | null | undefined) => {
     if (!liveTurnStateLimiter()) return;
     if (!data || typeof data !== 'object') return;
     const { roomId: rawRoomId, liveTurnState } = data;
@@ -433,6 +382,7 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     // relay is gated on isMyTurn and the dice modal is force-closed for every
     // non-active client.
     if (!isActivePlayer) return;
+    if (roomPhase(room.state) !== 'playing' || data.base !== room.gameplayToken) return;
 
     if (liveTurnState === null) {
       room.state.liveTurnState = null;

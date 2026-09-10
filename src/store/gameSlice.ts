@@ -159,6 +159,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
 
   startGame: () => {
     const s = get();
+    if (s.isOnline && s.onlineActionPending) return;
     if (s.isOnline && !s.isHost) return;
     // The lobby's two-player minimum, held again here: Play Again reaches
     // this directly from the end screen, and opponents may have LEFT the
@@ -193,9 +194,10 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
 
       // Same constrained shuffle the mid-game rebuilds use (see buildDeck) —
       // a plain shuffle here could open the game with a 4+ run of one card.
-      const deck = buildDeck(state.initialCards);
+      const deck = state.isOnline ? [] : buildDeck(state.initialCards);
       state.currentCard = deck.shift() ?? null;
       state.cards = deck;
+      state.remainingCardCounts = null;
       state.currentPlayerIndex = 0;
       state.liveTurnState = null;
       state.historyLog = [];
@@ -211,7 +213,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     clearTurnCaches();
 
     if (get().isOnline) {
-      get().pushState(s.gameplayToken);
+      get().pushState(s.gameplayToken, { type: 'start' });
       get().syncOnlineTimers();
     } else {
       get().startLocalTimers();
@@ -220,6 +222,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
 
   endGame: () => {
     const s = get();
+    if (s.isOnline && s.onlineActionPending) return;
     if (s.isOnline && !s.isHost) return;
     get().stopLocalTimers();
     // And the online pair, which stopLocalTimers does not cover: the turn
@@ -236,6 +239,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       round: 1,
       currentCard: null,
       cards: [],
+      remainingCardCounts: null,
       turnTimeRemaining: null,
       // Cleared with the value derived from it: a deadline belongs to the turn
       // it was set for, and the game that turn was part of is over.
@@ -252,7 +256,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       deviceStatsAcknowledgment: null,
     });
     clearTurnCaches();
-    if (get().isOnline) get().pushState(s.gameplayToken);
+    if (get().isOnline) get().pushState(s.gameplayToken, { type: 'reset' });
   },
 
   // Classic chains only: the active player reveals the next card mid-turn
@@ -270,6 +274,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
   // calculateNextTurn's next-player draw.
   drawCardMidTurn: async (): Promise<CardType | null> => {
     const s = get();
+    if (s.isOnline && s.onlineActionPending) return null;
     if (s.finished || s.currentPlayerIndex === null) return null;
 
     if (s.isOnline) {
@@ -294,6 +299,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
 
   nextTurn: (scoreInput, isSuccess = false, turnSummary) => {
     const s = get();
+    if (s.isOnline && s.onlineActionPending) return;
     if (s.finished) return;
     if (s.currentPlayerIndex === null) return;
 
@@ -302,6 +308,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       scoreInput,
       isSuccess,
       turnSummary,
+      false,
+      !s.isOnline,
     );
 
     set((state) => {
@@ -346,8 +354,10 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       } else {
         state.currentPlayerIndex = result.nextIndex;
         state.round = result.nextRound;
-        state.cards = result.newDeck;
-        state.currentCard = result.drawnCard;
+        if (!state.isOnline) {
+          state.cards = result.newDeck;
+          state.currentCard = result.drawnCard;
+        }
       }
       state.liveTurnState = null;
       state.historyLog.push(result.historyEntry);
@@ -369,7 +379,10 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     // Stats are intentionally only tracked for online games. Local games do not
     // submit statistics — by design, not an oversight.
     if (get().isOnline) {
-      get().pushState(s.gameplayToken);
+      get().pushState(s.gameplayToken, {
+        type: 'commit', score: scoreInput, success: isSuccess,
+        ...(turnSummary ? { summary: turnSummary } : {}),
+      });
       // Only AFTER pushState: the server refuses end-game stats until it has
       // seen finished=true, and socket.io preserves per-connection event
       // order — pushing first is what makes the winner's own submission land.
@@ -380,6 +393,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
 
   undo: () => {
     const s = get();
+    if (s.isOnline && s.onlineActionPending) return;
     // A chain that ended on a drawn Stop card is a real committed turn and
     // stays undoable — only the bare modernized Stop (nothing happened) is not.
     if (!s.previousCard || (s.previousCard === 'Stop' && !s.previousTurnSummary)) return;
@@ -395,8 +409,10 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.players = result.players;
       state.currentPlayerIndex = result.nextIndex;
       state.round = result.nextRound;
-      state.cards = result.newDeck;
-      state.currentCard = result.drawnCard;
+      if (!state.isOnline) {
+        state.cards = result.newDeck;
+        state.currentCard = result.drawnCard;
+      }
       Object.assign(state, noUndoableTurn());
       // The turn being undone may have been mid-roll (digital dice) — its
       // snapshot no longer corresponds to anything once the score is reverted
@@ -414,7 +430,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     clearTurnCaches();
 
     if (get().isOnline) {
-      get().pushState(s.gameplayToken);
+      get().pushState(s.gameplayToken, { type: 'undo' });
       get().syncOnlineTimers();
     }
   },

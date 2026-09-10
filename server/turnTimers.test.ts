@@ -15,8 +15,16 @@ import { rooms, createRoom, roomChannel } from './rooms';
 import { clearServerTurnTimer, startServerTurnTimer, advanceTurnOnTimeout, abortGameIfLowPlayers, scaledTimerMs } from './turnTimers';
 import { makeServerPlayer as makePlayer, makeFakeIo } from './socketTestHarness';
 import { MAX_CHART_POINTS } from './pushValidation';
+import type { TurnCardOutcome } from '../src/types';
 
 const roomId = 'timer-unit-room';
+const stageClassicEvidence = (outcomes: TurnCardOutcome[]): void => {
+  const room = rooms[roomId];
+  room.state.ruleset = 'classic';
+  room.dealtThisTurn = outcomes.map(outcome => outcome.card);
+  if (!room.state.liveTurnState) throw new Error('Missing test snapshot');
+  room.state.liveTurnState.cardOutcomes = outcomes;
+};
 
 // vite.config.ts sets TEST_TIMER_SCALE for the whole suite to accelerate the
 // spawned-server integration tests, and startServerTurnTimer applies it here
@@ -301,7 +309,7 @@ describe('turnTimers', () => {
         status: 'playing', currentPlayerIndex: 0, currentCard: 'Feuerwerk', cards: ['300'],
         round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
         liveTurnState: {
-          turnScore: 1800, keptDice: [],
+          turnScore: 3500, keptDice: [],
           // A genuinely unresolved roll: the tab died mid-roll, so the dice
           // sit on the table with no verdict — the one state the timeout
           // still reads as the dice null. (An EMPTY flagless table is the
@@ -314,6 +322,7 @@ describe('turnTimers', () => {
           chainTuttoCount: 2,
         },
       });
+      stageClassicEvidence([{ card: '500', scoreBefore: 0, scoreAfter: 1000, tuttos: 1 }, { card: 'Kniffel', scoreBefore: 1000, scoreAfter: 3000, tuttos: 1 }, { card: 'Feuerwerk', scoreBefore: 3000, scoreAfter: 3500, tuttos: 0 }]);
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
 
       const state = rooms[roomId].state;
@@ -324,7 +333,7 @@ describe('turnTimers', () => {
       expect(alice.timesFeuerwerkReceived).toBe(1);  // the card the chain died on
       expect(alice.totalTuttos).toBe(2);
       expect(alice.mostCardsInTurn).toBe(3);
-      expect(alice.highestForfeitedTurnScore).toBe(1800);
+      expect(alice.highestForfeitedTurnScore).toBe(3500);
       expect(state.previousScore).toBe(0);
       expect(state.previousTurnSummary?.cards.map(c => c.card)).toEqual(['500', 'Kniffel', 'Feuerwerk']);
       const lastEntry = state.historyLog[state.historyLog.length - 1];
@@ -368,6 +377,7 @@ describe('turnTimers', () => {
           cardsThisTurn: ['Kniffel'], plusMinusScores: [], chainTuttoCount: 1,
         },
       });
+      stageClassicEvidence([{ card: 'Kniffel', scoreBefore: 0, scoreAfter: 2000, tuttos: 1 }]);
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
 
       const alice = rooms[roomId].state.players[0];
@@ -402,6 +412,7 @@ describe('turnTimers', () => {
           cardsThisTurn: ['Kniffel'], plusMinusScores: [], chainTuttoCount: 1,
         },
       });
+      stageClassicEvidence([{ card: 'Kniffel', scoreBefore: 0, scoreAfter: 2000, tuttos: 1 }]);
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
 
       const alice = rooms[roomId].state.players[0];
@@ -437,6 +448,7 @@ describe('turnTimers', () => {
           cardsThisTurn: ['Kniffel'], plusMinusScores: [], chainTuttoCount: 1,
         },
       });
+      stageClassicEvidence([{ card: 'Kniffel', scoreBefore: 0, scoreAfter: 2000, tuttos: 1 }]);
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
 
       const alice = rooms[roomId].state.players[0];
@@ -456,7 +468,7 @@ describe('turnTimers', () => {
         status: 'playing', currentPlayerIndex: 0, currentCard: 'Kniffel', cards: ['300'],
         round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
         liveTurnState: {
-          turnScore: 300,
+          turnScore: 0,
           keptDice: [1, 2, 3].map(v => ({ id: `k${v}`, val: v })),
           currentRoll: [{ id: 'r4', val: 4, selected: true }, { id: 'r5', val: 5, selected: true },
             { id: 'r6', val: 6, selected: false }],
@@ -464,6 +476,7 @@ describe('turnTimers', () => {
           cardsThisTurn: ['Kniffel'], plusMinusScores: [], chainTuttoCount: 0,
         },
       });
+      stageClassicEvidence([{ card: 'Kniffel', scoreBefore: 0, scoreAfter: 0, tuttos: 0 }]);
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
 
       const alice = rooms[roomId].state.players[0];
@@ -482,12 +495,13 @@ describe('turnTimers', () => {
         status: 'playing', currentPlayerIndex: 0, currentCard: '300', cards: ['200'],
         round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
         liveTurnState: {
-          turnScore: 450,
+          turnScore: 2450,
           keptDice: [{ id: 'k1', val: 1 }, { id: 'k2', val: 5 }],
           currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0, stopped: true,
           cardsThisTurn: ['Kniffel', '300'], plusMinusScores: [], chainTuttoCount: 1,
         },
       });
+      stageClassicEvidence([{ card: 'Kniffel', scoreBefore: 0, scoreAfter: 2000, tuttos: 1 }, { card: '300', scoreBefore: 2000, scoreAfter: 2450, tuttos: 0 }]);
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
 
       const alice = rooms[roomId].state.players[0];
@@ -495,7 +509,7 @@ describe('turnTimers', () => {
       expect(alice.timesKniffelCompleted).toBe(1); // completed mid-chain
       // Still a forfeit: nothing banks, and the thrown-away total is recorded.
       expect(rooms[roomId].state.previousScore).toBe(0);
-      expect(alice.highestForfeitedTurnScore).toBe(450);
+      expect(alice.highestForfeitedTurnScore).toBe(2450);
       expect(rooms[roomId].state.previousTurnSummary?.ended).toBe('timeout');
       expect(rooms[roomId].state.previousTurnSummary?.cards).toEqual([
         { card: 'Kniffel', completed: true },
@@ -517,6 +531,7 @@ describe('turnTimers', () => {
           cardsThisTurn: ['300', 'Feuerwerk'], plusMinusScores: [], chainTuttoCount: 1,
         },
       });
+      stageClassicEvidence([{ card: '300', scoreBefore: 0, scoreAfter: 800, tuttos: 1 }, { card: 'Feuerwerk', scoreBefore: 800, scoreAfter: 1500, tuttos: 0 }]);
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
 
       const alice = rooms[roomId].state.players[0];
@@ -547,6 +562,7 @@ describe('turnTimers', () => {
           cardsThisTurn: ['300', 'Feuerwerk'], plusMinusScores: [], chainTuttoCount: 1,
         },
       });
+      stageClassicEvidence([{ card: '300', scoreBefore: 0, scoreAfter: 800, tuttos: 1 }, { card: 'Feuerwerk', scoreBefore: 800, scoreAfter: 1500, tuttos: 0 }]);
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
 
       const alice = rooms[roomId].state.players[0];
@@ -577,6 +593,8 @@ describe('turnTimers', () => {
           cardsThisTurn: ['300', 'Feuerwerk'], plusMinusScores: [], chainTuttoCount: 1,
         },
       });
+      stageClassicEvidence([{ card: '300', scoreBefore: 0, scoreAfter: 800, tuttos: 1 },
+        { card: 'Feuerwerk', scoreBefore: 800, scoreAfter: 1500, tuttos: 0 }]);
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
 
       const alice = rooms[roomId].state.players[0];
@@ -601,6 +619,7 @@ describe('turnTimers', () => {
           chainTuttoCount: 1,
         },
       });
+      stageClassicEvidence([{ card: '300', scoreBefore: 0, scoreAfter: 800, tuttos: 1 }, { card: 'Stop', scoreBefore: 800, scoreAfter: 800, tuttos: 0 }]);
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
 
       const alice = rooms[roomId].state.players[0];
@@ -629,6 +648,7 @@ describe('turnTimers', () => {
           chainTuttoCount: 1,
         },
       });
+      stageClassicEvidence([{ card: '300', scoreBefore: 0, scoreAfter: 1800, tuttos: 1 }, { card: '500', scoreBefore: 1800, scoreAfter: 1800, tuttos: 0 }]);
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
 
       const alice = rooms[roomId].state.players[0];
@@ -683,6 +703,7 @@ describe('turnTimers', () => {
           cardsThisTurn: ['Kniffel', '400'], plusMinusScores: [], chainTuttoCount: 1,
         },
       });
+      stageClassicEvidence([{ card: 'Kniffel', scoreBefore: 0, scoreAfter: 2000, tuttos: 1 }, { card: '400', scoreBefore: 2000, scoreAfter: 2400, tuttos: 0 }]);
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
 
       const alice = rooms[roomId].state.players[0];
@@ -716,6 +737,7 @@ describe('turnTimers', () => {
           lastCardCompleted: true,
         },
       });
+      stageClassicEvidence([{ card: 'Kniffel', scoreBefore: 0, scoreAfter: 2000, tuttos: 1 }]);
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
 
       const alice = rooms[roomId].state.players[0];
@@ -814,6 +836,7 @@ describe('turnTimers', () => {
           stopped: true, cardsThisTurn: ['Kleeblatt'], chainTuttoCount: 2,
         },
       });
+      stageClassicEvidence([{ card: 'Kleeblatt', scoreBefore: 0, scoreAfter: 0, tuttos: 2 }]);
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
       const state = rooms[roomId].state;
       expect(state.finished).toBe(true);
@@ -934,6 +957,10 @@ describe('turnTimers', () => {
       });
       room.dealtThisTurn = ['200'];
       room.dealtLastTurn = ['Kniffel'];
+      room.acceptedDraw = {
+        drawId: '11111111-1111-4111-8111-111111111111', deviceId: 'device-Alice',
+        base: '22222222-2222-4222-8222-222222222222', card: '200', gameplayToken: room.gameplayToken,
+      };
 
       expect(abortGameIfLowPlayers(makeFakeIo().io, room, roomId)).toBe(true);
 
@@ -941,6 +968,7 @@ describe('turnTimers', () => {
       expect(room.state.currentCard).toBeNull();
       expect(room.dealtThisTurn).toEqual([]);
       expect(room.dealtLastTurn).toEqual([]);
+      expect(room.acceptedDraw).toBeNull();
     });
 
     it('aborts the game, resets play state, clears the timer, and emits gameAborted', () => {

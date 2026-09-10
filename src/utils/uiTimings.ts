@@ -44,6 +44,13 @@ export const BOT_OPEN_DELAY_MS = 1200;
 // "Yes, Reconnect", which race it against the join for the same reason.
 export const JOIN_TIMEOUT_MS = 10_000;
 
+// A replacement socket can reach the server while its previous replacement is
+// still finishing the bounded rejoin reservation. Retry that transient
+// `rejoin_pending` answer without extending the original reconnect deadline.
+// One second also keeps the maximum five-second stats reservation below the
+// server's ten joinRoom attempts per ten-second admission limit.
+export const REJOIN_PENDING_RETRY_DELAY_MS = 1_000;
+
 // cancelReconnect's own failsafe: the fire-and-forget temp socket it opens to
 // vacate a seat (join-then-immediately-leave) must not hang forever if the
 // server never calls the joinRoom callback back. Deliberately a separate

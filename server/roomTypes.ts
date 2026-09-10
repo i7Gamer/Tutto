@@ -1,4 +1,4 @@
-import type { CardType, InitialCards, Player, DiceSnapshot, DiceMode, GameMode, HistoryEntry, Ruleset, TurnSummary, SyncedGameStateKey, AssertNever } from '../src/types';
+import type { AcceptedDrawReceipt, CardType, InitialCards, Player, DiceSnapshot, DiceMode, GameMode, HistoryEntry, Ruleset, TurnSummary, SyncedGameStateKey, AssertNever } from '../src/types';
 
 // CardType / InitialCards / Player are shared with the client (src/types.ts) to
 // keep the card set and player shape from drifting. The server requires the
@@ -94,7 +94,7 @@ export interface TurnTimerState {
 }
 
 // Tracks which devices/global stats have already been recorded for the room's
-// CURRENT game — reset whenever a new game starts (see pushState's startingGame
+// CURRENT game — reset whenever a new game starts (see pushState's accepted-start
 // branch). Without this, a player who reconnects or reloads after their game
 // already finished (but before leaving the room) re-triggers their client's
 // "finished just became true" stats submission on every reconnect, repeatedly
@@ -103,9 +103,9 @@ export interface StatsRecordedForGame {
   /**
    * How much of each device's row for the CURRENT game is already written.
    *
-   * Membership alone is the dedup every path shares; the LEVEL is what tells
-   * the server's own departed-seat write apart from a device recording its
-   * own game in full. See DeviceStatsRecordLevel.
+   * Entries describe committed writes; pending reservations are tracked by
+   * statsWriteCoordinator. The level distinguishes complete rows from legacy
+   * verdict-only rows that can still be topped up. See DeviceStatsRecordLevel.
    */
   devices: Map<string, DeviceStatsRecordLevel>;
   global: boolean;
@@ -114,37 +114,31 @@ export interface StatsRecordedForGame {
 /**
  * How complete a device's statistics row for the current game is.
  *
- * 'verdict-only' — the SERVER wrote the row (recordDepartedSeatsStats in
- * rooms.ts) for a seat that had left or was disconnected when the finish was
- * broadcast: the game and its outcome, and nothing else. The device's own
- * later submission (it reconnected after all) is still owed everything that
- * row could not know, so endGameStats merges it in rather than refusing it as
- * a duplicate.
+ * 'verdict-only' — a legacy departed-seat row without captured participant
+ * counters. It records the game, outcome, player count, and round count.
+ * A returning seat's endGameStats request can add the remaining counters
+ * from available server player state without counting those fields twice.
  *
- * 'full' — a complete row is in, from the seat's own endGameStats. Any
- * further submission for the same game is a no-op.
+ * 'full' — a complete server-derived row is committed, from endGameStats or
+ * the departed-seat writer. Further submissions for the same game are no-ops.
  */
 export type DeviceStatsRecordLevel = 'verdict-only' | 'full';
 
 /**
  * The result of a finished game, as the room saw it at the moment it ended.
  *
- * A client decides "did I win" with getLeaders() over its own roster — which
- * is wrong for any client whose first sight of the finish arrives after a seat
- * has left, because the last player standing then looks like the leader. The
- * damage is permanent (fastestWinTurns is a MIN column, the win streak only
- * rises), so the verdict is the server's, taken while the winner was still
- * seated — the same reasoning that makes isDefaultGame the server's call.
+ * The server freezes the verdict before any post-finish departures can change
+ * the roster's leaders. Both statistics writers use this result, preserving
+ * the actual winner, participant counters, and final round and elapsed time.
  */
 export interface FinishedGame {
   /**
    * Every tied leader, by name — see getLeaders.
    *
    * In practice always exactly one: a tie is not a win, so no path to
-   * `finished` can produce more. pushValidation's `applyFinished` holds every
-   * pusher, the host included, to the engine's sole-leader rule, and the two
-   * server-side finishes (turnTimers' expiry, rooms' handleActivePlayerRemoved)
-   * run the same check themselves. The plural stays because getLeaders returns
+   * `finished` can produce more. Accepted game actions, turnTimers' expiry,
+   * and rooms' handleActivePlayerRemoved use the engine's sole-leader rule.
+   * The plural stays because getLeaders returns
    * a list and a downstream reader must not assume the shape it was handed.
    */
   winners: string[];
@@ -158,6 +152,12 @@ export interface FinishedGame {
   playerCount: number;
   /** The authoritative round at the moment this verdict was frozen. */
   round: number;
+  /** Server-captured final counters for every participant, including departed seats. */
+  players?: ServerPlayer[];
+  /** Server state elapsed time at the moment the verdict was frozen. */
+  gameTimeInSeconds?: number;
+  /** Stable device identities of the winners, avoiding a roster-derived re-decision. */
+  winnerDeviceIds?: string[];
 }
 
 /** One seat's identity at the moment the CURRENT game started. */
@@ -183,6 +183,8 @@ export interface Room {
   stateVersion: number;
   // Compare-and-swap identity for gameplay, independent of presence broadcasts.
   gameplayToken: string;
+  /** Latest deal receipt, replayable only while its gameplay lineage is current. */
+  acceptedDraw: (AcceptedDrawReceipt & { deviceId: string; base: string }) | null;
   finishedGameToken: string | null;
   // The client address this room was created from, for the per-address
   // creation cap (countRoomsCreatedBy). '' means it was not attributed to
@@ -218,6 +220,8 @@ export interface Room {
   // BEFORE the finish and is invisible to endGameStats — see
   // recordDepartedSeatsStats in rooms.ts, which records it instead.
   startRoster: StartRosterEntry[] | null;
+  /** Latest server-accepted player state per current-game participant. */
+  participantStats?: Map<string, ServerPlayer>;
   /**
    * The cards the SERVER dealt for the turn in progress, and for the one
    * before it, oldest first — each list starting with the card its turn opened

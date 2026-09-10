@@ -76,6 +76,17 @@ describe('buildChildEnv', () => {
     expect(child.MAX_ROOMS_PER_ADDRESS).toBe('1000000');
   });
 
+  it('passes through the transport, room-work, and failed-auth test ceilings', () => {
+    const child = buildChildEnv({
+      MAX_CONCURRENT_TRANSPORTS: '1000000',
+      ROOM_PUSH_WORK_LIMIT_MAX: '1000000',
+      ADMIN_AUTH_FAILURE_LIMIT_MAX: '1000000',
+    });
+    expect(child.MAX_CONCURRENT_TRANSPORTS).toBe('1000000');
+    expect(child.ROOM_PUSH_WORK_LIMIT_MAX).toBe('1000000');
+    expect(child.ADMIN_AUTH_FAILURE_LIMIT_MAX).toBe('1000000');
+  });
+
   it('passes through the stats rate-limit override vite.config.ts injects for the test run', () => {
     // Same shape as SOCKET_CONN_LIMIT_MAX/MAX_ROOMS_PER_ADDRESS above: the
     // ~3s-per-attempt polling in sockets.stats.test.ts shares one server

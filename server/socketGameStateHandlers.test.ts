@@ -3,8 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { registerGameStateHandlers, MAX_TIMER_RESTARTS_PER_TURN, DRAW_CARD_LIMIT } from './socketGameStateHandlers';
 import { makeFakeSocket, makeFakeIo, makeServerPlayer, type Handler } from './socketTestHarness';
 import { rooms, createRoom, deleteRoom } from './rooms';
-import { MAX_CHAIN_CARDS } from '../src/types';
+import { MAX_CHAIN_CARDS, type OnlineGameAction } from '../src/types';
 import type { RoomState } from './roomTypes';
+import { randomUUID } from 'node:crypto';
 
 // This file's players default to position: 1 (rather than makeServerPlayer's
 // own default of 0) — kept as an explicit override below so converting to
@@ -14,6 +15,22 @@ const makePlayer = (name: string, socketId: string) => makeServerPlayer(name, { 
 // Stands in for a device whose row the room has already written for the game
 // it is currently sitting on — only that the dedup entry survives matters.
 const PREVIOUS_GAME_DEVICE = 'dev-already-recorded';
+
+const pushAction = (
+  handler: Handler,
+  roomId: string,
+  action: OnlineGameAction,
+  newState: Record<string, unknown> = {},
+  ack?: ReturnType<typeof vi.fn>,
+): void => {
+  handler({
+    roomId,
+    newState,
+    base: rooms[roomId].gameplayToken,
+    mutationId: randomUUID(),
+    action,
+  }, ack);
+};
 
 describe('pushState turn-timer restarts', () => {
   const roomId = 'TIMER-RESTART-ROOM';
@@ -64,7 +81,7 @@ describe('pushState turn-timer restarts', () => {
 
     // A real turn hand-over, which is also what makes the server deal the
     // next seat its card (see the deck-authority suite below).
-    pushState({ roomId, newState: { currentPlayerIndex: 1, previousCard: '300', previousPlayerName: 'Alice' } });
+    pushAction(pushState, roomId, { type: 'commit', score: 0, success: false });
 
     expect(rooms[roomId].state.turnStartTime).toBe(PUSH_TIME);
     expect(rooms[roomId].turnTimerState?.restartsThisTurn).toBe(0);
@@ -77,7 +94,7 @@ describe('pushState turn-timer restarts', () => {
     room.state.liveTurnState = {
       turnScore: 300, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
     };
-    pushState({ roomId, newState: { currentPlayerIndex: 0, round: 2, previousCard: '300' } });
+    pushAction(pushState, roomId, { type: 'commit', score: 0, success: false });
     expect(room.state.liveTurnState).toBeNull();
   });
 
@@ -147,18 +164,18 @@ describe('pushState authorization', () => {
     // handler that ignores everyone.
     const bob = seat('active-sock', 'Bob');
 
-    bob.pushState({ roomId, newState: { currentPlayerIndex: 2 } });
+    pushAction(bob.pushState, roomId, { type: 'commit', score: 0, success: false });
 
     expect(rooms[roomId].state.currentPlayerIndex).toBe(2);
     expect(bob.emit).toHaveBeenCalled();
   });
 
-  it('accepts it from the host, who is not the active player', () => {
+  it('accepts the host control action while the host is not the active player', () => {
     const alice = seat('host-sock', 'Alice');
 
-    alice.pushState({ roomId, newState: { currentPlayerIndex: 2 } });
+    pushAction(alice.pushState, roomId, { type: 'reset' });
 
-    expect(rooms[roomId].state.currentPlayerIndex).toBe(2);
+    expect(rooms[roomId].state.status).toBe('lobby');
   });
 
   it('does not let the non-active host replace the active player live snapshot through pushState', () => {
@@ -212,10 +229,12 @@ describe('pushState acknowledgement and stateVersion', () => {
     const before = rooms[roomId].stateVersion;
     const ack = vi.fn();
 
-    bob.handlers['pushState']({ roomId, newState: { round: 2 } }, ack);
+    pushAction(bob.handlers['pushState'], roomId, { type: 'commit', score: 0, success: false }, {}, ack);
 
-    expect(rooms[roomId].state.round).toBe(2);
-    expect(ack).toHaveBeenCalledWith({ ok: true, stateVersion: before + 1 });
+    expect(rooms[roomId].state.currentPlayerIndex).toBe(2);
+    expect(ack).toHaveBeenCalledWith({
+      ok: true, stateVersion: before + 1, gameplayToken: rooms[roomId].gameplayToken,
+    });
     expect(rooms[roomId].stateVersion).toBe(before + 1);
   });
 
@@ -230,17 +249,16 @@ describe('pushState acknowledgement and stateVersion', () => {
     expect(carol.emit, 'a refused push is not broadcast').not.toHaveBeenCalled();
   });
 
-  it('acks a push whose roster no longer matches as stale-roster', () => {
+  it('ignores a client-authored roster and applies only the authenticated action', () => {
     const bob = seat('active-sock', 'Bob');
     const ack = vi.fn();
 
-    bob.handlers['pushState']({
-      roomId,
-      newState: { round: 2, players: [{ name: 'Alice' }, { name: 'Bob' }] },
+    pushAction(bob.handlers['pushState'], roomId, { type: 'commit', score: 0, success: false }, {
+      players: [{ name: 'Mallory' }],
     }, ack);
 
-    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'stale-roster' });
-    expect(rooms[roomId].state.round, 'the whole snapshot is discarded').toBe(1);
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    expect(rooms[roomId].state.players.map(player => player.name)).toEqual(['Alice', 'Bob', 'Carol']);
   });
 
   it('acks a push naming no room as no-room, and a malformed one as refused', () => {
@@ -260,17 +278,21 @@ describe('pushState acknowledgement and stateVersion', () => {
     // socket.io then hands the handler no callback.
     const bob = seat('active-sock', 'Bob');
 
-    expect(() => bob.handlers['pushState']({ roomId, newState: { round: 2 } })).not.toThrow();
+    expect(() => pushAction(
+      bob.handlers['pushState'], roomId, { type: 'commit', score: 0, success: false },
+    )).not.toThrow();
 
-    expect(rooms[roomId].state.round).toBe(2);
+    expect(rooms[roomId].state.currentPlayerIndex).toBe(2);
     expect(bob.emit).toHaveBeenCalled();
   });
 
   it('carries a monotonically increasing stateVersion on every broadcast', () => {
     const bob = seat('active-sock', 'Bob');
+    rooms[roomId].state.players = [rooms[roomId].state.players[1]];
+    rooms[roomId].state.currentPlayerIndex = 0;
 
-    bob.handlers['pushState']({ roomId, newState: { round: 2 } });
-    bob.handlers['pushState']({ roomId, newState: { round: 3 } });
+    pushAction(bob.handlers['pushState'], roomId, { type: 'commit', score: 0, success: false });
+    pushAction(bob.handlers['pushState'], roomId, { type: 'commit', score: 0, success: false });
 
     const versions = gameStates(bob.emit).map(state => (state as { stateVersion: number }).stateVersion);
     expect(versions).toHaveLength(2);
@@ -359,8 +381,9 @@ describe('pushState may not leave a running game with nobody to act', () => {
     // The control for the guard above: the legitimate use of `null` must keep
     // working, or the refusal is indistinguishable from breaking game-over.
     rooms[roomId].state.players[0].score = 6000;
+    rooms[roomId].state.players = [rooms[roomId].state.players[0]];
 
-    pushState({ roomId, newState: { currentPlayerIndex: null, finished: true } });
+    pushAction(pushState, roomId, { type: 'commit', score: 0, success: false });
 
     const state = rooms[roomId].state;
     expect(state.finished, 'a real game-over is still accepted').toBe(true);
@@ -403,7 +426,7 @@ describe('pushState may not leave a running game with nobody to act', () => {
   const stageFinishedGame = () => {
     Object.assign(rooms[roomId].state, {
       status: 'playing', finished: true, currentPlayerIndex: null, currentCard: null,
-      turnStartTime: null,
+      turnStartTime: null, randomOrder: false,
     });
   };
 
@@ -440,30 +463,19 @@ describe('pushState may not leave a running game with nobody to act', () => {
     // ordinary way a game ends when the host is the active player.
     const { winningScore } = rooms[roomId].state;
 
-    hostPush()({
-      roomId,
-      newState: {
-        players: [{ name: 'Alice', score: winningScore }, { name: 'Bob', score: 100 }],
-        finished: true,
-        currentPlayerIndex: null,
-      },
-    });
+    rooms[roomId].state.currentPlayerIndex = 1;
+    rooms[roomId].state.players[1].score = winningScore;
+    pushAction(hostPush(), roomId, { type: 'commit', score: 0, success: false });
 
     expect(rooms[roomId].state.finished).toBe(true);
-    expect(rooms[roomId].finishedGame?.winners).toEqual(['Alice']);
+    expect(rooms[roomId].finishedGame?.winners).toEqual(['Bob']);
   });
 
   it('still accepts the host ending the game early, which tears it down to the lobby', () => {
     // gameSlice.endGame — the only explicit early-end the UI offers, host-only
     // online — pushes finished: false with status 'lobby'. It never asserts a
     // winner, so the game-over rule above does not touch it.
-    hostPush()({
-      roomId,
-      newState: {
-        status: 'lobby', finished: false, currentPlayerIndex: null, round: 1,
-        chartValues: [], chartNames: [], chartLabels: [],
-      },
-    });
+    pushAction(hostPush(), roomId, { type: 'reset' });
 
     const state = rooms[roomId].state;
     expect(state.status, 'End Game returns the room to the lobby').toBe('lobby');
@@ -487,20 +499,14 @@ describe('pushState may not leave a running game with nobody to act', () => {
     // playing push carrying finished: false, and it must keep working.
     stageFinishedGame();
 
-    hostPush()({
-      roomId,
-      newState: {
-        status: 'playing', finished: false, currentPlayerIndex: 0, round: 1,
-        players: [{ name: 'Alice', score: 0 }, { name: 'Bob', score: 0 }],
-      },
-    });
+    pushAction(hostPush(), roomId, { type: 'start' });
 
     const state = rooms[roomId].state;
     expect(state.finished, 'a rematch that names an actor is a legitimate un-finish').toBe(false);
     expect(state.currentPlayerIndex).toBe(0);
   });
 
-  it('a finished -> playing push that omits status still starts the game (F4)', () => {
+  it('a versioned start action restarts even when the ignored snapshot omits status', () => {
     // A finished room already reads status: 'playing' (roomPhase folds
     // status+finished together) — so a hand-built push that only flips
     // `finished` and names the next actor has an unambiguous intent to
@@ -515,7 +521,7 @@ describe('pushState may not leave a running game with nobody to act', () => {
     rooms[roomId].statsRecordedForGame = { devices: previousGameDevices, global: true };
     rooms[roomId].startRoster = [{ deviceId: 'dev-Alice', name: 'Alice' }, { deviceId: 'dev-Bob', name: 'Bob' }];
 
-    hostPush()({ roomId, newState: { finished: false, currentPlayerIndex: 0 } });
+    pushAction(hostPush(), roomId, { type: 'start' }, { finished: false, currentPlayerIndex: 0 });
 
     const room = rooms[roomId];
     expect(room.state.finished, 'the room is back in play').toBe(false);
@@ -582,13 +588,7 @@ describe('pushState against an already-finished game', () => {
     // that clears finished, and it must get a new anchor — guarding on status
     // alone was wrong, but guarding too eagerly would leave the next game
     // timing from null and reporting 0.
-    pushState({
-      roomId,
-      newState: {
-        status: 'playing', finished: false, currentPlayerIndex: 0, round: 1,
-        players: [{ name: 'Alice' }, { name: 'Bob' }],
-      },
-    });
+    pushAction(pushState, roomId, { type: 'start' });
 
     expect(rooms[roomId].state.finished).toBe(false);
     expect(rooms[roomId].gameActualStartTime).toBe(LATER_PUSH);
@@ -621,6 +621,7 @@ describe('pushState captures the game-start roster (startRoster)', () => {
     rooms[roomId] = createRoom('alice-sock');
     Object.assign(rooms[roomId].state, {
       status: 'lobby', finished: false, currentPlayerIndex: null,
+      randomOrder: false,
       players: [makePlayer('Alice', 'alice-sock'), makePlayer('Bob', 'bob-sock')],
     });
     const fake = makeFakeSocket('alice-sock');
@@ -635,7 +636,7 @@ describe('pushState captures the game-start roster (startRoster)', () => {
   it('captures every seat\'s deviceId and name on lobby -> playing', () => {
     expect(rooms[roomId].startRoster).toBeNull();
 
-    pushState({ roomId, newState: { status: 'playing', currentPlayerIndex: 0 } });
+    pushAction(pushState, roomId, { type: 'start' });
 
     expect(rooms[roomId].startRoster).toEqual([
       { deviceId: 'dev-Alice', name: 'Alice' },
@@ -664,9 +665,14 @@ describe('pushState captures the game-start roster (startRoster)', () => {
     // Game 1 starts and finishes with Alice and Bob. Alice takes the winning
     // score, because a finish is only accepted for a game the engine could
     // have ended (pushValidation's applyFinished).
-    pushState({ roomId, newState: { status: 'playing', currentPlayerIndex: 0 } });
+    pushAction(pushState, roomId, { type: 'start' });
     rooms[roomId].state.players[0].score = rooms[roomId].state.winningScore;
-    pushState({ roomId, newState: { finished: true } });
+    pushAction(pushState, roomId, { type: 'commit', score: 0, success: false });
+    const bob = makeFakeSocket('bob-sock');
+    registerGameStateHandlers({
+      io: makeFakeIo().io, socket: bob.socket, session: { roomId, username: 'Bob' },
+    });
+    pushAction(bob.handlers['pushState'], roomId, { type: 'commit', score: 0, success: false });
     expect(rooms[roomId].startRoster).toEqual([
       { deviceId: 'dev-Alice', name: 'Alice' },
       { deviceId: 'dev-Bob', name: 'Bob' },
@@ -681,13 +687,7 @@ describe('pushState captures the game-start roster (startRoster)', () => {
 
     // "Play Again" — finished -> playing without a lobby stop — carries the
     // host's freshly composed roster.
-    pushState({
-      roomId,
-      newState: {
-        status: 'playing', finished: false, currentPlayerIndex: 0,
-        players: [{ name: 'Alice', score: 0 }, { name: 'Carol', score: 0 }],
-      },
-    });
+    pushAction(pushState, roomId, { type: 'start' });
 
     expect(rooms[roomId].startRoster).toEqual([
       { deviceId: 'dev-Alice', name: 'Alice' },
@@ -777,10 +777,19 @@ describe('liveTurnState authorization', () => {
     // that ignores everyone.
     const bob = seat('active-sock', 'Bob');
 
-    bob.liveTurnState({ roomId, liveTurnState: snapshot(400) });
+    bob.liveTurnState({ roomId, base: rooms[roomId].gameplayToken, liveTurnState: snapshot(400) });
 
     expect(rooms[roomId].state.liveTurnState).toEqual(snapshot(400));
     expect(bob.emit).toHaveBeenCalledWith('liveTurnState', { liveTurnState: snapshot(400) });
+  });
+
+  it('ignores missing and stale live-state ancestry even when the same seat is active', () => {
+    const bob = seat('active-sock', 'Bob');
+    for (const base of [undefined, randomUUID()]) {
+      bob.liveTurnState({ roomId, base, liveTurnState: snapshot(400) });
+      expect(rooms[roomId].state.liveTurnState).toEqual(snapshot(150));
+    }
+    expect(bob.emit).not.toHaveBeenCalled();
   });
 });
 
@@ -826,12 +835,8 @@ describe('the server deals the cards a pushState implies', () => {
   it('deals the next seat the top card, not the one the push named', () => {
     // The exploit in one push: read cards[0] out of the store, then push a
     // different card as the one you drew.
-    pushState({
-      roomId,
-      newState: {
-        currentPlayerIndex: 1, previousCard: 'Kniffel', previousPlayerName: 'Alice',
-        currentCard: 'Kleeblatt', cards: ['Kleeblatt', 'Kleeblatt'],
-      },
+    pushAction(pushState, roomId, { type: 'commit', score: 0, success: false }, {
+      currentCard: 'Kleeblatt', cards: ['Kleeblatt', 'Kleeblatt'],
     });
 
     expect(rooms[roomId].state.currentCard).toBe('300');
@@ -852,12 +857,8 @@ describe('the server deals the cards a pushState implies', () => {
       initialCards: { '300': 2, '400': 2 },
     });
 
-    pushState({
-      roomId,
-      newState: {
-        status: 'playing', currentPlayerIndex: 0, finished: false,
-        cards: ['Kleeblatt', 'Kleeblatt', 'Kleeblatt'], currentCard: 'Kleeblatt',
-      },
+    pushAction(pushState, roomId, { type: 'start' }, {
+      cards: ['Kleeblatt', 'Kleeblatt', 'Kleeblatt'], currentCard: 'Kleeblatt',
     });
 
     expect(room.state.cards).not.toContain('Kleeblatt');
@@ -865,7 +866,7 @@ describe('the server deals the cards a pushState implies', () => {
   });
 
   it('clears the deck when the host ends the game into the lobby', () => {
-    pushState({ roomId, newState: { status: 'lobby', currentPlayerIndex: null, finished: false } });
+    pushAction(pushState, roomId, { type: 'reset' });
 
     expect(rooms[roomId].state.cards).toEqual([]);
     expect(rooms[roomId].state.currentCard).toBeNull();
@@ -877,18 +878,10 @@ describe('the server deals the cards a pushState implies', () => {
     // has to reconstruct the deck from THAT. Hand-setting the state instead
     // would skip the half of this that matters.
     const room = rooms[roomId];
-    pushState({
-      roomId,
-      newState: { currentPlayerIndex: 1, previousCard: 'Kniffel', previousPlayerName: 'Alice' },
-    });
+    pushAction(pushState, roomId, { type: 'commit', score: 0, success: false });
     expect(room.state.currentCard, 'Bob was dealt the top card').toBe('300');
 
-    pushState({
-      roomId,
-      newState: {
-        currentPlayerIndex: 0, previousCard: null, previousPlayerName: null, previousTurnSummary: null,
-      },
-    });
+    pushAction(seat('other-sock', 'Bob'), roomId, { type: 'undo' });
 
     expect(room.state.currentCard, 'the undone turn is replayed on its own card').toBe('Kniffel');
     expect(room.state.cards, 'and the discarded turn gives its card back').toEqual(DECK);
@@ -900,19 +893,11 @@ describe('the server deals the cards a pushState implies', () => {
     // and currentCard was whichever they put first. Repeating it prepended an
     // arbitrary run of chosen cards to the deck.
     const room = rooms[roomId];
-    pushState({
-      roomId,
-      newState: { currentPlayerIndex: 1, previousCard: 'Kniffel', previousPlayerName: 'Alice' },
-    });
+    pushAction(pushState, roomId, { type: 'commit', score: 0, success: false });
 
-    pushState({
-      roomId,
-      newState: {
-        currentPlayerIndex: 0, previousCard: null, previousPlayerName: null,
-        previousTurnSummary: {
-          cards: [{ card: '600', completed: true }, { card: '600', completed: true }],
-          tuttoCount: 0, plusMinusScores: [], ended: 'banked',
-        },
+    pushAction(seat('other-sock', 'Bob'), roomId, { type: 'undo' }, {
+      previousTurnSummary: {
+        cards: [{ card: '600', completed: true }, { card: '600', completed: true }],
       },
     });
 
@@ -938,7 +923,8 @@ describe('drawCard', () => {
     const fake = makeFakeSocket(socketId);
     const { io, emit } = makeFakeIo();
     registerGameStateHandlers({ io, socket: fake.socket, session: { roomId, username } });
-    return { drawCard: fake.handlers['drawCard'], emit };
+    return { drawCard: (data: Record<string, unknown>, ack: ReturnType<typeof vi.fn>) =>
+      fake.handlers['drawCard']({ base: rooms[roomId]?.gameplayToken, drawId: randomUUID(), ...data }, ack), emit };
   };
 
   beforeEach(() => {
@@ -967,12 +953,80 @@ describe('drawCard', () => {
     expect(rooms[roomId].state.cards).toEqual(['200']);
   });
 
+  it('refuses missing or stale draw ancestry without consuming cards', () => {
+    const bob = seat('active-sock', 'Bob');
+    for (const base of [undefined, randomUUID()]) {
+      const ack = vi.fn();
+      bob.drawCard({ roomId, base }, ack);
+      expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'refused' });
+      expect(rooms[roomId].state.cards).toEqual(DECK);
+    }
+    expect(bob.emit).not.toHaveBeenCalled();
+  });
+
   it('broadcasts the drawn card, so spectators see the same chain', () => {
     const bob = seat('active-sock', 'Bob');
 
     bob.drawCard({ roomId }, vi.fn());
 
-    expect(bob.emit).toHaveBeenCalledWith('gameState', expect.objectContaining({ currentCard: '300' }));
+    expect(bob.emit).toHaveBeenCalledWith('gameState', expect.objectContaining({
+      currentCard: '300', acceptedDraw: expect.objectContaining({ card: '300' }),
+    }));
+  });
+
+  it('re-answers the same current draw receipt without consuming another card', () => {
+    const bob = seat('active-sock', 'Bob');
+    const base = rooms[roomId].gameplayToken;
+    const drawId = randomUUID();
+
+    bob.drawCard({ roomId, base, drawId }, vi.fn());
+    const replay = vi.fn();
+    bob.drawCard({ roomId, base, drawId }, replay);
+
+    expect(replay).toHaveBeenCalledWith({ ok: true, card: '300' });
+    expect(rooms[roomId].state.cards).toEqual(['200']);
+    expect(rooms[roomId].state.currentCard).toBe('300');
+  });
+
+  it('re-answers the current receipt after the same device reconnects', () => {
+    const bob = seat('active-sock', 'Bob');
+    const base = rooms[roomId].gameplayToken;
+    const drawId = randomUUID();
+    bob.drawCard({ roomId, base, drawId }, vi.fn());
+    rooms[roomId].state.players[1].socketId = 'replacement-sock';
+    const replacement = seat('replacement-sock', 'Bob');
+    const replay = vi.fn();
+
+    replacement.drawCard({ roomId, base, drawId }, replay);
+
+    expect(replay).toHaveBeenCalledWith({ ok: true, card: '300' });
+    expect(rooms[roomId].state.cards).toEqual(['200']);
+  });
+
+  it('does not replay an old draw receipt after gameplay lineage advances', () => {
+    const bob = seat('active-sock', 'Bob');
+    const base = rooms[roomId].gameplayToken;
+    const drawId = randomUUID();
+    bob.drawCard({ roomId, base, drawId }, vi.fn());
+    rooms[roomId].gameplayToken = randomUUID();
+    const cardsAfterDraw = [...rooms[roomId].state.cards];
+    const replay = vi.fn();
+
+    bob.drawCard({ roomId, base, drawId }, replay);
+
+    expect(replay).toHaveBeenCalledWith({ ok: false, reason: 'refused' });
+    expect(rooms[roomId].state.cards).toEqual(cardsAfterDraw);
+  });
+
+  it('refuses a missing or malformed draw identity without consuming a card', () => {
+    const bob = seat('active-sock', 'Bob');
+
+    for (const drawId of [undefined, 'not-a-uuid']) {
+      const ack = vi.fn();
+      bob.drawCard({ roomId, drawId }, ack);
+      expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'refused' });
+    }
+    expect(rooms[roomId].state.cards).toEqual(DECK);
   });
 
   it('refuses the HOST, who is not the one playing', () => {
@@ -1100,6 +1154,7 @@ describe('drawCard', () => {
       // draws keeps the rate limiter itself from ever refusing a draw here,
       // so this proves the deal-log cap specifically, not the rate limit.
       rooms[roomId].state.turnDuration = 0;
+      rooms[roomId].state.cards = Array(MAX_CHAIN_CARDS).fill('300');
       const bob = seat('active-sock', 'Bob');
       const draws = MAX_CHAIN_CARDS;
 
@@ -1116,5 +1171,67 @@ describe('drawCard', () => {
       expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'refused' });
       expect(rooms[roomId].state.cards).toEqual(deckBefore);
     });
+  });
+});
+
+describe('shared per-room push work budget', () => {
+  const roomId = 'SHARED-PUSH-BUDGET';
+  const otherRoomId = 'OTHER-PUSH-BUDGET';
+  const TEST_BUDGET_MAX = 2;
+  let previousLimit: string | undefined;
+
+  beforeEach(() => {
+    previousLimit = process.env.ROOM_PUSH_WORK_LIMIT_MAX;
+    process.env.ROOM_PUSH_WORK_LIMIT_MAX = String(TEST_BUDGET_MAX);
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+  });
+
+  afterEach(() => {
+    if (previousLimit === undefined) delete process.env.ROOM_PUSH_WORK_LIMIT_MAX;
+    else process.env.ROOM_PUSH_WORK_LIMIT_MAX = previousLimit;
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+  });
+
+  it('survives socket replacement while another room keeps an independent budget', () => {
+    const sharedIo = makeFakeIo().io;
+    rooms[roomId] = createRoom('host-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: false, currentPlayerIndex: 0, currentCard: '300',
+      players: [makePlayer('Alice', 'active-sock'), makePlayer('Host', 'host-sock')],
+    });
+
+    const register = (socketId: string, username: string): Handler => {
+      const fake = makeFakeSocket(socketId);
+      registerGameStateHandlers({ io: sharedIo, socket: fake.socket, session: { roomId, username } });
+      return fake.handlers['pushState'];
+    };
+    const activePush = register('active-sock', 'Alice');
+    const hostPush = register('host-sock', 'Host');
+    const refused = vi.fn();
+    activePush({ roomId, newState: {}, base: 'malformed', mutationId: 'malformed', action: {} }, refused);
+    hostPush({ roomId, newState: {}, base: 'malformed', mutationId: 'malformed', action: {} }, refused);
+    expect(refused).toHaveBeenNthCalledWith(1, { ok: false, reason: 'refused' });
+    expect(refused).toHaveBeenNthCalledWith(2, { ok: false, reason: 'refused' });
+
+    rooms[roomId].state.players[0].socketId = 'replacement-sock';
+    const replacementPush = register('replacement-sock', 'Alice');
+    const exhausted = vi.fn();
+    replacementPush({ roomId, newState: {}, base: 'malformed', mutationId: 'malformed', action: {} }, exhausted);
+    expect(exhausted).toHaveBeenCalledWith({ ok: false, reason: 'rate-limited' });
+
+    rooms[otherRoomId] = createRoom('other-sock');
+    Object.assign(rooms[otherRoomId].state, {
+      status: 'playing', finished: false, currentPlayerIndex: 0, currentCard: '300',
+      players: [makePlayer('Other', 'other-sock')],
+    });
+    const other = makeFakeSocket('other-sock');
+    registerGameStateHandlers({
+      io: sharedIo, socket: other.socket, session: { roomId: otherRoomId, username: 'Other' },
+    });
+    const independent = vi.fn();
+    other.handlers['pushState']({
+      roomId: otherRoomId, newState: {}, base: 'malformed', mutationId: 'malformed', action: {},
+    }, independent);
+    expect(independent).toHaveBeenCalledWith({ ok: false, reason: 'refused' });
   });
 });

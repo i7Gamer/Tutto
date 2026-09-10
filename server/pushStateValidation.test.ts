@@ -2,18 +2,21 @@
  * @vitest-environment node
  */
 import type { ChildProcess } from 'child_process';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { io, type Socket as ClientSocket } from 'socket.io-client';
-import { asserting, startTestServer, makeServerPlayer, type JoinAck } from './socketTestHarness';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import type { Socket as ClientSocket } from 'socket.io-client';
+import { startTestServer, makeServerPlayer, makeFakeIo, makeFakeSocket, type JoinAck } from './socketTestHarness';
+import { protocolClient, acceptOnlineAction, configureTestRoom, requestPublicState } from './onlineTestClient';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 import type { GameStore } from '../src/store/storeTypes';
-import { MAX_PLAYERS_PER_ROOM } from './rooms';
+import { MAX_PLAYERS_PER_ROOM, createRoom, rooms, deleteRoom, emitRoomState } from './rooms';
+import { registerGameStateHandlers } from './socketGameStateHandlers';
 import { MAX_DECK_SIZE } from './pushValidation';
 import { MAX_PUSHED_STATE_BYTES } from './socketLimits';
 import type { RoomState } from './roomTypes';
 import { MAX_CHAIN_CARDS, MAX_HISTORY_LOG_SIZE, type CardType, type HistoryEntry } from '../src/types';
-import { VALID_CARD_TYPES } from '../src/utils/configValidation';
+import { VALID_CARD_TYPES, MIN_ENABLED_TURN_DURATION } from '../src/utils/configValidation';
 
 // The shape of a 'gameState' broadcast, matching how the client itself types
 // it (src/store/socketSlice.ts's own 'gameState' handler) — a broadcast only
@@ -46,188 +49,92 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
     if (serverProcess) serverProcess.kill();
   });
 
-  const joinRoom = (roomId: string, name: string, deviceId: string): Promise<ClientSocket> =>
-    new Promise((resolve, reject) => {
-      const s = io(`http://127.0.0.1:${PORT}`);
-      const timeoutId = setTimeout(() => reject(new Error(`join timed out for ${name}`)), 5000);
-      s.on('connect', () => {
-        s.emit('joinRoom', { roomId, name, deviceId, color: '#ff0000' }, (res: JoinAck) => {
-          clearTimeout(timeoutId);
-          if (!res.success) return reject(new Error(res.error));
-          resolve(s);
-        });
-      });
+  const clients: ClientSocket[] = [];
+  afterEach(() => { clients.splice(0).forEach(socket => socket.disconnect()); });
+
+  const joinRoom = async (roomId: string, name: string, deviceId: string): Promise<ClientSocket> => {
+    const socket = protocolClient(`http://127.0.0.1:${PORT}`);
+    clients.push(socket);
+    await new Promise<void>(resolve => socket.once('connect', resolve));
+    const ack = await new Promise<JoinAck>(resolve => socket.emit('joinRoom', { roomId, name, deviceId }, resolve));
+    expect(ack.success).toBe(true);
+    return socket;
+  };
+
+  const waitForState = (socket: ClientSocket, predicate: (state: GameStatePayload) => boolean) =>
+    new Promise<GameStatePayload>(resolve => {
+      const listener = (state: GameStatePayload) => {
+        if (!predicate(state)) return;
+        socket.off('gameState', listener);
+        resolve(state);
+      };
+      socket.on('gameState', listener);
     });
 
-  it('ignores an out-of-range currentPlayerIndex and keeps the server-side turn timer alive afterward', () => {
-    return new Promise<void>((resolve, reject) => {
-      const timeoutId = setTimeout(() => reject(new Error('Test timed out')), 15000);
-      let s1: ClientSocket, s2: ClientSocket;
+  const startGame = async (socket: ClientSocket, roomId: string, turnDuration = 0) => {
+    await configureTestRoom(socket, roomId, { randomOrder: false, turnDuration, initialCards: { '200': 5 } });
+    return acceptOnlineAction(socket, roomId, { type: 'start' });
+  };
 
-      (async () => {
-        const roomId = 'DOS_INDEX_ROOM';
-        s1 = await joinRoom(roomId, 'Alice', 'dev-dos-a');
-        s2 = await joinRoom(roomId, 'Bob', 'dev-dos-b');
+  it('ignores an out-of-range currentPlayerIndex and keeps the server-side timer alive', async () => {
+    const roomId = 'DOS_INDEX_ROOM';
+    const alice = await joinRoom(roomId, 'Alice', 'dev-dos-a');
+    await joinRoom(roomId, 'Bob', 'dev-dos-b');
+    await startGame(alice, roomId, MIN_ENABLED_TURN_DURATION);
+    const next = waitForState(alice, state => state.currentPlayerIndex === 1);
+    const ack = await new Promise(resolve => alice.emit('pushState', {
+      roomId, newState: { currentPlayerIndex: 5000 },
+    }, resolve));
+    expect(ack).toEqual({ ok: false, reason: 'refused' });
+    const state = await next;
+    expect(state.currentPlayerIndex).toBe(1);
+    expect(state.players?.[0].totalTurns).toBe(1);
+  });
 
-        let sawValidState = false;
-        let sawTimerAdvance = false;
+  it('ignores malformed chart fields while honest turns keep advancing', async () => {
+    const roomId = 'DOS_CHART_ROOM';
+    const alice = await joinRoom(roomId, 'Alice', 'dev-chart-a');
+    const bob = await joinRoom(roomId, 'Bob', 'dev-chart-b');
+    await startGame(alice, roomId);
+    const ack = await new Promise(resolve => alice.emit('pushState', {
+      roomId, newState: { chartValues: { hacked: true }, chartLabels: 'not-an-array' },
+    }, resolve));
+    expect(ack).toEqual({ ok: false, reason: 'refused' });
+    const SCORE = 100;
+    await acceptOnlineAction(alice, roomId, { type: 'commit', score: SCORE, success: true });
+    const state = await acceptOnlineAction(bob, roomId, { type: 'commit', score: SCORE, success: true });
+    expect(state.round).toBe(2);
+    expect(state.chartValues).toEqual([[SCORE], [SCORE]]);
+    expect(state.chartLabels).toEqual([1]);
+  });
 
-        s1.on('gameState', asserting(reject, (state: GameStatePayload) => {
-          if (state.currentPlayerIndex === 5000) {
-            clearTimeout(timeoutId);
-            s1.disconnect(); s2.disconnect();
-            reject(new Error('currentPlayerIndex 5000 was accepted — validation regressed'));
-            return;
-          }
-          if (state.status === 'playing' && state.currentPlayerIndex === 0 && !sawValidState) {
-            sawValidState = true;
-            // A malformed push that should be entirely dropped.
-            s1.emit('pushState', { roomId, newState: { currentPlayerIndex: 5000 } });
-          }
-          // If the process had crashed, no further turn-advance state would ever
-          // arrive — reaching a second player's turn proves the timer fired safely.
-          if (sawValidState && state.currentPlayerIndex === 1 && !sawTimerAdvance) {
-            sawTimerAdvance = true;
-            expect(state.currentPlayerIndex).toBe(1);
-            clearTimeout(timeoutId);
-            s1.disconnect(); s2.disconnect();
-            resolve();
-          }
-        }));
+  it('never exposes device IDs or private deck order on a broadcast', async () => {
+    const roomId = 'HIJACK_ROOM';
+    const alice = await joinRoom(roomId, 'Alice', 'dev-hijack-a');
+    const bob = await joinRoom(roomId, 'Bob', 'dev-hijack-b');
+    await startGame(alice, roomId);
+    const state = await requestPublicState(bob, roomId);
+    expect(state.players).toHaveLength(2);
+    for (const player of state.players ?? []) expect(player).not.toHaveProperty('deviceId');
+    for (const player of state.previousLeaders ?? []) expect(player).not.toHaveProperty('deviceId');
+    expect(state).not.toHaveProperty('cards');
+  });
 
-        const players = [
-          { name: 'Alice', deviceId: 'dev-dos-a', socketId: s1.id, disconnected: false, score: 0 },
-          { name: 'Bob', deviceId: 'dev-dos-b', socketId: s2.id, disconnected: false, score: 0 },
-        ];
-        s1.emit('pushState', { roomId, newState: { players, status: 'playing', currentPlayerIndex: 0, currentCard: '200', turnDuration: 1 } });
-      })().catch((err) => { clearTimeout(timeoutId); reject(err); });
-    });
-  }, 17000);
-
-  it('ignores malformed chartValues/chartLabels without crashing or corrupting room state', () => {
-    return new Promise<void>((resolve, reject) => {
-      const timeoutId = setTimeout(() => reject(new Error('Test timed out')), 8000);
-      let s1: ClientSocket, s2: ClientSocket;
-
-      (async () => {
-        const roomId = 'DOS_CHART_ROOM';
-        s1 = await joinRoom(roomId, 'Alice', 'dev-chart-a');
-        s2 = await joinRoom(roomId, 'Bob', 'dev-chart-b');
-
-        let pushedBad = false;
-
-        s1.on('gameState', asserting(reject, (state: GameStatePayload) => {
-          if (state.status === 'playing' && !pushedBad) {
-            pushedBad = true;
-            s1.emit('pushState', {
-              roomId,
-              newState: { chartValues: { hacked: true }, chartLabels: 'not-an-array' },
-            });
-            // Prove liveness with a normal, valid follow-up push.
-            setTimeout(() => s1.emit('pushState', { roomId, newState: { round: 2 } }), 200);
-          }
-          if (state.round === 2) {
-            expect(Array.isArray(state.chartValues)).toBe(true);
-            expect(Array.isArray(state.chartLabels)).toBe(true);
-            clearTimeout(timeoutId);
-            s1.disconnect(); s2.disconnect();
-            resolve();
-          }
-        }));
-
-        const players = [
-          { name: 'Alice', deviceId: 'dev-chart-a', socketId: s1.id, disconnected: false, score: 0 },
-          { name: 'Bob', deviceId: 'dev-chart-b', socketId: s2.id, disconnected: false, score: 0 },
-        ];
-        s1.emit('pushState', {
-          roomId,
-          newState: { players, status: 'playing', currentPlayerIndex: 0, chartValues: [[], []], chartNames: ['Alice', 'Bob'] },
-        });
-      })().catch((err) => { clearTimeout(timeoutId); reject(err); });
-    });
-  }, 10000);
-
-  it('never includes deviceId on any player in a gameState broadcast', () => {
-    return new Promise<void>((resolve, reject) => {
-      const timeoutId = setTimeout(() => reject(new Error('Test timed out')), 8000);
-      let s1: ClientSocket, s2: ClientSocket;
-
-      (async () => {
-        const roomId = 'HIJACK_ROOM';
-        s1 = await joinRoom(roomId, 'Alice', 'dev-hijack-a');
-        s2 = await joinRoom(roomId, 'Bob', 'dev-hijack-b');
-
-        s2.on('gameState', asserting(reject, (state: GameStatePayload) => {
-          if (state.players?.length !== 2) return;
-          for (const p of state.players) {
-            expect('deviceId' in p).toBe(false);
-          }
-          if (state.previousLeaders) {
-            for (const p of state.previousLeaders) {
-              expect('deviceId' in p).toBe(false);
-            }
-          }
-          clearTimeout(timeoutId);
-          s1.disconnect(); s2.disconnect();
-          resolve();
-        }));
-
-        const players = [
-          { name: 'Alice', deviceId: 'dev-hijack-a', socketId: s1.id, disconnected: false, score: 0 },
-          { name: 'Bob', deviceId: 'dev-hijack-b', socketId: s2.id, disconnected: false, score: 0 },
-        ];
-        s1.emit('pushState', { roomId, newState: { players, status: 'playing', currentPlayerIndex: 0 } });
-      })().catch((err) => { clearTimeout(timeoutId); reject(err); });
-    });
-  }, 10000);
-
-  it('does not carry a stale game clock from an aborted game into the next game in the same room', () => {
-    return new Promise<void>((resolve, reject) => {
-      const timeoutId = setTimeout(() => reject(new Error('Test timed out')), 10000);
-      let s1: ClientSocket, s2: ClientSocket;
-
-      (async () => {
-        const roomId = 'ABORT_CLOCK_ROOM';
-        s1 = await joinRoom(roomId, 'Alice', 'dev-ac-a');
-        s2 = await joinRoom(roomId, 'Bob', 'dev-ac-b');
-
-        const players = [
-          { name: 'Alice', deviceId: 'dev-ac-a', socketId: s1.id, disconnected: false, score: 0 },
-          { name: 'Bob', deviceId: 'dev-ac-b', socketId: s2.id, disconnected: false, score: 0 },
-        ];
-        s1.emit('pushState', { roomId, newState: { players, status: 'playing', currentPlayerIndex: 0 } });
-
-        // Let the first game's clock accumulate >200ms of runtime before aborting it,
-        // so a leaked gameActualStartTime is distinguishable from a fresh one.
-        await new Promise((r) => setTimeout(r, 350));
-
-        let restarted = false;
-        s1.on('gameState', asserting(reject, (state: GameStatePayload) => {
-          if (state.status === 'lobby' && state.players?.length === 1 && !restarted) {
-            restarted = true;
-            (async () => {
-              const s2b = await joinRoom(roomId, 'Bob', 'dev-ac-b');
-              const restartPlayers = [
-                { name: 'Alice', deviceId: 'dev-ac-a', socketId: s1.id, disconnected: false, score: 0 },
-                { name: 'Bob', deviceId: 'dev-ac-b', socketId: s2b.id, disconnected: false, score: 0 },
-              ];
-              s1.emit('pushState', { roomId, newState: { players: restartPlayers, status: 'playing', currentPlayerIndex: 0 } });
-
-              s1.once('gameState', (freshState) => {
-                // Without the fix, this reads >=1 (the old game's accumulated time).
-                expect(freshState.gameTimeInSeconds).toBeLessThan(1);
-                clearTimeout(timeoutId);
-                s1.disconnect(); s2b.disconnect();
-                resolve();
-              });
-            })().catch((err) => { clearTimeout(timeoutId); reject(err); });
-          }
-        }));
-
-        s2.emit('leaveRoom');
-      })().catch((err) => { clearTimeout(timeoutId); reject(err); });
-    });
-  }, 12000);
+  it('does not carry an aborted game clock into the next game in the same room', async () => {
+    const roomId = 'ABORT_CLOCK_ROOM';
+    const alice = await joinRoom(roomId, 'Alice', 'dev-ac-a');
+    const bob = await joinRoom(roomId, 'Bob', 'dev-ac-b');
+    await startGame(alice, roomId);
+    const ELAPSED_SAMPLE_MS = 1100;
+    await new Promise(resolve => setTimeout(resolve, ELAPSED_SAMPLE_MS));
+    expect((await requestPublicState(alice, roomId)).gameTimeInSeconds).toBeGreaterThanOrEqual(1);
+    const aborted = waitForState(alice, state => state.status === 'lobby' && state.players?.length === 1);
+    bob.emit('leaveRoom');
+    await aborted;
+    await joinRoom(roomId, 'Bob', 'dev-ac-b');
+    const restarted = await acceptOnlineAction(alice, roomId, { type: 'start' });
+    expect(restarted.gameTimeInSeconds).toBe(0);
+  });
 
   // Regression coverage for server/index.ts's Server constructor: previously
   // left at the engine.io library default (undocumented, and could change on
@@ -239,7 +146,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
   describe('maxHttpBufferSize bounds an oversized socket packet', () => {
     const connectRawSocket = (): Promise<ClientSocket> =>
       new Promise((resolve, reject) => {
-        const s = io(`http://127.0.0.1:${PORT}`, { transports: ['websocket'] });
+        const s = protocolClient(`http://127.0.0.1:${PORT}`, { transports: ['websocket'] });
         const timeoutId = setTimeout(() => reject(new Error('connect timed out')), 5000);
         s.on('connect', () => { clearTimeout(timeoutId); resolve(s); });
       });
@@ -348,7 +255,13 @@ const buildMaximalRoomState = (): RoomState => {
     previousHighestFeuerwerkTurnScore: 30000,
     previousHighestX2TurnScore: 30000,
     previousPlayerName: players[0].name,
-    previousTurnSummary: null,
+    previousTurnSummary: {
+      cards: Array.from({ length: MAX_CHAIN_CARDS }, () => ({ card: '200' as const, completed: true })),
+      outcomes: Array.from({ length: MAX_CHAIN_CARDS }, (_, index) => ({
+        card: '200' as const, scoreBefore: index * 500, scoreAfter: (index + 1) * 500, tuttos: 1,
+      })),
+      tuttoCount: MAX_CHAIN_CARDS, plusMinusScores: [], ended: 'banked',
+    },
     liveTurnState: null,
     enforcedDiceMode: null,
     ruleset: 'classic',
@@ -372,5 +285,43 @@ describe('maximal pushed/broadcast state size', () => {
     // Real headroom, not a near-miss: a genuinely maximal state should sit
     // well below the cap, not creep up on it.
     expect(byteLength).toBeLessThan(MAX_PUSHED_STATE_BYTES * 0.75);
+  });
+
+  it('measures public-state fanout and performs no broadcast for rejected no-op snapshots', () => {
+    const roomId = 'FANOUT-MEASUREMENT';
+    const privateState = buildMaximalRoomState();
+    privateState.turnDuration = 0;
+    privateState.ruleset = 'modernized';
+    privateState.currentCard = '200';
+    const host = privateState.players[0].socketId;
+    const room = rooms[roomId] = createRoom(host);
+    room.state = privateState;
+    const fake = makeFakeSocket(host);
+    const { io, emit } = makeFakeIo();
+    registerGameStateHandlers({ io, socket: fake.socket, session: { roomId, username: privateState.players[0].name } });
+    try {
+      emitRoomState(io, roomId);
+      const publicBytes = Buffer.byteLength(JSON.stringify(emit.mock.calls[0][1]));
+      const privateBytes = Buffer.byteLength(JSON.stringify(privateState));
+      expect(publicBytes).toBeLessThan(privateBytes);
+      emit.mockClear();
+      const ack = vi.fn();
+      const started = performance.now();
+      fake.handlers.pushState({ roomId, base: room.gameplayToken, mutationId: randomUUID(),
+        action: { type: 'commit', score: 0, success: false }, newState: privateState }, ack);
+      const actionMs = performance.now() - started;
+      expect(ack).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+      expect(emit.mock.calls.filter(([event]) => event === 'gameState')).toHaveLength(1);
+      emit.mockClear();
+      const NOOP_ATTEMPTS = 25;
+      for (let attempt = 0; attempt < NOOP_ATTEMPTS; attempt++) {
+        fake.handlers.pushState({ roomId, base: room.gameplayToken, mutationId: randomUUID(), newState: {} }, vi.fn());
+      }
+      expect(emit).not.toHaveBeenCalled();
+      // Diagnostic timing only: deterministic bytes/emissions gate the test,
+      // not host speed or unmeasured socket queues/backpressure.
+      console.info('[room fanout]', { privateBytes, publicBytes, recipients: MAX_PLAYERS_PER_ROOM,
+        bytesPerBroadcast: publicBytes * MAX_PLAYERS_PER_ROOM, acceptedEmissions: 1, rejectedEmissions: 0, actionMs });
+    } finally { deleteRoom(roomId); }
   });
 });

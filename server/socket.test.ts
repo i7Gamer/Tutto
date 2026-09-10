@@ -3,7 +3,8 @@
  */
 import type { ChildProcess } from 'child_process';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { io, type Socket as ClientSocket } from 'socket.io-client';
+import type { Socket as ClientSocket } from 'socket.io-client';
+import { protocolClient as io, acceptOnlineAction } from './onlineTestClient';
 import { startTestServer, type JoinAck } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
@@ -198,17 +199,12 @@ describe('Socket security and timer fixes', () => {
     // applies after the kick, which deals again from this deck.
     await new Promise(r => {
       hostSock.once('gameState', r);
-      hostSock.emit('updateConfig', { roomId, turnDuration: 60, initialCards: { '300': 8 } });
+      hostSock.emit('updateConfig', { roomId, randomOrder: false, turnDuration: 60, initialCards: { '300': 8 } });
     });
 
-    // Start game with guest (index 1) as the active player
-    const playingState = await new Promise<GameStatePayload>(r => {
-      hostSock.once('gameState', r);
-      hostSock.emit('pushState', {
-        roomId,
-        newState: { status: 'playing', currentPlayerIndex: 1, currentCard: 'Stop', round: 1 },
-      });
-    });
+    // Start honestly and commit the host turn to make Guest active.
+    await acceptOnlineAction(hostSock, roomId, { type: 'start' });
+    const playingState = await acceptOnlineAction(hostSock, roomId, { type: 'commit', score: 0, success: false });
     expect(playingState.turnTimeRemaining).toBe(60);
 
     // Age the timer by 400ms+ (with TEST_TIMER_SCALE=0.2, turnDuration 60 becomes 12s)
@@ -241,11 +237,7 @@ describe('Socket security and timer fixes', () => {
     // with remaining<=0 and advance turns in a synchronous loop; NaN and junk
     // initialCards would corrupt win checks and deck rebuilds. All must be
     // dropped while the valid fields in the same push still apply.
-    const next = await new Promise<GameStatePayload>(r => {
-      hostSock.once('gameState', r);
-      hostSock.emit('pushState', {
-        roomId,
-        newState: {
+    const next = await acceptOnlineAction(hostSock, roomId, { type: 'reset' }, {
           turnDuration: -1,
           winningScore: NaN,
           reconnectTimeout: 1e12,
@@ -253,8 +245,6 @@ describe('Socket security and timer fixes', () => {
           status: 'garbage',
           initialCards: { '200': 1e9, Bogus: 3 },
           round: 2,
-        },
-      });
     });
 
     expect(next.turnDuration).toBe(120);
@@ -263,7 +253,7 @@ describe('Socket security and timer fixes', () => {
     expect(next.randomOrder).toBe(true);
     expect(next.status).toBe('lobby');
     expect(next.initialCards?.['200']).toBe(5);
-    expect(next.round).toBe(2); // the valid field in the same push still applies
+    expect(next.round).toBe(1); // even well-shaped gameplay claims are ignored
 
     hostSock.disconnect();
   });

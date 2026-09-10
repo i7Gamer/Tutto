@@ -5,7 +5,9 @@ import { MAX_CHAIN_CARDS } from '../types';
 import { isChainScoreList, isTurnCardList } from '../utils/turnShapes';
 import { parseScoreInput } from '../utils/diceTurnControls';
 import { MAX_SCORE_MAGNITUDE } from '../utils/configValidation';
-import type { CardType, DiceSnapshot, Ruleset, TurnCardPlayed, TurnEnd, TurnSummary } from '../types';
+import type { CardType, DiceSnapshot, Ruleset, TurnCardPlayed, TurnEnd, TurnSummary, TurnCardOutcome } from '../types';
+import { copyTurnCardOutcomes, isTurnCardOutcomeList } from '../utils/turnOutcomes';
+import { KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../utils/coreGameEngine';
 
 /*
  * The PHYSICAL_TURN_STATE_KEY cache — the counterpart of DICE_TURN_STATE_KEY
@@ -20,6 +22,7 @@ import type { CardType, DiceSnapshot, Ruleset, TurnCardPlayed, TurnEnd, TurnSumm
 
 interface PhysicalChainState {
   cards: TurnCardPlayed[];
+  outcomes?: TurnCardOutcome[];
   // See TurnSummary.plusMinusScores: the running total the player held as each
   // Plus/Minus was answered Yes. With real dice that total is what they have
   // typed so far, which Game keeps current across the whole chain.
@@ -70,6 +73,7 @@ const isPlausibleCache = (v: unknown): v is PhysicalChainCacheShape => {
   if (!isTurnCardList(c.cards) || c.cards.length === 0) return false;
   if (!isChainScoreList(c.plusMinusScores)) return false;
   if (typeof c.awaitingChoice !== 'boolean') return false;
+  if (c.outcomes !== undefined && (!isTurnCardOutcomeList(c.outcomes) || c.outcomes.length !== c.cards.length)) return false;
   return true;
 };
 
@@ -92,6 +96,7 @@ export const readPhysicalChainCache = (turnKey: string): PhysicalChainCache | nu
     return {
       turnKey: parsed.turnKey,
       cards: parsed.cards,
+      ...(parsed.outcomes ? { outcomes: copyTurnCardOutcomes(parsed.outcomes) } : {}),
       plusMinusScores: parsed.plusMinusScores,
       awaitingChoice: parsed.awaitingChoice,
       scoreInput: isPlausibleScoreInput(parsed.scoreInput) ? parsed.scoreInput : '',
@@ -144,7 +149,7 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
   // as DiceGame's digital cache.
   const [restored] = useState(() => (enabled ? readPhysicalChainCache(currentTurnKey) : null));
   const chainRef = useRef<PhysicalChainState | null>(
-    restored ? { cards: restored.cards, plusMinusScores: restored.plusMinusScores } : null,
+    restored ? { cards: restored.cards, outcomes: restored.outcomes, plusMinusScores: restored.plusMinusScores } : null,
   );
   const [awaitingChoice, setAwaitingChoice] = useState(restored?.awaitingChoice ?? false);
 
@@ -195,6 +200,7 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
     const seed = seedCard === undefined ? currentCardRef.current : seedCard;
     return chainRef.current ?? {
       cards: seed ? [{ card: seed, completed: false }] : [],
+      outcomes: seed ? [{ card: seed, scoreBefore: 0, scoreAfter: 0, tuttos: 0 }] : [],
       plusMinusScores: [],
     };
   }, []);
@@ -205,9 +211,16 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
     // card, so a total typed on the FIRST card survives a reload too.
     const chain = chainOrCurrentCard();
     if (chain.cards.length === 0) return;
+    // Special-card completion records its fixed award before Game's input
+    // rerenders. Keep the live bank and journal atomic during that window.
+    const currentOutcome = chain.outcomes?.at(-1);
+    const fixedAwardCompleted = awaiting && currentOutcome &&
+      (currentOutcome.card === 'Plus_Minus' || currentOutcome.card === 'Kniffel');
+    const snapshotScore = fixedAwardCompleted ? currentOutcome.scoreAfter : parseScoreInput(scoreInputRef.current);
     const cache: PhysicalChainCache = {
       turnKey,
       cards: chain.cards,
+      ...(chain.outcomes ? { outcomes: copyTurnCardOutcomes(chain.outcomes) } : {}),
       plusMinusScores: chain.plusMinusScores,
       awaitingChoice: awaiting,
       scoreInput: scoreInputRef.current,
@@ -225,12 +238,16 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
     // length, so it renders the running total and the chain position instead
     // of an empty board.
     onSnapshotRef.current?.({
-      turnScore: parseScoreInput(scoreInputRef.current),
+      turnScore: snapshotScore,
       keptDice: [],
       currentRoll: [],
       kniffelProgress: [],
       tuttosThisTurn: 0,
       cardsThisTurn: chain.cards.map(c => c.card),
+      ...(chain.outcomes ? { cardOutcomes: chain.outcomes.map((outcome, index) => ({
+        ...outcome,
+        ...(index === chain.outcomes!.length - 1 ? { scoreAfter: snapshotScore } : {}),
+      })) } : {}),
       plusMinusScores: [...chain.plusMinusScores],
       chainTuttoCount: chain.cards.reduce(
         (n, c) => n + (c.completed ? (TUTTOS_PER_COMPLETION[c.card] ?? DEFAULT_TUTTOS_PER_COMPLETION) : 0), 0),
@@ -271,6 +288,9 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
     const scoreBeforeCard = parseScoreInput(scoreInputRef.current);
     chainRef.current = {
       cards: source.cards.map((c, i) => (i === source.cards.length - 1 ? { ...c, completed: true } : c)),
+      outcomes: source.outcomes?.map((outcome, i) => i === source.cards.length - 1
+        ? { ...outcome, scoreAfter: scoreBeforeCard + (isPlusMinus ? PLUS_MINUS_SCORE : KNIFFEL_SCORE), tuttos: DEFAULT_TUTTOS_PER_COMPLETION }
+        : { ...outcome }),
       plusMinusScores: isPlusMinus ? [...source.plusMinusScores, scoreBeforeCard] : source.plusMinusScores,
     };
     setAwaitingChoice(true);
@@ -288,8 +308,15 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
   // chainOrCurrentCard.
   const recordDraw = useCallback((drawn: CardType, drawnFrom: CardType | null) => {
     const source = chainOrCurrentCard(drawnFrom);
+    const bank = parseScoreInput(scoreInputRef.current);
     chainRef.current = {
       cards: [...source.cards.map((c, i) => (i === source.cards.length - 1 ? { ...c, completed: true } : c)), { card: drawn, completed: false }],
+      outcomes: source.outcomes ? [
+        ...source.outcomes.map((outcome, i) => i === source.cards.length - 1
+          ? { ...outcome, scoreAfter: bank, tuttos: TUTTOS_PER_COMPLETION[outcome.card] ?? DEFAULT_TUTTOS_PER_COMPLETION }
+          : { ...outcome }),
+        { card: drawn, scoreBefore: bank, scoreAfter: bank, tuttos: 0 },
+      ] : undefined,
       plusMinusScores: source.plusMinusScores,
     };
     setAwaitingChoice(false);
@@ -329,6 +356,11 @@ export const usePhysicalChain = ({ enabled, roomId, round, currentPlayerIndex, c
       i === source.cards.length - 1 ? { ...c, completed: lastCardCompleted } : { ...c });
     return {
       cards,
+      ...(source.outcomes ? { outcomes: source.outcomes.map((outcome, i) => i === cards.length - 1
+        ? { ...outcome,
+          scoreAfter: ended === 'banked' ? parseScoreInput(scoreInputRef.current) : forfeitedScore,
+          tuttos: lastCardCompleted ? (TUTTOS_PER_COMPLETION[outcome.card] ?? DEFAULT_TUTTOS_PER_COMPLETION) : 0,
+        } : { ...outcome }) } : {}),
       tuttoCount: cards.reduce((n, c) => n + (c.completed ? (TUTTOS_PER_COMPLETION[c.card] ?? DEFAULT_TUTTOS_PER_COMPLETION) : 0), 0),
       plusMinusScores: [...source.plusMinusScores],
       ended,

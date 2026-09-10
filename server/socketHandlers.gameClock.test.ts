@@ -16,6 +16,7 @@ vi.mock('./database', () => ({
 }));
 
 import { startInProcessServer, emitJoin, type InProcessServer } from './socketTestHarness';
+import { acceptOnlineAction, joinTestRoom, protocolClient, requestPublicState } from './onlineTestClient';
 import { rooms } from './rooms';
 import { DEFAULT_WINNING_SCORE } from '../src/utils/configValidation';
 
@@ -29,6 +30,12 @@ describe('game clock (gameTimeInSeconds / gameActualStartTime)', () => {
   afterAll(async () => {
     await server.close();
   });
+
+  const connectAndJoin = async (roomId: string, name: string) => {
+    const socket = protocolClient(`http://127.0.0.1:${server.port}`, { transports: ['websocket'] });
+    await joinTestRoom(socket, roomId, name, { randomOrder: false });
+    return socket;
+  };
 
   // These tests exercise the real socket wire path (join → pushState →
   // server-computed elapsed time → broadcast), so the server's Date.now()
@@ -44,97 +51,51 @@ describe('game clock (gameTimeInSeconds / gameActualStartTime)', () => {
 
   it('is server-calculated and increases monotonically across pushState calls', async () => {
     const roomId = 'GAME_TIME_MONOTONIC';
-    const s1 = await server.connectAndJoin(roomId, 'Alice', 'dev-gtm-a');
+    const s1 = await connectAndJoin(roomId, 'Alice');
+    await connectAndJoin(roomId, 'Bob');
 
-    const firstPlaying = new Promise<{ gameTimeInSeconds: number }>(resolve => {
-      s1.on('gameState', (state) => { if (state.status === 'playing') resolve(state); });
+    const first = await acceptOnlineAction(s1, roomId, { type: 'start' }, {
+      gameTimeInSeconds: 999, // stale/wrong — server must ignore the snapshot
     });
-    s1.emit('pushState', {
-      roomId,
-      newState: {
-        status: 'playing', currentCard: '200', cards: [], currentPlayerIndex: 0, round: 1,
-        finished: false, gameTimeInSeconds: 999, // stale/wrong — server must override
-        players: [{ name: 'Alice', deviceId: 'dev-gtm-a', score: 0 }],
-      },
-    });
-    const first = await firstPlaying;
-    expect(first.gameTimeInSeconds).toBeLessThan(5);
+    expect(first.gameTimeInSeconds).toBeDefined();
+    expect(first.gameTimeInSeconds!).toBeLessThan(5);
 
     backdateClock(roomId, 2000);
 
-    const secondPlaying = new Promise<{ gameTimeInSeconds: number }>(resolve => s1.once('gameState', resolve));
-    s1.emit('pushState', {
-      roomId,
-      newState: {
-        status: 'playing', currentCard: '300', cards: [], currentPlayerIndex: 0, round: 1,
-        finished: false, gameTimeInSeconds: 999, // still stale — server must still override
-        players: [{ name: 'Alice', deviceId: 'dev-gtm-a', score: 0 }],
-      },
+    const second = await acceptOnlineAction(s1, roomId, { type: 'commit', score: 0, success: false }, {
+      gameTimeInSeconds: 999, // still stale — server must still ignore the snapshot
     });
-    const second = await secondPlaying;
     expect(second.gameTimeInSeconds).toBeLessThan(5);
     expect(second.gameTimeInSeconds).toBeGreaterThanOrEqual(2);
-    expect(second.gameTimeInSeconds).toBeGreaterThanOrEqual(first.gameTimeInSeconds);
+    expect(second.gameTimeInSeconds).toBeGreaterThanOrEqual(first.gameTimeInSeconds!);
   });
 
   it('on game-end is the server-calculated elapsed time, not the stale client-pushed value', async () => {
     const roomId = 'GAME_TIME_END_SNAPSHOT';
-    const s1 = await server.connectAndJoin(roomId, 'Alice', 'dev-gtes-a');
+    const s1 = await connectAndJoin(roomId, 'Alice');
+    const s2 = await connectAndJoin(roomId, 'Bob');
 
-    const playing = new Promise<void>(resolve => {
-      s1.on('gameState', (state) => { if (state.status === 'playing') resolve(); });
-    });
-    s1.emit('pushState', {
-      roomId,
-      newState: {
-        status: 'playing', currentCard: '200', cards: [], currentPlayerIndex: 0, round: 1,
-        finished: false, gameTimeInSeconds: 0,
-        players: [{ name: 'Alice', deviceId: 'dev-gtes-a', score: 0 }],
-      },
-    });
-    await playing;
+    await acceptOnlineAction(s1, roomId, { type: 'start' });
 
     backdateClock(roomId, 2000);
+    rooms[roomId].state.players[0].score = DEFAULT_WINNING_SCORE;
+    await acceptOnlineAction(s1, roomId, { type: 'commit', score: 0, success: false });
 
-    const finished = new Promise<{ gameTimeInSeconds: number }>(resolve => {
-      s1.on('gameState', (state) => { if (state.finished) resolve(state); });
+    const state = await acceptOnlineAction(s2, roomId, { type: 'commit', score: 0, success: false }, {
+      gameTimeInSeconds: 999, // stale client value — server must snapshot the real time
     });
-    s1.emit('pushState', {
-      roomId,
-      newState: {
-        status: 'playing', currentCard: '200', cards: [], currentPlayerIndex: 0, round: 1,
-        finished: true, gameTimeInSeconds: 999, // stale client value — server must snapshot the real time
-        // At the winning score, because a finish is only accepted for a state
-        // the engine could have produced (pushValidation's applyFinished).
-        players: [{ name: 'Alice', deviceId: 'dev-gtes-a', score: DEFAULT_WINNING_SCORE }],
-      },
-    });
-
-    const state = await finished;
-    expect(state.gameTimeInSeconds).toBeGreaterThanOrEqual(1);
-    expect(state.gameTimeInSeconds).toBeLessThan(5);
+    expect(state.gameTimeInSeconds).toBeDefined();
+    expect(state.gameTimeInSeconds!).toBeGreaterThanOrEqual(1);
+    expect(state.gameTimeInSeconds!).toBeLessThan(5);
   });
 
   it('continues from correct server time on reconnect', async () => {
     const roomId = 'GAME_TIME_RECONNECT';
-    const s1 = await server.connectAndJoin(roomId, 'Alice', 'dev-gtr2-a'); // host
-    const s2 = await server.connectAndJoin(roomId, 'Bob', 'dev-gtr2-b'); // observer, reconnects
+    const s1 = await connectAndJoin(roomId, 'Alice'); // host
+    const s2 = await connectAndJoin(roomId, 'Bob'); // observer, reconnects
 
-    const s2Playing = new Promise<{ gameTimeInSeconds: number }>(resolve => {
-      s2.on('gameState', (state) => { if (state.status === 'playing') resolve(state); });
-    });
-    s1.emit('pushState', {
-      roomId,
-      newState: {
-        status: 'playing', currentCard: '200', cards: [], currentPlayerIndex: 0, round: 1,
-        finished: false, gameTimeInSeconds: 0,
-        players: [
-          { name: 'Alice', deviceId: 'dev-gtr2-a', score: 0 },
-          { name: 'Bob', deviceId: 'dev-gtr2-b', score: 0 },
-        ],
-      },
-    });
-    await s2Playing;
+    await acceptOnlineAction(s1, roomId, { type: 'start' });
+    await requestPublicState(s2, roomId, state => state.status === 'playing');
 
     backdateClock(roomId, 3000);
 
@@ -155,7 +116,7 @@ describe('game clock (gameTimeInSeconds / gameActualStartTime)', () => {
     const rejoinedPlaying = new Promise<{ gameTimeInSeconds: number }>(resolve => {
       s2New.on('gameState', (state) => { if (state.status === 'playing') resolve(state); });
     });
-    void emitJoin(s2New, roomId, 'Bob', 'dev-gtr2-b', '#00ff00');
+    void emitJoin(s2New, roomId, 'Bob', `dev-${roomId}-Bob`, '#00ff00');
 
     const newState = await rejoinedPlaying;
     // Server-calculated time should be >= what it was at disconnect.
@@ -166,36 +127,20 @@ describe('game clock (gameTimeInSeconds / gameActualStartTime)', () => {
 
   it('gameActualStartTime is preserved across turn/card changes (not reset on subsequent pushState)', async () => {
     const roomId = 'GAME_TIME_PERSIST';
-    const s1 = await server.connectAndJoin(roomId, 'Alice', 'dev-gtp-a');
+    const s1 = await connectAndJoin(roomId, 'Alice');
+    await connectAndJoin(roomId, 'Bob');
 
-    const firstPlaying = new Promise<{ gameTimeInSeconds: number }>(resolve => {
-      s1.on('gameState', (state) => { if (state.status === 'playing') resolve(state); });
-    });
-    s1.emit('pushState', {
-      roomId,
-      newState: {
-        status: 'playing', currentCard: '200', cards: [], currentPlayerIndex: 0, round: 1,
-        finished: false, gameTimeInSeconds: 0,
-        players: [{ name: 'Alice', deviceId: 'dev-gtp-a', score: 0 }],
-      },
-    });
-    const first = await firstPlaying;
-    const firstGameTime = first.gameTimeInSeconds;
+    const first = await acceptOnlineAction(s1, roomId, { type: 'start' });
+    expect(first.gameTimeInSeconds).toBeDefined();
+    const firstGameTime = first.gameTimeInSeconds!;
 
     backdateClock(roomId, 2000);
 
-    const secondPlaying = new Promise<{ gameTimeInSeconds: number }>(resolve => s1.once('gameState', resolve));
-    s1.emit('pushState', {
-      roomId,
-      newState: {
-        status: 'playing', currentCard: '300', cards: [], currentPlayerIndex: 0, round: 1, // different card — should NOT reset gameActualStartTime
-        finished: false, gameTimeInSeconds: 999, // stale client value — server must override
-        players: [{ name: 'Alice', deviceId: 'dev-gtp-a', score: 0 }],
-      },
+    const second = await acceptOnlineAction(s1, roomId, { type: 'commit', score: 0, success: false }, {
+      gameTimeInSeconds: 999, // stale client value — server must ignore the snapshot
     });
 
     // If gameActualStartTime had been reset, this would read ~0 instead of ~2.
-    const second = await secondPlaying;
     expect(second.gameTimeInSeconds).toBeGreaterThanOrEqual(1);
     expect(second.gameTimeInSeconds).toBeLessThan(5);
     expect(second.gameTimeInSeconds).toBeGreaterThan(firstGameTime);
@@ -209,42 +154,23 @@ describe('game clock (gameTimeInSeconds / gameActualStartTime)', () => {
     // kept one. Keeping it would carry the first game's whole duration into
     // the second, and every player's totalPlaytime with it.
     const roomId = 'GAME_TIME_LOBBY_RESET';
-    const s1 = await server.connectAndJoin(roomId, 'Alice', 'dev-gtl-a');
-    const players = [{ name: 'Alice', deviceId: 'dev-gtl-a', score: 0 }];
-    const playing = {
-      status: 'playing', currentCard: '200', cards: [], currentPlayerIndex: 0, round: 1,
-      finished: false, gameTimeInSeconds: 0, players,
-    };
+    const s1 = await connectAndJoin(roomId, 'Alice');
+    await connectAndJoin(roomId, 'Bob');
 
-    const firstPlaying = new Promise<{ status: string }>(resolve => {
-      s1.on('gameState', (state) => { if (state.status === 'playing') resolve(state); });
-    });
-    s1.emit('pushState', { roomId, newState: { ...playing } });
-    await firstPlaying;
+    await acceptOnlineAction(s1, roomId, { type: 'start' });
 
     const ELAPSED_MS = 4000;
     const ELAPSED_SECONDS = ELAPSED_MS / 1000;
     backdateClock(roomId, ELAPSED_MS);
 
     // endGame: back to the lobby, roster untouched.
-    const lobby = new Promise<{ gameTimeInSeconds: number }>(resolve => {
-      s1.once('gameState', resolve);
-    });
-    s1.emit('pushState', {
-      roomId,
-      newState: { status: 'lobby', finished: false, currentPlayerIndex: null, players },
-    });
-    const banked = await lobby;
+    const banked = await acceptOnlineAction(s1, roomId, { type: 'reset' });
 
     expect(banked.gameTimeInSeconds, 'the finished game\'s duration was not banked').toBe(ELAPSED_SECONDS);
     expect(rooms[roomId].gameActualStartTime, 'the anchor outlived the game it was anchoring').toBeNull();
 
     // Play Again from that lobby: the clock must start over, not resume.
-    const secondPlaying = new Promise<{ gameTimeInSeconds: number }>(resolve => {
-      s1.once('gameState', resolve);
-    });
-    s1.emit('pushState', { roomId, newState: { ...playing, gameTimeInSeconds: 999 } });
-    const second = await secondPlaying;
+    const second = await acceptOnlineAction(s1, roomId, { type: 'start' }, { gameTimeInSeconds: 999 });
 
     expect(second.gameTimeInSeconds, 'the new game inherited the old one\'s duration').toBe(0);
   });

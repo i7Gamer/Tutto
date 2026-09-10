@@ -45,7 +45,9 @@ describe('statistics submission game identity', () => {
     room.finishedGameToken = firstFinishToken;
     Object.assign(room.state, {
       status: 'playing', finished: true, currentPlayerIndex: null,
-      players: [makePlayer('Alice', hostSocket, deviceId)],
+      players: [
+        { ...makePlayer('Alice', hostSocket, deviceId), totalTurns: 3 },
+      ],
     });
     room.finishedGame = { winners: ['Alice'], playerCount: 1, round: room.state.round };
     const fake = makeFakeSocket(hostSocket);
@@ -189,6 +191,81 @@ describe('endGameStats win-streak refresh', () => {
   });
 });
 
+describe('frozen server participant statistics', () => {
+  const roomId = 'FROZEN-PARTICIPANTS';
+  const alice = { ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: 10_000, totalTurns: 4, busts: 2 };
+  const bob = { ...makePlayer('Bob', 'departed-bob', 'dev-bob'), score: 4_000, totalTurns: 7, busts: 6 };
+
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.mocked(getDeviceStats).mockReset().mockResolvedValue(null);
+    vi.mocked(updateDeviceStats).mockReset().mockResolvedValue(true);
+    vi.mocked(updateGlobalStats).mockReset().mockResolvedValue(1);
+  });
+
+  afterEach(() => { for (const id of Object.keys(rooms)) deleteRoom(id); });
+
+  const freeze = () => {
+    rooms[roomId] = createRoom('alice-sock');
+    rooms[roomId].participantStats = new Map([
+      [alice.deviceId, { ...alice }],
+      [bob.deviceId, { ...bob }],
+    ]);
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: true, currentPlayerIndex: null,
+      gameTimeInSeconds: 33, winningScore: 6000,
+      players: [{ ...alice }],
+    });
+    emitRoomState(makeFakeIo().io, roomId);
+  };
+
+  it('writes a departed participant’s complete frozen row and rejects their later client retry', async () => {
+    freeze();
+    await vi.waitFor(() => expect(rooms[roomId].statsRecordedForGame.devices.get('dev-bob')).toBe('full'));
+    expect(updateDeviceStats).toHaveBeenCalledWith('dev-bob', expect.objectContaining({
+      gamesPlayed: 1, wins: 0, totalTurns: bob.totalTurns, busts: bob.busts,
+      totalPlaytime: 33, totalPlayersSum: 2,
+    }), 'normalized');
+
+    rooms[roomId].state.players.push({ ...bob, socketId: 'returning-bob', disconnected: false });
+    const returning = makeFakeSocket('returning-bob');
+    registerStatsHandlers({ io: makeFakeIo().io, socket: returning.socket, session: { roomId, username: 'Bob' } });
+    const ack = vi.fn();
+    await returning.handlers['endGameStats']({
+      deviceId: 'dev-bob',
+      stats: { busts: 999_999, totalTurns: 999_999, wins: 1 },
+    }, ack);
+
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'duplicate' });
+    expect(vi.mocked(updateDeviceStats).mock.calls.filter(call => call[0] === 'dev-bob')).toHaveLength(1);
+  });
+
+  it('derives both device and global rows from the frozen state, not forged submissions', async () => {
+    freeze();
+    vi.mocked(updateDeviceStats).mockClear();
+    const host = makeFakeSocket('alice-sock');
+    registerStatsHandlers({ io: makeFakeIo().io, socket: host.socket, session: { roomId, username: 'Alice' } });
+
+    await host.handlers['endGameStats']({
+      deviceId: 'dev-alice',
+      stats: { busts: 999_999, totalTurns: 999_999, wins: 0 },
+    });
+    await host.handlers['submitGlobalStats']({
+      payload: { totalScore: 999_999, totalPlaytime: 999_999, totalPlayersSum: 999_999 },
+    });
+
+    expect(updateDeviceStats).toHaveBeenCalledWith('dev-alice', expect.objectContaining({
+      wins: 1, totalTurns: alice.totalTurns, busts: alice.busts, totalPlaytime: 33,
+    }), 'normalized');
+    expect(updateGlobalStats).toHaveBeenCalledWith(expect.objectContaining({
+      totalScore: alice.score + bob.score,
+      totalTurns: alice.totalTurns + bob.totalTurns,
+      totalPlaytime: 33,
+      totalPlayersSum: 2,
+    }), rooms[roomId].ruleset);
+  });
+});
+
 describe("who won is the server's call, not the submitting client's", () => {
   const roomId = 'WINNER-ROOM';
 
@@ -209,7 +286,7 @@ describe("who won is the server's call, not the submitting client's", () => {
     Object.assign(rooms[roomId].state, {
       status: 'playing', finished: true, currentPlayerIndex: null, winningScore: 6000,
       players: [
-        { ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: 10000, totalTurns: 20 },
+        { ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: 10000, totalTurns: 20, busts: 3 },
         { ...makePlayer('Bob', 'bob-sock', 'dev-bob'), score: 4000, totalTurns: 19 },
       ],
     });
@@ -258,7 +335,7 @@ describe("who won is the server's call, not the submitting client's", () => {
     Object.assign(rooms[roomId].state, {
       status: 'playing', finished: true, currentPlayerIndex: null, winningScore: 6000,
       players: [
-        { ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: 10000, totalTurns: 20 },
+        { ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: 10000, totalTurns: 20, busts: 3 },
         { ...makePlayer('Bob', 'bob-sock', 'dev-bob'), score: 4000, totalTurns: 19 },
       ],
     });
@@ -531,12 +608,7 @@ describe('a seat that left before the finish is recorded by the server itself', 
     errorSpy.mockRestore();
   });
 
-  // If Bob reconnects and his own client's merge completes — marking the row
-  // 'full' — WHILE the original verdict-only write above is still in flight,
-  // an unconditional rollback on that write's later failure would delete the
-  // 'full' entry the merge just finished, reopening the dedup for a retry
-  // that would double-count the game.
-  it('leaves the dedup at "full" when the verdict write rejects after a merge already completed', async () => {
+  it('waits for a pending verdict and writes a complete result if it fails', async () => {
     stageBobLeftBeforeFinish();
 
     let rejectVerdictWrite!: (err: Error) => void;
@@ -547,25 +619,65 @@ describe('a seat that left before the finish is recorded by the server itself', 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     emitRoomState(makeFakeIo().io, roomId);
-    expect(rooms[roomId].statsRecordedForGame.devices.get('dev-bob')).toBe('verdict-only');
+    expect(rooms[roomId].statsRecordedForGame.devices.has('dev-bob')).toBe(false);
 
     // Bob rejoins under the same deviceId and his own client submits before
     // the verdict write above has settled.
     rooms[roomId].state.players.push(makePlayer('Bob', 'bob-sock-2', 'dev-bob'));
     const fake = makeFakeSocket('bob-sock-2');
     registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Bob' } });
-    await fake.handlers['endGameStats']({ deviceId: 'dev-bob', stats: { gamesPlayed: 1, wins: 1 } });
-    expect(rooms[roomId].statsRecordedForGame.devices.get('dev-bob'), 'the merge finished first').toBe('full');
+    const submission = fake.handlers['endGameStats']({ deviceId: 'dev-bob', stats: { gamesPlayed: 1, wins: 1 } });
+    expect(updateDeviceStats).toHaveBeenCalledTimes(1);
 
     // The original verdict-only write now finally fails.
     rejectVerdictWrite(new Error('write failed'));
+    await submission;
     await vi.waitFor(() => expect(errorSpy).toHaveBeenCalled());
+    expect(vi.mocked(updateDeviceStats).mock.calls[1][1]).toEqual(expect.objectContaining({
+      gamesPlayed: 1, wins: 0, totalPlayersSum: 2,
+      totalRoundsSum: rooms[roomId].finishedGame?.round,
+    }));
 
     expect(
       rooms[roomId].statsRecordedForGame.devices.get('dev-bob'),
       'the merge\'s completed row must not be reopened by the older write\'s rollback',
     ).toBe('full');
     errorSpy.mockRestore();
+  });
+
+  it('counts departed rounds once when a successful verdict is topped up', async () => {
+    stageBobLeftBeforeFinish();
+    const round = 7;
+    rooms[roomId].state.round = round;
+    emitRoomState(makeFakeIo().io, roomId);
+    rooms[roomId].state.players.push(makePlayer('Bob', 'bob-return', 'dev-bob'));
+    const fake = makeFakeSocket('bob-return');
+    registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Bob' } });
+    await fake.handlers['endGameStats']({ deviceId: 'dev-bob', stats: { totalRoundsSum: round } });
+    const payloads = vi.mocked(updateDeviceStats).mock.calls.map(call => call[1]);
+    expect(payloads[0]).toEqual(expect.objectContaining({ totalRoundsSum: round, longestGameRounds: round }));
+    expect(payloads[1]).toEqual(expect.objectContaining({ gamesPlayed: 0, totalRoundsSum: 0 }));
+    expect(payloads[1]).not.toHaveProperty('wins');
+  });
+
+  it('does not start an old-finish fallback after rematch while waiting for a verdict', async () => {
+    stageBobLeftBeforeFinish();
+    let resolveVerdict!: (value: boolean) => void;
+    vi.mocked(updateDeviceStats).mockImplementationOnce(() => new Promise(resolve => { resolveVerdict = resolve; }));
+    emitRoomState(makeFakeIo().io, roomId);
+    rooms[roomId].state.players.push(makePlayer('Bob', 'bob-return', 'dev-bob'));
+    const fake = makeFakeSocket('bob-return');
+    registerStatsHandlers({ io: makeFakeIo().io, socket: fake.socket, session: { roomId, username: 'Bob' } });
+    const ack = vi.fn();
+    const submission = fake.handlers['endGameStats']({ deviceId: 'dev-bob', stats: {} }, ack);
+    const nextDedup = { devices: new Map(), global: false };
+    rooms[roomId].statsRecordedForGame = nextDedup;
+    rooms[roomId].finishedGameToken = 'next-finish';
+    resolveVerdict(true);
+    await submission;
+    expect(updateDeviceStats).toHaveBeenCalledTimes(1);
+    expect(nextDedup.devices.size).toBe(0);
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'invalid' });
   });
 
   // A seat that dropped mid-game is still IN room.state.players at the finish
@@ -586,7 +698,10 @@ describe('a seat that left before the finish is recorded by the server itself', 
         status: 'playing', finished: true, currentPlayerIndex: null, winningScore: 6000,
         players: [
           { ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: aliceScore },
-          { ...makePlayer('Bob', 'bob-sock', 'dev-bob'), score: bobScore, disconnected: true },
+          {
+            ...makePlayer('Bob', 'bob-sock', 'dev-bob'), score: bobScore,
+            busts: BOB_BUSTS_HELD, disconnected: true,
+          },
         ],
       });
       // The pending reconnect timer that keeps the seat alive — and that
@@ -806,10 +921,7 @@ describe('the global row counts the same players the device rows do', () => {
     expect(written!.gamesPlayed, 'the game was played, whatever the payload said').toBe(1);
   });
 
-  it('leaves the payload alone when the room froze no verdict to correct from', async () => {
-    // A room seeded without a start roster still freezes a verdict, but one
-    // whose finishedGame is missing entirely (nothing broadcast the finish)
-    // has no count to substitute — the payload is the only answer there is.
+  it('derives player totals from server state when no finish snapshot exists', async () => {
     rooms[roomId] = createRoom('alice-sock');
     Object.assign(rooms[roomId].state, {
       status: 'playing', finished: true, currentPlayerIndex: null,
@@ -824,8 +936,8 @@ describe('the global row counts the same players the device rows do', () => {
     });
 
     const written = vi.mocked(updateGlobalStats).mock.calls[0]?.[0];
-    expect(written!.totalPlayersSum).toBe(2);
-    expect(written!.mostPlayersInGame).toBe(2);
+    expect(written!.totalPlayersSum).toBe(1);
+    expect(written!.mostPlayersInGame).toBe(1);
   });
 });
 
@@ -932,7 +1044,11 @@ describe("a returning client merges into the server's verdict-only row", () => {
       status: 'playing', finished: true, currentPlayerIndex: null, winningScore: 6000,
       players: [
         { ...makePlayer('Alice', 'alice-sock', 'dev-alice'), score: ALICE_WON },
-        { ...makePlayer('Bob', 'bob-sock', 'dev-bob'), score: BOB_LOST, disconnected: true },
+          {
+            ...makePlayer('Bob', 'bob-sock', 'dev-bob'), score: BOB_LOST,
+            totalTurns: BOB_TURNS, busts: BOB_BUSTS, totalTuttos: BOB_TUTTOS,
+            mostCardsInTurn: BOB_MOST_CARDS, disconnected: true,
+          },
       ],
     });
     rooms[roomId].disconnectTimers['dev-bob'] = setTimeout(() => {}, RECONNECT_TIMER_MS);
@@ -1012,7 +1128,7 @@ describe("a returning client merges into the server's verdict-only row", () => {
     emitRoomState(makeFakeIo().io, roomId);
 
     expect(updateDeviceStats).toHaveBeenCalledTimes(1);
-    expect(rooms[roomId].statsRecordedForGame.devices.get('dev-bob')).toBe('verdict-only');
+    await vi.waitFor(() => expect(rooms[roomId].statsRecordedForGame.devices.get('dev-bob')).toBe('verdict-only'));
   });
 
   it('reopens only the merge when the merge write fails, never the verdict row', async () => {
@@ -1106,10 +1222,7 @@ describe('a submission carrying no usable game data still records the verdict', 
     expect(written.wins, 'Bob lost').toBe(0);
   });
 
-  it('leaves a room that froze no verdict with nothing to write', async () => {
-    // No broadcast, so no finishedGame — there is no outcome to record and an
-    // empty payload adds nothing. updateDeviceStats no-ops on {} anyway; what
-    // matters is that no gamesPlayed is invented out of a bare `finished`.
+  it('derives a played game from server state when no finish snapshot exists', async () => {
     rooms[roomId] = createRoom('alice-sock');
     Object.assign(rooms[roomId].state, {
       status: 'playing', finished: true, currentPlayerIndex: null,
@@ -1118,7 +1231,7 @@ describe('a submission carrying no usable game data still records the verdict', 
 
     const written = await submit('Alice', 'alice-sock', 'dev-alice', {});
 
-    expect(written).toEqual({});
+    expect(written).toEqual(expect.objectContaining({ gamesPlayed: 1, wins: 1 }));
   });
 });
 

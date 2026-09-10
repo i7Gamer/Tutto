@@ -9,6 +9,7 @@ import { DEFAULT_RULESET } from '../utils/configValidation';
 import { buildDiceSnapshot } from '../utils/diceTurnState';
 import { deriveTurnControls, canDrawAfterTutto as computeCanDrawAfterTutto, sortKeptDiceForDisplay } from '../utils/diceTurnControls';
 import { readRestorableTurn, deriveRestoredTurn, type RestoredChain } from '../utils/diceTurnRestore';
+import { copyTurnCardOutcomes, recordCurrentOutcome } from '../utils/turnOutcomes';
 import { diceTurnReducer, initialDiceTurnState } from '../utils/diceTurnReducer';
 import { getDisplayCardName } from '../utils/cardVisuals';
 import { useAutoContinueCountdown } from '../hooks/useAutoContinueCountdown';
@@ -239,6 +240,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
         playBuzzer();
         vibrateBust();
         if (isClassic) {
+          if (chainRef.current.outcomes) recordCurrentOutcome(chainRef.current.outcomes, scoreSoFar);
           // A Feuerwerk null BANKS the whole accumulated turn (official
           // rule); every other null forfeits the entire chain.
           if (currentCard === 'Feuerwerk' && scoreSoFar > 0) {
@@ -313,6 +315,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     try {
 
     let newTurnScore = turnScore + (countsDicePoints ? validation.score : 0);
+    if (isClassic && chainRef.current.outcomes) recordCurrentOutcome(chainRef.current.outcomes, newTurnScore);
     const newKniffelProgress = validation.newKniffelProgress;
     let newKeptDice = [...keptDice, ...selectedRolls];
 
@@ -320,7 +323,10 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
 
     if (isTutto) {
       newTurnScore = applyTuttoBonus(newTurnScore, currentCard);
-      if (isClassic) chainRef.current.tuttoCount += 1;
+      if (isClassic) {
+        chainRef.current.tuttoCount += 1;
+        if (chainRef.current.outcomes) recordCurrentOutcome(chainRef.current.outcomes, newTurnScore, 1);
+      }
       if (!prefersReducedMotion()) confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
       playSuccess();
       vibrateSuccess();
@@ -358,6 +364,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
           setPlusMinusScores([...chainRef.current.plusMinusScores]);
           newTurnScore += PLUS_MINUS_SCORE;
         }
+        if (chainRef.current.outcomes) recordCurrentOutcome(chainRef.current.outcomes, newTurnScore);
         const chain = chainRef.current.cards;
         if (chain.length > 0) chain[chain.length - 1].completed = true;
         chainRef.current.ended = 'banked';
@@ -473,6 +480,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     }
     if (!newCard) return false;
     chainRef.current.cards.push({ card: newCard, completed: false });
+    chainRef.current.outcomes?.push({ card: newCard, scoreBefore: base, scoreAfter: base, tuttos: 0 });
     setActiveChainCards(chainRef.current.cards.map(entry => entry.card));
     dispatch({ type: 'CHAIN_DRAWN', card: newCard, base });
     setDisplayRoll([]);
@@ -533,6 +541,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     pendingChainRollRef.current = null;
     drawnCardWasCurrentRef.current = false;
     chainRef.current.cards.pop();
+    chainRef.current.outcomes?.pop();
     setActiveChainCards(chainRef.current.cards.map(entry => entry.card));
     chainRef.current.ended = 'banked';
     setRevealedCard(null);
@@ -605,6 +614,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
     cardsThisTurn: chainRef.current.cards.map(c => c.card),
     plusMinusScores: [...chainRef.current.plusMinusScores],
     chainTuttoCount: chainRef.current.tuttoCount,
+    ...(chainRef.current.outcomes ? { cardOutcomes: copyTurnCardOutcomes(chainRef.current.outcomes) } : {}),
   } : {});
 
   useEffect(() => {
@@ -657,6 +667,7 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
       const chain = chainRef.current;
       onComplete(data.score || 0, data.won || false, {
         cards: chain.cards.map(c => ({ ...c })),
+        ...(chain.outcomes ? { outcomes: copyTurnCardOutcomes(chain.outcomes) } : {}),
         tuttoCount: chain.tuttoCount,
         plusMinusScores: [...chain.plusMinusScores],
         ended: chain.ended,

@@ -21,7 +21,8 @@
  * store can show that, and it is also what a player actually runs.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { io, type Socket as ClientSocket } from 'socket.io-client';
+import type { Socket as ClientSocket } from 'socket.io-client';
+import { protocolClient as io, configureTestRoom } from './onlineTestClient';
 import { startTestServer, waitFor, connected } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
@@ -43,7 +44,7 @@ const TEST_TIMEOUT_MS = 30_000;
 // has a second seat that survives Alice's drop, and so the assertion can be
 // made from a socket that never went away.
 const FIRST_ROUND = 1;
-const SECOND_ROUND = 2;
+const COMMITTED_SCORE = 500;
 
 describe('Server Socket E2E — a push made while the transport is down', () => {
   let serverProcess: Awaited<ReturnType<typeof startTestServer>>;
@@ -77,9 +78,11 @@ describe('Server Socket E2E — a push made while the transport is down', () => 
     await connected(observer);
     let observedRound: number | null = null;
     let observedStatus: string | null = null;
-    observer.on('gameState', (state: { round: number; status: string }) => {
+    let observedScore = 0;
+    observer.on('gameState', (state: { round: number; status: string; players: { name: string; score: number }[] }) => {
       observedRound = state.round;
       observedStatus = state.status;
+      observedScore = state.players.find(player => player.name === 'Alice')?.score ?? 0;
     });
     const bobJoin = await new Promise<JoinAck>(resolve => {
       observer?.emit('joinRoom', {
@@ -91,9 +94,10 @@ describe('Server Socket E2E — a push made while the transport is down', () => 
     // The host starts the game. The roster comes from the server's own
     // broadcast, so the push cannot trip applyPushedState's stale-roster gate.
     await waitFor(() => useGameStore.getState().players.length === 2);
-    useGameStore.setState({ status: 'playing', currentPlayerIndex: 0, round: FIRST_ROUND });
-    useGameStore.getState().pushState();
+    await configureTestRoom(getSocket()!, ROOM_ID, { randomOrder: false, turnDuration: 0, initialCards: { '200': 6 } });
+    useGameStore.getState().startGame();
     await waitFor(() => observedStatus === 'playing' && observedRound === FIRST_ROUND);
+    await waitFor(() => !useGameStore.getState().onlineActionPending);
 
     // Kill the transport the way a tunnel or a sleeping phone does — the
     // manager reconnects on its own, which is exactly the window the bug
@@ -102,10 +106,9 @@ describe('Server Socket E2E — a push made while the transport is down', () => 
     await waitFor(() => getSocket()?.connected === false);
 
     // The move the player made while the connection was down.
-    useGameStore.setState({ round: SECOND_ROUND });
-    useGameStore.getState().pushState();
+    useGameStore.getState().nextTurn(COMMITTED_SCORE);
 
-    await waitFor(() => observedRound === SECOND_ROUND, RECONNECT_WAIT_MS);
-    expect(observedRound).toBe(SECOND_ROUND);
+    await waitFor(() => observedScore === COMMITTED_SCORE, RECONNECT_WAIT_MS);
+    expect(observedScore).toBe(COMMITTED_SCORE);
   }, TEST_TIMEOUT_MS);
 });

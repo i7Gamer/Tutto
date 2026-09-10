@@ -1,12 +1,14 @@
 /** @vitest-environment node */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Server } from 'socket.io';
-import { registerRoomHandlers } from './socketRoomHandlers';
+import { JOIN_STATS_WAIT_MS, registerRoomHandlers } from './socketRoomHandlers';
 import { makeFakeSocket, type Handler } from './socketTestHarness';
 import { rooms, deleteRoom, roomChannel } from './rooms';
 import { scaledTimerMs } from './turnTimers';
 import type { ConnectionSession } from './socketContext';
 import { normalizeRoomId } from '../src/utils/configValidation';
+import { ONLINE_PROTOCOL_VERSION } from '../src/utils/onlineProtocol';
+import { applyOnlineGameAction } from './gameActionAuthority';
 
 vi.mock('./database', () => ({
   getDeviceStats: vi.fn(),
@@ -212,6 +214,294 @@ describe('joinRoom vs a disconnect during its stats await', () => {
     }
   });
 
+  it('keeps a rejoin that arrived before expiry while its optional streak reads are pending', async () => {
+    vi.useFakeTimers();
+    const roomId = 'RESERVED-REJOIN';
+    const deviceId = 'dev-reserved';
+    const reconnectTimeoutSeconds = 1;
+    const { io } = makeFakeIo();
+    vi.mocked(getDeviceStats).mockResolvedValue(null);
+
+    try {
+      const original = makeFakeSocket('reserved-original');
+      registerRoomHandlers({ io, socket: original.socket, session: { roomId: null, username: null } });
+      await joinAndWait(original.handlers, { roomId, name: 'Alice', deviceId });
+      const bob = makeFakeSocket('reserved-bob');
+      registerRoomHandlers({ io, socket: bob.socket, session: { roomId: null, username: null } });
+      await joinAndWait(bob.handlers, { roomId, name: 'Bob', deviceId: 'dev-reserved-bob' });
+      const carol = makeFakeSocket('reserved-carol');
+      registerRoomHandlers({ io, socket: carol.socket, session: { roomId: null, username: null } });
+      await joinAndWait(carol.handlers, { roomId, name: 'Carol', deviceId: 'dev-reserved-carol' });
+
+      const room = rooms[roomId];
+      room.state.status = 'playing';
+      room.state.reconnectTimeout = reconnectTimeoutSeconds;
+      const originalSeat = room.state.players.find(player => player.deviceId === deviceId);
+      expect(originalSeat).toBeDefined();
+      original.handlers['disconnect']();
+
+      const releases: Array<() => void> = [];
+      vi.mocked(getDeviceStats).mockImplementation(() =>
+        new Promise(resolve => { releases.push(() => resolve(null)); }));
+      const replacement = makeFakeSocket('reserved-replacement');
+      registerRoomHandlers({ io, socket: replacement.socket, session: { roomId: null, username: null } });
+      const callback = vi.fn();
+      replacement.handlers['joinRoom']({ roomId, name: 'Alice', deviceId, isReconnect: true }, callback);
+      expect(releases).toHaveLength(2);
+
+      await vi.advanceTimersByTimeAsync(scaledTimerMs(reconnectTimeoutSeconds) + 1);
+      expect(room.state.players.find(player => player.deviceId === deviceId)).toBe(originalSeat);
+      expect(room.state.players.find(player => player.deviceId === deviceId)?.disconnected).toBe(true);
+
+      releases.forEach(release => release());
+      await vi.waitFor(() => expect(callback).toHaveBeenCalledWith(expect.objectContaining({ success: true })));
+      expect(room.state.players.find(player => player.deviceId === deviceId)).toBe(originalSeat);
+      expect(originalSeat?.socketId).toBe('reserved-replacement');
+      expect(originalSeat?.disconnected).toBe(false);
+      expect(room.disconnectTimers[deviceId]).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+      deleteRoom(roomId);
+    }
+  });
+
+  it.each([false, true])('reclaims a cloned seat after a canonical commit with deadline elapsed=%s', async deadlineElapsed => {
+    vi.useFakeTimers();
+    const roomId = 'RESERVATION-COMMIT';
+    const deviceId = 'dev-commit-returning';
+    const reconnectTimeoutSeconds = 1;
+    const committedScore = 200;
+    const { io } = makeFakeIo();
+    vi.mocked(getDeviceStats).mockResolvedValue(null);
+
+    try {
+      const host = makeFakeSocket('commit-host');
+      registerRoomHandlers({ io, socket: host.socket, session: { roomId: null, username: null } });
+      await joinAndWait(host.handlers, { roomId, name: 'Alice', deviceId: 'dev-commit-host' });
+      const original = makeFakeSocket('commit-original');
+      registerRoomHandlers({ io, socket: original.socket, session: { roomId: null, username: null } });
+      await joinAndWait(original.handlers, { roomId, name: 'Bob', deviceId });
+      const room = rooms[roomId];
+      room.state.randomOrder = false;
+      room.state.reconnectTimeout = reconnectTimeoutSeconds;
+      expect(applyOnlineGameAction(room, { type: 'start' }, host.socket.id)).toBe(true);
+      room.state.currentCard = '200';
+      original.handlers['disconnect']();
+      const originalSeat = room.state.players.find(player => player.deviceId === deviceId);
+
+      const releases: Array<() => void> = [];
+      vi.mocked(getDeviceStats).mockImplementation(() =>
+        new Promise(resolve => { releases.push(() => resolve(null)); }));
+      const replacement = makeFakeSocket('commit-replacement');
+      registerRoomHandlers({ io, socket: replacement.socket, session: { roomId: null, username: null } });
+      const callback = vi.fn();
+      replacement.handlers['joinRoom']({ roomId, name: 'Bob', deviceId, isReconnect: true }, callback);
+
+      expect(applyOnlineGameAction(room, { type: 'commit', score: committedScore, success: true }, host.socket.id)).toBe(true);
+      const currentSeat = room.state.players.find(player => player.deviceId === deviceId);
+      expect(currentSeat).not.toBe(originalSeat);
+      if (deadlineElapsed) await vi.advanceTimersByTimeAsync(scaledTimerMs(reconnectTimeoutSeconds));
+      releases.forEach(release => release());
+      await vi.waitFor(() => expect(callback).toHaveBeenCalled());
+
+      expect(callback).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+      expect(room.state.players.find(player => player.deviceId === deviceId)).toBe(currentSeat);
+      expect(currentSeat).toMatchObject({ socketId: replacement.socket.id, disconnected: false });
+      expect(room.state.players.find(player => player.socketId === host.socket.id)?.score).toBe(committedScore);
+      expect(room.disconnectTimers[deviceId]).toBeUndefined();
+    } finally {
+      deleteRoom(roomId);
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not reclaim a reservation after an earlier connected-seat takeover completes', async () => {
+    const roomId = 'RESERVATION-TAKEN-OVER';
+    const deviceId = 'dev-reservation-taken';
+    const { io } = makeFakeIo();
+    vi.mocked(getDeviceStats).mockResolvedValue(null);
+    const original = makeFakeSocket('taken-original');
+    registerRoomHandlers({ io, socket: original.socket, session: { roomId: null, username: null } });
+    await joinAndWait(original.handlers, { roomId, name: 'Alice', deviceId });
+    const peer = makeFakeSocket('taken-peer');
+    registerRoomHandlers({ io, socket: peer.socket, session: { roomId: null, username: null } });
+    await joinAndWait(peer.handlers, { roomId, name: 'Bob', deviceId: 'dev-taken-peer' });
+
+    try {
+      const releases: Array<() => void> = [];
+      vi.mocked(getDeviceStats).mockImplementation(() =>
+        new Promise(resolve => { releases.push(() => resolve(null)); }));
+      const takeover = makeFakeSocket('taken-new-owner');
+      registerRoomHandlers({ io, socket: takeover.socket, session: { roomId: null, username: null } });
+      const takeoverAck = vi.fn();
+      takeover.handlers['joinRoom']({ roomId, name: 'Alice', deviceId }, takeoverAck);
+      const takeoverReads = releases.splice(0);
+      original.handlers['disconnect']();
+
+      const replacement = makeFakeSocket('taken-reservation');
+      registerRoomHandlers({ io, socket: replacement.socket, session: { roomId: null, username: null } });
+      const callback = vi.fn();
+      replacement.handlers['joinRoom']({ roomId, name: 'Alice', deviceId, isReconnect: true }, callback);
+      takeoverReads.forEach(release => release());
+      await vi.waitFor(() => expect(takeoverAck).toHaveBeenCalledWith(expect.objectContaining({ success: true })));
+      releases.forEach(release => release());
+      await vi.waitFor(() => expect(callback).toHaveBeenCalled());
+
+      expect(callback).toHaveBeenCalledWith({ success: false, error: 'Join attempt superseded' });
+      expect(rooms[roomId].state.players.find(player => player.deviceId === deviceId))
+        .toMatchObject({ socketId: takeover.socket.id, disconnected: false });
+      expect(replacement.socket.join).not.toHaveBeenCalled();
+    } finally {
+      deleteRoom(roomId);
+    }
+  });
+
+  it('gives the first replacement socket the pending rejoin reservation', async () => {
+    const roomId = 'FIRST-RESERVATION-WINS';
+    const deviceId = 'dev-first-wins';
+    const { io } = makeFakeIo();
+    vi.mocked(getDeviceStats).mockResolvedValue(null);
+
+    try {
+      const original = makeFakeSocket('first-wins-original');
+      registerRoomHandlers({ io, socket: original.socket, session: { roomId: null, username: null } });
+      await joinAndWait(original.handlers, { roomId, name: 'Alice', deviceId });
+      const peer = makeFakeSocket('first-wins-peer');
+      registerRoomHandlers({ io, socket: peer.socket, session: { roomId: null, username: null } });
+      await joinAndWait(peer.handlers, { roomId, name: 'Bob', deviceId: 'dev-first-wins-peer' });
+      original.handlers['disconnect']();
+
+      const releases: Array<() => void> = [];
+      vi.mocked(getDeviceStats).mockImplementation(() =>
+        new Promise(resolve => { releases.push(() => resolve(null)); }));
+      const first = makeFakeSocket('first-wins-replacement');
+      registerRoomHandlers({ io, socket: first.socket, session: { roomId: null, username: null } });
+      first.handlers['joinRoom']({ roomId, name: 'Alice', deviceId, isReconnect: true }, vi.fn());
+      expect(releases).toHaveLength(2);
+
+      const second = makeFakeSocket('second-wins-replacement');
+      registerRoomHandlers({ io, socket: second.socket, session: { roomId: null, username: null } });
+      const secondCallback = vi.fn();
+      second.handlers['joinRoom']({ roomId, name: 'Alice', deviceId, isReconnect: true }, secondCallback);
+      expect(secondCallback).toHaveBeenCalledWith(expect.objectContaining({ success: false, code: 'rejoin_pending' }));
+      expect(releases).toHaveLength(2);
+    } finally {
+      deleteRoom(roomId);
+    }
+  });
+
+  it('does not recreate a reserved room that disappeared during its stats read', async () => {
+    const roomId = 'RESERVATION-ROOM-GONE';
+    const deviceId = 'dev-reservation-gone';
+    const { io } = makeFakeIo();
+    vi.mocked(getDeviceStats).mockResolvedValue(null);
+
+    try {
+      const original = makeFakeSocket('gone-original');
+      registerRoomHandlers({ io, socket: original.socket, session: { roomId: null, username: null } });
+      await joinAndWait(original.handlers, { roomId, name: 'Alice', deviceId });
+      const peer = makeFakeSocket('gone-peer');
+      registerRoomHandlers({ io, socket: peer.socket, session: { roomId: null, username: null } });
+      await joinAndWait(peer.handlers, { roomId, name: 'Bob', deviceId: 'dev-gone-peer' });
+      original.handlers['disconnect']();
+
+      const releases: Array<() => void> = [];
+      vi.mocked(getDeviceStats).mockImplementation(() =>
+        new Promise(resolve => { releases.push(() => resolve(null)); }));
+      const replacement = makeFakeSocket('gone-replacement');
+      registerRoomHandlers({ io, socket: replacement.socket, session: { roomId: null, username: null } });
+      const callback = vi.fn();
+      replacement.handlers['joinRoom']({ roomId, name: 'Alice', deviceId, isReconnect: true }, callback);
+
+      deleteRoom(roomId);
+      releases.forEach(release => release());
+
+      await vi.waitFor(() => expect(callback).toHaveBeenCalledWith(expect.objectContaining({
+        success: false,
+        code: 'room-gone',
+      })));
+      expect(rooms[roomId]).toBeUndefined();
+    } finally {
+      deleteRoom(roomId);
+    }
+  });
+
+  it('uses unavailable streaks after the bounded wait and still completes the reservation', async () => {
+    vi.useFakeTimers();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const roomId = 'RESERVATION-STATS-TIMEOUT';
+    const deviceId = 'dev-reservation-timeout';
+    const reconnectTimeoutSeconds = 1;
+    const { io } = makeFakeIo();
+    vi.mocked(getDeviceStats).mockResolvedValue(null);
+
+    try {
+      const original = makeFakeSocket('timeout-original');
+      registerRoomHandlers({ io, socket: original.socket, session: { roomId: null, username: null } });
+      await joinAndWait(original.handlers, { roomId, name: 'Alice', deviceId });
+      const peer = makeFakeSocket('timeout-peer');
+      registerRoomHandlers({ io, socket: peer.socket, session: { roomId: null, username: null } });
+      await joinAndWait(peer.handlers, { roomId, name: 'Bob', deviceId: 'dev-timeout-peer' });
+      const room = rooms[roomId];
+      room.state.status = 'playing';
+      room.state.reconnectTimeout = reconnectTimeoutSeconds;
+      original.handlers['disconnect']();
+
+      vi.mocked(getDeviceStats).mockImplementation(() => new Promise(() => {}));
+      const replacement = makeFakeSocket('timeout-replacement');
+      registerRoomHandlers({ io, socket: replacement.socket, session: { roomId: null, username: null } });
+      const callback = vi.fn();
+      replacement.handlers['joinRoom']({ roomId, name: 'Alice', deviceId, isReconnect: true }, callback);
+
+      await vi.advanceTimersByTimeAsync(JOIN_STATS_WAIT_MS);
+      expect(callback).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+      expect(room.state.players.find(player => player.deviceId === deviceId)?.socketId).toBe('timeout-replacement');
+      expect(room.disconnectTimers[deviceId]).toBeUndefined();
+      expect(consoleError).toHaveBeenCalledWith('[joinRoom] getDeviceStats timed out');
+    } finally {
+      consoleError.mockRestore();
+      vi.useRealTimers();
+      deleteRoom(roomId);
+    }
+  });
+
+  it('removes a reserved seat immediately when its replacement disconnects after the original deadline', async () => {
+    vi.useFakeTimers();
+    const roomId = 'RESERVATION-RELEASE-EXPIRED';
+    const deviceId = 'dev-reservation-release';
+    const reconnectTimeoutSeconds = 1;
+    const { io } = makeFakeIo();
+    vi.mocked(getDeviceStats).mockResolvedValue(null);
+
+    try {
+      const original = makeFakeSocket('release-original');
+      registerRoomHandlers({ io, socket: original.socket, session: { roomId: null, username: null } });
+      await joinAndWait(original.handlers, { roomId, name: 'Alice', deviceId });
+      const peer = makeFakeSocket('release-peer');
+      registerRoomHandlers({ io, socket: peer.socket, session: { roomId: null, username: null } });
+      await joinAndWait(peer.handlers, { roomId, name: 'Bob', deviceId: 'dev-release-peer' });
+      const room = rooms[roomId];
+      room.state.status = 'playing';
+      room.state.reconnectTimeout = reconnectTimeoutSeconds;
+      original.handlers['disconnect']();
+
+      vi.mocked(getDeviceStats).mockImplementation(() => new Promise(() => {}));
+      const replacement = makeFakeSocket('release-replacement');
+      registerRoomHandlers({ io, socket: replacement.socket, session: { roomId: null, username: null } });
+      replacement.handlers['joinRoom']({ roomId, name: 'Alice', deviceId, isReconnect: true }, vi.fn());
+
+      await vi.advanceTimersByTimeAsync(scaledTimerMs(reconnectTimeoutSeconds) + 1);
+      expect(room.state.players.some(player => player.deviceId === deviceId)).toBe(true);
+      (replacement.socket as unknown as { connected: boolean }).connected = false;
+      replacement.handlers['disconnect']();
+      expect(room.state.players.some(player => player.deviceId === deviceId)).toBe(false);
+      expect(room.disconnectTimers[deviceId]).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+      deleteRoom(roomId);
+    }
+  });
+
   it('completes a successful room switch after internally leaving the old room', async () => {
     vi.mocked(getDeviceStats).mockResolvedValue(null);
     const { io } = makeFakeIo();
@@ -306,6 +596,32 @@ describe('joinRoom vs a disconnect during its stats await', () => {
   });
 });
 
+describe('joinRoom protocol compatibility', () => {
+  beforeEach(() => {
+    for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.mocked(getDeviceStats).mockReset();
+  });
+
+  it('refuses an older client before reading stats or mutating a room', () => {
+    const { io } = makeFakeIo();
+    const { socket, handlers } = makeFakeSocket('outdated-client');
+    (socket as unknown as { handshake: { auth: { protocolVersion: number } } })
+      .handshake.auth.protocolVersion = ONLINE_PROTOCOL_VERSION - 1;
+    registerRoomHandlers({ io, socket, session: { roomId: null, username: null } });
+
+    const callback = vi.fn();
+    handlers['joinRoom']({ roomId: 'VERSION-ROOM', name: 'Alice', deviceId: 'dev-version' }, callback);
+
+    expect(callback).toHaveBeenCalledWith({
+      success: false,
+      code: 'client_update_required',
+      error: 'A game update is required. Refresh this page and rejoin.',
+    });
+    expect(getDeviceStats).not.toHaveBeenCalled();
+    expect(rooms['VERSION-ROOM']).toBeUndefined();
+  });
+});
+
 // Emits a join and resolves once its ack fires — a handler that never acks
 // (the failure mode of the prototype-named ids below) fails here rather than
 // silently letting the assertions run against a callback nobody called.
@@ -379,6 +695,32 @@ describe('joinRoom: one seat per socket', () => {
 
     expect(steal).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
     expect(rooms['STEAL-ROOM'].state.players.map(p => p.socketId)).toEqual(['bob-sock', 'alice-sock']);
+  });
+
+  it('releases a disconnected seat reservation when the requester already holds another seat', async () => {
+    const roomId = 'REFUSED-RESERVATION';
+    const { io } = makeFakeIo();
+    const bob = makeFakeSocket('refused-bob');
+    registerRoomHandlers({ io, socket: bob.socket, session: { roomId: null, username: null } });
+    await joinAndWait(bob.handlers, { roomId, name: 'Bob', deviceId: 'dev-refused-bob' });
+    const alice = makeFakeSocket('refused-alice');
+    registerRoomHandlers({ io, socket: alice.socket, session: { roomId: null, username: null } });
+    await joinAndWait(alice.handlers, { roomId, name: 'Alice', deviceId: 'dev-refused-alice' });
+    bob.handlers['disconnect']();
+
+    try {
+      const refused = await joinAndWait(alice.handlers, { roomId, name: 'Bob', deviceId: 'dev-refused-bob' });
+      expect(refused).toHaveBeenCalledWith(expect.objectContaining({ success: false, code: 'already_seated' }));
+      const returning = makeFakeSocket('refused-bob-returning');
+      registerRoomHandlers({ io, socket: returning.socket, session: { roomId: null, username: null } });
+      const rejoined = await joinAndWait(returning.handlers, { roomId, name: 'Bob', deviceId: 'dev-refused-bob', isReconnect: true });
+
+      expect(rejoined).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+      expect(rooms[roomId].state.players.find(player => player.deviceId === 'dev-refused-bob')?.socketId)
+        .toBe(returning.socket.id);
+    } finally {
+      deleteRoom(roomId);
+    }
   });
 
   it('lets a fresh socket take over an existing seat, since it holds none itself', async () => {

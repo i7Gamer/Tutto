@@ -15,6 +15,7 @@ import type {
   TurnSummary,
   DeviceStatsRow,
   BotPersonality,
+  OnlineGameAction,
 } from '../types';
 
 export type GameMode = 'local' | 'online';
@@ -73,6 +74,10 @@ export type PreGameStats = Pick<DeviceStatsRow,
 >;
 
 export interface GameStore extends CoreGameState {
+  // Online-only public multiset. cards remains the offline ordered deck.
+  remainingCardCounts: InitialCards | null;
+  // A gameplay command is waiting for an authoritative echo/correction.
+  onlineActionPending: boolean;
   mode: GameMode;
   deviceId: string | null;
   isOnline: boolean;
@@ -193,7 +198,7 @@ export interface GameStore extends CoreGameState {
   leaveRoom: () => void;
   kickPlayer: (targetSocketId: string) => void;
   setLiveTurnState: (snapshot: DiceSnapshot | null) => void;
-  pushState: (base?: string | null) => void;
+  pushState: (base?: string | null, action?: OnlineGameAction) => void;
   pushLiveTurnState: (snapshot: DiceSnapshot | null) => void;
   // Asks the SERVER for the next card of a classic chain and resolves what it
   // dealt, or null if it dealt nothing (refused, or no answer at all). Online

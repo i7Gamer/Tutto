@@ -686,7 +686,7 @@ describe('Game Component Integration', () => {
     const confetti = await import('canvas-confetti').then(m => m.default);
 
     act(() => {
-      useGameStore.setState({ currentCard: 'Feuerwerk', cards: ['Feuerwerk', 'Stop'] });
+      useGameStore.setState({ currentCard: 'Feuerwerk', cards: [], remainingCardCounts: { Feuerwerk: 1, Stop: 1 } });
     });
 
     const { rerender } = render(<Game />);
@@ -700,9 +700,9 @@ describe('Game Component Integration', () => {
 
     vi.clearAllMocks();
 
-    // Consecutive draw of Feuerwerk: currentCard stays 'Feuerwerk', cards array length decreases
+    // Consecutive online draw: the card stays the same; public composition changes.
     act(() => {
-      useGameStore.setState({ currentCard: 'Feuerwerk', cards: ['Stop'] });
+      useGameStore.setState({ currentCard: 'Feuerwerk', remainingCardCounts: { Stop: 1 } });
     });
 
     rerender(<Game />);

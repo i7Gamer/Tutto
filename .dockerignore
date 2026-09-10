@@ -50,6 +50,7 @@ eslint-rules/**/*.test.*
 # any business in a production image. Mirrored by TEST_ONLY_HELPERS in
 # server/packaging.test.ts, which now derives the membership independently.
 server/socketTestHarness.ts
+server/onlineTestClient.ts
 server/testPorts.ts
 server/testTimeouts.ts
 

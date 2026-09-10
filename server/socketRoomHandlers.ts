@@ -7,7 +7,7 @@ import {
 import { zeroedPlayerStats } from '../src/utils/playerStats';
 import { applyValidatedConfig } from './pushValidation';
 import { startServerTurnTimer, abortGameIfLowPlayers, scaledTimerMs } from './turnTimers';
-import type { ServerPlayer } from './roomTypes';
+import type { Room, ServerPlayer } from './roomTypes';
 import {
   rooms, createRoom, deleteRoom, handleActivePlayerRemoved, emitRoomState,
   promoteHostAfterLoss, roomChannel, isAbandonedRoom, isAtRoomAddressCap,
@@ -16,8 +16,54 @@ import {
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, getClientAddress, type SocketContext } from './socketContext';
 import { assignPlayerColor } from './playerColor';
+import { ONLINE_PROTOCOL_VERSION } from '../src/utils/onlineProtocol';
 
 const JOIN_ROOM_LIMIT = { windowMs: 10_000, max: 10 };
+// Streaks decorate a seat but do not decide whether a player may reclaim it.
+// A slow statistics read therefore gets this bounded opportunity to finish
+// after it has reserved an eligible disconnected seat.
+export const JOIN_STATS_WAIT_MS = 5_000;
+
+interface RejoinReservation {
+  room: Room;
+  roomId: string;
+  deviceId: string;
+  socketId: string;
+  originalSocketId: string;
+  generation: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  timerNonce: number | null;
+  deadlineElapsed: boolean;
+}
+
+interface DisconnectTimerMetadata {
+  nonce: number;
+}
+
+// Reservations and timer metadata are lifecycle bookkeeping, not room state:
+// they must never be broadcast or accepted in a client snapshot. Weak ownership
+// lets a deleted room and any stale timer closure become collectible together.
+const rejoinReservations = new WeakMap<Room, Map<string, RejoinReservation>>();
+const disconnectTimerMetadata = new WeakMap<Room, Map<string, DisconnectTimerMetadata>>();
+let nextDisconnectTimerNonce = 0;
+
+const reservationsFor = (room: Room): Map<string, RejoinReservation> => {
+  let reservations = rejoinReservations.get(room);
+  if (!reservations) {
+    reservations = new Map();
+    rejoinReservations.set(room, reservations);
+  }
+  return reservations;
+};
+
+const timerMetadataFor = (room: Room): Map<string, DisconnectTimerMetadata> => {
+  let metadata = disconnectTimerMetadata.get(room);
+  if (!metadata) {
+    metadata = new Map();
+    disconnectTimerMetadata.set(room, metadata);
+  }
+  return metadata;
+};
 
 /**
  * Why a joinRoom was refused, as a stable identifier rather than prose.
@@ -54,6 +100,8 @@ export const JOIN_REFUSAL_CODES = [
   'room_full',
   'too_many_rooms',
   'room-gone',
+  'rejoin_pending',
+  'client_update_required',
 ] as const;
 
 type JoinRefusal = typeof JOIN_REFUSAL_CODES[number];
@@ -78,9 +126,98 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
   // continuation must then become a no-op rather than seating a ghost or
   // overwriting the newer session.
   let joinGeneration = 0;
+  let ownedReservation: RejoinReservation | null = null;
+
+  const clearDisconnectTimer = (room: Room, deviceId: string): void => {
+    const timer = room.disconnectTimers[deviceId];
+    if (timer) clearTimeout(timer);
+    delete room.disconnectTimers[deviceId];
+    timerMetadataFor(room).delete(deviceId);
+  };
+
+  const expireDisconnectedSeat = (
+    roomId: string,
+    room: Room,
+    deviceId: string,
+    timer: ReturnType<typeof setTimeout>,
+    timerNonce: number,
+  ): void => {
+    if (rooms[roomId] !== room || room.disconnectTimers[deviceId] !== timer ||
+        timerMetadataFor(room).get(deviceId)?.nonce !== timerNonce) return;
+
+    delete room.disconnectTimers[deviceId];
+    timerMetadataFor(room).delete(deviceId);
+    const removedIdx = room.state.players.findIndex(player => player.deviceId === deviceId);
+    if (removedIdx === -1) return;
+    room.state.players.splice(removedIdx, 1);
+    handleActivePlayerRemoved(room, removedIdx);
+
+    if (room.state.players.length === 0 || isAbandonedRoom(room)) {
+      deleteRoom(roomId);
+      return;
+    }
+    promoteHostAfterLoss(room);
+    const aborted = abortGameIfLowPlayers(io, room, roomId);
+    if (!aborted) startServerTurnTimer(io, roomId);
+    emitRoomState(io, roomId);
+  };
+
+  const releaseReservation = (reservation: RejoinReservation | null): void => {
+    if (!reservation) return;
+    const reservations = reservationsFor(reservation.room);
+    if (reservations.get(reservation.deviceId) !== reservation) return;
+    reservations.delete(reservation.deviceId);
+    if (ownedReservation === reservation) ownedReservation = null;
+
+    // The original timer already reached its deadline while this request was
+    // waiting for optional metadata. Its expiration was deferred solely for
+    // this reservation, so releasing it now must complete the ordinary removal
+    // rather than grant another reconnect window.
+    if (reservation.deadlineElapsed && reservation.timer && reservation.timerNonce !== null) {
+      expireDisconnectedSeat(
+        reservation.roomId,
+        reservation.room,
+        reservation.deviceId,
+        reservation.timer,
+        reservation.timerNonce,
+      );
+    }
+  };
+
+  const reserveDisconnectedSeat = (
+    room: Room,
+    roomId: string,
+    player: ServerPlayer,
+    generation: number,
+  ): RejoinReservation | null => {
+    const reservations = reservationsFor(room);
+    if (reservations.has(player.deviceId)) return null;
+    const timer = room.disconnectTimers[player.deviceId] ?? null;
+    const reservation: RejoinReservation = {
+      room,
+      roomId,
+      deviceId: player.deviceId,
+      socketId: socket.id,
+      originalSocketId: player.socketId,
+      generation,
+      timer,
+      timerNonce: timer ? timerMetadataFor(room).get(player.deviceId)?.nonce ?? null : null,
+      deadlineElapsed: false,
+    };
+    reservations.set(player.deviceId, reservation);
+    ownedReservation = reservation;
+    return reservation;
+  };
+
+  const reservationIsCurrent = (reservation: RejoinReservation | null): reservation is RejoinReservation =>
+    reservation !== null && reservationsFor(reservation.room).get(reservation.deviceId) === reservation &&
+    reservation.socketId === socket.id && reservation.generation === joinGeneration;
 
   const handlePlayerLeave = (isExplicitLeave = false, invalidatePendingJoin = true): void => {
-    if (invalidatePendingJoin) joinGeneration++;
+    if (invalidatePendingJoin) {
+      joinGeneration++;
+      releaseReservation(ownedReservation);
+    }
     const currentRoom = session.roomId;
     if (!currentRoom || !rooms[currentRoom]) return;
     const room = rooms[currentRoom];
@@ -93,10 +230,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       room.state.players.splice(playerIndex, 1);
       handleActivePlayerRemoved(room, playerIndex);
 
-      if (room.disconnectTimers[player.deviceId]) {
-        clearTimeout(room.disconnectTimers[player.deviceId]);
-        delete room.disconnectTimers[player.deviceId];
-      }
+      clearDisconnectTimer(room, player.deviceId);
 
       if (room.state.players.length === 0) {
         deleteRoom(currentRoom);
@@ -160,7 +294,9 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       const roomIdSnapshot = currentRoom;
 
       const disconnectMs = scaledTimerMs(timeoutSecs);
-      room.disconnectTimers[player.deviceId] = setTimeout(() => {
+      const timerNonce = ++nextDisconnectTimerNonce;
+      let timer!: ReturnType<typeof setTimeout>;
+      timer = setTimeout(() => {
         // Same backstop advanceTurnOnTimeout carries, for the same reason:
         // this runs off a bare setTimeout with no caller to catch a throw, so
         // an exception here would end the process (every room, every player)
@@ -168,35 +304,23 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
         // listeners; a timer callback has to guard itself.
         try {
           const r = rooms[roomIdSnapshot];
-          if (!r) return;
-          // This timer has fired — drop its bookkeeping entry, or the
-          // "no pending timers" room-cleanup check above would see a phantom
-          // pending timer forever and the room could never be deleted.
-          delete r.disconnectTimers[player.deviceId];
-          const removedIdx = r.state.players.findIndex(p => p.deviceId === player.deviceId);
-          if (removedIdx === -1) return;
-          r.state.players.splice(removedIdx, 1);
-          handleActivePlayerRemoved(r, removedIdx);
-
-          // isAbandonedRoom as well as the empty check: this timer may have been
-          // the LAST one pending, and the seats it leaves behind can all be
-          // timerless ghosts (a reconnectTimeout lowered to 0 after this timer
-          // was armed does not retract it). Draining to that state is the one
-          // way into an unfreeable room that the leave and kick paths cannot
-          // see coming — at the moment they run, this timer is still pending
-          // and the room is legitimately being held open for it.
-          if (r.state.players.length === 0 || isAbandonedRoom(r)) {
-            deleteRoom(roomIdSnapshot);
-          } else {
-            promoteHostAfterLoss(r);
-            const aborted = abortGameIfLowPlayers(io, r, roomIdSnapshot);
-            if (!aborted) startServerTurnTimer(io, roomIdSnapshot);
-            emitRoomState(io, roomIdSnapshot);
+          if (!r || r.disconnectTimers[player.deviceId] !== timer ||
+              timerMetadataFor(r).get(player.deviceId)?.nonce !== timerNonce) return;
+          const reservation = reservationsFor(r).get(player.deviceId);
+          if (reservation) {
+            // The caller crossed the server boundary before the deadline. Keep
+            // the deadline (and its timer identity) but defer removal until the
+            // bounded metadata wait either completes or is abandoned.
+            reservation.deadlineElapsed = true;
+            return;
           }
+          expireDisconnectedSeat(roomIdSnapshot, r, player.deviceId, timer, timerNonce);
         } catch (err) {
           console.error(`[disconnectTimer] Failed to remove a timed-out player from room ${roomIdSnapshot}:`, err);
         }
       }, disconnectMs);
+      room.disconnectTimers[player.deviceId] = timer;
+      timerMetadataFor(room).set(player.deviceId, { nonce: timerNonce });
     }
   };
 
@@ -205,10 +329,16 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
     callback: (result: { success: boolean; isHost?: boolean; socketId?: string; error?: string; code?: JoinRefusal; name?: string; roomId?: string }) => void
   ) => {
     const generation = ++joinGeneration;
+    // A newer request from this socket supersedes any rejoin that was holding
+    // a disconnected seat while its optional statistics lookup ran.
+    releaseReservation(ownedReservation);
     // Reject malformed payloads before any field is used. Without these guards a
     // client that omits the ack callback or sends a non-string name crashes the
     // handler (e.g. name.toLowerCase() throws), which can take down the server.
     if (typeof callback !== 'function') return;
+    if (socket.handshake.auth?.protocolVersion !== ONLINE_PROTOCOL_VERSION) {
+      return refuse(callback, 'client_update_required', 'A game update is required. Refresh this page and rejoin.');
+    }
     if (!joinRoomLimiter()) return refuse(callback, 'rate_limited', 'Too many requests');
     if (!payload || typeof payload !== 'object') {
       return refuse(callback, 'invalid_payload', 'Invalid payload');
@@ -237,31 +367,56 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       return refuse(callback, 'invalid_name', 'Invalid name');
     }
 
-    // The ONLY await in this handler, done before any room state is read or
-    // mutated: everything below runs synchronously, so no other event (a
-    // concurrent join, a disconnect-timeout timer, a kick) can interleave
-    // between a check and the mutation it guards. Fetching the streaks needs
-    // only the deviceId, so hoisting it here costs nothing — when it sat
-    // mid-handler it opened two real races: a pending disconnect-timeout
-    // could fire mid-await and splice the very seat being rejoined (the
-    // handler then mutated a dead object and acked success against a
-    // deleted room), and two interleaved fresh joins from one device could
-    // both pass the one-room-per-device check before either had seated
-    // itself. BOTH rulesets' streaks come from this single await (the room —
-    // and with it the ruleset — may not even exist yet, and a lobby toggle
-    // would stale a single fetch anyway); the client badge picks the one
-    // matching the synced ruleset.
+    const otherRoomId = Object.keys(rooms).find(id =>
+      id !== roomId && id !== session.roomId &&
+      rooms[id].state.players.some(player => player.deviceId === deviceId)
+    );
+    if (otherRoomId) {
+      return refuse(callback, 'device_in_other_room', 'This device is already in another room. Leave it before joining a new one.');
+    }
+
+    if (!rooms[roomId] && isReconnect === true) {
+      return refuse(callback, 'room-gone', 'This game no longer exists on the server.');
+    }
+
+    const roomBeforeStats = rooms[roomId];
+    const disconnectedSeat = roomBeforeStats?.state.players.find(player =>
+      player.deviceId === deviceId && player.disconnected
+    );
+    const reservation = disconnectedSeat && roomBeforeStats
+      ? reserveDisconnectedSeat(roomBeforeStats, roomId, disconnectedSeat, generation)
+      : null;
+    if (disconnectedSeat && !reservation) {
+      return refuse(callback, 'rejoin_pending', 'This player is already reconnecting. Please try again shortly.');
+    }
+
+    // Streaks are optional display metadata. A matching disconnected seat is
+    // reserved above before this await, so a request received inside its grace
+    // window cannot be removed merely because SQLite is slow.
     let winStreak = 0;
     let winStreakClassic = 0;
-    try {
-      const [normalizedStats, classicStats] = await Promise.all([
+    let statsTimeout: ReturnType<typeof setTimeout> | null = null;
+    const statsResult = await Promise.race([
+      Promise.all([
         getDeviceStats(deviceId, 'normalized'),
         getDeviceStats(deviceId, 'classic'),
-      ]);
+      ]).then(
+        ([normalizedStats, classicStats]) => ({ kind: 'stats' as const, normalizedStats, classicStats }),
+        (err: unknown) => ({ kind: 'error' as const, err }),
+      ),
+      new Promise<{ kind: 'timeout' }>(resolve => {
+        statsTimeout = setTimeout(() => resolve({ kind: 'timeout' }), JOIN_STATS_WAIT_MS);
+      }),
+    ]);
+    if (statsTimeout !== null) clearTimeout(statsTimeout);
+    if (statsResult.kind === 'stats') {
+      const { normalizedStats, classicStats } = statsResult;
       winStreak = normalizedStats?.currentWinStreak ?? 0;
       winStreakClassic = classicStats?.currentWinStreak ?? 0;
-    } catch (err) {
-      console.error('[joinRoom] getDeviceStats error:', err);
+    } else if (statsResult.kind === 'error') {
+      console.error('[joinRoom] getDeviceStats error:', statsResult.err);
+    } else {
+      console.error('[joinRoom] getDeviceStats timed out');
     }
 
     // A leave, disconnect, or newer join may have happened while the stats
@@ -270,6 +425,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
     // awaiting this attempt cannot hang; this path predates any translated
     // refusal code, so keep the message as the fallback.
     if (generation !== joinGeneration) {
+      releaseReservation(reservation);
       return callback({ success: false, error: 'Join attempt superseded' });
     }
 
@@ -281,7 +437,22 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
     // phantom seat whose pending reconnect timer gets cancelled right here.
     // Nothing after this point awaits, so one re-check closes the window.
     if (!socket.connected) {
+      releaseReservation(reservation);
       return refuse(callback, 'disconnected', 'Disconnected');
+    }
+
+    if (reservation && !reservationIsCurrent(reservation)) {
+      return callback({ success: false, error: 'Join attempt superseded' });
+    }
+
+    // A reconnect never creates a room. It may have existed when this request
+    // reserved its disconnected seat and then been deleted while the optional
+    // stats reads were in flight; an unrelated new room could even reuse the
+    // same id. In either case, do not let the delayed continuation seat the
+    // player somewhere other than the game it asked to recover.
+    if ((reservation && rooms[roomId] !== reservation.room) || (isReconnect === true && !rooms[roomId])) {
+      releaseReservation(reservation);
+      return refuse(callback, 'room-gone', 'This game no longer exists on the server.');
     }
 
     // A socket may only be an active member of one room at a time. Without this,
@@ -297,32 +468,15 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       session.username = null;
     }
 
-    // A single device may hold a seat in at most one room at a time — without
-    // this, the same deviceId (e.g. two open tabs, or a scripted client) could
-    // create or join an unbounded number of rooms. Checked live against `rooms`
-    // rather than a separate cache, so it can never go stale: a room being
-    // deleted or a player being removed is immediately reflected here, with no
-    // extra bookkeeping to keep in sync. Excludes `roomId` itself so a
-    // reconnect/rejoin into the SAME room (handled below) is unaffected.
-    const otherRoomId = Object.keys(rooms).find(id =>
-      id !== roomId && rooms[id].state.players.some(p => p.deviceId === deviceId)
+    // Another socket can seat this device while the optional statistics reads
+    // are pending. Recheck the live registry after releasing this socket's old
+    // seat and before creating or joining the target room.
+    const conflictingRoomId = Object.keys(rooms).find(id =>
+      id !== roomId && rooms[id].state.players.some(player => player.deviceId === deviceId)
     );
-    if (otherRoomId) {
+    if (conflictingRoomId) {
+      releaseReservation(reservation);
       return refuse(callback, 'device_in_other_room', 'This device is already in another room. Leave it before joining a new one.');
-    }
-
-    if (!rooms[roomId] && isReconnect === true) {
-      // Rooms live only in memory (rooms.ts) — a server restart empties the
-      // registry while clients still hold a stale roomId from before it. A
-      // RECONNECT into that gone room must never create a fresh one in its
-      // place: doing so used to seat the rejoiner as host of a brand-new,
-      // empty lobby under the old code, and the next client to auto-rejoin
-      // that same code then joined it as an ordinary (non-reconnect) join —
-      // whose gameState broadcast landed on a client still showing
-      // status 'playing', firing a false "Host ended game early" toast
-      // (src/store/socketSlice.ts). A normal, non-reconnect join into a
-      // missing room is unaffected and still creates it below.
-      return refuse(callback, 'room-gone', 'This game no longer exists on the server.');
     }
 
     if (!rooms[roomId]) {
@@ -363,10 +517,21 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       p => p.socketId === socket.id && p.deviceId !== deviceId
     );
     if (seatHeldByThisSocket) {
+      releaseReservation(reservation);
       return refuse(callback, 'already_seated', 'This connection already has a seat in this room.');
     }
 
     const existingPlayer = room.state.players.find(p => p.deviceId === deviceId);
+    // Commits and undo clone the roster. Match the reserved connection and
+    // deadline, rather than the old player object, while refusing a seat that
+    // was removed or taken over during the await.
+    if (reservation && (!reservationIsCurrent(reservation) || !existingPlayer?.disconnected ||
+        existingPlayer.socketId !== reservation.originalSocketId ||
+        (room.disconnectTimers[deviceId] ?? null) !== reservation.timer ||
+        (timerMetadataFor(room).get(deviceId)?.nonce ?? null) !== reservation.timerNonce)) {
+      releaseReservation(reservation);
+      return callback({ success: false, error: 'Join attempt superseded' });
+    }
     if (existingPlayer) {
       existingPlayer.winStreak = winStreak;
       existingPlayer.winStreakClassic = winStreakClassic;
@@ -380,6 +545,7 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
           p => p.deviceId !== deviceId && p.name.toLowerCase() === name.toLowerCase()
         );
         if (nameTakenByOther) {
+          releaseReservation(reservation);
           return refuse(callback, 'name_taken', 'Username already exists in this room');
         }
         existingPlayer.name = name;
@@ -412,10 +578,9 @@ export const registerRoomHandlers = ({ io, socket, session }: SocketContext): vo
       existingPlayer.socketId = socket.id;
       existingPlayer.disconnected = false;
 
-      if (room.disconnectTimers[deviceId]) {
-        clearTimeout(room.disconnectTimers[deviceId]);
-        delete room.disconnectTimers[deviceId];
-      }
+      if (reservation) reservationsFor(room).delete(deviceId);
+      if (ownedReservation === reservation) ownedReservation = null;
+      clearDisconnectTimer(room, deviceId);
 
       // The other half of the host failover, and the only half that can close
       // its worst case: a draining reconnect timer can find NOBODY connected

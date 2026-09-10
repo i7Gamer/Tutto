@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useGameStore, _resetTimersForTests, _resetSocketSliceForTests } from './useGameStore';
 import { disconnectSocket } from './socketRef';
 import { DEFAULT_INITIAL_CARDS } from '../utils/configValidation';
+import { ONLINE_PROTOCOL_VERSION } from '../utils/onlineProtocol';
 import { blockStorage, failStorageMethods, restoreStorage } from '../testing/storageStubs';
-import { DRAW_CARD_ACK_TIMEOUT_MS, JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS, STATS_SUBMIT_ACK_TIMEOUT_MS } from '../utils/uiTimings';
+import { DRAW_CARD_ACK_TIMEOUT_MS, JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS, REJOIN_PENDING_RETRY_DELAY_MS, STATS_SUBMIT_ACK_TIMEOUT_MS } from '../utils/uiTimings';
 import { STATS_SUBMIT_MAX_ATTEMPTS, statsSubmitRetryDelayMs, isRetryableStatsRefusal, PARKED_EMIT_MAX_AGE_MS } from './socketSlice';
 import { STATS_REFUSAL_REASONS, MAX_HISTORY_LOG_SIZE } from '../types';
 import type { DiceSnapshot, StatsSubmitAck, Player } from '../types';
@@ -2011,6 +2012,56 @@ describe('useGameStore', () => {
           const toastsAfterAck = useGameStore.getState().toasts.length;
           vi.advanceTimersByTime(JOIN_TIMEOUT_MS * 2);
           expect(useGameStore.getState().toasts.length).toBe(toastsAfterAck);
+        } finally {
+          mockEmit.mockReset();
+          vi.useRealTimers();
+        }
+      });
+
+      it('retries rejoin_pending within the original reconnect deadline', () => {
+        vi.useFakeTimers();
+        try {
+          stageSeatedReconnect();
+          let rejoinAttempts = 0;
+          mockEmit.mockImplementation((event, _payload, ack) => {
+            if (event !== 'joinRoom') return;
+            rejoinAttempts++;
+            if (rejoinAttempts === 1) {
+              ack({ success: false, code: 'rejoin_pending', error: 'This player is already reconnecting.' });
+              return;
+            }
+            ack({ success: true, isHost: false, name: 'Alice' });
+          });
+
+          mockOnHandlers['connect']();
+          expect(rejoinAttempts).toBe(1);
+          vi.advanceTimersByTime(REJOIN_PENDING_RETRY_DELAY_MS);
+
+          expect(rejoinAttempts).toBe(2);
+          expect(useGameStore.getState().myName).toBe('Alice');
+          expect(useGameStore.getState().toasts).toEqual([]);
+        } finally {
+          mockEmit.mockReset();
+          vi.useRealTimers();
+        }
+      });
+
+      it('cancels a scheduled rejoin_pending retry when the room is left', () => {
+        vi.useFakeTimers();
+        try {
+          stageSeatedReconnect();
+          let rejoinAttempts = 0;
+          mockEmit.mockImplementation((event, _payload, ack) => {
+            if (event !== 'joinRoom') return;
+            rejoinAttempts++;
+            ack({ success: false, code: 'rejoin_pending', error: 'This player is already reconnecting.' });
+          });
+
+          mockOnHandlers['connect']();
+          useGameStore.getState().leaveRoom();
+          vi.advanceTimersByTime(REJOIN_PENDING_RETRY_DELAY_MS);
+
+          expect(rejoinAttempts).toBe(1);
         } finally {
           mockEmit.mockReset();
           vi.useRealTimers();
@@ -4217,7 +4268,7 @@ describe('useGameStore', () => {
 
       useGameStore.getState().cancelReconnect();
 
-      expect(io).toHaveBeenCalledWith(expect.any(String));
+      expect(io).toHaveBeenCalledWith(expect.any(String), { auth: { protocolVersion: ONLINE_PROTOCOL_VERSION } });
       mockOnHandlers['connect']();
       const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
       // The room identity the store held, even though the local state was
@@ -4264,7 +4315,7 @@ describe('useGameStore', () => {
       }));
 
       const joinPromise = useGameStore.getState().joinRoom('CONFIG_ROOM', 'Alice', false);
-      expect(io).toHaveBeenCalledWith(expect.any(String));
+      expect(io).toHaveBeenCalledWith(expect.any(String), { auth: { protocolVersion: ONLINE_PROTOCOL_VERSION } });
       mockOnHandlers['connect']();
 
       const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
@@ -4378,7 +4429,7 @@ describe('useGameStore', () => {
       expect(useGameStore.getState().liveTurnState).toBeNull();
       expect(localStorage.getItem('tutto_dice_turn_state')).toBeNull();
       // Temp socket was created
-      expect(io).toHaveBeenCalledWith(expect.any(String));
+      expect(io).toHaveBeenCalledWith(expect.any(String), { auth: { protocolVersion: ONLINE_PROTOCOL_VERSION } });
 
       // Simulate socket connecting and server accepting joinRoom
       mockOnHandlers['connect']();
@@ -4419,7 +4470,7 @@ describe('useGameStore', () => {
 
       useGameStore.getState().cancelReconnect('GHOST_ROOM', 'Charlie');
 
-      expect(io).toHaveBeenCalledWith(expect.any(String));
+      expect(io).toHaveBeenCalledWith(expect.any(String), { auth: { protocolVersion: ONLINE_PROTOCOL_VERSION } });
       mockOnHandlers['connect']();
 
       const joinRoomCall = nonNull(mockEmit.mock.calls.find(c => c[0] === 'joinRoom'));
@@ -4441,7 +4492,7 @@ describe('useGameStore', () => {
 
       useGameStore.getState().cancelReconnect('GHOST_ROOM', 'Charlie');
 
-      expect(io).toHaveBeenCalledWith(expect.any(String));
+      expect(io).toHaveBeenCalledWith(expect.any(String), { auth: { protocolVersion: ONLINE_PROTOCOL_VERSION } });
       // Simulate connection failure
       mockOnHandlers['connect_error']();
 
@@ -5227,7 +5278,7 @@ describe('useGameStore', () => {
 
       // A dedicated, small event — not the full state-bundle 'pushState' event
       // (see server/socketHandlers.ts's separate 'liveTurnState' handler).
-      expect(mockEmit).toHaveBeenCalledWith('liveTurnState', { roomId: 'ROOM1', liveTurnState: snapshot });
+      expect(mockEmit).toHaveBeenCalledWith('liveTurnState', { roomId: 'ROOM1', base: useGameStore.getState().gameplayToken, liveTurnState: snapshot });
       expect(emittedEvents()).not.toContain('pushState');
     });
 
@@ -5516,6 +5567,7 @@ describe('useGameStore', () => {
           ...seatedInRoom,
           currentPlayerIndex: 0,
           players: namedPlayers('Alice', 'Bob'),
+          gameplayToken: '11111111-1111-4111-8111-111111111111',
           currentCard: '300',
           cards: ['x2', 'Stop'],
           finished: false,
@@ -5564,11 +5616,7 @@ describe('useGameStore', () => {
         expect(useGameStore.getState().currentCard).toBe('300');
       });
 
-      it('gives up on silence rather than leaving the turn parked forever', async () => {
-        // The panel has already committed the tutto by the time it asks, so a
-        // draw that never resolves strands it on a decided turn with nothing
-        // left to press. A null is the answer it already knows how to take:
-        // bank the tutto instead.
+      it('reconciles silence before deciding that no card was dealt', async () => {
         vi.useFakeTimers();
         try {
           midTurn();
@@ -5576,6 +5624,19 @@ describe('useGameStore', () => {
 
           const pending = useGameStore.getState().drawCardMidTurn();
           vi.advanceTimersByTime(DRAW_CARD_ACK_TIMEOUT_MS);
+          vi.advanceTimersByTime(DRAW_CARD_ACK_TIMEOUT_MS);
+          const recovery = mockEmit.mock.calls.findLast(([event]) => event === 'requestState');
+          expect(recovery?.[1]).toEqual(expect.objectContaining({ roomId: 'ROOM1', requestId: expect.any(String) }));
+          vi.advanceTimersByTime(DRAW_CARD_ACK_TIMEOUT_MS);
+          const recoveryReads = mockEmit.mock.calls.filter(([event]) => event === 'requestState');
+          expect(recoveryReads).toHaveLength(2);
+          expect(recoveryReads[1][1]).toEqual(recoveryReads[0][1]);
+          mockOnHandlers.gameState({
+            stateVersion: 1,
+            gameplayToken: '11111111-1111-4111-8111-111111111111',
+            currentCard: '300',
+            stateRequestId: (recovery?.[1] as { requestId: string }).requestId,
+          });
 
           await expect(pending).resolves.toBeNull();
           expect(useGameStore.getState().currentCard).toBe('300');
@@ -5584,27 +5645,120 @@ describe('useGameStore', () => {
         }
       });
 
-      it('ignores an ack that lands after the deadline already banked the turn', async () => {
-        // The deadline above is the panel's answer to silence -- but the ack
-        // is not cancelled by it, and the socket is still connected. Arriving
-        // late it would write its card over whatever is current NOW, which by
-        // then is the next turn's: the room and the table disagree until some
-        // later broadcast happens to correct it.
+      it('accepts a correlated canonical draw broadcast when the ack is lost', async () => {
+        vi.useFakeTimers();
+        try {
+          midTurn({ gameplayToken: '11111111-1111-4111-8111-111111111111' });
+          let drawId: unknown;
+          mockEmit.mockImplementation((event, payload) => {
+            if (event === 'drawCard') drawId = (payload as { drawId?: unknown }).drawId;
+          });
+
+          const pending = useGameStore.getState().drawCardMidTurn();
+          expect(drawId).toEqual(expect.any(String));
+          mockOnHandlers.gameState({
+            stateVersion: 1,
+            gameplayToken: '22222222-2222-4222-8222-222222222222',
+            currentCard: 'Kleeblatt',
+            acceptedDraw: {
+              drawId, card: 'Kleeblatt', gameplayToken: '22222222-2222-4222-8222-222222222222',
+            },
+          });
+          vi.advanceTimersByTime(DRAW_CARD_ACK_TIMEOUT_MS);
+
+          await expect(pending).resolves.toBe('Kleeblatt');
+          expect(useGameStore.getState().currentCard).toBe('Kleeblatt');
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('keeps an ambiguous draw through disconnect and resolves it from the rejoin state', async () => {
+        midTurn();
+        let drawId: unknown;
+        mockEmit.mockImplementation((event, payload) => {
+          if (event === 'drawCard') drawId = (payload as { drawId?: unknown }).drawId;
+        });
+
+        const pending = useGameStore.getState().drawCardMidTurn();
+        mockOnHandlers.disconnect();
+        mockOnHandlers.gameState({
+          stateVersion: 1,
+          gameplayToken: '22222222-2222-4222-8222-222222222222',
+          currentCard: 'Kleeblatt',
+          acceptedDraw: {
+            drawId, card: 'Kleeblatt', gameplayToken: '22222222-2222-4222-8222-222222222222',
+          },
+        });
+
+        await expect(pending).resolves.toBe('Kleeblatt');
+        expect(useGameStore.getState().currentCard).toBe('Kleeblatt');
+      });
+
+      it('keeps one recovery poll across rejoin and stops it after settlement', async () => {
+        vi.useFakeTimers();
+        try {
+          midTurn({ myName: 'Alice', deviceId: 'dev-Alice' });
+          mockEmit.mockImplementation((event, _payload, ack) => {
+            if (event === 'joinRoom') {
+              mockOnHandlers.gameState({
+                stateVersion: 1,
+                gameplayToken: '11111111-1111-4111-8111-111111111111',
+                status: 'playing', currentPlayerIndex: 0, currentCard: '300',
+                players: namedPlayers('Alice', 'Bob'),
+              });
+              ack({ success: true, name: 'Alice', isHost: true } satisfies JoinRoomResponse);
+            }
+          });
+
+          const pending = useGameStore.getState().drawCardMidTurn();
+          mockOnHandlers.disconnect();
+          vi.advanceTimersByTime(DRAW_CARD_ACK_TIMEOUT_MS);
+          mockOnHandlers.connect();
+          expect(mockEmit.mock.calls.filter(([event]) => event === 'requestState')).toHaveLength(1);
+
+          vi.advanceTimersByTime(DRAW_CARD_ACK_TIMEOUT_MS);
+          const recoveryReads = mockEmit.mock.calls.filter(([event]) => event === 'requestState');
+          expect(recoveryReads).toHaveLength(2);
+          const requestId = (recoveryReads[1][1] as { requestId: string }).requestId;
+          mockOnHandlers.gameState({
+            stateVersion: 1,
+            gameplayToken: '11111111-1111-4111-8111-111111111111',
+            currentCard: '300', stateRequestId: requestId,
+          });
+          await expect(pending).resolves.toBeNull();
+
+          vi.advanceTimersByTime(DRAW_CARD_ACK_TIMEOUT_MS * 2);
+          expect(mockEmit.mock.calls.filter(([event]) => event === 'requestState')).toHaveLength(2);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('ignores an ack that lands after correlated recovery proved no draw', async () => {
         vi.useFakeTimers();
         try {
           midTurn();
-          let lateAck: ((res: unknown) => void) | undefined;
+          const drawAcks: Array<(res: unknown) => void> = [];
           mockEmit.mockImplementation((event, _payload, ack) => {
-            if (event === 'drawCard') lateAck = ack;
+            if (event === 'drawCard') drawAcks.push(ack);
           });
 
           const pending = useGameStore.getState().drawCardMidTurn();
           vi.advanceTimersByTime(DRAW_CARD_ACK_TIMEOUT_MS);
+          vi.advanceTimersByTime(DRAW_CARD_ACK_TIMEOUT_MS);
+          const recovery = mockEmit.mock.calls.findLast(([event]) => event === 'requestState');
+          mockOnHandlers.gameState({
+            stateVersion: 1,
+            gameplayToken: '11111111-1111-4111-8111-111111111111',
+            currentCard: '300',
+            stateRequestId: (recovery?.[1] as { requestId: string }).requestId,
+          });
           await expect(pending).resolves.toBeNull();
 
           // The turn moved on while the server was quiet.
           useGameStore.setState({ currentCard: 'Kniffel' });
-          lateAck!({ ok: true, card: 'Kleeblatt' });
+          drawAcks[0]({ ok: true, card: 'Kleeblatt' });
 
           expect(useGameStore.getState().currentCard, 'the late ack does not touch the new turn').toBe('Kniffel');
         } finally {

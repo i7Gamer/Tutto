@@ -234,6 +234,8 @@
   "lobby.online.joinError.roomFull": "Dieser Raum ist voll.",
   "lobby.online.joinError.tooManyRooms": "Von deiner Verbindung sind bereits zu viele Räume offen. Schließe einen, bevor du einen neuen erstellst.",
   "lobby.online.joinError.roomGone": "Dieses Spiel ist nicht mehr auf dem Server.",
+  "lobby.online.joinError.rejoinPending": "Deine Wiederverbindung wird noch verarbeitet. Bitte versuche es gleich noch einmal.",
+  "lobby.online.joinError.clientUpdateRequired": "Ein Spielupdate ist erforderlich. Lade diese Seite neu und tritt dem Spiel erneut bei.",
   "lobby.online.recentRooms": "Letzte Räume",
   "lobby.online.forgetRoom": "Aus der Liste entfernen",
   "lobby.online.room": "Raum: {{roomId}}",

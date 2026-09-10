@@ -22,6 +22,7 @@ import { advanceTurnOnTimeout } from '../../server/turnTimers';
 import { registerStatsHandlers } from '../../server/socketStatsHandlers';
 import { updateDeviceStats, updateGlobalStats } from '../../server/database';
 import { PARKED_EMIT_MAX_AGE_MS, PUSH_RECONCILE_TIMEOUT_MS as PUSH_SILENCE_MS } from './socketSlice';
+import { PUSH_REJOIN_RETRY_DELAY_MS } from '../utils/uiTimings';
 
 const ROOM = 'PROTOCOL-ROOM';
 const SCORE = 500;
@@ -75,6 +76,36 @@ function stage() {
 }
 
 describe('gameplay preconditions through the real store and JSON transport', () => {
+  it('hydrates only public deck composition and never sends a private deck', () => {
+    stage();
+    expect(useGameStore.getState().cards).toEqual([]);
+    expect(useGameStore.getState().remainingCardCounts).toEqual({ '200': 1, '300': 1, '400': 1 });
+    useGameStore.getState().nextTurn(SCORE);
+    const payload = client.emit.mock.calls.find(([event]) => event === 'pushState')![1];
+    expect(payload.action).toEqual({ type: 'commit', score: SCORE, success: false });
+    expect(payload.newState).not.toHaveProperty('cards');
+    expect(useGameStore.getState().cards).toEqual([]);
+    expect(useGameStore.getState().remainingCardCounts).toEqual({ '300': 1, '400': 1 });
+    expect(useGameStore.getState().currentCard).toBe('200');
+  });
+
+  it('keeps the original command metadata through a disconnected retry', async () => {
+    const { room } = stage();
+    const base = room.gameplayToken;
+    client.connected = false;
+    client.handlers.disconnect();
+    useGameStore.getState().nextTurn(SCORE);
+    useGameStore.getState().endGame();
+    useGameStore.getState().undo();
+    client.connected = true;
+    client.handlers.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    const pushes = client.emit.mock.calls.filter(([event]) => event === 'pushState');
+    expect(pushes).toHaveLength(1);
+    expect(pushes[0][1]).toMatchObject({ base, action: { type: 'commit', score: SCORE, success: false } });
+    expect(room.state.players[0].score).toBe(SCORE);
+  });
+
   it('reconciles a silent optimistic chain once and ignores its late callbacks', async () => {
     const { fake } = stage();
     const callbacks: Handler[] = [];
@@ -227,7 +258,7 @@ describe('gameplay preconditions through the real store and JSON transport', () 
     expect(room.state.players[0].score).toBe(0);
   });
 
-  it('keeps consecutive optimistic turns when broadcasts and acks are delayed', () => {
+  it('blocks a dependent turn until the canonical echo even after acceptance', () => {
     const { fake, room, emit } = stage();
     emit.mockImplementation(() => undefined);
     const sends: Array<() => void> = [];
@@ -237,12 +268,14 @@ describe('gameplay preconditions through the real store and JSON transport', () 
     useGameStore.getState().nextTurn(SCORE);
     useGameStore.getState().nextTurn(SCORE);
     sends.forEach(send => send());
-    expect(room.state.players.map(player => player.score)).toEqual([SCORE, SCORE]);
-    expect(room.state.round).toBe(2);
+    expect(sends).toHaveLength(1);
+    expect(room.state.players.map(player => player.score)).toEqual([SCORE, 0]);
+    expect(room.state.round).toBe(1);
+    expect(useGameStore.getState().onlineActionPending).toBe(true);
     expect(client.emit.mock.calls.filter(([event]) => event === 'requestState')).toHaveLength(0);
   });
 
-  it('preserves the latest prediction through ancestor presence and intermediate echoes', () => {
+  it('preserves one prediction through ancestor presence and unlocks on its echo', () => {
     const { fake, room, io } = stage();
     const sends: Array<() => void> = [];
     client.emit.mockImplementation((event: string, payload: unknown, ack: unknown) => {
@@ -252,16 +285,17 @@ describe('gameplay preconditions through the real store and JSON transport', () 
     emitRoomState(io, ROOM); // same gameplay, before the first push reached the server
     expect(useGameStore.getState().currentPlayerIndex).toBe(1);
     useGameStore.getState().nextTurn(SCORE);
+    expect(sends).toHaveLength(1);
     sends[0]();
-    expect(useGameStore.getState().round).toBe(2);
-    expect(useGameStore.getState().players[1].score).toBe(SCORE);
-    sends[1]();
+    expect(useGameStore.getState().round).toBe(1);
+    expect(useGameStore.getState().players[1].score).toBe(0);
+    expect(useGameStore.getState().onlineActionPending).toBe(false);
     expect(useGameStore.getState().players.map(player => player.score))
       .toEqual(room.state.players.map(player => player.score));
     expect(useGameStore.getState().gameplayToken).toBe(room.gameplayToken);
   });
 
-  it('coalesces disconnected actions against their original authoritative base', async () => {
+  it('keeps only the first command while disconnected without losing its dependency', async () => {
     const { room } = stage();
     client.connected = false;
     client.handlers.disconnect();
@@ -270,8 +304,10 @@ describe('gameplay preconditions through the real store and JSON transport', () 
     client.connected = true;
     client.handlers.connect();
     await vi.advanceTimersByTimeAsync(0);
-    expect(room.state.players.map(player => player.score)).toEqual([SCORE, SCORE]);
-    expect(room.state.round).toBe(2);
+    expect(room.state.players.map(player => player.score)).toEqual([SCORE, 0]);
+    expect(room.state.round).toBe(1);
+    expect(client.emit.mock.calls.filter(([event]) => event === 'pushState')).toHaveLength(1);
+    expect(useGameStore.getState().onlineActionPending).toBe(false);
     expect(useGameStore.getState().gameplayToken).toBe(room.gameplayToken);
   });
 
@@ -305,7 +341,7 @@ describe('gameplay preconditions through the real store and JSON transport', () 
     }
   });
 
-  it('keeps a newer disconnected snapshot parked until the rejoin finishes', async () => {
+  it('blocks a dependent command during the transport-up rejoin gap', async () => {
     const { room } = stage();
     client.connected = false;
     client.handlers.disconnect();
@@ -316,10 +352,10 @@ describe('gameplay preconditions through the real store and JSON transport', () 
     expect(client.emit.mock.calls.filter(([event]) => event === 'pushState')).toHaveLength(0);
     client.handlers.connect();
     await vi.advanceTimersByTimeAsync(0);
-    expect(room.state.players.map(player => player.score)).toEqual([SCORE, SCORE]);
+    expect(room.state.players.map(player => player.score)).toEqual([SCORE, 0]);
   });
 
-  it('keeps a coalesced finish and its statistics together while waiting for rejoin', async () => {
+  it('does not fabricate a dependent finish or its statistics while waiting for rejoin', async () => {
     const { room } = stage();
     room.state.players[0].score = room.state.winningScore;
     useGameStore.setState({ players: wire(room.state.players) });
@@ -328,15 +364,15 @@ describe('gameplay preconditions through the real store and JSON transport', () 
     useGameStore.getState().nextTurn(0);
     client.connected = true;
     useGameStore.getState().nextTurn(0);
-    expect(useGameStore.getState().finished).toBe(true);
+    expect(useGameStore.getState().finished).toBe(false);
     expect(client.emit.mock.calls.filter(([event]) => event === 'endGameStats' || event === 'submitGlobalStats')).toHaveLength(0);
     client.handlers.connect();
     await vi.advanceTimersByTimeAsync(0);
-    expect(updateDeviceStats).toHaveBeenCalledTimes(1);
-    expect(updateGlobalStats).toHaveBeenCalledTimes(1);
+    expect(updateDeviceStats).not.toHaveBeenCalled();
+    expect(updateGlobalStats).not.toHaveBeenCalled();
   });
 
-  it('coalesces a newer action against the ancestor of a refused rejoin retry', async () => {
+  it('retains the original command through a retry and blocks a dependent action', async () => {
     const { room } = stage();
     client.handlers.connect();
     await vi.advanceTimersByTimeAsync(0);
@@ -344,7 +380,9 @@ describe('gameplay preconditions through the real store and JSON transport', () 
     useGameStore.getState().nextTurn(SCORE);
     expect(room.state.players[0].score).toBe(0);
     useGameStore.getState().nextTurn(SCORE);
-    expect(room.state.players.map(player => player.score)).toEqual([SCORE, SCORE]);
+    expect(room.state.players.map(player => player.score)).toEqual([0, 0]);
+    await vi.advanceTimersByTimeAsync(PUSH_REJOIN_RETRY_DELAY_MS);
+    expect(room.state.players.map(player => player.score)).toEqual([SCORE, 0]);
   });
 
   it('omits preconditions for a server that does not advertise token support', () => {
@@ -356,10 +394,11 @@ describe('gameplay preconditions through the real store and JSON transport', () 
     expect(payload).not.toHaveProperty('mutationId');
   });
 
-  it('keeps finishing statistics ahead of a rapid rematch even when acks are delayed', async () => {
+  it('blocks a rematch until the finishing command has its canonical echo', async () => {
     const { fake, room, emit } = stage();
     room.state.players[0].score = room.state.winningScore;
     room.state.currentPlayerIndex = 1;
+    room.state.players[1].socketId = 'host';
     useGameStore.setState({ players: wire(room.state.players), currentPlayerIndex: 1 });
     emit.mockImplementation(() => undefined);
     client.emit.mockImplementation((event: string, payload: unknown) => fake.handlers[event]?.(wire(payload), () => undefined));
@@ -367,12 +406,10 @@ describe('gameplay preconditions through the real store and JSON transport', () 
     const finishingToken = room.finishedGameToken;
     useGameStore.getState().startGame();
     await vi.advanceTimersByTimeAsync(0);
-    expect(updateDeviceStats).toHaveBeenCalledTimes(1);
-    expect(updateGlobalStats).toHaveBeenCalledTimes(1);
-    expect(room.state.finished).toBe(false);
-    expect(room.finishedGameToken).toBeNull();
-    const submitted = client.emit.mock.calls.find(([event]) => event === 'endGameStats')![1];
-    expect(submitted.finishedGameToken).toBe(finishingToken);
+    expect(room.state.finished).toBe(true);
+    expect(room.finishedGameToken).toBe(finishingToken);
+    expect(client.emit.mock.calls.filter(([event]) => event === 'pushState')).toHaveLength(1);
+    expect(useGameStore.getState().onlineActionPending).toBe(true);
   });
 
   it('resyncs a rate-limited prediction so the next valid action can land', () => {

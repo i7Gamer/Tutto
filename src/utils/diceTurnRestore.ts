@@ -3,7 +3,8 @@ import { isBust } from './diceLogic';
 import { withForcedFeuerwerkSelection } from './diceTurnControls';
 import { parseSavedDiceState, DICE_TURN_STATE_KEY } from './diceTurnState';
 import { TOTAL_DICE } from './turnShapes';
-import type { CardType, DiceSnapshot, Die, Ruleset, TurnCardPlayed, TurnEnd } from '../types';
+import type { CardType, DiceSnapshot, Die, Ruleset, TurnCardPlayed, TurnEnd, TurnCardOutcome } from '../types';
+import { copyTurnCardOutcomes } from './turnOutcomes';
 
 /**
  * What to resume a dice turn into, derived from the snapshot diceTurnState.ts
@@ -28,6 +29,7 @@ export interface RestoredChain {
   plusMinusScores: number[];
   ended: TurnEnd;
   forfeitedScore?: number;
+  outcomes?: TurnCardOutcome[];
 }
 
 export interface RestoredTurn {
@@ -159,6 +161,8 @@ export const deriveRestoredTurn = ({ restored, currentCard, ruleset }: {
     plusMinusScores: restored?.plusMinusScores ?? [],
     ended: stoppedByCard ? 'stopCard' : bust ? (bust.won ? 'banked' : 'null') : 'banked',
     forfeitedScore: (bust && !bust.won) || stoppedByCard ? restored?.turnScore : undefined,
+    ...(restored?.cardOutcomes ? { outcomes: copyTurnCardOutcomes(restored.cardOutcomes) }
+      : !restored && isClassic && currentCard ? { outcomes: [{ card: currentCard, scoreBefore: 0, scoreAfter: 0, tuttos: 0 }] } : {}),
   };
 
   return {

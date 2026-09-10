@@ -20,6 +20,7 @@ import { startInProcessServer, emitJoin, waitFor, settle, makeServerPlayer, type
 import { rooms, createRoom, deleteRoom, MAX_PLAYERS_PER_ROOM, MAX_ROOMS } from './rooms';
 import { MAX_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
 import { scaledTimerMs } from './turnTimers';
+import { acceptOnlineAction } from './onlineTestClient';
 
 const mockedGetDeviceStats = vi.mocked(getDeviceStats);
 
@@ -374,15 +375,15 @@ describe('room membership (kick host migration, mid-game rename guard)', () => {
     // renaming mid-game corrupted both, so the server refuses it and tells the
     // client which name it was actually seated under.
     const host = await server.connectAndJoin('RENAME_GAME_ROOM', 'Alice', 'dev-rn-1');
-    host.emit('pushState', { roomId: 'RENAME_GAME_ROOM', newState: { status: 'playing', currentPlayerIndex: 0 } });
-    await waitFor(() => rooms['RENAME_GAME_ROOM']?.state.status === 'playing');
+    await server.connectAndJoin('RENAME_GAME_ROOM', 'Bob', 'dev-rn-game-peer');
+    await acceptOnlineAction(host, 'RENAME_GAME_ROOM', { type: 'start' });
 
     // Same device takes over its seat from a new socket, but with a new name.
     const { res } = await server.joinRaw('RENAME_GAME_ROOM', 'Impostor', 'dev-rn-1');
 
     expect(res.success).toBe(true);
     expect(res.name).toBe('Alice');
-    expect(rooms['RENAME_GAME_ROOM'].state.players.map(p => p.name)).toEqual(['Alice']);
+    expect(rooms['RENAME_GAME_ROOM'].state.players.map(p => p.name).sort()).toEqual(['Alice', 'Bob']);
   });
 
   it('a lobby rejoin may still rename freely', async () => {

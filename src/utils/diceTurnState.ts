@@ -1,5 +1,6 @@
 import { localStore } from './storage';
-import type { CardType, Die, DiceSnapshot, Ruleset } from '../types';
+import type { CardType, Die, DiceSnapshot, Ruleset, TurnCardOutcome } from '../types';
+import { copyTurnCardOutcomes, isTurnCardOutcomeList } from './turnOutcomes';
 import { MAX_CHAIN_CARDS } from '../types';
 import { DEFAULT_RULESET } from './configValidation';
 import {
@@ -66,6 +67,7 @@ interface BuildDiceSnapshotInput {
   cardsThisTurn?: CardType[];
   plusMinusScores?: number[];
   chainTuttoCount?: number;
+  cardOutcomes?: TurnCardOutcome[];
 }
 
 // The shape checks come from utils/turnShapes.ts, shared with
@@ -113,6 +115,7 @@ export const parseSavedDiceState = (raw: string | null): DiceSnapshot | null => 
     }
     if (isChainScoreList(parsed.plusMinusScores)) snapshot.plusMinusScores = parsed.plusMinusScores;
     if (isChainCounter(parsed.chainTuttoCount)) snapshot.chainTuttoCount = parsed.chainTuttoCount;
+    if (isTurnCardOutcomeList(parsed.cardOutcomes)) snapshot.cardOutcomes = copyTurnCardOutcomes(parsed.cardOutcomes);
     return snapshot;
   } catch {
     return null;
@@ -131,6 +134,7 @@ export const buildDiceSnapshot = ({
   cardsThisTurn,
   plusMinusScores,
   chainTuttoCount,
+  cardOutcomes,
 }: BuildDiceSnapshotInput): DiceSnapshot => {
   const snapshot: DiceSnapshot = {
     turnScore,
@@ -148,5 +152,6 @@ export const buildDiceSnapshot = ({
   if (cardsThisTurn) snapshot.cardsThisTurn = [...cardsThisTurn];
   if (plusMinusScores !== undefined) snapshot.plusMinusScores = [...plusMinusScores];
   if (chainTuttoCount !== undefined) snapshot.chainTuttoCount = chainTuttoCount;
+  if (cardOutcomes !== undefined) snapshot.cardOutcomes = copyTurnCardOutcomes(cardOutcomes);
   return snapshot;
 };

@@ -19,10 +19,13 @@ export const buildDeviceStatsPayload = (
   myName: string | null,
   finalTime: number,
   finalRound: number,
+  winnerDeviceIds?: readonly string[],
 ): DeviceStatsPayload | null => {
   const me = finalPlayers.find(p => p.name === myName);
   if (!me) return null;
-  const didIWin = getLeaders(finalPlayers).some(l => l.name === me.name) ? 1 : 0;
+  const didIWin = winnerDeviceIds
+    ? Number(winnerDeviceIds.includes(me.deviceId ?? ''))
+    : Number(getLeaders(finalPlayers).some(l => l.name === me.name));
 
   return {
     gamesPlayed: 1, wins: didIWin, totalPlaytime: finalTime || 0,
@@ -39,10 +42,9 @@ export const buildDeviceStatsPayload = (
     fastestWinTurns: didIWin ? (me.totalTurns || 0) : null,
     // null, not 0, when this device never got a turn — a game can end
     // mid-round (a completed Kleeblatt wins instantly), so a player later in
-    // the turn order can finish on 0. sanitize.ts now DROPS a non-positive
-    // value for this field rather than clamping it up to 1, so sending 0
-    // would simply vanish instead of stating the "no record" outcome the way
-    // null does. See buildGlobalStatsPayload for the same rule globally.
+    // the turn order can finish on 0. These builders also feed server database
+    // writes directly, so null explicitly preserves the "no record" outcome.
+    // See buildGlobalStatsPayload for the same rule globally.
     fastestLossTurns: !didIWin && (me.totalTurns || 0) > 0 ? me.totalTurns : null,
     totalPlayersSum: finalPlayers.length, mostPlayersInGame: finalPlayers.length,
     totalRoundsSum: finalRound || 0, longestGameRounds: finalRound || 0,
@@ -61,6 +63,7 @@ export const buildGlobalStatsPayload = (
   finalTime: number,
   isDefaultGame: boolean,
   finalRound: number,
+  winnerDeviceIds?: readonly string[],
 ): GlobalStatsPayload => {
   let totalPlusMinus = 0;
   let totalKniffel = 0;
@@ -87,8 +90,10 @@ export const buildGlobalStatsPayload = (
   let fastestWinTurns: number | null = null;
   let fastestLossTurns: number | null = null;
 
-  const leaders = getLeaders(finalPlayers);
-  const isWinner = (p: Player) => leaders.some(l => l.name === p.name);
+  const leaders = winnerDeviceIds ? null : getLeaders(finalPlayers);
+  const isWinner = (p: Player) => winnerDeviceIds
+    ? winnerDeviceIds.includes(p.deviceId ?? '')
+    : leaders!.some(l => l.name === p.name);
 
   finalPlayers.forEach(p => {
     totalPlusMinus += ((p.timesPlusMinusCompleted ?? 0) + (p.timesPlusMinusFailed ?? 0));
@@ -131,10 +136,8 @@ export const buildGlobalStatsPayload = (
       // Zero turns is not a fast loss, it is no game played: a completed
       // Kleeblatt wins instantly and can end the game mid-round, leaving
       // players later in the turn order on 0. This `> 0` guard keeps it out of
-      // the running altogether — sanitize.ts would now DROP a 0 sent for
-      // fastestLossTurns anyway (rather than clamping it up to 1), but relying
-      // on that instead of this guard would still let a stray 0 win the `<`
-      // comparison above before ever reaching sanitize.
+      // the running altogether, so a zero-turn seat cannot become the minimum
+      // loss record when this payload is written directly to the database.
       if (fastestLossTurns === null || p.totalTurns < fastestLossTurns) {
         fastestLossTurns = p.totalTurns;
       }

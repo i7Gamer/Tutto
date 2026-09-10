@@ -47,7 +47,7 @@ export const safeOn = <A extends unknown[]>(
     try {
       const result = handler(...(args as A));
       if (result instanceof Promise) {
-        result.catch((err: unknown) => console.error(`[socket:${event}] handler rejected:`, err));
+        return result.catch((err: unknown) => console.error(`[socket:${event}] handler rejected:`, err));
       }
     } catch (err) {
       console.error(`[socket:${event}] handler threw:`, err);

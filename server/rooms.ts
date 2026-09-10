@@ -7,10 +7,13 @@ import {
   DEFAULT_RULESET, MAX_PLAYERS_PER_ROOM,
 } from '../src/utils/configValidation';
 import { MS_PER_SECOND } from '../src/utils/time';
+import { deckComposition } from '../src/utils/onlineDeck';
 import { MAX_CHART_POINTS } from './pushValidation';
 import { envLimitOr } from './envLimits';
 import { updateDeviceStats } from './database';
-import { MAX_CHAIN_CARDS, type AssertNever, type CardType, type SyncedGameStateKey } from '../src/types';
+import { pendingDeviceStatsWrite, writeDeviceStatsOnce } from './statsWriteCoordinator';
+import { buildDeviceStatsPayload } from '../src/utils/statsPayloads';
+import { MAX_CHAIN_CARDS, PUBLIC_GAME_STATE_KEYS, type AssertNever, type CardType, type StatsPayload, type SyncedGameStateKey } from '../src/types';
 import { statsModeFor, type Room, type RoomState, type ServerPlayer, type TurnTimerState } from './roomTypes';
 
 // Null-prototype, not `{}`: every key here is a client-supplied roomId, and
@@ -141,6 +144,7 @@ export const createRoom = (hostSocketId: string, createdBy = ''): Room => ({
   // before it sends), so nothing a client can apply ever carries 0.
   stateVersion: 0,
   gameplayToken: randomUUID(),
+  acceptedDraw: null,
   finishedGameToken: null,
   gameActualStartTime: null,
   turnTimerState: null,
@@ -260,8 +264,14 @@ export const drawNextCardForRoom = (state: RoomState): void => {
 };
 
 export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void => {
-  room.gameplayToken = randomUUID();
   const state = room.state;
+  const previousToken = room.gameplayToken;
+  const preserveCurrentDraw = state.currentPlayerIndex !== null && removedIdx !== state.currentPlayerIndex &&
+    room.acceptedDraw?.gameplayToken === previousToken;
+  room.gameplayToken = randomUUID();
+  if (preserveCurrentDraw && room.acceptedDraw) {
+    room.acceptedDraw = { ...room.acceptedDraw, gameplayToken: room.gameplayToken };
+  }
   // chartValues/chartNames are player-indexed (one entry per player), so the
   // removed player's slot is spliced out of both. chartLabels is NOT spliced
   // here — it's round-indexed (one entry per completed round, shared across
@@ -448,63 +458,60 @@ export const sanitizePlayerForBroadcast = (p: ServerPlayer): Omit<ServerPlayer, 
  *
  * Called once, right after rememberFinishedGame freezes room.finishedGame for
  * the first time — the same "verdict is now final" moment endGameStats itself
- * trusts. room.startRoster is the only record of who was actually there at
- * kickoff; without it (a room whose game predates this feature, or one seeded
- * directly by a test) there is nothing to compare against, so nothing is
- * written — the pre-existing, survivors-only behavior.
+ * trusts. The frozen participant snapshot includes seats that left before
+ * the finish. Legacy rooms fall back to room.startRoster; without either
+ * record, there are no departed identities available to write.
  *
  * Shares statsRecordedForGame.devices with endGameStats — the exact same
- * per-game dedup — so a write already in flight here blocks that submission
- * just as one already committed there blocks a duplicate of this one. The row
- * is marked 'verdict-only', though, not 'full': a device that DOES come back
- * and submits for the same game has its per-turn counters and records merged
- * into this row (see endGameStats), with the game itself and the seats at the
- * table not counted a second time. Only a second FULL submission is a no-op.
+ * per-game dedup. A captured participant snapshot produces a complete `full`
+ * row, so a returning seat is a duplicate. Only legacy rooms without one use a
+ * `verdict-only` row, which a returning seat may top up without counting the
+ * game itself a second time.
  *
- * No per-turn counters (not cheaply available for either case — a departed
- * seat's ServerPlayer object was already spliced out, and a disconnected
- * seat's counters live in a client that is not talking to us) and no records:
- * `wins`/`gamesPlayed` and the player-count pair are the only fields set, and
- * `wins: 0` also resets the device's current win streak.
+ * A game started after participantStats was introduced carries a server-owned
+ * copy of each seat's counters, so its departed row is complete and final. The
+ * narrow legacy fallback only has the verdict fields for rooms/test fixtures
+ * that predate that snapshot.
  */
 const recordDepartedSeatsStats = (room: Room): void => {
-  if (!room.startRoster || !room.finishedGame) return;
+  if (!room.finishedGame) return;
   // Only a CONNECTED seat is left to record the game for itself.
   const stillSubmittingDeviceIds = new Set(
     room.state.players.filter(p => !p.disconnected).map(p => p.deviceId),
   );
   const mode = statsModeFor(room);
-  const { playerCount, winners } = room.finishedGame;
+  const { playerCount, winners, round } = room.finishedGame;
+  const dedup = room.statsRecordedForGame;
 
-  for (const { deviceId, name } of room.startRoster) {
+  const participants = room.finishedGame.players ?? room.startRoster;
+  if (!participants) return;
+  for (const { deviceId, name } of participants) {
     if (!deviceId || stillSubmittingDeviceIds.has(deviceId)) continue;
-    if (room.statsRecordedForGame.devices.has(deviceId)) continue;
-    // Marked BEFORE the write for the same reason endGameStats marks its own
-    // dedup before awaiting: this loop runs synchronously start to finish, so
-    // without it a start-roster listing the same deviceId twice (impossible
-    // from a real join, but nothing here depends on that) would race its own
-    // two iterations into two writes.
-    // 'verdict-only': the row below carries the game and its outcome and
-    // nothing else, so the device's own submission — should it reconnect
-    // after all — is still owed its per-turn counters and records, and
-    // endGameStats merges rather than refuses it.
-    room.statsRecordedForGame.devices.set(deviceId, 'verdict-only');
-    updateDeviceStats(deviceId, {
+    if (dedup.devices.has(deviceId) || pendingDeviceStatsWrite(dedup, deviceId)) continue;
+    const frozenPlayers = room.finishedGame.players;
+    const frozenPlayer = frozenPlayers?.find(player => player.deviceId === deviceId);
+    const fullStats = frozenPlayers && frozenPlayer
+      ? buildDeviceStatsPayload(
+        frozenPlayers,
+        frozenPlayer.name,
+        room.finishedGame.gameTimeInSeconds ?? 0,
+        round,
+        room.finishedGame.winnerDeviceIds,
+      )
+      : null;
+    const level = fullStats ? 'full' : 'verdict-only';
+    const stats: StatsPayload = fullStats ? { ...fullStats } : {
       gamesPlayed: 1,
       wins: winners.includes(name) ? 1 : 0,
       totalPlayersSum: playerCount,
       mostPlayersInGame: playerCount,
-    }, mode).catch((err: unknown) => {
-      // Reopened on failure so a retry (the same trigger firing again, or the
-      // device's own later reconnect) can still record the game — mirrors
-      // endGameStats' write-failure rollback. Guarded on the dedup still
-      // reading 'verdict-only': the device's OWN submission can merge into
-      // this row and mark it 'full' while this write is still in flight, and
-      // an unconditional delete here would reopen that already-completed
-      // entry — losing the merge's dedup and letting a retry double-count.
-      if (room.statsRecordedForGame.devices.get(deviceId) === 'verdict-only') {
-        room.statsRecordedForGame.devices.delete(deviceId);
-      }
+      totalRoundsSum: round,
+      longestGameRounds: round,
+    };
+    // Reserve before dispatch, but only publish the selected level after commit.
+    void writeDeviceStatsOnce(dedup, deviceId, level, () => updateDeviceStats(deviceId, stats, mode)).catch((err: unknown) => {
+      // No committed marker was published on failure. A same-finish return
+      // can write the full result; do not retry old verdicts out of order.
       console.error('[recordDepartedSeatsStats] error:', err);
     });
   }
@@ -525,7 +532,15 @@ const recordDepartedSeatsStats = (room: Room): void => {
  * screen's traffic). Self-clearing, so the next game starts with no verdict
  * rather than the previous one's.
  */
+const captureParticipantStats = (room: Room): void => {
+  if (!room.participantStats) return;
+  for (const player of room.state.players) {
+    room.participantStats.set(player.deviceId, { ...player });
+  }
+};
+
 const rememberFinishedGame = (room: Room): void => {
+  captureParticipantStats(room);
   if (!room.state.finished) {
     room.finishedGame = null;
     room.finishedGameToken = null;
@@ -533,10 +548,20 @@ const rememberFinishedGame = (room: Room): void => {
   }
   if (room.finishedGame) return;
   room.finishedGameToken = room.gameplayToken;
+  const snapshotPlayers = room.participantStats && room.participantStats.size > 0
+    ? [...room.participantStats.values()].map(player => ({ ...player }))
+    : room.state.players.map(player => ({ ...player }));
   room.finishedGame = {
     winners: getLeaders(room.state.players).map(p => p.name),
-    playerCount: room.startRoster?.length ?? room.state.players.length,
+    playerCount: room.participantStats ? snapshotPlayers.length : (room.startRoster?.length ?? room.state.players.length),
     round: room.state.round,
+    ...(room.participantStats ? {
+      players: snapshotPlayers,
+      gameTimeInSeconds: room.state.gameTimeInSeconds,
+      winnerDeviceIds: getLeaders(room.state.players)
+        .map(player => player.deviceId)
+        .filter((deviceId): deviceId is string => typeof deviceId === 'string'),
+    } : {}),
   };
   recordDepartedSeatsStats(room);
 };
@@ -553,8 +578,14 @@ const rememberFinishedGame = (room: Room): void => {
  * merely re-sends what a client already has (emitRoomStateTo) re-uses the
  * current version instead, so it is applied rather than dropped as stale.
  */
-const buildGameStatePayload = (room: Room) => ({
-  ...room.state,
+interface GameStateDeliveryMetadata {
+  stateRequestId?: string;
+}
+
+const buildGameStatePayload = (room: Room, metadata: GameStateDeliveryMetadata = {}) => ({
+  ...Object.fromEntries(PUBLIC_GAME_STATE_KEYS.map(key => [key, room.state[key]])) as
+    Pick<RoomState, (typeof PUBLIC_GAME_STATE_KEYS)[number]>,
+  remainingCardCounts: deckComposition(room.state.cards),
   players: room.state.players.map(sanitizePlayerForBroadcast),
   previousLeaders: room.state.previousLeaders
     ? room.state.previousLeaders.map(sanitizePlayerForBroadcast)
@@ -563,14 +594,19 @@ const buildGameStatePayload = (room: Room) => ({
   gameTimeInSeconds: calculateGameTime(room),
   stateVersion: room.stateVersion,
   gameplayToken: room.gameplayToken,
+  acceptedDraw: room.acceptedDraw?.gameplayToken === room.gameplayToken
+    ? { drawId: room.acceptedDraw.drawId, card: room.acceptedDraw.card, gameplayToken: room.acceptedDraw.gameplayToken }
+    : null,
   finishedGameToken: room.finishedGameToken,
+  ...metadata,
 });
 
 /**
  * The synced fields deliberately withheld from the broadcast.
  *
- * Empty, and expected to stay that way: the payload above spreads the whole
- * room state, so every canonical field goes out. It exists so that dropping
+ * The ordered deck stays private; clients receive only its composition.
+ * This list ensures that deliberately withholding a canonical field is
+ * written down. It exists so that dropping
  * one has to be WRITTEN DOWN rather than merely happening — the same shape
  * NeverSavedLocally and FieldKeptOnLeave have on their own sides.
  *
@@ -578,7 +614,7 @@ const buildGameStatePayload = (room: Room) => ({
  * check (rooms.test.ts, "carries every canonical synced field on the wire")
  * subtracts the very list the compile-time lock below reads.
  */
-export const BROADCAST_EXCLUDED_FIELDS = [] as const satisfies readonly SyncedGameStateKey[];
+export const BROADCAST_EXCLUDED_FIELDS = ['cards'] as const satisfies readonly SyncedGameStateKey[];
 
 /**
  * Compile-time lock between the wire payload and the canonical synced-field
@@ -627,9 +663,9 @@ export const emitRoomState = (io: Server, roomId: string): void => {
  * a client falls back to when its own push was refused and it can no longer
  * trust what it is rendering.
  */
-export const emitRoomStateTo = (socket: Socket, roomId: string): void => {
+export const emitRoomStateTo = (socket: Socket, roomId: string, metadata?: GameStateDeliveryMetadata): void => {
   const room = rooms[roomId];
   if (!room) return;
-  socket.emit('gameState', buildGameStatePayload(room));
+  socket.emit('gameState', buildGameStatePayload(room, metadata));
   socket.emit('hostId', room.host);
 };

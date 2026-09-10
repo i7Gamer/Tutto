@@ -20,6 +20,8 @@ export const PUBLISHED_API_TOKENS: readonly string[] = [
   COMPOSE_PLACEHOLDER_API_TOKEN,
 ];
 
+export const MIN_PRODUCTION_API_TOKEN_BYTES = 32;
+
 export const validateApiTokenForStartup = (
   env: { NODE_ENV?: string; API_TOKEN?: string },
 ): string | null => {
@@ -29,10 +31,17 @@ export const validateApiTokenForStartup = (
   // unchanged. A stray space in a .env line is the easiest typo there is, and
   // it used to slip a published placeholder past this list by one character:
   // the server then started on a secret that is public knowledge plus a space.
-  const token = env.API_TOKEN?.trim();
+  const rawToken = env.API_TOKEN;
+  const token = rawToken?.trim();
   if (!token) return '[SECURITY] API_TOKEN is not set. Refusing to start in production.';
   if (PUBLISHED_API_TOKENS.includes(token)) {
     return '[SECURITY] API_TOKEN is set to a placeholder published in this repository, so it is public knowledge. Refusing to start in production.';
+  }
+  if (rawToken !== token) {
+    return '[SECURITY] API_TOKEN has leading or trailing whitespace. Refusing to start in production.';
+  }
+  if (Buffer.byteLength(rawToken, 'utf8') < MIN_PRODUCTION_API_TOKEN_BYTES) {
+    return `[SECURITY] API_TOKEN must be at least ${MIN_PRODUCTION_API_TOKEN_BYTES} UTF-8 bytes. Refusing to start in production.`;
   }
   return null;
 };
@@ -69,11 +78,26 @@ export const WILDCARD_CORS_ORIGIN = '*';
 const SAME_ORIGIN_ONLY = false;
 
 export const validateCorsOriginForStartup = (
-  env: { NODE_ENV?: string; CORS_ORIGIN?: string },
+  env: { NODE_ENV?: string; CORS_ORIGIN?: string; TRUST_PROXY?: string },
 ): string | null => {
-  if (env.NODE_ENV !== 'production') return null;
+  const configured = env.CORS_ORIGIN;
+  if (!configured && env.NODE_ENV === 'production' && env.TRUST_PROXY === '1') {
+    return '[SECURITY] CORS_ORIGIN must explicitly name the public origin when TRUST_PROXY=1 in production. Refusing to start.';
+  }
+  if (!configured) return null;
   if (env.CORS_ORIGIN === WILDCARD_CORS_ORIGIN) {
-    return '[SECURITY] CORS_ORIGIN is explicitly "*", which would let any site make authenticated cross-origin requests. Refusing to start in production. Unset it for same-origin only, or set the deployed origin.';
+    return env.NODE_ENV === 'production'
+      ? '[SECURITY] CORS_ORIGIN is explicitly "*", which would let any site make cross-origin socket requests. Refusing to start in production. Unset it for direct same-origin deployments, or set the deployed public origin.'
+      : null;
+  }
+  try {
+    const parsed = new URL(configured);
+    const isHttp = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    const isCompleteOrigin = parsed.username === '' && parsed.password === ''
+      && parsed.pathname === '/' && parsed.search === '' && parsed.hash === '';
+    if (configured !== configured.trim() || !isHttp || !isCompleteOrigin) throw new Error('invalid');
+  } catch {
+    return '[SECURITY] CORS_ORIGIN must be one complete http(s) origin with no credentials, path, query, fragment, or surrounding whitespace. Refusing to start.';
   }
   return null;
 };
@@ -87,8 +111,22 @@ export const validateCorsOriginForStartup = (
 export const resolveCorsOrigin = (
   env: { NODE_ENV?: string; CORS_ORIGIN?: string },
 ): string | false => {
+  if (env.CORS_ORIGIN && env.CORS_ORIGIN !== WILDCARD_CORS_ORIGIN) return new URL(env.CORS_ORIGIN).origin;
   if (env.CORS_ORIGIN) return env.CORS_ORIGIN;
   return env.NODE_ENV === 'production' ? SAME_ORIGIN_ONLY : WILDCARD_CORS_ORIGIN;
+};
+
+const POSITIVE_INTEGER_PATTERN = /^\d+$/;
+
+export const validateConcurrentTransportLimitForStartup = (
+  env: { MAX_CONCURRENT_TRANSPORTS?: string },
+): string | null => {
+  const raw = env.MAX_CONCURRENT_TRANSPORTS;
+  if (raw === undefined || raw === '') return null;
+  if (!POSITIVE_INTEGER_PATTERN.test(raw) || !Number.isSafeInteger(Number(raw)) || Number(raw) < 1) {
+    return `[STARTUP] MAX_CONCURRENT_TRANSPORTS must be a positive integer, got ${JSON.stringify(raw)}. Refusing to start.`;
+  }
+  return null;
 };
 
 // Unset PORT (local dev, and every documented deployment path) falls back to

@@ -11,15 +11,14 @@ import type { Room, RoomState } from './roomTypes';
  * push-your-luck decision in the classic rule set is "bank what you are
  * holding, or reveal the next card and risk it". A client that can WRITE that
  * list picks its own next card; a client that can merely read it already knows
- * the answer before it decides. This module is the first half of the fix: the
+ * the answer before it decides. This module owns the private dealing path: the
  * server becomes the only thing that ever moves the deck, so the card a player
  * gets is chosen after they have committed to drawing.
  *
- * (The second half — no longer broadcasting `cards` at all — is deliberately
- * NOT here. Every client still receives the deck exactly as before, so a
- * client that predates this change keeps working across the redeploy that
- * ships it. Until that second half lands the leak is still open; what this
- * buys is that closing it needs no further change to the draw path.)
+ * Public room snapshots expose composition, never this ordered list.
+ * Protocol-version admission rejects cached clients that still expect order.
+ * Undo can restore an already revealed card; concealment cannot erase that
+ * knowledge, but never reveals the remaining private order.
  *
  * Three server paths already dealt without asking a client — the turn timer's
  * expiry (turnTimers.advanceTurnOnTimeout), the active player being removed

@@ -10,6 +10,7 @@ import { rooms, calculateRemainingTurnTime, emitRoomState, idleTurnTimerState, r
 import { randomUUID } from 'node:crypto';
 import { MAX_CHART_POINTS } from './pushValidation';
 import { clearDeck } from './deckAuthority';
+import { canonicalTurnSummary } from './gameActionAuthority';
 import { MS_PER_SECOND } from '../src/utils/time';
 
 const KLEEBLATT_TUTTOS_REQUIRED = 2;
@@ -105,7 +106,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
     const snapshot = room.state.liveTurnState;
     let timeoutSummary: TurnSummary | undefined;
     let completedKleeblatt = false;
-    if (snapshot?.cardsThisTurn && snapshot.cardsThisTurn.length > 0) {
+    if (room.state.ruleset === 'classic' && snapshot?.cardsThisTurn && snapshot.cardsThisTurn.length > 0) {
       const chainCards = snapshot.cardsThisTurn;
       const lastCard = chainCards[chainCards.length - 1];
       // Where the timer caught the player decides what the last card's
@@ -188,7 +189,29 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
         // unresolved roll counts the dice null.
         ended: lastCard === 'Stop' ? 'stopCard' : (lastCompleted || stoppedBanked || atDrawWindow) ? 'timeout' : 'null',
         ...(snapshot.turnScore > 0 ? { forfeitedScore: snapshot.turnScore } : {}),
+        outcomes: snapshot.cardOutcomes,
       };
+    }
+
+    if (room.state.ruleset === 'classic') {
+      const validated = canonicalTurnSummary(room, timeoutSummary, 0, completedKleeblatt, true);
+      if (validated) {
+        timeoutSummary = validated;
+      } else {
+        // Presentation claims cannot manufacture a chain, record or instant
+        // win at expiry. Each real draw declares its previous card completed;
+        // retain that minimal evidence, and forfeit an unproved current card.
+        completedKleeblatt = false;
+        const dealt = room.dealtThisTurn.length ? room.dealtThisTurn :
+          (room.state.currentCard ? [room.state.currentCard] : []);
+        const cards = dealt.map((card, index) => ({ card, completed: index < dealt.length - 1 }));
+        timeoutSummary = {
+          cards, tuttoCount: cards.filter(entry => entry.completed)
+            .reduce((total, entry) => total + minimumTuttosForCompletedCard(entry.card), 0),
+          plusMinusScores: cards.filter(entry => entry.completed && entry.card === 'Plus_Minus').map(() => 0),
+          ended: room.state.currentCard === 'Stop' ? 'stopCard' : 'timeout',
+        };
+      }
     }
 
     // A modernized turn carries no chain fields, so it never reaches the
@@ -335,6 +358,10 @@ export const abortGameIfLowPlayers = (io: Server, room: Room, roomId: string): b
     // back to the lobby clears them — see clearDeck. Only currentCard was
     // reset here, so the aborted game's undrawn deck rode the lobby broadcast.
     clearDeck(room);
+    // A non-active removal may preserve a just-dealt card receipt across its
+    // roster-only token change. Once the room aborts there is no live turn for
+    // that receipt to recover, even though the same token is still current.
+    room.acceptedDraw = null;
     room.state.currentPlayerIndex = null;
     room.state.finished = false;
     room.state.turnStartTime = null;

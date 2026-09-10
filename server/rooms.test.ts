@@ -125,6 +125,22 @@ describe('handleActivePlayerRemoved', () => {
   });
 
   describe('removed player was after the active player (removedIdx > curIdx)', () => {
+    it('restamps a current draw receipt when an unrelated seat leaves', () => {
+      const room = makeRoom(['Alice', 'Bob'], { currentPlayerIndex: 0, currentCard: '300' });
+      const previousToken = room.gameplayToken;
+      room.acceptedDraw = {
+        drawId: '11111111-1111-4111-8111-111111111111',
+        deviceId: room.state.players[0].deviceId,
+        base: '22222222-2222-4222-8222-222222222222',
+        card: '300', gameplayToken: previousToken,
+      };
+
+      handleActivePlayerRemoved(room, 2);
+
+      expect(room.gameplayToken).not.toBe(previousToken);
+      expect(room.acceptedDraw?.gameplayToken).toBe(room.gameplayToken);
+    });
+
     it('leaves currentPlayerIndex and turn state completely unchanged', () => {
       // Original [Alice, Bob, Carol], Alice (idx 0) active; Carol (idx 2) removed.
       const room = makeRoom(['Alice', 'Bob'], {

@@ -17,6 +17,7 @@ import { botOf } from '../utils/bots';
 import type { BotSeat } from '../utils/botStrategies';
 import type { CoachHintStandings } from '../utils/coachHint';
 import { remainingDeckCounts, type DrawStrategyInputs } from '../utils/turnValue';
+import { compositionCards } from '../utils/onlineDeck';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useDeviceStats } from '../hooks/useDeviceStats';
@@ -56,10 +57,12 @@ const turnSlotKey = (round: number, currentPlayerIndex: number | null) => `${rou
 const useGameSlice = () => useGameStore(useShallow(state => ({
   currentCard: state.currentCard,
   cards: state.cards,
+  remainingCardCounts: state.remainingCardCounts,
   historyLog: state.historyLog,
   nextTurn: state.nextTurn,
   drawCardMidTurn: state.drawCardMidTurn,
   isOnline: state.isOnline,
+  onlineActionPending: state.onlineActionPending,
   myName: state.myName,
   winningScore: state.winningScore,
   initialCards: state.initialCards,
@@ -95,7 +98,8 @@ export default function Game() {
   const game = useGameSlice();
   const {
     currentCard,
-    cards,
+    cards: localCards,
+    remainingCardCounts,
     historyLog,
     nextTurn,
     drawCardMidTurn,
@@ -121,6 +125,11 @@ export default function Game() {
     addToast,
     coachHintEnabled,
   } = game;
+
+  // Display and probability calculations need composition, never draw order.
+  // Keep this bag outside the store so no game action can draw from it.
+  const cards = useMemo(() => isOnline ? compositionCards(remainingCardCounts) : localCards,
+    [isOnline, remainingCardCounts, localCards]);
 
   // Keeps the screen awake for the whole gameplay session, on every device —
   // host or client, since this component mounts identically for both.
@@ -158,7 +167,7 @@ export default function Game() {
 
   // Local hot-seat: every human turn is "mine" (one device goes round the
   // table); a bot's is not, which is what keeps the human controls off it.
-  const isMyTurn = isOnline ? (currentPlayer && currentPlayer.name === myName) : !isBotTurn;
+  const isMyTurn = isOnline ? (currentPlayer && currentPlayer.name === myName && !game.onlineActionPending) : !isBotTurn;
   useTurnAnnouncement({ isOnline, isMyTurn: !!isMyTurn, addToast });
   const isClassic = game.ruleset === 'classic';
   // Classic PHYSICAL chains live in usePhysicalChain (digital chains live

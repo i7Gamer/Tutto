@@ -37,6 +37,9 @@ export const DEFAULT_STATS_RATE_LIMIT_MAX = 60;
 // production, so the default stands there.
 const STATS_RATE_LIMIT_MAX = envLimitOr(process.env.STATS_RATE_LIMIT_MAX, DEFAULT_STATS_RATE_LIMIT_MAX);
 
+const ADMIN_AUTH_FAILURE_WINDOW_MS = 60_000;
+export const DEFAULT_ADMIN_AUTH_FAILURE_LIMIT_MAX = 10;
+
 // How many devices behind one IP the shared IP-wide stats bucket (below) must
 // tolerate at once. Not env-tunable: unlike STATS_RATE_LIMIT_MAX this isn't a
 // per-deployment traffic knob, just the shape of one client behaviour — the
@@ -118,6 +121,16 @@ export const registerApiRoutes = (app: express.Express): void => {
   }
   const API_TOKEN = process.env.API_TOKEN || DEV_DEFAULT_API_TOKEN;
   const expectedTokenBuffer = Buffer.from(API_TOKEN);
+  // One IP-keyed bucket is deliberately shared by both protected POST routes.
+  // It is invoked only after a token fails, so valid automation remains usable
+  // even while invalid attempts from the same address are being throttled.
+  const failedAdminAuthLimiter = createRateLimiter({
+    windowMs: ADMIN_AUTH_FAILURE_WINDOW_MS,
+    max: envLimitOr(
+      process.env.ADMIN_AUTH_FAILURE_LIMIT_MAX,
+      DEFAULT_ADMIN_AUTH_FAILURE_LIMIT_MAX,
+    ),
+  });
 
   // Constant-time comparison — a plain !== leaks the token character-by-character
   // via response-timing, since string comparison short-circuits at the first
@@ -135,7 +148,9 @@ export const registerApiRoutes = (app: express.Express): void => {
     next: express.NextFunction
   ): void => {
     if (!isValidToken(req.headers['x-tutto-token'])) {
-      res.status(403).json({ error: 'Forbidden' });
+      failedAdminAuthLimiter(req, res, () => {
+        res.status(403).json({ error: 'Forbidden' });
+      });
       return;
     }
     next();

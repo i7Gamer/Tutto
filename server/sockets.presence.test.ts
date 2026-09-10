@@ -7,7 +7,7 @@
  */
 import type { ChildProcess } from 'child_process';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { io, type Socket as ClientSocket } from 'socket.io-client';
+import type { Socket as ClientSocket } from 'socket.io-client';
 import { startTestServer, testDelay, asserting, type JoinAck } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { MIN_ENABLED_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
@@ -15,6 +15,7 @@ import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 import { nonNull } from '../src/testing/factories';
 import { MS_PER_SECOND } from '../src/utils/time';
 import type { GameStore } from '../src/store/storeTypes';
+import { protocolClient as io, acceptOnlineAction, configureTestRoom } from './onlineTestClient';
 
 // The shape of a 'gameState' broadcast — see pushStateValidation.test.ts's
 // identical copy of this type for why it is not shared via socketTestHarness.ts.
@@ -73,25 +74,11 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
           s2.emit('joinRoom', { roomId: 'E2E_ROOM', name: 'Bob', deviceId: 'dev-e2e-bob', color: '#00ff00' }, (res2: JoinAck) => {
             expect(res2.success).toBe(true);
 
-            // Simulating Alice explicitly pushing state to start game
-            const mockPlayers = [
-              { name: 'Alice', deviceId: 'dev-e2e-alice', socketId: s1.id, disconnected: false, score: 0 },
-              { name: 'Bob', deviceId: 'dev-e2e-bob', socketId: s2.id, disconnected: false, score: 0 }
-            ];
-            s1.emit('pushState', {
-              roomId: 'E2E_ROOM',
-              newState: {
-                players: mockPlayers,
-                status: 'playing',
-                currentPlayerIndex: 0,
-                reconnectTimeout: MIN_ENABLED_RECONNECT_TIMEOUT // 2s under TEST_TIMER_SCALE
-              }
-            });
-
-            // Wait a brief moment to ensure state was pushed before disconnecting
-            setTimeout(() => {
-              s2.disconnect();
-            }, testDelay(100));
+            void (async () => {
+              await configureTestRoom(s1, 'E2E_ROOM', { reconnectTimeout: MIN_ENABLED_RECONNECT_TIMEOUT });
+              await acceptOnlineAction(s1, 'E2E_ROOM', { type: 'start' });
+              setTimeout(() => s2.disconnect(), testDelay(100));
+            })().catch(reject);
           });
         });
       });
@@ -131,46 +118,31 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'CHART_KICK_ROOM', name: 'Alice', deviceId: 'dev-ck-a', color: '#ff0000' }, () => {
           s2.emit('joinRoom', { roomId: 'CHART_KICK_ROOM', name: 'Bob', deviceId: 'dev-ck-b', color: '#00ff00' }, () => {
-            // Host pushes initial state with chartValues for 2 players
-            s1.emit('pushState', {
-              roomId: 'CHART_KICK_ROOM',
-              newState: {
-                players: [
-                  { name: 'Alice', deviceId: 'dev-ck-a', socketId: s1.id, disconnected: false, score: 100 },
-                  { name: 'Bob', deviceId: 'dev-ck-b', socketId: s2.id, disconnected: false, score: 200 },
-                ],
-                status: 'playing',
-                currentPlayerIndex: 0,
-                chartValues: [[0, 100], [0, 200]],
-                chartNames: ['Alice', 'Bob'],
-                chartLabels: [1, 2],
-              }
-            });
-
-            // Kick Bob after a short delay
-            setTimeout(() => {
-              s1.emit('kickPlayer', s2.id);
-            }, testDelay(300));
+            void (async () => {
+              await configureTestRoom(s1, 'CHART_KICK_ROOM', { randomOrder: false });
+              await acceptOnlineAction(s1, 'CHART_KICK_ROOM', { type: 'start' });
+              await acceptOnlineAction(s1, 'CHART_KICK_ROOM', { type: 'commit', score: 0, success: false });
+              await acceptOnlineAction(s2, 'CHART_KICK_ROOM', { type: 'commit', score: 0, success: false });
+              setTimeout(() => s1.emit('kickPlayer', s2.id), testDelay(300));
+            })().catch(reject);
           });
         });
       });
 
-      s1.on('gameState', (state: GameStatePayload) => {
+      s1.on('gameState', asserting(reject, (state: GameStatePayload) => {
         // After the kick, players should be 1 and chartValues/chartNames should also be length 1
-        // Guard: only check once chartLabels has been pushed (game started) and a player was removed
-        if (state.players && state.players.length === 1 &&
-            Array.isArray(state.chartValues) && state.chartValues.length > 0 &&
-            Array.isArray(state.chartLabels) && state.chartLabels.length > 0) {
+        if (state.players && state.players.length === 1 && Array.isArray(state.chartValues) &&
+            state.chartValues.length > 0 && Array.isArray(state.chartLabels) && state.chartLabels.length > 0) {
           expect(state.chartValues.length).toBe(1);
           expect(state.chartNames?.length).toBe(1);
-          expect(state.chartValues[0]).toEqual([0, 100]); // Alice's values preserved
+          expect(state.chartValues[0]).toEqual([0]);
           expect(state.chartNames?.[0]).toBe('Alice');
           clearTimeout(timeoutId);
           s1.disconnect();
           s2.disconnect();
           resolve();
         }
-      });
+      }));
     });
   }, 10000);
 
@@ -198,25 +170,14 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
         s1.emit('joinRoom', { roomId: 'DECK_EXHAUST_KICK_ROOM', name: 'Alice', deviceId: 'dev-dek-a', color: '#ff0000' }, () => {
           s2.emit('joinRoom', { roomId: 'DECK_EXHAUST_KICK_ROOM', name: 'Bob', deviceId: 'dev-dek-b', color: '#00ff00' }, () => {
             s3.emit('joinRoom', { roomId: 'DECK_EXHAUST_KICK_ROOM', name: 'Carol', deviceId: 'dev-dek-c', color: '#0000ff' }, () => {
-              s1.emit('pushState', {
-                roomId: 'DECK_EXHAUST_KICK_ROOM',
-                newState: {
-                  players: [
-                    { name: 'Alice', deviceId: 'dev-dek-a', socketId: s1.id, disconnected: false, score: 0 },
-                    { name: 'Bob', deviceId: 'dev-dek-b', socketId: s2.id, disconnected: false, score: 0 },
-                    { name: 'Carol', deviceId: 'dev-dek-c', socketId: s3.id, disconnected: false, score: 0 },
-                  ],
-                  status: 'playing',
-                  currentPlayerIndex: 1,
-                  currentCard: '200',
-                  cards: [], // deck already exhausted
-                  initialCards: { '200': 1 }, // single card type → fully deterministic redraw
-                },
-              });
-
-              setTimeout(() => {
-                s1.emit('kickPlayer', s2.id);
-              }, testDelay(300));
+              void (async () => {
+                await configureTestRoom(s1, 'DECK_EXHAUST_KICK_ROOM', {
+                  initialCards: { '200': 1 }, randomOrder: false,
+                });
+                await acceptOnlineAction(s1, 'DECK_EXHAUST_KICK_ROOM', { type: 'start' });
+                await acceptOnlineAction(s1, 'DECK_EXHAUST_KICK_ROOM', { type: 'commit', score: 0, success: false });
+                setTimeout(() => s1.emit('kickPlayer', s2.id), testDelay(300));
+              })().catch(reject);
             });
           });
         });
@@ -229,7 +190,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
         // before pushState ever runs). Requiring currentCard==='200' too ensures
         // we only match the post-kick state, not that transient join broadcast.
         if (state.players && state.players.length === 2 && state.currentCard === '200') {
-          expect(state.cards).toEqual([]);
+          expect(state.cards, 'the private ordered deck is never published').toBeUndefined();
           clearTimeout(timeoutId);
           s1.disconnect();
           s2.disconnect();
@@ -304,12 +265,9 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'ABORT_LEAVE_ROOM', name: 'Alice', deviceId: 'dev-al-a', color: '#ff0000' }, () => {
           s2.emit('joinRoom', { roomId: 'ABORT_LEAVE_ROOM', name: 'Bob', deviceId: 'dev-al-b', color: '#00ff00' }, () => {
-            const players = [
-              { name: 'Alice', deviceId: 'dev-al-a', socketId: s1.id, disconnected: false, score: 0 },
-              { name: 'Bob', deviceId: 'dev-al-b', socketId: s2.id, disconnected: false, score: 0 },
-            ];
-            s1.emit('pushState', { roomId: 'ABORT_LEAVE_ROOM', newState: { players, status: 'playing', currentPlayerIndex: 0 } });
-            setTimeout(() => s2.emit('leaveRoom'), testDelay(200));
+            void acceptOnlineAction(s1, 'ABORT_LEAVE_ROOM', { type: 'start' })
+              .then(() => setTimeout(() => s2.emit('leaveRoom'), testDelay(200)))
+              .catch(reject);
           });
         });
       });
@@ -344,15 +302,11 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'ABORT_TIMEOUT_ROOM', name: 'Alice', deviceId: 'dev-at-a', color: '#ff0000' }, () => {
           s2.emit('joinRoom', { roomId: 'ABORT_TIMEOUT_ROOM', name: 'Bob', deviceId: 'dev-at-b', color: '#00ff00' }, () => {
-            const players = [
-              { name: 'Alice', deviceId: 'dev-at-a', socketId: s1.id, disconnected: false, score: 0 },
-              { name: 'Bob', deviceId: 'dev-at-b', socketId: s2.id, disconnected: false, score: 0 },
-            ];
-            s1.emit('pushState', {
-              roomId: 'ABORT_TIMEOUT_ROOM',
-              newState: { players, status: 'playing', currentPlayerIndex: 0, reconnectTimeout: MIN_ENABLED_RECONNECT_TIMEOUT },
-            });
-            setTimeout(() => s2.disconnect(), testDelay(200));
+            void (async () => {
+              await configureTestRoom(s1, 'ABORT_TIMEOUT_ROOM', { reconnectTimeout: MIN_ENABLED_RECONNECT_TIMEOUT });
+              await acceptOnlineAction(s1, 'ABORT_TIMEOUT_ROOM', { type: 'start' });
+              setTimeout(() => s2.disconnect(), testDelay(200));
+            })().catch(reject);
           });
         });
       });
@@ -386,12 +340,9 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'ABORT_KICK_ROOM', name: 'Alice', deviceId: 'dev-ak-a', color: '#ff0000' }, () => {
           s2.emit('joinRoom', { roomId: 'ABORT_KICK_ROOM', name: 'Bob', deviceId: 'dev-ak-b', color: '#00ff00' }, () => {
-            const players = [
-              { name: 'Alice', deviceId: 'dev-ak-a', socketId: s1.id, disconnected: false, score: 0 },
-              { name: 'Bob', deviceId: 'dev-ak-b', socketId: s2.id, disconnected: false, score: 0 },
-            ];
-            s1.emit('pushState', { roomId: 'ABORT_KICK_ROOM', newState: { players, status: 'playing', currentPlayerIndex: 0 } });
-            setTimeout(() => s1.emit('kickPlayer', s2.id), testDelay(200));
+            void acceptOnlineAction(s1, 'ABORT_KICK_ROOM', { type: 'start' })
+              .then(() => setTimeout(() => s1.emit('kickPlayer', s2.id), testDelay(200)))
+              .catch(reject);
           });
         });
       });
@@ -453,12 +404,9 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-ks-a', color: '#ff0000' }, () => {
           s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-ks-b', color: '#00ff00' }, () => {
-            const players = [
-              { name: 'Alice', deviceId: 'dev-ks-a', socketId: s1.id, disconnected: false, score: 0 },
-              { name: 'Bob', deviceId: 'dev-ks-b', socketId: s2.id, disconnected: false, score: 0 },
-            ];
-            s1.emit('pushState', { roomId, newState: { players, status: 'playing', currentPlayerIndex: 0 } });
-            setTimeout(() => s1.emit('kickPlayer', s2.id), testDelay(200));
+            void acceptOnlineAction(s1, roomId, { type: 'start' })
+              .then(() => setTimeout(() => s1.emit('kickPlayer', s2.id), testDelay(200)))
+              .catch(reject);
           });
         });
       });
@@ -543,15 +491,11 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'RECONNECT_OFF', name: 'Alice', deviceId: 'dev-ro-a', color: '#ff0000' }, () => {
           s2.emit('joinRoom', { roomId: 'RECONNECT_OFF', name: 'Bob', deviceId: 'dev-ro-b', color: '#00ff00' }, () => {
-            const players = [
-              { name: 'Alice', deviceId: 'dev-ro-a', socketId: s1.id, disconnected: false, score: 0 },
-              { name: 'Bob',   deviceId: 'dev-ro-b', socketId: s2.id, disconnected: false, score: 0 },
-            ];
-            s1.emit('pushState', {
-              roomId: 'RECONNECT_OFF',
-              newState: { players, status: 'playing', currentPlayerIndex: 0, reconnectTimeout: 0 },
-            });
-            setTimeout(() => s2.disconnect(), testDelay(300));
+            void (async () => {
+              await configureTestRoom(s1, 'RECONNECT_OFF', { reconnectTimeout: 0 });
+              await acceptOnlineAction(s1, 'RECONNECT_OFF', { type: 'start' });
+              setTimeout(() => s2.disconnect(), testDelay(300));
+            })().catch(reject);
           });
         });
       });
@@ -842,8 +786,9 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-kr-a', color: '#ff0000' }, () => {
           s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-kr-b', color: '#00ff00' }, () => {
-            s1.emit('pushState', { roomId, newState: { reconnectTimeout: MIN_ENABLED_RECONNECT_TIMEOUT } });
-            setTimeout(() => s2.disconnect(), testDelay(200));
+            void configureTestRoom(s1, roomId, { reconnectTimeout: MIN_ENABLED_RECONNECT_TIMEOUT })
+              .then(() => setTimeout(() => s2.disconnect(), testDelay(200)))
+              .catch(reject);
           });
         });
       });
@@ -929,7 +874,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
         s1.emit('joinRoom', { roomId, name: 'Alice', deviceId: 'dev-hts-a', color: '#ff0000' }, () => {
           s2.emit('joinRoom', { roomId, name: 'Bob', deviceId: 'dev-hts-b', color: '#00ff00' }, () => {
             s3.emit('joinRoom', { roomId, name: 'Charlie', deviceId: 'dev-hts-c', color: '#0000ff' }, () => {
-              s1.emit('pushState', { roomId, newState: { reconnectTimeout: RECONNECT_SECONDS } });
+              void configureTestRoom(s1, roomId, { reconnectTimeout: RECONNECT_SECONDS }).catch(reject);
             });
           });
         });
@@ -1005,8 +950,9 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
               s4.emit('joinRoom', { roomId, name: 'Dave', deviceId: 'dev-stl-d', color: '#00ffff' }, async () => {
                 try {
                   // Marker config so a leaked room is distinguishable from a fresh one.
-                  s1.emit('pushState', { roomId, newState: { winningScore: 7777, reconnectTimeout: 1 } });
-                  await new Promise(r => setTimeout(r, testDelay(200)));
+                  await configureTestRoom(s1, roomId, {
+                    winningScore: 10_000, reconnectTimeout: MIN_ENABLED_RECONNECT_TIMEOUT,
+                  });
 
                   // Bob times out — his fired timer must not leave a stale entry.
                   s2.disconnect();
@@ -1014,8 +960,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
 
                   // Disable reconnect timers, then Alice and Charlie passively
                   // disconnect (marked disconnected, no timers armed).
-                  s1.emit('pushState', { roomId, newState: { reconnectTimeout: 0 } });
-                  await new Promise(r => setTimeout(r, testDelay(200)));
+                  await configureTestRoom(s1, roomId, { reconnectTimeout: 0 });
                   s1.disconnect();
                   await new Promise(r => setTimeout(r, testDelay(300)));
                   s3.disconnect();

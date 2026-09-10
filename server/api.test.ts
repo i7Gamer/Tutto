@@ -11,6 +11,7 @@ import { startTestServer } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 import { DEVICE_ID_HEADER, DEVICE_STATS_PATH } from '../src/utils/statsApi';
+import { MIN_PRODUCTION_API_TOKEN_BYTES } from './startupGuards';
 
 // setupTests.tsx stashes the real fetch here before installing its jsdom-only
 // stub; several describes below restore it explicitly rather than relying on
@@ -437,7 +438,7 @@ describe('production CORS defaults to same-origin', () => {
     serverProcess = await startTestServer(PORT, {
       env: {
         NODE_ENV: 'production',
-        API_TOKEN: 'a-strong-production-token',
+        API_TOKEN: 'a'.repeat(MIN_PRODUCTION_API_TOKEN_BYTES),
         CORS_ORIGIN: '',
       },
     });

@@ -32,6 +32,7 @@ import { zeroedPlayerStats } from '../src/utils/playerStats';
 import type { ServerPlayer } from './roomTypes';
 import { registerSocketHandlers } from './socketHandlers';
 import { JOIN_REFUSAL_CODES } from './socketRoomHandlers';
+import { ONLINE_PROTOCOL_VERSION } from '../src/utils/onlineProtocol';
 
 // No dotenv.config() here on purpose (it used to sit above this comment). A
 // real .env holds CORS_ORIGIN / TRUST_PROXY / API_TOKEN / ALLOWED_HOST for a
@@ -68,6 +69,7 @@ const CHILD_ENV_ALLOWLIST_KEYS = [
   // read directly by the harness itself (TEST_TIMER_SCALE, just below).
   'TEST_DB', 'TEST_TIMER_SCALE', 'TEST_PORT_OFFSET',
   'SOCKET_CONN_LIMIT_MAX', 'MAX_ROOMS_PER_ADDRESS', 'STATS_RATE_LIMIT_MAX',
+  'MAX_CONCURRENT_TRANSPORTS', 'ROOM_PUSH_WORK_LIMIT_MAX', 'ADMIN_AUTH_FAILURE_LIMIT_MAX',
 ] as const;
 
 /**
@@ -255,7 +257,9 @@ export const startInProcessServer = async (): Promise<InProcessServer> => {
 
   const connect = (opts: Partial<ManagerOptions & SocketOptions> = {}): Promise<ClientSocket> =>
     new Promise((resolve, reject) => {
-      const sock = clientIo(`http://127.0.0.1:${port}`, { transports: ['websocket'], ...opts });
+      const sock = clientIo(`http://127.0.0.1:${port}`, {
+        transports: ['websocket'], auth: { protocolVersion: ONLINE_PROTOCOL_VERSION }, ...opts,
+      });
       sockets.push(sock);
       sock.on('connect', () => resolve(sock));
       sock.on('connect_error', reject);
@@ -351,7 +355,7 @@ export const makeFakeSocket = (id: string) => {
     // for the per-address room cap). Leaving it off made every handler that
     // touched it throw inside safeOn, which logs and swallows — so the ack
     // never fired and the test failed as a timeout, blaming the wrong thing.
-    handshake: { address: '127.0.0.1', headers: {} },
+    handshake: { address: '127.0.0.1', headers: {}, auth: { protocolVersion: ONLINE_PROTOCOL_VERSION } },
     join: vi.fn(),
     leave: vi.fn(),
     emit: vi.fn(),

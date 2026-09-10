@@ -7,7 +7,7 @@
  */
 import type { ChildProcess } from 'child_process';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { io } from 'socket.io-client';
+import { protocolClient as io, acceptOnlineAction } from './onlineTestClient';
 import { startTestServer, testDelay, type JoinAck } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
@@ -135,14 +135,7 @@ describe('Server Socket E2E — room lifecycle & joining', () => {
       s1.on('connect', () => {
         s1.emit('joinRoom', { roomId: 'E2E_ROOM_LEAVE', name: 'Alice', deviceId: 'dev-e2eleave-alice', color: '#ff0000' }, () => {
           s2.emit('joinRoom', { roomId: 'E2E_ROOM_LEAVE', name: 'Bob', deviceId: 'dev-bob2', color: '#00ff00' }, () => {
-            const mockPlayers = [
-              { name: 'Alice', deviceId: 'dev-e2eleave-alice', socketId: s1.id, disconnected: false, score: 0 },
-              { name: 'Bob', deviceId: 'dev-bob2', socketId: s2.id, disconnected: false, score: 0 }
-            ];
-            s1.emit('pushState', {
-              roomId: 'E2E_ROOM_LEAVE',
-              newState: { players: mockPlayers, status: 'playing' }
-            });
+            void acceptOnlineAction(s1, 'E2E_ROOM_LEAVE', { type: 'start' }).catch(reject);
             
             setTimeout(() => {
               // Setup listener for Bob *before* he leaves, to catch any synchronous rogue broadcasts

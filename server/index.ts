@@ -18,15 +18,17 @@ import { initDb, closeDb } from './database';
 import {
   resolveCorsOrigin, validateCorsOriginForStartup, isProxyTrusted, warnIfProxyTrustUnset,
   validatePortForStartup, resolvePortForStartup, describeListenError, type ErrnoException,
+  validateConcurrentTransportLimitForStartup,
 } from './startupGuards';
 import { applyResponseHardening } from './securityHeaders';
 import { resolveDbFilename } from './knexfile';
 import { createShutdownHandler, createServerClosers, SHUTDOWN_SIGNALS } from './shutdown';
-import { rooms } from './rooms';
+import { rooms, MAX_ROOMS, MAX_PLAYERS_PER_ROOM } from './rooms';
 import { summarizeActivity, renderActivityLine } from './activity';
 import { createStatusLine, isStatusLineEnabled } from './statusLine';
 import { MS_PER_SECOND } from '../src/utils/time';
 import { MAX_PUSHED_STATE_BYTES } from './socketLimits';
+import { createSocketAdmission } from './socketAdmission';
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection, shutting down:', reason);
@@ -46,6 +48,22 @@ if (corsOriginError) {
 // '*' outside production (local dev / LAN play), the explicit CORS_ORIGIN when
 // one is set, and same-origin only in production when it is not.
 const CORS_ORIGIN = resolveCorsOrigin(process.env);
+
+const transportLimitError = validateConcurrentTransportLimitForStartup(process.env);
+if (transportLimitError) {
+  console.error(transportLimitError);
+  process.exit(1);
+}
+
+// This preserves the documented theoretical room/seat ceiling plus a small
+// reconnect overlap. It is a hard safety ceiling, not a capacity-tuned value;
+// deployments should lower it only after measuring their own memory/workload.
+const RECONNECT_TRANSPORT_HEADROOM_PER_ROOM = 2;
+export const DEFAULT_MAX_CONCURRENT_TRANSPORTS =
+  MAX_ROOMS * (MAX_PLAYERS_PER_ROOM + RECONNECT_TRANSPORT_HEADROOM_PER_ROOM);
+const MAX_CONCURRENT_TRANSPORTS = process.env.MAX_CONCURRENT_TRANSPORTS
+  ? Number(process.env.MAX_CONCURRENT_TRANSPORTS)
+  : DEFAULT_MAX_CONCURRENT_TRANSPORTS;
 
 const app = express();
 
@@ -115,12 +133,24 @@ server.on('error', (err: ErrnoException) => {
   console.error(describeListenError(err, PORT));
   process.exit(1);
 });
-const io = new Server(server, {
+let io: Server;
+const socketAdmission = createSocketAdmission({
+  allowedOrigin: CORS_ORIGIN,
+  maxConcurrentTransports: MAX_CONCURRENT_TRANSPORTS,
+  activeClients: () => io?.engine.clientsCount ?? 0,
+});
+const ENABLED_SOCKET_TRANSPORTS = ['polling', 'websocket'] as const;
+io = new Server(server, {
   cors: { origin: CORS_ORIGIN },
+  allowRequest: socketAdmission.allowRequest,
+  // Engine.IO's current allowRequest path covers these transports. Keep
+  // WebTransport disabled until it has equivalent admission accounting.
+  transports: [...ENABLED_SOCKET_TRANSPORTS],
   pingInterval: 4000,
   pingTimeout: 6000,
   maxHttpBufferSize: MAX_PUSHED_STATE_BYTES,
 });
+socketAdmission.bindEngine(io.engine);
 
 registerSocketHandlers(io);
 registerApiRoutes(app);

@@ -13,6 +13,7 @@ import type { CardType, DiceMode } from '../../types';
 import { DiePips } from './Die';
 import ConfirmModal from '../ConfirmModal';
 import { useSpectatorGrace } from '../../hooks/useSpectatorGrace';
+import { compositionSize } from '../../utils/onlineDeck';
 
 interface GameControlsProps {
   isMyTurn: boolean;
@@ -66,7 +67,7 @@ const QUICK_ADD_SCORES = [50, 100, 200, 300, 400, 500, 600, 1000];
 // reactions) doesn't re-render this subtree.
 const useGameControlsSlice = () => useGameStore(useShallow(state => ({
   currentCard: state.currentCard,
-  cardsLength: state.cards?.length ?? 0,
+  cardsLength: state.isOnline ? compositionSize(state.remainingCardCounts) : (state.cards?.length ?? 0),
   ruleset: state.ruleset,
   isOnline: state.isOnline,
   isHost: state.isHost,

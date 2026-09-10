@@ -47,6 +47,7 @@ vi.mock('./rooms', async (importOriginal) => {
 
 import { registerSocketHandlers } from './socketHandlers';
 import { rooms, deleteRoom } from './rooms';
+import { ONLINE_PROTOCOL_VERSION } from '../src/utils/onlineProtocol';
 
 describe('socket handler failure containment', () => {
   let httpServer: HttpServer;
@@ -81,7 +82,7 @@ describe('socket handler failure containment', () => {
   });
 
   const connect = async (): Promise<ClientSocket> => {
-    const client = clientIo(`http://127.0.0.1:${port}`);
+    const client = clientIo(`http://127.0.0.1:${port}`, { auth: { protocolVersion: ONLINE_PROTOCOL_VERSION } });
     openClients.push(client);
     await new Promise<void>(resolve => client.on('connect', () => resolve()));
     return client;

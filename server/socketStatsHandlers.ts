@@ -1,10 +1,12 @@
 import { getDeviceStats, updateDeviceStats, updateGlobalStats } from './database';
-import { sanitizeStats, type SanitizedStats } from './sanitize';
+import type { SanitizedStats } from './sanitize';
 import { rooms, emitRoomState } from './rooms';
 import { statsModeFor } from './roomTypes';
+import { pendingDeviceStatsWrite, writeDeviceStatsOnce } from './statsWriteCoordinator';
 import { createSocketEventLimiter } from './rateLimit';
 import { safeOn, type SocketContext } from './socketContext';
 import type { StatsSubmitAck, StatsRefusalReason } from '../src/types';
+import { buildDeviceStatsPayload, buildGlobalStatsPayload } from '../src/utils/statsPayloads';
 
 /**
  * The optional callback a client may pass as the second argument to either
@@ -39,39 +41,48 @@ export const SUBMIT_GLOBAL_STATS_LIMIT = { windowMs: 10_000, max: 5 };
 // to more than this file now.
 export const END_GAME_STATS_LIMIT = { windowMs: 10_000, max: 5 };
 
-// One finish, one game — see the `gamesPlayed` override in endGameStats.
+// One finish, one game — also supplied by buildDeviceStatsPayload.
 const GAMES_PER_FINISH = 1;
 
 // Spelled out: what a merge adds to a running sum the server's verdict-only
 // row has already counted.
 const ALREADY_COUNTED_BY_VERDICT_ROW = 0;
 
+const winnerDeviceIdsFor = (
+  finishedGame: { winnerDeviceIds?: string[]; winners: string[] } | null,
+  players: ReadonlyArray<{ deviceId?: string; name: string }>,
+): string[] | undefined => {
+  if (!finishedGame) return undefined;
+  return finishedGame.winnerDeviceIds ?? players
+    .filter(player => finishedGame.winners.includes(player.name))
+    .map(player => player.deviceId)
+    .filter((deviceId): deviceId is string => typeof deviceId === 'string');
+};
+
 /**
- * Turns a full submission into a top-up of the server's verdict-only row.
+ * Turns a server-derived full row into a top-up of a legacy verdict-only row.
  *
- * `gamesPlayed` and `totalPlayersSum` are running sums (see deviceCols in
+ * `gamesPlayed`, `totalPlayersSum` and `totalRoundsSum` are running sums (see deviceCols in
  * database.ts) that the verdict row already added, so the merge adds nothing
- * to either. `wins` is deleted rather than zeroed: it is additive too, but
+ * to those sums. `wins` is deleted rather than zeroed: it is additive too, but
  * its mere PRESENCE is what makes updateDeviceStats re-run the win-streak
- * CASE, and a second run over the same game would reset the streak the
- * verdict row just set. Everything else in the payload — the per-turn
- * counters, and the MIN/MAX record columns, which are idempotent by
- * construction — is exactly what the merge exists to add.
+ * CASE, and a second run over the same game would alter its recorded streak.
+ * The merge adds the remaining counters once; MIN/MAX record columns can
+ * safely be included again because their merges are idempotent.
  */
 const applyMergeOverrides = (clean: SanitizedStats): void => {
   clean.gamesPlayed = ALREADY_COUNTED_BY_VERDICT_ROW;
   clean.totalPlayersSum = ALREADY_COUNTED_BY_VERDICT_ROW;
+  clean.totalRoundsSum = ALREADY_COUNTED_BY_VERDICT_ROW;
   delete clean.wins;
 };
 
 /**
  * Recording what a finished game did, per device and server-wide.
  *
- * This handler only ever hears from a currently seated socket — a seat that
- * leaves, is kicked, or times out before the finish is broadcast never runs
- * this path at all. That seat's game is not lost, though: the server records
- * it itself, as a played, lost game (gamesPlayed+1, wins 0, no records — see
- * recordDepartedSeatsStats in rooms.ts), the moment the verdict is frozen.
+ * This handler only ever hears from a currently seated socket. The completed
+ * row is nevertheless built from server-captured participant state; a departed
+ * seat receives that same complete row when the verdict is frozen.
  */
 export const registerStatsHandlers = ({ io, socket, session }: SocketContext): void => {
   const submitGlobalStatsLimiter = createSocketEventLimiter(SUBMIT_GLOBAL_STATS_LIMIT);
@@ -89,7 +100,6 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
 
     if (!submitGlobalStatsLimiter()) return refuse('rate-limited');
     if (!data || typeof data !== 'object') return refuse('invalid');
-    const { payload } = data;
     // Resolved from the session — the room this socket is actually seated
     // in — the same source endGameStats uses, rather than the roomId in the
     // wire payload above (kept there for older clients, but no longer
@@ -111,26 +121,18 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
         (typeof data.finishedGameToken !== 'string' || data.finishedGameToken !== room.finishedGameToken)) {
       return refuse('invalid');
     }
-    // Stats only exist for a game that actually reached its end — without
-    // this gate, a host could submit fabricated stats straight from the
-    // lobby, and repeat at will by re-triggering pushState's startingGame
-    // dedup reset between submissions. Ordering with the winner's own
-    // submission is safe: the finishing client emits pushState (carrying
-    // finished=true) BEFORE its stats (see gameSlice.nextTurn), and
-    // socket.io preserves per-connection event order. The host-authoritative
-    // state model means a determined host can still stage a fake finished
-    // game — and so, to a lesser degree, can the active player, who may raise
-    // their OWN score to the winning one and then finish legitimately
-    // (applyPushedState's `finished` branch checks a real game-over, not who
-    // earned it). What this refuses is the out-of-context and replayed cases.
+    // A stats request can record only a game the server has finished through
+    // an accepted action, a turn timeout, or an active-player removal. Clients
+    // submit actions through pushState; they cannot set the finished flag or
+    // the counters persisted below with a pushed snapshot or stats payload.
     if (!room.state.finished) return refuse('not-finished');
     // A reconnect/reload after the game already finished (but before anyone
     // leaves the room) makes the client think "finished just became true" again,
     // re-submitting for the same game. Recorded per game, reset when a new one
-    // starts (see pushState's startingGame branch).
+    // starts (see pushState's accepted-start branch).
     //
     // Captured once, here, rather than read again after the await below:
-    // startingGame replaces room.statsRecordedForGame wholesale (a new object)
+    // An accepted start replaces room.statsRecordedForGame (a new object)
     // when the next game starts, which can land while updateGlobalStats is
     // still in flight for THIS one. Rolling back through `room.statsRecordedForGame`
     // at that point would write into the NEXT game's dedup instead of this
@@ -141,32 +143,31 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // but rolled back on failure — otherwise a transient DB error would
     // permanently swallow this game's stats (the dedup would reject a retry).
     dedup.global = true;
-    // isDefaultGame decides whether this game's numbers join the global
-    // totals at all, so it is the server's call, not the sender's: taken
-    // from the config the game started with (frozen in pushState) and
-    // written over whatever the payload claimed. The ruleset picks which
-    // global row the numbers land in — frozen at kickoff the same way.
-    // gamesPlayed is likewise the server's call, not the sender's, and for the
-    // same reason endGameStats overrides it on the device row: reaching this
-    // point already means room.state.finished — exactly one game — so an
-    // empty or invalid payload must not leave it at the sanitized 0. Without
-    // this, an empty submission advanced the global row's defaultGamesPlayed
-    // counter (from isDefaultGame) while totalGamesPlayed stayed put.
-    const globalStats: SanitizedStats = {
-      ...sanitizeStats(payload, 'global'),
+    // The accepted start captures the statistics configuration: normalizedGame
+    // decides whether counters join the global totals, and ruleset selects the
+    // row. The server derives every counter and records exactly one game,
+    // regardless of whether the request includes a stats payload.
+    const finishedGame = room.finishedGame;
+    const serverPlayers = finishedGame?.players ?? room.state.players;
+    const winnerDeviceIds = winnerDeviceIdsFor(finishedGame, serverPlayers);
+    const globalStats = {
+      ...buildGlobalStatsPayload(
+        serverPlayers,
+        finishedGame?.gameTimeInSeconds ?? room.state.gameTimeInSeconds,
+        room.normalizedGame,
+        finishedGame?.round ?? room.state.round,
+        winnerDeviceIds,
+      ),
       isDefaultGame: room.normalizedGame,
       gamesPlayed: GAMES_PER_FINISH,
-    };
-    // And so is how many people played it, for exactly the reason endGameStats
-    // overrides the same pair on the device rows: the host's snapshot is its
-    // own roster, which is missing anyone who left before the finish. Taking
-    // one from the frozen verdict and the other from the sender left the two
-    // halves of the same game disagreeing about its size.
-    if (room.finishedGame) {
-      globalStats.totalPlayersSum = room.finishedGame.playerCount;
-      globalStats.mostPlayersInGame = room.finishedGame.playerCount;
-      globalStats.totalRoundsSum = room.finishedGame.round;
-      globalStats.longestGameRounds = room.finishedGame.round;
+    } as SanitizedStats;
+    // Preserve the frozen participant and round totals in both global and
+    // device rows, including legacy verdicts without participant snapshots.
+    if (finishedGame) {
+      globalStats.totalPlayersSum = finishedGame.playerCount;
+      globalStats.mostPlayersInGame = finishedGame.playerCount;
+      globalStats.totalRoundsSum = finishedGame.round;
+      globalStats.longestGameRounds = finishedGame.round;
     }
     try {
       await updateGlobalStats(globalStats, room.ruleset);
@@ -199,7 +200,7 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
 
     if (!endGameStatsLimiter()) return refuse('rate-limited');
     if (!data || typeof data !== 'object') return refuse('invalid');
-    const { deviceId, stats } = data;
+    const { deviceId } = data;
     if (typeof deviceId !== 'string') return refuse('invalid');
     // A socket may only submit stats for its OWN device, and only while it is a
     // member of its current room. This mirrors the token gate on the HTTP path
@@ -220,73 +221,58 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // See submitGlobalStats above — stats are only accepted for a game that
     // actually reached its end.
     if (!room.state.finished) return refuse('not-finished');
-    // See submitGlobalStats above — same reconnect-after-finish dedup, per
-    // device. A row the SERVER wrote for this device (a seat that had left or
-    // was disconnected when the finish was broadcast — see
-    // recordDepartedSeatsStats in rooms.ts) is only the verdict: the game and
-    // its outcome, with none of this seat's per-turn counters or records,
-    // which live in the very client now submitting them. Refusing that
-    // submission as a duplicate lost them for good, so it is accepted as a
-    // MERGE instead. Only a full row already in makes a submission a no-op.
+    // Complete departed-seat rows and prior endGameStats writes are duplicates.
+    // Only legacy rooms without captured participant counters produce a
+    // verdict-only row; a returning seat can top it up from the server's
+    // available player state without counting its game or outcome twice.
     //
     // Captured once, here, rather than read again after the await below:
-    // startingGame (socketGameStateHandlers.ts) replaces
-    // room.statsRecordedForGame wholesale (a new object, new Map) when the
-    // next game starts, which can land while updateDeviceStats is still in
-    // flight for THIS game (e.g. a fast Play Again). Rolling back through
-    // `room.statsRecordedForGame` at that point would write this game's
-    // recordedLevel into the NEXT game's dedup map instead of this one's —
-    // silently treating that device's next submission as a merge and never
-    // counting the game this rollback actually belongs to. See the
-    // `dedup === room.statsRecordedForGame` check in the catch below.
+    // An accepted start replaces room.statsRecordedForGame with a new object
+    // and Map. The coordinator reserves and publishes writes against this
+    // captured game's object, so completion or failure during a rematch cannot
+    // alter the next game's deduplication state.
     const dedup = room.statsRecordedForGame;
+    const finishToken = room.finishedGameToken;
+    // A returning seat cannot top up a verdict which has not committed yet.
+    // Recheck after every wait: another full submission may have reserved the
+    // same device while this one was queued behind the departed writer.
+    let pending = pendingDeviceStatsWrite(dedup, deviceId);
+    while (pending) {
+      await pending;
+      if (rooms[roomId as string] !== room || room.statsRecordedForGame !== dedup ||
+          room.finishedGameToken !== finishToken || !room.state.finished) return refuse('invalid');
+      if (session.roomId !== roomId || !room.state.players.some(p =>
+        p.deviceId === deviceId && p.socketId === socket.id)) return refuse('unauthorized');
+      pending = pendingDeviceStatsWrite(dedup, deviceId);
+    }
     const recordedLevel = dedup.devices.get(deviceId);
     if (recordedLevel === 'full') return refuse('duplicate');
     const isMerge = recordedLevel === 'verdict-only';
-    // See submitGlobalStats: pre-marking blocks concurrent duplicates,
-    // rollback on failure keeps a retry possible instead of losing the game's
-    // stats.
-    dedup.devices.set(deviceId, 'full');
+    // The coordinator reserves full writes separately from committed levels.
     // Recorded in full either way — a custom game just lands in its own
     // bucket, where it cannot move the totals or the records a player reads
     // as theirs. Which bucket is the server's call, taken from the config
     // the game started with: the frozen ruleset picks the pair, the frozen
     // normalizedGame flag picks within it.
     const mode = statsModeFor(room);
-    const clean = sanitizeStats(stats, 'device');
 
-    // Whether this device WON is the server's call, for the same reason
-    // isDefaultGame is: the client computes it with getLeaders() over its own
-    // roster, and that roster is wrong for anyone whose first sight of the
-    // finish arrives after a seat has left — the last player standing then
-    // looks like the leader and submits a win it never earned. The room froze
-    // the real verdict while the winner was still seated (see
-    // rememberFinishedGame). Permanent damage if it gets through:
-    // fastestWinTurns is MIN-merged and the streak only ever rises.
-    //
-    // Only the verdict-derived fields are overridden. Everything else in the
-    // payload is this seat's own accumulated counters, which no roster change
-    // can falsify — the correction is not a reason to drop them.
+    // Use the frozen winner identities and participant counters so departures
+    // after the finish cannot change the recorded outcome or records. Legacy
+    // verdicts fall back to their winner names and the available server roster.
     const finishedGame = room.finishedGame;
+    const serverPlayers = finishedGame?.players ?? room.state.players;
+    const winnerDeviceIds = winnerDeviceIdsFor(finishedGame, serverPlayers);
+    const serverPlayer = serverPlayers.find(candidate => candidate.deviceId === deviceId);
+    if (!serverPlayer) return refuse('invalid');
+    const clean = buildDeviceStatsPayload(
+      serverPlayers,
+      serverPlayer.name,
+      finishedGame?.gameTimeInSeconds ?? room.state.gameTimeInSeconds,
+      finishedGame?.round ?? room.state.round,
+      winnerDeviceIds,
+    );
+    if (!clean) return refuse('invalid');
     if (finishedGame) {
-      const won = finishedGame.winners.includes(player.name);
-      const turns = typeof clean.totalTurns === 'number' ? clean.totalTurns : 0;
-      clean.wins = won ? 1 : 0;
-      // How many games this row records is the server's call for the same
-      // reason `wins` is, and it must be decided in the same place: an empty
-      // or wholly invalid payload sanitizes to {}, so the override above used
-      // to write a win — and a win streak — for a game whose gamesPlayed
-      // stayed 0. A finish is exactly one game, whatever the payload claims,
-      // which is also the honest minimum the server's own departed-seat row
-      // records (gamesPlayed 1 + the verdict's wins).
-      clean.gamesPlayed = GAMES_PER_FINISH;
-      // null, not 0, when there is no record to set: sanitize.ts now DROPS a
-      // non-positive value for these two rather than clamping it up to 1, but
-      // writing null here still states "no record" rather than leaning on
-      // that drop happening downstream. A game can end before a seat's turn
-      // came round, hence the turns check on BOTH sides.
-      clean.fastestWinTurns = won && turns > 0 ? turns : null;
-      clean.fastestLossTurns = !won && turns > 0 ? turns : null;
       clean.totalPlayersSum = finishedGame.playerCount;
       clean.mostPlayersInGame = finishedGame.playerCount;
       clean.totalRoundsSum = finishedGame.round;
@@ -297,31 +283,18 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // so everything that row counted must not be counted again. Applied
     // AFTER the override block above, which is where those very fields were
     // just set from the verdict.
-    if (isMerge) applyMergeOverrides(clean);
+    if (isMerge) applyMergeOverrides(clean as unknown as SanitizedStats);
 
-    // Scoped to the write alone: it is the only step whose failure means
-    // nothing was committed, and so the only one the dedup may be reopened
-    // for. The refresh below has its own catch for exactly that reason.
+    // Only a failed write permits a retry. The streak refresh below has its
+    // own catch because its failure cannot undo a committed statistics row.
     try {
-      await updateDeviceStats(deviceId, clean, mode);
+      await writeDeviceStatsOnce(dedup, deviceId, 'full', () => updateDeviceStats(deviceId, { ...clean }, mode));
     } catch (err) {
-      // Back to what was recorded BEFORE this attempt, not to "nothing
-      // recorded": a merge whose write failed still leaves the server's
-      // verdict row committed, and reopening the dedup outright would let the
-      // retry count the same game a second time.
-      //
-      // Only if `dedup` is still the room's CURRENT dedup object — see the
-      // capture above for why a Play Again mid-await means this rollback
-      // must not touch whatever `room.statsRecordedForGame` points to now.
-      if (room.statsRecordedForGame === dedup) {
-        if (recordedLevel) dedup.devices.set(deviceId, recordedLevel);
-        else dedup.devices.delete(deviceId);
-      }
+      // The coordinator keeps the previous committed level on failure and
+      // releases only this captured game's reservation, never a rematch's.
       console.error('[endGameStats] error:', err);
-      // The rollback above is what makes this reason retryable: the client
-      // resends the identical payload (see the bounded retry in
-      // src/store/socketSlice.ts) and it is recorded as if the first attempt
-      // had never happened.
+      // No new committed level was published, so the client can retry this
+      // finish (see the bounded retry in src/store/socketSlice.ts).
       return refuse('write-failed');
     }
 
@@ -342,11 +315,9 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     if (mode === 'normalized' || mode === 'classic') {
       try {
         const updatedStats = await getDeviceStats(deviceId, mode);
-        // Re-resolved AFTER the two awaits: a players-carrying push landing
-        // in between (e.g. the host's Play Again) rebuilds every roster entry
-        // via mergeMutable, so the pre-await `player` may be a detached
-        // object — writing there would broadcast the stale streak this
-        // refresh exists to fix.
+        // Accepted actions can replace every roster entry during the awaits.
+        // Resolve the current seat so the refresh reaches the live player,
+        // including after the host starts a rematch.
         const currentSeat = rooms[roomId as string]?.state.players.find(p => p.deviceId === deviceId);
         if (currentSeat) {
           if (mode === 'classic') {

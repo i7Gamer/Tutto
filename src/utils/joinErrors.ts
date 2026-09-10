@@ -23,6 +23,8 @@ export const JOIN_ERROR_KEYS = new Map<string, string>([
   ['room_full', 'lobby.online.joinError.roomFull'],
   ['too_many_rooms', 'lobby.online.joinError.tooManyRooms'],
   ['room-gone', 'lobby.online.joinError.roomGone'],
+  ['rejoin_pending', 'lobby.online.joinError.rejoinPending'],
+  ['client_update_required', 'lobby.online.joinError.clientUpdateRequired'],
 ]);
 
 /** The parts of a refused joinRoom ack this module needs. */

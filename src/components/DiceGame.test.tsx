@@ -1631,6 +1631,7 @@ describe('DiceGame chain draw the server discards', () => {
       // The card that never became this turn's must not ride into the summary
       // — nor count against the chain cap.
       cards: [{ card: '300', completed: true }],
+      outcomes: [{ card: '300', scoreBefore: 0, scoreAfter: 1800, tuttos: 1 }],
       tuttoCount: 1,
       ended: 'banked',
     }));
@@ -2003,6 +2004,10 @@ describe('DiceGame classic chains', () => {
     fireEvent.click(screen.getByText('dice.bank_points'));
     expect(onComplete).toHaveBeenCalledWith(6600, true, expect.objectContaining({
       cards: [{ card: '300', completed: true }, { card: 'x2', completed: true }],
+      outcomes: [
+        { card: '300', scoreBefore: 0, scoreAfter: 1800, tuttos: 1 },
+        { card: 'x2', scoreBefore: 1800, scoreAfter: 6600, tuttos: 1 },
+      ],
       tuttoCount: 2,
       ended: 'banked',
     }));
@@ -2027,6 +2032,10 @@ describe('DiceGame classic chains', () => {
     expect(screen.getByText('dice.stop_card_drawn')).toBeInTheDocument();
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(0, false, expect.objectContaining({
       cards: [{ card: '500', completed: true }, { card: 'Stop', completed: false }],
+      outcomes: [
+        { card: '500', scoreBefore: 0, scoreAfter: 2000, tuttos: 1 },
+        { card: 'Stop', scoreBefore: 2000, scoreAfter: 2000, tuttos: 0 },
+      ],
       ended: 'stopCard',
     })));
   });
@@ -2087,6 +2096,7 @@ describe('DiceGame classic chains', () => {
     fireEvent.click(screen.getByText('dice.bank_points'));
     expect(onComplete).toHaveBeenCalledWith(2000, true, expect.objectContaining({
       cards: [{ card: 'Kniffel', completed: true }],
+      outcomes: [{ card: 'Kniffel', scoreBefore: 0, scoreAfter: 2000, tuttos: 1 }],
       ended: 'banked',
     }));
   });
@@ -2103,6 +2113,7 @@ describe('DiceGame classic chains', () => {
     fireEvent.click(screen.getByText('dice.bank_points'));
     expect(onComplete).toHaveBeenCalledWith(1000, true, expect.objectContaining({
       cards: [{ card: 'Plus_Minus', completed: true }],
+      outcomes: [{ card: 'Plus_Minus', scoreBefore: 0, scoreAfter: 1000, tuttos: 1 }],
       // Nothing was on the table before it — the running total the engine
       // replays this ±1000 against is 0.
       plusMinusScores: [0],
@@ -2135,6 +2146,10 @@ describe('DiceGame classic chains', () => {
 
     expect(onComplete).toHaveBeenCalledWith(2800, true, expect.objectContaining({
       plusMinusScores: [1800],
+      outcomes: [
+        { card: '300', scoreBefore: 0, scoreAfter: 1800, tuttos: 1 },
+        { card: 'Plus_Minus', scoreBefore: 1800, scoreAfter: 2800, tuttos: 1 },
+      ],
       ended: 'banked',
     }));
   });
@@ -2160,6 +2175,10 @@ describe('DiceGame classic chains', () => {
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(1800, true, expect.objectContaining({
       cards: [{ card: '200', completed: true }, { card: 'Feuerwerk', completed: true }],
+      outcomes: [
+        { card: '200', scoreBefore: 0, scoreAfter: 1700, tuttos: 1 },
+        { card: 'Feuerwerk', scoreBefore: 1700, scoreAfter: 1800, tuttos: 0 },
+      ],
       ended: 'banked',
     })));
   });
@@ -2180,6 +2199,7 @@ describe('DiceGame classic chains', () => {
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(100, true, expect.objectContaining({
       cards: [{ card: 'Feuerwerk', completed: true }],
       tuttoCount: 0,
+      outcomes: [{ card: 'Feuerwerk', scoreBefore: 0, scoreAfter: 100, tuttos: 0 }],
       ended: 'banked',
     })));
   });
@@ -2200,6 +2220,7 @@ describe('DiceGame classic chains', () => {
     await waitFor(() => expect(onComplete).toHaveBeenCalledWith(1500, true, expect.objectContaining({
       cards: [{ card: 'Feuerwerk', completed: true }],
       tuttoCount: 1,
+      outcomes: [{ card: 'Feuerwerk', scoreBefore: 0, scoreAfter: 1500, tuttos: 1 }],
       ended: 'banked',
     })));
   });

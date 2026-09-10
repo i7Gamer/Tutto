@@ -23,6 +23,7 @@ const makePlayingRoom = () => {
     currentCard: '300',
     cards: ['200', '400'],
     round: 1,
+    randomOrder: false,
     turnDuration: 0,
     turnStartTime: null,
     players: [
@@ -68,16 +69,16 @@ describe('gameplay token CAS', () => {
     expect(room.state.round).toBe(1);
   });
 
-  it('keeps legacy pushes accepted and rotates the server token', () => {
+  it('refuses legacy snapshots without changing the state or server token', () => {
     const room = makePlayingRoom();
     const pushState = registerPush();
     const ack = vi.fn();
 
     pushState({ roomId: ROOM_ID, newState: { round: 2 } }, ack);
 
-    expect(ack).toHaveBeenCalledWith({ ok: true, stateVersion: 1 });
-    expect(room.state.round).toBe(2);
-    expect(room.gameplayToken).not.toBe(BASE_TOKEN);
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'refused' });
+    expect(room.state.round).toBe(1);
+    expect(room.gameplayToken).toBe(BASE_TOKEN);
   });
 
   it('keeps the token stable for a presence-only broadcast', () => {
@@ -100,9 +101,9 @@ describe('gameplay token CAS', () => {
     const before = room.gameplayToken;
     const ack = vi.fn();
 
-    fake.handlers.drawCard({ roomId: ROOM_ID }, ack);
+    fake.handlers.drawCard({ roomId: ROOM_ID, base: before, drawId: NEXT_TOKEN }, ack);
 
-    expect(ack).toHaveBeenCalledWith({ ok: true, card: '200' });
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ ok: true, card: '200' }));
     expect(room.gameplayToken).not.toBe(before);
   });
 
@@ -127,9 +128,11 @@ describe('gameplay token CAS', () => {
 
   it('leaves token and state unchanged when a valid-base push is stale', () => {
     const room = makePlayingRoom();
+    room.host = ACTIVE_SOCKET;
     const pushState = registerPush();
     const firstAck = vi.fn();
-    pushState({ roomId: ROOM_ID, newState: { round: 2 }, base: BASE_TOKEN, mutationId: NEXT_TOKEN }, firstAck);
+    pushState({ roomId: ROOM_ID, newState: { round: 2 }, base: BASE_TOKEN, mutationId: NEXT_TOKEN,
+      action: { type: 'commit', score: 0, success: false } }, firstAck);
     const tokenAfterFirstPush = room.gameplayToken;
     const roundAfterFirstPush = room.state.round;
     const staleAck = vi.fn();
@@ -155,6 +158,7 @@ describe('gameplay token CAS', () => {
       newState: { status: 'playing', finished: false, currentPlayerIndex: 0, round: 1 },
       base: BASE_TOKEN,
       mutationId: NEXT_TOKEN,
+      action: { type: 'start' },
     }, rematchAck);
     const rematchToken = room.gameplayToken;
     const staleAck = vi.fn();

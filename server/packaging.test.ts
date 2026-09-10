@@ -35,7 +35,7 @@ const REPO_ROOT = path.join(__dirname, '..');
 // Kept honest by "lists every genuinely test-only helper" below, which derives
 // the same fact from the imports: every other assertion here reads from THIS
 // list, so before that check a helper missing from it was invisible.
-const TEST_ONLY_HELPERS = ['socketTestHarness.ts', 'testPorts.ts', 'testTimeouts.ts'];
+const TEST_ONLY_HELPERS = ['socketTestHarness.ts', 'onlineTestClient.ts', 'testPorts.ts', 'testTimeouts.ts'];
 
 // Repo-relative paths (file or directory) outside server/ that the production
 // image copies. Must mirror the COPY lines in the Dockerfile.

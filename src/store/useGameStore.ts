@@ -109,6 +109,8 @@ export const useGameStore = create<GameStore>()(
     mode: 'local',
     deviceId: null,
     isOnline: false,
+    remainingCardCounts: null,
+    onlineActionPending: false,
     showReconnectPopup: false,
     // Whether this client has received its first gameState for the current
     // room — the config-diff toasts stay quiet until it has (socketSlice).

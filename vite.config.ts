@@ -248,6 +248,9 @@ export default defineConfig(({ mode }) => {
         // in the same 60s window — all individually passing, but cascading
         // once one of them was genuinely slow or failing.
         STATS_RATE_LIMIT_MAX: '1000000',
+        MAX_CONCURRENT_TRANSPORTS: '1000000',
+        ROOM_PUSH_WORK_LIMIT_MAX: '1000000',
+        ADMIN_AUTH_FAILURE_LIMIT_MAX: '1000000',
       }
     }
   }

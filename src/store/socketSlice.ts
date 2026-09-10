@@ -4,7 +4,7 @@ import { buildDeviceStatsPayload, noUndoableTurn } from '../utils/coreGameEngine
 import i18n from '../i18n';
 import { ONLINE_SESSION_KEY } from '../utils/reconnectSession';
 import { formatInt } from '../utils/formatNumber';
-import { areInitialCardsEqual, normalizeRoomId, DEFAULT_RECONNECT_TIMEOUT } from '../utils/configValidation';
+import { areInitialCardsEqual, normalizeRoomId, DEFAULT_RECONNECT_TIMEOUT, VALID_CARD_TYPES } from '../utils/configValidation';
 import { MS_PER_SECOND } from '../utils/time';
 import { validateOnlineConfig } from './persistence';
 import { getSocket, setSocket } from './socketRef';
@@ -13,10 +13,13 @@ import { roomPhase } from '../utils/roomPhase';
 import { v4 as uuidv4 } from 'uuid';
 import { gameModeOf } from '../utils/statsApi';
 import { serializePlayersForPush } from './playerPushDto';
-import { SYNCED_GAME_STATE_KEYS } from '../types';
+import { PUBLIC_GAME_STATE_KEYS } from '../types';
+import { ONLINE_PROTOCOL_VERSION } from '../utils/onlineProtocol';
 import type {
   Reaction, CardType, DiceSnapshot, AssertNever, SyncedGameStateKey, DrawCardAck, PushStateAck,
   StatsSubmitAck, StatsRefusalReason, DeviceStatsPayload, GlobalStatsPayload,
+  OnlineGameAction,
+  AcceptedDrawReceipt,
 } from '../types';
 import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from './storeTypes';
 import { finishedGameSnapshotOf, makeToast } from './gameSlice';
@@ -24,7 +27,7 @@ import { clearTurnCaches } from '../utils/diceTurnState';
 import { joinErrorMessage } from '../utils/joinErrors';
 import {
   DRAW_CARD_ACK_TIMEOUT_MS,
-  JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS, CANCEL_RECONNECT_FAILSAFE_MS,
+  JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS, REJOIN_PENDING_RETRY_DELAY_MS, CANCEL_RECONNECT_FAILSAFE_MS,
   STATS_SUBMIT_ACK_TIMEOUT_MS, STATS_SUBMIT_RETRY_BASE_MS,
 } from '../utils/uiTimings';
 
@@ -41,14 +44,14 @@ type SocketSlice = Pick<GameStore,
 // buggy) server sends, including store action functions like
 // startGame/sendOnlineStats, since serverState is typed as Partial<GameStore>.
 // The satisfies is the lock's client half: every synced key is a real store field.
-export const GAME_STATE_SYNC_KEYS = SYNCED_GAME_STATE_KEYS satisfies readonly (keyof GameStore)[];
+export const GAME_STATE_SYNC_KEYS = PUBLIC_GAME_STATE_KEYS satisfies readonly (keyof GameStore)[];
 
 // Shared by every path that abandons the current online room (leaveRoom, the
 // 'kicked' handler, cancelReconnect, and useGameStore's reset) so these
 // 30 room-identity/game fields can't drift out of sync between them the
 // way they were previously duplicated as separate hand-written literals.
 export const clearRoomState = (): Pick<GameStore,
-  | 'players' | 'currentPlayerIndex' | 'currentCard' | 'cards' | 'round' | 'finished'
+  | 'players' | 'currentPlayerIndex' | 'currentCard' | 'cards' | 'remainingCardCounts' | 'onlineActionPending' | 'round' | 'finished'
   | 'status' | 'roomId' | 'isHost' | 'hostId' | 'myName' | 'liveTurnState'
   | 'turnTimeRemaining' | 'turnDeadline'
   | 'chartValues' | 'chartNames' | 'chartLabels' | 'historyLog'
@@ -63,6 +66,8 @@ export const clearRoomState = (): Pick<GameStore,
   currentPlayerIndex: null,
   currentCard: null,
   cards: [],
+  remainingCardCounts: null,
+  onlineActionPending: false,
   round: 1,
   finished: false,
   status: 'lobby',
@@ -220,7 +225,8 @@ interface ParkedEmit<T> {
 /** The exact bytes pushState puts on the wire — see the action at the bottom. */
 interface PushStatePayload {
   roomId: string | null;
-  newState: Record<SyncedGameStateKey, unknown>;
+  newState: Record<Exclude<SyncedGameStateKey, 'cards'>, unknown>;
+  action?: OnlineGameAction;
   base?: string;
   mutationId?: string;
 }
@@ -228,6 +234,22 @@ interface PushStatePayload {
 // Ignore an intermediate echo while later optimistic actions still depend on it.
 const pendingMutationIds = new Set<string>();
 let pendingMutationBase: string | null = null;
+
+const DRAW_RECOVERY_RETRY_LIMIT = 1;
+interface PendingDraw {
+  drawId: string;
+  roomId: string;
+  base: string;
+  recoveryRequestId: string | null;
+  settle: (card: CardType | null) => void;
+  recover: () => void;
+}
+let pendingDraw: PendingDraw | null = null;
+
+const clearPendingDraw = (): void => {
+  pendingDraw?.settle(null);
+  pendingDraw = null;
+};
 
 // Acknowledgement and authoritative echo are separate delivery events. Neither
 // phase may leave an optimistic ancestor hidden indefinitely.
@@ -264,8 +286,8 @@ const clearPushPredictions = (): void => {
  * the rejoin's own broadcast overwrites the turn the player already committed
  * locally. Parking it here instead puts it behind the joinRoom ack.
  *
- * One slot, latest wins: every push is a full snapshot of the synced keys, so
- * an older parked one describes a state the newer one already supersedes.
+ * One slot: gameplay actions remain blocked until the authoritative echo or
+ * correction. A newer snapshot cannot replace an uncommitted command.
  */
 let parkedPush: ParkedEmit<PushStatePayload> | null = null;
 
@@ -289,6 +311,7 @@ let lastReconnectAt: number | null = null;
 // toasted "No response from the server" and tore the reconnect popup down
 // JOIN_TIMEOUT_MS after the newer rejoin had already succeeded.
 let rejoinWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
+let rejoinPendingRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let rejoinEpoch = 0;
 
 /**
@@ -305,6 +328,10 @@ export const clearRejoinWatchdog = (): void => {
   if (rejoinWatchdogTimer !== null) {
     clearTimeout(rejoinWatchdogTimer);
     rejoinWatchdogTimer = null;
+  }
+  if (rejoinPendingRetryTimer !== null) {
+    clearTimeout(rejoinPendingRetryTimer);
+    rejoinPendingRetryTimer = null;
   }
 };
 
@@ -336,6 +363,7 @@ const clearPendingPushRetry = (): void => {
 };
 
 export const clearPendingPush = (): void => {
+  clearPendingDraw();
   clearPushPredictions();
   parkedPush = null;
   clearPendingPushRetry();
@@ -750,8 +778,8 @@ const emitPushState = (
  *
  * Cleared before the emit, not after: the flush must be one-shot even if the
  * emit itself throws. A park older than PARKED_EMIT_MAX_AGE_MS is dropped
- * instead of sent — it describes a game the room has moved on from, and a push
- * is a FULL snapshot, so landing it would overwrite live play with a dead turn.
+ * instead of sent — it describes a game the room may have moved on from.
+ * Only one gameplay command may await a canonical echo at a time.
  * A park made for another room is dropped for the same reason: every departure
  * path clears the park today, so this is belt and braces for a room switch
  * that ever forgets to.
@@ -836,7 +864,11 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
   // emitRoomState bumps it once per broadcast) but is not one of them: it is
   // server-derived metadata, deliberately absent from SYNCED_GAME_STATE_KEYS
   // so the sync loop below cannot apply it and a push can never write it.
-  sock.on('gameState', (serverState: Partial<GameStore> & { stateVersion?: number }) => {
+  sock.on('gameState', (serverState: Partial<GameStore> & {
+    stateVersion?: number;
+    acceptedDraw?: AcceptedDrawReceipt | null;
+    stateRequestId?: string;
+  }) => {
     // A broadcast can land after this client already returned to local mode
     // (leaveRoom/kicked flip the mode before the socket fully tears down).
     // Applying it would inject the online room into local state — which the
@@ -863,6 +895,20 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     if (typeof incomingVersion === 'number' && floor !== null && incomingVersion < floor) return;
 
     const incomingToken = serverState.gameplayToken;
+    const waitingDraw = pendingDraw;
+    if (waitingDraw && waitingDraw.roomId === get().roomId) {
+      const receipt = serverState.acceptedDraw;
+      if (receipt?.drawId === waitingDraw.drawId && receipt.gameplayToken === incomingToken &&
+          (VALID_CARD_TYPES as readonly string[]).includes(receipt.card)) {
+        waitingDraw.settle(receipt.card);
+      } else if ((typeof incomingToken === 'string' && incomingToken !== waitingDraw.base) ||
+          (waitingDraw.recoveryRequestId !== null && serverState.stateRequestId === waitingDraw.recoveryRequestId)) {
+        // Either another authoritative transition ended the ambiguous turn, or
+        // this is the correlated read issued after the one bounded retry and it
+        // proves the deal never landed. Only those two facts make null safe.
+        waitingDraw.settle(null);
+      }
+    }
     if (pendingMutationIds.size > 0 && incomingToken === pendingMutationBase) {
       // Presence can broadcast the unchanged ancestor while our move is in
       // flight. It is not an authoritative gameplay correction.
@@ -944,6 +990,11 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
       for (const key of GAME_STATE_SYNC_KEYS) {
         if (key in serverState) (prev as Record<string, unknown>)[key] = serverState[key];
       }
+      // Never retain or adopt an ordered deck online, even from an obsolete
+      // server response. Composition is presentation/probability metadata.
+      prev.cards = [];
+      prev.onlineActionPending = false;
+      if ('remainingCardCounts' in serverState) prev.remainingCardCounts = serverState.remainingCardCounts ?? null;
       if (typeof incomingVersion === 'number') prev.lastAppliedStateVersion = incomingVersion;
       prev.gameplayToken = typeof incomingToken === 'string' ? incomingToken : null;
       prev.finishedGameToken = serverState.finishedGameToken ?? null;
@@ -1147,16 +1198,35 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     // later 'connect' fires to retry. Without this the full-screen "attempting
     // to reconnect" modal stayed up for good, with the menu button as the only
     // way out.
+    const attemptEpoch = rejoinEpoch;
     const watchdog = setTimeout(() => {
+      if (attemptEpoch !== rejoinEpoch) return;
+      rejoinEpoch++;
       rejoinWatchdogTimer = null;
+      if (rejoinPendingRetryTimer !== null) {
+        clearTimeout(rejoinPendingRetryTimer);
+        rejoinPendingRetryTimer = null;
+      }
       get().addToast(i18n.t('lobby.online.joinTimeout', 'No response from the server. Please try again.'));
       set({ showReconnectPopup: false });
     }, JOIN_TIMEOUT_MS);
     rejoinWatchdogTimer = watchdog;
-    const attemptEpoch = rejoinEpoch;
 
-    sock.emit('joinRoom', { roomId, name: myName, deviceId, color: savedColor, isReconnect: true }, (res: JoinRoomResponse) => {
+    const emitRejoin = (): void => {
+      sock.emit('joinRoom', {
+        roomId, name: myName, deviceId, color: savedColor, isReconnect: true,
+      }, (res: JoinRoomResponse) => {
       if (attemptEpoch !== rejoinEpoch) return;
+      if (!res.success && res.code === 'rejoin_pending') {
+        // Keep the original watchdog alive. This is a transient first-wins
+        // reservation, not a terminal refusal, and every retry remains bound
+        // by that same deadline.
+        rejoinPendingRetryTimer = setTimeout(() => {
+          rejoinPendingRetryTimer = null;
+          if (attemptEpoch === rejoinEpoch) emitRejoin();
+        }, REJOIN_PENDING_RETRY_DELAY_MS);
+        return;
+      }
       rejoinEpoch++;
       clearTimeout(watchdog);
       // Only if this ack's own watchdog is still the pending one — a late ack
@@ -1187,6 +1257,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
         // the drop can finally pass the server's authorization gate.
         flushParkedPush(get);
         if (hadOrphanedPrediction) sock.emit('requestState', { roomId });
+        if (pendingDraw?.roomId === roomId) pendingDraw.recover();
         // Strictly after the push, never before: the server refuses end-game
         // stats until it has seen finished=true, with 'not-finished' — a
         // terminal refusal — so the winning push has to land first. Same order
@@ -1215,7 +1286,9 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
         set({ pendingReconnectSession: null });
         get().setMode('local', { resume: false });
       }
-    });
+      });
+    };
+    emitRejoin();
   });
 };
 
@@ -1265,7 +1338,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
 
     if (!targetRoomId) return;
 
-    const tempSocket = io(window.location.origin);
+    const tempSocket = io(window.location.origin, { auth: { protocolVersion: ONLINE_PROTOCOL_VERSION } });
     let cleanedUp = false;
     const cleanup = () => {
       if (cleanedUp) return;
@@ -1297,7 +1370,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
 
   connectSocket: (url?: string) => {
     if (!getSocket()) {
-      const sock = io(url ?? window.location.origin);
+      const sock = io(url ?? window.location.origin, { auth: { protocolVersion: ONLINE_PROTOCOL_VERSION } });
       setSocket(sock);
       registerSocketHandlers(sock, get, set);
     }
@@ -1414,7 +1487,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     const s = get();
     const socket = getSocket();
     if (s.isOnline && socket) {
-      socket.emit('liveTurnState', { roomId: s.roomId, liveTurnState: snapshot });
+      socket.emit('liveTurnState', { roomId: s.roomId, base: s.gameplayToken, liveTurnState: snapshot });
     }
   },
 
@@ -1427,16 +1500,9 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
    * deciding whether to risk everything on it. The server holds the deck now
    * and deals from it here (server/socketGameStateHandlers.ts's drawCard).
    *
-   * Resolves null rather than rejecting for every way of not getting a card —
-   * refused, no socket, or no answer at all. The caller has already committed
-   * the tutto by the time it asks, and null is the outcome DiceGame has always
-   * known how to take: bank that tutto instead of playing on.
-   *
-   * The deadline is what makes "no answer at all" an outcome rather than a
-   * hang. Without it a dropped ack parks the turn on a decided table with
-   * every button disabled, behind a panel that is deliberately
-   * non-dismissible — the same dead end DISCARDED_DRAW_RECOVERY_MS exists to
-   * get the deferred roll out of.
+   * A refusal resolves null. Silence is ambiguous: the server may already have
+   * spent the card while only its ack was lost, so one idempotent retry and
+   * correlated state reads reconcile the receipt before null can bank a turn.
    */
   requestServerDraw: () => new Promise<CardType | null>(resolve => {
     const s = get();
@@ -1447,30 +1513,60 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     // it is worse than useless — the panel would have given up and banked the
     // tutto seconds earlier, and the buffered request would then spend a card
     // off the room's deck for a turn that had already ended.
-    if (!s.isOnline || !socket || !socket.connected) return resolve(null);
+    if (!s.isOnline || !socket || !socket.connected || typeof s.roomId !== 'string' ||
+        typeof s.gameplayToken !== 'string' || pendingDraw) return resolve(null);
 
-    // One-shot: whichever of the ack and the deadline lands first wins, and
-    // the loser must not resolve a promise that has already been answered —
-    // a late ack settling a draw the panel has already banked would leave the
-    // chain and the room disagreeing about whether a card was ever dealt.
+    // One-shot settlement: a late packet cannot rewrite a turn after a
+    // correlated receipt or refusal has already answered it.
     let settled = false;
+    let deadline: ReturnType<typeof setTimeout> | null = null;
+    let retries = 0;
+    const drawId = uuidv4();
+    const reqRoomId = s.roomId;
+    const base = s.gameplayToken;
     const settle = (card: CardType | null): void => {
       if (settled) return;
       settled = true;
-      clearTimeout(deadline);
+      if (deadline !== null) clearTimeout(deadline);
+      if (pendingDraw?.drawId === drawId) pendingDraw = null;
       resolve(card);
     };
-    const deadline = setTimeout(() => settle(null), DRAW_CARD_ACK_TIMEOUT_MS);
-
-    // The room this draw was asked of. inRoom below only asks whether SOME
-    // room is held, which a client that left and joined another one still
-    // passes — and the card would then be dealt off the old room's deck into
-    // the new room's turn.
-    const reqRoomId = s.roomId;
-    socket.emit('drawCard', { roomId: reqRoomId }, (ack?: DrawCardAck) => {
-      // `settled` as well as the ack itself: an ack that lost the race to the
-      // deadline is answering a draw the panel has already banked and moved
-      // past, and the write below would then land on the NEXT turn's card.
+    const recover = (): void => {
+      if (settled || get().roomId !== reqRoomId) return settle(null);
+      if (deadline !== null) {
+        clearTimeout(deadline);
+        deadline = null;
+      }
+      const current = getSocket();
+      if (!current?.connected || get().showReconnectPopup) {
+        deadline = setTimeout(recover, DRAW_CARD_ACK_TIMEOUT_MS);
+        return;
+      }
+      const requestId = pendingDraw?.drawId === drawId && pendingDraw.recoveryRequestId
+        ? pendingDraw.recoveryRequestId
+        : uuidv4();
+      if (pendingDraw?.drawId === drawId) pendingDraw.recoveryRequestId = requestId;
+      // State recovery is read-only and rate-bounded to one attempt per draw
+      // deadline. Keep asking until one correlated response arrives; a finite
+      // retry count would recreate the permanently disabled panel this path is
+      // meant to prevent whenever its last response packet was also lost.
+      deadline = setTimeout(recover, DRAW_CARD_ACK_TIMEOUT_MS);
+      current.emit('requestState', { roomId: reqRoomId, requestId });
+    };
+    const send = (): void => {
+      const current = getSocket();
+      if (!current?.connected || get().showReconnectPopup) return recover();
+      deadline = setTimeout(() => {
+        if (retries < DRAW_RECOVERY_RETRY_LIMIT) {
+          retries++;
+          send();
+        } else {
+          recover();
+        }
+      }, DRAW_CARD_ACK_TIMEOUT_MS);
+      current.emit('drawCard', { roomId: reqRoomId, base, drawId }, (ack?: DrawCardAck) => {
+      // `settled` as well as the ack itself: a late ack after correlated
+      // recovery must not write its card over a later turn.
       // `inRoom` for the same reason every broadcast handler carries it —
       // currentCard is one of STABLE_LOCAL_GAME_KEYS, so writing it after a
       // leave puts a card from a room this client is no longer in into a
@@ -1481,19 +1577,23 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       // No player-index or round check beyond this: the server broadcasts the
       // dealt card BEFORE it acks, so either would drop a legitimately dealt
       // card whenever the broadcast had already moved the store on.
-      if (!ack || !ack.ok || settled || !inRoom(get) || get().roomId !== reqRoomId) return settle(null);
+        if (!ack || !ack.ok || settled || !inRoom(get) || get().roomId !== reqRoomId) return settle(null);
       // Adopted locally as well as handed back, so the panel does not have to
       // wait for the broadcast to be applied before it can act on the card.
-      // The room's own gameState carries the same card AND the deck it came
-      // off, and the server sends it before this ack — so this write is
+      // The room's own gameState carries the same card and public remaining
+      // composition, and the server sends it before this ack — so this write is
       // normally a no-op, and is only load-bearing if the two ever land the
       // other way round.
-      set({ currentCard: ack.card });
-      settle(ack.card);
-    });
+        set({ currentCard: ack.card });
+        settle(ack.card);
+      });
+    };
+    pendingDraw = { drawId, roomId: reqRoomId, base, recoveryRequestId: null, settle, recover };
+    send();
   }),
 
-  pushState: (base) => {
+  pushState: (base, action) => {
+    if (get().isOnline && get().onlineActionPending) return;
     // Keep the legacy retry behavior; token-aware pushes additionally carry
     // the authoritative ancestor captured before the caller's local mutation.
     const retryBase = pushRejoinRetryBase;
@@ -1501,8 +1601,9 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     const s = get();
     const socket = getSocket();
     if (s.isOnline && socket) {
+      if (action) set({ onlineActionPending: true });
       const {
-        players, currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
+        players, currentPlayerIndex, currentCard, round, winningScore, initialCards,
         randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
         previousScore, previousCard, previousLeaders, previousWasBust, previousWasSuccess,
         previousHighestTurnScore,
@@ -1512,8 +1613,9 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       } = s;
       const payload: PushStatePayload = {
         roomId: s.roomId,
+        ...(action ? { action } : {}),
         newState: {
-          players: serializePlayersForPush(players), currentPlayerIndex, currentCard, cards, round, winningScore, initialCards,
+          players: serializePlayersForPush(players), currentPlayerIndex, currentCard, round, winningScore, initialCards,
           randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
           previousScore, previousCard, previousLeaders, previousWasBust, previousWasSuccess: previousWasSuccess ?? null,
           previousHighestTurnScore,
@@ -1530,7 +1632,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           //
           // stateVersion is NOT here on purpose: it is the server's own
           // counter, not a field a client may write.
-        } satisfies Record<SyncedGameStateKey, unknown>,
+        } satisfies Record<Exclude<SyncedGameStateKey, 'cards'>, unknown>,
       };
 
       const baseToken = base === undefined ? s.gameplayToken : base;

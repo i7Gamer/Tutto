@@ -16,6 +16,7 @@ import { getLeaders } from '../src/utils/coreGameEngine';
 import { roomPhase } from '../src/utils/roomPhase';
 import type { SyncedGameStateKey, AssertNever, ConfigKeys } from '../src/types';
 import type { RoomState, ServerPlayer } from './roomTypes';
+import { isTurnCardOutcomeList, copyTurnCardOutcomes } from '../src/utils/turnOutcomes';
 
 // A fully-loaded deck has at most MAX_CARD_COUNT of each of the 11 card
 // types. Exported for pushStateValidation.test.ts's maximal-state size
@@ -147,6 +148,7 @@ export const isValidDiceSnapshot = (v: unknown): v is DiceSnapshot => {
   if (s.plusMinusScores !== undefined && !isPlusMinusScoreList(s.plusMinusScores)) return false;
   if (s.chainTuttoCount !== undefined && !isChainCounter(s.chainTuttoCount)) return false;
   if (s.lastCardCompleted !== undefined && typeof s.lastCardCompleted !== 'boolean') return false;
+  if (s.cardOutcomes !== undefined && !isTurnCardOutcomeList(s.cardOutcomes)) return false;
   return true;
 };
 
@@ -169,6 +171,7 @@ export const sanitizeDiceSnapshot = (v: DiceSnapshot): DiceSnapshot => {
   if (v.plusMinusScores !== undefined) clean.plusMinusScores = [...v.plusMinusScores];
   if (v.chainTuttoCount !== undefined) clean.chainTuttoCount = v.chainTuttoCount;
   if (v.lastCardCompleted) clean.lastCardCompleted = true;
+  if (v.cardOutcomes) clean.cardOutcomes = copyTurnCardOutcomes(v.cardOutcomes);
   return clean;
 };
 
@@ -182,6 +185,7 @@ export const isValidTurnSummary = (v: unknown): v is TurnSummary => {
   if (!isChainCounter(s.tuttoCount)) return false;
   if (!isPlusMinusScoreList(s.plusMinusScores)) return false;
   if (!isTurnEnd(s.ended)) return false;
+  if (s.outcomes !== undefined && !isTurnCardOutcomeList(s.outcomes)) return false;
   if (s.forfeitedScore !== undefined &&
       !(typeof s.forfeitedScore === 'number' && Number.isFinite(s.forfeitedScore) && s.forfeitedScore >= 0 && s.forfeitedScore <= MAX_SCORE_MAGNITUDE)) return false;
   const isRecordOrNull = (v2: unknown): boolean =>
@@ -210,6 +214,7 @@ export const sanitizeTurnSummary = (v: TurnSummary): TurnSummary => {
   if (v.prevHighestForfeitedTurnScore !== undefined) clean.prevHighestForfeitedTurnScore = v.prevHighestForfeitedTurnScore;
   if (v.deductedPlayers) clean.deductedPlayers = [...v.deductedPlayers];
   if (v.deductedAmounts) clean.deductedAmounts = [...v.deductedAmounts];
+  if (v.outcomes) clean.outcomes = copyTurnCardOutcomes(v.outcomes);
   return clean;
 };
 

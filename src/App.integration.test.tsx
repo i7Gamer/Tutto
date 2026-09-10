@@ -33,6 +33,7 @@ import {
   DIE_TUMBLE_MS, DIE_STAGGER_MS, ROLL_SETTLE_BUFFER_MS, AUTO_CONTINUE_SECONDS, CARD_FLIP_MS,
 } from './utils/uiTimings';
 import { TOTAL_DICE } from './utils/turnShapes';
+import { ONLINE_PROTOCOL_VERSION } from './utils/onlineProtocol';
 import type { JoinRoomResponse } from './store/storeTypes';
 import { makePlayer, makeDiceSnapshot, nonNull } from './testing/factories';
 import { uiBusyState, _resetUiBusyStateForTests } from './utils/uiBusyState';
@@ -636,7 +637,7 @@ describe('App Integration (End-to-End)', () => {
     await waitFor(() => expect(socket.disconnect).toHaveBeenCalled());
 
     // Verify temp socket was created
-    expect(io).toHaveBeenCalledWith(expect.any(String));
+    expect(io).toHaveBeenCalledWith(expect.any(String), { auth: { protocolVersion: ONLINE_PROTOCOL_VERSION } });
 
     // Verify joinRoom was emitted with correct args
     const joinRoomCall = socket.emit.mock.calls.find(c => c[0] === 'joinRoom');

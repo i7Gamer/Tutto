@@ -18,6 +18,7 @@ vi.mock('./database', () => ({
 import { updateDeviceStats, updateGlobalStats, getDeviceStats } from './database';
 import { startInProcessServer, waitFor, settle, type InProcessServer } from './socketTestHarness';
 import { rooms } from './rooms';
+import { acceptOnlineAction, configureTestRoom, pushOnlineAction } from './onlineTestClient';
 import { DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE } from '../src/utils/configValidation';
 
 const mockedUpdateDeviceStats = vi.mocked(updateDeviceStats);
@@ -72,7 +73,7 @@ describe('stats dedup rollback on DB failure', () => {
     client.disconnect();
   });
 
-  it('endGameStats sanitizes a hostile payload before it reaches the database', async () => {
+  it('endGameStats derives counters from the server and ignores a hostile payload', async () => {
     // sanitizeStats has thorough unit tests and an HTTP-route test; the SOCKET
     // route -- the one every real client uses -- had none, so deleting the
     // call here left the suite green. The values below are the three shapes
@@ -83,6 +84,7 @@ describe('stats dedup rollback on DB failure', () => {
 
     client = await server.connectAndJoin('STATS_HOSTILE_DEV', 'Alice', 'dev-hostile-1');
     rooms['STATS_HOSTILE_DEV'].state.finished = true;
+    rooms['STATS_HOSTILE_DEV'].state.players[0].totalTurns = 3;
 
     client.emit('endGameStats', {
       deviceId: 'dev-hostile-1',
@@ -97,9 +99,9 @@ describe('stats dedup rollback on DB failure', () => {
     await waitFor(() => mockedUpdateDeviceStats.mock.calls.length === 1);
 
     const written = mockedUpdateDeviceStats.mock.calls[0][1] as Record<string, unknown>;
-    expect(written, 'a 0-turn best is dropped, not clamped to the best possible record').not.toHaveProperty('fastestWinTurns');
-    expect(written, 'a boolean binds to 0 and pins the record just the same').not.toHaveProperty('fastestLossTurns');
-    expect(written, 'a non-numeric record must not reach a MAX merge').not.toHaveProperty('highestTurnScore');
+    expect(written.fastestWinTurns).toBe(3);
+    expect(written.fastestLossTurns).toBeNull();
+    expect(written.highestTurnScore).toBe(0);
     expect(written.busts, 'counters are floored at 0').toBe(0);
     // Unknown columns are not this layer's problem: updateDeviceStats writes
     // only the columns on its own hardcoded list, so an extra key never
@@ -211,246 +213,106 @@ describe('stats submissions require a finished game', () => {
 
 describe('the game mode a finished game is recorded under', () => {
   let server: InProcessServer;
-  let client: ClientSocket;
-
-  beforeAll(async () => {
-    server = await startInProcessServer();
-  });
-
-  afterAll(async () => {
-    await server.close();
-  });
-
+  beforeAll(async () => { server = await startInProcessServer(); });
+  afterAll(async () => { await server.close(); });
   beforeEach(() => {
     mockedUpdateGlobalStats.mockReset();
     mockedUpdateGlobalStats.mockResolvedValue(1);
+    mockedUpdateDeviceStats.mockReset();
+    mockedUpdateDeviceStats.mockResolvedValue(true);
+    mockedGetDeviceStats.mockReset();
+    mockedGetDeviceStats.mockResolvedValue(null);
   });
-
+  const CUSTOM_SCORE = 1000;
   const CUSTOM_DECK = { ...DEFAULT_INITIAL_CARDS, Kleeblatt: 42 };
-
-  // One device may only be in one room at a time, so each case gets its own —
-  // derived from the room id rather than written out twice.
-  const deviceFor = (roomId: string): string => `dev-${roomId}`;
-
-  // Joins as the room's host, which is who both pushState and submitGlobalStats
-  // require. Returns once the room exists and this socket owns it.
-  const hostAGame = (roomId: string): Promise<ClientSocket> =>
-    server.connectAndJoin(roomId, 'Alice', deviceFor(roomId));
-
-  const push = (sock: ClientSocket, roomId: string, newState: Record<string, unknown>): void => {
-    sock.emit('pushState', {
-      roomId,
-      newState: {
-        status: 'playing',
-        finished: false,
-        currentPlayerIndex: 0,
-        round: 1,
-        players: [{ name: 'Alice', deviceId: deviceFor(roomId), score: 0 }],
-        ...newState,
-      },
-    });
+  const peers = new Map<string, ClientSocket>();
+  const deviceFor = (roomId: string) => `dev-${roomId}`;
+  const hostAGame = async (roomId: string, config: Record<string, unknown> = {}) => {
+    const host = await server.connectAndJoin(roomId, 'Alice', deviceFor(roomId));
+    peers.set(roomId, await server.connectAndJoin(roomId, 'Bob', `${deviceFor(roomId)}-peer`));
+    await configureTestRoom(host, roomId, { randomOrder: false, turnDuration: 0, ...config });
+    await acceptOnlineAction(host, roomId, { type: 'start' });
+    return host;
   };
-
-  /**
-   * The `finished: true` half of a push the server will actually accept.
-   *
-   * pushValidation only takes a finish for a state the engine could have
-   * produced — a SOLE leader at or over the winning score, the host included.
-   * These rooms are single-seat, so seating the room's own (possibly custom)
-   * winning score on Alice is the whole of it.
-   */
-  const winningFinish = (roomId: string): Record<string, unknown> => ({
-    finished: true,
-    players: [{ name: 'Alice', deviceId: deviceFor(roomId), score: rooms[roomId].state.winningScore }],
-  });
-
-  /**
-   * Ends the game the way a real client does — with a push, which BROADCASTS.
-   *
-   * That broadcast is where the room freezes its verdict (rememberFinishedGame
-   * in rooms.ts), and the freeze is also when the server writes the device row
-   * for any seat that cannot submit its own. Setting `state.finished` in place
-   * instead left the room unfrozen until the next broadcast, which in these
-   * tests is the teardown `client.disconnect()` — by then the only seat reads
-   * as disconnected, so the server recorded a row for it into the shared
-   * updateDeviceStats mock, asynchronously, after the next test had already
-   * reset it.
-   */
-  const finishTheGame = async (sock: ClientSocket, roomId: string): Promise<void> => {
-    push(sock, roomId, winningFinish(roomId));
-    await waitFor(() => rooms[roomId].finishedGame !== null);
+  const finishTheGame = async (host: ClientSocket, roomId: string) => {
+    // Deterministic server-private deal fixture; the score, finish, metadata
+    // and stats remain derived by the actual action/handler path.
+    const room = rooms[roomId];
+    room.state.currentCard = '200';
+    room.dealtThisTurn = ['200'];
+    await acceptOnlineAction(host, roomId, { type: 'commit', score: room.state.winningScore, success: true });
+    await acceptOnlineAction(peers.get(roomId)!, roomId, { type: 'commit', score: 0, success: false });
+    expect(room.state.finished).toBe(true);
   };
-
-  // The client's own isDefaultGame is advisory; every case below asserts what
-  // the SERVER decided, by reading the flag the DB layer actually received.
-  const submitAndReadMode = async (sock: ClientSocket, roomId: string, claimed?: boolean): Promise<boolean> => {
-    await finishTheGame(sock, roomId);
-    sock.emit('submitGlobalStats', {
-      roomId,
-      payload: { gamesPlayed: 1, ...(claimed === undefined ? {} : { isDefaultGame: claimed }) },
-    });
+  const submitAndReadMode = async (host: ClientSocket, roomId: string, claimed?: boolean) => {
+    await finishTheGame(host, roomId);
+    host.emit('submitGlobalStats', { roomId, payload: { gamesPlayed: 99, isDefaultGame: claimed } });
     await waitFor(() => mockedUpdateGlobalStats.mock.calls.length === 1);
-    return mockedUpdateGlobalStats.mock.calls[0][0].isDefaultGame as boolean;
+    return mockedUpdateGlobalStats.mock.calls[0][0].isDefaultGame;
   };
 
-  it('records a game started on the default config as normalized', async () => {
+  it('records default configuration as normalized', async () => {
     const roomId = 'MODE_DEFAULT';
-    client = await hostAGame(roomId);
-    push(client, roomId, { winningScore: DEFAULT_WINNING_SCORE, initialCards: { ...DEFAULT_INITIAL_CARDS } });
-    await waitFor(() => rooms[roomId].state.status === 'playing');
-
-    expect(await submitAndReadMode(client, roomId)).toBe(true);
-    client.disconnect();
+    const host = await hostAGame(roomId);
+    expect(await submitAndReadMode(host, roomId)).toBe(true);
   });
-
-  it('records a game as custom when only the OPENING PUSH carries the custom config', async () => {
-    // The lobby never saw the custom deck: it rides in on the same push that
-    // starts the game. Deciding the mode before that push is applied would
-    // read the untouched lobby config and call this game normalized.
-    const roomId = 'MODE_OPENING_PUSH';
-    client = await hostAGame(roomId);
+  it('records lobby custom configuration as custom despite a client claiming default', async () => {
+    const roomId = 'MODE_CUSTOM';
+    const host = await hostAGame(roomId, { initialCards: CUSTOM_DECK });
+    expect(await submitAndReadMode(host, roomId, true)).toBe(false);
+  });
+  it('ignores a configuration smuggled into a rematch action snapshot', async () => {
+    const roomId = 'MODE_SMUGGLED';
+    const host = await hostAGame(roomId);
+    await finishTheGame(host, roomId);
+    await acceptOnlineAction(host, roomId, { type: 'start' }, { initialCards: CUSTOM_DECK });
     expect(rooms[roomId].state.initialCards).toEqual(DEFAULT_INITIAL_CARDS);
-
-    push(client, roomId, { initialCards: { ...CUSTOM_DECK } });
-    await waitFor(() => rooms[roomId].state.status === 'playing');
-
-    expect(await submitAndReadMode(client, roomId)).toBe(false);
-    client.disconnect();
+    expect(await submitAndReadMode(host, roomId)).toBe(true);
   });
-
-  it('keeps a custom game custom when the config goes back to the default before the end', async () => {
+  it('keeps the custom classification when server configuration is restored', async () => {
     const roomId = 'MODE_RESTORED';
-    client = await hostAGame(roomId);
-    // The opening push carries the custom score, which is the only way a
-    // config reaches a running game now.
-    push(client, roomId, { winningScore: 1000 });
-    await waitFor(() => rooms[roomId].state.winningScore === 1000);
-    expect(rooms[roomId].normalizedGame).toBe(false);
-
-    // The config comes back to the default by some route other than a config
-    // push, which the server refuses outright (see the test below). The label
-    // must not follow it back up: `&&=` is what makes the downgrade one-way,
-    // and a plain `=` would pass every other case in this file.
+    const host = await hostAGame(roomId, { winningScore: CUSTOM_SCORE });
     rooms[roomId].state.winningScore = DEFAULT_WINNING_SCORE;
-    push(client, roomId, { round: 2 });
-    await waitFor(() => rooms[roomId].state.round === 2);
-
-    expect(await submitAndReadMode(client, roomId)).toBe(false);
-    client.disconnect();
+    expect(await submitAndReadMode(host, roomId)).toBe(false);
   });
-
-  it('downgrades a normalized game to custom if the config ever stops being the default', async () => {
-    // Start honest, then have the running game's config differ from the
-    // default by the time the statistics are submitted. Freezing the label at
-    // kickoff alone would still call this normalized.
+  it('downgrades classification if the server configuration ceases to be default', async () => {
     const roomId = 'MODE_MIDGAME';
-    client = await hostAGame(roomId);
-    push(client, roomId, { winningScore: DEFAULT_WINNING_SCORE });
-    await waitFor(() => rooms[roomId].state.status === 'playing');
-    expect(rooms[roomId].normalizedGame).toBe(true);
-
-    rooms[roomId].state.winningScore = 1000;
-    push(client, roomId, { round: 2 });
-    await waitFor(() => rooms[roomId].state.round === 2);
-
-    expect(await submitAndReadMode(client, roomId)).toBe(false);
-    client.disconnect();
+    const host = await hostAGame(roomId);
+    rooms[roomId].state.winningScore = CUSTOM_SCORE;
+    expect(await submitAndReadMode(host, roomId)).toBe(false);
   });
-
-  it('refuses a mid-game config push, which is what makes the downgrade a backstop', async () => {
-    // updateConfig has refused this since it was written; pushState reaches
-    // the same fields and enforced it for `ruleset` alone. Driven through the
-    // real socket handler rather than applyPushedState directly, because the
-    // half that was missing was the CALLER deciding when a config write is
-    // allowed at all.
+  it('ignores midgame snapshot configuration while accepting a valid action', async () => {
     const roomId = 'MODE_MIDGAME_REFUSED';
-    client = await hostAGame(roomId);
-    push(client, roomId, { winningScore: DEFAULT_WINNING_SCORE });
-    await waitFor(() => rooms[roomId].state.status === 'playing');
-
-    // `round` rides the same payload as proof the push itself landed —
-    // without it, an entirely dropped push would read as a refused field.
-    push(client, roomId, { winningScore: 1000, round: 2 });
-    await waitFor(() => rooms[roomId].state.round === 2);
-
-    expect(rooms[roomId].state.winningScore, 'the win condition moved under a running game').toBe(DEFAULT_WINNING_SCORE);
-    client.disconnect();
+    const host = await hostAGame(roomId);
+    const room = rooms[roomId];
+    room.state.currentCard = '200';
+    room.dealtThisTurn = ['200'];
+    const ack = await pushOnlineAction(host, roomId, { type: 'commit', score: 0, success: false },
+      { winningScore: CUSTOM_SCORE, round: 99 });
+    expect(ack.ok).toBe(true);
+    expect(room.state.winningScore).toBe(DEFAULT_WINNING_SCORE);
+    expect(room.state.round).toBe(1);
+    expect(room.state.currentPlayerIndex).toBe(1);
   });
-
-  it('overrides a client claiming a custom game was the default one', async () => {
-    const roomId = 'MODE_LIAR';
-    client = await hostAGame(roomId);
-    push(client, roomId, { initialCards: { ...CUSTOM_DECK } });
-    await waitFor(() => rooms[roomId].state.status === 'playing');
-
-    expect(await submitAndReadMode(client, roomId, true)).toBe(false);
-    client.disconnect();
-  });
-
-  it('books a custom game into the custom bucket, leaving the shown win streak alone', async () => {
-    // The streak next to a player is the normalized one — a custom game must
-    // neither extend it nor trigger a broadcast that replaces it with the
-    // custom bucket's unrelated count.
-    mockedUpdateDeviceStats.mockReset();
-    mockedUpdateDeviceStats.mockResolvedValue(true);
-    mockedGetDeviceStats.mockReset();
-    mockedGetDeviceStats.mockResolvedValue(null);
-
-    const roomId = 'MODE_DEVICE_CUSTOM';
-    client = await hostAGame(roomId);
-    push(client, roomId, { initialCards: { ...CUSTOM_DECK } });
-    await waitFor(() => rooms[roomId].state.status === 'playing');
-    await finishTheGame(client, roomId);
-
-    // joinRoom reads the streak too — only what happens AFTER the game is of
-    // interest here.
+  it.each([false, true])('writes device stats to the authoritative bucket (custom=%s)', async custom => {
+    const roomId = `MODE_DEVICE_${custom}`.toUpperCase();
+    const host = await hostAGame(roomId, custom ? { initialCards: CUSTOM_DECK } : {});
+    await finishTheGame(host, roomId);
     mockedGetDeviceStats.mockClear();
-    client.emit('endGameStats', { deviceId: deviceFor(roomId), stats: { gamesPlayed: 1, wins: 1 } });
+    host.emit('endGameStats', { deviceId: deviceFor(roomId), stats: { gamesPlayed: 99, wins: 99 } });
     await waitFor(() => mockedUpdateDeviceStats.mock.calls.length === 1);
-
-    expect(mockedUpdateDeviceStats.mock.calls[0][2]).toBe('custom');
-    // No streak re-read, so nothing to broadcast.
-    expect(mockedGetDeviceStats).not.toHaveBeenCalled();
-
-    client.disconnect();
+    expect(mockedUpdateDeviceStats.mock.calls[0][2]).toBe(custom ? 'custom' : 'normalized');
+    if (custom) expect(mockedGetDeviceStats).not.toHaveBeenCalled();
+    else await waitFor(() => mockedGetDeviceStats.mock.calls.length === 1);
   });
-
-  it('books a normalized game into the normalized bucket and still refreshes the streak', async () => {
-    mockedUpdateDeviceStats.mockReset();
-    mockedUpdateDeviceStats.mockResolvedValue(true);
-    mockedGetDeviceStats.mockReset();
-    mockedGetDeviceStats.mockResolvedValue(null);
-
-    const roomId = 'MODE_DEVICE_NORMAL';
-    client = await hostAGame(roomId);
-    push(client, roomId, { winningScore: DEFAULT_WINNING_SCORE });
-    await waitFor(() => rooms[roomId].state.status === 'playing');
-    await finishTheGame(client, roomId);
-
-    mockedGetDeviceStats.mockClear();
-    client.emit('endGameStats', { deviceId: deviceFor(roomId), stats: { gamesPlayed: 1, wins: 1 } });
-    await waitFor(() => mockedUpdateDeviceStats.mock.calls.length === 1);
-
-    expect(mockedUpdateDeviceStats.mock.calls[0][2]).toBe('normalized');
-    await waitFor(() => mockedGetDeviceStats.mock.calls.length === 1);
-
-    client.disconnect();
-  });
-
-  it('re-evaluates the mode for the next game when "Play Again" skips the lobby', async () => {
+  it('re-evaluates configuration when Play Again skips the lobby', async () => {
     const roomId = 'MODE_PLAY_AGAIN';
-    client = await hostAGame(roomId);
-    push(client, roomId, { initialCards: { ...CUSTOM_DECK } });
-    await waitFor(() => rooms[roomId].state.status === 'playing');
-
-    // Finish that custom game, then start a fresh one on the default deck
-    // without ever returning to the lobby — the room stays status 'playing'.
-    push(client, roomId, { ...winningFinish(roomId), initialCards: { ...CUSTOM_DECK } });
-    await waitFor(() => rooms[roomId].state.finished === true);
-    push(client, roomId, { finished: false, initialCards: { ...DEFAULT_INITIAL_CARDS } });
-    await waitFor(() => rooms[roomId].state.finished === false);
-
-    expect(await submitAndReadMode(client, roomId)).toBe(true);
-    client.disconnect();
+    const host = await hostAGame(roomId, { initialCards: CUSTOM_DECK });
+    await finishTheGame(host, roomId);
+    // Server-side setup fixture proves kickoff re-freezes configuration;
+    // wire configuration edits remain lobby-only.
+    rooms[roomId].state.initialCards = { ...DEFAULT_INITIAL_CARDS };
+    await acceptOnlineAction(host, roomId, { type: 'start' });
+    expect(await submitAndReadMode(host, roomId)).toBe(true);
   });
 });

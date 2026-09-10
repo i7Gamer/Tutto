@@ -81,6 +81,7 @@ export interface DiceSnapshot {
   cardsThisTurn?: CardType[];
   plusMinusScores?: number[];
   chainTuttoCount?: number;
+  cardOutcomes?: TurnCardOutcome[];
   /**
    * Classic PHYSICAL only: whether the chain's last card has been completed.
    *
@@ -120,6 +121,15 @@ export interface TurnCardPlayed {
   completed: boolean;
 }
 
+/** Reported per-card inputs; the server checks sequence and rule arithmetic. */
+export interface TurnCardOutcome {
+  card: CardType;
+  scoreBefore: number;
+  // Running bank before a bust/Stop forfeits it, not the resulting zero score.
+  scoreAfter: number;
+  tuttos: number;
+}
+
 // What happened during one classic turn, card by card. Built by the client
 // that played the turn and passed to calculateNextTurn, whose classic path
 // derives every per-card counter from it (the score arrives fully computed:
@@ -127,6 +137,8 @@ export interface TurnCardPlayed {
 // Its very presence is what switches the engine to classic semantics.
 export interface TurnSummary {
   cards: TurnCardPlayed[];
+  // Optional for older offline saves; required by the online action protocol.
+  outcomes?: TurnCardOutcome[];
   tuttoCount: number;
   // One entry per successful Plus/Minus, in the order the chain played them,
   // each holding the turn total the player ALREADY held when that card
@@ -311,6 +323,14 @@ export const SYNCED_GAME_STATE_KEYS = [
 
 export type SyncedGameStateKey = (typeof SYNCED_GAME_STATE_KEYS)[number];
 
+// Private/offline cards never cross the online snapshot boundary. Public
+// remainingCardCounts is metadata, not a client-writable game-state field.
+export const PUBLIC_GAME_STATE_KEYS = SYNCED_GAME_STATE_KEYS.filter(key => key !== 'cards');
+
+export type OnlineGameAction =
+  | { type: 'start' | 'reset' | 'undo' }
+  | { type: 'commit'; score: number; success: boolean; summary?: TurnSummary };
+
 // The room configuration the host owns, as opposed to the game state a turn
 // produces. Here rather than in the store because the server shares it:
 // server/pushValidation.ts locks its lobby-only/mid-game split against this
@@ -389,6 +409,13 @@ export const DRAW_REFUSAL_REASONS = [
 ] as const;
 
 export type DrawRefusalReason = (typeof DRAW_REFUSAL_REASONS)[number];
+
+/** Correlates a server-authoritative deal with the request that committed it. */
+export interface AcceptedDrawReceipt {
+  drawId: string;
+  card: CardType;
+  gameplayToken: string;
+}
 
 /**
  * What the server answers a drawCard with. `card` is the card the player has

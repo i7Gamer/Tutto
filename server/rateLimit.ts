@@ -90,6 +90,32 @@ export interface KeyedEventLimiterOptions {
   maxTrackedKeys?: number;
 }
 
+export interface ObjectWorkBudget {
+  tryConsume(key: object): boolean;
+}
+
+// A room is already an object with an exact lifecycle. Weak identity gives all
+// replacement sockets the same budget while allowing the entry to disappear
+// with the deleted room, without coupling every room-deletion path to this
+// resource guard.
+export const createObjectWorkBudget = ({
+  windowMs, max,
+}: SocketEventLimiterOptions): ObjectWorkBudget => {
+  const hits = new WeakMap<object, Hit>();
+  return {
+    tryConsume(key) {
+      const now = Date.now();
+      const existing = hits.get(key);
+      if (!existing || existing.resetAt <= now) {
+        hits.set(key, { count: 1, resetAt: now + windowMs });
+        return true;
+      }
+      existing.count += 1;
+      return existing.count <= max;
+    },
+  };
+};
+
 // A keyed fixed-window limiter whose counts live in ONE map shared by every
 // caller of the returned function — unlike createSocketEventLimiter below,
 // whose counter a client resets simply by opening a new connection. Meant for

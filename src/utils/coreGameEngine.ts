@@ -520,6 +520,7 @@ const advanceTurnOrder = (
   winningScore: number,
   cards: CardType[],
   initialCards: InitialCards,
+  drawNextCard: boolean,
 ): TurnOrderAdvance => {
   let isGameOver = false;
   let nextIndex: number | null = currentPlayerIndex + 1;
@@ -538,10 +539,10 @@ const advanceTurnOrder = (
   let newDeck = [...cards];
   let drawnCard: CardType | null = null;
 
-  if (!isGameOver) {
+  if (!isGameOver && drawNextCard) {
     if (newDeck.length === 0) newDeck = buildDeck(initialCards);
     drawnCard = newDeck.shift() ?? null;
-  } else {
+  } else if (isGameOver) {
     nextIndex = null;
   }
 
@@ -563,6 +564,9 @@ export const calculateNextTurn = (
   // the clock, so logging it as a plain success ("scored 0 pts") would be
   // read as an ordinary turn rather than a timeout.
   isTimeout = false,
+  // Online clients can predict score/turn effects without holding or drawing
+  // a private deck. The server and offline callers retain the default.
+  drawNextCard = true,
 ): NextTurnResult => {
   const { players, currentPlayerIndex, currentCard, round, winningScore, cards, initialCards } = gameState;
 
@@ -691,7 +695,7 @@ export const calculateNextTurn = (
     applyHighestTurnScoreRecords(currentPlayer, turnScore, currentCard, turnSummary);
   currentPlayer.score += turnScore;
 
-  const advance = advanceTurnOrder(newPlayers, currentPlayerIndex, round, winningScore, cards, initialCards);
+  const advance = advanceTurnOrder(newPlayers, currentPlayerIndex, round, winningScore, cards, initialCards, drawNextCard);
 
   return {
     players: newPlayers, isGameOver: advance.isGameOver, isRoundEnd: advance.isRoundEnd,

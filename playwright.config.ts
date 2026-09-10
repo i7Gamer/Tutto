@@ -67,6 +67,9 @@ export default defineConfig({
       // GET limiter (api.ts) is a 60 s bucket that two workers would drain
       // twice as fast. Same lift vite.config.ts gives the unit suites.
       STATS_RATE_LIMIT_MAX: '1000000',
+      MAX_CONCURRENT_TRANSPORTS: '1000000',
+      ROOM_PUSH_WORK_LIMIT_MAX: '1000000',
+      ADMIN_AUTH_FAILURE_LIMIT_MAX: '1000000',
     },
     // Never reuse: a server already on this port is not known to be serving a
     // fresh build, and testing yesterday's dist is worse than not testing.
