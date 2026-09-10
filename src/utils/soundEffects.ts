@@ -7,6 +7,14 @@ import { volumeToGain, MIN_AUDIO_VOLUME } from './audioVolume';
 const IOS_SUCCESS_TAP_GAP_MS = 100;
 // How fast a tone swells from the floor to its peak.
 const TONE_ATTACK_S = 0.02;
+const DEFAULT_TONE_VOL = 0.1;
+const BUZZER_TONE_VOL = 0.15;
+const SUCCESS_TONE_VOL = 0.3;
+// Normalize the loudest existing sound to unity gain while preserving every
+// sound's current balance relative to it. Cap arbitrary callers at unity so a
+// future effect cannot accidentally overdrive the destination.
+const MAX_UNCLIPPED_GAIN = 1;
+const SOUND_VOLUME_SCALE = MAX_UNCLIPPED_GAIN / SUCCESS_TONE_VOL;
 
 // Where every envelope starts and ends, relative to that sound's own peak. An
 // exponential ramp cannot reach 0, so every envelope needs a floor above it —
@@ -49,7 +57,10 @@ let audioCtx: AudioContext | null = null;
 let noiseBuffer: AudioBuffer | null = null;
 
 /** A sound's peak gain after the lobby's volume slider. */
-const scaledPeak = (vol: number): number => vol * volumeToGain(useGameStore.getState().audioVolume);
+const scaledPeak = (vol: number): number => Math.min(
+  MAX_UNCLIPPED_GAIN,
+  vol * SOUND_VOLUME_SCALE * volumeToGain(useGameStore.getState().audioVolume),
+);
 
 // The one decision for "skip this sound entirely": sound off, or the lobby's
 // slider at MIN_AUDIO_VOLUME (the only position `storeTypes.ts` documents as
@@ -187,7 +198,7 @@ export const playTone = async (
   frequency: number,
   type: OscillatorType,
   duration: number,
-  vol = 0.1,
+  vol = DEFAULT_TONE_VOL,
   offset = 0,
 ): Promise<void> => {
   if (!isAudioAudible()) return;
@@ -223,14 +234,14 @@ export const playTone = async (
 };
 
 export const playBuzzer = (): void => {
-  void playTone(150, 'sine', 0.6, 0.15, 0);
-  void playTone(140, 'sine', 0.8, 0.15, 0.1);
+  void playTone(150, 'sine', 0.6, BUZZER_TONE_VOL, 0);
+  void playTone(140, 'sine', 0.8, BUZZER_TONE_VOL, 0.1);
 };
 
 export const playSuccess = (offset = 0): void => {
-  void playTone(523.25, 'sine', 0.3, 0.3, offset);
-  void playTone(659.25, 'sine', 0.5, 0.3, offset + 0.15);
-  void playTone(783.99, 'sine', 0.8, 0.3, offset + 0.3);
+  void playTone(523.25, 'sine', 0.3, SUCCESS_TONE_VOL, offset);
+  void playTone(659.25, 'sine', 0.5, SUCCESS_TONE_VOL, offset + 0.15);
+  void playTone(783.99, 'sine', 0.8, SUCCESS_TONE_VOL, offset + 0.3);
 };
 
 const BUST_VIBRATION_PATTERN_MS = 200;

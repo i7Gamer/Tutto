@@ -120,13 +120,33 @@ describe('soundEffects', () => {
       useGameStore.setState({ audioVolume: 1 });
     });
 
-    it('scales the tone peak by the slider volume on the perceptual curve', async () => {
-      useGameStore.setState({ audioVolume: 0.5 });
-      await playTone(440, 'sine', 1, 0.4);
-      // 0.4 * 0.5² — the ramp to the peak is the first exponential ramp
-      // (the second ramps back down to the floor at the end of the tone).
+    it('uses the full output gain for the loudest sound at full slider volume', async () => {
+      useGameStore.setState({ audioVolume: 1 });
+      await playTone(440, 'sine', 1, 0.3);
+
       const peakRamp = mockGainNode.gain.exponentialRampToValueAtTime.mock.calls[0];
-      expect(peakRamp[0]).toBeCloseTo(0.1);
+      expect(peakRamp[0]).toBe(1);
+    });
+
+    it('caps an oversized sound at unity gain', async () => {
+      useGameStore.setState({ audioVolume: 1 });
+      await playTone(440, 'sine', 1, 0.4);
+
+      const peakRamp = mockGainNode.gain.exponentialRampToValueAtTime.mock.calls[0];
+      expect(peakRamp[0]).toBe(1);
+    });
+
+    it('scales the normalized tone peak by the slider volume on the perceptual curve', async () => {
+      useGameStore.setState({ audioVolume: 1 });
+      await playTone(440, 'sine', 1, 0.2);
+      const peakAtFull = mockGainNode.gain.exponentialRampToValueAtTime.mock.calls[0][0];
+
+      vi.clearAllMocks();
+      useGameStore.setState({ audioVolume: 0.5 });
+      await playTone(440, 'sine', 1, 0.2);
+      const peakAtHalf = mockGainNode.gain.exponentialRampToValueAtTime.mock.calls[0][0];
+
+      expect(peakAtHalf).toBeCloseTo(peakAtFull * 0.25);
     });
 
     it('plays nothing at all at volume zero', async () => {
