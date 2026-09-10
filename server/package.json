@@ -16,6 +16,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
     "knex": "^3.2.10",
     "socket.io": "^4.8.3",
     "sqlite3": "^6.0.1",

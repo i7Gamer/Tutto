@@ -1,6 +1,7 @@
 import path from 'path';
 import crypto from 'crypto';
 import express from 'express';
+import { rateLimit } from 'express-rate-limit';
 import { getDeviceStats, updateDeviceStats, getGlobalStats, updateGlobalStats } from './database';
 import { sanitizeStats, sanitizeLogHeaderField, indentLogContinuationLines } from './sanitize';
 import { createRateLimiter } from './rateLimit';
@@ -39,6 +40,10 @@ const STATS_RATE_LIMIT_MAX = envLimitOr(process.env.STATS_RATE_LIMIT_MAX, DEFAUL
 
 const ADMIN_AUTH_FAILURE_WINDOW_MS = 60_000;
 export const DEFAULT_ADMIN_AUTH_FAILURE_LIMIT_MAX = 10;
+
+const ADMIN_STATS_WRITE_WINDOW_MS = 60_000;
+const DEFAULT_ADMIN_STATS_WRITE_LIMIT_MAX = 60;
+const ADMIN_STATS_WRITE_KEY = 'admin-stats-writes';
 
 // How many devices behind one IP the shared IP-wide stats bucket (below) must
 // tolerate at once. Not env-tunable: unlike STATS_RATE_LIMIT_MAX this isn't a
@@ -141,6 +146,24 @@ export const registerApiRoutes = (app: express.Express): void => {
     if (suppliedBuffer.length !== expectedTokenBuffer.length) return false;
     return crypto.timingSafeEqual(suppliedBuffer, expectedTokenBuffer);
   };
+
+  // One budget per registration, shared by both routes and all addresses.
+  // Invalid tokens skip this budget but still reach requireToken and its
+  // independent failed-auth limiter. Reuse the exact validator in both places.
+  const configuredWriteLimit = Number(process.env.ADMIN_STATS_WRITE_LIMIT_MAX);
+  const adminStatsWriteRateLimiter = rateLimit({
+    windowMs: ADMIN_STATS_WRITE_WINDOW_MS,
+    limit: Number.isSafeInteger(configuredWriteLimit) && configuredWriteLimit > 0
+      ? configuredWriteLimit : DEFAULT_ADMIN_STATS_WRITE_LIMIT_MAX,
+    keyGenerator: () => ADMIN_STATS_WRITE_KEY,
+    skip: req => !isValidToken(req.headers['x-tutto-token']),
+    skipSuccessfulRequests: false,
+    skipFailedRequests: false,
+    passOnStoreError: false,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: { error: 'Too many requests' },
+  });
 
   const requireToken = (
     req: express.Request,
@@ -335,7 +358,7 @@ export const registerApiRoutes = (app: express.Express): void => {
     }
   });
 
-  app.post('/api/stats/global', requireToken, rejectForeignBucketParam(RULESET_PARAM, MODE_PARAM), rejectUnknownRuleset, async (req: express.Request, res: express.Response) => {
+  app.post('/api/stats/global', adminStatsWriteRateLimiter, requireToken, rejectForeignBucketParam(RULESET_PARAM, MODE_PARAM), rejectUnknownRuleset, async (req: express.Request, res: express.Response) => {
     try {
       await updateGlobalStats(sanitizeStats(req.body, 'global', 'lifetime'), requestedRuleset(req));
       res.json({ success: true });
@@ -372,7 +395,7 @@ export const registerApiRoutes = (app: express.Express): void => {
     }
   });
 
-  app.post('/api/stats/:deviceId', requireToken, requireValidDeviceId, rejectForeignBucketParam(MODE_PARAM, RULESET_PARAM), rejectUnknownMode, async (req: express.Request, res: express.Response) => {
+  app.post('/api/stats/:deviceId', adminStatsWriteRateLimiter, requireToken, requireValidDeviceId, rejectForeignBucketParam(MODE_PARAM, RULESET_PARAM), rejectUnknownMode, async (req: express.Request, res: express.Response) => {
     try {
       await updateDeviceStats(req.params.deviceId as string, sanitizeStats(req.body, 'device', 'lifetime'), requestedMode(req));
       res.json({ success: true });

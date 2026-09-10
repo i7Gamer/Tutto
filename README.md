@@ -156,8 +156,30 @@ All configuration is environment variables — the image contains no `.env` file
 | `MAX_ROOMS_PER_ADDRESS` | no | `20` | Per-IP cap on rooms held open at once (the server holds 500 in total). Stops one client parking every slot with rooms whose players have "dropped", which would make the server refuse everyone else. Raise it in the same situations as `SOCKET_CONN_LIMIT_MAX`. |
 | `STATS_RATE_LIMIT_MAX` | no | `60` | Per-IP cap on GET requests to `/api/stats/*` (device and global statistics) per 60-second window. A valid device id also gets its own sub-bucket capped at this value, so one chatty device can't starve its neighbours' share of the shared IP bucket. Raise it in the same situations as `SOCKET_CONN_LIMIT_MAX`. |
 | `ADMIN_AUTH_FAILURE_LIMIT_MAX` | no | `10` | Failed `API_TOKEN` attempts per client IP per 60 seconds, shared across both protected stats POST routes. Valid requests do not consume it. JSON parsing remains bounded and runs before this check. |
+| `ADMIN_STATS_WRITE_LIMIT_MAX` | no | `60` | Valid-token admin stats POST requests per fixed 60-second window, shared across both routes, buckets, devices and IPs. Positive safe integers only; unset, empty or invalid values use 60. Independent of failed authentication. |
 | `DB_PATH` | no | `/data/stats.db` | Location of the SQLite database. Change it only if you mount the volume elsewhere. |
 | `TZ` | no | `UTC` | Affects timestamps in the container logs. |
+
+### Admin statistics write limit
+
+The admin write window starts at its first admitted request. Valid-token requests
+count even if later validation or database work fails; malformed/oversized JSON
+is rejected before accounting, and invalid tokens use only the failed-auth limit.
+The budget belongs to one Express app registration (one per production process),
+resets on restart and is not shared across replicas. It limits admission, not
+concurrent writes: up to the maximum can arrive just before a window resets and
+another full allowance just after, roughly twice the limit in a short interval.
+A credential holder can
+spend the shared allowance of other admin tools; choose an override if legitimate
+maintenance scripts need more than the default 60/min.
+
+Exhaustion returns JSON `{ "error": "Too many requests" }` with HTTP 429 and
+`Retry-After` in seconds. A received application limiter 429 was refused before
+writing and may be retried after that delay. These updates are additive, not
+idempotent: do not automatically replay timeouts, lost responses or arbitrary
+5xx errors, since a write may already have happened. Ordinary Socket.IO play,
+stats GETs and health checks are unaffected. No changes to existing Cloudflare
+Tunnel `CORS_ORIGIN` or `TRUST_PROXY` settings are needed.
 
 ### Data and backups
 
