@@ -7,377 +7,98 @@
 
 # Tutto Multi-Device
 
-Tutto Multi-Device is a dynamic web application that allows you to play the popular card game **Tutto!** with friends online in real-time or locally on the same device. It features modern UI design, real-time multiplayer synchronization using WebSockets, dynamic animations, multi-language support, and comprehensive statistics tracking.
+Play the push-your-luck card and dice game **Tutto!** with friends — online in real time, or locally on one device. A single Docker image serves the whole thing.
 
 ## Features
 
-- **Local & Online Multiplayer:** Play on a single device with friends, or host/join an online room and play over the internet in real-time.
-- **Advanced Statistics & Leaderboards:** Track both global and personal device statistics. View advanced metrics such as total turns played, most busts (Note: Feuerwerk turns only count as a bust if 0 points are scored), fastest wins, fastest losses, highest turn scores, and the success rates of resolving challenging cards like Kniffel, Plus/Minus, and Kleeblatt.
-- **Physical & Digital Dice Modes:** Use the built-in digital dice with physics-inspired staggered tumbling animations, or track scores using your own physical dice on the table.
-- **Modern UI & Dark Mode:** A fully responsive, polished user interface built with TailwindCSS, featuring seamless dark mode integration, glassmorphism, floating labels, and dynamic micro-animations via Framer Motion.
-- **Advanced Options:** Highly customizable game modes! Set custom winning scores, customize the card deck counts, randomize player turn orders, and configure precise turn/kick timers for online play.
-- **Invite Links & QR Codes:** Share a room as a link, a share-sheet entry or a QR code instead of a code to read out. Rooms you have played in are remembered for one-tap rejoining. See [Inviting players](#inviting-players).
-- **Keyboard Shortcuts:** Play a full turn without reaching for the mouse. See [Keyboard shortcuts](#keyboard-shortcuts).
-- **Screen-Reader Roll Narration:** Every landed roll is announced once through a live region — what came up, how many dice score and their value, and how many dice and points are already on the table this turn.
-- **Add to Home Screen:** After your first finished game, a dismissible card offers to install Tutto as an app — a one-tap install on Chromium, step-by-step instructions on iPhone/iPad Safari.
-- **Ask Otto (Coach Hint):** An optional, off-by-default per-device toggle. When on, a line under the dice board shows what the optimal bot would keep and do after every roll, and the numbers behind it — it never selects a die or presses a button for you.
-- **Multi-Language Support (i18n):** Full support for English and German out of the box, with an extensible i18n configuration allowing for easy addition of more languages.
-- **Robust Sync & Reconnects:** Online mode keeps every device on the same game state, which the players' own devices author and the server relays — it is a game for people who trust each other, not a refereed one. If you accidentally close your tab or lose connection, you'll be able to reconnect automatically within your configured reconnect timeout.
+- **Local & online multiplayer:** play on one device, or host a room and play over the internet. Invite by link, share sheet or QR code; rooms you have joined are remembered for one-tap rejoining.
+- **Two rule sets:** the app's own *Modernized* rules, or the official *Classic* rules where a Tutto lets you keep drawing cards. See [Game modes](#game-modes-modernized-vs-classic).
+- **Digital or physical dice:** animated dice with staggered tumbling, or score your real dice at the table.
+- **Bots and a coach:** fill seats with local bots, or turn on *Ask Otto* to see what the optimal bot would keep after every roll — it never presses a button for you.
+- **Statistics & leaderboards:** global and per-device records per rule set — turns played, busts, fastest wins, highest turns, special-card success rates.
+- **Accessible:** full keyboard play, screen-reader roll narration, reduced-motion support, dark mode, English and German.
+- **Installable:** add to your home screen as an app after your first finished game.
 
-## Tech Stack
+## Quick start
 
-- **Frontend**: React, Vite, Tailwind CSS, Framer Motion for animations, Chart.js for stats, React-i18next for localization.
-- **Backend**: Node.js, Express, Socket.IO.
-- **Database**: SQLite, powered by Knex.js for migrations (for robust tracking of global and personal statistics).
-- **Testing**: Vitest for unit and integration testing, Playwright for end-to-end.
-- **Deployment**: Multi-architecture Docker image (`linux/amd64`, `linux/arm64`) serving frontend, API and WebSockets from a single container.
+```bash
+docker run -d --name tutto -p 3001:3001 -v tutto-data:/data \
+  -e API_TOKEN="$(openssl rand -hex 32)" --restart unless-stopped i7gamer/tutto:latest
+```
 
-### Browser support
+Open `http://localhost:3001`. Configuration, backups, reverse proxies and updating are in [docs/deployment.md](docs/deployment.md); running from source and the test suites are in [docs/development.md](docs/development.md).
 
-Safari 16.4+, Chrome 111+ and Firefox 128+ — in practice an iPhone 8 or newer,
-since Safari's version is tied to the OS. Tailwind CSS 4 sets the floor: it
-builds on `@property`, `color-mix()` and cascade layers, none of which degrade
-gracefully, so an older browser gets a broken layout rather than a plain one.
+## How to play
 
-## How to Play Tutto!
+The objective is to reach the winning score (default 6,000) and be the sole leader when the round ends — the round is always played to the end, so reaching the target first is no guarantee, and a tie plays on.
 
-The objective of the game is to reach the winning score (default is 6,000 points) and be the sole leader when the round ends — the round is always played to the end, so reaching the target first is no guarantee, and a tie plays on.
+### The basics
 
-### The Basics
-1. On your turn, you must first draw a card from the deck.
-2. After drawing, you roll the dice to score points. You must score at least some points on every roll (either single 1s/5s or triples of the same number).
-3. If you roll and score **nothing**, you "Bust" (also called a "Null"). You lose all points accumulated in this turn, and your turn ends immediately.
-4. If you manage to score points with all 6 dice, you achieve a **"Tutto!"** and get the bonus if the card has one.
+1. On your turn, draw a card from the deck.
+2. Roll the dice. Every roll must score something (single 1s/5s, or three of a kind).
+3. Score **nothing** and you "bust": you lose the turn's points and your turn ends.
+4. Score with all six dice and you have a **Tutto!** — collect the card's bonus, if it has one.
 
-### The Cards
-The drawn card dictates specific bonuses or rules for your turn:
-- **x2**: If you roll a Tutto, your turn's score is doubled.
-- **Plus/Minus**: If you roll a Tutto, you deduct 1,000 points from the current leader's score while getting 1,000 points  yourself!
-- **Stop**: You cannot roll. Your turn ends immediately.
-- **Feuerwerk**: You must keep rolling as long as you score points! You can't bank your score manually. You only stop when you bust, but you get to keep all points earned before busting.
-- **Kniffel**: Roll a straight from 1 through 6 to score a fixed 2,000 points. You can't stop voluntarily — you keep rolling until you complete it or bust.
-- **Kleeblatt**: Roll two Tuttos in a row to instantly win the game!
-- **Bonus Cards (200, 300, 400, 500, 600)**: If you roll a Tutto, you receive these bonus points added to your turn's score.
+### The cards
+
+- **x2**: a Tutto doubles your turn's score.
+- **Plus/Minus**: a Tutto gives you 1,000 points and deducts 1,000 from the current leader.
+- **Stop**: you cannot roll; your turn ends immediately.
+- **Feuerwerk**: keep rolling as long as you score. You cannot bank manually — you stop only when you bust, and keep everything earned before that.
+- **Kniffel**: roll a run from 1 through 6 for a fixed 2,000 points. You cannot stop voluntarily.
+- **Kleeblatt**: two Tuttos in a row win the game outright.
+- **Bonus cards (200–600)**: a Tutto adds the printed bonus to your turn.
 
 ### Game modes: Modernized vs. Classic
 
-The host picks one of two rule sets in the lobby. They differ in what happens after a Tutto:
+The host picks one rule set in the lobby. They differ in what happens after a Tutto:
 
-- **Modernized** (the default — the app's original house rules): a completed card ends your turn immediately and banks the points. On Feuerwerk you choose which scoring dice to keep, and the Kniffel must be built as a consecutive run from 1 upward or 6 downward.
-- **Classic** (the official Abacusspiele rules): after any Tutto you may reveal the next card and keep rolling — points accumulate without limit, but a bust or a drawn Stop card forfeits the **whole** turn. A classic x2 doubles the entire accumulated total, a successful Plus/Minus adds exactly +1,000 (its leader deduction only applies if the turn actually banks, and never drops anyone below 0), Feuerwerk keeps every scoring die automatically and its ending null banks the entire accumulated turn, and any still-missing number counts toward the Kniffel — no consecutive order required.
+- **Modernized** (default): a completed card ends your turn and banks the points. On Feuerwerk you choose which scoring dice to keep, and the Kniffel must be built as a consecutive run from 1 upward or 6 downward.
+- **Classic** (official Abacusspiele rules): after any Tutto you may reveal the next card and keep rolling — points accumulate without limit, but a bust or a drawn Stop card forfeits the **whole** turn. A classic x2 doubles the entire accumulated total, a successful Plus/Minus adds exactly +1,000 (the leader deduction applies only if the turn banks, and never drops anyone below 0), Feuerwerk keeps every scoring die automatically and its ending null banks the whole turn, and any still-missing number counts toward the Kniffel.
 
-Each rule set keeps its own statistics, records and win streaks (see below).
+Each rule set keeps its own statistics, records and win streaks.
+
+### Lobby options
+
+- **Winning score** and **deck composition** can be changed; doing so marks the game *custom*, and its statistics go into that rule set's separate custom bucket rather than the normal records.
+- **Turn timer** (doubled for Kleeblatt, tripled for Feuerwerk), **kick timer** for disconnected players, random turn order and an enforced dice mode change the pacing, not what it takes to win — such games still count as normal.
+- Local games record no statistics at all.
 
 ## Inviting players
 
-A room is identified by a code you choose when you create it, and anyone who
-enters the same code joins the same room. Four ways to get that code to someone,
-in rough order of how little typing they involve:
+A room is identified by a code you choose when you create it. Four ways to get it to someone, in rough order of how little typing they involve:
 
 | | How | Good for |
 | --- | --- | --- |
-| **Invite link** | Copy button next to the room name. Opens Tutto with the code already filled in — the guest only supplies their name. | Chat, email, anywhere you can paste. |
+| **Invite link** | Copy button next to the room name. Opens Tutto with the code already filled in. | Chat, email, anywhere you can paste. |
 | **Share sheet** | Share button, on devices that have one. Same link, handed to the OS. | Phones. |
-| **QR code** | QR button. Shows the same link as a code. | Someone sitting next to you: their phone's own camera app opens it, with Tutto uninvolved. |
-| **Scanner** | Scan button beside the room-code field. | A guest who already has Tutto open and would rather not leave it. |
+| **QR code** | QR button. Shows the same link as a code. | Someone sitting next to you: their phone's own camera app opens it. |
+| **Scanner** | Scan button beside the room-code field. | A guest who already has Tutto open. |
 
-Rooms you have joined are remembered under the join form for one-tap rejoining.
-The `×` beside an entry forgets it.
+> **The scanner needs an https origin.** Browsers only grant camera access on secure connections, so on a plain-http LAN address it will ask you to type the code instead. The other three ways work regardless. See [Behind a reverse proxy](docs/deployment.md#behind-a-reverse-proxy) for putting the app on https.
 
-> **The scanner needs an https origin.** Browsers only grant camera access on
-> secure connections, so on a plain-http LAN address it will say so and ask you
-> to type the code instead. The other three ways work regardless — and a guest's
-> own camera app can open the QR code on any origin, which is why it is the one
-> to reach for at a table. See [Behind a reverse proxy](#behind-a-reverse-proxy)
-> for putting the app on https.
-
-> **A QR code is only as reachable as the address it was made from.** It encodes
-> whatever URL the host is looking at, so if you opened Tutto on `localhost` the
-> code points at the guest's own machine. The app says so when it spots this;
-> open it on your network address instead.
+> **A QR code is only as reachable as the address it was made from.** If you opened Tutto on `localhost`, the code points at the guest's own machine. The app says so when it spots this; open it on your network address instead.
 
 ## Keyboard shortcuts
 
 | Key | Does |
 | --- | --- |
 | `Space` / `Enter` | Whatever the primary button is right now — roll the dice, end your turn, answer Yes. |
-| `R` | Roll again with the dice you have selected (inside the dice panel). |
-| `S` | Stop and bank the dice you have selected (inside the dice panel). |
+| `R` | Roll again with the dice you have selected. |
+| `S` | Stop and bank the dice you have selected. |
 | `A` | Select every die in the current roll that scores. |
 | `D` | Draw the next card instead of banking, on the roll that completes a Tutto (Classic rules). |
 
-Shortcuts stay out of the way while you are typing in a field and while a dialog
-is open, and a key does nothing when its button is greyed out. The same table is
-in the in-app wiki, whose footer also names the running build — useful when
-reporting a bug against `latest` or `nightly`.
+Shortcuts stay out of the way while you are typing in a field or a dialog is open. The same table is in the in-app wiki, whose footer also names the running build — useful when reporting a bug against `latest` or `nightly`.
 
-## Run with Docker
+## Tech stack
 
-The published image bundles everything: Express serves the frontend, the API and the WebSocket endpoint on a single port, so there is nothing else to run and no API URL to configure. Images are built for `linux/amd64` and `linux/arm64`, so a Raspberry Pi or an ARM NAS works the same as a normal server.
+React, Vite, Tailwind CSS and Framer Motion on the front; Node.js, Express and Socket.IO behind, with SQLite via Knex for statistics. Vitest and Playwright for tests. Ships as a multi-architecture Docker image (`linux/amd64`, `linux/arm64`).
 
-> Prefer to run from source, or want a development setup? See [Installation & Setup](#installation--setup) below.
-
-### Quick start
-
-Generate a token, then start the container:
-
-```bash
-docker run -d \
-  --name tutto \
-  -p 3001:3001 \
-  -v tutto-data:/data \
-  -e API_TOKEN="$(openssl rand -hex 32)" \
-  --restart unless-stopped \
-  i7gamer/tutto:latest
-```
-
-Open `http://localhost:3001`.
-
-### With Docker Compose
-
-Copy [docker-compose.yml](docker-compose.yml) from this repository, put a generated `API_TOKEN` in a `.env` file beside it, then start it:
-
-```bash
-echo "API_TOKEN=$(openssl rand -hex 32)" > .env
-```
-
-```bash
-docker compose up -d
-```
-
-Compose refuses to start if `API_TOKEN` is missing, so there is no accidental deployment with a guessable token.
-
-### Configuration
-
-All configuration is environment variables — the image contains no `.env` file.
-
-| Variable | Required | Default | Purpose |
-| --- | --- | --- | --- |
-| `API_TOKEN` | **yes** | — | Guards the admin HTTP endpoints (`POST /api/stats/*`). Production requires at least 32 UTF-8 bytes, no surrounding whitespace, and no published placeholder. Generate with `openssl rand -hex 32`. |
-| `CORS_ORIGIN` | with `TRUST_PROXY=1` | direct same-origin only | Complete public `http(s)` origin accepted by browser socket handshakes. Required behind a declared proxy in production; also set it when the frontend is hosted separately. Unset derives only the direct Host and socket scheme; forwarded origin headers are never trusted. `*` is refused in production. Origin-less native clients remain allowed. |
-| `PORT` | no | `3001` | Port inside the container. |
-| `TRUST_PROXY` | no | unset | Set to `1` **only** when the server sits behind exactly one reverse proxy: per-IP rate limiting then reads real client addresses from `X-Forwarded-For`. Leave unset for a directly exposed server (including LAN play) — trusting the header there would let clients forge their own rate-limit identities. A production start without it logs a one-line reminder. |
-| `SOCKET_CONN_LIMIT_MAX` | no | `30` | Per-IP cap on new WebSocket connections per 10-second window. Raise it only when one address legitimately stands for many players (e.g. a venue where everyone shares one NAT'd IP). |
-| `MAX_CONCURRENT_TRANSPORTS` | no | `51000` | Global active Engine.IO transport ceiling, including clients that never complete Socket.IO setup. The default preserves the documented room/seat maximum plus reconnect overlap; it is not capacity-tuned. Lower after deployment measurement. |
-| `ROOM_PUSH_WORK_LIMIT_MAX` | no | `100` | Authorized `pushState` attempts shared by all sockets in one room per second, including invalid/stale/no-op requests. |
-| `MAX_ROOMS_PER_ADDRESS` | no | `20` | Per-IP cap on rooms held open at once (the server holds 500 in total). Stops one client parking every slot with rooms whose players have "dropped", which would make the server refuse everyone else. Raise it in the same situations as `SOCKET_CONN_LIMIT_MAX`. |
-| `STATS_RATE_LIMIT_MAX` | no | `60` | Per-IP cap on GET requests to `/api/stats/*` (device and global statistics) per 60-second window. A valid device id also gets its own sub-bucket capped at this value, so one chatty device can't starve its neighbours' share of the shared IP bucket. Raise it in the same situations as `SOCKET_CONN_LIMIT_MAX`. |
-| `ADMIN_AUTH_FAILURE_LIMIT_MAX` | no | `10` | Failed `API_TOKEN` attempts per client IP per 60 seconds, shared across both protected stats POST routes. Valid requests do not consume it. JSON parsing remains bounded and runs before this check. |
-| `ADMIN_STATS_WRITE_LIMIT_MAX` | no | `60` | Valid-token admin stats POST requests per fixed 60-second window, shared across both routes, buckets, devices and IPs. Positive safe integers only; unset, empty or invalid values use 60. Independent of failed authentication. |
-| `DB_PATH` | no | `/data/stats.db` | Location of the SQLite database. Change it only if you mount the volume elsewhere. |
-| `TZ` | no | `UTC` | Affects timestamps in the container logs. |
-
-### Admin statistics write limit
-
-The admin write window starts at its first admitted request. Valid-token requests
-count even if later validation or database work fails; malformed/oversized JSON
-is rejected before accounting, and invalid tokens use only the failed-auth limit.
-The budget belongs to one Express app registration (one per production process),
-resets on restart and is not shared across replicas. It limits admission, not
-concurrent writes: up to the maximum can arrive just before a window resets and
-another full allowance just after, roughly twice the limit in a short interval.
-A credential holder can
-spend the shared allowance of other admin tools; choose an override if legitimate
-maintenance scripts need more than the default 60/min.
-
-Exhaustion returns JSON `{ "error": "Too many requests" }` with HTTP 429 and
-`Retry-After` in seconds. A received application limiter 429 was refused before
-writing and may be retried after that delay. These updates are additive, not
-idempotent: do not automatically replay timeouts, lost responses or arbitrary
-5xx errors, since a write may already have happened. Ordinary Socket.IO play,
-stats GETs and health checks are unaffected. No changes to existing Cloudflare
-Tunnel `CORS_ORIGIN` or `TRUST_PROXY` settings are needed.
-
-### Data and backups
-
-Statistics live in a SQLite database at `/data/stats.db`, which the examples above keep in a named volume. Pulling a new image or recreating the container does not lose them; deleting the volume does.
-
-A named volume like `tutto-data` needs no extra setup — Docker gives it to the `node` user automatically. A bind mount (`-v ./data:/data`) is different: the container runs as `node` (uid/gid 1000), and a host directory it does not own fails to open the database at startup. Before first use, run `chown -R 1000:1000 ./data` on the host.
-
-SQLite uses write-ahead logging (WAL): committed statistics can still be in `stats.db-wal`, so copying only the live `stats.db` can lose data. Do not copy the live database and WAL files independently either; they can change between copies.
-
-For a backup before upgrading, finish active games and stop Tutto before copying. Stop any other process writing to the same database too. Both deployment examples name the container `tutto`; `--volumes-from` uses its actual mounts, including Compose's project-prefixed volume name. Adjust the container name and `/data/stats.db` if you changed them.
-
-```bash
-(
-  set -eu
-  backup_dir="$(mktemp -d "$(pwd)/tutto-backup.XXXXXX")"
-  docker stop tutto
-  test "$(docker inspect --format '{{.State.ExitCode}}' tutto)" -eq 0
-  docker run --rm --volumes-from tutto:ro -v "$backup_dir:/backup" alpine sh -eu -c '
-    test ! -s /data/stats.db-wal
-    cp /data/stats.db /backup/stats.db
-  '
-  printf 'Backup saved to %s/stats.db\n' "$backup_dir"
-)
-```
-
-The checks require a clean shutdown and no remaining WAL content. If either fails, resolve the shutdown or other writer before copying; do not delete the WAL. Leave Tutto stopped until the backup succeeds, then follow [Updating](#updating). For a routine backup without an upgrade, restart it with `docker start tutto` after success. Stopping the server discards in-memory rooms.
-
-For an **online backup without stopping games**, a temporary SQLite container can create a consistent snapshot using [`VACUUM INTO`](https://www.sqlite.org/lang_vacuum.html#vacuum_with_an_into_clause). It reads the running container's database and WAL together and writes a fresh destination. The temporary container installs the SQLite CLI and requires network access for that installation.
-
-```bash
-(
-  set -eu
-  backup_dir="$(mktemp -d "$(pwd)/tutto-backup.XXXXXX")"
-  docker run --rm -i --volumes-from tutto:ro -v "$backup_dir:/backup" alpine sh -eu <<'BACKUP'
-apk add --no-cache sqlite
-test -f /data/stats.db
-test ! -e /backup/stats.db
-sqlite3 -readonly /data/stats.db <<'SQL'
-.bail on
-.timeout 5000
-VACUUM INTO '/backup/stats.db';
-SQL
-test "$(sqlite3 -readonly /backup/stats.db 'PRAGMA integrity_check;')" = ok
-BACKUP
-  printf 'Backup verified at %s/stats.db\n' "$backup_dir"
-)
-```
-
-Each command creates a new backup directory. Keep only a backup whose command completed successfully; an interrupted `VACUUM INTO` can leave an incomplete destination. The online snapshot contains the committed statistics at its snapshot time, not the in-memory state of active games.
-
-Schema migrations run automatically when the new version starts. Take the stopped backup **before** starting the upgrade so it remains a copy of the old schema. Migrations run in transactions and preserve existing statistics, but an older image cannot open a database migrated by a newer one.
-
-### Behind a reverse proxy
-
-Online clients and the server must both use protocol v2. After upgrading, refresh older cached clients before joining again; no legacy deck-revealing protocol is retained. The server now derives scores, turn history and saved statistics from validated actions. Dice outcomes and manually entered points are still player-reported, not cheat-proof measurements.
-
-Point the proxy at the container's port and forward WebSocket upgrades (`Upgrade` and `Connection` headers) — the game will not sync without them. Set `CORS_ORIGIN` to the browser-visible public origin (for example `https://tutto.example.com`), especially when the proxy terminates TLS: the server deliberately does not derive it from forgeable forwarded Host/protocol headers. Set `TRUST_PROXY=1` so per-IP rate limiting sees real client addresses from `X-Forwarded-For` rather than the proxy's — it is deliberately not automatic, because a server that is *not* behind a proxy must ignore that header (any client can write it).
-
-Terminating TLS here is also what makes the in-app QR [scanner](#inviting-players) usable — browsers only grant camera access on a secure origin. Everything else works the same over plain http.
-
-### Updating
-
-Complete the stopped backup in [Data and backups](#data-and-backups) first, then pull and start the new image:
-
-```bash
-docker compose pull && docker compose up -d
-```
-
-Available tags: `latest` (current release), a pinned version such as `1.1.3`, and `nightly` (current `master`, released ahead of a version bump).
-
-Since `latest` and `nightly` both move, the running build names itself in the footer of the in-app wiki (the `?` button) — worth quoting in a bug report.
-
-**Rolling back is one-way past a migration.** The database is upgraded in place on first start, and the schema does not go backwards — 1.1.1 added two, and 1.3.0 and 1.4.0 each added one. Starting an older image against a `/data` volume a newer one has already migrated fails at startup and, with `restart: unless-stopped`, keeps retrying; the log says the database was migrated by a newer version. Re-pull the newer tag to get back up, or restore the backup taken before the upgrade (see [Data and backups](#data-and-backups)). Taking that backup before a version bump is the whole reason to have one.
-
-### Health
-
-The container exposes a health check at `/api/health`, used by Docker's `HEALTHCHECK` and suitable for any external monitor. It performs no database work and is not rate limited.
-
-### Building the image yourself
-
-```bash
-docker build -t tutto:local .
-```
-
-## Installation & Setup
-
-1. **Clone the repository:**
-   ```bash
-   git clone <repository_url>
-   cd tutto
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-   Requires Node 22 or newer (24 recommended and pinned in `.nvmrc`); `engine-strict` makes `npm install` refuse an older major.
-
-3. **Configure environment variables:**
-   ```bash
-   cp .env.example .env
-   ```
-   Edit `.env` if you need to change the API token or port. See `.env.example` for descriptions of each variable. The defaults work for local development without any changes.
-
-4. **Database Setup:**
-   Migrations will run automatically when you start the server. The SQLite database is stored locally in the `server` directory, unless `DB_PATH` points somewhere else. A development server uses `server/stats.dev.db` and a production one (`npm run start:prod`, or the Docker image) uses `server/stats.db`, so running both on one machine keeps test games out of the real statistics. Whichever file is in use is printed at startup.
-
-5. **Start the Development Server:**
-   ```bash
-   npm start
-   ```
-   This command starts both the Vite frontend server and the Node.js backend server simultaneously. (`npm run dev` starts only the Vite frontend, without the backend.)
-
-6. **Open in Browser:**
-   Navigate to `http://localhost:5173` in your browser.
-
-## Production Deployment
-
-[Docker](#run-with-docker) is the easiest route. To deploy from source instead:
-
-1. Set `API_TOKEN` to a strong random secret in your environment (e.g. `openssl rand -hex 32`).
-2. Run the combined build + server command:
-   ```bash
-   npm run start:prod
-   ```
-   This builds the frontend into `dist/`, then starts the Express server with `NODE_ENV=production`. The server serves the static frontend and refuses to start if `API_TOKEN` is missing.
-
-In production, an unset `CORS_ORIGIN` means direct same-origin requests only. Set the explicit browser-visible origin when a reverse proxy terminates TLS or the frontend lives elsewhere; setting it to `*` is refused at startup.
-
-### Restart safety
-
-Rooms live in the server's memory, so restarting ends every game in progress. With `TUTTO_STATUS_LINE=1` the server keeps one line at the bottom of its console saying whether that would interrupt anyone:
-
-```
-[activity] idle — safe to restart
-[activity] 1 game in progress · 4 players — DO NOT RESTART
-[activity] 1 finished game awaiting stats — DO NOT RESTART
-```
-
-A restart is called unsafe while a game is being played, and while a finished game's statistics have not been submitted yet (each client sends its own device stats after the game ends, the host also sends the global stats, and the server writes a verdict-only row for any seat that left or was disconnected at the finish; stats are lost if the server goes away first). Set the variable on the one command you watch — `TUTTO_STATUS_LINE=1 npm run start:prod`, or `set TUTTO_STATUS_LINE=1` before it on Windows — rather than in `.env`, which every other start reads too.
-
-On a terminal the line is rewritten in place, so it never scrolls; redirected to a file it prints one line per change instead. The variable is off by default, so Docker, CI and development servers log exactly as they otherwise would.
-
-## Testing
-
-The project has comprehensive test coverage ranging from unit tests for the core game engine, to React component tests, and end-to-end integration tests.
-
-To run the tests:
-```bash
-npm run test
-```
-
-The end-to-end suite is separate, and runs against a production build served by
-the real server in Chromium, Firefox and WebKit. It needs its browsers
-downloaded once (and again after any Playwright upgrade):
-```bash
-npx playwright install
-```
-```bash
-npm run test:e2e
-```
-
-## Continuous Integration
-
-Every push and pull request against `master` runs the GitHub Actions checks defined in `.github/workflows/ci.yml`: **Type Check, Lint & Test** and an **End-to-End Tests** leg per browser engine (chromium, firefox, webkit — webkit currently split across two shard legs), all run in parallel. All are bounded by `timeout-minutes`, and the workflow cancels a superseded run on the same branch instead of queuing behind it.
-
-Branch protection on `master` would be a repository setting applied by hand, not by a workflow, and none is currently configured: no CI check is required before merging (the checks above run on every push, but merging does not wait on them), pull request review is **not** required, and force pushes and branch deletion are not blocked.
-
-## Advanced Options Explained
-
-In the lobby, you can tweak the following:
-- **Winning Score**: Change it from 6000 to shorter or longer games. *Makes the game custom.*
-- **Turn Timer**: Limit how long a player has to take their turn online. (doubled for `Kleeblatt` and tripled for `Feuerwerk`)
-- **Kick Timer**: Limit how long the room waits for a disconnected player to return before they are automatically kicked.
-- **Deck Customization**: Add more `x2` cards, remove `Stop` cards, or tweak the deck composition to your liking. *Makes the game custom.*
-
-### Normal and custom games
-
-Statistics are kept in four buckets: each rule set (Modernized / Classic) has its own pair of **normal** and **custom** buckets, with its own records, win streaks and global row — classic games can never move the modernized figures, and vice versa.
-
-Within a rule set, only games played on the default winning score (6000) and the default deck count as **normal**. Changing either one marks the game **custom**: it is still recorded in full, but in that rule set's separate custom bucket, and it contributes nothing to the global figures beyond a count of how many custom games have been played. The rule set itself does **not** make a game custom — it just picks which pair of buckets the game lands in.
-
-The turn timer, the kick timer, random order and an enforced dice mode change how a game is paced and played, not what it takes to win it — a game using them still counts as normal. The lobby says so before you start, and the end screen says where the game went.
-
-Local games record no statistics at all, whatever their configuration.
+**Browser support:** Safari 16.4+, Chrome 111+, Firefox 128+ — in practice an iPhone 8 or newer. Tailwind CSS 4 sets the floor; an older browser gets a broken layout rather than a plain one.
 
 ## License
 
 Licensed under the **GNU Affero General Public License v3.0 or later** (AGPL-3.0-or-later). The full text is in [COPYING](COPYING), with the copyright notice in [NOTICE](NOTICE).
 
 Because Tutto is played over a network, the AGPL's network clause applies: if you run a modified version as a service others can reach, you must offer them the source of your modified version.
-
----
-*Created with love for card games!*

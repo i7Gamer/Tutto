@@ -8,7 +8,7 @@
 // Off unless asked for. The opt-in is an environment variable rather than a TTY
 // check because the feature belongs to one workflow — the production start
 // script sets it — and a container, a CI run or a spawned test server must log
-// exactly what it logged before. See README, "Restart safety".
+// exactly what it logged before. See docs/deployment.md, "Restart safety".
 
 export const STATUS_LINE_ENV_VAR = 'TUTTO_STATUS_LINE';
 

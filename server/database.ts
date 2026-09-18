@@ -34,7 +34,7 @@ const DOWNGRADE_HINT = [
   'Downgrading past a migration is not supported: the schema cannot be moved',
   'back, so the old build cannot read it. Either re-pull the newer image tag,',
   'or restore the backup taken before the upgrade (see "Data and backups" in',
-  'the README).',
+  'docs/deployment.md).',
 ].join(' ');
 
 export const initDb = async (): Promise<void> => {
