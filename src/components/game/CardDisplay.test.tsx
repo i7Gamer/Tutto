@@ -1,7 +1,14 @@
 import { render, screen, within } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import CardDisplay from './CardDisplay';
 import type { CardType } from '../../types';
+
+// Flipped per test below: the Stop card's countdown bar is dropped under
+// reduced motion, like the dice summary's (DiceSummary.test.tsx).
+const reducedMotion = vi.hoisted(() => ({ active: false }));
+vi.mock('../../hooks/useReducedMotionActive', () => ({
+  useReducedMotionActive: () => reducedMotion.active,
+}));
 
 describe('CardDisplay', () => {
   describe('no-card state', () => {
@@ -44,6 +51,22 @@ describe('CardDisplay', () => {
     it('shows the countdown text when stopCardCountdown is a number', () => {
       render(<CardDisplay currentCard="Stop" cards={[]} stopCardCountdown={4} />);
       expect(screen.getByText('dice.auto_continuing')).toBeInTheDocument();
+    });
+
+    it('shows the countdown bar when motion is not reduced', () => {
+      render(<CardDisplay currentCard="Stop" cards={[]} stopCardCountdown={4} />);
+      expect(screen.getByTestId('auto-continue-bar')).toBeInTheDocument();
+    });
+
+    it('hides the countdown bar under reduced motion but keeps the countdown text', () => {
+      reducedMotion.active = true;
+      try {
+        render(<CardDisplay currentCard="Stop" cards={[]} stopCardCountdown={4} />);
+        expect(screen.getByText('dice.auto_continuing')).toBeInTheDocument();
+        expect(screen.queryByTestId('auto-continue-bar')).not.toBeInTheDocument();
+      } finally {
+        reducedMotion.active = false;
+      }
     });
 
     it('renders no countdown text when stopCardCountdown is null (offline, or not armed)', () => {

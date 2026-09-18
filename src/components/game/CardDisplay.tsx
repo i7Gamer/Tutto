@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
+import { useReducedMotionActive } from '../../hooks/useReducedMotionActive';
 import CardFace from './cards/CardFace';
 import { STOP_CARD_AUTO_CONTINUE_SECONDS } from '../../utils/uiTimings';
 import type { CardType } from '../../types';
@@ -24,6 +25,7 @@ interface CardDisplayProps {
 // re-render source, and Game.tsx for why the props below stay stable).
 function CardDisplay({ currentCard, cards, stopCardCountdown = null }: CardDisplayProps) {
   const { t } = useTranslation();
+  const reducedMotion = useReducedMotionActive();
 
   return (
     // role="status" so a mid-game flip is ANNOUNCED, not merely inspectable:
@@ -74,19 +76,23 @@ function CardDisplay({ currentCard, cards, stopCardCountdown = null }: CardDispl
           <p className="font-semibold text-sm text-red-400">
             {t('dice.auto_continuing', 'Continuing in {{count}}…', { count: stopCardCountdown })}
           </p>
-          <div className="w-full rounded-full h-2 overflow-hidden bg-red-100 dark:bg-red-900/30">
-            {/* Keyed on cards.length (not the ticking countdown itself), so
-                the drain plays once over the whole duration like the dice
-                summary's bar — restarting only for a genuine second Stop
-                draw, not on every one-second re-render. */}
-            <motion.div
-              key={cards.length}
-              className="h-2 rounded-full bg-red-500"
-              initial={{ width: '100%' }}
-              animate={{ width: '0%' }}
-              transition={{ duration: STOP_CARD_AUTO_CONTINUE_SECONDS, ease: 'linear' }}
-            />
-          </div>
+          {/* Dropped under reduced motion, like the dice summary's bar: the
+              drain is what gets suppressed, leaving a full static bar. */}
+          {!reducedMotion && (
+            <div data-testid="auto-continue-bar" className="w-full rounded-full h-2 overflow-hidden bg-red-100 dark:bg-red-900/30">
+              {/* Keyed on cards.length (not the ticking countdown itself), so
+                  the drain plays once over the whole duration like the dice
+                  summary's bar — restarting only for a genuine second Stop
+                  draw, not on every one-second re-render. */}
+              <motion.div
+                key={cards.length}
+                className="h-2 rounded-full bg-red-500"
+                initial={{ width: '100%' }}
+                animate={{ width: '0%' }}
+                transition={{ duration: STOP_CARD_AUTO_CONTINUE_SECONDS, ease: 'linear' }}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

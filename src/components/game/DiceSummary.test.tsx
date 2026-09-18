@@ -9,6 +9,12 @@ import type { CardType } from '../../types';
 // under isTestEnv — now it is unconditionally AUTO_CONTINUE_SECONDS. Real
 // framer-motion consumes `transition` internally rather than exposing it as
 // a DOM attribute, so this surfaces it as one for the assertion below.
+// Flipped per test below: the countdown bar is dropped under reduced motion.
+const reducedMotion = vi.hoisted(() => ({ active: false }));
+vi.mock('../../hooks/useReducedMotionActive', () => ({
+  useReducedMotionActive: () => reducedMotion.active,
+}));
+
 vi.mock('framer-motion', () => ({
   motion: {
     div: ({ children, transition, initial, animate, className, ...rest }: PropsWithChildren<HTMLAttributes<HTMLDivElement> & {
@@ -158,6 +164,20 @@ describe('DiceSummary', () => {
       render(<DiceSummary {...baseProps} finishGame={finishGame} />);
       fireEvent.click(screen.getByText('dice.continue'));
       expect(finishGame).toHaveBeenCalledOnce();
+    });
+
+    it('hides the progress bar under reduced motion but keeps the countdown text', () => {
+      // With animations reduced the bar cannot drain (its width tween is
+      // what the preference suppresses), so it sat there full and static
+      // next to a ticking countdown - the text alone carries it.
+      reducedMotion.active = true;
+      try {
+        render(<DiceSummary {...baseProps} continueCountdown={3} />);
+        expect(screen.getByText('dice.auto_continuing')).toBeInTheDocument();
+        expect(screen.queryByTestId('auto-continue-bar')).not.toBeInTheDocument();
+      } finally {
+        reducedMotion.active = false;
+      }
     });
 
     it('shrinks the progress bar over the real AUTO_CONTINUE_SECONDS, not instantly', () => {

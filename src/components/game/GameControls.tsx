@@ -11,6 +11,7 @@ import { playCardSwoosh } from '../../utils/soundEffects';
 import { BONUS_CARDS, MAX_SCORE_MAGNITUDE } from '../../utils/configValidation';
 import type { CardType, DiceMode } from '../../types';
 import { DiePips } from './Die';
+import SpectatorRollDie from './SpectatorRollDie';
 import ConfirmModal from '../ConfirmModal';
 import { useSpectatorGrace } from '../../hooks/useSpectatorGrace';
 import { compositionSize } from '../../utils/onlineDeck';
@@ -442,35 +443,14 @@ export default function GameControls({
                     <div>
                       <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('game.controls.currentRoll', 'Current Roll')}</p>
                       <div className="flex gap-2 flex-wrap justify-center">
-                        {activeTurnState.currentRoll.map((d) => {
-                          const isRolling = activeTurnState.rollingDiceIds?.includes(d.id) ?? false;
-                          const isBusted = activeTurnState.busted ?? false;
-                          return (
-                            <motion.div
-                              key={d.id}
-                              role="img"
-                              aria-label={t('dice.dieFace', 'Die showing {{value}}', { value: d.val })}
-                              animate={{
-                                rotate: isRolling ? [0, 90, 180, 270, 360] : 0,
-                                y: isRolling ? [0, -15, 0] : 0,
-                              }}
-                              transition={{
-                                rotate: { repeat: isRolling ? Infinity : 0, duration: 0.2 },
-                                y: { repeat: isRolling ? Infinity : 0, duration: 0.15 },
-                              }}
-                              className={`w-10 h-10 rounded-xl flex items-center justify-center text-transparent border-2 relative ${
-                                isBusted
-                                  ? 'bg-red-50 border-red-300 opacity-70'
-                                  : d.selected
-                                    ? 'bg-emerald-100 border-emerald-500 dark:bg-slate-700 dark:border-emerald-400'
-                                    : 'bg-white dark:bg-slate-700 border-gray-300 dark:border-slate-500'
-                              }`}
-                            >
-                              {d.val}
-                              <DiePips val={d.val} isSelected={d.selected} bustState={isBusted} size="small" />
-                            </motion.div>
-                          );
-                        })}
+                        {activeTurnState.currentRoll.map((d) => (
+                          <SpectatorRollDie
+                            key={d.id}
+                            die={d}
+                            isRolling={activeTurnState.rollingDiceIds?.includes(d.id) ?? false}
+                            isBusted={activeTurnState.busted ?? false}
+                          />
+                        ))}
                       </div>
                     </div>
                   )}

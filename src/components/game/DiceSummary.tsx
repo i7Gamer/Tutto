@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useReducedMotionActive } from '../../hooks/useReducedMotionActive';
 import { Check } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { isSpecialCard } from '../../utils/diceTurnControls';
@@ -27,6 +28,7 @@ interface DiceSummaryProps {
 
 export default function DiceSummary({ summaryData, continueCountdown, finishGame, currentCard, banksChainTotal = false }: DiceSummaryProps) {
   const { t, i18n } = useTranslation();
+  const reducedMotion = useReducedMotionActive();
 
   // Focus has to be caught here or it is lost. This panel replaces the dice
   // table, so whatever held focus — a die, Roll, Stop & Score — unmounts at
@@ -86,14 +88,19 @@ export default function DiceSummary({ summaryData, continueCountdown, finishGame
         <p className={`font-semibold text-lg ${summaryData.won ? 'text-emerald-500' : 'text-red-400'}`}>
           {t('dice.auto_continuing', 'Continuing in {{count}}…', { count: continueCountdown ?? 0 })}
         </p>
-        <div className={`w-full rounded-full h-2 overflow-hidden ${summaryData.won ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
-          <motion.div
-            className={`h-2 rounded-full ${summaryData.won ? 'bg-emerald-500' : 'bg-red-500'}`}
-            initial={{ width: '100%' }}
-            animate={{ width: '0%' }}
-            transition={{ duration: AUTO_CONTINUE_SECONDS, ease: 'linear' }}
-          />
-        </div>
+        {/* Under reduced motion the drain is exactly what gets suppressed, so
+            the bar sat there full and static beside a ticking countdown — the
+            text alone carries it then. */}
+        {!reducedMotion && (
+          <div data-testid="auto-continue-bar" className={`w-full rounded-full h-2 overflow-hidden ${summaryData.won ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
+            <motion.div
+              className={`h-2 rounded-full ${summaryData.won ? 'bg-emerald-500' : 'bg-red-500'}`}
+              initial={{ width: '100%' }}
+              animate={{ width: '0%' }}
+              transition={{ duration: AUTO_CONTINUE_SECONDS, ease: 'linear' }}
+            />
+          </div>
+        )}
         <button
           ref={continueRef}
           data-testid="dice-summary-continue"
