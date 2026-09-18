@@ -28,6 +28,30 @@ describe('Home Component (i18n)', () => {
   });
 });
 
+describe('Home title', () => {
+  afterEach(cleanup);
+
+  it('is the Tutto wordmark image inside a level-1 heading named "Tutto"', () => {
+    // The brand name is artwork now, not text — but the heading must keep
+    // its accessible name so the page still announces (and e2e still finds)
+    // a heading called "Tutto". One raster per theme; both are decorative,
+    // otherwise the name would read "TuttoTutto" wherever no stylesheet
+    // hides one of them (as here).
+    render(<Home onShowStats={() => {}} />);
+
+    const heading = screen.getByRole('heading', { level: 1, name: 'Tutto' });
+    const images = heading.querySelectorAll('img');
+    expect(images.length).toBe(2);
+    const sources = Array.from(images, (img) => img.getAttribute('src'));
+    expect(sources[0]).toMatch(/wordmark-light/);
+    expect(sources[1]).toMatch(/wordmark-dark/);
+    images.forEach((img) => {
+      expect(img).toHaveAttribute('alt', '');
+      expect(img).toHaveAttribute('aria-hidden', 'true');
+    });
+  });
+});
+
 describe('Home following a join link', () => {
   const originalSetMode = useGameStore.getState().setMode;
 

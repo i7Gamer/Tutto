@@ -14,6 +14,12 @@ import ConfirmModal from './ConfirmModal';
 import PageContainer from './PageContainer';
 import InstallPrompt from './InstallPrompt';
 import { clearTurnCaches } from '../utils/diceTurnState';
+import wordmarkLight from '../assets/wordmark-light.png';
+import wordmarkDark from '../assets/wordmark-dark.png';
+
+// The brand name is artwork, not a translated string — see the wordmark below.
+const APP_NAME = 'Tutto';
+const WORDMARK_SIZE_CLASSES = 'h-14 sm:h-20 w-auto';
 
 interface HomeProps {
   onShowStats: () => void;
@@ -106,12 +112,18 @@ export default function Home({ onShowStats }: HomeProps) {
       >
         <div className="absolute top-0 left-0 w-full h-2 bg-linear-to-r from-indigo-500 via-purple-500 to-pink-500" />
 
+        {/* The brand wordmark, one raster per theme (the app's dark mode is a
+            data-theme attribute, not a media query, so <picture> cannot pick).
+            The heading names itself; the images are decorative, so the name
+            is "Tutto" exactly once whichever raster the stylesheet shows. */}
         <motion.h1
           initial={{ scale: 0.9 }}
           animate={{ scale: 1 }}
-          className="text-5xl font-extrabold text-transparent bg-clip-text bg-linear-to-r from-indigo-600 to-pink-500 text-center mb-6 sm:mb-8 tracking-tight"
+          aria-label={APP_NAME}
+          className="flex justify-center mb-6 sm:mb-8"
         >
-          {t('app.title', 'Tutto')}
+          <img src={wordmarkLight} alt="" aria-hidden="true" className={`${WORDMARK_SIZE_CLASSES} dark:hidden`} />
+          <img src={wordmarkDark} alt="" aria-hidden="true" className={`hidden ${WORDMARK_SIZE_CLASSES} dark:block`} />
         </motion.h1>
 
         <ModeSelector
