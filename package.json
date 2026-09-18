@@ -1,7 +1,7 @@
 {
   "name": "tutto",
   "private": true,
-  "version": "1.6.2",
+  "version": "1.6.3",
   "engines": {
     "node": ">=22 <25"
   },
