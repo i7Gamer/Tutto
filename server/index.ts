@@ -110,7 +110,7 @@ app.use('/assets', express.static(ASSETS_DIR, {
   index: false,
 }));
 // Everything else under dist/ — index.html, the webmanifest, the icons,
-// favicon.svg — keeps the same URL across a deploy even when its content
+// favicon.png — keeps the same URL across a deploy even when its content
 // changes, so it must always revalidate: maxAge: 0 rather than the assets'
 // immutable year. `index` is left at its default ('index.html'), not set to
 // `false`: without it express.static never matches a bare "/" at all (there

@@ -752,7 +752,7 @@ describe('service worker fetch', () => {
     // So opening /api/health — the endpoint the README documents — in the
     // browser that has Tutto installed replaced the cached shell with JSON,
     // and the next offline start rendered it. Same for /manifest.webmanifest,
-    // /favicon.svg, or any /assets/... URL opened in a tab.
+    // /favicon.png, or any /assets/... URL opened in a tab.
     await loadSw();
     const cacheName = await runInstall();
     fetchMock.mockResolvedValueOnce(makeResponse('{"status":"ok"}', { contentType: 'application/json' }));

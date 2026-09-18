@@ -116,12 +116,12 @@ export default defineConfig(({ mode }) => {
           // `undefined` here (rather than omitting the key) overrides that
           // default — JSON.stringify then drops it from the generated file.
           lang: undefined,
-          // Rendered from public/favicon.svg — see scripts/generate-icons.mjs.
+          // Rendered from public/icons/logo.png — see scripts/generate-icons.mjs.
           // Under public/icons/, NOT public/assets/: Vite copies public/ files
           // verbatim, and the server caches everything under /assets/ as
           // immutable for a year on the promise that it is content-hashed —
           // which these stable-named files are not.
-          // The previous config declared the 200x200 logo.png as both the 192
+          // A previous config declared a 200x200 logo.png as both the 192
           // and 512 icon, so installed-app icons rendered upscaled and blurry.
           icons: [
             {

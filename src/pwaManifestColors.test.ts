@@ -129,6 +129,26 @@ describe('the home-screen icon for iOS', () => {
   });
 });
 
+// The browser-tab icon. It was an SVG once; the brand artwork is a raster
+// (docs/brand/tutto-icon.png), so scripts/generate-icons.mjs renders the
+// favicon from the same master as the manifest icons.
+describe('the favicon', () => {
+  const FAVICON_PATTERN = /<link\s+rel="icon"[^>]*href="([^"]+)"/;
+  const indexHtml = fs.readFileSync(path.join(REPO_ROOT, 'index.html'), 'utf8');
+
+  it('is linked from index.html as a PNG that exists in public/', () => {
+    const match = FAVICON_PATTERN.exec(indexHtml);
+    expect(match, 'index.html has no <link rel="icon">').not.toBeNull();
+    const href = match![1];
+    expect(href.endsWith('.png')).toBe(true);
+    expect(fs.existsSync(path.join(REPO_ROOT, 'public', href.replace(/^\//, '')))).toBe(true);
+  });
+
+  it('declares the PNG media type on its <link>', () => {
+    expect(indexHtml).toMatch(/<link\s+rel="icon"\s+type="image\/png"/);
+  });
+});
+
 // Everything under public/ is copied into dist/ verbatim, and server/index.ts
 // serves dist/assets/ as immutable for a year on the promise that Vite named
 // every file there by a content hash. A stable-named file under public/assets/
