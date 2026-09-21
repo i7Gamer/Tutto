@@ -59,6 +59,29 @@ export interface BotTurnContext {
   chainCardCount?: number;
 }
 
+/** Strategy inputs shared by a bot decision and the coach's equivalent Otto decision. */
+export type BotTurnInputs = Omit<BotTurnContext, 'personality'>;
+
+export const buildBotTurnContext = (personality: BotPersonality, inputs: BotTurnInputs): BotTurnContext => ({
+  personality,
+  ...inputs,
+});
+
+/**
+ * Content key for the evaluator boundary. Selection flags deliberately do not
+ * appear here: they affect the coach's comparison copy, not Otto's decision.
+ */
+export const botTurnContextKey = (ctx: BotTurnContext): string => [
+  ctx.personality,
+  ctx.rollVals.join(','), ctx.keptCount, ctx.turnScore, ctx.currentCard, ctx.ruleset,
+  ctx.kniffelProgress.join(','), ctx.tuttosThisTurn,
+  Object.entries(ctx.deck).sort(([a], [b]) => a.localeCompare(b))
+    .map(([card, count]) => `${card}:${count}`).join(','),
+  ctx.myScore, ctx.leaderScore, ctx.winningScore,
+  !!ctx.endgame, ctx.endgame?.opponentScores.join(','), ctx.canDraw ?? true,
+  ctx.chainCardCount, ctx.plusMinusScores?.join(','),
+].join('|');
+
 /** Cautious Carl banks the moment a turn is worth this much... */
 export const CAUTIOUS_BANK_MIN = 300;
 /** ...and never rolls fewer dice than this. */

@@ -1309,7 +1309,7 @@ describe('DiceGame coach hint (coachSeat)', () => {
     expect(screen.getByText('coach.roll')).toBeInTheDocument();
   });
 
-  it('keeps Otto\'s coach decision across equal-value replacement props and player selection flags', async () => {
+  it('keeps Otto\'s coach decision across equal-value replacement props while refreshing selection advice', async () => {
     const props = {
       currentCard: '200' as const,
       onComplete: vi.fn(),
@@ -1326,9 +1326,17 @@ describe('DiceGame coach hint (coachSeat)', () => {
     rerender(<DiceGame {...props} coachSeat={{ ...standings }} drawStrategyInputs={{
       remainingCounts: { Stop: 2, '200': 3 }, initialCards: { Stop: 2, '200': 4 }, completedReveals: [],
     }} />);
-    fireEvent.click(dieShowing(1, false));
+    expect(screen.queryByText('coach.selectionDiffers')).not.toBeInTheDocument();
+    fireEvent.click(dieShowing(3, false));
 
     expect(botDecisionCalls.evaluate).toBe(settledEvaluations);
+    expect(screen.getByText('coach.selectionDiffers')).toBeInTheDocument();
+
+    rerender(<DiceGame {...props} coachSeat={{ ...standings, leaderScore: 1000 }} drawStrategyInputs={{
+      remainingCounts: { Stop: 2, '200': 3 }, initialCards: { Stop: 2, '200': 4 }, completedReveals: [],
+    }} />);
+    const expectedStrategyChangeEvaluations = settledEvaluations + 1;
+    expect(botDecisionCalls.evaluate).toBe(expectedStrategyChangeEvaluations);
   });
 
   it('uses the restored active chain for first-roll draw weights before any live snapshot debounce', async () => {
@@ -1547,8 +1555,8 @@ describe('DiceGame roll-again mid-animation button stability', () => {
 });
 
 describe('DiceGame chain draw the server discards', () => {
-  // Two server paths drop a pushed state outright: applyPushedState's roster
-  // bail-out, and the socket-identity gate in socketGameStateHandlers when a
+  // Two server paths refuse a push: a stale-base check, and the
+  // socket-identity gate in socketGameStateHandlers when a
   // transport blip means the sender's socket is no longer the seat's socketId.
   // The next emitRoomState then reverts currentCard (a GAME_STATE_SYNC_KEY) to
   // the card that was drawn FROM — and the deferred chain roll waits on a

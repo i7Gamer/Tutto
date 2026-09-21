@@ -1,7 +1,7 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
 import {
-  chooseBotSelection, chooseBotAction, evaluateOttoDecision, resolveOttoAction,
+  buildBotTurnContext, botTurnContextKey, chooseBotSelection, chooseBotAction, evaluateOttoDecision, resolveOttoAction,
   evaluateRoll, outcomeOfSelection, optimalRollDecision, optimalDrawDecision, optimalActionDecision,
   CAUTIOUS_BANK_MIN, CAUTIOUS_MIN_DICE_TO_ROLL,
   type BotTurnContext, type BotActionAvailability, type BotAction,
@@ -320,6 +320,60 @@ describe('Otto strategy regressions', () => {
       expect(evaluateOttoDecision(input).selectedIndices).toEqual(selected);
       expect(chooseBotAction(input, available)).toBe(decision.action);
     }
+  });
+});
+
+describe('shared bot decision inputs', () => {
+  it('builds a typed context and keeps its semantic key stable for equivalent content', () => {
+    const { personality: _personality, ...inputs } = ctx({
+      deck: { '200': 3, Stop: 2 },
+      endgame: { opponentScores: [3200, 2800] },
+      plusMinusScores: [100, 200],
+      canDraw: false,
+      chainCardCount: 1,
+    });
+    const first = buildBotTurnContext('optimal', inputs);
+    const equivalent = buildBotTurnContext('optimal', {
+      ...inputs,
+      deck: { Stop: 2, '200': 3 },
+      endgame: { opponentScores: [3200, 2800] },
+    });
+
+    expect(first.personality).toBe('optimal');
+    expect(botTurnContextKey(first)).toBe(botTurnContextKey(equivalent));
+    expect(botTurnContextKey(first)).not.toBe(botTurnContextKey({ ...first, leaderScore: first.leaderScore + 1 }));
+    expect(botTurnContextKey(first)).not.toBe(botTurnContextKey({ ...first, personality: 'cautious' }));
+  });
+
+  it('keeps the optional canDraw default distinct from an explicit false', () => {
+    const implicitDefault = botTurnContextKey(ctx({ canDraw: undefined }));
+    const explicitlyAllowed = botTurnContextKey(ctx({ canDraw: true }));
+    const explicitlyDenied = botTurnContextKey(ctx({ canDraw: false }));
+
+    expect(implicitDefault).toBe(explicitlyAllowed);
+    expect(implicitDefault).not.toBe(explicitlyDenied);
+  });
+
+  it.each([
+    ['personality', (input: BotTurnContext): BotTurnContext => ({ ...input, personality: 'risky' })],
+    ['rollVals', (input: BotTurnContext): BotTurnContext => ({ ...input, rollVals: [...input.rollVals, 6] })],
+    ['keptCount', (input: BotTurnContext): BotTurnContext => ({ ...input, keptCount: input.keptCount + 1 })],
+    ['turnScore', (input: BotTurnContext): BotTurnContext => ({ ...input, turnScore: input.turnScore + 1 })],
+    ['currentCard', (input: BotTurnContext): BotTurnContext => ({ ...input, currentCard: null })],
+    ['ruleset', (input: BotTurnContext): BotTurnContext => ({ ...input, ruleset: 'classic' })],
+    ['kniffelProgress', (input: BotTurnContext): BotTurnContext => ({ ...input, kniffelProgress: [1] })],
+    ['tuttosThisTurn', (input: BotTurnContext): BotTurnContext => ({ ...input, tuttosThisTurn: input.tuttosThisTurn + 1 })],
+    ['deck', (input: BotTurnContext): BotTurnContext => ({ ...input, deck: { ...input.deck, Stop: (input.deck.Stop ?? 0) + 1 } })],
+    ['myScore', (input: BotTurnContext): BotTurnContext => ({ ...input, myScore: input.myScore + 1 })],
+    ['leaderScore', (input: BotTurnContext): BotTurnContext => ({ ...input, leaderScore: input.leaderScore + 1 })],
+    ['winningScore', (input: BotTurnContext): BotTurnContext => ({ ...input, winningScore: input.winningScore + 1 })],
+    ['endgame', (input: BotTurnContext): BotTurnContext => ({ ...input, endgame: { opponentScores: [1] } })],
+    ['plusMinusScores', (input: BotTurnContext): BotTurnContext => ({ ...input, plusMinusScores: [1] })],
+    ['canDraw', (input: BotTurnContext): BotTurnContext => ({ ...input, canDraw: false })],
+    ['chainCardCount', (input: BotTurnContext): BotTurnContext => ({ ...input, chainCardCount: 1 })],
+  ] as const)('invalidates the semantic key when %s changes', (_field, change) => {
+    const input = ctx();
+    expect(botTurnContextKey(change(input))).not.toBe(botTurnContextKey(input));
   });
 });
 
