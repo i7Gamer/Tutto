@@ -812,7 +812,7 @@ describe('joinRoom refusals carry a machine code', () => {
   it('seats a padded name under its trimmed form', async () => {
     // The other half of the same trim: it must not merely reject, it has to
     // be what gets stored -- the name is the key every later lookup uses
-    // (name_taken, kickPlayer, the roster merge in applyPushedState).
+    // (name_taken, kickPlayer, reorderPlayers and history/stat joins).
     const { io } = makeFakeIo();
     const { socket, handlers } = makeFakeSocket('padded-name-sock');
     registerRoomHandlers({ io, socket, session: { roomId: null, username: null } });

@@ -8,7 +8,7 @@ import { roomPhase } from '../src/utils/roomPhase';
 import type { Room, ServerPlayer } from './roomTypes';
 import { rooms, calculateRemainingTurnTime, emitRoomState, idleTurnTimerState, recordDealtCard, rememberCurrentTurn, roomChannel } from './rooms';
 import { randomUUID } from 'node:crypto';
-import { MAX_CHART_POINTS } from './pushValidation';
+import { MAX_CHART_POINTS } from '../src/utils/configValidation';
 import { clearDeck } from './deckAuthority';
 import { canonicalTurnSummary } from './gameActionAuthority';
 import { MS_PER_SECOND } from '../src/utils/time';

@@ -1,9 +1,9 @@
 import { calculateNextTurn, calculateUndo, noUndoableTurn, shuffleArray, KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../src/utils/coreGameEngine';
-import { MAX_SCORE_MAGNITUDE, MIN_ONLINE_PLAYERS } from '../src/utils/configValidation';
+import { MAX_CHART_POINTS, MAX_SCORE_MAGNITUDE, MIN_ONLINE_PLAYERS } from '../src/utils/configValidation';
 import { PLAYER_RECORD_FIELDS, zeroedPlayerStats } from '../src/utils/playerStats';
 import { isSpecialCard } from '../src/utils/diceTurnControls';
 import { MAX_CHAIN_CARDS, MAX_HISTORY_LOG_SIZE, type TurnSummary } from '../src/types';
-import { isValidTurnSummary, MAX_CHART_POINTS } from './pushValidation';
+import { isValidTurnSummary } from './turnPayloadValidation';
 import type { Room, RoomState, ServerPlayer } from './roomTypes';
 
 const FIRST_ROUND = 1;

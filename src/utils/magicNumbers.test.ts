@@ -6,52 +6,235 @@
  * real source file and fails if the old duplicate literal is still there —
  * not merely that a constant with the right name exists somewhere.
  *
- * Deliberately whole-file regex checks, in the style of bundleSplit.test.ts:
- * these are structural assertions about source text, not behavior, and the
- * files under test have no shared runtime surface to import instead.
+ * Deliberately structural source checks, in the style of bundleSplit.test.ts:
+ * most are source-text assertions, and the shared helper below follows real
+ * imports so a file must use the named constant instead of merely importing it.
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+import * as ts from 'typescript';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const read = (relPath: string): string => fs.readFileSync(path.join(ROOT, relPath), 'utf8');
+const CONFIG_VALIDATION_MODULE = '../src/utils/configValidation';
+const TYPES_MODULE = '../src/types';
+const DEVICE_ID_LIMIT = 200;
+const LEGACY_DEVICE_ID_LIMIT_LITERAL = '200';
+const LEGACY_CHAIN_CARD_LIMIT_LITERAL = '100';
+
+const parse = (source: string): ts.SourceFile =>
+  ts.createSourceFile('source.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+
+const importedLocalName = (source: string, modulePath: string, importedName: string): string | null => {
+  let localName: string | null = null;
+  const visit = (node: ts.Node): void => {
+    if (localName) return;
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) &&
+        node.moduleSpecifier.text === modulePath) {
+      const bindings = node.importClause?.namedBindings;
+      if (bindings && ts.isNamedImports(bindings)) {
+        for (const element of bindings.elements) {
+          const imported = element.propertyName?.text ?? element.name.text;
+          if (imported === importedName) {
+            localName = element.name.text;
+            return;
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parse(source));
+  return localName;
+};
+
+const unwrapParentheses = (node: ts.Expression): ts.Expression => {
+  let current = node;
+  while (ts.isParenthesizedExpression(current)) current = current.expression;
+  return current;
+};
+
+const propertyAccessPath = (node: ts.Expression): string | null => {
+  const unwrapped = unwrapParentheses(node);
+  if (ts.isIdentifier(unwrapped)) return unwrapped.text;
+  if (ts.isPropertyAccessExpression(unwrapped)) {
+    const base = propertyAccessPath(unwrapped.expression);
+    return base ? `${base}.${unwrapped.name.text}` : null;
+  }
+  return null;
+};
+
+const boundaryComparisonRhsSpan = (
+  source: string,
+  modulePath: string,
+  importedName: string,
+  guardedExpression: string,
+  operator: ts.SyntaxKind,
+): { start: number; end: number } | null => {
+  const localName = importedLocalName(source, modulePath, importedName);
+  if (localName === null) return null;
+  const sourceFile = parse(source);
+  let span: { start: number; end: number } | null = null;
+  const visit = (node: ts.Node): void => {
+    if (span || !ts.isBinaryExpression(node) || node.operatorToken.kind !== operator) {
+      ts.forEachChild(node, visit);
+      return;
+    }
+    const left = unwrapParentheses(node.left);
+    const right = unwrapParentheses(node.right);
+    if (propertyAccessPath(left) === guardedExpression &&
+        ts.isIdentifier(right) && right.text === localName) {
+      span = { start: right.getStart(sourceFile), end: right.getEnd() };
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return span;
+};
+
+const importsAndComparesBoundary = (
+  source: string,
+  modulePath: string,
+  importedName: string,
+  guardedExpression: string,
+  operator: ts.SyntaxKind,
+): boolean => boundaryComparisonRhsSpan(source, modulePath, importedName, guardedExpression, operator) !== null;
+
+const replaceBoundaryComparisonRhs = (
+  source: string,
+  modulePath: string,
+  importedName: string,
+  guardedExpression: string,
+  operator: ts.SyntaxKind,
+  replacement: string,
+): string => {
+  const span = boundaryComparisonRhsSpan(source, modulePath, importedName, guardedExpression, operator);
+  if (!span) throw new Error(`No boundary comparison found for ${guardedExpression}`);
+  return `${source.slice(0, span.start)}${replacement}${source.slice(span.end)}`;
+};
+
+const exportsConstInitializedToNumber = (source: string, name: string, value: number): boolean => {
+  const sourceFile = parse(source);
+  let matches = false;
+  const visit = (node: ts.Node): void => {
+    if (matches) return;
+    if (ts.isVariableStatement(node) &&
+        (node.declarationList.flags & ts.NodeFlags.Const) !== 0 &&
+        node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+      for (const declaration of node.declarationList.declarations) {
+        const initializer = declaration.initializer ? unwrapParentheses(declaration.initializer) : undefined;
+        if (ts.isIdentifier(declaration.name) && declaration.name.text === name &&
+            initializer && ts.isNumericLiteral(initializer) && Number(initializer.text) === value) {
+          matches = true;
+          return;
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return matches;
+};
 
 describe('length caps share one constant instead of a duplicated literal', () => {
+  it('the structural source helper follows aliases and rejects equal literals', () => {
+    const aliased = "import { MAX_PLAYER_NAME_LENGTH as NAME_LIMIT } from '../src/utils/configValidation';\nif (((name /* keep readable */ . length)) > (NAME_LIMIT)) throw new Error();";
+    const literal = "import { MAX_PLAYER_NAME_LENGTH } from '../src/utils/configValidation';\nif (name.length > 30) throw new Error();";
+
+    expect(importsAndComparesBoundary(
+      aliased, CONFIG_VALIDATION_MODULE, 'MAX_PLAYER_NAME_LENGTH', 'name.length', ts.SyntaxKind.GreaterThanToken
+    )).toBe(true);
+    expect(importsAndComparesBoundary(
+      literal, CONFIG_VALIDATION_MODULE, 'MAX_PLAYER_NAME_LENGTH', 'name.length', ts.SyntaxKind.GreaterThanToken
+    )).toBe(false);
+  });
+
+  it('the structural source helper fails when the actual protected guard falls back to its equal literal', () => {
+    const src = read('server/turnPayloadValidation.ts');
+    const mutated = replaceBoundaryComparisonRhs(
+      src,
+      TYPES_MODULE,
+      'MAX_CHAIN_CARDS',
+      's.deductedPlayers.length',
+      ts.SyntaxKind.GreaterThanToken,
+      LEGACY_CHAIN_CARD_LIMIT_LITERAL
+    );
+
+    expect(importsAndComparesBoundary(
+      src, TYPES_MODULE, 'MAX_CHAIN_CARDS', 's.deductedPlayers.length', ts.SyntaxKind.GreaterThanToken
+    )).toBe(true);
+    expect(importsAndComparesBoundary(
+      mutated, TYPES_MODULE, 'MAX_CHAIN_CARDS', 's.deductedPlayers.length', ts.SyntaxKind.GreaterThanToken
+    )).toBe(false);
+  });
+
+  it('the boundary mutator follows aliases and formatted guards instead of raw source spelling', () => {
+    const formatted = "import { MAX_CHAIN_CARDS as CHAIN_LIMIT } from '../src/types';\nif (((s /* comment */ . deductedPlayers).length) > (CHAIN_LIMIT)) throw new Error();";
+    const mutated = replaceBoundaryComparisonRhs(
+      formatted,
+      TYPES_MODULE,
+      'MAX_CHAIN_CARDS',
+      's.deductedPlayers.length',
+      ts.SyntaxKind.GreaterThanToken,
+      LEGACY_CHAIN_CARD_LIMIT_LITERAL
+    );
+
+    expect(mutated).toContain(`> (${LEGACY_CHAIN_CARD_LIMIT_LITERAL})`);
+    expect(importsAndComparesBoundary(
+      formatted, TYPES_MODULE, 'MAX_CHAIN_CARDS', 's.deductedPlayers.length', ts.SyntaxKind.GreaterThanToken
+    )).toBe(true);
+    expect(importsAndComparesBoundary(
+      mutated, TYPES_MODULE, 'MAX_CHAIN_CARDS', 's.deductedPlayers.length', ts.SyntaxKind.GreaterThanToken
+    )).toBe(false);
+  });
+
   it('socketRoomHandlers.joinRoom validates against the shared constants, not bare numbers', () => {
     const src = read('server/socketRoomHandlers.ts');
     expect(src).not.toMatch(/roomId\.length > 100/);
     expect(src).not.toMatch(/deviceId\.length > 200/);
     expect(src).not.toMatch(/name\.length > 30/);
-    expect(src).toMatch(/roomId\.length > MAX_ROOM_ID_LENGTH/);
-    expect(src).toMatch(/deviceId\.length > MAX_DEVICE_ID_LENGTH/);
-    expect(src).toMatch(/name\.length > MAX_PLAYER_NAME_LENGTH/);
-    expect(src).toMatch(/from ['"]\.\.\/src\/utils\/configValidation['"]/);
+    expect(importsAndComparesBoundary(
+      src, CONFIG_VALIDATION_MODULE, 'MAX_ROOM_ID_LENGTH', 'roomId.length', ts.SyntaxKind.GreaterThanToken
+    )).toBe(true);
+    expect(importsAndComparesBoundary(
+      src, CONFIG_VALIDATION_MODULE, 'MAX_DEVICE_ID_LENGTH', 'deviceId.length', ts.SyntaxKind.GreaterThanToken
+    )).toBe(true);
+    expect(importsAndComparesBoundary(
+      src, CONFIG_VALIDATION_MODULE, 'MAX_PLAYER_NAME_LENGTH', 'name.length', ts.SyntaxKind.GreaterThanToken
+    )).toBe(true);
   });
 
   it('configValidation exports MAX_DEVICE_ID_LENGTH beside the other two length caps', () => {
     const src = read('src/utils/configValidation.ts');
-    expect(src).toMatch(/export const MAX_DEVICE_ID_LENGTH = 200;/);
+    expect(exportsConstInitializedToNumber(src, 'MAX_DEVICE_ID_LENGTH', DEVICE_ID_LIMIT)).toBe(true);
+    expect(exportsConstInitializedToNumber(
+      `export const MAX_DEVICE_ID_LENGTH /* keep with room validation */ =\n  ${LEGACY_DEVICE_ID_LIMIT_LITERAL};`,
+      'MAX_DEVICE_ID_LENGTH',
+      DEVICE_ID_LIMIT
+    )).toBe(true);
+    expect(exportsConstInitializedToNumber(
+      `export let MAX_DEVICE_ID_LENGTH = ${LEGACY_DEVICE_ID_LIMIT_LITERAL};`,
+      'MAX_DEVICE_ID_LENGTH',
+      DEVICE_ID_LIMIT
+    )).toBe(false);
   });
 
-  it('pushValidation imports MAX_PLAYER_NAME_LENGTH instead of redeclaring it', () => {
-    const src = read('server/pushValidation.ts');
+  it('turnPayloadValidation imports MAX_PLAYER_NAME_LENGTH instead of redeclaring it', () => {
+    const src = read('server/turnPayloadValidation.ts');
     expect(src).not.toMatch(/const MAX_PLAYER_NAME_LENGTH = 30;/);
-    expect(src).toMatch(/isValidWinningScore|MAX_PLAYER_NAME_LENGTH/); // sanity: file still imports from configValidation
-    expect(src).toMatch(/import\s*\{[^}]*MAX_PLAYER_NAME_LENGTH[^}]*\}\s*from\s*['"]\.\.\/src\/utils\/configValidation['"]/s);
+    expect(importsAndComparesBoundary(
+      src, CONFIG_VALIDATION_MODULE, 'MAX_PLAYER_NAME_LENGTH', 'n.length', ts.SyntaxKind.LessThanEqualsToken
+    )).toBe(true);
   });
 
-  it('pushValidation names the history-entry id cap instead of a bare 100', () => {
-    const src = read('server/pushValidation.ts');
-    expect(src).not.toMatch(/entry\.id\.length <= 100/);
-    expect(src).toMatch(/MAX_HISTORY_ID_LENGTH\s*=\s*100/);
-    expect(src).toMatch(/entry\.id\.length <= MAX_HISTORY_ID_LENGTH/);
-  });
-
-  it('pushValidation reuses MAX_CHAIN_CARDS for the history-entry deductedPlayers cap', () => {
-    const src = read('server/pushValidation.ts');
-    expect(src).not.toMatch(/entry\.deductedPlayers\.length > 100/);
-    expect(src).toMatch(/entry\.deductedPlayers\.length > MAX_CHAIN_CARDS/);
+  it('turnPayloadValidation reuses MAX_CHAIN_CARDS for turn-summary lists', () => {
+    const src = read('server/turnPayloadValidation.ts');
+    expect(src).not.toMatch(/deductedPlayers\.length > 100/);
+    expect(importsAndComparesBoundary(
+      src, TYPES_MODULE, 'MAX_CHAIN_CARDS', 's.deductedPlayers.length', ts.SyntaxKind.GreaterThanToken
+    )).toBe(true);
   });
 
   it('api.ts imports MAX_DEVICE_ID_LENGTH instead of redeclaring it', () => {

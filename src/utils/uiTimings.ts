@@ -143,9 +143,9 @@ export const TOAST_LIFETIME_MS = 3000;
 // DiceGame's currentCard prop: how long the deferred chain roll waits before
 // the draw is treated as never having happened.
 //
-// The push that carries a mid-chain draw can be discarded server side —
-// applyPushedState's roster bail-out, or the socket-identity gate when a
-// transport blip means the sender's socket is no longer the seat's socketId.
+// The push that carries a mid-chain draw can be refused server side — for
+// example by the stale-base or socket-identity gate when a transport blip means
+// the sender's socket is no longer the seat's socketId.
 // The next room state then reverts currentCard (a GAME_STATE_SYNC_KEY) to the
 // card that was drawn FROM, which the release guard can never be satisfied by
 // again: the roll would stay parked forever behind an empty table whose every

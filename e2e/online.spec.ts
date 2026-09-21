@@ -94,8 +94,8 @@ test.describe('Tutto Online Ghost Lobbies', () => {
 
     // Seat Bob first. The reorder commits after a short press-release
     // debounce, so wait for the host's roster to actually show the new order
-    // — the start push then carries that ordering and the server adopts it
-    // verbatim (pushValidation's startingGame branch).
+    // — the accepted reorder is already in the room before the start action
+    // fires, so the server starts from that authoritative order.
     await pageA.getByRole('button', { name: 'Move up: BobGuest' }).click();
     await expect(pageA.locator('.player-name').first()).toContainText('BobGuest');
     // The determinism above RESTS on reorderPlayers flipping randomOrder off

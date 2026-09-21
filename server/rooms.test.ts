@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { BROADCAST_EXCLUDED_FIELDS, handleActivePlayerRemoved, calculateRemainingTurnTime, createRoom, deleteRoom, emitRoomState, isAbandonedRoom, promoteHostAfterLoss, rooms } from './rooms';
 import type { Server } from 'socket.io';
 import { SYNCED_GAME_STATE_KEYS } from '../src/types';
-import { MAX_CHART_POINTS } from './pushValidation';
+import { MAX_CHART_POINTS } from '../src/utils/configValidation';
 import type { Room, RoomState, ServerPlayer } from './roomTypes';
 import { makeServerPlayer as makePlayer } from './socketTestHarness';
 import { nonNull } from '../src/testing/factories';
@@ -264,10 +264,8 @@ describe('handleActivePlayerRemoved', () => {
     it('stops appending chart datapoints once the MAX_CHART_POINTS cap is reached', () => {
       // The same bound turnTimers.advanceTurnOnTimeout respects on its own
       // round-end append. Not an abuse story here — it takes a real seat
-      // removal per datapoint — but the cap is what pushValidation ENFORCES on
-      // the way in: a chartLabels longer than MAX_CHART_POINTS is refused
-      // wholesale, so a server array that grew past it is one no client can
-      // ever push back, and the two copies silently diverge from there.
+      // removal per datapoint — but the same cap is what keeps server-retained
+      // chart history bounded.
       const fullSeries = () => Array(MAX_CHART_POINTS).fill(0);
       const room = makeRoom(['Alice', 'Bob'], {
         currentPlayerIndex: 2,
@@ -609,9 +607,9 @@ describe('emitRoomState scrubs reconnect credentials', () => {
 
   it('carries every canonical synced field on the wire', () => {
     // The broadcast payload is the one list SYNCED_GAME_STATE_KEYS did not
-    // lock: six others (PushFieldLock, the FIELD_HANDLERS satisfies,
-    // RoomStateFieldLock, ClearRoomStateLock, LocalSaveFieldLock, the client's
-    // push payload) fail the build when a field goes missing, while dropping
+    // lock: RoomStateFieldLock, ClearRoomStateLock, LocalSaveFieldLock, the
+    // client receive-side sync keys, and this broadcast lock fail the build
+    // when a field goes missing, while dropping
     // one from the object that actually goes out type-checked clean. The
     // compile-time twin is BroadcastFieldLock in rooms.ts; this is its runtime
     // half, and it also catches a field emitted as `undefined`.

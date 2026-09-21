@@ -8,7 +8,7 @@ import {
 } from '../src/utils/configValidation';
 import { MS_PER_SECOND } from '../src/utils/time';
 import { deckComposition } from '../src/utils/onlineDeck';
-import { MAX_CHART_POINTS } from './pushValidation';
+import { MAX_CHART_POINTS } from '../src/utils/configValidation';
 import { envLimitOr } from './envLimits';
 import { updateDeviceStats } from './database';
 import { pendingDeviceStatsWrite, writeDeviceStatsOnce } from './statsWriteCoordinator';
@@ -52,9 +52,7 @@ export const roomChannel = (roomId: string): string => `room:${roomId}`;
 // Re-exported (not redefined) so joinRoom and this file's own tests keep
 // importing it from here — the real definition moved to
 // src/utils/configValidation.ts, which server/sanitize.ts can import without
-// dragging this module's graph (and pushValidation's coreGameEngine ↔
-// statsPayloads cycle) into server/api.ts. Same pattern MAX_SCORE_MAGNITUDE
-// already follows for pushValidation.ts.
+// dragging this module's graph into server/api.ts.
 export { MAX_PLAYERS_PER_ROOM };
 
 // Upper bound on concurrently existing rooms. joinRoom refuses to CREATE a
@@ -306,11 +304,8 @@ export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void 
       // removal forces past never gets a chart data point, and the end-screen
       // score-per-round chart silently comes up one round short.
       // Capped like advanceTurnOnTimeout's twin append, and for a sharper
-      // reason than unbounded growth: MAX_CHART_POINTS is what pushValidation
-      // ENFORCES on an incoming chartLabels, refusing a longer one wholesale.
-      // A server array grown past the bound is one no client can ever push
-      // back, so the server's copy and every client's would diverge from the
-      // first append past it onward.
+      // reason than unbounded growth: MAX_CHART_POINTS is the server's chart
+      // retention cap.
       if (state.chartValues.length === state.players.length && state.chartNames.length === state.players.length
           && state.chartLabels.length < MAX_CHART_POINTS) {
         state.chartValues.forEach((vals, i) => vals.push(state.players[i].score));
@@ -620,11 +615,8 @@ export const BROADCAST_EXCLUDED_FIELDS = ['cards'] as const satisfies readonly S
  * Compile-time lock between the wire payload and the canonical synced-field
  * list (SYNCED_GAME_STATE_KEYS, src/types.ts).
  *
- * Six lists were already locked to it — PushFieldLock and the FIELD_HANDLERS
- * `satisfies` (server/pushValidation.ts), RoomStateFieldLock
- * (server/roomTypes.ts), ClearRoomStateLock and pushState's wire payload
- * (src/store/socketSlice.ts), LocalSaveFieldLock (src/store/persistence.ts) —
- * and the object that ACTUALLY goes on the wire was not one of them. Taking a
+ * The room, broadcast, receive, clear, and local-save field lists are locked
+ * against the same canonical synced-key inventory. Before this lock, taking a
  * field out of it type-checked clean and every client simply stopped receiving
  * it, which for a broadcast means the room's own value is silently replaced by
  * whatever each client already had.

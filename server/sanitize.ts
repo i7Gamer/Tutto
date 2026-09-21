@@ -102,11 +102,12 @@ const BOOLEAN_STATS_FIELDS: ReadonlySet<string> = new Set(BOOLEAN_STATS_FIELD_LI
  * The MAX-merged record columns, and the largest value each can honestly hold.
  *
  * STATS_VALUE_CAP on its own left a hole between two layers that both look
- * careful: pushValidation refuses a turn score past MAX_SCORE_MAGNITUDE, but
- * nothing tied the STATS payload to the state it claims to describe — so a
- * host could play a real game to a legitimate finish and then submit
- * `highestTurnScore: 1e9`, which sailed through and, because RECORD_COLUMNS
- * merges these with MAX in database.ts, pinned the record for good.
+ * careful: live turn/action validation refuses a turn score past
+ * MAX_SCORE_MAGNITUDE, but nothing tied the STATS payload to the state it
+ * claims to describe — so a host could play a real game to a legitimate
+ * finish and then submit `highestTurnScore: 1e9`, which sailed through and,
+ * because RECORD_COLUMNS merges these with MAX in database.ts, pinned the
+ * record for good.
  *
  * Every bound here is the one the value's own source already enforces, so no
  * real game can reach it: a turn score by MAX_SCORE_MAGNITUDE, a round number
@@ -154,9 +155,8 @@ export const RECORD_STATS_BOUNDS: ReadonlyMap<string, number> = new Map(RECORD_S
  * Bounds are taken from the constants the values' own sources enforce, never
  * restated, so a loosened bound upstream carries through here:
  *
- *  - a duration by MAX_GAME_SECONDS (pushValidation refuses a larger
- *    gameTimeInSeconds),
- *  - a score by MAX_SCORE_MAGNITUDE (the same refusal on every pushed score),
+ *  - a duration by MAX_GAME_SECONDS (the statistics playtime cap),
+ *  - a score by MAX_SCORE_MAGNITUDE (the same refusal on every live score),
  *  - a count by MAX_ROUNDS. A seat takes at most one turn per round, so most
  *    of these are bounded by that directly. The exception is totalTuttos,
  *    whose source permits up to MAX_CHAIN_CARDS per turn — still four orders
@@ -206,8 +206,8 @@ type ClassifiedAdditiveKey =
  * that goes nowhere — while its real column kept taking whatever that allowed.
  * Now it refuses to build, naming the key.
  *
- * Exported only so noUnusedLocals sees a use; nothing imports it. Same device
- * as PushFieldLock in server/pushValidation.ts.
+ * Exported only so noUnusedLocals sees a use; nothing imports it. Same
+ * compile-time lock pattern used by room/config field locks.
  */
 export type AdditiveStatsFieldLock = [
   AssertNever<Exclude<AdditiveStatsKey, ClassifiedAdditiveKey>>,

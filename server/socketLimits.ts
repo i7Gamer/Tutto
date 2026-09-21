@@ -1,10 +1,9 @@
 /**
  * Upper bound on one Engine.IO packet's raw byte size, checked BEFORE it is
- * ever decoded — the only defence at that layer; everything pushState
- * carries is validated field-by-field afterward in pushValidation.ts, with
- * its own per-field caps (MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS,
- * MAX_DECK_SIZE, ...), but decoding a many-megabyte packet to reach those
- * checks is itself a cost a client can otherwise inflict for free.
+ * ever decoded — the only defence at that layer. pushState payloads are
+ * validated by the application handler/action parser afterward, but decoding a
+ * many-megabyte packet to reach those checks is itself a cost a client can
+ * otherwise inflict for free.
  *
  * This is socket.io's `maxHttpBufferSize` Server option, which bounds
  * INCOMING packets only — the size of one message a client sends to the

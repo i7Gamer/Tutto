@@ -85,7 +85,7 @@ export type LocalSaveFieldLock = [
 const CHART_KEYS = ['chartValues', 'chartNames', 'chartLabels'] as const satisfies readonly (keyof GameStore)[];
 
 // A fully-loaded deck holds at most MAX_CARD_COUNT of each card type — same
-// bound the server enforces on pushed decks (see server/pushValidation.ts).
+// bound the server enforces through MAX_DECK_SIZE.
 const MAX_SAVED_DECK_SIZE = MAX_CARD_COUNT * VALID_CARD_TYPES.length;
 
 const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -123,8 +123,8 @@ const isPlausiblePlayer = (v: unknown): boolean => {
 
 // Undo consumes this after a restore: card list, counters and the ended kind
 // must all be sane or reversing the turn would corrupt player stats. The
-// shapes come from utils/turnShapes.ts, shared with the pushed-state validator
-// (server/pushValidation.ts) that checks the very same summary off the wire.
+// shapes come from utils/turnShapes.ts, shared with the turn payload validator
+// that checks the very same summary off the wire.
 const isPlausibleTurnSummary = (v: unknown): boolean => {
   if (v === null) return true;
   if (typeof v !== 'object') return false;
@@ -294,7 +294,7 @@ export const validateOnlineConfig = (config: unknown): Partial<Pick<GameStore, C
   if (typeof config !== 'object' || config === null) return {};
   const valid: Partial<Pick<GameStore, ConfigKeys>> = {};
   const c = config as Record<string, unknown>;
-  // Ranges must match the server's applyValidatedConfig (server/pushValidation.ts):
+  // Ranges must match the server's applyValidatedConfig (roomConfigValidation.ts):
   // values the server would reject are dropped here too, so the lobby never
   // shows a setting the server silently refused.
   if (isValidWinningScore(c.winningScore)) valid.winningScore = c.winningScore;

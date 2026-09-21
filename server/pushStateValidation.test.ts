@@ -12,7 +12,7 @@ import { SERVER_STARTUP_HOOK_TIMEOUT_MS } from './testTimeouts';
 import type { GameStore } from '../src/store/storeTypes';
 import { MAX_PLAYERS_PER_ROOM, createRoom, rooms, deleteRoom, emitRoomState } from './rooms';
 import { registerGameStateHandlers } from './socketGameStateHandlers';
-import { MAX_DECK_SIZE } from './pushValidation';
+import { MAX_DECK_SIZE } from '../src/utils/configValidation';
 import { MAX_PUSHED_STATE_BYTES } from './socketLimits';
 import type { RoomState } from './roomTypes';
 import { MAX_CHAIN_CARDS, MAX_HISTORY_LOG_SIZE, type CardType, type HistoryEntry } from '../src/types';
@@ -140,9 +140,9 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
   // left at the engine.io library default (undocumented, and could change on
   // a socket.io upgrade), maxHttpBufferSize is now an explicit, named
   // constant. This proves it is actually wired up and bounds one incoming
-  // packet's raw size BEFORE it ever reaches pushValidation.ts's field
-  // checks — a client that ignores the cap gets its connection dropped
-  // rather than served.
+  // packet's raw size BEFORE the application handler reads any payload fields
+  // — a client that ignores the cap gets its connection dropped rather than
+  // served.
   describe('maxHttpBufferSize bounds an oversized socket packet', () => {
     const connectRawSocket = (): Promise<ClientSocket> =>
       new Promise((resolve, reject) => {
@@ -180,7 +180,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
 });
 
 // How many rounds a realistically long game can be expected to reach — not
-// MAX_ROUNDS (100,000 in pushValidation.ts), which is a pure safety cap far
+// MAX_ROUNDS (100,000), which is a pure safety cap far
 // beyond anything a human game could reach, but generous headroom over a
 // genuinely long session (several times a normal ~20-40 round game) for
 // sizing MAX_PUSHED_STATE_BYTES against.

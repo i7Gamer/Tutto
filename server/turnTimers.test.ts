@@ -14,7 +14,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { rooms, createRoom, roomChannel } from './rooms';
 import { clearServerTurnTimer, startServerTurnTimer, advanceTurnOnTimeout, abortGameIfLowPlayers, scaledTimerMs } from './turnTimers';
 import { makeServerPlayer as makePlayer, makeFakeIo } from './socketTestHarness';
-import { MAX_CHART_POINTS } from './pushValidation';
+import { MAX_CHART_POINTS } from '../src/utils/configValidation';
 import type { TurnCardOutcome } from '../src/types';
 
 const roomId = 'timer-unit-room';
@@ -344,8 +344,8 @@ describe('turnTimers', () => {
     it('stops appending chart datapoints once the MAX_CHART_POINTS cap is reached', () => {
       // The timeout path can self-advance forever when no one ever reaches the
       // winning score (e.g. a patched host arming a 1s turn in an idle room).
-      // Pushed chart arrays are capped at MAX_CHART_POINTS — the server's own
-      // appends must respect the same bound or state grows without limit.
+      // Server-retained chart arrays are capped at MAX_CHART_POINTS so state
+      // cannot grow without limit.
       rooms[roomId] = createRoom('host-1');
       const fullSeries = Array(MAX_CHART_POINTS).fill(0);
       Object.assign(rooms[roomId].state, {
@@ -864,8 +864,8 @@ describe('turnTimers', () => {
     });
 
     it('backstop: swallows an exception from a corrupted room state instead of crashing the process', () => {
-      // Real pushState validation (pushValidation.ts) should make an
-      // out-of-bounds currentPlayerIndex unreachable, but this handler runs off
+      // Room-state/action validation should make an out-of-bounds
+      // currentPlayerIndex unreachable, but this handler runs off
       // a bare setTimeout with no caller to catch a throw — an uncaught
       // exception here would otherwise crash the whole process (every room,
       // every player), not just this one room's turn.

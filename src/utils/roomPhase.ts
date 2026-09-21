@@ -13,8 +13,8 @@
  * rather than in server/rooms.ts, which the client cannot import from.
  *
  * `finished` wins over `status` by construction: a room can only reach
- * finished: true from status 'playing' (see pushValidation's `applyFinished`
- * and turnTimers' `advanceTurnOnTimeout`), and nothing ever sets status back
+ * finished: true from status 'playing' (see gameActionAuthority's finished
+ * commits and turnTimers' `advanceTurnOnTimeout`), and nothing ever sets status back
  * to 'lobby' without first clearing finished (abortGameIfLowPlayers clears
  * both together; Play Again's startingGame clears finished via the incoming
  * push). So status: 'lobby' with finished: true never arises from normal

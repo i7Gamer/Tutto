@@ -1,5 +1,5 @@
 import { rooms, drawNextCardForRoom, emitRoomState, emitRoomStateTo, idleTurnTimerState, recordDealtCard, rememberCurrentTurn, roomChannel } from './rooms';
-import { isValidDiceSnapshot, sanitizeDiceSnapshot } from './pushValidation';
+import { isValidDiceSnapshot, sanitizeDiceSnapshot } from './turnPayloadValidation';
 import { applyOnlineGameAction } from './gameActionAuthority';
 import { readDeckContext, settleDeck } from './deckAuthority';
 import { isNormalizedConfig, normalizeRoomId, MAX_PLAYERS_PER_ROOM } from '../src/utils/configValidation';
@@ -353,8 +353,8 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
   // (players, historyLog, chart arrays, ...) on every call via
   // emitRoomState, which is wasteful for an update where only
   // liveTurnState actually changed. This handler updates just that one
-  // field and broadcasts a small, standalone event instead — pushState,
-  // applyPushedState, and emitRoomState are untouched and still carry
+  // field and broadcasts a small, standalone event instead — pushState and
+  // emitRoomState are untouched and still carry
   // liveTurnState as part of the full sync for reconnect/fresh-join.
   safeOn(socket, 'liveTurnState', (data: { roomId?: string; base?: unknown; liveTurnState?: unknown } | null | undefined) => {
     if (!liveTurnStateLimiter()) return;

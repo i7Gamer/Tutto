@@ -50,8 +50,8 @@ export interface RoomState {
   // has pinned that mode for everyone's own turn. Host-only config.
   enforcedDiceMode: DiceMode | null;
   // Which rule set the game is played by. Host-only config, lobby-only:
-  // applyPushedState refuses mid-game writes (a rules flip under an active
-  // game would desync every client's turn logic).
+  // updateConfig refuses mid-game writes (a rules flip under an active game
+  // would desync every client's turn logic).
   ruleset: Ruleset;
   historyLog: HistoryEntry[];
 }

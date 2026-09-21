@@ -15,8 +15,8 @@ const UPDATE_PLAYER_COLOR_LIMIT = { windowMs: 1_000, max: 20 };
 const KICK_PLAYER_LIMIT = { windowMs: 1_000, max: 5 };
 
 // Minimal shape check for a client-supplied roster entry: only `.name` is ever
-// read from one (reorderPlayers matches seats by name, exactly like
-// pushValidation's player merge).
+// read from one (reorderPlayers and other name-keyed roster operations match
+// seats by name).
 const isNamedEntry = (v: unknown): v is { name: string } =>
   typeof v === 'object' && v !== null && typeof (v as { name?: unknown }).name === 'string';
 

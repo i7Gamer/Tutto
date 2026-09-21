@@ -388,14 +388,10 @@ describe('pushState may not leave a running game with nobody to act', () => {
     vi.useRealTimers();
   });
 
-  it('refuses a bare currentPlayerIndex: null from the active player', () => {
-    // `null` is legal — it is what the WINNING push carries — but only
-    // alongside the finish. On its own it strands the room: the timer-restart
-    // branch needs a non-null index and the teardown branch needs
-    // finished/lobby, so the server arms no timer AND clears none, and the
-    // pending expiry returns early forever after. Nothing short of a host push
-    // recovers it, and turnTimers' own header promises the opposite ("a
-    // backgrounded/throttled client tab can never stall the game").
+  it('refuses a malformed legacy snapshot that only clears currentPlayerIndex', () => {
+    // Legacy snapshot-only payloads are now rejected before room mutation. This
+    // keeps the old stall regression pinned without pretending the live v2
+    // action path can send a lone currentPlayerIndex change.
     pushState({ roomId, newState: { currentPlayerIndex: null } });
 
     const state = rooms[roomId].state;
@@ -418,10 +414,10 @@ describe('pushState may not leave a running game with nobody to act', () => {
     expect(rooms[roomId].finishedGame?.winners).toEqual(['Alice']);
   });
 
-  it('refuses a host push that starts a game without saying whose turn it is', () => {
-    // The same incoherence from the other side: status alone, no index. The
-    // guard must restore BOTH fields, or a room that had no index to go back
-    // to is stranded exactly as above.
+  it('refuses a malformed legacy host snapshot that starts a game without an action', () => {
+    // Legacy snapshot-only starts are rejected before room mutation. A real v2
+    // start names its intent with action.type='start' and the server selects
+    // the first actor itself.
     rooms[roomId].state.status = 'lobby';
     rooms[roomId].state.currentPlayerIndex = null;
     // The previous game's bookkeeping, which a real start would clear and
@@ -463,25 +459,19 @@ describe('pushState may not leave a running game with nobody to act', () => {
     return hostFake.handlers['pushState'];
   };
 
-  it('refuses a HOST push that finishes a game on tied leaders, and freezes no verdict', () => {
-    // The engine never ends a game on a tie — a tie plays another round — but
-    // applyFinished used to wave the HOST through unconditionally. The verdict
-    // rememberFinishedGame then froze named BOTH leaders as winners, and each
-    // took a win and a fastestWinTurns that no later correction can undo.
+  it('keeps a live v2 commit from finishing a game on tied leaders', () => {
+    // The engine never ends a game on a tie — a tie plays another round. This
+    // stays on the live action path so the verdict recorder cannot freeze both
+    // leaders as winners.
     const { winningScore } = rooms[roomId].state;
+    rooms[roomId].state.players[0].score = winningScore;
+    rooms[roomId].state.players[1].score = winningScore;
 
-    hostPush()({
-      roomId,
-      newState: {
-        players: [{ name: 'Alice', score: winningScore }, { name: 'Bob', score: winningScore }],
-        finished: true,
-        currentPlayerIndex: null,
-      },
-    });
+    pushAction(pushState, roomId, { type: 'commit', score: 0, success: false });
 
     const state = rooms[roomId].state;
     expect(state.finished, 'a tie is not a win, not even for the host').toBe(false);
-    expect(state.currentPlayerIndex, 'the coherence repair keeps someone to act').toBe(0);
+    expect(state.currentPlayerIndex, 'a tied game continues to the next player').toBe(1);
     expect(rooms[roomId].finishedGame, 'no verdict may be frozen for a tie').toBeNull();
   });
 
@@ -510,7 +500,7 @@ describe('pushState may not leave a running game with nobody to act', () => {
     expect(rooms[roomId].finishedGame, 'an abandoned game has no verdict').toBeNull();
   });
 
-  it('refuses a host push that un-finishes a game without saying whose turn it is', () => {
+  it('refuses a malformed legacy host snapshot that un-finishes without an action', () => {
     stageFinishedGame();
 
     hostPush()({ roomId, newState: { finished: false } });
@@ -540,9 +530,8 @@ describe('pushState may not leave a running game with nobody to act', () => {
     // restart play, exactly like the real Play Again push above, and must run
     // the same start-of-game bookkeeping: the stats dedup reset, the
     // startRoster recapture, and the deck kickoff. It used to skip all three,
-    // because `startingGame` required newState.status === 'playing'
-    // literally — true for every real client, which always sends the whole
-    // synced field set, but not for this hand-built one.
+    // because restart detection used to depend on newState.status rather than
+    // the accepted v2 start action.
     stageFinishedGame();
     const previousGameDevices = new Map([[PREVIOUS_GAME_DEVICE, 'full' as const]]);
     rooms[roomId].statsRecordedForGame = { devices: previousGameDevices, global: true };
@@ -577,9 +566,8 @@ describe('pushState against an already-finished game', () => {
     for (const id of Object.keys(rooms)) deleteRoom(id);
     rooms[roomId] = createRoom('active-sock');
     // A finished game keeps status 'playing' with finished: true all the way
-    // through the end screen (see the startingGame comment in pushState), and
-    // the finishing push already nulled gameActualStartTime while banking the
-    // elapsed time into gameTimeInSeconds.
+    // through the end screen; the finishing push already nulled
+    // gameActualStartTime while banking the elapsed time into gameTimeInSeconds.
     Object.assign(rooms[roomId].state, {
       status: 'playing', finished: true, currentPlayerIndex: null, currentCard: null,
       round: 5, turnDuration: 60, turnStartTime: null,
@@ -599,11 +587,10 @@ describe('pushState against an already-finished game', () => {
     vi.useRealTimers();
   });
 
-  it('does not re-arm the clock, so the final game time survives a later push', () => {
-    // status is still 'playing', so the "game is running, start the clock"
-    // branch re-armed gameActualStartTime to now — and the finished branch a
-    // few lines below then recomputed gameTimeInSeconds as now-minus-now = 0
-    // and broadcast it, repainting every end screen to 00:00.
+  it('does not re-arm the clock when a malformed legacy snapshot is refused after finish', () => {
+    // A malformed legacy snapshot after finish must be refused before clock
+    // bookkeeping. Otherwise a finished room could re-arm gameActualStartTime
+    // and repaint every end screen to 00:00.
     pushState({ roomId, newState: { round: 5 } });
 
     expect(rooms[roomId].gameActualStartTime).toBeNull();
@@ -621,11 +608,10 @@ describe('pushState against an already-finished game', () => {
     expect(rooms[roomId].gameActualStartTime).toBe(LATER_PUSH);
   });
 
-  it('does not zero the clock even when the push is discarded for a stale roster', () => {
-    // applyPushedState bails on a roster mismatch, but the clock bookkeeping
-    // ran regardless of whether anything was applied — so a Play Again click
-    // carrying a roster a departing player had just invalidated still wiped
-    // the finished game's duration.
+  it('does not zero the clock when a malformed/no-op push is refused after finish', () => {
+    // A refused push still used to run clock bookkeeping — so a Play Again
+    // click whose room update was not accepted could wipe the finished game's
+    // duration even though the room never actually restarted.
     pushState({ roomId, newState: { players: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Carol' }] } });
 
     expect(rooms[roomId].state.gameTimeInSeconds).toBe(PLAYED_SECONDS);
@@ -639,7 +625,7 @@ describe('pushState captures the game-start roster (startRoster)', () => {
   // records that seat's row itself instead (rooms.ts' recordDepartedSeatsStats),
   // and it can only tell who was AT the table when the game began by
   // capturing the roster right here, the one place a game start is detected
-  // (see the startingGame comment above).
+  // capturing the roster on the accepted v2 start action.
   const roomId = 'ROSTER-CAPTURE-ROOM';
   let pushState: Handler;
 
@@ -671,11 +657,9 @@ describe('pushState captures the game-start roster (startRoster)', () => {
     ]);
   });
 
-  it('does not capture anything from a push a stale roster gets discarded wholesale', () => {
-    // A host push whose roster no longer matches the room's is thrown away
-    // entirely (validatePushedPlayers) — `applied` is false, so this must not
-    // run at all, or a discarded "start" would freeze a roster the room never
-    // actually adopted.
+  it('does not capture anything from a refused pushState without a valid start action', () => {
+    // A refused pushState must not run the start side effects, or a discarded
+    // "start" would freeze a roster the room never actually adopted.
     pushState({
       roomId,
       newState: {
@@ -690,8 +674,8 @@ describe('pushState captures the game-start roster (startRoster)', () => {
 
   it('re-captures the roster on Play Again: a joiner is included, a leaver is not', () => {
     // Game 1 starts and finishes with Alice and Bob. Alice takes the winning
-    // score, because a finish is only accepted for a game the engine could
-    // have ended (pushValidation's applyFinished).
+    // score, because a finish is only accepted for a game the action
+    // authority could have ended.
     pushAction(pushState, roomId, { type: 'start' });
     rooms[roomId].state.players[0].score = rooms[roomId].state.winningScore;
     pushAction(pushState, roomId, { type: 'commit', score: 0, success: false });
@@ -826,9 +810,9 @@ describe('liveTurnState authorization', () => {
  * The server deals every card a running game reveals.
  *
  * `cards` is the ordered undrawn deck, so a client that can write it chooses
- * its own next card — and in the classic rule set that IS the game. Both
- * `cards` and `currentCard` left every writable field set (server/pushValidation.ts);
- * these are the paths that replaced them.
+ * its own next card — and in the classic rule set that IS the game. The legacy
+ * snapshot merge left both `cards` and `currentCard` writable; these are the
+ * paths that replaced them.
  */
 describe('the server deals the cards a pushState implies', () => {
   const roomId = 'DECK-AUTHORITY-ROOM';

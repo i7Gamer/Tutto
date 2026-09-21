@@ -2353,7 +2353,7 @@ describe('useGameStore', () => {
         const push = pushes()[0];
         expect(push[2], 'the push carries an ack callback').toBeTypeOf('function');
 
-        push[2]({ ok: false, reason: 'stale-roster' });
+        push[2]({ ok: false, reason: 'stale-base' });
 
         expect(useGameStore.getState().toasts.some(
           t => t.message.includes('not accepted by the server'),
