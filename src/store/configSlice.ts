@@ -2,7 +2,7 @@ import { localStore } from '../utils/storage';
 import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
 } from '../utils/configValidation';
-import { closeAudioContext } from '../utils/soundEffects';
+import { closeAudioContext } from '../utils/audioRuntime';
 import { clampAudioVolume } from '../utils/audioVolume';
 import { validateOnlineConfig } from './persistence';
 import { getSocket } from './socketRef';

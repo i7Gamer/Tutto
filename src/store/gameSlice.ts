@@ -5,8 +5,8 @@ import {
   calculateUndo,
   shuffleArray,
   buildDeck,
-  buildGlobalStatsPayload,
 } from '../utils/coreGameEngine';
+import { buildGlobalStatsPayload } from '../utils/statsPayloads';
 import { buildTurnKey, DICE_TURN_STATE_KEY, clearTurnCaches } from '../utils/diceTurnState';
 import { MAX_PLAYER_NAME_LENGTH, MIN_ONLINE_PLAYERS, isNormalizedConfig } from '../utils/configValidation';
 import { zeroedPlayerStats } from '../utils/playerStats';

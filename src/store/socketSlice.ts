@@ -1,6 +1,7 @@
 import { localStore, sessionStore } from '../utils/storage';
 import { io, type Socket } from 'socket.io-client';
-import { buildDeviceStatsPayload, noUndoableTurn } from '../utils/coreGameEngine';
+import { noUndoableTurn } from '../utils/coreGameEngine';
+import { buildDeviceStatsPayload } from '../utils/statsPayloads';
 import i18n from '../i18n';
 import { ONLINE_SESSION_KEY } from '../utils/reconnectSession';
 import { formatInt } from '../utils/formatNumber';
@@ -1628,7 +1629,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
           // build, and the shorthand identifiers force the destructure to
           // carry whatever the literal names — without this, a new synced
           // field passed every other lock and still never reached the wire,
-          // where applyPushedState's allowlist loop silently dropped it.
+          // where the server-side sync contract could not consume it.
           //
           // stateVersion is NOT here on purpose: it is the server's own
           // counter, not a field a client may write.
@@ -1659,7 +1660,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
   sendOnlineStats: () => {
     const s = get();
     const socket = getSocket();
-    // The payload itself lives in coreGameEngine beside its global
+    // The payload itself lives in statsPayloads beside its global
     // counterpart, so the integration suite can build the very same one
     // instead of keeping a copy that drifts.
     const stats = buildDeviceStatsPayload(s.players, s.myName, s.gameTimeInSeconds, s.round);

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import database from './database';
 import { useGameStore } from '../src/store/useGameStore';
-import { buildDeviceStatsPayload } from '../src/utils/coreGameEngine';
+import { buildDeviceStatsPayload } from '../src/utils/statsPayloads';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 import { nonNull } from '../src/testing/factories';
 

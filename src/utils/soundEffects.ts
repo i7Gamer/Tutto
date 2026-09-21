@@ -1,6 +1,7 @@
 import { useGameStore } from '../store/useGameStore';
 import { supportsIOSSwitchHaptic, triggerIOSSwitchHaptic } from './iosSwitchHaptic';
 import { volumeToGain, MIN_AUDIO_VOLUME } from './audioVolume';
+import { getAudioContext, getNoiseBuffer } from './audioRuntime';
 
 // Spacing between the quick taps used to approximate a multi-pulse pattern
 // via the single-tick iOS switch-haptic fallback (see below).
@@ -30,10 +31,6 @@ const SILENT_FLOOR_RATIO = 0.01;
 const silentFloor = (peak: number): number => peak * SILENT_FLOOR_RATIO;
 
 // --- Procedural sound shapes -------------------------------------------------
-// One second of white noise, looped by every noise-based sound. Built once per
-// context (it belongs to the context, and muting closes the context).
-const NOISE_BUFFER_S = 1;
-const NOISE_CHANNELS = 1;
 // Dice rattle: a lowpassed noise loop pulsed once per die tumbling.
 const RATTLE_LOWPASS_HZ = 900;
 const RATTLE_SHAKE_S = 0.07;
@@ -53,9 +50,6 @@ export const DIE_CLICK_DESELECT_HZ = 800;
 const DIE_CLICK_S = 0.04;
 const DIE_CLICK_VOL = 0.15;
 
-let audioCtx: AudioContext | null = null;
-let noiseBuffer: AudioBuffer | null = null;
-
 /** A sound's peak gain after the lobby's volume slider. */
 const scaledPeak = (vol: number): number => Math.min(
   MAX_UNCLIPPED_GAIN,
@@ -71,38 +65,6 @@ const scaledPeak = (vol: number): number => Math.min(
 const isAudioAudible = (): boolean => {
   const { audioEnabled, audioVolume } = useGameStore.getState();
   return audioEnabled && audioVolume > MIN_AUDIO_VOLUME;
-};
-
-const getAudioContext = async (): Promise<AudioContext> => {
-  if (!audioCtx || audioCtx.state === 'closed') {
-    audioCtx = new AudioContext();
-  }
-  if (audioCtx.state === 'suspended') {
-    await audioCtx.resume();
-  }
-  return audioCtx;
-};
-
-// Releases the underlying audio hardware/thread instead of leaving it idle
-// forever — call when the user turns sound off (see configSlice.setAudioEnabled).
-// A later playTone() call transparently creates a fresh context (see
-// getAudioContext's `state === 'closed'` check above).
-export const closeAudioContext = async (): Promise<void> => {
-  if (audioCtx && audioCtx.state !== 'closed') {
-    await audioCtx.close();
-  }
-  audioCtx = null;
-  noiseBuffer = null;
-};
-
-const getNoiseBuffer = (ctx: AudioContext): AudioBuffer => {
-  if (noiseBuffer) return noiseBuffer;
-  const length = Math.floor(ctx.sampleRate * NOISE_BUFFER_S);
-  const buffer = ctx.createBuffer(NOISE_CHANNELS, length, ctx.sampleRate);
-  const samples = buffer.getChannelData(0);
-  for (let i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
-  noiseBuffer = buffer;
-  return buffer;
 };
 
 interface NoiseVoice {

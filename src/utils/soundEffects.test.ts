@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  playTone, playBuzzer, playSuccess, vibrateBust, vibrateSuccess, vibrateYourTurn, vibrateTurnUrgent, closeAudioContext,
+  playTone, playBuzzer, playSuccess, vibrateBust, vibrateSuccess, vibrateYourTurn, vibrateTurnUrgent,
   playDiceRattle, playCardSwoosh, playDieClick, playSoundPreview, DIE_CLICK_SELECT_HZ, DIE_CLICK_DESELECT_HZ,
 } from './soundEffects';
+import { closeAudioContext } from './audioRuntime';
 import { useGameStore } from '../store/useGameStore';
 import { supportsIOSSwitchHaptic, triggerIOSSwitchHaptic } from './iosSwitchHaptic';
 
