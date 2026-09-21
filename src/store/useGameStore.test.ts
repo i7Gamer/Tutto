@@ -2269,6 +2269,38 @@ describe('useGameStore', () => {
         }
       });
 
+      it('keeps a fresh rejoin alive after repeated disposal of an older attempt', () => {
+        vi.useFakeTimers();
+        try {
+          stageSeatedReconnect();
+          mockEmit.mockClear();
+
+          mockOnHandlers['connect']();
+          const staleAck = nonNull(mockEmit.mock.calls.find(([event]) => event === 'joinRoom'))[2];
+
+          // The first session is disposed twice. The second disposal must be
+          // harmless, while still leaving no module-level work behind.
+          useGameStore.getState().leaveRoom();
+          useGameStore.getState().leaveRoom();
+
+          // Re-enter with a new session and leave its ack pending. The old
+          // callback must not settle or disarm this session's watchdog.
+          stageSeatedReconnect();
+          mockOnHandlers['connect']();
+          expect(useGameStore.getState().showReconnectPopup).toBe(true);
+
+          staleAck({ success: true, isHost: true, name: 'Alice' });
+          expect(useGameStore.getState().showReconnectPopup).toBe(true);
+          expect(useGameStore.getState().toasts).toEqual([]);
+
+          vi.advanceTimersByTime(JOIN_TIMEOUT_MS);
+          expect(useGameStore.getState().showReconnectPopup).toBe(false);
+          expect(useGameStore.getState().toasts.length).toBe(1);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
       it('arms no watchdog when there is no seat to rejoin', () => {
         vi.useFakeTimers();
         try {

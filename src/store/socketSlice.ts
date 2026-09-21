@@ -396,6 +396,19 @@ export const abandonJoinAttempt = (): void => {
   joinEpoch++;
 };
 
+/**
+ * Invalidates module-level work owned by the current online room.
+ *
+ * The callers still own their transport, timer, cache, and store-state
+ * teardown. This helper only composes the three module-state invalidations so
+ * those abandonment paths cannot drift apart.
+ */
+export const cancelPendingOnlineWork = (): void => {
+  clearPendingPush();
+  clearRejoinWatchdog();
+  abandonJoinAttempt();
+};
+
 // Test-only escape hatch, the socket twin of timers.ts's _resetTimersForTests:
 // the pending cleanup above is module state, so a cancelReconnect left
 // in flight by one test would be torn down by the NEXT test's call and
@@ -1097,12 +1110,7 @@ const registerSocketHandlers = (sock: OnlineClientSocket, get: SocketSliceGet, s
     get().stopOnlineTimers();
     sessionStore.remove(ONLINE_SESSION_KEY);
     clearTurnCaches();
-    clearPendingPush();
-    clearRejoinWatchdog();
-    // Spelled out here because this teardown is inlined rather than delegated
-    // to leaveRoom: a join in flight when the seat is lost must not be able to
-    // re-seat the store on its way in (see abandonJoinAttempt).
-    abandonJoinAttempt();
+    cancelPendingOnlineWork();
     set(clearRoomState());
     get().setMode('local', { resume: false });
   };
@@ -1278,11 +1286,9 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     pendingCancelReconnectCleanup = null;
 
     clearTurnCaches();
-    clearPendingPush();
-    clearRejoinWatchdog();
-    // This is the "no, don't reconnect me" answer — whatever join is still in
-    // flight is exactly what is being declined.
-    abandonJoinAttempt();
+    // This is the "no, don't reconnect me" answer — all module-level work for
+    // the declined room is exactly what is being abandoned.
+    cancelPendingOnlineWork();
     sessionStore.remove(ONLINE_SESSION_KEY);
     set({ pendingReconnectSession: null, liveTurnState: null, showReconnectPopup: false });
 
@@ -1451,11 +1457,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     get().stopOnlineTimers();
     sessionStore.remove(ONLINE_SESSION_KEY);
     clearTurnCaches();
-    clearPendingPush();
-    clearRejoinWatchdog();
-    // A join whose ack has not landed yet is abandoned by this leave as surely
-    // as the room is — see abandonJoinAttempt.
-    abandonJoinAttempt();
+    cancelPendingOnlineWork();
     set(clearRoomState());
   },
 

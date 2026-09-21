@@ -16,7 +16,7 @@ import type { GameStore, GameStatus, PreGameStats, FinishedGameSnapshot } from '
 import { validateOnlineConfig, reanchorLocalClock, attachPersistence, pickLocalGameState, withLocalGameWritesPaused } from './persistence';
 import { createTimerSlice } from './timers';
 import { createConfigSlice } from './configSlice';
-import { createSocketSlice, clearRoomState, clearPendingPush, clearRejoinWatchdog, abandonJoinAttempt } from './socketSlice';
+import { createSocketSlice, clearRoomState, cancelPendingOnlineWork } from './socketSlice';
 import { createGameSlice } from './gameSlice';
 import { disconnectSocket } from './socketRef';
 
@@ -131,17 +131,9 @@ export const useGameStore = create<GameStore>()(
     // per-concern actions come from the slices spread below.
 
     reset: () => {
-      // Module state, so clearRoomState below cannot reach it: a push parked
-      // for a room this store is throwing away must not be flushed into the
-      // next one by a later reconnect.
-      clearPendingPush();
-      // Same reason, same reach: a rejoin deadline armed for the room being
-      // thrown away must not toast "No response from the server" into the
-      // fresh one.
-      clearRejoinWatchdog();
-      // And the same for a join whose ack has not landed: it would seat this
-      // freshly reset store in the room the reset threw away.
-      abandonJoinAttempt();
+      // Module state, so clearRoomState below cannot reach pending pushes,
+      // rejoin deadlines, or join acks owned by the store being thrown away.
+      cancelPendingOnlineWork();
       // The interval handles are module state too. Nothing in production calls
       // reset() today, so this is hardening for the test harness (which drives
       // it between cases) rather than a user-facing leak: without it the online
