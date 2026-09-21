@@ -105,13 +105,11 @@ describe('pushState turn-timer restarts', () => {
 });
 
 describe('pushState authorization', () => {
-  // The spawned-server twin of this check (sockets.authorization.test.ts)
-  // could not fail: its hostile push carried `players: []`, which the roster
-  // gate discards before the authorization line is ever consulted. These
-  // cases push a lone `currentPlayerIndex` — the field nothing but the
-  // authorization line stands between a bystander and.
+  // Valid v2 commands keep protocol validation from masking permission bugs.
+  // The negative cases differ from the active-player control only by sender.
   const roomId = 'AUTHZ-ROOM';
   const ACTIVE_INDEX = 1;
+  const COMMIT_ACTION: OnlineGameAction = { type: 'commit', score: 0, success: false };
 
   const seat = (socketId: string, username: string) => {
     const fake = makeFakeSocket(socketId);
@@ -143,19 +141,25 @@ describe('pushState authorization', () => {
 
   it('ignores a seated bystander who is neither host nor the active player', () => {
     const carol = seat('bystander-sock', 'Carol');
+    const before = structuredClone(rooms[roomId].state);
+    const ack = vi.fn();
 
-    carol.pushState({ roomId, newState: { currentPlayerIndex: 2 } });
+    pushAction(carol.pushState, roomId, COMMIT_ACTION, {}, ack);
 
-    expect(rooms[roomId].state.currentPlayerIndex, 'the turn stays where it was').toBe(ACTIVE_INDEX);
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'unauthorized' });
+    expect(rooms[roomId].state).toEqual(before);
     expect(carol.emit, 'a refused push is not broadcast').not.toHaveBeenCalled();
   });
 
   it('ignores a socket that is not seated in the room at all', () => {
     const stranger = seat('stranger-sock', 'Mallory');
+    const before = structuredClone(rooms[roomId].state);
+    const ack = vi.fn();
 
-    stranger.pushState({ roomId, newState: { currentPlayerIndex: 2 } });
+    pushAction(stranger.pushState, roomId, COMMIT_ACTION, {}, ack);
 
-    expect(rooms[roomId].state.currentPlayerIndex).toBe(ACTIVE_INDEX);
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'unauthorized' });
+    expect(rooms[roomId].state).toEqual(before);
     expect(stranger.emit).not.toHaveBeenCalled();
   });
 
@@ -163,9 +167,11 @@ describe('pushState authorization', () => {
     // The control: without it the refusals above would also pass for a
     // handler that ignores everyone.
     const bob = seat('active-sock', 'Bob');
+    const ack = vi.fn();
 
-    pushAction(bob.pushState, roomId, { type: 'commit', score: 0, success: false });
+    pushAction(bob.pushState, roomId, COMMIT_ACTION, {}, ack);
 
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
     expect(rooms[roomId].state.currentPlayerIndex).toBe(2);
     expect(bob.emit).toHaveBeenCalled();
   });
@@ -178,12 +184,33 @@ describe('pushState authorization', () => {
     expect(rooms[roomId].state.status).toBe('lobby');
   });
 
-  it('does not let the non-active host replace the active player live snapshot through pushState', () => {
+  it('ignores forged snapshot fields on an accepted non-active host action', () => {
     const alice = seat('host-sock', 'Alice');
-    alice.pushState({ roomId, newState: { liveTurnState: {
-      turnScore: 900, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
-    } } });
-    expect(rooms[roomId].state.liveTurnState).toBeNull();
+    const before = structuredClone(rooms[roomId].state);
+    const controlAck = vi.fn();
+    const forgedAck = vi.fn();
+    const FORGED_SCORE = 900;
+    const action: OnlineGameAction = { type: 'reset' };
+
+    pushAction(alice.pushState, roomId, action, {}, controlAck);
+    expect(controlAck).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    const expected = structuredClone(rooms[roomId].state);
+
+    rooms[roomId].state = before;
+    alice.emit.mockClear();
+    pushAction(alice.pushState, roomId, action, {
+      liveTurnState: {
+        turnScore: FORGED_SCORE, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+      },
+      players: [],
+      currentCard: 'Kleeblatt',
+      cards: ['Kleeblatt'],
+      winningScore: before.winningScore + FORGED_SCORE,
+    }, forgedAck);
+
+    expect(forgedAck).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    expect(rooms[roomId].state).toEqual(expected);
+    expect(alice.emit).toHaveBeenCalled();
   });
 });
 
@@ -746,7 +773,7 @@ describe('liveTurnState authorization', () => {
   it('refuses a host who is not the active player', () => {
     const alice = seat('host-sock', 'Alice');
 
-    alice.liveTurnState({ roomId, liveTurnState: snapshot(9_999) });
+    alice.liveTurnState({ roomId, base: rooms[roomId].gameplayToken, liveTurnState: snapshot(9_999) });
 
     expect(rooms[roomId].state.liveTurnState, 'the host planted a snapshot on Bob\'s turn')
       .toEqual(snapshot(150));
@@ -759,17 +786,19 @@ describe('liveTurnState authorization', () => {
     // forfeited-score the timeout path is about to read.
     const alice = seat('host-sock', 'Alice');
 
-    alice.liveTurnState({ roomId, liveTurnState: null });
+    alice.liveTurnState({ roomId, base: rooms[roomId].gameplayToken, liveTurnState: null });
 
     expect(rooms[roomId].state.liveTurnState).toEqual(snapshot(150));
+    expect(alice.emit).not.toHaveBeenCalled();
   });
 
   it('refuses a seated bystander', () => {
     const carol = seat('bystander-sock', 'Carol');
 
-    carol.liveTurnState({ roomId, liveTurnState: snapshot(9_999) });
+    carol.liveTurnState({ roomId, base: rooms[roomId].gameplayToken, liveTurnState: snapshot(9_999) });
 
     expect(rooms[roomId].state.liveTurnState).toEqual(snapshot(150));
+    expect(carol.emit).not.toHaveBeenCalled();
   });
 
   it('still accepts it from the active player, who is not the host', () => {
@@ -1178,9 +1207,13 @@ describe('shared per-room push work budget', () => {
   const roomId = 'SHARED-PUSH-BUDGET';
   const otherRoomId = 'OTHER-PUSH-BUDGET';
   const TEST_BUDGET_MAX = 2;
+  const UNAUTHORIZED_ATTEMPTS = TEST_BUDGET_MAX + 1;
+  const FIXED_NOW = 1_000_000;
   let previousLimit: string | undefined;
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
     previousLimit = process.env.ROOM_PUSH_WORK_LIMIT_MAX;
     process.env.ROOM_PUSH_WORK_LIMIT_MAX = String(TEST_BUDGET_MAX);
     for (const id of Object.keys(rooms)) deleteRoom(id);
@@ -1190,6 +1223,37 @@ describe('shared per-room push work budget', () => {
     if (previousLimit === undefined) delete process.env.ROOM_PUSH_WORK_LIMIT_MAX;
     else process.env.ROOM_PUSH_WORK_LIMIT_MAX = previousLimit;
     for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.useRealTimers();
+  });
+
+  it('does not charge unauthorized sockets against the shared room budget', () => {
+    const { io, emit } = makeFakeIo();
+    rooms[roomId] = createRoom('host-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: false, currentPlayerIndex: 0, currentCard: '300',
+      players: [makePlayer('Host', 'host-sock')],
+    });
+    const before = structuredClone(rooms[roomId].state);
+
+    for (let attempt = 0; attempt < UNAUTHORIZED_ATTEMPTS; attempt++) {
+      // A fresh socket has its own limiter, but every attempt shares this
+      // room's budget and the same fixed time window.
+      const stranger = makeFakeSocket(`stranger-${attempt}`);
+      registerGameStateHandlers({ io, socket: stranger.socket, session: { roomId, username: 'Mallory' } });
+      const ack = vi.fn();
+      pushAction(stranger.handlers['pushState'], roomId, { type: 'commit', score: 0, success: false }, {}, ack);
+      expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'unauthorized' });
+      expect(rooms[roomId].state).toEqual(before);
+    }
+    expect(emit).not.toHaveBeenCalled();
+
+    const host = makeFakeSocket('host-sock');
+    registerGameStateHandlers({ io, socket: host.socket, session: { roomId, username: 'Host' } });
+    const ack = vi.fn();
+    pushAction(host.handlers['pushState'], roomId, { type: 'reset' }, {}, ack);
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    expect(rooms[roomId].state.status).toBe('lobby');
+    expect(emit).toHaveBeenCalled();
   });
 
   it('survives socket replacement while another room keeps an independent budget', () => {
