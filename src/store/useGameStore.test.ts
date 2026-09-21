@@ -2309,6 +2309,7 @@ describe('useGameStore', () => {
         mockSocketConnected = false;
 
         pushCommit();
+        const mutationId = useGameStore.getState().gameplayToken;
         expect(pushes(), 'nothing may go out over a dead transport').toHaveLength(0);
 
         mockSocketConnected = true;
@@ -2318,7 +2319,12 @@ describe('useGameStore', () => {
         ackRejoin({ success: true, isHost: true, name: 'Alice' });
 
         expect(pushes()).toHaveLength(1);
-        expect(pushes()[0][1].newState.round).toBe(STAGED_ROUND);
+        expect(pushes()[0][1]).toMatchObject({
+          base: ONLINE_BASE_TOKEN,
+          mutationId,
+          action: { type: 'commit', score: PUSH_SCORE, success: true },
+        });
+        expect(pushes()[0][1].newState).toEqual({});
       });
 
       it('re-parks a push the flush finds the socket down for again, instead of firing it into the void', () => {
@@ -2363,12 +2369,14 @@ describe('useGameStore', () => {
           base: ONLINE_BASE_TOKEN, mutationId: firstMutation,
           action: { type: 'commit', score: PUSH_SCORE, success: true },
         });
+        expect(pushes()[0][1].newState).toEqual({});
         mockOnHandlers['gameState']({ gameplayToken: firstMutation, round: LATER_ROUND });
         pushCommit(LATER_PUSH_SCORE);
         expect(pushes()).toHaveLength(2);
         expect(pushes()[1][1]).toMatchObject({
           base: firstMutation, action: { type: 'commit', score: LATER_PUSH_SCORE, success: true },
         });
+        expect(pushes()[1][1].newState).toEqual({});
         expect(pushes()[1][1].mutationId).not.toBe(firstMutation);
       });
 
@@ -2459,6 +2467,7 @@ describe('useGameStore', () => {
           stageSeatedGame();
           mockSocketConnected = false;
           pushCommit();
+          const mutationId = useGameStore.getState().gameplayToken;
 
           mockSocketConnected = true;
           mockOnHandlers['connect']();
@@ -2471,7 +2480,12 @@ describe('useGameStore', () => {
 
           vi.advanceTimersByTime(PUSH_REJOIN_RETRY_DELAY_MS);
           expect(pushes(), 'the same snapshot goes out again').toHaveLength(2);
-          expect(pushes()[1][1].newState.round).toBe(STAGED_ROUND);
+          expect(pushes()[1][1]).toMatchObject({
+            base: ONLINE_BASE_TOKEN,
+            mutationId,
+            action: { type: 'commit', score: PUSH_SCORE, success: true },
+          });
+          expect(pushes()[1][1].newState).toEqual({});
 
           // Once. A second refusal is a real one.
           pushes()[1][2]({ ok: false, reason: 'unauthorized' });
@@ -2498,6 +2512,7 @@ describe('useGameStore', () => {
           stageSeatedGame();
           mockSocketConnected = false;
           pushCommit();
+          const mutationId = useGameStore.getState().gameplayToken;
 
           mockSocketConnected = true;
           mockOnHandlers['connect']();
@@ -2516,7 +2531,12 @@ describe('useGameStore', () => {
           ackRejoin({ success: true, isHost: true, name: 'Alice' });
 
           expect(pushes(), 'the parked snapshot goes out on the new connection').toHaveLength(2);
-          expect(pushes()[1][1].newState.round).toBe(STAGED_ROUND);
+          expect(pushes()[1][1]).toMatchObject({
+            base: ONLINE_BASE_TOKEN,
+            mutationId,
+            action: { type: 'commit', score: PUSH_SCORE, success: true },
+          });
+          expect(pushes()[1][1].newState).toEqual({});
         } finally {
           vi.useRealTimers();
         }
@@ -2546,9 +2566,9 @@ describe('useGameStore', () => {
           vi.advanceTimersByTime(PUSH_REJOIN_RETRY_DELAY_MS);
 
           expect(pushes(), 'the stale retry must not also fire').toHaveLength(pushesBeforeRetry + 1);
-          expect(pushes().at(-1)![1].newState.round).toBe(LATER_ROUND);
           expect(pushes().at(-1)![1].base).toBe(correctedToken);
           expect(pushes().at(-1)![1].action).toEqual({ type: 'commit', score: LATER_PUSH_SCORE, success: true });
+          expect(pushes().at(-1)![1].newState).toEqual({});
         } finally {
           vi.useRealTimers();
         }

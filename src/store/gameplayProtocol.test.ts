@@ -168,14 +168,21 @@ const compileOnlineSocketProtocol = (): void => {
 void compileOnlineSocketProtocol;
 
 describe('gameplay preconditions through the real store and JSON transport', () => {
-  it('hydrates only public deck composition and never sends a private deck', () => {
-    stage();
+  it('sends only the v2 compatibility envelope and command identity for a turn action', () => {
+    const { room } = stage();
+    const base = room.gameplayToken;
     expect(useGameStore.getState().cards).toEqual([]);
     expect(useGameStore.getState().remainingCardCounts).toEqual({ '200': 1, '300': 1, '400': 1 });
     useGameStore.getState().nextTurn(SCORE);
     const payload = client.emit.mock.calls.find(([event]) => event === 'pushState')![1];
-    expect(payload.action).toEqual({ type: 'commit', score: SCORE, success: false });
-    expect(payload.newState).not.toHaveProperty('cards');
+    expect(payload).toMatchObject({
+      roomId: ROOM,
+      base,
+      action: { type: 'commit', score: SCORE, success: false },
+    });
+    expect(payload.newState).toEqual({});
+    expect(payload.mutationId).toEqual(expect.any(String));
+    expect(payload.mutationId).not.toBe(base);
     expect(useGameStore.getState().cards).toEqual([]);
     expect(useGameStore.getState().remainingCardCounts).toEqual({ '300': 1, '400': 1 });
     expect(useGameStore.getState().currentCard).toBe('200');
@@ -300,12 +307,19 @@ describe('gameplay preconditions through the real store and JSON transport', () 
     expect(client.emit.mock.calls.filter(([event]) => event === 'requestState')).toHaveLength(0);
   });
 
-  it('serializes absent undo success as an explicit clear', () => {
+  it('keeps the v2 object envelope empty for a direct undo push', () => {
     const { room } = stage();
+    const base = room.gameplayToken;
     useGameStore.setState({ previousWasSuccess: undefined });
-    useGameStore.getState().pushState(room.gameplayToken, { type: 'undo' });
+    useGameStore.getState().pushState(base, { type: 'undo' });
     const payload = client.emit.mock.calls.find(([event]) => event === 'pushState')![1];
-    expect(wire(payload).newState.previousWasSuccess).toBeNull();
+    expect(payload).toMatchObject({
+      roomId: ROOM,
+      base,
+      action: { type: 'undo' },
+    });
+    expect(payload.newState).toEqual({});
+    expect(payload.mutationId).toEqual(expect.any(String));
   });
 
   it('refuses a parked host move after timeout even with no guest action', async () => {

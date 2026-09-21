@@ -13,7 +13,6 @@ import { REACTION_DISPLAY_MS } from '../utils/reactions';
 import { roomPhase } from '../utils/roomPhase';
 import { v4 as uuidv4 } from 'uuid';
 import { gameModeOf } from '../utils/statsApi';
-import { serializePlayersForPush } from './playerPushDto';
 import { PUBLIC_GAME_STATE_KEYS } from '../types';
 import {
   ONLINE_PROTOCOL_VERSION,
@@ -285,7 +284,7 @@ const clearPushPredictions = (): void => {
  * locally. Parking it here instead puts it behind the joinRoom ack.
  *
  * One slot: gameplay actions remain blocked until the authoritative echo or
- * correction. A newer snapshot cannot replace an uncommitted command.
+ * correction. A newer command cannot replace an uncommitted one.
  */
 let parkedPush: ParkedEmit<PushStatePayload> | null = null;
 
@@ -344,7 +343,7 @@ export const clearRejoinWatchdog = (): void => {
  * without touching parkedPush or lastReconnectAt.
  *
  * Split out of clearPendingPush so pushState can call just this: a fresh
- * pushState() call means a newer full snapshot exists, which supersedes
+ * pushState() call supplies a newer command, which supersedes
  * whatever stale one a queued retry would otherwise resend — but pushState
  * has nothing to do with abandoning the room, so parkedPush and
  * lastReconnectAt (whose clearing means exactly that) must stay put.
@@ -651,26 +650,25 @@ const submitGlobalStats = (get: SocketSliceGet): void => {
 /**
  * Sends one push and acts on what the server says about it.
  *
- * The ack is optional on the wire in both directions: a server predating it
- * simply never invokes the callback, which is indistinguishable from a push
- * nobody objected to — so silence is success. A refusal is not silent:
+ * The ack is optional on the wire. The authoritative echo settles accepted
+ * predictions; a missing ack or echo triggers bounded state reconciliation.
+ * Refusals are handled according to their recovery path:
  *
  *  - 'unauthorized' shortly after a reconnect is almost always this client's
- *    own rejoin not having landed yet, so the same snapshot is re-sent ONCE
+ *    own rejoin not having landed yet, so the same command is re-sent ONCE
  *    (`retryable` is false on that retry, and on every push that follows).
  *  - 'no-room' is the one refusal a fresh snapshot cannot answer: there is no
  *    room left to ask. The seat is given up the same way the kicked and
  *    seatTakenOver handlers give it up (see surrenderSeat), rather than the
  *    player being left in a room that does not exist, where every action
  *    silently does nothing.
- *  - 'rate-limited' stays quiet. A token-aware prediction still needs a
- *    resync: its proposed identity was not accepted, so later actions cannot
- *    depend on it. Legacy pushes retain their existing silent behavior.
+ *  - 'rate-limited' stays quiet but requests a resync: its proposed identity
+ *    was not accepted, so later actions cannot depend on it.
  *  - anything else — and a second 'unauthorized' — is a push the room has
  *    genuinely thrown away. The player is told, and a fresh snapshot is pulled
  *    so the client stops rendering a turn the room never accepted.
  *
- * `parkedAt` is the stamp this snapshot already carries when the caller is
+ * `parkedAt` is the stamp this command already carries when the caller is
  * flushing a park; a re-park below reuses it so the age keeps accruing, which
  * is the invariant ParkedEmit documents. Absent (a live push) the re-park
  * stamps itself.
@@ -778,7 +776,7 @@ const emitPushState = (
  *
  * The stamp rides on into emitPushState so a re-park (the rejoin-race retry
  * finding the transport gone again) keeps accruing age instead of renewing the
- * snapshot on every flaky reconnect.
+ * command on every flaky reconnect.
  */
 const flushParkedPush = (get: SocketSliceGet): void => {
   const parked = parkedPush;
@@ -1502,8 +1500,8 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
     const s = get();
     const socket = getSocket();
     // `connected`, not just "there is a socket": socket.io BUFFERS an emit made
-    // while the transport is down and delivers it on reconnect. For a full
-    // snapshot that is merely the wrong recovery (see parkedPush); for a draw
+    // while the transport is down and delivers it on reconnect. For a gameplay
+    // command that is the wrong recovery (see parkedPush); for a draw
     // it is worse than useless — the panel would have given up and banked the
     // tutto seconds earlier, and the buffered request would then spend a card
     // off the room's deck for a turn that had already ended.
@@ -1600,39 +1598,16 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         return;
       }
       set({ onlineActionPending: true });
-      const {
-        players, currentPlayerIndex, currentCard, round, winningScore, initialCards,
-        randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
-        previousScore, previousCard, previousLeaders, previousWasBust, previousWasSuccess,
-        previousHighestTurnScore,
-        previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore,
-        previousPlayerName, previousTurnSummary, chartValues, chartNames, chartLabels, status,
-        liveTurnState, enforcedDiceMode, ruleset, historyLog,
-      } = s;
       const payload: PushStatePayload = {
         roomId: s.roomId,
         action,
         base: parkedPush?.payload.base ?? baseToken,
         mutationId: uuidv4(),
-        newState: {
-          players: serializePlayersForPush(players), currentPlayerIndex, currentCard, round, winningScore, initialCards,
-          randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
-          previousScore, previousCard, previousLeaders, previousWasBust, previousWasSuccess: previousWasSuccess ?? null,
-          previousHighestTurnScore,
-          previousHighestFeuerwerkTurnScore, previousHighestX2TurnScore,
-          previousPlayerName, previousTurnSummary, chartValues, chartNames, chartLabels, status,
-          liveTurnState, enforcedDiceMode, ruleset, historyLog,
-          // The wire payload is the sixth hand-written copy of the synced
-          // field set (destructure above + literal here). satisfies makes it
-          // the compiler's problem: a canonical key missing here refuses to
-          // build, and the shorthand identifiers force the destructure to
-          // carry whatever the literal names — without this, a new synced
-          // field passed every other lock and still never reached the wire,
-          // where the server-side sync contract could not consume it.
-          //
-          // stateVersion is NOT here on purpose: it is the server's own
-          // counter, not a field a client may write.
-        } satisfies Record<Exclude<SyncedGameStateKey, 'cards'>, unknown>,
+        // Protocol v2 still requires an object envelope for rollback and
+        // cached-client compatibility, but live servers derive gameplay from
+        // action/base/mutationId. Keep the envelope empty; do not rebuild the
+        // ignored legacy snapshot here.
+        newState: {},
       };
 
       if (pendingMutationIds.size === 0) pendingMutationBase = payload.base;
@@ -1641,7 +1616,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
 
       // Park rather than let socket.io buffer it — see parkedPush for why
       // the library's own buffering is the bug and not the fix. Stamped so
-      // the flush can tell a snapshot worth sending from one the room has
+      // the flush can tell a command worth sending from one the room has
       // long since moved past (PARKED_EMIT_MAX_AGE_MS).
       if (!socket.connected || parkedPush !== null) {
         parkedPush = { payload, parkedAt: parkedPush?.parkedAt ?? Date.now() };

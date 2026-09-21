@@ -303,9 +303,9 @@ export interface CoreGameState {
 // you through every list that must take a position:
 //
 //   server/roomTypes.ts       RoomState = these + the server-only fields
-//   src/store/socketSlice.ts  GAME_STATE_SYNC_KEYS (broadcast allowlist),
-//                             clearRoomState's cleared-vs-kept split, and
-//                             pushState's wire payload (satisfies Record)
+//   src/store/socketSlice.ts  GAME_STATE_SYNC_KEYS (broadcast allowlist) and
+//                             clearRoomState's cleared-vs-kept split. Client
+//                             pushState sends only the v2 object envelope.
 //   server/socketConfigHandlers.ts  lobby-only vs mid-game config split
 //   src/store/persistence.ts  saved-locally vs never-saved split
 export const SYNCED_GAME_STATE_KEYS = [
