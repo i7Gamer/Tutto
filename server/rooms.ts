@@ -2,6 +2,7 @@ import type { Server, Socket } from 'socket.io';
 import { randomUUID } from 'node:crypto';
 import { buildDeck, getLeaders, noUndoableTurn } from '../src/utils/coreGameEngine';
 import { getEffectiveTurnDuration } from '../src/utils/turnDuration';
+import { appendRoundChartPoint } from '../src/utils/turnResultPatch';
 import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
   DEFAULT_RULESET, MAX_PLAYERS_PER_ROOM,
@@ -306,10 +307,14 @@ export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void 
       // Capped like advanceTurnOnTimeout's twin append, and for a sharper
       // reason than unbounded growth: MAX_CHART_POINTS is the server's chart
       // retention cap.
-      if (state.chartValues.length === state.players.length && state.chartNames.length === state.players.length
-          && state.chartLabels.length < MAX_CHART_POINTS) {
-        state.chartValues.forEach((vals, i) => vals.push(state.players[i].score));
-        state.chartLabels.push(state.round);
+      if (state.chartNames.length === state.players.length) {
+        const chartPatch = appendRoundChartPoint(
+          state.chartValues, state.chartLabels, state.players, state.round, MAX_CHART_POINTS
+        );
+        if (chartPatch) {
+          state.chartValues = chartPatch.chartValues;
+          state.chartLabels = chartPatch.chartLabels;
+        }
       }
       // Same win check calculateNextTurn runs at the same round boundary —
       // without it, a removal that forces the round past a sole leader who

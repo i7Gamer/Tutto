@@ -1,8 +1,9 @@
 import { calculateNextTurn, calculateUndo, noUndoableTurn, shuffleArray, KNIFFEL_SCORE, PLUS_MINUS_SCORE } from '../src/utils/coreGameEngine';
 import { MAX_CHART_POINTS, MAX_SCORE_MAGNITUDE, MIN_ONLINE_PLAYERS } from '../src/utils/configValidation';
+import { buildTurnResultPatch } from '../src/utils/turnResultPatch';
 import { PLAYER_RECORD_FIELDS, zeroedPlayerStats } from '../src/utils/playerStats';
 import { isSpecialCard } from '../src/utils/diceTurnControls';
-import { MAX_CHAIN_CARDS, MAX_HISTORY_LOG_SIZE, type TurnSummary } from '../src/types';
+import { MAX_CHAIN_CARDS, type TurnSummary } from '../src/types';
 import { isValidTurnSummary } from './turnPayloadValidation';
 import type { Room, RoomState, ServerPlayer } from './roomTypes';
 
@@ -133,20 +134,11 @@ export const applyOnlineGameAction = (room: Room, value: unknown, socketId: stri
   } else if (action.summary !== undefined || !before.currentCard) return false;
 
   const result = calculateNextTurn({ ...calculationState, currentPlayerIndex: before.currentPlayerIndex }, action.score, action.success, summary, false, false);
-  const next: RoomState = { ...before, players: result.players as ServerPlayer[],
-    currentPlayerIndex: result.nextIndex, round: result.nextRound, finished: result.isGameOver, liveTurnState: null,
-    previousCard: result.previousCard, previousScore: result.previousScore, previousLeaders: result.previousLeaders as ServerPlayer[] | null,
-    previousWasBust: result.previousWasBust, previousWasSuccess: result.previousWasSuccess,
-    previousHighestTurnScore: result.previousHighestTurnScore,
-    previousHighestFeuerwerkTurnScore: result.previousHighestFeuerwerkTurnScore,
-    previousHighestX2TurnScore: result.previousHighestX2TurnScore,
-    previousPlayerName: result.previousPlayerName, previousTurnSummary: result.previousTurnSummary,
-    historyLog: [...before.historyLog, result.historyEntry].slice(-MAX_HISTORY_LOG_SIZE),
+  const patch = buildTurnResultPatch(before, result, MAX_CHART_POINTS);
+  const next: RoomState = { ...before, ...patch, players: patch.players as ServerPlayer[],
+    currentPlayerIndex: result.nextIndex, round: result.nextRound, finished: result.isGameOver,
+    previousLeaders: patch.previousLeaders as ServerPlayer[] | null,
   };
-  if (result.isRoundEnd && before.chartValues.length === result.players.length && before.chartLabels.length < MAX_CHART_POINTS) {
-    next.chartValues = before.chartValues.map((series, index) => [...series, result.players[index].score]);
-    next.chartLabels = [...before.chartLabels, before.round];
-  }
   // Deck advancement/restoration uses only the private server deal ledger in
   // settleDeck, after acceptance. Ignore the engine's optimistic draw result.
   room.state = next;

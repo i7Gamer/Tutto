@@ -261,6 +261,27 @@ describe('handleActivePlayerRemoved', () => {
       expect(room.state.chartValues).toEqual([[100, 250], [100, 175]]);
     });
 
+    it('skips the removal-forced chart append when an extra chart name remains after the splice', () => {
+      const room = makeRoom(['Alice', 'Bob'], {
+        currentPlayerIndex: 2,
+        round: 7,
+        cards: ['Stop'],
+        currentCard: 'x2',
+      });
+      room.state.chartValues = [[100], [100], [100]];
+      room.state.chartNames = ['Alice', 'Bob', 'Carol', 'Dana'];
+      room.state.players[0].score = 250;
+      room.state.players[1].score = 175;
+
+      handleActivePlayerRemoved(room, 2);
+
+      expect(room.state.currentPlayerIndex).toBe(0);
+      expect(room.state.round).toBe(8);
+      expect(room.state.chartNames).toEqual(['Alice', 'Bob', 'Dana']);
+      expect(room.state.chartLabels).toEqual([]);
+      expect(room.state.chartValues).toEqual([[100], [100]]);
+    });
+
     it('stops appending chart datapoints once the MAX_CHART_POINTS cap is reached', () => {
       // The same bound turnTimers.advanceTurnOnTimeout respects on its own
       // round-end append. Not an abuse story here — it takes a real seat

@@ -1,7 +1,8 @@
 import type { Server } from 'socket.io';
-import { MAX_HISTORY_LOG_SIZE, type CoreGameState, type TurnSummary } from '../src/types';
+import type { CoreGameState, TurnSummary } from '../src/types';
 import { TOTAL_DICE } from '../src/utils/turnShapes';
 import { calculateNextTurn } from '../src/utils/coreGameEngine';
+import { buildTurnResultPatch } from '../src/utils/turnResultPatch';
 import { isBust } from '../src/utils/diceLogic';
 import { hasScoreInput } from '../src/utils/diceTurnControls';
 import { roomPhase } from '../src/utils/roomPhase';
@@ -248,39 +249,12 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
       true,
     );
 
-    room.state.players = result.players as ServerPlayer[];
-    room.state.previousCard = result.previousCard;
-    room.state.previousScore = result.previousScore;
-    room.state.previousLeaders = result.previousLeaders as ServerPlayer[] | null;
-    room.state.previousWasBust = result.previousWasBust;
-    room.state.previousWasSuccess = result.previousWasSuccess;
-    room.state.previousHighestTurnScore = result.previousHighestTurnScore;
-    room.state.previousHighestFeuerwerkTurnScore = result.previousHighestFeuerwerkTurnScore;
-    room.state.previousHighestX2TurnScore = result.previousHighestX2TurnScore;
-    room.state.previousPlayerName = result.previousPlayerName;
-    room.state.previousTurnSummary = result.previousTurnSummary;
-    room.state.liveTurnState = null;
-
     if (!room.state.historyLog) room.state.historyLog = [];
-    room.state.historyLog.push(result.historyEntry);
-    if (room.state.historyLog.length > MAX_HISTORY_LOG_SIZE) {
-      room.state.historyLog.shift();
-    }
-
-    // chartLabels is round-indexed and chartValues is player-indexed, so a label
-    // may only be appended when the series it labels were appended too —
-    // otherwise labels outgrow every series and the end-screen chart skews.
-    // Guarded on chartValues alone (not chartNames, as handleActivePlayerRemoved
-    // additionally does) because that is the array actually being appended to
-    // here; chartNames is only a fallback label source for the chart. Capped at
-    // MAX_CHART_POINTS like the pushed arrays: this path can self-advance for as
-    // long as nobody reaches the winning score, and must not grow state
-    // unboundedly.
-    if (result.isRoundEnd && room.state.chartValues.length === result.players.length
-        && room.state.chartLabels.length < MAX_CHART_POINTS) {
-      room.state.chartValues.forEach((vals, i) => vals.push(result.players[i]?.score ?? 0));
-      room.state.chartLabels.push(room.state.round);
-    }
+    const patch = buildTurnResultPatch(room.state, result, MAX_CHART_POINTS);
+    Object.assign(room.state, patch, {
+      players: patch.players as ServerPlayer[],
+      previousLeaders: patch.previousLeaders as ServerPlayer[] | null,
+    });
 
     room.turnTimerState ??= idleTurnTimerState();
 

@@ -7,6 +7,7 @@ import {
   buildDeck,
 } from '../utils/coreGameEngine';
 import { buildGlobalStatsPayload } from '../utils/statsPayloads';
+import { buildTurnResultPatch } from '../utils/turnResultPatch';
 import { buildTurnKey, DICE_TURN_STATE_KEY, clearTurnCaches } from '../utils/diceTurnState';
 import { MAX_PLAYER_NAME_LENGTH, MIN_ONLINE_PLAYERS, isNormalizedConfig } from '../utils/configValidation';
 import { zeroedPlayerStats } from '../utils/playerStats';
@@ -15,7 +16,6 @@ import playerColorsData from '../../playerColors.json';
 import { v4 as uuidv4 } from 'uuid';
 import type { Player, CoreGameState, Toast, CardType, BotPersonality } from '../types';
 import { BOT_NAMES } from '../utils/bots';
-import { MAX_HISTORY_LOG_SIZE } from '../types';
 import { getSocket } from './socketRef';
 import type { FinishedGameSnapshot, GameStore, ImmerStateCreator } from './storeTypes';
 
@@ -313,31 +313,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     );
 
     set((state) => {
-      state.previousCard = result.previousCard;
-      state.previousScore = result.previousScore;
-      state.previousLeaders = result.previousLeaders;
-      state.previousWasBust = result.previousWasBust;
-      state.previousWasSuccess = result.previousWasSuccess;
-      state.previousHighestTurnScore = result.previousHighestTurnScore;
-      state.previousHighestFeuerwerkTurnScore = result.previousHighestFeuerwerkTurnScore;
-      state.previousHighestX2TurnScore = result.previousHighestX2TurnScore;
-      state.previousPlayerName = result.previousPlayerName;
-      state.previousTurnSummary = result.previousTurnSummary;
-
-      // chartValues is player-indexed (one score series per player) and
-      // chartLabels is round-indexed, so a label may only be appended when the
-      // series it labels were. Guarded like both server-side twins
-      // (turnTimers.advanceTurnOnTimeout, rooms.handleActivePlayerRemoved):
-      // the two can only disagree through a corrupted save — pickLocalGameState
-      // drops mismatched chart rows, which leaves whatever the store held
-      // before them — but indexing result.players past the end threw, taking
-      // the whole game into the ErrorBoundary's clear-and-reload.
-      if (result.isRoundEnd && state.chartValues.length === result.players.length) {
-        state.chartValues.forEach((vals, i) => vals.push(result.players[i].score));
-        state.chartLabels.push(state.round);
-      }
-
-      state.players = result.players;
+      const patch = buildTurnResultPatch(state, result, null);
+      Object.assign(state, patch);
 
       if (result.isGameOver) {
         state.finished = true;
@@ -358,20 +335,6 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
           state.cards = result.newDeck;
           state.currentCard = result.drawnCard;
         }
-      }
-      state.liveTurnState = null;
-      state.historyLog.push(result.historyEntry);
-      if (state.historyLog.length > MAX_HISTORY_LOG_SIZE) {
-        // Known and accepted asymmetry with undo, which pops only the newest
-        // entry (see the matching note there): once the log is full, undoing
-        // the turn this shift made room for leaves the log one entry short,
-        // and the shifted entry is gone for good. The activity log is
-        // rendered, never read back into game logic, and the next capped turn
-        // re-establishes the same window — so the loss is display-only and
-        // self-correcting. Raising MAX_HISTORY_LOG_SIZE is NOT the fix: it is
-        // one of the dimensions MAX_PUSHED_STATE_BYTES was measured against,
-        // and changing it would require re-running that measurement.
-        state.historyLog.shift();
       }
     });
     clearTurnCaches();

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useGameStore, _resetTimersForTests, _resetSocketSliceForTests } from './useGameStore';
 import { disconnectSocket } from './socketRef';
-import { DEFAULT_INITIAL_CARDS } from '../utils/configValidation';
+import { DEFAULT_INITIAL_CARDS, MAX_CHART_POINTS } from '../utils/configValidation';
 import { ONLINE_PROTOCOL_VERSION } from '../utils/onlineProtocol';
 import { blockStorage, failStorageMethods, restoreStorage } from '../testing/storageStubs';
 import { DRAW_CARD_ACK_TIMEOUT_MS, JOIN_TIMEOUT_MS, PUSH_REJOIN_RACE_WINDOW_MS, PUSH_REJOIN_RETRY_DELAY_MS, REJOIN_PENDING_RETRY_DELAY_MS, STATS_SUBMIT_ACK_TIMEOUT_MS } from '../utils/uiTimings';
@@ -5023,6 +5023,23 @@ describe('useGameStore', () => {
       expect(() => useGameStore.getState().nextTurn(100, true)).not.toThrow();
       expect(useGameStore.getState().chartValues).toEqual([[100]]);
       expect(useGameStore.getState().chartLabels).toEqual([1]);
+    });
+    it('keeps local chart retention uncapped by the server chart limit', () => {
+      const fullAlice = Array(MAX_CHART_POINTS).fill(100);
+      const fullBob = Array(MAX_CHART_POINTS).fill(200);
+      useGameStore.setState({
+        mode: 'local', isOnline: false, status: 'playing',
+        players: [makeOnlinePlayer('Alice'), makeOnlinePlayer('Bob')],
+        currentPlayerIndex: 1,
+        currentCard: '200', cards: ['300'], round: MAX_CHART_POINTS + 1,
+        chartValues: [fullAlice, fullBob], chartLabels: Array(MAX_CHART_POINTS).fill(1),
+      });
+
+      useGameStore.getState().nextTurn(100, true);
+
+      expect(useGameStore.getState().chartValues[0]).toHaveLength(MAX_CHART_POINTS + 1);
+      expect(useGameStore.getState().chartValues[1]).toHaveLength(MAX_CHART_POINTS + 1);
+      expect(useGameStore.getState().chartLabels).toHaveLength(MAX_CHART_POINTS + 1);
     });
   });
 

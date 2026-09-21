@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { applyOnlineGameAction } from './gameActionAuthority';
 import { createRoom } from './rooms';
 import { makeServerPlayer } from './socketTestHarness';
+import { MAX_CHART_POINTS } from '../src/utils/configValidation';
 import type { TurnSummary } from '../src/types';
 
 const host = 'host';
@@ -36,6 +37,48 @@ describe('server-owned online actions', () => {
     expect(room.state.players[1].score).toBe(turnScore);
     expect(room.state.players[1].totalTurns).toBe(1);
     expect(room.state.currentPlayerIndex).toBe(0);
+    expect(room.state.round).toBe(2);
+  });
+
+  it('appends chart data immutably for an accepted round-end commit', () => {
+    const room = activeRoom();
+    room.state.chartValues = [[10], [20]];
+    room.state.chartLabels = [0];
+    const originalValues = room.state.chartValues;
+    const originalLabels = room.state.chartLabels;
+
+    expect(applyOnlineGameAction(room, { type: 'commit', score: turnScore, success: true }, actor)).toBe(true);
+
+    expect(room.state.chartValues).toEqual([[10, opponentScore], [20, turnScore]]);
+    expect(room.state.chartLabels).toEqual([0, 1]);
+    expect(room.state.chartValues).not.toBe(originalValues);
+    expect(room.state.chartLabels).not.toBe(originalLabels);
+    expect(originalValues).toEqual([[10], [20]]);
+    expect(originalLabels).toEqual([0]);
+  });
+
+  it('keeps server chart history capped without blocking the accepted turn', () => {
+    const room = activeRoom();
+    const fullSeries = Array(MAX_CHART_POINTS).fill(0);
+    room.state.chartValues = [fullSeries, [...fullSeries]];
+    room.state.chartLabels = Array(MAX_CHART_POINTS).fill(1);
+
+    expect(applyOnlineGameAction(room, { type: 'commit', score: turnScore, success: true }, actor)).toBe(true);
+
+    expect(room.state.chartValues[0]).toHaveLength(MAX_CHART_POINTS);
+    expect(room.state.chartLabels).toHaveLength(MAX_CHART_POINTS);
+    expect(room.state.round).toBe(2);
+  });
+
+  it('skips chart data without a label-only append when accepted commit rows mismatch', () => {
+    const room = activeRoom();
+    room.state.chartValues = [[10]];
+    room.state.chartLabels = [0];
+
+    expect(applyOnlineGameAction(room, { type: 'commit', score: turnScore, success: true }, actor)).toBe(true);
+
+    expect(room.state.chartValues).toEqual([[10]]);
+    expect(room.state.chartLabels).toEqual([0]);
     expect(room.state.round).toBe(2);
   });
 

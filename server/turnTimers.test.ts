@@ -270,16 +270,22 @@ describe('turnTimers', () => {
 
     it('pushes a chart datapoint when the timeout ends the round', () => {
       rooms[roomId] = createRoom('host-1');
+      const chartValues = [[0], [0]];
+      const chartLabels: number[] = [];
       Object.assign(rooms[roomId].state, {
         status: 'playing', currentPlayerIndex: 1, currentCard: '300', cards: ['200'],
         round: 1, players: [makePlayer('Alice'), makePlayer('Bob')],
-        chartValues: [[0], [0]], chartLabels: [],
+        chartValues, chartLabels,
       });
       advanceTurnOnTimeout(makeFakeIo().io, roomId);
 
       expect(rooms[roomId].state.chartValues[0].length).toBe(2);
       expect(rooms[roomId].state.chartValues[1].length).toBe(2);
       expect(rooms[roomId].state.chartLabels).toEqual([1]);
+      expect(rooms[roomId].state.chartValues).not.toBe(chartValues);
+      expect(rooms[roomId].state.chartLabels).not.toBe(chartLabels);
+      expect(chartValues).toEqual([[0], [0]]);
+      expect(chartLabels).toEqual([]);
       expect(rooms[roomId].state.round).toBe(2);
     });
 
