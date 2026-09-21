@@ -38,7 +38,10 @@ describe('useDeviceStats', () => {
     expect(result.current.stats).toEqual({ gamesPlayed: 3, wins: 1 });
     expect(fetch).toHaveBeenCalledWith(
       '/api/stats/device?mode=normalized',
-      { headers: { 'x-tutto-device': 'device-1' } },
+      expect.objectContaining({
+        headers: { 'x-tutto-device': 'device-1' },
+        signal: expect.any(AbortSignal),
+      }),
     );
   });
 
@@ -119,12 +122,17 @@ describe('useDeviceStats', () => {
 
   it('does not update state after unmounting mid-flight', async () => {
     let resolveFetch!: (v: unknown) => void;
-    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => { resolveFetch = resolve; })));
+    let requestSignal!: AbortSignal;
+    vi.stubGlobal('fetch', vi.fn((_: string, init?: Parameters<typeof fetch>[1]) => {
+      requestSignal = init?.signal as AbortSignal;
+      return new Promise((resolve) => { resolveFetch = resolve; });
+    }));
 
     const { result, unmount } = renderHook(() => useDeviceStats<Stats>('device-1', 'normalized'));
     expect(result.current.status).toBe('loading');
 
     unmount();
+    expect(requestSignal.aborted).toBe(true);
     // Resolving after unmount must not trigger a setState-on-unmounted-hook
     // warning (which vitest/RTL would surface as a failure) and must not
     // change the (now-detached) result.
@@ -172,16 +180,23 @@ describe('useDeviceStats', () => {
     rerender({ deviceId: 'device-2', mode: 'custom' });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       '/api/stats/device?mode=custom',
-      { headers: { 'x-tutto-device': 'device-2' } },
+      expect.objectContaining({
+        headers: { 'x-tutto-device': 'device-2' },
+        signal: expect.any(AbortSignal),
+      }),
     ));
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('refetches only when the explicit refresh key changes', async () => {
-    const fetchMock = vi.fn(() => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve({ gamesPlayed: 3, wins: 1 }),
-    }));
+    const abortSignals: AbortSignal[] = [];
+    const fetchMock = vi.fn((_: string, init?: Parameters<typeof fetch>[1]) => {
+      if (init?.signal) abortSignals.push(init.signal);
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ gamesPlayed: 3, wins: 1 }),
+      });
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     const { rerender } = renderHook(
@@ -196,6 +211,48 @@ describe('useDeviceStats', () => {
 
     rerender({ refreshKey: 'submission-2' });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(abortSignals[0].aborted).toBe(true);
+    expect(abortSignals[1].aborted).toBe(false);
+  });
+
+  it.each([
+    { label: 'mode', deviceId: 'device-1', mode: 'custom' as GameMode },
+    { label: 'device', deviceId: 'device-2', mode: 'normalized' as GameMode },
+  ])('aborts a non-retrying request when its $label changes', async ({ deviceId, mode }) => {
+    const abortSignals: AbortSignal[] = [];
+    const fetchMock = vi.fn((_: string, init?: Parameters<typeof fetch>[1]) => {
+      if (init?.signal) abortSignals.push(init.signal);
+      return new Promise<Response>(() => {});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { rerender } = renderHook(
+      ({ deviceId, mode }: { deviceId: string; mode: GameMode }) => useDeviceStats<Stats>(deviceId, mode),
+      { initialProps: { deviceId: 'device-1', mode: 'normalized' as GameMode } },
+    );
+    await waitFor(() => expect(abortSignals).toHaveLength(1));
+
+    rerender({ deviceId, mode });
+    await waitFor(() => expect(abortSignals).toHaveLength(2));
+    expect(abortSignals[0].aborted).toBe(true);
+    expect(abortSignals[1].aborted).toBe(false);
+  });
+
+  it('aborts an active request when disabled and returns to idle', () => {
+    let signal: AbortSignal | null | undefined;
+    const fetchMock = vi.fn((_: string, init?: Parameters<typeof fetch>[1]) => {
+      signal = init?.signal;
+      return new Promise<Response>(() => {});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { result, rerender } = renderHook(
+      ({ enabled }) => useDeviceStats<Stats>('device-1', 'normalized', { enabled }),
+      { initialProps: { enabled: true } },
+    );
+    rerender({ enabled: false });
+    expect(signal?.aborted).toBe(true);
+    expect(result.current.status).toBe('idle');
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it('cancels an in-flight retrying request before a refresh-key fetch replaces it', async () => {

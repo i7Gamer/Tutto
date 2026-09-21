@@ -199,7 +199,36 @@ describe('Statistics Component', () => {
     const personalCall = fetchMock.mock.calls.find(([url]) => !url.includes('global'));
     expect(personalCall).toBeDefined();
     expect(nonNull(personalCall)[0]).not.toContain('test-device');
-    expect(nonNull(personalCall)[1]).toEqual({ headers: { 'x-tutto-device': 'test-device' } });
+    expect(nonNull(personalCall)[1]).toEqual(expect.objectContaining({
+      headers: { 'x-tutto-device': 'test-device' },
+      signal: expect.any(AbortSignal),
+    }));
+  });
+
+  it('aborts both personal and global requests when the ruleset bucket changes', async () => {
+    const requests: Array<{ url: string; signal: AbortSignal }> = [];
+    const fetchMock = vi.fn((url: string, init?: Parameters<typeof fetch>[1]) => {
+      if (init?.signal) requests.push({ url, signal: init.signal });
+      // The first personal result exposes navigation while the global request
+      // remains pending. The new ruleset's requests both stay in flight.
+      if (url.includes('mode=normalized')) {
+        return Promise.resolve(mockFetchJson({ gamesPlayed: 1, wins: 1, totalPlaytime: 100 }));
+      }
+      return new Promise<Response>(() => {});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { unmount } = render(<Statistics deviceId="test-device" onBack={vi.fn()} />);
+    await waitFor(() => expect(requests).toHaveLength(2));
+
+    fireEvent.click(await screen.findByRole('tab', { name: /lobby\.rulesetClassic/i }));
+    await waitFor(() => expect(requests).toHaveLength(4));
+
+    expect(requests.slice(0, 2).every(({ signal }) => signal.aborted)).toBe(true);
+    expect(requests.slice(2).every(({ signal }) => !signal.aborted)).toBe(true);
+
+    unmount();
+    expect(requests.slice(2).every(({ signal }) => signal.aborted)).toBe(true);
   });
 
   // The ruleset and normal/custom rows used to be small grey-on-white pills,
