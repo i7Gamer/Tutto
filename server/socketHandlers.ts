@@ -1,7 +1,6 @@
-import { Server, Socket } from 'socket.io';
 import { createKeyedEventLimiter } from './rateLimit';
 import { envLimitOr } from './envLimits';
-import { getClientAddress, type ConnectionSession, type SocketContext } from './socketContext';
+import { getClientAddress, type ConnectionSession, type OnlineServer, type OnlineServerSocket, type SocketContext } from './socketContext';
 import { registerRoomHandlers } from './socketRoomHandlers';
 import { registerConfigHandlers } from './socketConfigHandlers';
 import { registerRosterHandlers } from './socketRosterHandlers';
@@ -36,7 +35,7 @@ const REGISTRARS = [
   registerStatsHandlers,
 ];
 
-export const registerSocketHandlers = (io: Server): void => {
+export const registerSocketHandlers = (io: OnlineServer): void => {
   const connectionLimiter = createKeyedEventLimiter({
     windowMs: CONNECTION_LIMIT.windowMs,
     max: envLimitOr(process.env.SOCKET_CONN_LIMIT_MAX, CONNECTION_LIMIT.max),
@@ -50,7 +49,7 @@ export const registerSocketHandlers = (io: Server): void => {
     next();
   });
 
-  io.on('connection', (socket: Socket) => {
+  io.on('connection', (socket: OnlineServerSocket) => {
     // One per connection, shared by every handler registered below — see
     // ConnectionSession for why this is mutable state rather than a value.
     const session: ConnectionSession = { roomId: null, username: null };

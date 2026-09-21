@@ -17,12 +17,12 @@
  * event was inert (a typo'd name, a rejected payload, a changed shape).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Server } from 'socket.io';
 import { registerConfigHandlers } from './socketConfigHandlers';
 import { registerRosterHandlers } from './socketRosterHandlers';
 import { registerStatsHandlers } from './socketStatsHandlers';
 import { makeFakeSocket, makeServerPlayer, type Handler } from './socketTestHarness';
 import { rooms, createRoom, deleteRoom } from './rooms';
+import type { OnlineServer } from './socketContext';
 
 vi.mock('./database', () => ({
   getDeviceStats: vi.fn(async () => null),
@@ -38,7 +38,7 @@ const roomId = 'AUTHZ_ROOM';
 const makeFakeIo = () => {
   const emit = vi.fn();
   return {
-    io: { to: vi.fn(() => ({ emit })), sockets: { sockets: { get: () => undefined } } } as unknown as Server,
+    io: { to: vi.fn(() => ({ emit })), sockets: { sockets: { get: () => undefined } } } as unknown as OnlineServer,
     emit,
   };
 };

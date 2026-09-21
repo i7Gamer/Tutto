@@ -1,5 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Handler } from '../../server/socketTestHarness';
+import type {
+  DeviceStatsPayload,
+  DiceSnapshot,
+  DrawCardAck,
+  GlobalStatsPayload,
+  OnlineGameAction,
+  PushStateAck,
+  Reaction,
+  StatsSubmitAck,
+} from '../types';
+import type { JoinRoomResponse } from './storeTypes';
 
 const client = vi.hoisted(() => ({ connected: true, handlers: {} as Record<string, Handler>, emit: vi.fn() }));
 vi.mock('socket.io-client', () => ({ io: vi.fn(() => ({
@@ -13,7 +24,7 @@ vi.mock('../../server/database', () => ({
 }));
 
 import { useGameStore, _resetTimersForTests, _resetSocketSliceForTests } from './useGameStore';
-import { disconnectSocket } from './socketRef';
+import { disconnectSocket, getSocket } from './socketRef';
 import { createRoom, rooms, deleteRoom, emitRoomState } from '../../server/rooms';
 import { registerRoomHandlers } from '../../server/socketRoomHandlers';
 import { registerGameStateHandlers } from '../../server/socketGameStateHandlers';
@@ -26,6 +37,13 @@ import { PUSH_REJOIN_RETRY_DELAY_MS } from '../utils/uiTimings';
 
 const ROOM = 'PROTOCOL-ROOM';
 const SCORE = 500;
+const BASE_TOKEN = 'base-token';
+const MUTATION_ID = 'mutation-id';
+const DEVICE_ID = 'device-id';
+const PLAYER_NAME = 'Alice';
+const SOCKET_ID = 'socket-id';
+const PLAYER_COLOR = '#123456';
+const REACTION_EMOJI = '🎲';
 const wire = <T,>(value: T): T => value === undefined ? value : JSON.parse(JSON.stringify(value)) as T;
 
 beforeEach(() => {
@@ -74,6 +92,80 @@ function stage() {
   client.emit.mockImplementation((event: string, payload: unknown, ack: unknown) => fake.handlers[event]?.(wire(payload), ack));
   return { fake, io, room, emit };
 }
+
+const compileOnlineSocketProtocol = (): void => {
+  const socket = getSocket();
+  const action = { type: 'start' } satisfies OnlineGameAction;
+  const deviceStats = { gamesPlayed: 1 } as DeviceStatsPayload;
+  const globalStats = { gamesPlayed: 1 } as GlobalStatsPayload;
+  const liveTurn = null satisfies DiceSnapshot | null;
+  const pushAck = (_ack?: PushStateAck): void => undefined;
+  const joinAck = (_ack: JoinRoomResponse): void => undefined;
+  const drawAck = (_ack?: DrawCardAck): void => undefined;
+  const statsAck = (_ack?: StatsSubmitAck): void => undefined;
+
+  socket?.emit('joinRoom', {
+    roomId: ROOM,
+    name: PLAYER_NAME,
+    deviceId: DEVICE_ID,
+    color: PLAYER_COLOR,
+    isReconnect: false,
+  }, joinAck);
+  socket?.emit('pushState', {
+    roomId: ROOM,
+    base: BASE_TOKEN,
+    mutationId: MUTATION_ID,
+    action,
+    newState: {},
+  }, pushAck);
+  socket?.emit('liveTurnState', { roomId: ROOM, base: BASE_TOKEN, liveTurnState: liveTurn });
+  socket?.emit('drawCard', { roomId: ROOM, base: BASE_TOKEN, drawId: MUTATION_ID }, drawAck);
+  socket?.emit('requestState', { roomId: ROOM });
+  socket?.emit('sendReaction', { emoji: REACTION_EMOJI });
+  socket?.emit('kickPlayer', SOCKET_ID);
+  socket?.emit('leaveRoom');
+  socket?.emit('endGameStats', { deviceId: DEVICE_ID, stats: deviceStats }, statsAck);
+  socket?.emit('endGameStats', { deviceId: DEVICE_ID, stats: deviceStats, finishedGameToken: BASE_TOKEN }, statsAck);
+  socket?.emit('submitGlobalStats', { payload: globalStats }, statsAck);
+  socket?.emit('submitGlobalStats', { payload: globalStats, finishedGameToken: BASE_TOKEN }, statsAck);
+
+  socket?.on('gameState', (_state: unknown) => undefined);
+  socket?.on('hostId', (_hostSocketId: string | null) => undefined);
+  socket?.on('playerDisconnected', (_name: string | null) => undefined);
+  socket?.on('nameConflictWithDisconnected', (_name: string) => undefined);
+  socket?.on('playerReaction', (_reaction: Reaction) => undefined);
+  socket?.on('liveTurnState', (_payload: { liveTurnState: DiceSnapshot | null }) => undefined);
+  socket?.on('kicked', () => undefined);
+  socket?.on('seatTakenOver', () => undefined);
+  socket?.on('gameAborted', () => undefined);
+  socket?.on('connect', () => undefined);
+  socket?.on('disconnect', () => undefined);
+
+  // @ts-expect-error client-to-server event names are finite.
+  socket?.emit('pushSatte', { roomId: ROOM, base: BASE_TOKEN, mutationId: MUTATION_ID, action, newState: {} }, pushAck);
+  // @ts-expect-error joinRoom acknowledgements receive JoinRoomResponse.
+  socket?.emit('joinRoom', { roomId: ROOM, name: PLAYER_NAME, deviceId: DEVICE_ID }, (_ack: number) => undefined);
+  // @ts-expect-error valid outbound v2 pushState requires a string roomId.
+  socket?.emit('pushState', { roomId: null, base: BASE_TOKEN, mutationId: MUTATION_ID, action, newState: {} }, pushAck);
+  // @ts-expect-error valid outbound v2 pushState requires a base token.
+  socket?.emit('pushState', { roomId: ROOM, mutationId: MUTATION_ID, action, newState: {} }, pushAck);
+  // @ts-expect-error valid outbound v2 pushState requires a mutation id.
+  socket?.emit('pushState', { roomId: ROOM, base: BASE_TOKEN, action, newState: {} }, pushAck);
+  // @ts-expect-error valid outbound v2 pushState requires an action.
+  socket?.emit('pushState', { roomId: ROOM, base: BASE_TOKEN, mutationId: MUTATION_ID, newState: {} }, pushAck);
+  // @ts-expect-error valid outbound v2 pushState requires an object newState envelope.
+  socket?.emit('pushState', { roomId: ROOM, base: BASE_TOKEN, mutationId: MUTATION_ID, action, newState: null }, pushAck);
+  // @ts-expect-error pushState acknowledgements receive PushStateAck.
+  socket?.emit('pushState', { roomId: ROOM, base: BASE_TOKEN, mutationId: MUTATION_ID, action, newState: {} }, (_ack: number) => undefined);
+  // @ts-expect-error server-to-client event names are finite.
+  socket?.on('playerDisconected', (_name: string) => undefined);
+  // @ts-expect-error hostId broadcasts a nullable socket id, not a number.
+  socket?.on('hostId', (_hostSocketId: number) => undefined);
+  // @ts-expect-error playerDisconnected broadcasts the nullable player name string.
+  socket?.on('playerDisconnected', (_payload: { name: string }) => undefined);
+};
+
+void compileOnlineSocketProtocol;
 
 describe('gameplay preconditions through the real store and JSON transport', () => {
   it('hydrates only public deck composition and never sends a private deck', () => {
@@ -209,9 +301,9 @@ describe('gameplay preconditions through the real store and JSON transport', () 
   });
 
   it('serializes absent undo success as an explicit clear', () => {
-    stage();
+    const { room } = stage();
     useGameStore.setState({ previousWasSuccess: undefined });
-    useGameStore.getState().pushState();
+    useGameStore.getState().pushState(room.gameplayToken, { type: 'undo' });
     const payload = client.emit.mock.calls.find(([event]) => event === 'pushState')![1];
     expect(wire(payload).newState.previousWasSuccess).toBeNull();
   });
@@ -385,13 +477,25 @@ describe('gameplay preconditions through the real store and JSON transport', () 
     expect(room.state.players.map(player => player.score)).toEqual([SCORE, 0]);
   });
 
-  it('omits preconditions for a server that does not advertise token support', () => {
+  it.each(['startGame', 'endGame', 'nextTurn', 'undo'] as const)('resyncs before %s can predict without a gameplay token', action => {
     const { room } = stage();
-    client.handlers.gameState(wire(room.state));
     useGameStore.getState().nextTurn(SCORE);
-    const payload = client.emit.mock.calls.find(([event]) => event === 'pushState')![1];
-    expect(payload).not.toHaveProperty('base');
-    expect(payload).not.toHaveProperty('mutationId');
+    client.handlers.gameState(wire(room.state));
+    // Hold the resync reply so the test observes the pre-network state, not
+    // an optimistic mutation that a synchronous mock happened to undo.
+    client.emit.mockReset().mockImplementation(() => undefined);
+    const before = useGameStore.getState();
+    if (action === 'nextTurn') before.nextTurn(SCORE);
+    else before[action]();
+    const after = useGameStore.getState();
+    expect(after.players).toBe(before.players);
+    expect(after.historyLog).toBe(before.historyLog);
+    expect(after.currentPlayerIndex).toBe(before.currentPlayerIndex);
+    expect(after.status).toBe(before.status);
+    expect(after.previousCard).toBe(before.previousCard);
+    expect(after.onlineActionPending).toBe(false);
+    expect(client.emit).toHaveBeenCalledWith('requestState', { roomId: ROOM });
+    expect(client.emit.mock.calls.filter(([event]) => event === 'pushState')).toHaveLength(0);
   });
 
   it('blocks a rematch until the finishing command has its canonical echo', async () => {

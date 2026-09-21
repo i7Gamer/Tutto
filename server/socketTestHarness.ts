@@ -25,7 +25,7 @@ import path from 'path';
 import { spawn, type ChildProcess } from 'child_process';
 import { createServer } from 'http';
 import type { AddressInfo } from 'net';
-import { Server, type Socket } from 'socket.io';
+import { Server } from 'socket.io';
 import { io as clientIo, type Socket as ClientSocket, type ManagerOptions, type SocketOptions } from 'socket.io-client';
 import { vi } from 'vitest';
 import { zeroedPlayerStats } from '../src/utils/playerStats';
@@ -34,6 +34,8 @@ import { registerSocketHandlers } from './socketHandlers';
 import { JOIN_REFUSAL_CODES } from './socketRoomHandlers';
 import { ONLINE_PROTOCOL_VERSION } from '../src/utils/onlineProtocol';
 import { SERVER_STARTUP_DEADLINE_MS } from './testTimeouts';
+import type { OnlineServer, OnlineServerSocket } from './socketContext';
+import type { ServerIngressEvents, ServerToClientEvents } from '../src/utils/onlineProtocol';
 
 // No dotenv.config() here on purpose (it used to sit above this comment). A
 // real .env holds CORS_ORIGIN / TRUST_PROXY / API_TOKEN / ALLOWED_HOST for a
@@ -314,7 +316,7 @@ export const emitJoin = (
   });
 
 export interface InProcessServer {
-  io: Server;
+  io: OnlineServer;
   port: number;
   /** Opens a client socket (tracked for close()) and resolves once connected. */
   connect(opts?: Partial<ManagerOptions & SocketOptions>): Promise<ClientSocket>;
@@ -336,7 +338,7 @@ export interface InProcessServer {
  */
 export const startInProcessServer = async (): Promise<InProcessServer> => {
   const httpServer = createServer();
-  const io = new Server(httpServer);
+    const io = new Server<ServerIngressEvents, ServerToClientEvents>(httpServer);
   registerSocketHandlers(io);
   await new Promise<void>(resolve => httpServer.listen(0, () => resolve()));
   const port = (httpServer.address() as AddressInfo).port;
@@ -447,7 +449,7 @@ export const makeFakeSocket = (id: string) => {
     leave: vi.fn(),
     emit: vi.fn(),
     on: (event: string, fn: Handler) => { handlers[event] = fn; },
-  } as unknown as Socket;
+  } as unknown as OnlineServerSocket;
   return { socket, handlers };
 };
 
@@ -478,5 +480,5 @@ export const makeServerPlayer = (name: string, overrides: Partial<ServerPlayer> 
 export const makeFakeIo = () => {
   const emit = vi.fn();
   const to = vi.fn(() => ({ emit }));
-  return { io: { to } as unknown as Server, emit, to };
+  return { io: { to } as unknown as OnlineServer, emit, to };
 };

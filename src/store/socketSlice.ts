@@ -1,5 +1,5 @@
 import { localStore, sessionStore } from '../utils/storage';
-import { io, type Socket } from 'socket.io-client';
+import { io } from 'socket.io-client';
 import { noUndoableTurn } from '../utils/coreGameEngine';
 import { buildDeviceStatsPayload } from '../utils/statsPayloads';
 import i18n from '../i18n';
@@ -8,19 +8,22 @@ import { formatInt } from '../utils/formatNumber';
 import { areInitialCardsEqual, normalizeRoomId, DEFAULT_RECONNECT_TIMEOUT, VALID_CARD_TYPES } from '../utils/configValidation';
 import { MS_PER_SECOND } from '../utils/time';
 import { validateOnlineConfig } from './persistence';
-import { getSocket, setSocket } from './socketRef';
+import { getSocket, setSocket, type OnlineClientSocket } from './socketRef';
 import { REACTION_DISPLAY_MS } from '../utils/reactions';
 import { roomPhase } from '../utils/roomPhase';
 import { v4 as uuidv4 } from 'uuid';
 import { gameModeOf } from '../utils/statsApi';
 import { serializePlayersForPush } from './playerPushDto';
 import { PUBLIC_GAME_STATE_KEYS } from '../types';
-import { ONLINE_PROTOCOL_VERSION } from '../utils/onlineProtocol';
+import {
+  ONLINE_PROTOCOL_VERSION,
+  type EndGameStatsRequest,
+  type PushStateRequest,
+  type SubmitGlobalStatsRequest,
+} from '../utils/onlineProtocol';
 import type {
   Reaction, CardType, DiceSnapshot, AssertNever, SyncedGameStateKey, DrawCardAck, PushStateAck,
-  StatsSubmitAck, StatsRefusalReason, DeviceStatsPayload, GlobalStatsPayload,
-  OnlineGameAction,
-  AcceptedDrawReceipt,
+  StatsSubmitAck, StatsRefusalReason,
 } from '../types';
 import type { GameStore, JoinRoomResponse, ConfigKeys, ImmerStateCreator } from './storeTypes';
 import { finishedGameSnapshotOf, makeToast } from './gameSlice';
@@ -223,14 +226,8 @@ interface ParkedEmit<T> {
   parkedAt: number;
 }
 
-/** The exact bytes pushState puts on the wire — see the action at the bottom. */
-interface PushStatePayload {
-  roomId: string | null;
-  newState: Record<Exclude<SyncedGameStateKey, 'cards'>, unknown>;
-  action?: OnlineGameAction;
-  base?: string;
-  mutationId?: string;
-}
+/** The exact valid bytes pushState puts on the wire — see the action at the bottom. */
+type PushStatePayload = PushStateRequest;
 
 // Ignore an intermediate echo while later optimistic actions still depend on it.
 const pendingMutationIds = new Set<string>();
@@ -295,9 +292,6 @@ let parkedPush: ParkedEmit<PushStatePayload> | null = null;
 // The single retry armed for a push refused as 'unauthorized' right after a
 // reconnect (see emitPushState). Held so every teardown path can cancel it.
 let pushRejoinRetryTimer: ReturnType<typeof setTimeout> | null = null;
-// Only a known rejoin-authorization refusal may coalesce a later snapshot
-// against this ancestor. Never rebase after an authoritative stale-base refusal.
-let pushRejoinRetryBase: string | undefined;
 
 // When this client last reconnected, or null if it has not. An 'unauthorized'
 // refusal within PUSH_REJOIN_RACE_WINDOW_MS of that is read as the rejoin race
@@ -356,7 +350,6 @@ export const clearRejoinWatchdog = (): void => {
  * lastReconnectAt (whose clearing means exactly that) must stay put.
  */
 const clearPendingPushRetry = (): void => {
-  pushRejoinRetryBase = undefined;
   if (pushRejoinRetryTimer !== null) {
     clearTimeout(pushRejoinRetryTimer);
     pushRejoinRetryTimer = null;
@@ -530,18 +523,13 @@ export const clearPendingStatsSubmit = (): void => {
   for (const event of STATS_SUBMIT_EVENTS) clearStatsSubmit(event);
 };
 
-type EndGameStatsPayload = {
-  roomId: string | null;
-  deviceId: string | null;
-  stats: DeviceStatsPayload;
-  finishedGameToken?: string;
-};
+type EndGameStatsPayload = EndGameStatsRequest;
 
 // No roomId: the server resolves the room from the session and ignores
 // whatever the wire payload claims (see submitGlobalStats in
 // server/socketStatsHandlers.ts). A field nobody reads only invites the next
 // reader to think it is authoritative.
-type GlobalStatsSubmission = { payload: GlobalStatsPayload; finishedGameToken?: string };
+type GlobalStatsSubmission = SubmitGlobalStatsRequest;
 
 /**
  * Sends one game's stats and resends them if the server lost the write.
@@ -629,9 +617,14 @@ const emitStatsSubmission = (
 
   pending.ackDeadline = setTimeout(() => settle(true), STATS_SUBMIT_ACK_TIMEOUT_MS);
 
-  socket.emit(event, payload, (ack?: StatsSubmitAck) => {
+  const onAck = (ack?: StatsSubmitAck): void => {
     settle(ack !== undefined && !ack.ok && isRetryableStatsRefusal(ack.reason), ack?.ok === true);
-  });
+  };
+  if (event === 'endGameStats') {
+    socket.emit('endGameStats', payload as EndGameStatsPayload, onAck);
+  } else {
+    socket.emit('submitGlobalStats', payload as GlobalStatsSubmission, onAck);
+  }
 };
 
 // Global stats are submitted by the host over the socket, so no secret token
@@ -683,7 +676,7 @@ const submitGlobalStats = (get: SocketSliceGet): void => {
  * stamps itself.
  */
 const emitPushState = (
-  sock: Socket,
+  sock: OnlineClientSocket,
   payload: PushStatePayload,
   get: SocketSliceGet,
   retryable: boolean,
@@ -723,10 +716,8 @@ const emitPushState = (
       lastReconnectAt !== null && Date.now() - lastReconnectAt <= PUSH_REJOIN_RACE_WINDOW_MS;
     if (racedOwnRejoin) {
       if (pushRejoinRetryTimer !== null) clearTimeout(pushRejoinRetryTimer);
-      pushRejoinRetryBase = payload.base;
       pushRejoinRetryTimer = setTimeout(() => {
         pushRejoinRetryTimer = null;
-        pushRejoinRetryBase = undefined;
         const current = getSocket();
         // Connected, not merely present. This retry is armed for a flaky
         // reconnect, so the transport dropping again inside its delay is the
@@ -860,16 +851,12 @@ const inRoom = (get: SocketSliceGet): boolean => get().mode === 'online' && !!ge
 // connectSocket (which just creates the socket and delegates here) so the
 // event-bus itself is a standalone, independently readable unit rather than a
 // 150-line inline factory.
-const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSliceSet): void => {
+const registerSocketHandlers = (sock: OnlineClientSocket, get: SocketSliceGet, set: SocketSliceSet): void => {
   // `stateVersion` rides alongside the synced fields (server/rooms.ts's
   // emitRoomState bumps it once per broadcast) but is not one of them: it is
   // server-derived metadata, deliberately absent from SYNCED_GAME_STATE_KEYS
   // so the sync loop below cannot apply it and a push can never write it.
-  sock.on('gameState', (serverState: Partial<GameStore> & {
-    stateVersion?: number;
-    acceptedDraw?: AcceptedDrawReceipt | null;
-    stateRequestId?: string;
-  }) => {
+  sock.on('gameState', (serverState) => {
     // A broadcast can land after this client already returned to local mode
     // (leaveRoom/kicked flip the mode before the socket fully tears down).
     // Applying it would inject the online room into local state — which the
@@ -1034,7 +1021,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     }
   });
 
-  sock.on('playerDisconnected', (name: string) => {
+  sock.on('playerDisconnected', (name: string | null) => {
     // Same guard as every other room event (see inRoom): a disconnect notice
     // for a room this client has left is a toast about strangers.
     if (!inRoom(get)) return;
@@ -1075,7 +1062,7 @@ const registerSocketHandlers = (sock: Socket, get: SocketSliceGet, set: SocketSl
     setTimeout(() => get().removeReaction(reaction.id), REACTION_DISPLAY_MS);
   });
 
-  sock.on('hostId', (hostSocketId: string) => {
+  sock.on('hostId', (hostSocketId: string | null) => {
     // emitRoomState only ever sends this alongside a gameState, so guarding it
     // identically keeps the pair from being applied by halves: a client that
     // has left would otherwise be told it is host of the room it left, and the
@@ -1337,9 +1324,12 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       set(clearRoomState());
     }
 
-    if (!targetRoomId) return;
+    if (!targetRoomId || !targetName) return;
 
-    const tempSocket = io(window.location.origin, { auth: { protocolVersion: ONLINE_PROTOCOL_VERSION } });
+    const tempSocket = io(
+      window.location.origin,
+      { auth: { protocolVersion: ONLINE_PROTOCOL_VERSION } },
+    ) as OnlineClientSocket;
     let cleanedUp = false;
     const cleanup = () => {
       if (cleanedUp) return;
@@ -1371,7 +1361,10 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
 
   connectSocket: (url?: string) => {
     if (!getSocket()) {
-      const sock = io(url ?? window.location.origin, { auth: { protocolVersion: ONLINE_PROTOCOL_VERSION } });
+      const sock = io(
+        url ?? window.location.origin,
+        { auth: { protocolVersion: ONLINE_PROTOCOL_VERSION } },
+      ) as OnlineClientSocket;
       setSocket(sock);
       registerSocketHandlers(sock, get, set);
     }
@@ -1487,7 +1480,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
   pushLiveTurnState: (snapshot) => {
     const s = get();
     const socket = getSocket();
-    if (s.isOnline && socket) {
+    if (s.isOnline && socket && typeof s.roomId === 'string' && typeof s.gameplayToken === 'string') {
       socket.emit('liveTurnState', { roomId: s.roomId, base: s.gameplayToken, liveTurnState: snapshot });
     }
   },
@@ -1595,14 +1588,18 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
 
   pushState: (base, action) => {
     if (get().isOnline && get().onlineActionPending) return;
-    // Keep the legacy retry behavior; token-aware pushes additionally carry
-    // the authoritative ancestor captured before the caller's local mutation.
-    const retryBase = pushRejoinRetryBase;
+    // A fresh action supersedes any pending rejoin retry; the retry keeps its
+    // original payload if it has already been parked.
     clearPendingPushRetry();
     const s = get();
     const socket = getSocket();
     if (s.isOnline && socket) {
-      if (action) set({ onlineActionPending: true });
+      const baseToken = base === undefined ? s.gameplayToken : base;
+      if (!action || typeof s.roomId !== 'string' || typeof baseToken !== 'string') {
+        if (typeof s.roomId === 'string' && socket.connected) socket.emit('requestState', { roomId: s.roomId });
+        return;
+      }
+      set({ onlineActionPending: true });
       const {
         players, currentPlayerIndex, currentCard, round, winningScore, initialCards,
         randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
@@ -1614,7 +1611,9 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       } = s;
       const payload: PushStatePayload = {
         roomId: s.roomId,
-        ...(action ? { action } : {}),
+        action,
+        base: parkedPush?.payload.base ?? baseToken,
+        mutationId: uuidv4(),
         newState: {
           players: serializePlayersForPush(players), currentPlayerIndex, currentCard, round, winningScore, initialCards,
           randomOrder, turnDuration, reconnectTimeout, finished, gameTimeInSeconds,
@@ -1636,14 +1635,9 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
         } satisfies Record<Exclude<SyncedGameStateKey, 'cards'>, unknown>,
       };
 
-      const baseToken = base === undefined ? s.gameplayToken : base;
-      if (baseToken) {
-        payload.base = parkedPush?.payload.base ?? retryBase ?? baseToken;
-        payload.mutationId = uuidv4();
-        if (pendingMutationIds.size === 0) pendingMutationBase = payload.base;
-        pendingMutationIds.add(payload.mutationId);
-        set({ gameplayToken: payload.mutationId, ...(s.finished ? { finishedGameToken: payload.mutationId } : {}) });
-      }
+      if (pendingMutationIds.size === 0) pendingMutationBase = payload.base;
+      pendingMutationIds.add(payload.mutationId);
+      set({ gameplayToken: payload.mutationId, ...(s.finished ? { finishedGameToken: payload.mutationId } : {}) });
 
       // Park rather than let socket.io buffer it — see parkedPush for why
       // the library's own buffering is the bug and not the fix. Stamped so

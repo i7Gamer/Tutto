@@ -1,4 +1,3 @@
-import type { Server } from 'socket.io';
 import type { CoreGameState, TurnSummary } from '../src/types';
 import { TOTAL_DICE } from '../src/utils/turnShapes';
 import { calculateNextTurn } from '../src/utils/coreGameEngine';
@@ -13,6 +12,7 @@ import { MAX_CHART_POINTS } from '../src/utils/configValidation';
 import { clearDeck } from './deckAuthority';
 import { canonicalTurnSummary } from './gameActionAuthority';
 import { MS_PER_SECOND } from '../src/utils/time';
+import type { OnlineServer } from './socketContext';
 
 const KLEEBLATT_TUTTOS_REQUIRED = 2;
 const DEFAULT_TUTTOS_PER_COMPLETED_CARD = 1;
@@ -57,7 +57,7 @@ export const clearServerTurnTimer = (roomId: string): void => {
 // advances the turn on timeout anymore. This runs even if every player has
 // disconnected, so a dead host tab or a backgrounded/throttled client tab can
 // never stall the game for everyone else.
-export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
+export const advanceTurnOnTimeout = (io: OnlineServer, roomId: string): void => {
   const room = rooms[roomId];
   if (!room) return;
   room.turnExpireTimer = null;
@@ -297,7 +297,7 @@ export const advanceTurnOnTimeout = (io: Server, roomId: string): void => {
 // (calculateRemainingTurnTime) — the same value clients are shown. Safe to call
 // repeatedly: it always clears any existing timer first, so config changes or
 // player-removal events mid-turn can simply call this again to resync.
-export const startServerTurnTimer = (io: Server, roomId: string): void => {
+export const startServerTurnTimer = (io: OnlineServer, roomId: string): void => {
   clearServerTurnTimer(roomId);
   const room = rooms[roomId];
   if (!room) return;
@@ -318,7 +318,7 @@ export const startServerTurnTimer = (io: Server, roomId: string): void => {
   room.turnExpireTimer = setTimeout(() => advanceTurnOnTimeout(io, roomId), timeoutMs);
 };
 
-export const abortGameIfLowPlayers = (io: Server, room: Room, roomId: string): boolean => {
+export const abortGameIfLowPlayers = (io: OnlineServer, room: Room, roomId: string): boolean => {
   // roomPhase, not status alone — a finished game reads as status 'playing'
   // all the way through the end screen (see roomPhase), so without excluding
   // it here, the last remaining player leaving/kicking a peer from there

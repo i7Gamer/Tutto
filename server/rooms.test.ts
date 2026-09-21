@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { BROADCAST_EXCLUDED_FIELDS, handleActivePlayerRemoved, calculateRemainingTurnTime, createRoom, deleteRoom, emitRoomState, isAbandonedRoom, promoteHostAfterLoss, rooms } from './rooms';
-import type { Server } from 'socket.io';
+import type { OnlineServer } from './socketContext';
 import { SYNCED_GAME_STATE_KEYS } from '../src/types';
 import { MAX_CHART_POINTS } from '../src/utils/configValidation';
 import type { Room, RoomState, ServerPlayer } from './roomTypes';
@@ -579,7 +579,7 @@ describe('emitRoomState scrubs reconnect credentials', () => {
   // anything that fails if it is deleted.
   const captureBroadcast = () => {
     const emit = vi.fn();
-    const io = { to: vi.fn(() => ({ emit })) } as unknown as Server;
+    const io = { to: vi.fn(() => ({ emit })) } as unknown as OnlineServer;
     return { io, emit };
   };
 

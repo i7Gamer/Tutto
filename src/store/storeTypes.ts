@@ -16,6 +16,7 @@ import type {
   DeviceStatsRow,
   BotPersonality,
   OnlineGameAction,
+  JoinRoomResponse,
 } from '../types';
 
 export type GameMode = 'local' | 'online';
@@ -32,25 +33,7 @@ export interface FinishedGameSnapshot {
 // by recentRooms.ts — re-exported here so the store keeps one types module.
 export type { ReconnectSession } from '../utils/reconnectSession';
 
-export interface JoinRoomResponse {
-  success: boolean;
-  isHost?: boolean;
-  error?: string;
-  // Which refusal `error` is describing, for translating it (see
-  // src/utils/joinErrors.ts). Absent on a success, and from any server older
-  // than the codes — the prose is then shown as-is.
-  code?: string;
-  // The name the server actually seated this client under. Differs from the
-  // requested name when rejoining a running game: mid-game renames are
-  // refused server-side (names are the identity key for pushState merging),
-  // so the client must adopt the seat's existing name.
-  name?: string;
-  // The canonical (trimmed, upper-cased) form of the room id this client
-  // asked to join — see normalizeRoomId. Absent on a refusal and from any
-  // server older than the normalization; joinRoom (socketSlice.ts) falls
-  // back to its own normalized request id in either case.
-  roomId?: string;
-}
+export type { JoinRoomResponse };
 
 export type { ConfigKeys };
 
@@ -198,7 +181,7 @@ export interface GameStore extends CoreGameState {
   leaveRoom: () => void;
   kickPlayer: (targetSocketId: string) => void;
   setLiveTurnState: (snapshot: DiceSnapshot | null) => void;
-  pushState: (base?: string | null, action?: OnlineGameAction) => void;
+  pushState: (base: string, action: OnlineGameAction) => void;
   pushLiveTurnState: (snapshot: DiceSnapshot | null) => void;
   // Asks the SERVER for the next card of a classic chain and resolves what it
   // dealt, or null if it dealt nothing (refused, or no answer at all). Online

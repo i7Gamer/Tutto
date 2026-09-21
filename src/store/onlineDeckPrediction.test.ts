@@ -3,11 +3,13 @@ import { useGameStore, _resetTimersForTests } from './useGameStore';
 import { createInitialPlayer } from './gameSlice';
 
 const SCORE = 500;
+const BASE_TOKEN = 'deck-test-token';
 
 beforeEach(() => {
   useGameStore.getState().reset();
   useGameStore.setState({
     isOnline: true, mode: 'online', isHost: true, roomId: 'DECK',
+    gameplayToken: BASE_TOKEN,
     players: [createInitialPlayer('Alice'), createInitialPlayer('Bob')],
     randomOrder: false, pushState: vi.fn(), syncOnlineTimers: vi.fn(),
     remainingCardCounts: { Stop: 1, '200': 1 },
@@ -22,7 +24,7 @@ describe('online card prediction', () => {
     expect(useGameStore.getState().cards).toEqual([]);
     expect(useGameStore.getState().currentCard).toBeNull();
     expect(random).not.toHaveBeenCalled();
-    expect(useGameStore.getState().pushState).toHaveBeenCalledWith(null, { type: 'start' });
+    expect(useGameStore.getState().pushState).toHaveBeenCalledWith(BASE_TOKEN, { type: 'start' });
   });
 
   it('predicts score but waits for the server to reveal the next card', () => {
@@ -33,7 +35,7 @@ describe('online card prediction', () => {
     expect(useGameStore.getState().currentCard).toBe('300');
     expect(useGameStore.getState().cards).toEqual([]);
     expect(random).not.toHaveBeenCalled();
-    expect(useGameStore.getState().pushState).toHaveBeenCalledWith(null, { type: 'commit', score: SCORE, success: true });
+    expect(useGameStore.getState().pushState).toHaveBeenCalledWith(BASE_TOKEN, { type: 'commit', score: SCORE, success: true });
   });
 
   it('undo keeps the online deck empty while restoring scores', () => {
@@ -44,7 +46,7 @@ describe('online card prediction', () => {
     expect(useGameStore.getState().players[0].score).toBe(0);
     expect(useGameStore.getState().currentCard).toBe('200');
     expect(useGameStore.getState().cards).toEqual([]);
-    expect(useGameStore.getState().pushState).toHaveBeenLastCalledWith(null, { type: 'undo' });
+    expect(useGameStore.getState().pushState).toHaveBeenLastCalledWith(BASE_TOKEN, { type: 'undo' });
   });
 
   it('local next-turn still draws from the private offline deck', () => {

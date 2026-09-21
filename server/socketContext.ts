@@ -1,5 +1,16 @@
-import { Server, Socket } from 'socket.io';
+import { Server, Socket, type DisconnectReason } from 'socket.io';
 import { isProxyTrusted } from './startupGuards';
+import type { ServerIngressEvents, ServerToClientEvents } from '../src/utils/onlineProtocol';
+
+export type OnlineServer = Server<ServerIngressEvents, ServerToClientEvents>;
+export type OnlineServerSocket = Socket<ServerIngressEvents, ServerToClientEvents>;
+
+type SafeSocketEvents = ServerIngressEvents & {
+  disconnect: (reason: DisconnectReason, description?: unknown) => void;
+};
+
+type SafeSocketEvent = keyof SafeSocketEvents;
+type SafeSocketEventArgs<E extends SafeSocketEvent> = Parameters<SafeSocketEvents[E]>;
 
 /**
  * What a connection remembers about itself between events.
@@ -18,8 +29,8 @@ export interface ConnectionSession {
 
 /** Everything a group of handlers needs to register itself for one connection. */
 export interface SocketContext {
-  io: Server;
-  socket: Socket;
+  io: OnlineServer;
+  socket: OnlineServerSocket;
   session: ConnectionSession;
 }
 
@@ -38,14 +49,15 @@ export interface SocketContext {
  * the reconnect timeout in the room handlers) carry their own try/catch for the
  * same reason — they run off setTimeout, not socket.io.
  */
-export const safeOn = <A extends unknown[]>(
-  socket: Socket,
-  event: string,
-  handler: (...args: A) => unknown,
+export const safeOn = <E extends SafeSocketEvent>(
+  socket: OnlineServerSocket,
+  event: E,
+  handler: (...args: SafeSocketEventArgs<E>) => unknown,
 ): void => {
-  socket.on(event, (...args: unknown[]) => {
+  const on = socket.on as (this: OnlineServerSocket, ev: E, listener: (...args: unknown[]) => unknown) => OnlineServerSocket;
+  on.call(socket, event, (...args: unknown[]) => {
     try {
-      const result = handler(...(args as A));
+      const result = handler(...(args as SafeSocketEventArgs<E>));
       if (result instanceof Promise) {
         return result.catch((err: unknown) => console.error(`[socket:${event}] handler rejected:`, err));
       }
@@ -64,7 +76,7 @@ export const safeOn = <A extends unknown[]>(
 // Without the declaration XFF is ignored, so a directly-connecting client
 // can't spoof its way into a fresh bucket (NODE_ENV says nothing about the
 // topology — see isProxyTrusted). Exported for its unit tests.
-export const getClientAddress = (socket: Socket): string => {
+export const getClientAddress = (socket: OnlineServerSocket): string => {
   if (isProxyTrusted()) {
     const xff = socket.handshake.headers['x-forwarded-for'];
     const flat = Array.isArray(xff) ? xff.join(',') : xff;

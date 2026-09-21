@@ -1,4 +1,3 @@
-import type { Server, Socket } from 'socket.io';
 import { randomUUID } from 'node:crypto';
 import { buildDeck, getLeaders, noUndoableTurn } from '../src/utils/coreGameEngine';
 import { getEffectiveTurnDuration } from '../src/utils/turnDuration';
@@ -16,6 +15,7 @@ import { pendingDeviceStatsWrite, writeDeviceStatsOnce } from './statsWriteCoord
 import { buildDeviceStatsPayload } from '../src/utils/statsPayloads';
 import { MAX_CHAIN_CARDS, PUBLIC_GAME_STATE_KEYS, type AssertNever, type CardType, type StatsPayload, type SyncedGameStateKey } from '../src/types';
 import { statsModeFor, type Room, type RoomState, type ServerPlayer, type TurnTimerState } from './roomTypes';
+import type { OnlineServer, OnlineServerSocket } from './socketContext';
 
 // Null-prototype, not `{}`: every key here is a client-supplied roomId, and
 // joinRoom validates it only as a non-empty string within a length bound. On a
@@ -645,7 +645,7 @@ export type BroadcastFieldLock = [
   AssertNever<Exclude<(typeof BROADCAST_EXCLUDED_FIELDS)[number], SyncedGameStateKey>>,
 ];
 
-export const emitRoomState = (io: Server, roomId: string): void => {
+export const emitRoomState = (io: OnlineServer, roomId: string): void => {
   const room = rooms[roomId];
   if (!room) return;
   rememberFinishedGame(room);
@@ -660,7 +660,7 @@ export const emitRoomState = (io: Server, roomId: string): void => {
  * a client falls back to when its own push was refused and it can no longer
  * trust what it is rendering.
  */
-export const emitRoomStateTo = (socket: Socket, roomId: string, metadata?: GameStateDeliveryMetadata): void => {
+export const emitRoomStateTo = (socket: OnlineServerSocket, roomId: string, metadata?: GameStateDeliveryMetadata): void => {
   const room = rooms[roomId];
   if (!room) return;
   socket.emit('gameState', buildGameStatePayload(room, metadata));

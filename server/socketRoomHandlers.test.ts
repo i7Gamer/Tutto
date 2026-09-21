@@ -1,11 +1,10 @@
 /** @vitest-environment node */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Server } from 'socket.io';
 import { JOIN_STATS_WAIT_MS, registerRoomHandlers } from './socketRoomHandlers';
 import { makeFakeSocket, type Handler } from './socketTestHarness';
 import { rooms, deleteRoom, roomChannel } from './rooms';
 import { scaledTimerMs } from './turnTimers';
-import type { ConnectionSession } from './socketContext';
+import type { ConnectionSession, OnlineServer } from './socketContext';
 import { normalizeRoomId } from '../src/utils/configValidation';
 import { ONLINE_PROTOCOL_VERSION } from '../src/utils/onlineProtocol';
 import { applyOnlineGameAction } from './gameActionAuthority';
@@ -21,7 +20,7 @@ const makeFakeIo = (knownSockets: Record<string, { leave: ReturnType<typeof vi.f
   const io = {
     to,
     sockets: { sockets: { get: (id: string) => knownSockets[id] } },
-  } as unknown as Server;
+  } as unknown as OnlineServer;
   return { io, emit };
 };
 
@@ -1061,7 +1060,7 @@ describe('joinRoom repairs a room whose host socket is gone', () => {
   const SHORT_RECONNECT_S = 1;
   const LONG_RECONNECT_S = 3600;
 
-  const seatOf = (roomId: string, socketId: string, name: string, deviceId: string, io: Server) => {
+  const seatOf = (roomId: string, socketId: string, name: string, deviceId: string, io: OnlineServer) => {
     const fake = makeFakeSocket(socketId);
     registerRoomHandlers({ io, socket: fake.socket, session: { roomId: null, username: null } });
     return { fake, join: () => joinAndWait(fake.handlers, { roomId, name, deviceId }) };

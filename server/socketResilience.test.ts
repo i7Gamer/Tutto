@@ -47,18 +47,19 @@ vi.mock('./rooms', async (importOriginal) => {
 
 import { registerSocketHandlers } from './socketHandlers';
 import { rooms, deleteRoom } from './rooms';
-import { ONLINE_PROTOCOL_VERSION } from '../src/utils/onlineProtocol';
+import { ONLINE_PROTOCOL_VERSION, type ServerIngressEvents, type ServerToClientEvents } from '../src/utils/onlineProtocol';
+import type { OnlineServer } from './socketContext';
 
 describe('socket handler failure containment', () => {
   let httpServer: HttpServer;
-  let ioServer: Server;
+  let ioServer: OnlineServer;
   let port: number;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
   const openClients: ClientSocket[] = [];
 
   beforeAll(async () => {
     httpServer = createServer();
-    ioServer = new Server(httpServer);
+    ioServer = new Server<ServerIngressEvents, ServerToClientEvents>(httpServer);
     registerSocketHandlers(ioServer);
     await new Promise<void>(resolve => httpServer.listen(0, () => resolve()));
     port = (httpServer.address() as AddressInfo).port;

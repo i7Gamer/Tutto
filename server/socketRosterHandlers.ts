@@ -83,7 +83,7 @@ export const registerRosterHandlers = ({ io, socket, session }: SocketContext): 
     }
   });
 
-  safeOn(socket, 'kickPlayer', (targetSocketId: string) => {
+  safeOn(socket, 'kickPlayer', (targetSocketId: unknown) => {
     if (!kickPlayerLimiter()) return;
     if (typeof targetSocketId !== 'string') return;
     const roomId = session.roomId;
