@@ -122,7 +122,9 @@ describe('useGameStore', () => {
     vi.clearAllMocks();
     localStorage.clear();
     sessionStorage.clear();
-    mockEmit.mockClear();
+    // An automatic acknowledgement belongs to the test that installed it.
+    // Clearing calls alone lets it settle the next test's supposedly pending join.
+    mockEmit.mockReset();
     mockSocketConnected = true;
     // Two module singletons outlive reset(): the socket in socketRef.ts
     // (connectSocket is a no-op while one exists, so a later joinRoom test

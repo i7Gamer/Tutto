@@ -1,6 +1,17 @@
 import { test, expect, type TestInfo } from '@playwright/test';
 import { joinOnlineRoomPair } from './helpers';
 
+// These tests create their own contexts, outside Playwright's page fixture.
+// A worker shares its browser across tests; leaked rooms keep rendering and
+// collecting traces while later tests run.
+test.beforeEach(async ({ browser }) => {
+  expect(browser.contexts(), 'the previous test left browser contexts open').toHaveLength(0);
+});
+
+test.afterEach(async ({ browser }) => {
+  await Promise.all(browser.contexts().map(context => context.close()));
+});
+
 // Every browser project (chromium/firefox/webkit) runs against the SAME
 // spawned server, and a room's player names stay reserved for the whole
 // reconnect timeout after a context closes — so a fixed room id makes the
