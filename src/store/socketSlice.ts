@@ -1,7 +1,6 @@
 import { localStore, sessionStore } from '../utils/storage';
 import { io } from 'socket.io-client';
 import { noUndoableTurn } from '../utils/coreGameEngine';
-import { buildDeviceStatsPayload } from '../utils/statsPayloads';
 import i18n from '../i18n';
 import { ONLINE_SESSION_KEY } from '../utils/reconnectSession';
 import { formatInt } from '../utils/formatNumber';
@@ -524,10 +523,6 @@ export const clearPendingStatsSubmit = (): void => {
 
 type EndGameStatsPayload = EndGameStatsRequest;
 
-// No roomId: the server resolves the room from the session and ignores
-// whatever the wire payload claims (see submitGlobalStats in
-// server/socketStatsHandlers.ts). A field nobody reads only invites the next
-// reader to think it is authoritative.
 type GlobalStatsSubmission = SubmitGlobalStatsRequest;
 
 /**
@@ -640,9 +635,10 @@ const submitGlobalStats = (get: SocketSliceGet): void => {
   // Anything still pending for this event can only belong to an earlier
   // attempt at the same row, which this fresher one supersedes.
   clearStatsSubmit('submitGlobalStats');
+  const finishedGameToken = get().finishedGameToken;
   emitStatsSubmission(
     'submitGlobalStats',
-    { payload: get().buildGlobalStatsPayload(), ...(get().finishedGameToken ? { finishedGameToken: get().finishedGameToken! } : {}) },
+    finishedGameToken ? { finishedGameToken } : {},
     FIRST_STATS_ATTEMPT,
   );
 };
@@ -1005,11 +1001,9 @@ const registerSocketHandlers = (sock: OnlineClientSocket, get: SocketSliceGet, s
     get().syncOnlineTimers(serverState.turnTimeRemaining);
 
     if (!wasFinished && get().finished) {
-      // Frozen BEFORE the submission, and kept for the promotion path that may
-      // submit much later: a host promotion on a dead host only fires when the
-      // disconnect timer drains, and the server splices that seat before it
-      // broadcasts — so by then the roster is missing the player who left, very
-      // often the winner.
+      // Frozen BEFORE the submission, and kept as the identity guard for a
+      // later device-stat acknowledgement after host promotion or roster
+      // changes.
       //
       // This edge covers every client that WATCHES the finish. The one that
       // caused it sets `finished` locally first, so the echo is no edge at all
@@ -1629,18 +1623,12 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
   sendOnlineStats: () => {
     const s = get();
     const socket = getSocket();
-    // The payload itself lives in statsPayloads beside its global
-    // counterpart, so the integration suite can build the very same one
-    // instead of keeping a copy that drifts.
-    const stats = buildDeviceStatsPayload(s.players, s.myName, s.gameTimeInSeconds, s.round);
     // Anything still pending can only belong to an earlier game — this call
-    // means a new finish superseded it. Hoisted above the `stats` check:
-    // buildDeviceStatsPayload returns null whenever this device holds no seat
-    // in the final roster (spectating, or spliced out by a host-failover
-    // splice), and a stale park from an earlier finish must not survive a
-    // seatless one either — same reason pushState clears its own retry first.
+    // means a new finish superseded it. Clear it before the eligibility check
+    // so a seatless finish cannot revive an older parked submission.
     clearPendingStatsSubmit();
-    if (stats && socket) {
+    const eligibleSeat = s.players.some(player => player.name === s.myName);
+    if (eligibleSeat && s.deviceId && socket) {
       const submissionId = uuidv4();
       const snapshot = s.finishedGameSnapshot;
       const mode = gameModeOf(s, s.ruleset);
@@ -1652,7 +1640,7 @@ export const createSocketSlice: ImmerStateCreator<SocketSlice> = (set, get) => (
       };
       emitStatsSubmission(
         'endGameStats',
-        { roomId: s.roomId, deviceId: s.deviceId, stats, ...(s.finishedGameToken ? { finishedGameToken: s.finishedGameToken } : {}) },
+        { deviceId: s.deviceId, ...(s.finishedGameToken ? { finishedGameToken: s.finishedGameToken } : {}) },
         FIRST_STATS_ATTEMPT,
       );
     }

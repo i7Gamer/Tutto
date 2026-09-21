@@ -1,11 +1,9 @@
 import type {
   AcceptedDrawReceipt,
   CoreGameState,
-  DeviceStatsPayload,
   DiceMode,
   DiceSnapshot,
   DrawCardAck,
-  GlobalStatsPayload,
   InitialCards,
   JoinRoomResponse,
   OnlineGameAction,
@@ -73,14 +71,11 @@ export interface UpdatePlayerColorRequest {
 }
 
 export interface EndGameStatsRequest {
-  roomId?: string | null;
-  deviceId: string | null;
-  stats: DeviceStatsPayload;
+  deviceId: string;
   finishedGameToken?: string;
 }
 
 export interface SubmitGlobalStatsRequest {
-  payload: GlobalStatsPayload;
   finishedGameToken?: string;
 }
 

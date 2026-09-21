@@ -1,10 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Handler } from '../../server/socketTestHarness';
 import type {
-  DeviceStatsPayload,
   DiceSnapshot,
   DrawCardAck,
-  GlobalStatsPayload,
   OnlineGameAction,
   PushStateAck,
   Reaction,
@@ -96,8 +94,6 @@ function stage() {
 const compileOnlineSocketProtocol = (): void => {
   const socket = getSocket();
   const action = { type: 'start' } satisfies OnlineGameAction;
-  const deviceStats = { gamesPlayed: 1 } as DeviceStatsPayload;
-  const globalStats = { gamesPlayed: 1 } as GlobalStatsPayload;
   const liveTurn = null satisfies DiceSnapshot | null;
   const pushAck = (_ack?: PushStateAck): void => undefined;
   const joinAck = (_ack: JoinRoomResponse): void => undefined;
@@ -124,10 +120,16 @@ const compileOnlineSocketProtocol = (): void => {
   socket?.emit('sendReaction', { emoji: REACTION_EMOJI });
   socket?.emit('kickPlayer', SOCKET_ID);
   socket?.emit('leaveRoom');
-  socket?.emit('endGameStats', { deviceId: DEVICE_ID, stats: deviceStats }, statsAck);
-  socket?.emit('endGameStats', { deviceId: DEVICE_ID, stats: deviceStats, finishedGameToken: BASE_TOKEN }, statsAck);
-  socket?.emit('submitGlobalStats', { payload: globalStats }, statsAck);
-  socket?.emit('submitGlobalStats', { payload: globalStats, finishedGameToken: BASE_TOKEN }, statsAck);
+  socket?.emit('endGameStats', { deviceId: DEVICE_ID }, statsAck);
+  socket?.emit('endGameStats', { deviceId: DEVICE_ID, finishedGameToken: BASE_TOKEN }, statsAck);
+  socket?.emit('submitGlobalStats', {}, statsAck);
+  socket?.emit('submitGlobalStats', { finishedGameToken: BASE_TOKEN }, statsAck);
+
+  // Client emissions no longer carry server-derived counters.
+  // @ts-expect-error new client emits must not include ignored device counters.
+  socket?.emit('endGameStats', { deviceId: DEVICE_ID, stats: { gamesPlayed: 1 } }, statsAck);
+  // @ts-expect-error new client emits must not include ignored global counters.
+  socket?.emit('submitGlobalStats', { payload: { gamesPlayed: 1 } }, statsAck);
 
   socket?.on('gameState', (_state: unknown) => undefined);
   socket?.on('hostId', (_hostSocketId: string | null) => undefined);

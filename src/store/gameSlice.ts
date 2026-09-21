@@ -6,10 +6,9 @@ import {
   shuffleArray,
   buildDeck,
 } from '../utils/coreGameEngine';
-import { buildGlobalStatsPayload } from '../utils/statsPayloads';
 import { buildTurnResultPatch } from '../utils/turnResultPatch';
 import { buildTurnKey, DICE_TURN_STATE_KEY, clearTurnCaches } from '../utils/diceTurnState';
-import { MAX_PLAYER_NAME_LENGTH, MIN_ONLINE_PLAYERS, isNormalizedConfig } from '../utils/configValidation';
+import { MAX_PLAYER_NAME_LENGTH, MIN_ONLINE_PLAYERS } from '../utils/configValidation';
 import { zeroedPlayerStats } from '../utils/playerStats';
 import { MS_PER_SECOND } from '../utils/time';
 import playerColorsData from '../../playerColors.json';
@@ -33,7 +32,7 @@ type GameSlice = Pick<GameStore,
   | 'addPlayer' | 'addBot' | 'removePlayer' | 'reorderPlayers' | 'changePlayerColor' | 'changeMyColor'
   | 'setLiveTurnState' | 'startGame' | 'endGame' | 'nextTurn' | 'undo'
   | 'drawCardMidTurn'
-  | 'buildGlobalStatsPayload' | 'setPreGameStats'
+  | 'setPreGameStats'
 >;
 
 // Single source of truth for toast id generation, shared with socketSlice's
@@ -46,8 +45,8 @@ type GameSlice = Pick<GameStore,
 export const makeToast = (message: string): Toast => ({ id: Date.now() + Math.random(), message });
 
 /**
- * The game as it FINISHED — the three fields buildGlobalStatsPayload must not
- * re-read from live state once a roster change has landed on top of them.
+ * The game as it FINISHED — retained as the identity anchor for acknowledgements
+ * after a roster change has landed on top of it.
  *
  * One helper because there are two places a client can learn a game ended and
  * they must record the same thing: the `finished` edge in a broadcast (every
@@ -215,11 +214,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.currentPlayerIndex = 0;
       state.liveTurnState = null;
       state.historyLog = [];
-      // The previous game's frozen roster must not outlive it: nothing else
-      // clears this, and buildGlobalStatsPayload PREFERS it over live state —
-      // so a host who ends the rematch himself (and therefore never sees the
-      // `finished` edge that re-arms it) would submit the game before this one
-      // all over again, and this one not at all.
+      // The previous game's finished identity must not outlive it: a pending
+      // acknowledgement from that game must not match this rematch.
       state.finishedGameSnapshot = null;
       state.finishedGameToken = null;
       state.deviceStatsAcknowledgment = null;
@@ -342,9 +338,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
         }
         // Frozen here as well as on the broadcast edge (socketSlice), because
         // this client never sees that edge: `finished` is already true by the
-        // time the server echoes this push back. Without it the promotion path
-        // — which fires long after, on a roster the drained reconnect timer has
-        // shrunk — had nothing frozen to read.
+        // time the server echoes this push back. The snapshot remains the
+        // identity guard for a later device-stat acknowledgement.
         state.finishedGameSnapshot = finishedGameSnapshotOf(state);
       } else {
         state.currentPlayerIndex = result.nextIndex;
@@ -416,20 +411,6 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       get().pushState(onlineBase, { type: 'undo' });
       get().syncOnlineTimers();
     }
-  },
-
-  buildGlobalStatsPayload: () => {
-    const s = get();
-    // The game as it FINISHED, when that is known: a roster change after the
-    // finish (a draining reconnect timer splicing a seat, which is exactly what
-    // precedes a host promotion) must not change what gets recorded. Falls back
-    // to live state for a caller with no finish behind it.
-    const game = s.finishedGameSnapshot ?? s;
-    // isNormalizedConfig reads the room CONFIG, which cannot change mid-game,
-    // so it stays on live state.
-    // Advisory only: the server recomputes this from the room state it froze at
-    // kickoff and overrides whatever arrives here (see socketStatsHandlers.ts).
-    return buildGlobalStatsPayload(game.players, game.gameTimeInSeconds, isNormalizedConfig(s), game.round);
   },
 
   setPreGameStats: (stats) => set({ preGameStats: stats }),

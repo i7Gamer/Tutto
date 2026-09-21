@@ -4,15 +4,9 @@ import { getLeaders } from './coreGameEngine';
 /**
  * One device's own row for a finished game, from that game's final state.
  *
- * Pulled out of sendOnlineStats so the integration suite can assert against
- * the payload the app actually sends. Its hand-copied duplicate had already
- * drifted: it was missing totalTuttos and both classic records, and still used
- * the superseded fastestLossTurns rule — the one without the `totalTurns > 0`
- * guard, which records a 0-turn "fastest loss" for a seat the game ended
- * before, and MIN-merges it into a record with no way back.
- *
- * Returns null when this device holds no seat, which is sendOnlineStats' own
- * guard: there is nothing to record.
+ * Shared by server statistics writers and integration tests. Online clients
+ * request a write by finish identity; the server supplies the frozen counters.
+ * Returns null when the named player is absent from the supplied participants.
  */
 export const buildDeviceStatsPayload = (
   finalPlayers: Player[],

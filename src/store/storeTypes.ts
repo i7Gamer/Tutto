@@ -8,7 +8,6 @@ import type {
   Toast,
   Reaction,
   DiceSnapshot,
-  GlobalStatsPayload,
   DiceMode,
   Ruleset,
   CardType,
@@ -22,7 +21,7 @@ import type {
 export type GameMode = 'local' | 'online';
 export type GameStatus = 'lobby' | 'playing';
 
-/** What buildGlobalStatsPayload needs, frozen at the moment the game ended. */
+/** Finished-game identity retained for device-stat acknowledgement guards. */
 export interface FinishedGameSnapshot {
   players: Player[];
   round: number;
@@ -136,13 +135,9 @@ export interface GameStore extends CoreGameState {
   // land. EndScreen diffs the post-game deviceStats against this to tell a
   // genuinely new personal record apart from merely tying an older one.
   preGameStats: PreGameStats | null;
-  // The game as it stood the moment `finished` first went true, kept so the
-  // global-stats payload cannot be built over a roster that changed
-  // afterwards. It can: with a non-zero reconnectTimeout the host promotion
-  // that submits on a dead host's behalf only fires when the disconnect timer
-  // drains, and that server callback splices the seat BEFORE it broadcasts —
-  // so the promoted client would otherwise sum every counter over the
-  // survivors of the game rather than its players.
+  // The game as it stood the moment `finished` first went true, retained as
+  // the identity anchor for device-stat acknowledgement guards after roster
+  // changes and host promotion.
   finishedGameSnapshot: FinishedGameSnapshot | null;
 
   reset: () => void;
@@ -204,7 +199,6 @@ export interface GameStore extends CoreGameState {
   drawCardMidTurn: () => Promise<CardType | null>;
   undo: () => void;
   setPreGameStats: (stats: PreGameStats | null) => void;
-  buildGlobalStatsPayload: () => GlobalStatsPayload;
   sendOnlineStats: () => void;
 }
 

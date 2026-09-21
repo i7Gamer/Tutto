@@ -1135,9 +1135,25 @@ describe('useGameStore', () => {
       // Should have emitted endGameStats with Bob's deviceId
       // The third argument is the ack callback the retry hangs off (see the
       // retry suite below).
-      expect(mockEmit).toHaveBeenCalledWith('endGameStats', expect.objectContaining({
-        deviceId: 'dev-bob'
-      }), expect.any(Function));
+      const endStats = mockEmit.mock.calls.find(([event]) => event === 'endGameStats');
+      expect(endStats, 'the eligible seated client still submits').toBeDefined();
+      expect(endStats![1]).toMatchObject({ deviceId: 'dev-bob' });
+      expect(endStats![1]).not.toHaveProperty('roomId');
+      expect(endStats![1]).not.toHaveProperty('stats');
+    });
+
+    it('does not submit a device row when the device identity is missing', () => {
+      useGameStore.getState().connectSocket('http://localhost:3000');
+      useGameStore.getState().setMode('online');
+      useGameStore.setState({
+        isHost: false, roomId: 'ROOM1', myName: 'Alice', deviceId: null,
+        players: [makeOnlinePlayer('Alice')], status: 'playing', finished: true,
+      });
+      mockEmit.mockClear();
+
+      useGameStore.getState().sendOnlineStats();
+
+      expect(mockEmit.mock.calls.filter(([event]) => event === 'endGameStats')).toHaveLength(0);
     });
 
     it('sends online stats exactly once when host finishes the game', () => {
@@ -1156,19 +1172,20 @@ describe('useGameStore', () => {
       useGameStore.getState().nextTurn(500, true);
 
       // Should emit endGameStats for Alice (personal stats via socket)
-      expect(mockEmit).toHaveBeenCalledWith('endGameStats', expect.objectContaining({
-        deviceId: 'dev-alice'
-      }), expect.any(Function));
+      const endStats = mockEmit.mock.calls.find(([event]) => event === 'endGameStats');
+      expect(endStats, 'the eligible seated client still submits').toBeDefined();
+      expect(endStats![1]).toMatchObject({ deviceId: 'dev-alice' });
+      expect(endStats![1]).not.toHaveProperty('roomId');
+      expect(endStats![1]).not.toHaveProperty('stats');
 
-      // Should emit global stats via socket (no HTTP token needed). No
-      // roomId in the payload: the server resolves the room from the session.
-      expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', {
-        payload: expect.any(Object),
-        finishedGameToken: useGameStore.getState().finishedGameToken,
-      }, expect.any(Function));
+      // The server derives the global row from the frozen room.
+      const globalStats = mockEmit.mock.calls.find(([event]) => event === 'submitGlobalStats');
+      expect(globalStats, 'the host still submits the eligible global row').toBeDefined();
+      expect(globalStats![1]).not.toHaveProperty('roomId');
+      expect(globalStats![1]).not.toHaveProperty('payload');
     });
 
-    it('includes players-per-game, rounds, and feuerwerk/x2 turn maxima in endGameStats and submitGlobalStats payloads', () => {
+    it('omits server-derived statistics from both online submissions', () => {
       useGameStore.getState().connectSocket('http://localhost:3000');
       useGameStore.getState().setMode('online');
       useGameStore.setState({
@@ -1186,26 +1203,16 @@ describe('useGameStore', () => {
       // Winning turn for the last player in the round doesn't advance the round further.
       useGameStore.getState().nextTurn(500, true);
 
-      expect(mockEmit).toHaveBeenCalledWith('endGameStats', expect.objectContaining({
-        deviceId: 'dev-alice',
-        stats: expect.objectContaining({
-          totalPlayersSum: 2,
-          mostPlayersInGame: 2,
-          totalRoundsSum: 4,
-          longestGameRounds: 4,
-          highestFeuerwerkTurnScore: 300,
-          highestX2TurnScore: 400,
-        }),
-      }), expect.any(Function));
+      const endStats = mockEmit.mock.calls.find(([event]) => event === 'endGameStats');
+      expect(endStats, 'the seated device remains eligible').toBeDefined();
+      expect(endStats![1]).toMatchObject({ deviceId: 'dev-alice' });
+      expect(endStats![1]).not.toHaveProperty('roomId');
+      expect(endStats![1]).not.toHaveProperty('stats');
 
-      expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', expect.objectContaining({
-        payload: expect.objectContaining({
-          totalPlayersSum: 2,
-          mostPlayersInGame: 2,
-          totalRoundsSum: 4,
-          longestGameRounds: 4,
-        }),
-      }), expect.any(Function));
+      const globalStats = mockEmit.mock.calls.find(([event]) => event === 'submitGlobalStats');
+      expect(globalStats, 'the host remains eligible').toBeDefined();
+      expect(globalStats![1]).not.toHaveProperty('roomId');
+      expect(globalStats![1]).not.toHaveProperty('payload');
     });
 
     it('emits pushState BEFORE the stats events on the winning turn, so the server sees finished=true first', () => {
@@ -1590,7 +1597,7 @@ describe('useGameStore', () => {
       expect(globalEmits(), 'nothing to retry').toHaveLength(1);
     });
 
-    it('sends no roomId — the server resolves the room from the session', () => {
+    it('sends only the optional finish token — the server derives stats from the room', () => {
       // The server stopped trusting the payload's roomId (a stale or forged
       // one could name another room this same socket hosts), so the client
       // stopped sending it: a field nobody reads only invites the next reader
@@ -1601,7 +1608,9 @@ describe('useGameStore', () => {
 
       const submitted = nonNull(globalEmits()[0])[1] as Record<string, unknown>;
       expect(submitted).not.toHaveProperty('roomId');
-      expect(Object.keys(submitted)).toEqual(['payload']);
+      expect(Object.keys(submitted)).toEqual(
+        useGameStore.getState().finishedGameToken ? ['finishedGameToken'] : [],
+      );
     });
 
     it('resends the identical payload after a write-failed, and stops once it lands', () => {
@@ -1778,10 +1787,11 @@ describe('useGameStore', () => {
     // not host, and the promotion that follows used to only flip a flag. The
     // game was then missing from global_statistics for good.
     it('submits the global stats a dead host never sent when promotion lands on a finished game', () => {
+      const finishedGameToken = 'promoted-finished-token';
       useGameStore.getState().setMode('online');
       useGameStore.setState({
         isHost: false, hostId: 'departed-host', roomId: 'ROOM1', myName: 'Alice',
-        deviceId: 'dev-alice', finished: true,
+        deviceId: 'dev-alice', finished: true, finishedGameToken,
         players: [makeOnlinePlayer('Alice', { score: 6000 }), makeOnlinePlayer('Bob', { score: 2000 })],
       });
       mockEmit.mockClear();
@@ -1789,20 +1799,18 @@ describe('useGameStore', () => {
       mockOnHandlers['hostId']('socket-123'); // this client's own socket id
 
       expect(useGameStore.getState().isHost).toBe(true);
-      expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', {
-        payload: expect.any(Object),
-      }, expect.any(Function));
+      const globalStats = mockEmit.mock.calls.find(([event]) => event === 'submitGlobalStats');
+      expect(globalStats, 'the promoted client still submits').toBeDefined();
+      expect(mockEmit.mock.calls.filter(([event]) => event === 'submitGlobalStats')).toHaveLength(1);
+      expect(globalStats![1]).toEqual({ finishedGameToken });
     });
 
     // With the default non-zero reconnectTimeout the promotion only happens
-    // when the disconnect timer drains — and that server callback splices the
-    // seat FIRST, then broadcasts gameState before hostId. So the promoted
-    // client's payload was built over a roster the departed player, usually
-    // the winner, is no longer in: every counter summed over the survivors,
-    // totalPlayersSum short, and fastestWinTurns derived from getLeaders over
-    // what is left — which in a mid-round finish writes a value lower than any
-    // genuine win into a MIN-merged column.
-    it('submits the roster the game FINISHED with, not the one the promotion left behind', () => {
+    // when the disconnect timer drains, after the server has broadcast the
+    // shrunken roster. The client must still submit exactly once after it is
+    // promoted, even though its local roster no longer includes the leaver.
+    it('still submits after promotion removes a finished seat', () => {
+      const finishedGameToken = 'shrunk-roster-finished-token';
       useGameStore.getState().setMode('online');
       useGameStore.setState({
         isHost: false, hostId: 'departed-host', roomId: 'ROOM1', myName: 'Bob',
@@ -1813,6 +1821,7 @@ describe('useGameStore', () => {
       // The winning push: three seats at the table when the game ended.
       mockOnHandlers['gameState']({
         status: 'playing', finished: true, round: 7,
+        finishedGameToken,
         players: [
           makeOnlinePlayer('Alice', { score: 6000, totalTurns: 9 }),
           makeOnlinePlayer('Bob', { score: 2000, totalTurns: 9 }),
@@ -1824,6 +1833,7 @@ describe('useGameStore', () => {
       // broadcasts the shrunken roster before handing this client the room.
       mockOnHandlers['gameState']({
         status: 'playing', finished: true, round: 7,
+        finishedGameToken,
         players: [
           makeOnlinePlayer('Bob', { score: 2000, totalTurns: 9 }),
           makeOnlinePlayer('Carol', { score: 1500, totalTurns: 9 }),
@@ -1835,17 +1845,16 @@ describe('useGameStore', () => {
 
       const submitted = mockEmit.mock.calls.find(([event]) => event === 'submitGlobalStats');
       expect(submitted, 'the promoted client still submits').toBeDefined();
-      expect(submitted![1].payload.totalPlayersSum, 'three players finished this game').toBe(3);
-      expect(submitted![1].payload.mostPlayersInGame).toBe(3);
+      expect(useGameStore.getState().finishedGameToken).toBe(finishedGameToken);
+      expect(useGameStore.getState().finishedGameSnapshot?.players.map(player => player.name)).toEqual(['Alice', 'Bob', 'Carol']);
+      expect(mockEmit.mock.calls.filter(([event]) => event === 'submitGlobalStats')).toHaveLength(1);
+      expect(submitted![1]).toEqual({ finishedGameToken });
     });
 
-    // The mirror image of the test above, for the one client the finish edge
-    // never fires for: the player who ENDED the game. nextTurn sets finished
-    // locally before the push goes out, so by the time the server echoes it
-    // back `wasFinished` is already true and no snapshot is taken. If that
-    // same client is then promoted (it is connected, so promoteHostAfterLoss
-    // prefers it), submitGlobalStats has nothing frozen to read.
-    it('submits the roster the game finished with even when this client is the one that ended it', () => {
+    // The mirror image covers the client whose local winning turn sets
+    // `finished` before the server echo. Promotion must still preserve its
+    // eligibility to submit the global row.
+    it("still submits after promotion follows this client's local finish", () => {
       useGameStore.getState().setMode('online');
       useGameStore.setState({
         isHost: false, hostId: 'departed-host', roomId: 'ROOM1', myName: 'Bob',
@@ -1865,11 +1874,15 @@ describe('useGameStore', () => {
       // Bob takes the winning turn himself: nextTurn flips `finished` locally.
       useGameStore.getState().nextTurn(0, false);
       expect(useGameStore.getState().finished, 'the turn ended the game').toBe(true);
+      const winningPush = nonNull(mockEmit.mock.calls.find(([event]) => event === 'pushState'));
+      const winningMutationId = (winningPush[1] as { mutationId: string }).mutationId;
+      expect(winningMutationId).toEqual(expect.any(String));
+      expect(useGameStore.getState().finishedGameToken).toBe(winningMutationId);
 
       // The server echoes that same finished state back — `wasFinished` is
       // already true here, so the finish edge does not fire for this client.
       mockOnHandlers['gameState']({
-        status: 'playing', finished: true, round: 7,
+        status: 'playing', finished: true, round: 7, finishedGameToken: winningMutationId,
         players: [
           makeOnlinePlayer('Alice', { score: 1000, totalTurns: 9 }),
           makeOnlinePlayer('Carol', { score: 1500, totalTurns: 9 }),
@@ -1880,7 +1893,7 @@ describe('useGameStore', () => {
       // …then the dead host's reconnect timer drains: the seat is spliced and
       // the shrunken roster is broadcast before this client is handed the room.
       mockOnHandlers['gameState']({
-        status: 'playing', finished: true, round: 7,
+        status: 'playing', finished: true, round: 7, finishedGameToken: winningMutationId,
         players: [
           makeOnlinePlayer('Carol', { score: 1500, totalTurns: 9 }),
           makeOnlinePlayer('Bob', { score: 6000, totalTurns: 10 }),
@@ -1892,16 +1905,15 @@ describe('useGameStore', () => {
 
       const submitted = mockEmit.mock.calls.find(([event]) => event === 'submitGlobalStats');
       expect(submitted, 'the promoted client still submits').toBeDefined();
-      expect(submitted![1].payload.totalPlayersSum, 'three players finished this game').toBe(3);
-      expect(submitted![1].payload.mostPlayersInGame).toBe(3);
+      expect(useGameStore.getState().finishedGameToken).toBe(winningMutationId);
+      expect(mockEmit.mock.calls.filter(([event]) => event === 'submitGlobalStats')).toHaveLength(1);
+      expect(submitted![1]).toEqual({ finishedGameToken: winningMutationId });
     });
 
-    // The snapshot is written on the finish edge but nothing clears it when a
-    // new game starts, and buildGlobalStatsPayload prefers it over live state.
-    // A host who takes the winning turn HIMSELF never re-arms it (nextTurn sets
-    // finished locally, so the echo is not an edge), so the rematch's payload
-    // is built from the game before it.
-    it('records the rematch, not the game before it, when the host ends the rematch himself', () => {
+    // A local winning turn replaces the previous finished identity before the
+    // host submits the rematch's global row.
+    it('replaces the finished snapshot and token for a host rematch', () => {
+      const firstFinishedGameToken = 'first-finished-token';
       useGameStore.getState().setMode('online');
       useGameStore.setState({
         isHost: true, hostId: 'socket-123', roomId: 'ROOM1', myName: 'Alice',
@@ -1912,7 +1924,7 @@ describe('useGameStore', () => {
       // Game 1 ends with Bob's winning push: this client sees the finish edge
       // and freezes three seats, then submits.
       mockOnHandlers['gameState']({
-        status: 'playing', finished: true, round: 4,
+        status: 'playing', finished: true, round: 4, finishedGameToken: firstFinishedGameToken,
         players: [
           makeOnlinePlayer('Alice', { score: 2000, totalTurns: 5 }),
           makeOnlinePlayer('Bob', { score: 6000, totalTurns: 5 }),
@@ -1920,12 +1932,14 @@ describe('useGameStore', () => {
         ],
       });
       expect(useGameStore.getState().finishedGameSnapshot?.round).toBe(4);
+      const firstFinishedSnapshot = useGameStore.getState().finishedGameSnapshot;
 
       // Play Again, now as a two-player rematch that Alice wins on her own
-      // last turn — nine rounds in, so the payload is unmistakably this game's.
+      // last turn; the local finish must replace the prior identity.
       useGameStore.setState({
         gameplayToken: 'rematch-gameplay-token',
         status: 'playing', finished: false, round: 9, currentPlayerIndex: 1,
+        finishedGameToken: null,
         winningScore: 6000, currentCard: 'Feuerwerk', cards: ['Stop'],
         chartValues: [], chartNames: [], chartLabels: [],
         players: [
@@ -1937,11 +1951,21 @@ describe('useGameStore', () => {
 
       useGameStore.getState().nextTurn(0, false);
       expect(useGameStore.getState().finished, 'the rematch ended').toBe(true);
+      const rematchFinishedSnapshot = useGameStore.getState().finishedGameSnapshot;
+      const rematchPush = nonNull(mockEmit.mock.calls.find(([event]) => event === 'pushState'));
+      const rematchFinishedGameToken = (rematchPush[1] as { mutationId: string }).mutationId;
+      expect(rematchFinishedGameToken).toEqual(expect.any(String));
+      expect(rematchFinishedGameToken).not.toBe(firstFinishedGameToken);
+      expect(useGameStore.getState().finishedGameToken).toBe(rematchFinishedGameToken);
+      expect(rematchFinishedSnapshot).toBeDefined();
+      expect(rematchFinishedSnapshot).not.toBe(firstFinishedSnapshot);
+      expect(rematchFinishedSnapshot?.round).toBe(9);
+      expect(rematchFinishedSnapshot?.players.map(player => player.name)).toEqual(['Bob', 'Alice']);
 
       const submitted = mockEmit.mock.calls.find(([event]) => event === 'submitGlobalStats');
       expect(submitted, 'the host submits the rematch').toBeDefined();
-      expect(submitted![1].payload.totalRoundsSum, "the rematch's round count").toBe(9);
-      expect(submitted![1].payload.totalPlayersSum, 'two players played the rematch').toBe(2);
+      expect(mockEmit.mock.calls.filter(([event]) => event === 'submitGlobalStats')).toHaveLength(1);
+      expect(submitted![1]).toEqual({ finishedGameToken: rematchFinishedGameToken });
     });
 
     it('does not resubmit global stats when an already-host client is re-told it is host', () => {
@@ -4797,37 +4821,6 @@ describe('useGameStore', () => {
     });
   });
 
-  describe('default vs custom game detection (global stats payload)', () => {
-    const DEFAULT_CARDS = {
-      Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5,
-      x2: 5, 200: 5, 300: 5, 400: 5, 500: 5, 600: 5,
-    };
-
-    it('marks a 6000-point default-deck game as isDefaultGame: true', () => {
-      useGameStore.getState().addPlayer('Alice');
-      useGameStore.setState({ winningScore: 6000, initialCards: { ...DEFAULT_CARDS } });
-
-      const payload = useGameStore.getState().buildGlobalStatsPayload();
-      expect(payload.isDefaultGame).toBe(true);
-    });
-
-    it('marks a tweaked deck as isDefaultGame: false', () => {
-      useGameStore.getState().addPlayer('Alice');
-      useGameStore.setState({ winningScore: 6000, initialCards: { ...DEFAULT_CARDS, Kleeblatt: 99 } });
-
-      const payload = useGameStore.getState().buildGlobalStatsPayload();
-      expect(payload.isDefaultGame).toBe(false);
-    });
-
-    it('marks a non-6000 winning score as isDefaultGame: false', () => {
-      useGameStore.getState().addPlayer('Alice');
-      useGameStore.setState({ winningScore: 8000, initialCards: { ...DEFAULT_CARDS } });
-
-      const payload = useGameStore.getState().buildGlobalStatsPayload();
-      expect(payload.isDefaultGame).toBe(false);
-    });
-  });
-
   describe('online game global stats', () => {
     const DEFAULT_CARDS = {
       Kleeblatt: 1, Feuerwerk: 5, Stop: 10, Kniffel: 5, Plus_Minus: 5,
@@ -4847,10 +4840,9 @@ describe('useGameStore', () => {
       mockEmit.mockClear();
       useGameStore.getState().nextTurn(500, true);
 
-      expect(mockEmit).toHaveBeenCalledWith('submitGlobalStats', {
-        payload: expect.any(Object),
-        finishedGameToken: useGameStore.getState().finishedGameToken,
-      }, expect.any(Function));
+      const submitted = mockEmit.mock.calls.find(([event]) => event === 'submitGlobalStats');
+      expect(submitted, 'the host still submits the eligible global row').toBeDefined();
+      expect(submitted![1]).not.toHaveProperty('payload');
     });
 
     it('non-host does NOT send global stats when an online game ends', () => {
@@ -5455,9 +5447,8 @@ describe('useGameStore', () => {
       expect(state.chartLabels).toEqual([]);
     });
 
-    // buildGlobalStatsPayload PREFERS this snapshot over live state, so one
-    // left behind by the previous game is not stale-but-harmless — it is what
-    // the next submission would report. Both game-start paths drop it.
+    // A finished-game snapshot identifies the game for acknowledgement guards;
+    // both game-start paths must drop it before the next game.
     it.each([
       ['startGame', () => { useGameStore.getState().startGame(); }],
       ['endGame', () => { useGameStore.getState().endGame(); }],
