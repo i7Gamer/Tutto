@@ -20,7 +20,7 @@ const ROUND_COUNT = 7;
 const PLAYER_COUNT = 2;
 const DEVICE_ID = 'accounting-device';
 
-const game = () => ({ devices: new Map(), global: false });
+const game = () => ({ devices: new Set<string>(), global: false });
 
 const singleNumericDeck = () => {
   const cards = { ...DEFAULT_INITIAL_CARDS };
@@ -43,7 +43,7 @@ describe('finish accounting database regression', () => {
     await database.knex.destroy();
   });
 
-  it('allows a full fallback after a pending departed verdict fails, without publishing a phantom verdict', async () => {
+  it('allows a departed write retry after a pending departed write fails, without publishing a phantom row', async () => {
     const dedup = game();
     const departedVerdict: StatsPayload = {
       gamesPlayed: 1, wins: 1, totalPlayersSum: PLAYER_COUNT,
@@ -54,53 +54,19 @@ describe('finish accounting database regression', () => {
       ...departedVerdict, totalTurns: 4, totalScore: 1200, busts: 1,
     };
 
-    await expect(writeDeviceStatsOnce(dedup, DEVICE_ID, 'verdict-only', async () => {
+    await expect(writeDeviceStatsOnce(dedup, DEVICE_ID, async () => {
       throw new Error('departed write failed before commit');
     })).rejects.toThrow('departed write failed before commit');
     expect(dedup.devices.has(DEVICE_ID)).toBe(false);
 
-    await writeDeviceStatsOnce(dedup, DEVICE_ID, 'full', async () => {
+    await writeDeviceStatsOnce(dedup, DEVICE_ID, async () => {
       await database.updateDeviceStats(DEVICE_ID, fullFallback, MODE);
     });
 
     const row = nonNull(await database.getDeviceStats(DEVICE_ID, MODE));
-    expect(dedup.devices.get(DEVICE_ID)).toBe('full');
+    expect(dedup.devices.has(DEVICE_ID)).toBe(true);
     expect(row.gamesPlayed).toBe(1);
     expect(row.wins).toBe(1);
-    expect(row.totalPlayersSum).toBe(PLAYER_COUNT);
-    expect(row.totalRoundsSum).toBe(ROUND_COUNT);
-    expect(row.longestGameRounds).toBe(ROUND_COUNT);
-    expect(row.totalTurns).toBe(4);
-    expect(row.totalScore).toBe(1200);
-    expect(row.busts).toBe(1);
-  });
-
-  it('merges a returned full row after a committed verdict without duplicating game, streak, or round totals', async () => {
-    const dedup = game();
-    const verdict: StatsPayload = {
-      gamesPlayed: 1, wins: 1, totalPlayersSum: PLAYER_COUNT,
-      mostPlayersInGame: PLAYER_COUNT, totalRoundsSum: ROUND_COUNT,
-      longestGameRounds: ROUND_COUNT,
-    };
-
-    await writeDeviceStatsOnce(dedup, DEVICE_ID, 'verdict-only', async () => {
-      await database.updateDeviceStats(DEVICE_ID, verdict, MODE);
-    });
-    await writeDeviceStatsOnce(dedup, DEVICE_ID, 'full', async () => {
-      await database.updateDeviceStats(DEVICE_ID, {
-        // These are the handler's merge overrides: verdict-owned sums are not
-        // added twice and wins is absent so its streak CASE cannot run again.
-        gamesPlayed: 0, totalPlayersSum: 0, totalRoundsSum: 0,
-        totalTurns: 4, totalScore: 1200, busts: 1,
-      }, MODE);
-    });
-
-    const row = nonNull(await database.getDeviceStats(DEVICE_ID, MODE));
-    expect(dedup.devices.get(DEVICE_ID)).toBe('full');
-    expect(row.gamesPlayed).toBe(1);
-    expect(row.wins).toBe(1);
-    expect(row.currentWinStreak).toBe(1);
-    expect(row.bestWinStreak).toBe(1);
     expect(row.totalPlayersSum).toBe(PLAYER_COUNT);
     expect(row.totalRoundsSum).toBe(ROUND_COUNT);
     expect(row.longestGameRounds).toBe(ROUND_COUNT);
@@ -124,7 +90,6 @@ describe('finish accounting database regression', () => {
     // freezes the final counters before the stats handler sees any client data.
     expect(applyOnlineGameAction(room, { type: 'start' }, 'alice-socket')).toBe(true);
     room.participantStats = new Map();
-    room.startRoster = room.state.players.map(player => ({ deviceId: player.deviceId, name: player.name }));
     let before = readDeckContext(room.state);
     settleDeck(room, before, true);
     emitRoomState(makeFakeIo().io, roomId);
@@ -141,7 +106,7 @@ describe('finish accounting database regression', () => {
 
     expect(room.state.finished).toBe(true);
     expect(room.finishedGame?.winnerDeviceIds).toEqual(['frozen-alice']);
-    expect(room.finishedGame?.players?.find(player => player.deviceId === 'frozen-bob')).toEqual(expect.objectContaining({
+    expect(room.finishedGame?.players.find(player => player.deviceId === 'frozen-bob')).toEqual(expect.objectContaining({
       totalTurns: 1, busts: 1, score: 0,
     }));
 

@@ -20,9 +20,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { registerConfigHandlers } from './socketConfigHandlers';
 import { registerRosterHandlers } from './socketRosterHandlers';
 import { registerStatsHandlers } from './socketStatsHandlers';
+import { registerGameStateHandlers } from './socketGameStateHandlers';
 import { makeFakeSocket, makeServerPlayer, type Handler } from './socketTestHarness';
 import { rooms, createRoom, deleteRoom } from './rooms';
 import type { OnlineServer } from './socketContext';
+import type { OnlineGameAction } from '../src/types';
+import { randomUUID } from 'node:crypto';
 
 vi.mock('./database', () => ({
   getDeviceStats: vi.fn(async () => null),
@@ -50,8 +53,29 @@ const handlersFor = (socketId: string): Record<string, Handler> => {
   const ctx = { io, socket: fake.socket, session: { roomId, username: null } };
   registerConfigHandlers(ctx);
   registerRosterHandlers(ctx);
+  registerGameStateHandlers(ctx);
   registerStatsHandlers(ctx);
   return fake.handlers;
+};
+
+const pushAction = (handler: Handler, action: OnlineGameAction): void => {
+  const ack = vi.fn();
+  handler({ roomId, newState: {}, base: rooms[roomId].gameplayToken, mutationId: randomUUID(), action }, ack);
+  expect(ack).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+};
+
+const finishGameThroughAcceptedActions = (host: Record<string, Handler>, guest: Record<string, Handler>): void => {
+  host.updateConfig({ roomId, randomOrder: false, turnDuration: 0 });
+  pushAction(host.pushState, { type: 'start' });
+  const room = rooms[roomId];
+  room.state.currentCard = '200';
+  room.dealtThisTurn = ['200'];
+  pushAction(host.pushState, { type: 'commit', score: room.state.winningScore, success: true });
+  room.state.currentCard = '200';
+  room.dealtThisTurn = ['200'];
+  pushAction(guest.pushState, { type: 'commit', score: 0, success: false });
+  expect(room.state.finished).toBe(true);
+  expect(room.finishedGame?.players).toHaveLength(2);
 };
 
 describe('host-gated socket events refuse a non-host', () => {
@@ -104,7 +128,7 @@ describe('host-gated socket events refuse a non-host', () => {
   });
 
   it('submitGlobalStats: a seated non-host cannot record the game', async () => {
-    rooms[roomId].state.finished = true;
+    finishGameThroughAcceptedActions(host, guest);
 
     await guest.submitGlobalStats({ roomId, payload: { gamesPlayed: 1, isDefaultGame: true } });
     expect(updateGlobalStats, 'the guest must not write the global row').not.toHaveBeenCalled();

@@ -72,7 +72,7 @@ const compileSafeOnProtocol = (): void => {
   safeOn(fake.socket, 'disconnect', () => undefined);
   safeOn(fake.socket, 'disconnect', (_reason: DisconnectReason) => undefined);
   safeOn(fake.socket, 'pushState', (
-    _data: { roomId?: string; newState?: Record<string, unknown>; base?: unknown; mutationId?: unknown; action?: unknown } | null | undefined,
+    _data: { roomId?: string; newState?: unknown; base?: unknown; mutationId?: unknown; action?: unknown } | null | undefined,
     _ack?: (result: PushStateAck) => void,
   ) => undefined);
   safeOn(fake.socket, 'endGameStats', (
@@ -84,6 +84,8 @@ const compileSafeOnProtocol = (): void => {
   safeOn(fake.socket, 'pushSatte', () => undefined);
   // @ts-expect-error pushState handlers receive the raw ingress object plus optional ack.
   safeOn(fake.socket, 'pushState', (_payload: number) => undefined);
+  // @ts-expect-error snapshot envelopes are untrusted until the runtime guard narrows them.
+  safeOn(fake.socket, 'pushState', (_payload: { newState?: Record<string, unknown> } | null | undefined) => undefined);
   // @ts-expect-error disconnect handlers receive the Socket.IO disconnect reason.
   safeOn(fake.socket, 'disconnect', (_reason: number) => undefined);
   // @ts-expect-error kickPlayer receives untrusted input until its runtime guard narrows it.

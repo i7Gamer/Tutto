@@ -54,7 +54,7 @@ const roomWith = ({
   // server reaches: each client submits its own row on the same `finished`
   // edge the host submits the global one on.
   if (statsRecorded) {
-    room.state.players.forEach(p => room.statsRecordedForGame.devices.set(p.deviceId, 'full'));
+    room.state.players.forEach(p => room.statsRecordedForGame.devices.add(p.deviceId));
   }
   return room;
 };
@@ -108,7 +108,7 @@ describe('summarizeActivity', () => {
     const room = roomWith({ status: 'playing', finished: true, connected: 2 });
     room.statsRecordedForGame.global = true;
     // Only the first of the two players has submitted.
-    room.statsRecordedForGame.devices.set(room.state.players[0].deviceId, 'full');
+    room.statsRecordedForGame.devices.add(room.state.players[0].deviceId);
 
     const snapshot = summarizeActivity(registry(room));
 
@@ -120,7 +120,7 @@ describe('summarizeActivity', () => {
   it('counts a finished game as awaiting while only the device rows are in', () => {
     // The mirror image: the global row is the one still missing.
     const room = roomWith({ status: 'playing', finished: true, connected: 1 });
-    room.state.players.forEach(p => room.statsRecordedForGame.devices.set(p.deviceId, 'full'));
+    room.state.players.forEach(p => room.statsRecordedForGame.devices.add(p.deviceId));
 
     expect(summarizeActivity(registry(room)).awaitingStats).toBe(1);
   });
@@ -136,7 +136,7 @@ describe('summarizeActivity', () => {
     // timer drains"; with the kick timer off, it never does.
     const room = roomWith({ status: 'playing', finished: true, connected: 1, disconnected: 1 });
     room.statsRecordedForGame.global = true;
-    room.statsRecordedForGame.devices.set(room.state.players[0].deviceId, 'full');
+    room.statsRecordedForGame.devices.add(room.state.players[0].deviceId);
 
     const snapshot = summarizeActivity(registry(room));
 
@@ -150,7 +150,7 @@ describe('summarizeActivity', () => {
     // fires and the seat is spliced. Their statistics really are pending.
     const room = roomWith({ status: 'playing', finished: true, connected: 1, disconnected: 1 });
     room.statsRecordedForGame.global = true;
-    room.statsRecordedForGame.devices.set(room.state.players[0].deviceId, 'full');
+    room.statsRecordedForGame.devices.add(room.state.players[0].deviceId);
     const armed = setTimeout(() => {}, TIMER_NEVER_FIRES_MS);
     room.disconnectTimers[room.state.players[1].deviceId] = armed;
 
@@ -167,32 +167,29 @@ describe('summarizeActivity', () => {
     // statsFullyRecorded was widened to cover in the first place.
     const room = roomWith({ status: 'playing', finished: true, connected: 2 });
     room.statsRecordedForGame.global = true;
-    room.statsRecordedForGame.devices.set(room.state.players[0].deviceId, 'full');
+    room.statsRecordedForGame.devices.add(room.state.players[0].deviceId);
 
     expect(summarizeActivity(registry(room)).awaitingStats).toBe(1);
   });
 
-  it('keeps waiting on a connected seat whose row is still the server-written verdict', () => {
-    // A seat that was disconnected at the finish gets a 'verdict-only' row
-    // from the server; when that device comes back its own per-turn counters
-    // are still owed and MERGE into that row. Presence in the dedup map is
-    // therefore not "recorded" — only 'full' is.
+  it('stops waiting on connected seats whose complete rows are recorded', () => {
+    // A device marker now means a complete row, including rows written from
+    // the frozen participant snapshot for seats disconnected at the finish.
     const room = roomWith({ status: 'playing', finished: true, connected: 2 });
     room.statsRecordedForGame.global = true;
-    room.statsRecordedForGame.devices.set(room.state.players[0].deviceId, 'full');
-    room.statsRecordedForGame.devices.set(room.state.players[1].deviceId, 'verdict-only');
+    room.statsRecordedForGame.devices.add(room.state.players[0].deviceId);
+    room.statsRecordedForGame.devices.add(room.state.players[1].deviceId);
 
-    expect(summarizeActivity(registry(room)).awaitingStats).toBe(1);
+    expect(summarizeActivity(registry(room)).awaitingStats).toBe(0);
   });
 
-  it('stops waiting on a gone seat that holds only the server-written verdict', () => {
-    // The control: verdict-only AND nothing left that could ever complete
-    // it (disconnected, no reconnect timer). Its row is as recorded as it
-    // will ever be, so the room must not hold the operator hostage.
+  it('stops waiting on a gone seat with no recorded row', () => {
+    // The control: no recorded row and nothing left that could ever complete
+    // it (disconnected, no reconnect timer), so the room must not hold the
+    // operator hostage.
     const room = roomWith({ status: 'playing', finished: true, connected: 1, disconnected: 1 });
     room.statsRecordedForGame.global = true;
-    room.statsRecordedForGame.devices.set(room.state.players[0].deviceId, 'full');
-    room.statsRecordedForGame.devices.set(room.state.players[1].deviceId, 'verdict-only');
+    room.statsRecordedForGame.devices.add(room.state.players[0].deviceId);
 
     expect(summarizeActivity(registry(room)).awaitingStats).toBe(0);
   });

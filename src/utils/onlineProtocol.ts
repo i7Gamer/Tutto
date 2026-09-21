@@ -156,7 +156,7 @@ export interface ServerIngressEvents {
   pushState: (
     payload: {
       roomId?: string;
-      newState?: Record<string, unknown>;
+      newState?: unknown;
       base?: unknown;
       mutationId?: unknown;
       action?: unknown;

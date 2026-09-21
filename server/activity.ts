@@ -41,11 +41,9 @@ const PART_SEPARATOR = ' · ';
  * A seated player who never returns no longer holds this, even though the
  * predicate below still says they could submit: the server writes that seat's
  * row itself the moment the verdict is frozen (recordDepartedSeatsStats in
- * rooms.ts now treats a DISCONNECTED seat as departed). That row is only
- * 'verdict-only', though — the seat's per-turn counters are still owed, and a
- * device that does come back MERGES them into it and marks it 'full'. So the
- * check beside this asks for 'full', not mere presence in the dedup map, and
- * this predicate decides whether anyone is left to complete the row: a seat
+ * rooms.ts treats a DISCONNECTED seat as departed). A device marker means
+ * that complete row committed. If a write failed, this predicate decides
+ * whether anyone is left to retry it: a seat
  * still connected, or one whose reconnect timer has not yet drained.
  *
  * Unless there is no timer to drain. reconnectTimeout: 0 is a supported lobby
@@ -62,7 +60,7 @@ const canStillSubmit = (room: Room, player: ServerPlayer): boolean =>
 const statsFullyRecorded = (room: Room): boolean =>
   room.statsRecordedForGame.global
   && room.state.players.every(p =>
-    room.statsRecordedForGame.devices.get(p.deviceId) === 'full' || !canStillSubmit(room, p));
+    room.statsRecordedForGame.devices.has(p.deviceId) || !canStillSubmit(room, p));
 
 export const summarizeActivity = (rooms: Record<string, Room>): ActivitySnapshot => {
   const snapshot: ActivitySnapshot = {

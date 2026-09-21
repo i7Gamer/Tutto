@@ -13,7 +13,7 @@ import { envLimitOr } from './envLimits';
 import { updateDeviceStats } from './database';
 import { pendingDeviceStatsWrite, writeDeviceStatsOnce } from './statsWriteCoordinator';
 import { buildDeviceStatsPayload } from '../src/utils/statsPayloads';
-import { MAX_CHAIN_CARDS, PUBLIC_GAME_STATE_KEYS, type AssertNever, type CardType, type StatsPayload, type SyncedGameStateKey } from '../src/types';
+import { MAX_CHAIN_CARDS, PUBLIC_GAME_STATE_KEYS, type AssertNever, type CardType, type SyncedGameStateKey } from '../src/types';
 import { statsModeFor, type Room, type RoomState, type ServerPlayer, type TurnTimerState } from './roomTypes';
 import type { OnlineServer, OnlineServerSocket } from './socketContext';
 
@@ -153,13 +153,13 @@ export const createRoom = (hostSocketId: string, createdBy = ''): Room => ({
   // to the Object.keys/values that cancel it, so deleteRoom cannot stop it.
   disconnectTimers: Object.create(null) as Room['disconnectTimers'],
   turnExpireTimer: null,
-  statsRecordedForGame: { devices: new Map(), global: false },
+  statsRecordedForGame: { devices: new Set(), global: false },
   // Matches the default config below. Recomputed the moment a game actually
   // starts, so this only covers a room that somehow submits without one.
   normalizedGame: true,
   ruleset: DEFAULT_RULESET,
   finishedGame: null,
-  startRoster: null,
+  participantStats: new Map(),
   dealtThisTurn: [],
   dealtLastTurn: [],
   state: {
@@ -459,57 +459,32 @@ export const sanitizePlayerForBroadcast = (p: ServerPlayer): Omit<ServerPlayer, 
  * Called once, right after rememberFinishedGame freezes room.finishedGame for
  * the first time — the same "verdict is now final" moment endGameStats itself
  * trusts. The frozen participant snapshot includes seats that left before
- * the finish. Legacy rooms fall back to room.startRoster; without either
- * record, there are no departed identities available to write.
+ * the finish, with their last server-accepted counters.
  *
  * Shares statsRecordedForGame.devices with endGameStats — the exact same
- * per-game dedup. A captured participant snapshot produces a complete `full`
- * row, so a returning seat is a duplicate. Only legacy rooms without one use a
- * `verdict-only` row, which a returning seat may top up without counting the
- * game itself a second time.
- *
- * A game started after participantStats was introduced carries a server-owned
- * copy of each seat's counters, so its departed row is complete and final. The
- * narrow legacy fallback only has the verdict fields for rooms/test fixtures
- * that predate that snapshot.
+ * per-game dedup. Every write is complete, so a returning seat is a duplicate
+ * after commit, or can retry a failed write for the same finish.
  */
 const recordDepartedSeatsStats = (room: Room): void => {
-  if (!room.finishedGame) return;
+  const finishedGame = room.finishedGame;
+  if (!finishedGame) return;
   // Only a CONNECTED seat is left to record the game for itself.
   const stillSubmittingDeviceIds = new Set(
     room.state.players.filter(p => !p.disconnected).map(p => p.deviceId),
   );
   const mode = statsModeFor(room);
-  const { playerCount, winners, round } = room.finishedGame;
   const dedup = room.statsRecordedForGame;
 
-  const participants = room.finishedGame.players ?? room.startRoster;
-  if (!participants) return;
-  for (const { deviceId, name } of participants) {
+  for (const { deviceId, name } of finishedGame.players) {
     if (!deviceId || stillSubmittingDeviceIds.has(deviceId)) continue;
     if (dedup.devices.has(deviceId) || pendingDeviceStatsWrite(dedup, deviceId)) continue;
-    const frozenPlayers = room.finishedGame.players;
-    const frozenPlayer = frozenPlayers?.find(player => player.deviceId === deviceId);
-    const fullStats = frozenPlayers && frozenPlayer
-      ? buildDeviceStatsPayload(
-        frozenPlayers,
-        frozenPlayer.name,
-        room.finishedGame.gameTimeInSeconds ?? 0,
-        round,
-        room.finishedGame.winnerDeviceIds,
-      )
-      : null;
-    const level = fullStats ? 'full' : 'verdict-only';
-    const stats: StatsPayload = fullStats ? { ...fullStats } : {
-      gamesPlayed: 1,
-      wins: winners.includes(name) ? 1 : 0,
-      totalPlayersSum: playerCount,
-      mostPlayersInGame: playerCount,
-      totalRoundsSum: round,
-      longestGameRounds: round,
-    };
-    // Reserve before dispatch, but only publish the selected level after commit.
-    void writeDeviceStatsOnce(dedup, deviceId, level, () => updateDeviceStats(deviceId, stats, mode)).catch((err: unknown) => {
+    const stats = buildDeviceStatsPayload(
+      finishedGame.players, name, finishedGame.gameTimeInSeconds,
+      finishedGame.round, finishedGame.winnerDeviceIds,
+    );
+    if (!stats) continue;
+    // Reserve before dispatch; publish the device marker only after commit.
+    void writeDeviceStatsOnce(dedup, deviceId, () => updateDeviceStats(deviceId, { ...stats }, mode)).catch((err: unknown) => {
       // No committed marker was published on failure. A same-finish return
       // can write the full result; do not retry old verdicts out of order.
       console.error('[recordDepartedSeatsStats] error:', err);
@@ -533,7 +508,7 @@ const recordDepartedSeatsStats = (room: Room): void => {
  * rather than the previous one's.
  */
 const captureParticipantStats = (room: Room): void => {
-  if (!room.participantStats) return;
+  if (room.state.status !== 'playing') return;
   for (const player of room.state.players) {
     room.participantStats.set(player.deviceId, { ...player });
   }
@@ -548,20 +523,16 @@ const rememberFinishedGame = (room: Room): void => {
   }
   if (room.finishedGame) return;
   room.finishedGameToken = room.gameplayToken;
-  const snapshotPlayers = room.participantStats && room.participantStats.size > 0
-    ? [...room.participantStats.values()].map(player => ({ ...player }))
-    : room.state.players.map(player => ({ ...player }));
+  const snapshotPlayers = [...room.participantStats.values()].map(player => ({ ...player }));
+  const leaders = getLeaders(room.state.players);
   room.finishedGame = {
-    winners: getLeaders(room.state.players).map(p => p.name),
-    playerCount: room.participantStats ? snapshotPlayers.length : (room.startRoster?.length ?? room.state.players.length),
+    winners: leaders.map(player => player.name),
+    playerCount: snapshotPlayers.length,
     round: room.state.round,
-    ...(room.participantStats ? {
-      players: snapshotPlayers,
-      gameTimeInSeconds: room.state.gameTimeInSeconds,
-      winnerDeviceIds: getLeaders(room.state.players)
-        .map(player => player.deviceId)
-        .filter((deviceId): deviceId is string => typeof deviceId === 'string'),
-    } : {}),
+    players: snapshotPlayers,
+    gameTimeInSeconds: room.state.gameTimeInSeconds,
+    winnerDeviceIds: leaders.map(player => player.deviceId)
+      .filter((deviceId): deviceId is string => typeof deviceId === 'string'),
   };
   recordDepartedSeatsStats(room);
 };

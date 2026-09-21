@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { registerGameStateHandlers, MAX_TIMER_RESTARTS_PER_TURN, DRAW_CARD_LIMIT } from './socketGameStateHandlers';
 import { makeFakeSocket, makeFakeIo, makeServerPlayer, type Handler } from './socketTestHarness';
-import { rooms, createRoom, deleteRoom } from './rooms';
+import { rooms, createRoom, deleteRoom, emitRoomState } from './rooms';
 import { MAX_CHAIN_CARDS, type OnlineGameAction } from '../src/types';
 import type { RoomState } from './roomTypes';
 import { randomUUID } from 'node:crypto';
@@ -276,6 +276,25 @@ describe('pushState acknowledgement and stateVersion', () => {
     expect(carol.emit, 'a refused push is not broadcast').not.toHaveBeenCalled();
   });
 
+  it('refuses an array snapshot envelope even with an otherwise valid action', () => {
+    const bob = seat('active-sock', 'Bob');
+    const room = rooms[roomId];
+    const beforeVersion = room.stateVersion;
+    const beforeToken = room.gameplayToken;
+    const ack = vi.fn();
+
+    bob.handlers['pushState']({
+      roomId, newState: [], base: beforeToken, mutationId: randomUUID(),
+      action: { type: 'commit', score: 0, success: false },
+    }, ack);
+
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'refused' });
+    expect(room.state.currentPlayerIndex).toBe(ACTIVE_INDEX);
+    expect(room.stateVersion).toBe(beforeVersion);
+    expect(room.gameplayToken).toBe(beforeToken);
+    expect(bob.emit).not.toHaveBeenCalled();
+  });
+
   it('ignores a client-authored roster and applies only the authenticated action', () => {
     const bob = seat('active-sock', 'Bob');
     const ack = vi.fn();
@@ -422,7 +441,7 @@ describe('pushState may not leave a running game with nobody to act', () => {
     rooms[roomId].state.currentPlayerIndex = null;
     // The previous game's bookkeeping, which a real start would clear and
     // recapture — and which this push must leave exactly as it found it.
-    const previousGameDevices = new Map([[PREVIOUS_GAME_DEVICE, 'full' as const]]);
+    const previousGameDevices = new Set([PREVIOUS_GAME_DEVICE]);
     rooms[roomId].statsRecordedForGame = { devices: previousGameDevices, global: true };
     const hostFake = makeFakeSocket('host-sock');
     registerGameStateHandlers({ io: makeFakeIo().io, socket: hostFake.socket, session: { roomId, username: 'Bob' } });
@@ -433,9 +452,9 @@ describe('pushState may not leave a running game with nobody to act', () => {
     // …and no game started means none of the start-of-game bookkeeping may
     // run either. It used to, gated on `applied` alone: the dedup was reset
     // (letting the still-finished game's statistics be submitted a second
-    // time) and the start roster was recaptured for a game the room put
+    // time) and participants were captured for a game the room put
     // straight back into the lobby.
-    expect(rooms[roomId].startRoster, 'no game started, no roster to capture').toBeNull();
+    expect(rooms[roomId].participantStats.size, 'no game started, no participants to capture').toBe(0);
     expect(rooms[roomId].statsRecordedForGame.devices, 'the previous game stays deduped')
       .toBe(previousGameDevices);
     expect(rooms[roomId].statsRecordedForGame.global).toBe(true);
@@ -529,13 +548,13 @@ describe('pushState may not leave a running game with nobody to act', () => {
     // `finished` and names the next actor has an unambiguous intent to
     // restart play, exactly like the real Play Again push above, and must run
     // the same start-of-game bookkeeping: the stats dedup reset, the
-    // startRoster recapture, and the deck kickoff. It used to skip all three,
+    // participant capture, and the deck kickoff. It used to skip all three,
     // because restart detection used to depend on newState.status rather than
     // the accepted v2 start action.
     stageFinishedGame();
-    const previousGameDevices = new Map([[PREVIOUS_GAME_DEVICE, 'full' as const]]);
+    const previousGameDevices = new Set([PREVIOUS_GAME_DEVICE]);
     rooms[roomId].statsRecordedForGame = { devices: previousGameDevices, global: true };
-    rooms[roomId].startRoster = [{ deviceId: 'dev-Alice', name: 'Alice' }, { deviceId: 'dev-Bob', name: 'Bob' }];
+    rooms[roomId].participantStats.set(PREVIOUS_GAME_DEVICE, makePlayer('Old', 'old-sock'));
 
     pushAction(hostPush(), roomId, { type: 'start' }, { finished: false, currentPlayerIndex: 0 });
 
@@ -544,9 +563,9 @@ describe('pushState may not leave a running game with nobody to act', () => {
     expect(room.state.currentPlayerIndex).toBe(0);
     expect(room.statsRecordedForGame.devices.size, 'the previous game\'s dedup is reset for the new one').toBe(0);
     expect(room.statsRecordedForGame.global).toBe(false);
-    expect(room.startRoster, 'the roster is recaptured for the new game').toEqual([
-      { deviceId: 'dev-Alice', name: 'Alice' },
-      { deviceId: 'dev-Bob', name: 'Bob' },
+    expect([...room.participantStats.keys()], 'the active game participants are recaptured').toEqual([
+      'dev-Alice',
+      'dev-Bob',
     ]);
     expect(room.state.currentCard, 'a fresh deck was built and dealt from, same as a kickoff that says status: \'playing\'')
       .not.toBeNull();
@@ -618,14 +637,13 @@ describe('pushState against an already-finished game', () => {
   });
 });
 
-describe('pushState captures the game-start roster (startRoster)', () => {
+describe('pushState captures game participants for stats', () => {
   // A seat that leaves, is kicked, or times out before the game's finish is
   // broadcast is invisible to endGameStats (see socketStatsHandlers.ts) —
   // that handler only ever hears from a currently seated socket. The server
   // records that seat's row itself instead (rooms.ts' recordDepartedSeatsStats),
-  // and it can only tell who was AT the table when the game began by
-  // capturing the roster right here, the one place a game start is detected
-  // capturing the roster on the accepted v2 start action.
+  // and it can only write complete rows by capturing participants from the
+  // accepted v2 start action and later accepted game-state broadcasts.
   const roomId = 'ROSTER-CAPTURE-ROOM';
   let pushState: Handler;
 
@@ -646,15 +664,20 @@ describe('pushState captures the game-start roster (startRoster)', () => {
     for (const id of Object.keys(rooms)) deleteRoom(id);
   });
 
-  it('captures every seat\'s deviceId and name on lobby -> playing', () => {
-    expect(rooms[roomId].startRoster).toBeNull();
+  it('captures every seat on lobby -> playing', () => {
+    expect(rooms[roomId].participantStats.size).toBe(0);
 
     pushAction(pushState, roomId, { type: 'start' });
 
-    expect(rooms[roomId].startRoster).toEqual([
-      { deviceId: 'dev-Alice', name: 'Alice' },
-      { deviceId: 'dev-Bob', name: 'Bob' },
-    ]);
+    expect([...rooms[roomId].participantStats.keys()]).toEqual(['dev-Alice', 'dev-Bob']);
+  });
+
+  it('does not capture transient lobby seats before an accepted start', () => {
+    rooms[roomId].state.players.push(makePlayer('Carol', 'carol-sock'));
+
+    emitRoomState(makeFakeIo().io, roomId);
+
+    expect(rooms[roomId].participantStats.size).toBe(0);
   });
 
   it('does not capture anything from a refused pushState without a valid start action', () => {
@@ -668,11 +691,11 @@ describe('pushState captures the game-start roster (startRoster)', () => {
       },
     });
 
-    expect(rooms[roomId].startRoster).toBeNull();
+    expect(rooms[roomId].participantStats.size).toBe(0);
     expect(rooms[roomId].state.status, 'the discarded push must not have started the game either').toBe('lobby');
   });
 
-  it('re-captures the roster on Play Again: a joiner is included, a leaver is not', () => {
+  it('re-captures participants on Play Again: a joiner is included, a leaver is not', () => {
     // Game 1 starts and finishes with Alice and Bob. Alice takes the winning
     // score, because a finish is only accepted for a game the action
     // authority could have ended.
@@ -684,10 +707,7 @@ describe('pushState captures the game-start roster (startRoster)', () => {
       io: makeFakeIo().io, socket: bob.socket, session: { roomId, username: 'Bob' },
     });
     pushAction(bob.handlers['pushState'], roomId, { type: 'commit', score: 0, success: false });
-    expect(rooms[roomId].startRoster).toEqual([
-      { deviceId: 'dev-Alice', name: 'Alice' },
-      { deviceId: 'dev-Bob', name: 'Bob' },
-    ]);
+    expect([...rooms[roomId].participantStats.keys()]).toEqual(['dev-Alice', 'dev-Bob']);
 
     // Between games: Bob leaves, Carol joins — mirrors what a real
     // joinRoom/handlePlayerLeave pair would have done to the roster.
@@ -700,10 +720,7 @@ describe('pushState captures the game-start roster (startRoster)', () => {
     // host's freshly composed roster.
     pushAction(pushState, roomId, { type: 'start' });
 
-    expect(rooms[roomId].startRoster).toEqual([
-      { deviceId: 'dev-Alice', name: 'Alice' },
-      { deviceId: 'dev-Carol', name: 'Carol' },
-    ]);
+    expect([...rooms[roomId].participantStats.keys()]).toEqual(['dev-Alice', 'dev-Carol']);
   });
 });
 

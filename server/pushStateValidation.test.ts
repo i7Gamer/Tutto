@@ -20,6 +20,7 @@ import { VALID_CARD_TYPES, MIN_ENABLED_TURN_DURATION } from '../src/utils/config
 import { PLAYER_RECORD_FIELDS } from '../src/utils/playerStats';
 import { isValidTurnSummary } from './turnPayloadValidation';
 import { applyOnlineGameAction } from './gameActionAuthority';
+import { PLUS_MINUS_SCORE } from '../src/utils/coreGameEngine';
 
 // The shape of a 'gameState' broadcast, matching how the client itself types
 // it (src/store/socketSlice.ts's own 'gameState' handler) — a broadcast only
@@ -198,14 +199,19 @@ const SOCKET_IO_EVENT_PREFIX = '42';
 const PUSH_STATE_EVENT = 'pushState';
 const EMPTY_ENVELOPE_MIN_SAVINGS_BYTES = 100_000;
 const EMPTY_ENVELOPE_MIN_SAVINGS_RATIO = 1_000;
-const FULL_LENGTH_NUMERIC_ACTION_CAP_DIVISOR = 10;
+const FULL_BOUNDED_ACTION_CAP_DIVISOR = 10;
 const CLASSIC_SUMMARY_CARD: CardType = '200';
 const CLASSIC_SUMMARY_CARD_SCORE = 200;
+const PLUS_MINUS_CARD: CardType = 'Plus_Minus';
+const MULTIBYTE_NAME_CHAR = '界';
 const TOKEN_BASE = '11111111-1111-4111-8111-111111111111';
 const TOKEN_MUTATION = '22222222-2222-4222-8222-222222222222';
 
 const boundedPlayerName = (index: number): string =>
   `Player-${String(index).padStart(3, '0')}`.slice(0, MAX_PLAYER_NAME_LENGTH);
+
+const boundedMultibytePlayerName = (suffix: string): string =>
+  `${MULTIBYTE_NAME_CHAR.repeat(MAX_PLAYER_NAME_LENGTH - suffix.length)}${suffix}`;
 
 const boundedRoomId = (): string => 'R'.repeat(MAX_ROOM_ID_LENGTH);
 
@@ -224,6 +230,43 @@ const buildFullLengthNumericClassicSummary = (): TurnSummary => ({
   plusMinusScores: [],
   ended: 'banked',
 });
+
+const buildFullBoundedPlusMinusSummary = (ended: 'banked' | 'null'): TurnSummary => {
+  const finalScore = MAX_CHAIN_CARDS * PLUS_MINUS_SCORE;
+  const deductedPlayer = boundedMultibytePlayerName('B');
+  return {
+    cards: Array.from({ length: MAX_CHAIN_CARDS }, () => ({ card: PLUS_MINUS_CARD, completed: true })),
+    outcomes: Array.from({ length: MAX_CHAIN_CARDS }, (_, index) => ({
+      card: PLUS_MINUS_CARD,
+      scoreBefore: index * PLUS_MINUS_SCORE,
+      scoreAfter: (index + 1) * PLUS_MINUS_SCORE,
+      tuttos: 1,
+    })),
+    tuttoCount: MAX_CHAIN_CARDS,
+    plusMinusScores: Array.from({ length: MAX_CHAIN_CARDS }, (_, index) => index * PLUS_MINUS_SCORE),
+    ended,
+    ...(ended === 'null' ? { forfeitedScore: finalScore } : {}),
+    deductedPlayers: Array.from({ length: MAX_CHAIN_CARDS }, () => deductedPlayer),
+    deductedAmounts: Array.from({ length: MAX_CHAIN_CARDS }, () => PLUS_MINUS_SCORE),
+    prevMostCardsInTurn: MAX_CHAIN_CARDS,
+    prevHighestForfeitedTurnScore: MAX_SCORE_MAGNITUDE,
+  };
+};
+
+const createClassicPlusMinusActionRoom = (socketId: string) => {
+  const room = createRoom(socketId);
+  room.state.status = 'playing';
+  room.state.ruleset = 'classic';
+  room.state.winningScore = MAX_SCORE_MAGNITUDE;
+  room.state.players = [
+    makeServerPlayer(boundedMultibytePlayerName('A'), { socketId, score: 0, position: 0 }),
+    makeServerPlayer(boundedMultibytePlayerName('B'), { socketId: `${socketId}-peer`, score: MAX_SCORE_MAGNITUDE, position: 1 }),
+  ];
+  room.state.currentPlayerIndex = 0;
+  room.state.currentCard = PLUS_MINUS_CARD;
+  room.dealtThisTurn = Array.from({ length: MAX_CHAIN_CARDS }, () => PLUS_MINUS_CARD);
+  return room;
+};
 
 const playerForLegacyEnvelope = (player: ServerPlayer): Record<string, unknown> => {
   const dto = { ...sanitizePlayerForBroadcast(player) } as Record<string, unknown>;
@@ -397,8 +440,36 @@ describe('representative push packet size and broadcast fanout', () => {
     expect(applyOnlineGameAction(room, action, 'classic-action-socket')).toBe(true);
 
     const bytes = framedSocketEventBytes(PUSH_STATE_EVENT, currentPushEnvelope(action));
-    expect(bytes).toBeLessThan(MAX_PUSHED_STATE_BYTES / FULL_LENGTH_NUMERIC_ACTION_CAP_DIVISOR);
+    expect(bytes).toBeLessThan(MAX_PUSHED_STATE_BYTES / FULL_BOUNDED_ACTION_CAP_DIVISOR);
     console.info('[full-length numeric classic pushState bytes]', { bytes, cap: MAX_PUSHED_STATE_BYTES });
+  });
+
+  it('keeps a full bounded Plus/Minus success action below the incoming cap', () => {
+    const summary = buildFullBoundedPlusMinusSummary('banked');
+    expect(isValidTurnSummary(summary)).toBe(true);
+    const action = {
+      type: 'commit', score: MAX_CHAIN_CARDS * PLUS_MINUS_SCORE, success: true, summary,
+    };
+    const room = createClassicPlusMinusActionRoom('plus-minus-success-socket');
+    expect(applyOnlineGameAction(room, action, 'plus-minus-success-socket')).toBe(true);
+
+    const bytes = framedSocketEventBytes(PUSH_STATE_EVENT, currentPushEnvelope(action));
+    expect(bytes).toBeLessThan(MAX_PUSHED_STATE_BYTES / FULL_BOUNDED_ACTION_CAP_DIVISOR);
+    console.info('[full bounded plus-minus success pushState bytes]', { bytes, cap: MAX_PUSHED_STATE_BYTES });
+  });
+
+  it('keeps a full bounded Plus/Minus null-ending action below the incoming cap', () => {
+    const summary = buildFullBoundedPlusMinusSummary('null');
+    expect(isValidTurnSummary(summary)).toBe(true);
+    const action = {
+      type: 'commit', score: ORDINARY_COMMIT_SCORE, success: false, summary,
+    };
+    const room = createClassicPlusMinusActionRoom('plus-minus-null-socket');
+    expect(applyOnlineGameAction(room, action, 'plus-minus-null-socket')).toBe(true);
+
+    const bytes = framedSocketEventBytes(PUSH_STATE_EVENT, currentPushEnvelope(action));
+    expect(bytes).toBeLessThan(MAX_PUSHED_STATE_BYTES / FULL_BOUNDED_ACTION_CAP_DIVISOR);
+    console.info('[full bounded plus-minus null pushState bytes]', { bytes, cap: MAX_PUSHED_STATE_BYTES });
   });
 
   it('measures public-state fanout and performs no broadcast for rejected no-op actions', () => {

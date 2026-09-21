@@ -25,6 +25,32 @@ const mockedUpdateDeviceStats = vi.mocked(updateDeviceStats);
 const mockedUpdateGlobalStats = vi.mocked(updateGlobalStats);
 const mockedGetDeviceStats = vi.mocked(getDeviceStats);
 
+const HOST_TURNS_TO_FINISH = 3;
+const NON_WINNING_TURN_SCORE = 50;
+
+/** A joined host reaches a frozen finish through the production socket handlers. */
+const finishJoinedGame = async (server: InProcessServer, host: ClientSocket, roomId: string): Promise<void> => {
+  const peer = await server.connectAndJoin(roomId, 'Bob', `peer-${roomId}`);
+  await configureTestRoom(host, roomId, { randomOrder: false, turnDuration: 0 });
+  await acceptOnlineAction(host, roomId, { type: 'start' });
+  const room = rooms[roomId];
+  for (let turn = 0; turn < HOST_TURNS_TO_FINISH; turn++) {
+    // Deterministic private deals; counters and the finish still come from
+    // accepted actions, rather than a lobby with its finished flag flipped.
+    room.state.currentCard = '200';
+    room.dealtThisTurn = ['200'];
+    await acceptOnlineAction(host, roomId, {
+      type: 'commit', success: true,
+      score: turn === HOST_TURNS_TO_FINISH - 1 ? DEFAULT_WINNING_SCORE : NON_WINNING_TURN_SCORE,
+    });
+    room.state.currentCard = '200';
+    room.dealtThisTurn = ['200'];
+    await acceptOnlineAction(peer, roomId, { type: 'commit', score: 0, success: false });
+  }
+  expect(room.state.finished).toBe(true);
+  expect(room.finishedGame?.players).toHaveLength(2);
+};
+
 describe('stats dedup rollback on DB failure', () => {
   let server: InProcessServer;
   let client: ClientSocket;
@@ -52,8 +78,7 @@ describe('stats dedup rollback on DB failure', () => {
     mockedUpdateDeviceStats.mockResolvedValue(true);
 
     client = await server.connectAndJoin('STATS_RETRY_DEV', 'Alice', 'dev-retry-1');
-    // Stats are only accepted once the game has actually finished.
-    rooms['STATS_RETRY_DEV'].state.finished = true;
+    await finishJoinedGame(server, client, 'STATS_RETRY_DEV');
 
     // First attempt: DB write fails — the dedup marker must be rolled back.
     client.emit('endGameStats', { deviceId: 'dev-retry-1', stats: { gamesPlayed: 1 } });
@@ -74,17 +99,15 @@ describe('stats dedup rollback on DB failure', () => {
   });
 
   it('endGameStats derives counters from the server and ignores a hostile payload', async () => {
-    // sanitizeStats has thorough unit tests and an HTTP-route test; the SOCKET
-    // route -- the one every real client uses -- had none, so deleting the
-    // call here left the suite green. The values below are the three shapes
-    // that do permanent damage if they land: fastestWinTurns is MIN-merged
+    // Submitted counters must never replace the frozen server result. The
+    // values below are shapes that do permanent damage if they land:
+    // fastestWinTurns is MIN-merged
     // (so a 0 or a `false` binding to 0 pins the best-ever count with no way
     // back), and a record merged with MAX keeps whatever junk it was given.
     mockedUpdateDeviceStats.mockResolvedValue(true);
 
     client = await server.connectAndJoin('STATS_HOSTILE_DEV', 'Alice', 'dev-hostile-1');
-    rooms['STATS_HOSTILE_DEV'].state.finished = true;
-    rooms['STATS_HOSTILE_DEV'].state.players[0].totalTurns = 3;
+    await finishJoinedGame(server, client, 'STATS_HOSTILE_DEV');
 
     client.emit('endGameStats', {
       deviceId: 'dev-hostile-1',
@@ -99,13 +122,10 @@ describe('stats dedup rollback on DB failure', () => {
     await waitFor(() => mockedUpdateDeviceStats.mock.calls.length === 1);
 
     const written = mockedUpdateDeviceStats.mock.calls[0][1] as Record<string, unknown>;
-    expect(written.fastestWinTurns).toBe(3);
+    expect(written.fastestWinTurns).toBe(HOST_TURNS_TO_FINISH);
     expect(written.fastestLossTurns).toBeNull();
-    expect(written.highestTurnScore).toBe(0);
+    expect(written.highestTurnScore).toBe(DEFAULT_WINNING_SCORE);
     expect(written.busts, 'counters are floored at 0').toBe(0);
-    // Unknown columns are not this layer's problem: updateDeviceStats writes
-    // only the columns on its own hardcoded list, so an extra key never
-    // reaches SQL. Values are what sanitizeStats is here for.
 
     client.disconnect();
   });
@@ -117,8 +137,7 @@ describe('stats dedup rollback on DB failure', () => {
     // First join creates the room with this socket as host — required for
     // submitGlobalStats to be accepted.
     client = await server.connectAndJoin('STATS_RETRY_GLOBAL', 'Alice', 'dev-retry-2');
-    // Stats are only accepted once the game has actually finished.
-    rooms['STATS_RETRY_GLOBAL'].state.finished = true;
+    await finishJoinedGame(server, client, 'STATS_RETRY_GLOBAL');
 
     client.emit('submitGlobalStats', { roomId: 'STATS_RETRY_GLOBAL', payload: { gamesPlayed: 1 } });
     await waitFor(() => mockedUpdateGlobalStats.mock.calls.length === 1);
@@ -138,8 +157,7 @@ describe('stats dedup rollback on DB failure', () => {
     // Player joined with no prior streak...
     mockedGetDeviceStats.mockResolvedValueOnce(null);
     client = await server.connectAndJoin('STATS_STREAK_ROOM', 'Alice', 'dev-streak-1');
-    // Stats are only accepted once the game has actually finished.
-    rooms['STATS_STREAK_ROOM'].state.finished = true;
+    await finishJoinedGame(server, client, 'STATS_STREAK_ROOM');
 
     // deviceId is stripped from broadcast state (it's a reconnect credential), so
     // match by name instead — same as the client would.
@@ -190,7 +208,7 @@ describe('stats submissions require a finished game', () => {
     expect(mockedUpdateDeviceStats).not.toHaveBeenCalled();
     // The dedup marker must not have been consumed by the rejected attempt —
     // a later legitimate submission (once finished) still lands.
-    rooms['STATS_UNFINISHED_DEV'].state.finished = true;
+    await finishJoinedGame(server, sock, 'STATS_UNFINISHED_DEV');
     sock.emit('endGameStats', { deviceId: 'dev-unfinished-1', stats: { gamesPlayed: 1, wins: 1 } });
     await settle();
     expect(mockedUpdateDeviceStats).toHaveBeenCalledTimes(1);
@@ -204,7 +222,7 @@ describe('stats submissions require a finished game', () => {
     await settle();
 
     expect(mockedUpdateGlobalStats).not.toHaveBeenCalled();
-    rooms['STATS_UNFINISHED_GLOBAL'].state.finished = true;
+    await finishJoinedGame(server, sock, 'STATS_UNFINISHED_GLOBAL');
     sock.emit('submitGlobalStats', { roomId: 'STATS_UNFINISHED_GLOBAL', payload: { gamesPlayed: 1 } });
     await settle();
     expect(mockedUpdateGlobalStats).toHaveBeenCalledTimes(1);
