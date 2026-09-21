@@ -11,7 +11,7 @@ import { protocolClient, joinTestRoom, acceptOnlineAction, requestPublicState } 
 import { createRoom } from './rooms';
 import { makeServerPlayer, startTestServer } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
-import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { SERVER_STARTUP_HOOK_TIMEOUT_MS } from './testTimeouts';
 
 const PORT = TEST_PORTS.socketsStats;
 const URL = `http://127.0.0.1:${PORT}`;
@@ -128,7 +128,7 @@ describe('Server Socket E2E — statistics persistence', () => {
 
   beforeAll(async () => {
     serverProcess = await startTestServer(PORT);
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => { serverProcess?.kill(); });
 

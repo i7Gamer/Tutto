@@ -10,7 +10,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { protocolClient as io, joinTestRoom, acceptOnlineAction, pushOnlineAction, requestPublicState } from './onlineTestClient';
 import { startTestServer, type JoinAck } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
-import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { SERVER_STARTUP_HOOK_TIMEOUT_MS } from './testTimeouts';
 import { nonNull } from '../src/testing/factories';
 
 describe('Server Socket E2E — authorization & payload validation', () => {
@@ -20,7 +20,7 @@ describe('Server Socket E2E — authorization & payload validation', () => {
 
   beforeAll(async () => {
     serverProcess = await startTestServer(PORT);
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();

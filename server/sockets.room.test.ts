@@ -10,7 +10,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { protocolClient as io, acceptOnlineAction } from './onlineTestClient';
 import { startTestServer, testDelay, type JoinAck } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
-import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { SERVER_STARTUP_HOOK_TIMEOUT_MS } from './testTimeouts';
 
 describe('Server Socket E2E — room lifecycle & joining', () => {
   let serverProcess: ChildProcess | undefined;
@@ -19,7 +19,7 @@ describe('Server Socket E2E — room lifecycle & joining', () => {
 
   beforeAll(async () => {
     serverProcess = await startTestServer(PORT);
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();

@@ -8,7 +8,7 @@ import type { Socket as ClientSocket } from 'socket.io-client';
 import { startTestServer, makeServerPlayer, makeFakeIo, makeFakeSocket, type JoinAck } from './socketTestHarness';
 import { protocolClient, acceptOnlineAction, configureTestRoom, requestPublicState } from './onlineTestClient';
 import { TEST_PORTS } from './testPorts';
-import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { SERVER_STARTUP_HOOK_TIMEOUT_MS } from './testTimeouts';
 import type { GameStore } from '../src/store/storeTypes';
 import { MAX_PLAYERS_PER_ROOM, createRoom, rooms, deleteRoom, emitRoomState } from './rooms';
 import { registerGameStateHandlers } from './socketGameStateHandlers';
@@ -43,7 +43,7 @@ describe('pushState validation, seat-hijack, and abort-clock fixes', () => {
 
   beforeAll(async () => {
     serverProcess = await startTestServer(PORT, { env: { API_TOKEN: 'test-token' } });
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();

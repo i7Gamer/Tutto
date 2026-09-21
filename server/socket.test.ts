@@ -7,7 +7,7 @@ import type { Socket as ClientSocket } from 'socket.io-client';
 import { protocolClient as io, acceptOnlineAction } from './onlineTestClient';
 import { startTestServer, type JoinAck } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
-import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { SERVER_STARTUP_HOOK_TIMEOUT_MS } from './testTimeouts';
 import type { GameStore } from '../src/store/storeTypes';
 
 // The shape of a 'gameState' broadcast — see pushStateValidation.test.ts's
@@ -39,7 +39,7 @@ describe('Socket updateConfig — upper-bound validation', () => {
 
   beforeAll(async () => {
     serverProcess = await startTestServer(PORT, { env: { API_TOKEN: 'test-token' } });
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -110,7 +110,7 @@ describe('Socket security and timer fixes', () => {
 
   beforeAll(async () => {
     serverProcess = await startTestServer(PORT, { env: { API_TOKEN: 'test-token' } });
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();

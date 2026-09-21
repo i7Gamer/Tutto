@@ -11,7 +11,7 @@ import type { Socket as ClientSocket } from 'socket.io-client';
 import { startTestServer, testDelay, asserting, type JoinAck } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
 import { MIN_ENABLED_RECONNECT_TIMEOUT } from '../src/utils/configValidation';
-import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { SERVER_STARTUP_HOOK_TIMEOUT_MS } from './testTimeouts';
 import { nonNull } from '../src/testing/factories';
 import { MS_PER_SECOND } from '../src/utils/time';
 import type { GameStore } from '../src/store/storeTypes';
@@ -40,7 +40,7 @@ describe('Server Socket E2E — presence, kicks & host promotion', () => {
 
   beforeAll(async () => {
     serverProcess = await startTestServer(PORT);
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (socket1) socket1.disconnect();

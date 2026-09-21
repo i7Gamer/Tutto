@@ -15,7 +15,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { ChildProcess } from 'child_process';
 import { buildChildEnv, startTestServer } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
-import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { SERVER_STARTUP_HOOK_TIMEOUT_MS } from './testTimeouts';
 
 // A stand-in for a developer's real, populated .env sitting in process.env —
 // exactly what dotenv.config() used to load. Every key here is a real one
@@ -147,7 +147,7 @@ describe("startTestServer does not leak the developer's ambient env into the spa
       if (previousCorsOrigin === undefined) delete process.env.CORS_ORIGIN;
       else process.env.CORS_ORIGIN = previousCorsOrigin;
     }
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     serverProcess?.kill();
