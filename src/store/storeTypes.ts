@@ -8,7 +8,6 @@ import type {
   Toast,
   Reaction,
   DiceSnapshot,
-  GlobalStatsPayload,
   DiceMode,
   Ruleset,
   CardType,
@@ -16,12 +15,13 @@ import type {
   DeviceStatsRow,
   BotPersonality,
   OnlineGameAction,
+  JoinRoomResponse,
 } from '../types';
 
 export type GameMode = 'local' | 'online';
 export type GameStatus = 'lobby' | 'playing';
 
-/** What buildGlobalStatsPayload needs, frozen at the moment the game ended. */
+/** Finished-game identity retained for device-stat acknowledgement guards. */
 export interface FinishedGameSnapshot {
   players: Player[];
   round: number;
@@ -32,25 +32,7 @@ export interface FinishedGameSnapshot {
 // by recentRooms.ts — re-exported here so the store keeps one types module.
 export type { ReconnectSession } from '../utils/reconnectSession';
 
-export interface JoinRoomResponse {
-  success: boolean;
-  isHost?: boolean;
-  error?: string;
-  // Which refusal `error` is describing, for translating it (see
-  // src/utils/joinErrors.ts). Absent on a success, and from any server older
-  // than the codes — the prose is then shown as-is.
-  code?: string;
-  // The name the server actually seated this client under. Differs from the
-  // requested name when rejoining a running game: mid-game renames are
-  // refused server-side (names are the identity key for pushState merging),
-  // so the client must adopt the seat's existing name.
-  name?: string;
-  // The canonical (trimmed, upper-cased) form of the room id this client
-  // asked to join — see normalizeRoomId. Absent on a refusal and from any
-  // server older than the normalization; joinRoom (socketSlice.ts) falls
-  // back to its own normalized request id in either case.
-  roomId?: string;
-}
+export type { JoinRoomResponse };
 
 export type { ConfigKeys };
 
@@ -153,13 +135,9 @@ export interface GameStore extends CoreGameState {
   // land. EndScreen diffs the post-game deviceStats against this to tell a
   // genuinely new personal record apart from merely tying an older one.
   preGameStats: PreGameStats | null;
-  // The game as it stood the moment `finished` first went true, kept so the
-  // global-stats payload cannot be built over a roster that changed
-  // afterwards. It can: with a non-zero reconnectTimeout the host promotion
-  // that submits on a dead host's behalf only fires when the disconnect timer
-  // drains, and that server callback splices the seat BEFORE it broadcasts —
-  // so the promoted client would otherwise sum every counter over the
-  // survivors of the game rather than its players.
+  // The game as it stood the moment `finished` first went true, retained as
+  // the identity anchor for device-stat acknowledgement guards after roster
+  // changes and host promotion.
   finishedGameSnapshot: FinishedGameSnapshot | null;
 
   reset: () => void;
@@ -198,7 +176,7 @@ export interface GameStore extends CoreGameState {
   leaveRoom: () => void;
   kickPlayer: (targetSocketId: string) => void;
   setLiveTurnState: (snapshot: DiceSnapshot | null) => void;
-  pushState: (base?: string | null, action?: OnlineGameAction) => void;
+  pushState: (base: string, action: OnlineGameAction) => void;
   pushLiveTurnState: (snapshot: DiceSnapshot | null) => void;
   // Asks the SERVER for the next card of a classic chain and resolves what it
   // dealt, or null if it dealt nothing (refused, or no answer at all). Online
@@ -221,7 +199,6 @@ export interface GameStore extends CoreGameState {
   drawCardMidTurn: () => Promise<CardType | null>;
   undo: () => void;
   setPreGameStats: (stats: PreGameStats | null) => void;
-  buildGlobalStatsPayload: () => GlobalStatsPayload;
   sendOnlineStats: () => void;
 }
 

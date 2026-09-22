@@ -402,7 +402,7 @@ describe('timer slice', () => {
     // one second later — silently undoing endGame's own `turnTimeRemaining:
     // null` and leaving a live countdown ticking over the lobby.
     it('stops the online countdown instead of letting it re-derive the time it just cleared', () => {
-      useGameStore.setState({ ...startedOnlineTurnState, isHost: true });
+      useGameStore.setState({ ...startedOnlineTurnState, isHost: true, gameplayToken: 'timer-test-token' });
       useGameStore.getState().syncOnlineTimers(60);
       expect(useGameStore.getState().turnTimeRemaining).toBe(60);
       const withCountdown = vi.getTimerCount();

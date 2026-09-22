@@ -1,6 +1,6 @@
 import { buildDeck } from '../src/utils/coreGameEngine';
 import { drawNextCardForRoom, recordDealtCard } from './rooms';
-import { MAX_DECK_SIZE } from './pushValidation';
+import { MAX_DECK_SIZE } from '../src/utils/configValidation';
 import type { CardType, DiceSnapshot, TurnSummary } from '../src/types';
 import type { Room, RoomState } from './roomTypes';
 
@@ -31,7 +31,7 @@ import type { Room, RoomState } from './roomTypes';
  * The deck-relevant state as it stood BEFORE a push was merged.
  *
  * Every judgment below is a comparison between two moments, and
- * applyPushedState mutates the room in place — so the "before" side has to be
+ * pushState actions mutate the room in place — so the "before" side has to be
  * read off first. The turn-record fields around the deck are all writable by a
  * push, which is why the judgments below lean on the two that are not:
  * `currentCard` (server-owned, so "the room was holding a card" is the
@@ -97,14 +97,13 @@ const seatAfter = (state: RoomState, from: number | null): number =>
  * — an ordinary advance also moves the index, and a push that merely clears
  * previousCard moves the turn nowhere.
  *
- * pushValidation's `looksLikeUndo` recognises the same push for a different
- * purpose (which seat's stats the pusher may write) and anchors on the
- * PUSHER's predecessor, where this anchors on the predecessor of the seat the
- * room was on. They coincide on every honest undo, since the seat playing is
- * the one that undoes. The difference is deliberate: each is anchored to what
- * its own decision is about, and both anchors are server-held — the point
- * being that neither reads previousPlayerName, which is what used to let
- * either be aimed at a seat the turn had never been at.
+ * The action authority recognises the same honest undo shape for a different
+ * purpose (which seat's stats a commit may affect), while this check only
+ * decides whether the server deck should restore the previous card. They
+ * coincide on every honest undo, since the seat playing is the one that
+ * undoes. Both decisions stay anchored to server-held seats — the point being
+ * that neither reads previousPlayerName, which is what used to let either be
+ * aimed at a seat the turn had never been at.
  *
  * At exactly two seats the predecessor and the successor are the same seat, so
  * the index move alone cannot say which of the two happened and the pushed
@@ -141,7 +140,7 @@ const isUndoMove = (state: RoomState, before: DeckContext): boolean =>
  * again — 'hold' at three seats or more, and at two seats 'undo', which rewound
  * the deck for a turn nobody undid. "A turn was in play" is a fact about the
  * room: the room was holding a card, and currentCard is server-owned
- * (SERVER_OWNED_FIELD_LIST) and dealt only here.
+ * and dealt only here.
  *
  * The room's own previousCard is NOT the anchor to use, tempting as it looks:
  * it is null for the whole first turn of every game, so the first hand-over
@@ -234,7 +233,7 @@ export const clearDeck = (room: Room): void => {
 /**
  * Performs the deck move a merged push implies, and reports which one it was.
  *
- * Called from the pushState handler after applyPushedState and BEFORE the
+ * Called from the pushState handler after the accepted action and BEFORE the
  * turn-timer bookkeeping, so a dealt card is part of the same broadcast as the
  * turn it belongs to — a second broadcast would leave every client rendering
  * the previous card for a round trip.

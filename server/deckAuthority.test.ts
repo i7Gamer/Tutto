@@ -18,7 +18,7 @@
 import { describe, it, expect } from 'vitest';
 import { readDeckContext, classifyDeckMove, settleDeck } from './deckAuthority';
 import { createRoom } from './rooms';
-import { MAX_DECK_SIZE } from './pushValidation';
+import { MAX_DECK_SIZE } from '../src/utils/configValidation';
 import { makeServerPlayer as makePlayer } from './socketTestHarness';
 import type { Room, RoomState } from './roomTypes';
 import type { CardType, TurnSummary } from '../src/types';

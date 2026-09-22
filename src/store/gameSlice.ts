@@ -5,17 +5,16 @@ import {
   calculateUndo,
   shuffleArray,
   buildDeck,
-  buildGlobalStatsPayload,
 } from '../utils/coreGameEngine';
+import { buildTurnResultPatch } from '../utils/turnResultPatch';
 import { buildTurnKey, DICE_TURN_STATE_KEY, clearTurnCaches } from '../utils/diceTurnState';
-import { MAX_PLAYER_NAME_LENGTH, MIN_ONLINE_PLAYERS, isNormalizedConfig } from '../utils/configValidation';
+import { MAX_PLAYER_NAME_LENGTH, MIN_ONLINE_PLAYERS } from '../utils/configValidation';
 import { zeroedPlayerStats } from '../utils/playerStats';
 import { MS_PER_SECOND } from '../utils/time';
 import playerColorsData from '../../playerColors.json';
 import { v4 as uuidv4 } from 'uuid';
 import type { Player, CoreGameState, Toast, CardType, BotPersonality } from '../types';
 import { BOT_NAMES } from '../utils/bots';
-import { MAX_HISTORY_LOG_SIZE } from '../types';
 import { getSocket } from './socketRef';
 import type { FinishedGameSnapshot, GameStore, ImmerStateCreator } from './storeTypes';
 
@@ -33,7 +32,7 @@ type GameSlice = Pick<GameStore,
   | 'addPlayer' | 'addBot' | 'removePlayer' | 'reorderPlayers' | 'changePlayerColor' | 'changeMyColor'
   | 'setLiveTurnState' | 'startGame' | 'endGame' | 'nextTurn' | 'undo'
   | 'drawCardMidTurn'
-  | 'buildGlobalStatsPayload' | 'setPreGameStats'
+  | 'setPreGameStats'
 >;
 
 // Single source of truth for toast id generation, shared with socketSlice's
@@ -46,8 +45,8 @@ type GameSlice = Pick<GameStore,
 export const makeToast = (message: string): Toast => ({ id: Date.now() + Math.random(), message });
 
 /**
- * The game as it FINISHED — the three fields buildGlobalStatsPayload must not
- * re-read from live state once a roster change has landed on top of them.
+ * The game as it FINISHED — retained as the identity anchor for acknowledgements
+ * after a roster change has landed on top of it.
  *
  * One helper because there are two places a client can learn a game ended and
  * they must record the same thing: the `finished` edge in a broadcast (every
@@ -61,6 +60,16 @@ export const finishedGameSnapshotOf = (
   round: game.round,
   gameTimeInSeconds: game.gameTimeInSeconds,
 });
+
+const onlineGameplayBase = (state: GameStore): string | null => {
+  if (!state.isOnline) return null;
+  if (typeof state.gameplayToken === 'string') return state.gameplayToken;
+  const socket = getSocket();
+  if (typeof state.roomId === 'string' && socket?.connected) {
+    socket.emit('requestState', { roomId: state.roomId });
+  }
+  return null;
+};
 
 // The roster invariants, held by the store itself rather than trusted to
 // every caller (LocalLobby's pre-checks, the server's joinRoom rules): a
@@ -118,8 +127,9 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
   reorderPlayers: (newPlayers) => {
     set({ players: newPlayers, randomOrder: false });
     const socket = getSocket();
-    if (get().isOnline && get().isHost && socket) {
-      socket.emit('reorderPlayers', { roomId: get().roomId, newPlayers });
+    const { isOnline, isHost, roomId } = get();
+    if (isOnline && isHost && roomId && socket) {
+      socket.emit('reorderPlayers', { roomId, newPlayers });
     }
   },
 
@@ -134,8 +144,9 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     localStore.write('tutto_color', newColor);
     get().changePlayerColor(get().myName ?? '', newColor);
     const socket = getSocket();
-    if (get().isOnline && socket) {
-      socket.emit('updatePlayerColor', { roomId: get().roomId, color: newColor });
+    const { isOnline, roomId } = get();
+    if (isOnline && roomId && socket) {
+      socket.emit('updatePlayerColor', { roomId, color: newColor });
     }
   },
 
@@ -165,6 +176,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     // this directly from the end screen, and opponents may have LEFT the
     // room (spliced out, not marked disconnected) since that check last ran.
     if (s.isOnline && s.players.length < MIN_ONLINE_PLAYERS) return;
+    const onlineBase = onlineGameplayBase(s);
+    if (s.isOnline && onlineBase === null) return;
 
     set((state) => {
       const resetPlayers = state.players.map(p => ({
@@ -201,19 +214,16 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       state.currentPlayerIndex = 0;
       state.liveTurnState = null;
       state.historyLog = [];
-      // The previous game's frozen roster must not outlive it: nothing else
-      // clears this, and buildGlobalStatsPayload PREFERS it over live state —
-      // so a host who ends the rematch himself (and therefore never sees the
-      // `finished` edge that re-arms it) would submit the game before this one
-      // all over again, and this one not at all.
+      // The previous game's finished identity must not outlive it: a pending
+      // acknowledgement from that game must not match this rematch.
       state.finishedGameSnapshot = null;
       state.finishedGameToken = null;
       state.deviceStatsAcknowledgment = null;
     });
     clearTurnCaches();
 
-    if (get().isOnline) {
-      get().pushState(s.gameplayToken, { type: 'start' });
+    if (onlineBase !== null) {
+      get().pushState(onlineBase, { type: 'start' });
       get().syncOnlineTimers();
     } else {
       get().startLocalTimers();
@@ -224,6 +234,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     const s = get();
     if (s.isOnline && s.onlineActionPending) return;
     if (s.isOnline && !s.isHost) return;
+    const onlineBase = onlineGameplayBase(s);
+    if (s.isOnline && onlineBase === null) return;
     get().stopLocalTimers();
     // And the online pair, which stopLocalTimers does not cover: the turn
     // countdown is a second interval, and it re-derives turnTimeRemaining from
@@ -256,7 +268,7 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
       deviceStatsAcknowledgment: null,
     });
     clearTurnCaches();
-    if (get().isOnline) get().pushState(s.gameplayToken, { type: 'reset' });
+    if (onlineBase !== null) get().pushState(onlineBase, { type: 'reset' });
   },
 
   // Classic chains only: the active player reveals the next card mid-turn
@@ -302,6 +314,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     if (s.isOnline && s.onlineActionPending) return;
     if (s.finished) return;
     if (s.currentPlayerIndex === null) return;
+    const onlineBase = onlineGameplayBase(s);
+    if (s.isOnline && onlineBase === null) return;
 
     const result = calculateNextTurn(
       s as CoreGameState & { currentPlayerIndex: number },
@@ -313,31 +327,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     );
 
     set((state) => {
-      state.previousCard = result.previousCard;
-      state.previousScore = result.previousScore;
-      state.previousLeaders = result.previousLeaders;
-      state.previousWasBust = result.previousWasBust;
-      state.previousWasSuccess = result.previousWasSuccess;
-      state.previousHighestTurnScore = result.previousHighestTurnScore;
-      state.previousHighestFeuerwerkTurnScore = result.previousHighestFeuerwerkTurnScore;
-      state.previousHighestX2TurnScore = result.previousHighestX2TurnScore;
-      state.previousPlayerName = result.previousPlayerName;
-      state.previousTurnSummary = result.previousTurnSummary;
-
-      // chartValues is player-indexed (one score series per player) and
-      // chartLabels is round-indexed, so a label may only be appended when the
-      // series it labels were. Guarded like both server-side twins
-      // (turnTimers.advanceTurnOnTimeout, rooms.handleActivePlayerRemoved):
-      // the two can only disagree through a corrupted save — pickLocalGameState
-      // drops mismatched chart rows, which leaves whatever the store held
-      // before them — but indexing result.players past the end threw, taking
-      // the whole game into the ErrorBoundary's clear-and-reload.
-      if (result.isRoundEnd && state.chartValues.length === result.players.length) {
-        state.chartValues.forEach((vals, i) => vals.push(result.players[i].score));
-        state.chartLabels.push(state.round);
-      }
-
-      state.players = result.players;
+      const patch = buildTurnResultPatch(state, result, null);
+      Object.assign(state, patch);
 
       if (result.isGameOver) {
         state.finished = true;
@@ -347,9 +338,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
         }
         // Frozen here as well as on the broadcast edge (socketSlice), because
         // this client never sees that edge: `finished` is already true by the
-        // time the server echoes this push back. Without it the promotion path
-        // — which fires long after, on a roster the drained reconnect timer has
-        // shrunk — had nothing frozen to read.
+        // time the server echoes this push back. The snapshot remains the
+        // identity guard for a later device-stat acknowledgement.
         state.finishedGameSnapshot = finishedGameSnapshotOf(state);
       } else {
         state.currentPlayerIndex = result.nextIndex;
@@ -359,27 +349,13 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
           state.currentCard = result.drawnCard;
         }
       }
-      state.liveTurnState = null;
-      state.historyLog.push(result.historyEntry);
-      if (state.historyLog.length > MAX_HISTORY_LOG_SIZE) {
-        // Known and accepted asymmetry with undo, which pops only the newest
-        // entry (see the matching note there): once the log is full, undoing
-        // the turn this shift made room for leaves the log one entry short,
-        // and the shifted entry is gone for good. The activity log is
-        // rendered, never read back into game logic, and the next capped turn
-        // re-establishes the same window — so the loss is display-only and
-        // self-correcting. Raising MAX_HISTORY_LOG_SIZE is NOT the fix: it is
-        // one of the dimensions MAX_PUSHED_STATE_BYTES was measured against,
-        // and changing it would require re-running that measurement.
-        state.historyLog.shift();
-      }
     });
     clearTurnCaches();
 
     // Stats are intentionally only tracked for online games. Local games do not
     // submit statistics — by design, not an oversight.
-    if (get().isOnline) {
-      get().pushState(s.gameplayToken, {
+    if (onlineBase !== null) {
+      get().pushState(onlineBase, {
         type: 'commit', score: scoreInput, success: isSuccess,
         ...(turnSummary ? { summary: turnSummary } : {}),
       });
@@ -397,6 +373,8 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     // A chain that ended on a drawn Stop card is a real committed turn and
     // stays undoable — only the bare modernized Stop (nothing happened) is not.
     if (!s.previousCard || (s.previousCard === 'Stop' && !s.previousTurnSummary)) return;
+    const onlineBase = onlineGameplayBase(s);
+    if (s.isOnline && onlineBase === null) return;
 
     const result = calculateUndo(s);
     if (!result) return;
@@ -429,24 +407,10 @@ export const createGameSlice: ImmerStateCreator<GameSlice> = (set, get) => ({
     });
     clearTurnCaches();
 
-    if (get().isOnline) {
-      get().pushState(s.gameplayToken, { type: 'undo' });
+    if (onlineBase !== null) {
+      get().pushState(onlineBase, { type: 'undo' });
       get().syncOnlineTimers();
     }
-  },
-
-  buildGlobalStatsPayload: () => {
-    const s = get();
-    // The game as it FINISHED, when that is known: a roster change after the
-    // finish (a draining reconnect timer splicing a seat, which is exactly what
-    // precedes a host promotion) must not change what gets recorded. Falls back
-    // to live state for a caller with no finish behind it.
-    const game = s.finishedGameSnapshot ?? s;
-    // isNormalizedConfig reads the room CONFIG, which cannot change mid-game,
-    // so it stays on live state.
-    // Advisory only: the server recomputes this from the room state it froze at
-    // kickoff and overrides whatever arrives here (see socketStatsHandlers.ts).
-    return buildGlobalStatsPayload(game.players, game.gameTimeInSeconds, isNormalizedConfig(s), game.round);
   },
 
   setPreGameStats: (stats) => set({ preGameStats: stats }),

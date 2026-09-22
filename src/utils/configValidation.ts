@@ -11,6 +11,7 @@ export const VALID_CARD_TYPES: readonly CardType[] = [
 export const BONUS_CARDS: readonly CardType[] = ['200', '300', '400', '500', '600'];
 
 export const MAX_CARD_COUNT = 99;
+export const MAX_DECK_SIZE = MAX_CARD_COUNT * VALID_CARD_TYPES.length;
 
 // Online games take turns between devices — one seat is not a game. Enforced
 // wherever an online game can start: the lobby's Start button, the end
@@ -19,7 +20,7 @@ export const MAX_CARD_COUNT = 99;
 export const MIN_ONLINE_PLAYERS = 2;
 
 // One constant, imported wherever the cap is enforced: the online path
-// server-side (socketRoomHandlers.ts joinRoom, pushValidation.ts) as well as
+// server-side (socketRoomHandlers.ts joinRoom, roomConfigValidation.ts) as well as
 // client-side (LocalLobby, OnlineLobby, gameSlice, recentRooms,
 // reconnectSession). LocalLobby has no server round-trip to catch an
 // oversized name, so it enforces the same cap client-side before a name ever
@@ -166,10 +167,9 @@ export const isValidRuleset = (v: unknown): v is Ruleset =>
 // the two used to share this constant, which let a pushed chart series grow
 // to 100,000 datapoints (a room state north of 1.5 MB, rebroadcast to every
 // member on every later gameState).
-// Defined here rather than in server/pushValidation.ts (which re-exports it,
-// the same way it re-exports MAX_SCORE_MAGNITUDE) because server/sanitize.ts
-// needs it too: importing pushValidation.ts there would drag its
-// coreGameEngine ↔ statsPayloads cycle into server/api.ts's module graph.
+// Defined here because both room/state validation and server/sanitize.ts need
+// the same cap; importing either server path into the other would drag broader
+// runtime dependencies into server/api.ts's module graph.
 export const MAX_ROUNDS = 100000;
 
 // Safety cap for chartLabels/chartValues array LENGTH (one entry per
@@ -180,18 +180,16 @@ export const MAX_ROUNDS = 100000;
 // ~2.5x headroom over a genuinely long game, not a bound sized for a
 // legitimate one. Enforced in lockstep in three places that must not diverge
 // (server/rooms.ts and server/turnTimers.ts's own chart appends must stay
-// under what pushValidation accepts on the way in, or a server array grown
-// past the client-facing cap could never be pushed back — see the comment at
-// server/rooms.ts's append site):
-//  - server/pushValidation.ts's applyChartValues/applyChartLabels (incoming)
+// under the client-facing cap — see the comment at server/rooms.ts's append
+// site):
+//  - server/gameActionAuthority.ts's accepted turn commits
 //  - server/rooms.ts's handleActivePlayerRemoved chart append
 //  - server/turnTimers.ts's advanceTurnOnTimeout chart append
 export const MAX_CHART_POINTS = 1000;
 
-// Sanity cap on the seconds a single game may claim to have lasted, enforced
-// on every pushed gameTimeInSeconds. Lives here for the same reason
-// MAX_ROUNDS does — server/sanitize.ts bounds the playtime a stats payload
-// may add from it, and must not import server/pushValidation.ts to get it.
+// Sanity cap on the seconds a single game's statistics may claim to cover.
+// server/sanitize.ts uses it to bound submitted playtime; game clocks and
+// locally restored state do not enforce this statistics limit.
 export const MAX_GAME_SECONDS = 10_000_000;
 
 // Upper bound on distinct players a single room can hold. Without one, a
@@ -207,8 +205,8 @@ export const MAX_PLAYERS_PER_ROOM = 100;
 
 // The largest magnitude a turn/game score may claim, shared by the client's
 // manual score-entry clamp (diceTurnControls.ts's parseScoreInput, for
-// physical dice mode) and the server's own bound on every pushed score
-// (server/pushValidation.ts re-exports this rather than defining its own).
+// physical dice mode) and the server's own bound on every live score
+// (turnPayloadValidation.ts and gameActionAuthority.ts import this directly).
 // One source of truth so the two ceilings can never drift apart the way they
 // used to: the client let a 7-digit box hold up to 9,999,999 while the server
 // silently dropped anything past 1,000,000 field-wise, desyncing score and

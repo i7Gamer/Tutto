@@ -15,10 +15,12 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 // directly instead of stubbing matchMedia — the hook itself is unit-tested on
 // its own (usePrefersReducedMotion.test.ts).
 // The preview is a Web Audio graph; this file only cares that the button
-// asks for it. closeAudioContext rides along because the store's
-// setAudioEnabled (reached by tests that flip the sound setting) calls it.
+// asks for it. The context lifetime belongs to audioRuntime, also used by
+// the store's setAudioEnabled action when these tests flip the sound setting.
 vi.mock('../../utils/soundEffects', () => ({
   playSoundPreview: vi.fn(),
+}));
+vi.mock('../../utils/audioRuntime', () => ({
   closeAudioContext: vi.fn().mockResolvedValue(undefined),
 }));
 

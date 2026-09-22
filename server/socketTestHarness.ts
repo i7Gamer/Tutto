@@ -25,7 +25,7 @@ import path from 'path';
 import { spawn, type ChildProcess } from 'child_process';
 import { createServer } from 'http';
 import type { AddressInfo } from 'net';
-import { Server, type Socket } from 'socket.io';
+import { Server } from 'socket.io';
 import { io as clientIo, type Socket as ClientSocket, type ManagerOptions, type SocketOptions } from 'socket.io-client';
 import { vi } from 'vitest';
 import { zeroedPlayerStats } from '../src/utils/playerStats';
@@ -33,6 +33,9 @@ import type { ServerPlayer } from './roomTypes';
 import { registerSocketHandlers } from './socketHandlers';
 import { JOIN_REFUSAL_CODES } from './socketRoomHandlers';
 import { ONLINE_PROTOCOL_VERSION } from '../src/utils/onlineProtocol';
+import { SERVER_STARTUP_DEADLINE_MS } from './testTimeouts';
+import type { OnlineServer, OnlineServerSocket } from './socketContext';
+import type { ServerIngressEvents, ServerToClientEvents } from '../src/utils/onlineProtocol';
 
 // No dotenv.config() here on purpose (it used to sit above this comment). A
 // real .env holds CORS_ORIGIN / TRUST_PROXY / API_TOKEN / ALLOWED_HOST for a
@@ -127,6 +130,10 @@ export const connected = (sock: ClientSocket): Promise<void> =>
 // port that could never be bound, for a reason nothing in the output named.
 const spawnedServers = new Set<ChildProcess>();
 
+const SERVER_LISTENING_MARKER = 'Server running on port';
+const DATABASE_READY_MARKER = 'Database migrated to the latest version';
+const STARTUP_STDERR_TAIL_MAX_CHARS = 2048;
+
 process.on('exit', () => {
   for (const child of spawnedServers) {
     // SIGKILL-equivalent on Windows, which has no signal delivery: this hook
@@ -160,38 +167,120 @@ export const startTestServer = (
   { env = {}, quietStderr = [] }: StartTestServerOptions = {},
 ): Promise<ChildProcess> =>
   new Promise((resolve, reject) => {
-    const serverProcess = spawn(
-      process.execPath,
-      ['--require', require.resolve('tsx/cjs'), 'server/index.ts'],
-      {
-        env: buildChildEnv(process.env, { PORT: port, FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2', TUTTO_ENV_FILE: NO_ENV_FILE, ...env }),
-        stdio: 'pipe',
-      },
-    );
+    let serverProcess: ChildProcess;
+    try {
+      serverProcess = spawn(
+        process.execPath,
+        ['--require', require.resolve('tsx/cjs'), 'server/index.ts'],
+        {
+          env: buildChildEnv(process.env, { PORT: port, FORCE_INIT_DB: 'true', TEST_TIMER_SCALE: '0.2', TUTTO_ENV_FILE: NO_ENV_FILE, ...env }),
+          stdio: 'pipe',
+        },
+      );
+    } catch (error) {
+      reject(error);
+      return;
+    }
 
     spawnedServers.add(serverProcess);
-    // Dropped from the reap set as soon as it is gone on its own, so the exit
-    // hook never signals a recycled pid.
-    serverProcess.on('exit', () => { spawnedServers.delete(serverProcess); });
 
+    let startupSettled = false;
+    let startupDeadline: ReturnType<typeof setTimeout> | undefined;
     let stdout = '';
+    let stderrTail = '';
     let dbReady = false;
     let serverListening = false;
-    const maybeResolve = () => { if (dbReady && serverListening) resolve(serverProcess); };
 
-    serverProcess.stdout?.on('data', (data) => {
-      stdout += data.toString();
-      if (stdout.includes('Server running on port')) { serverListening = true; maybeResolve(); }
-      if (stdout.includes('Database migrated to the latest version')) { dbReady = true; maybeResolve(); }
-    });
+    const appendStderrTail = (text: string): void => {
+      stderrTail = (stderrTail + text).slice(-STARTUP_STDERR_TAIL_MAX_CHARS);
+    };
 
-    serverProcess.stderr?.on('data', (data) => {
+    const stderrDescription = (): string =>
+      stderrTail.length === 0 ? '' : ` stderr tail: ${stderrTail}`;
+
+    const removeStartupListeners = (): void => {
+      serverProcess.stdout?.off('data', onStartupStdout);
+      serverProcess.off('exit', onStartupExit);
+    };
+
+    const settleStartup = (error?: Error, terminateChild = false): void => {
+      if (startupSettled) return;
+      startupSettled = true;
+      if (startupDeadline !== undefined) clearTimeout(startupDeadline);
+      removeStartupListeners();
+
+      if (terminateChild && serverProcess.pid !== undefined) {
+        try {
+          serverProcess.kill();
+        } catch {
+          // Preserve the original startup failure; the exit hook still owns
+          // any child that remains alive after a failed kill attempt.
+        }
+      }
+      if (error) {
+        if (serverProcess.pid === undefined) spawnedServers.delete(serverProcess);
+        reject(error);
+      } else {
+        resolve(serverProcess);
+      }
+    };
+
+    // This listener remains for the whole child lifetime so the process exit
+    // hook never signals a recycled pid. Startup uses its own listener below.
+    const onLifetimeExit = (): void => { spawnedServers.delete(serverProcess); };
+    serverProcess.on('exit', onLifetimeExit);
+
+    // Keep stderr draining after startup. The bounded tail is retained for a
+    // startup diagnostic, while quiet patterns affect logging only.
+    const onStderrData = (data: Buffer | string): void => {
       const text = data.toString();
+      appendStderrTail(text);
       if (quietStderr.some(pattern => text.includes(pattern))) return;
       console.error(`Server stderr (port ${port}):`, text);
-    });
+    };
+    serverProcess.stderr?.on('data', onStderrData);
 
-    serverProcess.on('error', reject);
+    // A data listener keeps stdout flowing after startup; only the temporary
+    // readiness parser is removed once startup settles.
+    const onStdoutDrain = (): void => undefined;
+    serverProcess.stdout?.on('data', onStdoutDrain);
+
+    const onProcessError = (error: Error): void => {
+      if (!startupSettled) {
+        settleStartup(error, true);
+        return;
+      }
+      console.error(`Server process error (port ${port}):`, error);
+    };
+    serverProcess.on('error', onProcessError);
+
+    const onStartupExit = (code: number | null, signal: ChildProcess['signalCode']): void => {
+      if (startupSettled) return;
+      const exitError = new Error(
+        `Test server on port ${port} exited before readiness (code ${code ?? 'null'}, signal ${signal ?? 'none'}).${stderrDescription()}`,
+      );
+      settleStartup(exitError);
+    };
+    serverProcess.on('exit', onStartupExit);
+
+    const maybeResolve = (): void => {
+      if (dbReady && serverListening) settleStartup();
+    };
+
+    const onStartupStdout = (data: Buffer | string): void => {
+      stdout += data.toString();
+      if (stdout.includes(SERVER_LISTENING_MARKER)) serverListening = true;
+      if (stdout.includes(DATABASE_READY_MARKER)) dbReady = true;
+      maybeResolve();
+    };
+    serverProcess.stdout?.on('data', onStartupStdout);
+
+    startupDeadline = setTimeout(() => {
+      const timeoutError = new Error(
+        `Test server on port ${port} did not become ready before the startup deadline.${stderrDescription()}`,
+      );
+      settleStartup(timeoutError, true);
+    }, SERVER_STARTUP_DEADLINE_MS);
   });
 
 // ---------------------------------------------------------------------------
@@ -227,7 +316,7 @@ export const emitJoin = (
   });
 
 export interface InProcessServer {
-  io: Server;
+  io: OnlineServer;
   port: number;
   /** Opens a client socket (tracked for close()) and resolves once connected. */
   connect(opts?: Partial<ManagerOptions & SocketOptions>): Promise<ClientSocket>;
@@ -249,7 +338,7 @@ export interface InProcessServer {
  */
 export const startInProcessServer = async (): Promise<InProcessServer> => {
   const httpServer = createServer();
-  const io = new Server(httpServer);
+    const io = new Server<ServerIngressEvents, ServerToClientEvents>(httpServer);
   registerSocketHandlers(io);
   await new Promise<void>(resolve => httpServer.listen(0, () => resolve()));
   const port = (httpServer.address() as AddressInfo).port;
@@ -360,7 +449,7 @@ export const makeFakeSocket = (id: string) => {
     leave: vi.fn(),
     emit: vi.fn(),
     on: (event: string, fn: Handler) => { handlers[event] = fn; },
-  } as unknown as Socket;
+  } as unknown as OnlineServerSocket;
   return { socket, handlers };
 };
 
@@ -391,5 +480,5 @@ export const makeServerPlayer = (name: string, overrides: Partial<ServerPlayer> 
 export const makeFakeIo = () => {
   const emit = vi.fn();
   const to = vi.fn(() => ({ emit }));
-  return { io: { to } as unknown as Server, emit, to };
+  return { io: { to } as unknown as OnlineServer, emit, to };
 };

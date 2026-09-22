@@ -1,6 +1,17 @@
 import { test, expect, type TestInfo } from '@playwright/test';
 import { joinOnlineRoomPair } from './helpers';
 
+// These tests create their own contexts, outside Playwright's page fixture.
+// A worker shares its browser across tests; leaked rooms keep rendering and
+// collecting traces while later tests run.
+test.beforeEach(async ({ browser }) => {
+  expect(browser.contexts(), 'the previous test left browser contexts open').toHaveLength(0);
+});
+
+test.afterEach(async ({ browser }) => {
+  await Promise.all(browser.contexts().map(context => context.close()));
+});
+
 // Every browser project (chromium/firefox/webkit) runs against the SAME
 // spawned server, and a room's player names stay reserved for the whole
 // reconnect timeout after a context closes — so a fixed room id makes the
@@ -83,8 +94,8 @@ test.describe('Tutto Online Ghost Lobbies', () => {
 
     // Seat Bob first. The reorder commits after a short press-release
     // debounce, so wait for the host's roster to actually show the new order
-    // — the start push then carries that ordering and the server adopts it
-    // verbatim (pushValidation's startingGame branch).
+    // — the accepted reorder is already in the room before the start action
+    // fires, so the server starts from that authoritative order.
     await pageA.getByRole('button', { name: 'Move up: BobGuest' }).click();
     await expect(pageA.locator('.player-name').first()).toContainText('BobGuest');
     // The determinism above RESTS on reorderPlayers flipping randomOrder off

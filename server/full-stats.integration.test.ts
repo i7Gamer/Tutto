@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import database from './database';
 import { useGameStore } from '../src/store/useGameStore';
-import { buildDeviceStatsPayload } from '../src/utils/coreGameEngine';
+import { buildDeviceStatsPayload, buildGlobalStatsPayload } from '../src/utils/statsPayloads';
+import { isNormalizedConfig } from '../src/utils/configValidation';
 import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
 import { nonNull } from '../src/testing/factories';
 
@@ -28,6 +29,19 @@ describe('End-to-End Statistics Integration', () => {
     // First, clear any store state manually
     useGameStore.setState({ players: [], finished: true });
 
+    const finishedGlobalPayload = () => {
+      const finalGame = useGameStore.getState();
+      return {
+        payload: buildGlobalStatsPayload(
+          finalGame.players,
+          finalGame.gameTimeInSeconds,
+          isNormalizedConfig(finalGame),
+          finalGame.round,
+        ),
+        round: finalGame.round,
+        playerCount: finalGame.players.length,
+      };
+    };
     // ==========================================
     // GAME 1
     // ==========================================
@@ -81,12 +95,9 @@ describe('End-to-End Statistics Integration', () => {
 
     expect(useGameStore.getState().finished).toBe(true);
 
-    // Captured before Game 2's startGame() resets round/players — this is the
-    // real per-game round count and player count sendOnlineStats would have sent.
-    const round1 = useGameStore.getState().round;
-    const playerCount1 = useGameStore.getState().players.length;
-
-    const payload1 = useGameStore.getState().buildGlobalStatsPayload();
+    // Build the shared global-stats payload from Game 1's finished state before
+    // Game 2's startGame() resets round/players.
+    const { payload: payload1, round: round1, playerCount: playerCount1 } = finishedGlobalPayload();
     // Spread into a fresh literal: database.updateGlobalStats takes the
     // loosely-typed StatsPayload (server/sanitize.ts's output shape), and a
     // reference to the strongly-typed GlobalStatsPayload variable itself
@@ -136,10 +147,7 @@ describe('End-to-End Statistics Integration', () => {
 
     expect(useGameStore.getState().finished).toBe(true);
 
-    const round2 = useGameStore.getState().round;
-    const playerCount2 = useGameStore.getState().players.length;
-
-    const payload2 = useGameStore.getState().buildGlobalStatsPayload();
+    const { payload: payload2, round: round2, playerCount: playerCount2 } = finishedGlobalPayload();
     await database.updateGlobalStats({ ...payload2 });
 
     await database.updateDeviceStats(mockDeviceId, { ...payloadFor(120) });

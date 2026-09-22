@@ -3,8 +3,8 @@
  *
  * Three boundaries validate these same shapes: the localStorage dice cache
  * (diceTurnState.ts), the physical-turn cache and the local save
- * (usePhysicalChain.ts, store/persistence.ts), and pushed room state
- * (server/pushValidation.ts). Each used to carry its own hand-written copy —
+ * (usePhysicalChain.ts, store/persistence.ts), and socket turn payloads
+ * (server/turnPayloadValidation.ts). Each used to carry its own hand-written copy —
  * five parallel die predicates, the {card, completed} entry three times, the
  * TurnEnd values twice — under comments calling them "mirrors", which named the
  * coupling without sharing it. A shape added to types.ts had to be remembered
@@ -12,8 +12,8 @@
  *
  * These are SHAPE only. The untrusted boundary layers its own additional
  * bounds on top (score magnitudes, name lengths, array sizes tied to the
- * roster) — see server/pushValidation.ts. What is genuinely common lives here;
- * what is genuinely stricter about the network stays there.
+ * roster) — see server/turnPayloadValidation.ts. What is genuinely common
+ * lives here; what is genuinely stricter about the network stays there.
  */
 
 import { MAX_CHAIN_CARDS, TURN_ENDS, type CardType, type SnapshotDie, type TurnCardPlayed, type TurnEnd } from '../types';
@@ -93,7 +93,7 @@ export const isChainCounter = (v: unknown): v is number =>
 /**
  * The running totals a chain's Plus/Minus cards resolved on — one per success,
  * bounded by the chain like the card list. Shape only: score magnitude is the
- * untrusted boundary's own rule (server/pushValidation.ts).
+ * untrusted boundary's own rule (server/turnPayloadValidation.ts).
  */
 export const isChainScoreList = (v: unknown): v is number[] =>
   Array.isArray(v) && v.length <= MAX_CHAIN_CARDS
@@ -106,7 +106,7 @@ export const isChainScoreList = (v: unknown): v is number[] =>
  * print one player's amount against another's name — a misaligned pair is
  * rejected whole, never half-kept. Entries are never negative: the classic
  * 0-floor can shrink a hit, not invert it. Shape only: score magnitude is the
- * untrusted boundary's own rule (server/pushValidation.ts).
+ * untrusted boundary's own rule (server/turnPayloadValidation.ts).
  */
 export const isDeductedAmountList = (amounts: unknown, names: unknown): amounts is number[] => {
   if (!Array.isArray(amounts)) return false;

@@ -1,13 +1,13 @@
-import { useId, useState, useEffect } from 'react';
+import { useId, useState, useEffect, useMemo } from 'react';
 import { Trophy, Clock, Hash, FastForward, BarChart2, Globe, User, TrendingDown, TrendingUp, Zap, Repeat, Skull, XCircle, ArrowLeft, Layers } from 'lucide-react';
 import { formatTime } from '../utils/formatTime';
 import { formatInt, formatFixed, AVG_DECIMALS } from '../utils/formatNumber';
-import { parseJsonObject } from '../utils/parseJson';
 import { CARD_EMOJIS } from '../utils/cardVisuals';
 import { STAT_TONES, DEFAULT_STAT_TONE, type StatTone } from '../utils/statTones';
 import { percentageOf } from '../utils/percentage';
 import { isRecordHolder, type RecordField } from '../utils/statRecords';
 import { useDeviceStats, type DeviceStatsStatus } from '../hooks/useDeviceStats';
+import { useStatsRequest } from '../hooks/useStatsRequest';
 import { useRovingTabs } from '../hooks/useRovingTabs';
 import { HOT_WIN_STREAK } from '../utils/playerStats';
 import {
@@ -370,42 +370,18 @@ export default function Statistics({ deviceId, onBack }: StatisticsProps) {
     deviceId, bucketMode(statsRuleset, mode), { refreshKey: String(personalRefreshNonce) },
   );
 
-  // The matching global row — not a device-stats fetch (no deviceId, a
-  // different endpoint and shape entirely), so it keeps its own small
-  // fetch/parse/cancel effect rather than going through the hook above.
-  const [globalStats, setGlobalStats] = useState<GlobalStats | null>(null);
-  const [globalStatus, setGlobalStatus] = useState<DeviceStatsStatus>('idle');
-  const globalRequestKey = JSON.stringify([statsRuleset, globalRefreshNonce]);
-  const [globalResultKey, setGlobalResultKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    // Announces the fetch about to be kicked off below, same as
-    // useDeviceStats's own idle/loading transitions — there is no
-    // render-time expression of "a request just started".
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setGlobalStatus('loading');
-
-    void (async () => {
-      try {
-        const res = await fetch(`/api/stats/global?ruleset=${statsRuleset}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await parseJsonObject<GlobalStats>(res);
-        if (cancelled) return;
-        setGlobalStats(data);
-        setGlobalResultKey(globalRequestKey);
-        setGlobalStatus('ready');
-      } catch (err) {
-        if (cancelled) return;
-        console.error('Failed to load statistics:', err);
-        setGlobalStats(null);
-        setGlobalResultKey(globalRequestKey);
-        setGlobalStatus('error');
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [statsRuleset, globalRefreshNonce, globalRequestKey]);
+  const globalRequest = useMemo(
+    () => [`/api/stats/global?ruleset=${statsRuleset}`] as const,
+    [statsRuleset],
+  );
+  const {
+    stats: globalStats,
+    status: globalStatus,
+    requestKey: globalRequestKey,
+    resultKey: globalResultKey,
+  } = useStatsRequest<GlobalStats>(
+    JSON.stringify([statsRuleset, globalRefreshNonce]), globalRequest,
+  );
 
   const isSettled = (status: DeviceStatsStatus) => status === 'ready' || status === 'error';
   // A failed re-fetch (tab switch during a server hiccup) must not leave the

@@ -71,7 +71,7 @@ interface BuildDiceSnapshotInput {
 }
 
 // The shape checks come from utils/turnShapes.ts, shared with
-// server/pushValidation.ts's isValidDiceSnapshot family — this is the same
+// server/turnPayloadValidation.ts's DiceSnapshot family — this is the same
 // DiceSnapshot shape, just restored from localStorage instead of a socket
 // push. A malformed entry here can't reach another player (only this device's
 // own DiceGame reads its own cache), but it's still rendered directly

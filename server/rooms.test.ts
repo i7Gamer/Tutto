@@ -13,9 +13,9 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { BROADCAST_EXCLUDED_FIELDS, handleActivePlayerRemoved, calculateRemainingTurnTime, createRoom, deleteRoom, emitRoomState, isAbandonedRoom, promoteHostAfterLoss, rooms } from './rooms';
-import type { Server } from 'socket.io';
+import type { OnlineServer } from './socketContext';
 import { SYNCED_GAME_STATE_KEYS } from '../src/types';
-import { MAX_CHART_POINTS } from './pushValidation';
+import { MAX_CHART_POINTS } from '../src/utils/configValidation';
 import type { Room, RoomState, ServerPlayer } from './roomTypes';
 import { makeServerPlayer as makePlayer } from './socketTestHarness';
 import { nonNull } from '../src/testing/factories';
@@ -261,13 +261,32 @@ describe('handleActivePlayerRemoved', () => {
       expect(room.state.chartValues).toEqual([[100, 250], [100, 175]]);
     });
 
+    it('skips the removal-forced chart append when an extra chart name remains after the splice', () => {
+      const room = makeRoom(['Alice', 'Bob'], {
+        currentPlayerIndex: 2,
+        round: 7,
+        cards: ['Stop'],
+        currentCard: 'x2',
+      });
+      room.state.chartValues = [[100], [100], [100]];
+      room.state.chartNames = ['Alice', 'Bob', 'Carol', 'Dana'];
+      room.state.players[0].score = 250;
+      room.state.players[1].score = 175;
+
+      handleActivePlayerRemoved(room, 2);
+
+      expect(room.state.currentPlayerIndex).toBe(0);
+      expect(room.state.round).toBe(8);
+      expect(room.state.chartNames).toEqual(['Alice', 'Bob', 'Dana']);
+      expect(room.state.chartLabels).toEqual([]);
+      expect(room.state.chartValues).toEqual([[100], [100]]);
+    });
+
     it('stops appending chart datapoints once the MAX_CHART_POINTS cap is reached', () => {
       // The same bound turnTimers.advanceTurnOnTimeout respects on its own
       // round-end append. Not an abuse story here — it takes a real seat
-      // removal per datapoint — but the cap is what pushValidation ENFORCES on
-      // the way in: a chartLabels longer than MAX_CHART_POINTS is refused
-      // wholesale, so a server array that grew past it is one no client can
-      // ever push back, and the two copies silently diverge from there.
+      // removal per datapoint — but the same cap is what keeps server-retained
+      // chart history bounded.
       const fullSeries = () => Array(MAX_CHART_POINTS).fill(0);
       const room = makeRoom(['Alice', 'Bob'], {
         currentPlayerIndex: 2,
@@ -560,7 +579,7 @@ describe('emitRoomState scrubs reconnect credentials', () => {
   // anything that fails if it is deleted.
   const captureBroadcast = () => {
     const emit = vi.fn();
-    const io = { to: vi.fn(() => ({ emit })) } as unknown as Server;
+    const io = { to: vi.fn(() => ({ emit })) } as unknown as OnlineServer;
     return { io, emit };
   };
 
@@ -609,9 +628,9 @@ describe('emitRoomState scrubs reconnect credentials', () => {
 
   it('carries every canonical synced field on the wire', () => {
     // The broadcast payload is the one list SYNCED_GAME_STATE_KEYS did not
-    // lock: six others (PushFieldLock, the FIELD_HANDLERS satisfies,
-    // RoomStateFieldLock, ClearRoomStateLock, LocalSaveFieldLock, the client's
-    // push payload) fail the build when a field goes missing, while dropping
+    // lock: RoomStateFieldLock, ClearRoomStateLock, LocalSaveFieldLock, the
+    // client receive-side sync keys, and this broadcast lock fail the build
+    // when a field goes missing, while dropping
     // one from the object that actually goes out type-checked clean. The
     // compile-time twin is BroadcastFieldLock in rooms.ts; this is its runtime
     // half, and it also catches a field emitted as `undefined`.

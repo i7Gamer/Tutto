@@ -17,8 +17,8 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useBotDriver } from '../hooks/useBotDriver';
 import { useRollAnnouncement } from '../hooks/useRollAnnouncement';
 import {
-  chooseBotAction, chooseBotSelection, evaluateOttoDecision, resolveOttoAction,
-  type BotSeat, type BotTurnContext,
+  buildBotTurnContext, botTurnContextKey, chooseBotAction, chooseBotSelection, evaluateOttoDecision, resolveOttoAction,
+  type BotSeat, type BotTurnContext, type BotTurnInputs,
 } from '../utils/botStrategies';
 import { nextDrawWeightsFromCounts, type DrawStrategyInputs } from '../utils/turnValue';
 import { coachHint as computeCoachHint, type CoachHintStandings } from '../utils/coachHint';
@@ -750,33 +750,36 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // committing a keep, then the bot driver takes a second step on that same
   // table to execute the action. Equivalent data objects must reuse the exact
   // decision rather than restart the DP because React or the store allocated.
-  const botDecisionKey = [
-    bot?.personality, currentRoll.map(die => die.val).join(','), keptDice.length,
-    turnScore, currentCard, ruleset, kniffelProgress.join(','), tuttosThisTurn,
-    Object.entries(deck).sort(([a], [b]) => a.localeCompare(b)).map(([card, count]) => `${card}:${count}`).join(','),
-    bot?.myScore, bot?.leaderScore, bot?.winningScore,
-    !!bot?.endgame, bot?.endgame?.opponentScores.join(','), !!onDrawCard, chainCardCount, plusMinusScores.join(','),
-  ].join('|');
+  // Both the bot and coach derive their context from this one semantic input.
+  const strategySeat = bot ?? coachSeat;
+  const strategyInputs = useMemo<BotTurnInputs>(() => ({
+    rollVals: currentRoll.map(die => die.val),
+    keptCount: keptDice.length,
+    turnScore,
+    currentCard,
+    ruleset,
+    kniffelProgress,
+    tuttosThisTurn,
+    deck,
+    myScore: strategySeat?.myScore ?? 0,
+    leaderScore: strategySeat?.leaderScore ?? 0,
+    winningScore: strategySeat?.winningScore ?? 0,
+    endgame: strategySeat?.endgame,
+    canDraw: !!onDrawCard,
+    chainCardCount,
+    plusMinusScores,
+  }), [
+    currentRoll, keptDice.length, turnScore, currentCard, ruleset, kniffelProgress,
+    tuttosThisTurn, deck, strategySeat?.myScore, strategySeat?.leaderScore,
+    strategySeat?.winningScore, strategySeat?.endgame, onDrawCard, chainCardCount,
+    plusMinusScores,
+  ]);
+  const botDecisionKey = bot
+    ? botTurnContextKey(buildBotTurnContext(bot.personality, strategyInputs))
+    : 'no-bot';
   const botContext = useMemo<BotTurnContext | null>(() => {
     if (!bot) return null;
-    return {
-      personality: bot.personality,
-      rollVals: currentRoll.map(d => d.val),
-      keptCount: keptDice.length,
-      turnScore,
-      currentCard,
-      ruleset,
-      kniffelProgress,
-      tuttosThisTurn,
-      deck,
-      myScore: bot.myScore,
-      leaderScore: bot.leaderScore,
-      winningScore: bot.winningScore,
-      endgame: bot.endgame,
-      canDraw: !!onDrawCard,
-      chainCardCount,
-      plusMinusScores,
-    };
+    return buildBotTurnContext(bot.personality, strategyInputs);
     // `botDecisionKey` names every strategy-relevant field by content, including
     // deck weights and endgame scores; selected flags remain deliberately out.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -793,21 +796,12 @@ export default function DiceGame({ currentCard, turnKey, onComplete, onStateChan
   // page. Listed for players in HelpPopup's shortcuts section.
   // A player's toggles only alter the hint's "your dice differ" copy. Otto's
   // selection itself is keyed by strategy content and survives that render.
-  const coachDecisionKey = [
-    coachSeat?.myScore, coachSeat?.leaderScore, coachSeat?.winningScore,
-    !!coachSeat?.endgame, coachSeat?.endgame?.opponentScores.join(','), currentRoll.map(die => die.val).join(','),
-    keptDice.length, turnScore, currentCard, ruleset, kniffelProgress.join(','), tuttosThisTurn,
-    Object.entries(deck).sort(([a], [b]) => a.localeCompare(b)).map(([card, count]) => `${card}:${count}`).join(','),
-    !!onDrawCard, chainCardCount, plusMinusScores.join(','),
-  ].join('|');
+  const coachDecisionKey = coachSeat
+    ? botTurnContextKey(buildBotTurnContext('optimal', strategyInputs))
+    : 'no-coach';
   const coachDecision = useMemo(() => {
     if (!coachSeat || bot || !canAct || currentRoll.length === 0) return null;
-    return evaluateOttoDecision({
-      personality: 'optimal', rollVals: currentRoll.map(die => die.val), keptCount: keptDice.length,
-      turnScore, currentCard, ruleset, kniffelProgress, tuttosThisTurn, deck,
-      myScore: coachSeat.myScore, leaderScore: coachSeat.leaderScore, winningScore: coachSeat.winningScore,
-      endgame: coachSeat.endgame, canDraw: !!onDrawCard, chainCardCount, plusMinusScores,
-    });
+    return evaluateOttoDecision(buildBotTurnContext('optimal', strategyInputs));
     // `coachDecisionKey` has every decision input and deliberately omits selected flags.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coachDecisionKey, bot, canAct]);

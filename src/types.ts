@@ -70,14 +70,13 @@ export interface DiceSnapshot {
   // must land back in that summary — not in a dice table where the decision
   // could be rolled back. The server turn timer also reads it: a timeout on
   // a banked decision forfeits as 'timeout', never as a rolled null.
-  // Mirrored in server/pushValidation.ts's snapshot family like `busted`.
+  // Validated at the socket boundary with the rest of the dice snapshot.
   stopped?: boolean;
   // Classic-chain progress (absent in modernized turns): the cards drawn this
   // turn in order, the Plus/Minus cards succeeded so far (see plusMinusScores
   // on TurnSummary for what the numbers are), and the total tuttos rolled
-  // (unlike tuttosThisTurn above, never reset by a Kleeblatt draw). Mirrored
-  // in server/pushValidation.ts's snapshot family — a field missing there is
-  // silently stripped from every relayed snapshot.
+  // (unlike tuttosThisTurn above, never reset by a Kleeblatt draw). Keep this
+  // shape aligned with the socket-boundary dice snapshot validator.
   cardsThisTurn?: CardType[];
   plusMinusScores?: number[];
   chainTuttoCount?: number;
@@ -171,7 +170,7 @@ export interface TurnSummary {
 export interface Player {
   // Stable per-player identity, minted once at creation (client
   // createInitialPlayer / server joinRoom) and carried through every reset
-  // (startGame) and merge (server pushValidation). Currently used only for
+  // (startGame). Currently used only for
   // React keys — every name-keyed lookup (Plus/Minus deduction, undo,
   // pushState merging, reorderPlayers) is unchanged and still matches by
   // name; see the Player.id staging notes in implementation_plan.md for why
@@ -224,10 +223,11 @@ export interface Player {
 }
 
 // DERIVED from the list rather than declared beside it, the same reason
-// TURN_ENDS above is: server/pushValidation.ts has to recognise these values
-// at runtime and used to hand-roll its own copy — so a new kind ('timeout',
-// added for a turn the server's clock forfeited without charging a bust or a
-// success) type-checked everywhere while pushValidation silently rejected it.
+// TURN_ENDS above is: the server has to recognise these values at runtime and
+// used to hand-roll its own copy — so a new kind ('timeout', added for a turn
+// the server's clock forfeited without charging a bust or a success)
+// type-checked everywhere while the socket-boundary validator silently
+// rejected it.
 export const HISTORY_EVENT_TYPES = ['success', 'bust', 'skip', 'fail', 'timeout'] as const;
 export type HistoryEventType = typeof HISTORY_EVENT_TYPES[number];
 
@@ -242,12 +242,10 @@ export interface HistoryEntry {
   deductedPlayers?: string[];
   // Per-deduction amounts for the names above (see TurnSummary.deductedAmounts)
   // — what the log prints, rather than re-deriving the full 1000 a clamped
-  // deduction never took. Mirrored in server/pushValidation.ts's history-entry
-  // family — a field missing there never reaches the other clients.
+  // deduction never took. Keep this aligned with persistence and history UI.
   deductedAmounts?: number[];
   // Classic chains only: every card of the turn in draw order (card above is
-  // the first of them). Mirrored in server/pushValidation.ts's history-entry
-  // family — a field missing there never reaches the other clients.
+  // the first of them). Keep this aligned with persistence and history UI.
   cards?: CardType[];
 }
 
@@ -305,10 +303,10 @@ export interface CoreGameState {
 // you through every list that must take a position:
 //
 //   server/roomTypes.ts       RoomState = these + the server-only fields
-//   src/store/socketSlice.ts  GAME_STATE_SYNC_KEYS (broadcast allowlist),
-//                             clearRoomState's cleared-vs-kept split, and
-//                             pushState's wire payload (satisfies Record)
-//   server/pushValidation.ts  HOST_ONLY_FIELDS / ACTIVE_PLAYER_FIELDS split
+//   src/store/socketSlice.ts  GAME_STATE_SYNC_KEYS (broadcast allowlist) and
+//                             clearRoomState's cleared-vs-kept split. Client
+//                             pushState sends only the v2 object envelope.
+//   server/socketConfigHandlers.ts  lobby-only vs mid-game config split
 //   src/store/persistence.ts  saved-locally vs never-saved split
 export const SYNCED_GAME_STATE_KEYS = [
   'players', 'status', 'initialCards', 'winningScore', 'randomOrder',
@@ -333,11 +331,31 @@ export type OnlineGameAction =
 
 // The room configuration the host owns, as opposed to the game state a turn
 // produces. Here rather than in the store because the server shares it:
-// server/pushValidation.ts locks its lobby-only/mid-game split against this
+// server/socketConfigHandlers.ts locks its lobby-only/mid-game split against this
 // union, so a new config field cannot be added without deciding whether a
 // running game may still have it changed. Re-exported from storeTypes.ts,
 // which is where the client has always imported it from.
 export type ConfigKeys = 'winningScore' | 'initialCards' | 'randomOrder' | 'turnDuration' | 'reconnectTimeout' | 'enforcedDiceMode' | 'ruleset';
+
+export interface JoinRoomResponse {
+  success: boolean;
+  isHost?: boolean;
+  error?: string;
+  // Which refusal `error` is describing, for translating it (see
+  // src/utils/joinErrors.ts). Absent on a success, and from any server older
+  // than the codes — the prose is then shown as-is.
+  code?: string;
+  // The name the server actually seated this client under. Differs from the
+  // requested name when rejoining a running game: mid-game renames are
+  // refused server-side (names are the identity key for pushState merging),
+  // so the client must adopt the seat's existing name.
+  name?: string;
+  // The canonical (trimmed, upper-cased) form of the room id this client
+  // asked to join — see normalizeRoomId. Absent on a refusal and from any
+  // server older than the normalization; joinRoom (socketSlice.ts) falls
+  // back to its own normalized request id in either case.
+  roomId?: string;
+}
 
 /**
  * Why the server refused a whole pushState.
@@ -356,9 +374,6 @@ export const PUSH_REFUSAL_REASONS = [
   // Neither the host nor the active player — including the transient case of
   // a socket whose rejoin has not landed yet.
   'unauthorized',
-  // The snapshot describes a table that no longer exists (applyPushedState's
-  // whole-push roster bail-out).
-  'stale-roster',
   // The gameplay the move was based on has already changed.
   'stale-base',
   // The payload itself was not a usable pushState.

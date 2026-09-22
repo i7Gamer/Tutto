@@ -1,5 +1,5 @@
 import { rooms, drawNextCardForRoom, emitRoomState, emitRoomStateTo, idleTurnTimerState, recordDealtCard, rememberCurrentTurn, roomChannel } from './rooms';
-import { isValidDiceSnapshot, sanitizeDiceSnapshot } from './pushValidation';
+import { isValidDiceSnapshot, sanitizeDiceSnapshot } from './turnPayloadValidation';
 import { applyOnlineGameAction } from './gameActionAuthority';
 import { readDeckContext, settleDeck } from './deckAuthority';
 import { isNormalizedConfig, normalizeRoomId, MAX_PLAYERS_PER_ROOM } from '../src/utils/configValidation';
@@ -64,7 +64,7 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
   const drawCardLimiter = createSocketEventLimiter(DRAW_CARD_LIMIT);
 
   safeOn(socket, 'pushState', (
-    data: { roomId?: string; newState?: Record<string, unknown>; base?: unknown; mutationId?: unknown; action?: unknown } | null | undefined,
+    data: { roomId?: string; newState?: unknown; base?: unknown; mutationId?: unknown; action?: unknown } | null | undefined,
     ack?: PushStateAckFn,
   ) => {
     // Every bail-out below now names itself to the sender. The gates
@@ -78,7 +78,7 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
     if (!pushStateLimiter()) return refuse('rate-limited');
     if (!data || typeof data !== 'object') return refuse('refused');
     const { roomId: rawRoomId, newState } = data;
-    if (typeof rawRoomId !== 'string' || !newState || typeof newState !== 'object') return refuse('refused');
+    if (typeof rawRoomId !== 'string' || !newState || typeof newState !== 'object' || Array.isArray(newState)) return refuse('refused');
     // Same normalization joinRoom applies before ever touching `rooms`.
     const roomId = normalizeRoomId(rawRoomId);
     const room = rooms[roomId];
@@ -120,13 +120,8 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
 
     // Only an accepted start resets accounting for the next game.
     if (startedGame) {
-      room.statsRecordedForGame = { devices: new Map(), global: false };
+      room.statsRecordedForGame = { devices: new Set(), global: false };
       room.participantStats = new Map();
-      // The only record of who was actually at the table when THIS game
-      // began — a seat that leaves, is kicked, or times out before the
-      // finish is broadcast is spliced out of room.state.players by then, and
-      // this is what lets recordDepartedSeatsStats (rooms.ts) still find it.
-      room.startRoster = room.state.players.map(p => ({ deviceId: p.deviceId, name: p.name }));
     }
 
     // Freeze statistics configuration at kickoff; later changes can only
@@ -353,8 +348,8 @@ export const registerGameStateHandlers = ({ io, socket, session }: SocketContext
   // (players, historyLog, chart arrays, ...) on every call via
   // emitRoomState, which is wasteful for an update where only
   // liveTurnState actually changed. This handler updates just that one
-  // field and broadcasts a small, standalone event instead — pushState,
-  // applyPushedState, and emitRoomState are untouched and still carry
+  // field and broadcasts a small, standalone event instead — pushState and
+  // emitRoomState are untouched and still carry
   // liveTurnState as part of the full sync for reconnect/fresh-join.
   safeOn(socket, 'liveTurnState', (data: { roomId?: string; base?: unknown; liveTurnState?: unknown } | null | undefined) => {
     if (!liveTurnStateLimiter()) return;

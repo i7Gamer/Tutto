@@ -50,8 +50,8 @@ export interface RoomState {
   // has pinned that mode for everyone's own turn. Host-only config.
   enforcedDiceMode: DiceMode | null;
   // Which rule set the game is played by. Host-only config, lobby-only:
-  // applyPushedState refuses mid-game writes (a rules flip under an active
-  // game would desync every client's turn logic).
+  // updateConfig refuses mid-game writes (a rules flip under an active game
+  // would desync every client's turn logic).
   ruleset: Ruleset;
   historyLog: HistoryEntry[];
 }
@@ -101,28 +101,12 @@ export interface TurnTimerState {
 // inflating both their device stats and, if they're host, the global stats.
 export interface StatsRecordedForGame {
   /**
-   * How much of each device's row for the CURRENT game is already written.
-   *
-   * Entries describe committed writes; pending reservations are tracked by
-   * statsWriteCoordinator. The level distinguishes complete rows from legacy
-   * verdict-only rows that can still be topped up. See DeviceStatsRecordLevel.
+   * Devices whose complete row for the current game has committed.
+   * Pending reservations are tracked separately by statsWriteCoordinator.
    */
-  devices: Map<string, DeviceStatsRecordLevel>;
+  devices: Set<string>;
   global: boolean;
 }
-
-/**
- * How complete a device's statistics row for the current game is.
- *
- * 'verdict-only' — a legacy departed-seat row without captured participant
- * counters. It records the game, outcome, player count, and round count.
- * A returning seat's endGameStats request can add the remaining counters
- * from available server player state without counting those fields twice.
- *
- * 'full' — a complete server-derived row is committed, from endGameStats or
- * the departed-seat writer. Further submissions for the same game are no-ops.
- */
-export type DeviceStatsRecordLevel = 'verdict-only' | 'full';
 
 /**
  * The result of a finished game, as the room saw it at the moment it ended.
@@ -143,9 +127,7 @@ export interface FinishedGame {
    */
   winners: string[];
   /**
-   * Seats at the table when the game ended, for the players-per-game totals —
-   * every seat that was there at kickoff (room.startRoster's length when one
-   * was captured), not merely whoever is still seated at the finish. A seat
+   * All captured participants, not merely whoever is seated at the finish. A seat
    * that left, was kicked, or timed out before the finish still played the
    * game and must still count.
    */
@@ -153,17 +135,11 @@ export interface FinishedGame {
   /** The authoritative round at the moment this verdict was frozen. */
   round: number;
   /** Server-captured final counters for every participant, including departed seats. */
-  players?: ServerPlayer[];
+  players: ServerPlayer[];
   /** Server state elapsed time at the moment the verdict was frozen. */
-  gameTimeInSeconds?: number;
+  gameTimeInSeconds: number;
   /** Stable device identities of the winners, avoiding a roster-derived re-decision. */
-  winnerDeviceIds?: string[];
-}
-
-/** One seat's identity at the moment the CURRENT game started. */
-export interface StartRosterEntry {
-  deviceId: string;
-  name: string;
+  winnerDeviceIds: string[];
 }
 
 export interface Room {
@@ -211,17 +187,11 @@ export interface Room {
   // endGameStats trusts instead of the verdict the submitting client computed.
   // null while no game is finished. See rememberFinishedGame in rooms.ts.
   finishedGame: FinishedGame | null;
-  // Every seat's deviceId + name at the moment the CURRENT game started —
-  // captured in socketGameStateHandlers' pushState, the same place that
-  // freezes normalizedGame/ruleset, and reset the same way on the next game
-  // (lobby->playing or Play Again's finished->playing). null until a game has
-  // actually started under this Room object. A start-roster entry with no
-  // matching seat left in room.state.players by the time the game ends left
-  // BEFORE the finish and is invisible to endGameStats — see
-  // recordDepartedSeatsStats in rooms.ts, which records it instead.
-  startRoster: StartRosterEntry[] | null;
-  /** Latest server-accepted player state per current-game participant. */
-  participantStats?: Map<string, ServerPlayer>;
+  /**
+   * Latest server-accepted state per game participant, including departed seats.
+   * Empty in a fresh lobby; replaced on every accepted start/rematch.
+   */
+  participantStats: Map<string, ServerPlayer>;
   /**
    * The cards the SERVER dealt for the turn in progress, and for the one
    * before it, oldest first — each list starting with the card its turn opened

@@ -25,7 +25,7 @@ import type { Socket as ClientSocket } from 'socket.io-client';
 import { protocolClient as io, configureTestRoom } from './onlineTestClient';
 import { startTestServer, waitFor, connected } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
-import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { SERVER_STARTUP_HOOK_TIMEOUT_MS } from './testTimeouts';
 import { useGameStore, _resetSocketSliceForTests } from '../src/store/useGameStore';
 import { getSocket, disconnectSocket } from '../src/store/socketRef';
 import type { JoinAck } from './socketTestHarness';
@@ -52,7 +52,7 @@ describe('Server Socket E2E — a push made while the transport is down', () => 
 
   beforeAll(async () => {
     serverProcess = await startTestServer(PORT);
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     observer?.disconnect();
@@ -91,8 +91,8 @@ describe('Server Socket E2E — a push made while the transport is down', () => 
     });
     expect(bobJoin.success).toBe(true);
 
-    // The host starts the game. The roster comes from the server's own
-    // broadcast, so the push cannot trip applyPushedState's stale-roster gate.
+    // The host starts the game from the server's accepted roster/config, not a
+    // fresh client-authored roster snapshot.
     await waitFor(() => useGameStore.getState().players.length === 2);
     await configureTestRoom(getSocket()!, ROOM_ID, { randomOrder: false, turnDuration: 0, initialCards: { '200': 6 } });
     useGameStore.getState().startGame();

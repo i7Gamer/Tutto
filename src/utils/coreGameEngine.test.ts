@@ -1,6 +1,7 @@
 /** @vitest-environment node */
 import { describe, it, expect } from 'vitest';
-import { getLeaders, buildGlobalStatsPayload, shuffleArray, buildDeck, calculateNextTurn, calculateUndo, canUndoState, computeRankedPlayers, hasPlayableDeck, PLUS_MINUS_SCORE, applyPlusMinusScores } from './coreGameEngine';
+import { getLeaders, shuffleArray, buildDeck, calculateNextTurn, calculateUndo, canUndoState, computeRankedPlayers, hasPlayableDeck, PLUS_MINUS_SCORE, applyPlusMinusScores } from './coreGameEngine';
+import { buildGlobalStatsPayload } from './statsPayloads';
 // The consumer of the recorded amounts: what the activity log will actually
 // print for an entry is what makes "no amounts here" right or wrong.
 import { summarizeDeductions } from './deductionSummary';

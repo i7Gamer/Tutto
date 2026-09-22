@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { registerGameStateHandlers, MAX_TIMER_RESTARTS_PER_TURN, DRAW_CARD_LIMIT } from './socketGameStateHandlers';
 import { makeFakeSocket, makeFakeIo, makeServerPlayer, type Handler } from './socketTestHarness';
-import { rooms, createRoom, deleteRoom } from './rooms';
+import { rooms, createRoom, deleteRoom, emitRoomState } from './rooms';
 import { MAX_CHAIN_CARDS, type OnlineGameAction } from '../src/types';
 import type { RoomState } from './roomTypes';
 import { randomUUID } from 'node:crypto';
@@ -105,13 +105,11 @@ describe('pushState turn-timer restarts', () => {
 });
 
 describe('pushState authorization', () => {
-  // The spawned-server twin of this check (sockets.authorization.test.ts)
-  // could not fail: its hostile push carried `players: []`, which the roster
-  // gate discards before the authorization line is ever consulted. These
-  // cases push a lone `currentPlayerIndex` — the field nothing but the
-  // authorization line stands between a bystander and.
+  // Valid v2 commands keep protocol validation from masking permission bugs.
+  // The negative cases differ from the active-player control only by sender.
   const roomId = 'AUTHZ-ROOM';
   const ACTIVE_INDEX = 1;
+  const COMMIT_ACTION: OnlineGameAction = { type: 'commit', score: 0, success: false };
 
   const seat = (socketId: string, username: string) => {
     const fake = makeFakeSocket(socketId);
@@ -143,19 +141,25 @@ describe('pushState authorization', () => {
 
   it('ignores a seated bystander who is neither host nor the active player', () => {
     const carol = seat('bystander-sock', 'Carol');
+    const before = structuredClone(rooms[roomId].state);
+    const ack = vi.fn();
 
-    carol.pushState({ roomId, newState: { currentPlayerIndex: 2 } });
+    pushAction(carol.pushState, roomId, COMMIT_ACTION, {}, ack);
 
-    expect(rooms[roomId].state.currentPlayerIndex, 'the turn stays where it was').toBe(ACTIVE_INDEX);
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'unauthorized' });
+    expect(rooms[roomId].state).toEqual(before);
     expect(carol.emit, 'a refused push is not broadcast').not.toHaveBeenCalled();
   });
 
   it('ignores a socket that is not seated in the room at all', () => {
     const stranger = seat('stranger-sock', 'Mallory');
+    const before = structuredClone(rooms[roomId].state);
+    const ack = vi.fn();
 
-    stranger.pushState({ roomId, newState: { currentPlayerIndex: 2 } });
+    pushAction(stranger.pushState, roomId, COMMIT_ACTION, {}, ack);
 
-    expect(rooms[roomId].state.currentPlayerIndex).toBe(ACTIVE_INDEX);
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'unauthorized' });
+    expect(rooms[roomId].state).toEqual(before);
     expect(stranger.emit).not.toHaveBeenCalled();
   });
 
@@ -163,9 +167,11 @@ describe('pushState authorization', () => {
     // The control: without it the refusals above would also pass for a
     // handler that ignores everyone.
     const bob = seat('active-sock', 'Bob');
+    const ack = vi.fn();
 
-    pushAction(bob.pushState, roomId, { type: 'commit', score: 0, success: false });
+    pushAction(bob.pushState, roomId, COMMIT_ACTION, {}, ack);
 
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
     expect(rooms[roomId].state.currentPlayerIndex).toBe(2);
     expect(bob.emit).toHaveBeenCalled();
   });
@@ -178,12 +184,33 @@ describe('pushState authorization', () => {
     expect(rooms[roomId].state.status).toBe('lobby');
   });
 
-  it('does not let the non-active host replace the active player live snapshot through pushState', () => {
+  it('ignores forged snapshot fields on an accepted non-active host action', () => {
     const alice = seat('host-sock', 'Alice');
-    alice.pushState({ roomId, newState: { liveTurnState: {
-      turnScore: 900, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
-    } } });
-    expect(rooms[roomId].state.liveTurnState).toBeNull();
+    const before = structuredClone(rooms[roomId].state);
+    const controlAck = vi.fn();
+    const forgedAck = vi.fn();
+    const FORGED_SCORE = 900;
+    const action: OnlineGameAction = { type: 'reset' };
+
+    pushAction(alice.pushState, roomId, action, {}, controlAck);
+    expect(controlAck).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    const expected = structuredClone(rooms[roomId].state);
+
+    rooms[roomId].state = before;
+    alice.emit.mockClear();
+    pushAction(alice.pushState, roomId, action, {
+      liveTurnState: {
+        turnScore: FORGED_SCORE, keptDice: [], currentRoll: [], kniffelProgress: [], tuttosThisTurn: 0,
+      },
+      players: [],
+      currentCard: 'Kleeblatt',
+      cards: ['Kleeblatt'],
+      winningScore: before.winningScore + FORGED_SCORE,
+    }, forgedAck);
+
+    expect(forgedAck).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    expect(rooms[roomId].state).toEqual(expected);
+    expect(alice.emit).toHaveBeenCalled();
   });
 });
 
@@ -247,6 +274,25 @@ describe('pushState acknowledgement and stateVersion', () => {
     expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'unauthorized' });
     expect(rooms[roomId].state.round, 'the refused push changed nothing').toBe(1);
     expect(carol.emit, 'a refused push is not broadcast').not.toHaveBeenCalled();
+  });
+
+  it('refuses an array snapshot envelope even with an otherwise valid action', () => {
+    const bob = seat('active-sock', 'Bob');
+    const room = rooms[roomId];
+    const beforeVersion = room.stateVersion;
+    const beforeToken = room.gameplayToken;
+    const ack = vi.fn();
+
+    bob.handlers['pushState']({
+      roomId, newState: [], base: beforeToken, mutationId: randomUUID(),
+      action: { type: 'commit', score: 0, success: false },
+    }, ack);
+
+    expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'refused' });
+    expect(room.state.currentPlayerIndex).toBe(ACTIVE_INDEX);
+    expect(room.stateVersion).toBe(beforeVersion);
+    expect(room.gameplayToken).toBe(beforeToken);
+    expect(bob.emit).not.toHaveBeenCalled();
   });
 
   it('ignores a client-authored roster and applies only the authenticated action', () => {
@@ -361,14 +407,10 @@ describe('pushState may not leave a running game with nobody to act', () => {
     vi.useRealTimers();
   });
 
-  it('refuses a bare currentPlayerIndex: null from the active player', () => {
-    // `null` is legal — it is what the WINNING push carries — but only
-    // alongside the finish. On its own it strands the room: the timer-restart
-    // branch needs a non-null index and the teardown branch needs
-    // finished/lobby, so the server arms no timer AND clears none, and the
-    // pending expiry returns early forever after. Nothing short of a host push
-    // recovers it, and turnTimers' own header promises the opposite ("a
-    // backgrounded/throttled client tab can never stall the game").
+  it('refuses a malformed legacy snapshot that only clears currentPlayerIndex', () => {
+    // Legacy snapshot-only payloads are now rejected before room mutation. This
+    // keeps the old stall regression pinned without pretending the live v2
+    // action path can send a lone currentPlayerIndex change.
     pushState({ roomId, newState: { currentPlayerIndex: null } });
 
     const state = rooms[roomId].state;
@@ -391,15 +433,15 @@ describe('pushState may not leave a running game with nobody to act', () => {
     expect(rooms[roomId].finishedGame?.winners).toEqual(['Alice']);
   });
 
-  it('refuses a host push that starts a game without saying whose turn it is', () => {
-    // The same incoherence from the other side: status alone, no index. The
-    // guard must restore BOTH fields, or a room that had no index to go back
-    // to is stranded exactly as above.
+  it('refuses a malformed legacy host snapshot that starts a game without an action', () => {
+    // Legacy snapshot-only starts are rejected before room mutation. A real v2
+    // start names its intent with action.type='start' and the server selects
+    // the first actor itself.
     rooms[roomId].state.status = 'lobby';
     rooms[roomId].state.currentPlayerIndex = null;
     // The previous game's bookkeeping, which a real start would clear and
     // recapture — and which this push must leave exactly as it found it.
-    const previousGameDevices = new Map([[PREVIOUS_GAME_DEVICE, 'full' as const]]);
+    const previousGameDevices = new Set([PREVIOUS_GAME_DEVICE]);
     rooms[roomId].statsRecordedForGame = { devices: previousGameDevices, global: true };
     const hostFake = makeFakeSocket('host-sock');
     registerGameStateHandlers({ io: makeFakeIo().io, socket: hostFake.socket, session: { roomId, username: 'Bob' } });
@@ -410,9 +452,9 @@ describe('pushState may not leave a running game with nobody to act', () => {
     // …and no game started means none of the start-of-game bookkeeping may
     // run either. It used to, gated on `applied` alone: the dedup was reset
     // (letting the still-finished game's statistics be submitted a second
-    // time) and the start roster was recaptured for a game the room put
+    // time) and participants were captured for a game the room put
     // straight back into the lobby.
-    expect(rooms[roomId].startRoster, 'no game started, no roster to capture').toBeNull();
+    expect(rooms[roomId].participantStats.size, 'no game started, no participants to capture').toBe(0);
     expect(rooms[roomId].statsRecordedForGame.devices, 'the previous game stays deduped')
       .toBe(previousGameDevices);
     expect(rooms[roomId].statsRecordedForGame.global).toBe(true);
@@ -436,25 +478,19 @@ describe('pushState may not leave a running game with nobody to act', () => {
     return hostFake.handlers['pushState'];
   };
 
-  it('refuses a HOST push that finishes a game on tied leaders, and freezes no verdict', () => {
-    // The engine never ends a game on a tie — a tie plays another round — but
-    // applyFinished used to wave the HOST through unconditionally. The verdict
-    // rememberFinishedGame then froze named BOTH leaders as winners, and each
-    // took a win and a fastestWinTurns that no later correction can undo.
+  it('keeps a live v2 commit from finishing a game on tied leaders', () => {
+    // The engine never ends a game on a tie — a tie plays another round. This
+    // stays on the live action path so the verdict recorder cannot freeze both
+    // leaders as winners.
     const { winningScore } = rooms[roomId].state;
+    rooms[roomId].state.players[0].score = winningScore;
+    rooms[roomId].state.players[1].score = winningScore;
 
-    hostPush()({
-      roomId,
-      newState: {
-        players: [{ name: 'Alice', score: winningScore }, { name: 'Bob', score: winningScore }],
-        finished: true,
-        currentPlayerIndex: null,
-      },
-    });
+    pushAction(pushState, roomId, { type: 'commit', score: 0, success: false });
 
     const state = rooms[roomId].state;
     expect(state.finished, 'a tie is not a win, not even for the host').toBe(false);
-    expect(state.currentPlayerIndex, 'the coherence repair keeps someone to act').toBe(0);
+    expect(state.currentPlayerIndex, 'a tied game continues to the next player').toBe(1);
     expect(rooms[roomId].finishedGame, 'no verdict may be frozen for a tie').toBeNull();
   });
 
@@ -483,7 +519,7 @@ describe('pushState may not leave a running game with nobody to act', () => {
     expect(rooms[roomId].finishedGame, 'an abandoned game has no verdict').toBeNull();
   });
 
-  it('refuses a host push that un-finishes a game without saying whose turn it is', () => {
+  it('refuses a malformed legacy host snapshot that un-finishes without an action', () => {
     stageFinishedGame();
 
     hostPush()({ roomId, newState: { finished: false } });
@@ -512,14 +548,13 @@ describe('pushState may not leave a running game with nobody to act', () => {
     // `finished` and names the next actor has an unambiguous intent to
     // restart play, exactly like the real Play Again push above, and must run
     // the same start-of-game bookkeeping: the stats dedup reset, the
-    // startRoster recapture, and the deck kickoff. It used to skip all three,
-    // because `startingGame` required newState.status === 'playing'
-    // literally — true for every real client, which always sends the whole
-    // synced field set, but not for this hand-built one.
+    // participant capture, and the deck kickoff. It used to skip all three,
+    // because restart detection used to depend on newState.status rather than
+    // the accepted v2 start action.
     stageFinishedGame();
-    const previousGameDevices = new Map([[PREVIOUS_GAME_DEVICE, 'full' as const]]);
+    const previousGameDevices = new Set([PREVIOUS_GAME_DEVICE]);
     rooms[roomId].statsRecordedForGame = { devices: previousGameDevices, global: true };
-    rooms[roomId].startRoster = [{ deviceId: 'dev-Alice', name: 'Alice' }, { deviceId: 'dev-Bob', name: 'Bob' }];
+    rooms[roomId].participantStats.set(PREVIOUS_GAME_DEVICE, makePlayer('Old', 'old-sock'));
 
     pushAction(hostPush(), roomId, { type: 'start' }, { finished: false, currentPlayerIndex: 0 });
 
@@ -528,9 +563,9 @@ describe('pushState may not leave a running game with nobody to act', () => {
     expect(room.state.currentPlayerIndex).toBe(0);
     expect(room.statsRecordedForGame.devices.size, 'the previous game\'s dedup is reset for the new one').toBe(0);
     expect(room.statsRecordedForGame.global).toBe(false);
-    expect(room.startRoster, 'the roster is recaptured for the new game').toEqual([
-      { deviceId: 'dev-Alice', name: 'Alice' },
-      { deviceId: 'dev-Bob', name: 'Bob' },
+    expect([...room.participantStats.keys()], 'the active game participants are recaptured').toEqual([
+      'dev-Alice',
+      'dev-Bob',
     ]);
     expect(room.state.currentCard, 'a fresh deck was built and dealt from, same as a kickoff that says status: \'playing\'')
       .not.toBeNull();
@@ -550,9 +585,8 @@ describe('pushState against an already-finished game', () => {
     for (const id of Object.keys(rooms)) deleteRoom(id);
     rooms[roomId] = createRoom('active-sock');
     // A finished game keeps status 'playing' with finished: true all the way
-    // through the end screen (see the startingGame comment in pushState), and
-    // the finishing push already nulled gameActualStartTime while banking the
-    // elapsed time into gameTimeInSeconds.
+    // through the end screen; the finishing push already nulled
+    // gameActualStartTime while banking the elapsed time into gameTimeInSeconds.
     Object.assign(rooms[roomId].state, {
       status: 'playing', finished: true, currentPlayerIndex: null, currentCard: null,
       round: 5, turnDuration: 60, turnStartTime: null,
@@ -572,11 +606,10 @@ describe('pushState against an already-finished game', () => {
     vi.useRealTimers();
   });
 
-  it('does not re-arm the clock, so the final game time survives a later push', () => {
-    // status is still 'playing', so the "game is running, start the clock"
-    // branch re-armed gameActualStartTime to now — and the finished branch a
-    // few lines below then recomputed gameTimeInSeconds as now-minus-now = 0
-    // and broadcast it, repainting every end screen to 00:00.
+  it('does not re-arm the clock when a malformed legacy snapshot is refused after finish', () => {
+    // A malformed legacy snapshot after finish must be refused before clock
+    // bookkeeping. Otherwise a finished room could re-arm gameActualStartTime
+    // and repaint every end screen to 00:00.
     pushState({ roomId, newState: { round: 5 } });
 
     expect(rooms[roomId].gameActualStartTime).toBeNull();
@@ -594,25 +627,23 @@ describe('pushState against an already-finished game', () => {
     expect(rooms[roomId].gameActualStartTime).toBe(LATER_PUSH);
   });
 
-  it('does not zero the clock even when the push is discarded for a stale roster', () => {
-    // applyPushedState bails on a roster mismatch, but the clock bookkeeping
-    // ran regardless of whether anything was applied — so a Play Again click
-    // carrying a roster a departing player had just invalidated still wiped
-    // the finished game's duration.
+  it('does not zero the clock when a malformed/no-op push is refused after finish', () => {
+    // A refused push still used to run clock bookkeeping — so a Play Again
+    // click whose room update was not accepted could wipe the finished game's
+    // duration even though the room never actually restarted.
     pushState({ roomId, newState: { players: [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Carol' }] } });
 
     expect(rooms[roomId].state.gameTimeInSeconds).toBe(PLAYED_SECONDS);
   });
 });
 
-describe('pushState captures the game-start roster (startRoster)', () => {
+describe('pushState captures game participants for stats', () => {
   // A seat that leaves, is kicked, or times out before the game's finish is
   // broadcast is invisible to endGameStats (see socketStatsHandlers.ts) —
   // that handler only ever hears from a currently seated socket. The server
   // records that seat's row itself instead (rooms.ts' recordDepartedSeatsStats),
-  // and it can only tell who was AT the table when the game began by
-  // capturing the roster right here, the one place a game start is detected
-  // (see the startingGame comment above).
+  // and it can only write complete rows by capturing participants from the
+  // accepted v2 start action and later accepted game-state broadcasts.
   const roomId = 'ROSTER-CAPTURE-ROOM';
   let pushState: Handler;
 
@@ -633,22 +664,25 @@ describe('pushState captures the game-start roster (startRoster)', () => {
     for (const id of Object.keys(rooms)) deleteRoom(id);
   });
 
-  it('captures every seat\'s deviceId and name on lobby -> playing', () => {
-    expect(rooms[roomId].startRoster).toBeNull();
+  it('captures every seat on lobby -> playing', () => {
+    expect(rooms[roomId].participantStats.size).toBe(0);
 
     pushAction(pushState, roomId, { type: 'start' });
 
-    expect(rooms[roomId].startRoster).toEqual([
-      { deviceId: 'dev-Alice', name: 'Alice' },
-      { deviceId: 'dev-Bob', name: 'Bob' },
-    ]);
+    expect([...rooms[roomId].participantStats.keys()]).toEqual(['dev-Alice', 'dev-Bob']);
   });
 
-  it('does not capture anything from a push a stale roster gets discarded wholesale', () => {
-    // A host push whose roster no longer matches the room's is thrown away
-    // entirely (validatePushedPlayers) — `applied` is false, so this must not
-    // run at all, or a discarded "start" would freeze a roster the room never
-    // actually adopted.
+  it('does not capture transient lobby seats before an accepted start', () => {
+    rooms[roomId].state.players.push(makePlayer('Carol', 'carol-sock'));
+
+    emitRoomState(makeFakeIo().io, roomId);
+
+    expect(rooms[roomId].participantStats.size).toBe(0);
+  });
+
+  it('does not capture anything from a refused pushState without a valid start action', () => {
+    // A refused pushState must not run the start side effects, or a discarded
+    // "start" would freeze a roster the room never actually adopted.
     pushState({
       roomId,
       newState: {
@@ -657,14 +691,14 @@ describe('pushState captures the game-start roster (startRoster)', () => {
       },
     });
 
-    expect(rooms[roomId].startRoster).toBeNull();
+    expect(rooms[roomId].participantStats.size).toBe(0);
     expect(rooms[roomId].state.status, 'the discarded push must not have started the game either').toBe('lobby');
   });
 
-  it('re-captures the roster on Play Again: a joiner is included, a leaver is not', () => {
+  it('re-captures participants on Play Again: a joiner is included, a leaver is not', () => {
     // Game 1 starts and finishes with Alice and Bob. Alice takes the winning
-    // score, because a finish is only accepted for a game the engine could
-    // have ended (pushValidation's applyFinished).
+    // score, because a finish is only accepted for a game the action
+    // authority could have ended.
     pushAction(pushState, roomId, { type: 'start' });
     rooms[roomId].state.players[0].score = rooms[roomId].state.winningScore;
     pushAction(pushState, roomId, { type: 'commit', score: 0, success: false });
@@ -673,10 +707,7 @@ describe('pushState captures the game-start roster (startRoster)', () => {
       io: makeFakeIo().io, socket: bob.socket, session: { roomId, username: 'Bob' },
     });
     pushAction(bob.handlers['pushState'], roomId, { type: 'commit', score: 0, success: false });
-    expect(rooms[roomId].startRoster).toEqual([
-      { deviceId: 'dev-Alice', name: 'Alice' },
-      { deviceId: 'dev-Bob', name: 'Bob' },
-    ]);
+    expect([...rooms[roomId].participantStats.keys()]).toEqual(['dev-Alice', 'dev-Bob']);
 
     // Between games: Bob leaves, Carol joins — mirrors what a real
     // joinRoom/handlePlayerLeave pair would have done to the roster.
@@ -689,10 +720,7 @@ describe('pushState captures the game-start roster (startRoster)', () => {
     // host's freshly composed roster.
     pushAction(pushState, roomId, { type: 'start' });
 
-    expect(rooms[roomId].startRoster).toEqual([
-      { deviceId: 'dev-Alice', name: 'Alice' },
-      { deviceId: 'dev-Carol', name: 'Carol' },
-    ]);
+    expect([...rooms[roomId].participantStats.keys()]).toEqual(['dev-Alice', 'dev-Carol']);
   });
 });
 
@@ -746,7 +774,7 @@ describe('liveTurnState authorization', () => {
   it('refuses a host who is not the active player', () => {
     const alice = seat('host-sock', 'Alice');
 
-    alice.liveTurnState({ roomId, liveTurnState: snapshot(9_999) });
+    alice.liveTurnState({ roomId, base: rooms[roomId].gameplayToken, liveTurnState: snapshot(9_999) });
 
     expect(rooms[roomId].state.liveTurnState, 'the host planted a snapshot on Bob\'s turn')
       .toEqual(snapshot(150));
@@ -759,17 +787,19 @@ describe('liveTurnState authorization', () => {
     // forfeited-score the timeout path is about to read.
     const alice = seat('host-sock', 'Alice');
 
-    alice.liveTurnState({ roomId, liveTurnState: null });
+    alice.liveTurnState({ roomId, base: rooms[roomId].gameplayToken, liveTurnState: null });
 
     expect(rooms[roomId].state.liveTurnState).toEqual(snapshot(150));
+    expect(alice.emit).not.toHaveBeenCalled();
   });
 
   it('refuses a seated bystander', () => {
     const carol = seat('bystander-sock', 'Carol');
 
-    carol.liveTurnState({ roomId, liveTurnState: snapshot(9_999) });
+    carol.liveTurnState({ roomId, base: rooms[roomId].gameplayToken, liveTurnState: snapshot(9_999) });
 
     expect(rooms[roomId].state.liveTurnState).toEqual(snapshot(150));
+    expect(carol.emit).not.toHaveBeenCalled();
   });
 
   it('still accepts it from the active player, who is not the host', () => {
@@ -797,9 +827,9 @@ describe('liveTurnState authorization', () => {
  * The server deals every card a running game reveals.
  *
  * `cards` is the ordered undrawn deck, so a client that can write it chooses
- * its own next card — and in the classic rule set that IS the game. Both
- * `cards` and `currentCard` left every writable field set (server/pushValidation.ts);
- * these are the paths that replaced them.
+ * its own next card — and in the classic rule set that IS the game. The legacy
+ * snapshot merge left both `cards` and `currentCard` writable; these are the
+ * paths that replaced them.
  */
 describe('the server deals the cards a pushState implies', () => {
   const roomId = 'DECK-AUTHORITY-ROOM';
@@ -1178,9 +1208,13 @@ describe('shared per-room push work budget', () => {
   const roomId = 'SHARED-PUSH-BUDGET';
   const otherRoomId = 'OTHER-PUSH-BUDGET';
   const TEST_BUDGET_MAX = 2;
+  const UNAUTHORIZED_ATTEMPTS = TEST_BUDGET_MAX + 1;
+  const FIXED_NOW = 1_000_000;
   let previousLimit: string | undefined;
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
     previousLimit = process.env.ROOM_PUSH_WORK_LIMIT_MAX;
     process.env.ROOM_PUSH_WORK_LIMIT_MAX = String(TEST_BUDGET_MAX);
     for (const id of Object.keys(rooms)) deleteRoom(id);
@@ -1190,6 +1224,37 @@ describe('shared per-room push work budget', () => {
     if (previousLimit === undefined) delete process.env.ROOM_PUSH_WORK_LIMIT_MAX;
     else process.env.ROOM_PUSH_WORK_LIMIT_MAX = previousLimit;
     for (const id of Object.keys(rooms)) deleteRoom(id);
+    vi.useRealTimers();
+  });
+
+  it('does not charge unauthorized sockets against the shared room budget', () => {
+    const { io, emit } = makeFakeIo();
+    rooms[roomId] = createRoom('host-sock');
+    Object.assign(rooms[roomId].state, {
+      status: 'playing', finished: false, currentPlayerIndex: 0, currentCard: '300',
+      players: [makePlayer('Host', 'host-sock')],
+    });
+    const before = structuredClone(rooms[roomId].state);
+
+    for (let attempt = 0; attempt < UNAUTHORIZED_ATTEMPTS; attempt++) {
+      // A fresh socket has its own limiter, but every attempt shares this
+      // room's budget and the same fixed time window.
+      const stranger = makeFakeSocket(`stranger-${attempt}`);
+      registerGameStateHandlers({ io, socket: stranger.socket, session: { roomId, username: 'Mallory' } });
+      const ack = vi.fn();
+      pushAction(stranger.handlers['pushState'], roomId, { type: 'commit', score: 0, success: false }, {}, ack);
+      expect(ack).toHaveBeenCalledWith({ ok: false, reason: 'unauthorized' });
+      expect(rooms[roomId].state).toEqual(before);
+    }
+    expect(emit).not.toHaveBeenCalled();
+
+    const host = makeFakeSocket('host-sock');
+    registerGameStateHandlers({ io, socket: host.socket, session: { roomId, username: 'Host' } });
+    const ack = vi.fn();
+    pushAction(host.handlers['pushState'], roomId, { type: 'reset' }, {}, ack);
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    expect(rooms[roomId].state.status).toBe('lobby');
+    expect(emit).toHaveBeenCalled();
   });
 
   it('survives socket replacement while another room keeps an independent budget', () => {

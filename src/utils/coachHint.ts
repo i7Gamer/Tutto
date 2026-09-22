@@ -2,8 +2,9 @@ import type { CardType, Ruleset } from '../types';
 import { TOTAL_DICE } from './turnShapes';
 import { deriveTurnControls, canDrawAfterTutto } from './diceTurnControls';
 import {
+  buildBotTurnContext,
   evaluateOttoDecision,
-  type BotAction, type BotActionAvailability, type BotTurnContext,
+  type BotAction, type BotActionAvailability,
   type OttoDecisionResult,
 } from './botStrategies';
 import { PERCENT } from './percentage';
@@ -92,8 +93,7 @@ export const coachHint = (input: CoachHintInput, evaluated?: OttoDecisionResult)
   // S-5: one spelling of "which ruleset" — derived here instead of carried
   // twice in the input, where nothing reconciled it with `ruleset` itself.
   const isClassic = input.ruleset === 'classic';
-  const ctx: BotTurnContext = {
-    personality: 'optimal',
+  const ctx = buildBotTurnContext('optimal', {
     rollVals: input.rollVals,
     keptCount: input.keptCount,
     turnScore: input.turnScore,
@@ -109,7 +109,7 @@ export const coachHint = (input: CoachHintInput, evaluated?: OttoDecisionResult)
     canDraw: input.canDraw,
     chainCardCount: input.chainCardCount,
     plusMinusScores: input.plusMinusScores,
-  };
+  });
 
   const decision = evaluated ?? evaluateOttoDecision(ctx);
   const ottoSelection = decision.selectedIndices;

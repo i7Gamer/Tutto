@@ -1,5 +1,4 @@
 import { getDeviceStats, updateDeviceStats, updateGlobalStats } from './database';
-import type { SanitizedStats } from './sanitize';
 import { rooms, emitRoomState } from './rooms';
 import { statsModeFor } from './roomTypes';
 import { pendingDeviceStatsWrite, writeDeviceStatsOnce } from './statsWriteCoordinator';
@@ -40,42 +39,6 @@ export const SUBMIT_GLOBAL_STATS_LIMIT = { windowMs: 10_000, max: 5 };
 // at it — a client that hits 'rate-limited' backs off, so the number matters
 // to more than this file now.
 export const END_GAME_STATS_LIMIT = { windowMs: 10_000, max: 5 };
-
-// One finish, one game — also supplied by buildDeviceStatsPayload.
-const GAMES_PER_FINISH = 1;
-
-// Spelled out: what a merge adds to a running sum the server's verdict-only
-// row has already counted.
-const ALREADY_COUNTED_BY_VERDICT_ROW = 0;
-
-const winnerDeviceIdsFor = (
-  finishedGame: { winnerDeviceIds?: string[]; winners: string[] } | null,
-  players: ReadonlyArray<{ deviceId?: string; name: string }>,
-): string[] | undefined => {
-  if (!finishedGame) return undefined;
-  return finishedGame.winnerDeviceIds ?? players
-    .filter(player => finishedGame.winners.includes(player.name))
-    .map(player => player.deviceId)
-    .filter((deviceId): deviceId is string => typeof deviceId === 'string');
-};
-
-/**
- * Turns a server-derived full row into a top-up of a legacy verdict-only row.
- *
- * `gamesPlayed`, `totalPlayersSum` and `totalRoundsSum` are running sums (see deviceCols in
- * database.ts) that the verdict row already added, so the merge adds nothing
- * to those sums. `wins` is deleted rather than zeroed: it is additive too, but
- * its mere PRESENCE is what makes updateDeviceStats re-run the win-streak
- * CASE, and a second run over the same game would alter its recorded streak.
- * The merge adds the remaining counters once; MIN/MAX record columns can
- * safely be included again because their merges are idempotent.
- */
-const applyMergeOverrides = (clean: SanitizedStats): void => {
-  clean.gamesPlayed = ALREADY_COUNTED_BY_VERDICT_ROW;
-  clean.totalPlayersSum = ALREADY_COUNTED_BY_VERDICT_ROW;
-  clean.totalRoundsSum = ALREADY_COUNTED_BY_VERDICT_ROW;
-  delete clean.wins;
-};
 
 /**
  * Recording what a finished game did, per device and server-wide.
@@ -126,6 +89,8 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // submit actions through pushState; they cannot set the finished flag or
     // the counters persisted below with a pushed snapshot or stats payload.
     if (!room.state.finished) return refuse('not-finished');
+    const finishedGame = room.finishedGame;
+    if (!finishedGame) return refuse('invalid');
     // A reconnect/reload after the game already finished (but before anyone
     // leaves the room) makes the client think "finished just became true" again,
     // re-submitting for the same game. Recorded per game, reset when a new one
@@ -147,28 +112,19 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // decides whether counters join the global totals, and ruleset selects the
     // row. The server derives every counter and records exactly one game,
     // regardless of whether the request includes a stats payload.
-    const finishedGame = room.finishedGame;
-    const serverPlayers = finishedGame?.players ?? room.state.players;
-    const winnerDeviceIds = winnerDeviceIdsFor(finishedGame, serverPlayers);
     const globalStats = {
       ...buildGlobalStatsPayload(
-        serverPlayers,
-        finishedGame?.gameTimeInSeconds ?? room.state.gameTimeInSeconds,
+        finishedGame.players,
+        finishedGame.gameTimeInSeconds,
         room.normalizedGame,
-        finishedGame?.round ?? room.state.round,
-        winnerDeviceIds,
+        finishedGame.round,
+        finishedGame.winnerDeviceIds,
       ),
-      isDefaultGame: room.normalizedGame,
-      gamesPlayed: GAMES_PER_FINISH,
-    } as SanitizedStats;
-    // Preserve the frozen participant and round totals in both global and
-    // device rows, including legacy verdicts without participant snapshots.
-    if (finishedGame) {
-      globalStats.totalPlayersSum = finishedGame.playerCount;
-      globalStats.mostPlayersInGame = finishedGame.playerCount;
-      globalStats.totalRoundsSum = finishedGame.round;
-      globalStats.longestGameRounds = finishedGame.round;
-    }
+      totalPlayersSum: finishedGame.playerCount,
+      mostPlayersInGame: finishedGame.playerCount,
+      totalRoundsSum: finishedGame.round,
+      longestGameRounds: finishedGame.round,
+    };
     try {
       await updateGlobalStats(globalStats, room.ruleset);
     } catch (err) {
@@ -212,8 +168,8 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     const player = room.state.players.find(p => p.socketId === socket.id);
     if (!player || player.deviceId !== deviceId) return refuse('unauthorized');
     // Same finish identity as the global row above, checked before the dedup
-    // is reserved or any database work starts. Presence broadcasts and a
-    // verdict-only top-up keep this identity; a rematch gets a different one.
+    // is reserved or any database work starts. Presence broadcasts keep this
+    // identity; a rematch gets a different one.
     if ('finishedGameToken' in data &&
         (typeof data.finishedGameToken !== 'string' || data.finishedGameToken !== room.finishedGameToken)) {
       return refuse('invalid');
@@ -222,19 +178,15 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     // actually reached its end.
     if (!room.state.finished) return refuse('not-finished');
     // Complete departed-seat rows and prior endGameStats writes are duplicates.
-    // Only legacy rooms without captured participant counters produce a
-    // verdict-only row; a returning seat can top it up from the server's
-    // available player state without counting its game or outcome twice.
-    //
     // Captured once, here, rather than read again after the await below:
     // An accepted start replaces room.statsRecordedForGame with a new object
-    // and Map. The coordinator reserves and publishes writes against this
+    // and Set. The coordinator reserves and publishes writes against this
     // captured game's object, so completion or failure during a rematch cannot
     // alter the next game's deduplication state.
     const dedup = room.statsRecordedForGame;
     const finishToken = room.finishedGameToken;
-    // A returning seat cannot top up a verdict which has not committed yet.
-    // Recheck after every wait: another full submission may have reserved the
+    // A returning seat waits for an in-flight write before deciding to retry.
+    // Recheck after every wait: another submission may have reserved the
     // same device while this one was queued behind the departed writer.
     let pending = pendingDeviceStatsWrite(dedup, deviceId);
     while (pending) {
@@ -245,10 +197,8 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
         p.deviceId === deviceId && p.socketId === socket.id)) return refuse('unauthorized');
       pending = pendingDeviceStatsWrite(dedup, deviceId);
     }
-    const recordedLevel = dedup.devices.get(deviceId);
-    if (recordedLevel === 'full') return refuse('duplicate');
-    const isMerge = recordedLevel === 'verdict-only';
-    // The coordinator reserves full writes separately from committed levels.
+    if (dedup.devices.has(deviceId)) return refuse('duplicate');
+    // The coordinator reserves pending writes separately from committed rows.
     // Recorded in full either way — a custom game just lands in its own
     // bucket, where it cannot move the totals or the records a player reads
     // as theirs. Which bucket is the server's call, taken from the config
@@ -257,43 +207,34 @@ export const registerStatsHandlers = ({ io, socket, session }: SocketContext): v
     const mode = statsModeFor(room);
 
     // Use the frozen winner identities and participant counters so departures
-    // after the finish cannot change the recorded outcome or records. Legacy
-    // verdicts fall back to their winner names and the available server roster.
+    // after the finish cannot change the recorded outcome or records.
     const finishedGame = room.finishedGame;
-    const serverPlayers = finishedGame?.players ?? room.state.players;
-    const winnerDeviceIds = winnerDeviceIdsFor(finishedGame, serverPlayers);
+    if (!finishedGame) return refuse('invalid');
+    const serverPlayers = finishedGame.players;
     const serverPlayer = serverPlayers.find(candidate => candidate.deviceId === deviceId);
     if (!serverPlayer) return refuse('invalid');
     const clean = buildDeviceStatsPayload(
       serverPlayers,
       serverPlayer.name,
-      finishedGame?.gameTimeInSeconds ?? room.state.gameTimeInSeconds,
-      finishedGame?.round ?? room.state.round,
-      winnerDeviceIds,
+      finishedGame.gameTimeInSeconds,
+      finishedGame.round,
+      finishedGame.winnerDeviceIds,
     );
     if (!clean) return refuse('invalid');
-    if (finishedGame) {
-      clean.totalPlayersSum = finishedGame.playerCount;
-      clean.mostPlayersInGame = finishedGame.playerCount;
-      clean.totalRoundsSum = finishedGame.round;
-      clean.longestGameRounds = finishedGame.round;
-    }
-
-    // A merge tops up a row the server already wrote from the same verdict,
-    // so everything that row counted must not be counted again. Applied
-    // AFTER the override block above, which is where those very fields were
-    // just set from the verdict.
-    if (isMerge) applyMergeOverrides(clean as unknown as SanitizedStats);
+    clean.totalPlayersSum = finishedGame.playerCount;
+    clean.mostPlayersInGame = finishedGame.playerCount;
+    clean.totalRoundsSum = finishedGame.round;
+    clean.longestGameRounds = finishedGame.round;
 
     // Only a failed write permits a retry. The streak refresh below has its
     // own catch because its failure cannot undo a committed statistics row.
     try {
-      await writeDeviceStatsOnce(dedup, deviceId, 'full', () => updateDeviceStats(deviceId, { ...clean }, mode));
+      await writeDeviceStatsOnce(dedup, deviceId, () => updateDeviceStats(deviceId, { ...clean }, mode));
     } catch (err) {
-      // The coordinator keeps the previous committed level on failure and
-      // releases only this captured game's reservation, never a rematch's.
+      // The coordinator releases only this captured game's reservation on
+      // failure, never a rematch's.
       console.error('[endGameStats] error:', err);
-      // No new committed level was published, so the client can retry this
+      // No committed marker was published, so the client can retry this
       // finish (see the bounded retry in src/store/socketSlice.ts).
       return refuse('write-failed');
     }

@@ -13,13 +13,6 @@ import type {
   Ruleset,
 } from '../types';
 import { isSpecialCard } from './diceTurnControls';
-// Re-exported below: buildGlobalStatsPayload/buildDeviceStatsPayload live in
-// statsPayloads.ts (pure stats aggregation, no turn logic) but every existing
-// caller imports them from here, so the public surface of this module is
-// unchanged.
-import { buildDeviceStatsPayload, buildGlobalStatsPayload } from './statsPayloads';
-
-export { buildDeviceStatsPayload, buildGlobalStatsPayload };
 
 // Awarded turn score for successfully completing these Yes/No cards — not
 // incremental dice points, a fixed value the card itself defines. Exported

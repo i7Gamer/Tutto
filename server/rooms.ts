@@ -1,20 +1,21 @@
-import type { Server, Socket } from 'socket.io';
 import { randomUUID } from 'node:crypto';
 import { buildDeck, getLeaders, noUndoableTurn } from '../src/utils/coreGameEngine';
 import { getEffectiveTurnDuration } from '../src/utils/turnDuration';
+import { appendRoundChartPoint } from '../src/utils/turnResultPatch';
 import {
   DEFAULT_INITIAL_CARDS, DEFAULT_WINNING_SCORE, DEFAULT_TURN_DURATION, DEFAULT_RECONNECT_TIMEOUT,
   DEFAULT_RULESET, MAX_PLAYERS_PER_ROOM,
 } from '../src/utils/configValidation';
 import { MS_PER_SECOND } from '../src/utils/time';
 import { deckComposition } from '../src/utils/onlineDeck';
-import { MAX_CHART_POINTS } from './pushValidation';
+import { MAX_CHART_POINTS } from '../src/utils/configValidation';
 import { envLimitOr } from './envLimits';
 import { updateDeviceStats } from './database';
 import { pendingDeviceStatsWrite, writeDeviceStatsOnce } from './statsWriteCoordinator';
 import { buildDeviceStatsPayload } from '../src/utils/statsPayloads';
-import { MAX_CHAIN_CARDS, PUBLIC_GAME_STATE_KEYS, type AssertNever, type CardType, type StatsPayload, type SyncedGameStateKey } from '../src/types';
+import { MAX_CHAIN_CARDS, PUBLIC_GAME_STATE_KEYS, type AssertNever, type CardType, type SyncedGameStateKey } from '../src/types';
 import { statsModeFor, type Room, type RoomState, type ServerPlayer, type TurnTimerState } from './roomTypes';
+import type { OnlineServer, OnlineServerSocket } from './socketContext';
 
 // Null-prototype, not `{}`: every key here is a client-supplied roomId, and
 // joinRoom validates it only as a non-empty string within a length bound. On a
@@ -52,9 +53,7 @@ export const roomChannel = (roomId: string): string => `room:${roomId}`;
 // Re-exported (not redefined) so joinRoom and this file's own tests keep
 // importing it from here — the real definition moved to
 // src/utils/configValidation.ts, which server/sanitize.ts can import without
-// dragging this module's graph (and pushValidation's coreGameEngine ↔
-// statsPayloads cycle) into server/api.ts. Same pattern MAX_SCORE_MAGNITUDE
-// already follows for pushValidation.ts.
+// dragging this module's graph into server/api.ts.
 export { MAX_PLAYERS_PER_ROOM };
 
 // Upper bound on concurrently existing rooms. joinRoom refuses to CREATE a
@@ -154,13 +153,13 @@ export const createRoom = (hostSocketId: string, createdBy = ''): Room => ({
   // to the Object.keys/values that cancel it, so deleteRoom cannot stop it.
   disconnectTimers: Object.create(null) as Room['disconnectTimers'],
   turnExpireTimer: null,
-  statsRecordedForGame: { devices: new Map(), global: false },
+  statsRecordedForGame: { devices: new Set(), global: false },
   // Matches the default config below. Recomputed the moment a game actually
   // starts, so this only covers a room that somehow submits without one.
   normalizedGame: true,
   ruleset: DEFAULT_RULESET,
   finishedGame: null,
-  startRoster: null,
+  participantStats: new Map(),
   dealtThisTurn: [],
   dealtLastTurn: [],
   state: {
@@ -306,15 +305,16 @@ export const handleActivePlayerRemoved = (room: Room, removedIdx: number): void 
       // removal forces past never gets a chart data point, and the end-screen
       // score-per-round chart silently comes up one round short.
       // Capped like advanceTurnOnTimeout's twin append, and for a sharper
-      // reason than unbounded growth: MAX_CHART_POINTS is what pushValidation
-      // ENFORCES on an incoming chartLabels, refusing a longer one wholesale.
-      // A server array grown past the bound is one no client can ever push
-      // back, so the server's copy and every client's would diverge from the
-      // first append past it onward.
-      if (state.chartValues.length === state.players.length && state.chartNames.length === state.players.length
-          && state.chartLabels.length < MAX_CHART_POINTS) {
-        state.chartValues.forEach((vals, i) => vals.push(state.players[i].score));
-        state.chartLabels.push(state.round);
+      // reason than unbounded growth: MAX_CHART_POINTS is the server's chart
+      // retention cap.
+      if (state.chartNames.length === state.players.length) {
+        const chartPatch = appendRoundChartPoint(
+          state.chartValues, state.chartLabels, state.players, state.round, MAX_CHART_POINTS
+        );
+        if (chartPatch) {
+          state.chartValues = chartPatch.chartValues;
+          state.chartLabels = chartPatch.chartLabels;
+        }
       }
       // Same win check calculateNextTurn runs at the same round boundary —
       // without it, a removal that forces the round past a sole leader who
@@ -459,57 +459,32 @@ export const sanitizePlayerForBroadcast = (p: ServerPlayer): Omit<ServerPlayer, 
  * Called once, right after rememberFinishedGame freezes room.finishedGame for
  * the first time — the same "verdict is now final" moment endGameStats itself
  * trusts. The frozen participant snapshot includes seats that left before
- * the finish. Legacy rooms fall back to room.startRoster; without either
- * record, there are no departed identities available to write.
+ * the finish, with their last server-accepted counters.
  *
  * Shares statsRecordedForGame.devices with endGameStats — the exact same
- * per-game dedup. A captured participant snapshot produces a complete `full`
- * row, so a returning seat is a duplicate. Only legacy rooms without one use a
- * `verdict-only` row, which a returning seat may top up without counting the
- * game itself a second time.
- *
- * A game started after participantStats was introduced carries a server-owned
- * copy of each seat's counters, so its departed row is complete and final. The
- * narrow legacy fallback only has the verdict fields for rooms/test fixtures
- * that predate that snapshot.
+ * per-game dedup. Every write is complete, so a returning seat is a duplicate
+ * after commit, or can retry a failed write for the same finish.
  */
 const recordDepartedSeatsStats = (room: Room): void => {
-  if (!room.finishedGame) return;
+  const finishedGame = room.finishedGame;
+  if (!finishedGame) return;
   // Only a CONNECTED seat is left to record the game for itself.
   const stillSubmittingDeviceIds = new Set(
     room.state.players.filter(p => !p.disconnected).map(p => p.deviceId),
   );
   const mode = statsModeFor(room);
-  const { playerCount, winners, round } = room.finishedGame;
   const dedup = room.statsRecordedForGame;
 
-  const participants = room.finishedGame.players ?? room.startRoster;
-  if (!participants) return;
-  for (const { deviceId, name } of participants) {
+  for (const { deviceId, name } of finishedGame.players) {
     if (!deviceId || stillSubmittingDeviceIds.has(deviceId)) continue;
     if (dedup.devices.has(deviceId) || pendingDeviceStatsWrite(dedup, deviceId)) continue;
-    const frozenPlayers = room.finishedGame.players;
-    const frozenPlayer = frozenPlayers?.find(player => player.deviceId === deviceId);
-    const fullStats = frozenPlayers && frozenPlayer
-      ? buildDeviceStatsPayload(
-        frozenPlayers,
-        frozenPlayer.name,
-        room.finishedGame.gameTimeInSeconds ?? 0,
-        round,
-        room.finishedGame.winnerDeviceIds,
-      )
-      : null;
-    const level = fullStats ? 'full' : 'verdict-only';
-    const stats: StatsPayload = fullStats ? { ...fullStats } : {
-      gamesPlayed: 1,
-      wins: winners.includes(name) ? 1 : 0,
-      totalPlayersSum: playerCount,
-      mostPlayersInGame: playerCount,
-      totalRoundsSum: round,
-      longestGameRounds: round,
-    };
-    // Reserve before dispatch, but only publish the selected level after commit.
-    void writeDeviceStatsOnce(dedup, deviceId, level, () => updateDeviceStats(deviceId, stats, mode)).catch((err: unknown) => {
+    const stats = buildDeviceStatsPayload(
+      finishedGame.players, name, finishedGame.gameTimeInSeconds,
+      finishedGame.round, finishedGame.winnerDeviceIds,
+    );
+    if (!stats) continue;
+    // Reserve before dispatch; publish the device marker only after commit.
+    void writeDeviceStatsOnce(dedup, deviceId, () => updateDeviceStats(deviceId, { ...stats }, mode)).catch((err: unknown) => {
       // No committed marker was published on failure. A same-finish return
       // can write the full result; do not retry old verdicts out of order.
       console.error('[recordDepartedSeatsStats] error:', err);
@@ -533,7 +508,7 @@ const recordDepartedSeatsStats = (room: Room): void => {
  * rather than the previous one's.
  */
 const captureParticipantStats = (room: Room): void => {
-  if (!room.participantStats) return;
+  if (room.state.status !== 'playing') return;
   for (const player of room.state.players) {
     room.participantStats.set(player.deviceId, { ...player });
   }
@@ -548,20 +523,16 @@ const rememberFinishedGame = (room: Room): void => {
   }
   if (room.finishedGame) return;
   room.finishedGameToken = room.gameplayToken;
-  const snapshotPlayers = room.participantStats && room.participantStats.size > 0
-    ? [...room.participantStats.values()].map(player => ({ ...player }))
-    : room.state.players.map(player => ({ ...player }));
+  const snapshotPlayers = [...room.participantStats.values()].map(player => ({ ...player }));
+  const leaders = getLeaders(room.state.players);
   room.finishedGame = {
-    winners: getLeaders(room.state.players).map(p => p.name),
-    playerCount: room.participantStats ? snapshotPlayers.length : (room.startRoster?.length ?? room.state.players.length),
+    winners: leaders.map(player => player.name),
+    playerCount: snapshotPlayers.length,
     round: room.state.round,
-    ...(room.participantStats ? {
-      players: snapshotPlayers,
-      gameTimeInSeconds: room.state.gameTimeInSeconds,
-      winnerDeviceIds: getLeaders(room.state.players)
-        .map(player => player.deviceId)
-        .filter((deviceId): deviceId is string => typeof deviceId === 'string'),
-    } : {}),
+    players: snapshotPlayers,
+    gameTimeInSeconds: room.state.gameTimeInSeconds,
+    winnerDeviceIds: leaders.map(player => player.deviceId)
+      .filter((deviceId): deviceId is string => typeof deviceId === 'string'),
   };
   recordDepartedSeatsStats(room);
 };
@@ -620,11 +591,8 @@ export const BROADCAST_EXCLUDED_FIELDS = ['cards'] as const satisfies readonly S
  * Compile-time lock between the wire payload and the canonical synced-field
  * list (SYNCED_GAME_STATE_KEYS, src/types.ts).
  *
- * Six lists were already locked to it — PushFieldLock and the FIELD_HANDLERS
- * `satisfies` (server/pushValidation.ts), RoomStateFieldLock
- * (server/roomTypes.ts), ClearRoomStateLock and pushState's wire payload
- * (src/store/socketSlice.ts), LocalSaveFieldLock (src/store/persistence.ts) —
- * and the object that ACTUALLY goes on the wire was not one of them. Taking a
+ * The room, broadcast, receive, clear, and local-save field lists are locked
+ * against the same canonical synced-key inventory. Before this lock, taking a
  * field out of it type-checked clean and every client simply stopped receiving
  * it, which for a broadcast means the room's own value is silently replaced by
  * whatever each client already had.
@@ -648,7 +616,7 @@ export type BroadcastFieldLock = [
   AssertNever<Exclude<(typeof BROADCAST_EXCLUDED_FIELDS)[number], SyncedGameStateKey>>,
 ];
 
-export const emitRoomState = (io: Server, roomId: string): void => {
+export const emitRoomState = (io: OnlineServer, roomId: string): void => {
   const room = rooms[roomId];
   if (!room) return;
   rememberFinishedGame(room);
@@ -663,7 +631,7 @@ export const emitRoomState = (io: Server, roomId: string): void => {
  * a client falls back to when its own push was refused and it can no longer
  * trust what it is rendering.
  */
-export const emitRoomStateTo = (socket: Socket, roomId: string, metadata?: GameStateDeliveryMetadata): void => {
+export const emitRoomStateTo = (socket: OnlineServerSocket, roomId: string, metadata?: GameStateDeliveryMetadata): void => {
   const room = rooms[roomId];
   if (!room) return;
   socket.emit('gameState', buildGameStatePayload(room, metadata));

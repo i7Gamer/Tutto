@@ -5,7 +5,7 @@ import {
   normalizeRoomId,
 } from '../src/utils/configValidation';
 import { zeroedPlayerStats } from '../src/utils/playerStats';
-import { applyValidatedConfig } from './pushValidation';
+import { applyValidatedConfig } from './roomConfigValidation';
 import { startServerTurnTimer, abortGameIfLowPlayers, scaledTimerMs } from './turnTimers';
 import type { Room, ServerPlayer } from './roomTypes';
 import {

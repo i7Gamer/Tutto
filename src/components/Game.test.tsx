@@ -2192,7 +2192,10 @@ describe('Game Component Integration', () => {
       // The id rides the header, never the URL — see deviceStatsRequest.
       expect(global.fetch).toHaveBeenCalledWith(
         '/api/stats/device?mode=normalized',
-        { headers: { 'x-tutto-device': 'device-1' } },
+        expect.objectContaining({
+          headers: { 'x-tutto-device': 'device-1' },
+          signal: expect.any(AbortSignal),
+        }),
       );
       expect(setPreGameStats).toHaveBeenCalledWith({
         highestTurnScore: 1500, fastestWinTurns: 8, fastestLossTurns: null,

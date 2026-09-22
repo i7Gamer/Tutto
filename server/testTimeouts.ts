@@ -17,6 +17,15 @@
 export const SERVER_BOOT_TIMEOUT_MS = 30000;
 
 /**
+ * The child gets the full existing boot allowance. The enclosing Vitest hook
+ * has additional time to receive the rejection and finish child cleanup.
+ */
+export const SERVER_STARTUP_DEADLINE_MS = SERVER_BOOT_TIMEOUT_MS;
+export const SERVER_STARTUP_CLEANUP_GRACE_MS = 5000;
+export const SERVER_STARTUP_HOOK_TIMEOUT_MS =
+  SERVER_STARTUP_DEADLINE_MS + SERVER_STARTUP_CLEANUP_GRACE_MS;
+
+/**
  * How long a hook may take to bring the database up on its own — connecting and
  * running the migrations, without a child process, a TypeScript compile or a
  * listening socket in front of it. Less work than a server boot, so it gets its
@@ -24,8 +33,7 @@ export const SERVER_BOOT_TIMEOUT_MS = 30000;
  *
  * It still needs to be more than Vitest's 10 second default: `await initDb()`
  * has been measured missing that on a loaded machine. What makes that worth
- * naming is how the miss presents — a `beforeAll` that times out marks every
- * test in the file SKIPPED, not failed, so a suite that never ran reads as a
- * green one with skips.
+ * naming is how the miss presents — in Vitest 5 a `beforeAll` timeout fails the
+ * file while its test bodies are reported SKIPPED; that is not a green suite.
  */
 export const DB_INIT_TIMEOUT_MS = 20000;

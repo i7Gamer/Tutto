@@ -8,10 +8,10 @@
  * nobody connected to hand it to.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Server } from 'socket.io';
 import { registerRosterHandlers } from './socketRosterHandlers';
 import { makeFakeSocket, makeServerPlayer } from './socketTestHarness';
 import { rooms, createRoom, deleteRoom } from './rooms';
+import type { OnlineServer } from './socketContext';
 
 const makeFakeIo = () => {
   const emit = vi.fn();
@@ -19,7 +19,7 @@ const makeFakeIo = () => {
   const io = {
     to,
     sockets: { sockets: { get: () => undefined } },
-  } as unknown as Server;
+  } as unknown as OnlineServer;
   return { io, emit };
 };
 

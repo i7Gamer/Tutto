@@ -10,7 +10,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { protocolClient as io, joinTestRoom, acceptOnlineAction, requestPublicState, configureTestRoom } from './onlineTestClient';
 import { startTestServer, testDelay, connected } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
-import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { SERVER_STARTUP_HOOK_TIMEOUT_MS } from './testTimeouts';
 import { nonNull } from '../src/testing/factories';
 
 describe('Server Socket E2E — configuration & player order', () => {
@@ -20,7 +20,7 @@ describe('Server Socket E2E — configuration & player order', () => {
 
   beforeAll(async () => {
     serverProcess = await startTestServer(PORT);
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -243,13 +243,28 @@ describe('Server Socket E2E — configuration & player order', () => {
     } finally { cleanup(); }
   });
 
-  it('updateConfig is blocked when the game is already playing', async () => {
+  it('updateConfig keeps lobby-only fields locked mid-game while accepting turnDuration', async () => {
     const roomId = 'UPDATECONFIG_MIDGAME';
     const { host, cleanup } = await playingPair(roomId);
     try {
-      host.emit('updateConfig', { roomId, winningScore: 1000 });
+      host.emit('updateConfig', {
+        roomId,
+        winningScore: 1000,
+        initialCards: { Stop: 1 },
+        randomOrder: true,
+        reconnectTimeout: 30,
+        enforcedDiceMode: 'physical',
+        ruleset: 'classic',
+        turnDuration: 30,
+      });
       const state = await acceptOnlineAction(host, roomId, { type: 'commit', score: 100, success: false });
       expect(state.winningScore).toBe(6000);
+      expect(state.initialCards).toEqual({ '200': 8 });
+      expect(state.randomOrder).toBe(false);
+      expect(state.reconnectTimeout).toBe(60);
+      expect(state.enforcedDiceMode).toBeNull();
+      expect(state.ruleset).toBe('modernized');
+      expect(state.turnDuration).toBe(30);
       expect(state.currentPlayerIndex).toBe(1);
     } finally { cleanup(); }
   });

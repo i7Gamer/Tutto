@@ -29,6 +29,8 @@ import { createStatusLine, isStatusLineEnabled } from './statusLine';
 import { MS_PER_SECOND } from '../src/utils/time';
 import { MAX_PUSHED_STATE_BYTES } from './socketLimits';
 import { createSocketAdmission } from './socketAdmission';
+import type { OnlineServer } from './socketContext';
+import type { ServerIngressEvents, ServerToClientEvents } from '../src/utils/onlineProtocol';
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection, shutting down:', reason);
@@ -133,14 +135,14 @@ server.on('error', (err: ErrnoException) => {
   console.error(describeListenError(err, PORT));
   process.exit(1);
 });
-let io: Server;
+let io: OnlineServer;
 const socketAdmission = createSocketAdmission({
   allowedOrigin: CORS_ORIGIN,
   maxConcurrentTransports: MAX_CONCURRENT_TRANSPORTS,
   activeClients: () => io?.engine.clientsCount ?? 0,
 });
 const ENABLED_SOCKET_TRANSPORTS = ['polling', 'websocket'] as const;
-io = new Server(server, {
+io = new Server<ServerIngressEvents, ServerToClientEvents>(server, {
   cors: { origin: CORS_ORIGIN },
   allowRequest: socketAdmission.allowRequest,
   // Engine.IO's current allowRequest path covers these transports. Keep

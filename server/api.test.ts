@@ -9,7 +9,7 @@ import type express from 'express';
 import { registerApiRoutes, STATS_DEVICES_PER_IP } from './api';
 import { startTestServer } from './socketTestHarness';
 import { TEST_PORTS } from './testPorts';
-import { SERVER_BOOT_TIMEOUT_MS } from './testTimeouts';
+import { SERVER_STARTUP_HOOK_TIMEOUT_MS } from './testTimeouts';
 import { DEVICE_ID_HEADER, DEVICE_STATS_PATH } from '../src/utils/statsApi';
 import { MIN_PRODUCTION_API_TOKEN_BYTES } from './startupGuards';
 
@@ -61,7 +61,7 @@ describe('API Endpoints Token Protection', () => {
       env: { API_TOKEN },
       quietStderr: ['[client-error]'],
     });
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -377,7 +377,7 @@ describe('POST /api/log/client-error rate limiting', () => {
     restoreNativeFetch();
 
     serverProcess = await startTestServer(PORT, { quietStderr: ['[client-error]'] });
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -410,7 +410,7 @@ describe('CORS_ORIGIN configuration', () => {
     restoreNativeFetch();
 
     serverProcess = await startTestServer(PORT, { env: { CORS_ORIGIN } });
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -442,7 +442,7 @@ describe('production CORS defaults to same-origin', () => {
         CORS_ORIGIN: '',
       },
     });
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -692,7 +692,7 @@ describe('STATS_RATE_LIMIT_MAX overrides the stats per-window cap', () => {
   beforeAll(async () => {
     restoreNativeFetch();
     serverProcess = await startTestServer(PORT, { env: { STATS_RATE_LIMIT_MAX: TINY_CAP } });
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -723,7 +723,7 @@ describe('GET /api/stats/global rate limiting', () => {
     restoreNativeFetch();
 
     serverProcess = await startTestServer(PORT, { env: { STATS_RATE_LIMIT_MAX: PRODUCTION_STATS_CAP } });
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -769,7 +769,7 @@ describe('GET /api/stats/device rate limiting is keyed per device', () => {
   beforeAll(async () => {
     restoreNativeFetch();
     serverProcess = await startTestServer(PORT, { env: { STATS_RATE_LIMIT_MAX: TINY_CAP } });
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -803,7 +803,7 @@ describe('GET /api/stats/device rate limiting: rotating the device header cannot
   beforeAll(async () => {
     restoreNativeFetch();
     serverProcess = await startTestServer(PORT, { env: { STATS_RATE_LIMIT_MAX: TINY_CAP } });
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -837,7 +837,7 @@ describe('GET /api/stats/device rate limiting: a header-less caller is bounded b
   beforeAll(async () => {
     restoreNativeFetch();
     serverProcess = await startTestServer(PORT, { env: { STATS_RATE_LIMIT_MAX: TINY_CAP } });
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
@@ -869,7 +869,7 @@ describe('GET /api/stats/global ignores the device header, unlike GET /api/stats
   beforeAll(async () => {
     restoreNativeFetch();
     serverProcess = await startTestServer(PORT, { env: { STATS_RATE_LIMIT_MAX: TINY_CAP } });
-  }, SERVER_BOOT_TIMEOUT_MS);
+  }, SERVER_STARTUP_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     if (serverProcess) serverProcess.kill();
