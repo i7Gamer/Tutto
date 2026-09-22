@@ -2,7 +2,7 @@ import { localStore } from '../utils/storage';
 import type { StoreApi } from 'zustand';
 import {
   isValidWinningScore, isValidTurnDuration, isValidReconnectTimeout, isValidCardEntry,
-  isValidEnforcedDiceMode, isValidRuleset, VALID_CARD_TYPES, MAX_CARD_COUNT,
+  isValidEnforcedDiceMode, isValidRuleset, VALID_CARD_TYPES, MAX_DECK_SIZE,
 } from '../utils/configValidation';
 import { MAX_HISTORY_LOG_SIZE, MAX_CHAIN_CARDS } from '../types';
 import { PLAYER_NUMERIC_FIELDS } from '../utils/playerStats';
@@ -84,16 +84,12 @@ export type LocalSaveFieldLock = [
 // the one it checks.
 const CHART_KEYS = ['chartValues', 'chartNames', 'chartLabels'] as const satisfies readonly (keyof GameStore)[];
 
-// A fully-loaded deck holds at most MAX_CARD_COUNT of each card type — same
-// bound the server enforces through MAX_DECK_SIZE.
-const MAX_SAVED_DECK_SIZE = MAX_CARD_COUNT * VALID_CARD_TYPES.length;
-
 const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isBoolean = (v: unknown): v is boolean => typeof v === 'boolean';
 const isCardOrNull = (v: unknown): boolean =>
   v === null || (VALID_CARD_TYPES as readonly string[]).includes(v as string);
 const isCardArray = (v: unknown): boolean =>
-  Array.isArray(v) && v.length <= MAX_SAVED_DECK_SIZE &&
+  Array.isArray(v) && v.length <= MAX_DECK_SIZE &&
   v.every(c => (VALID_CARD_TYPES as readonly string[]).includes(c as string));
 const isNonNegativeNumber = (v: unknown): boolean => isFiniteNumber(v) && v >= 0;
 
