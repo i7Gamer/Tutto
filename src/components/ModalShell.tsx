@@ -113,6 +113,12 @@ export default function ModalShell({
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const wasOpenRef = useRef(false);
+  // AnimatePresence keeps the exiting panel's old event handler alive after
+  // `open` changes. Read the current state when its blur event fires.
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   // Shared by the open effect below and the focus-recovery handler further
   // down: the first focusable control in the panel, or the panel itself when
@@ -198,7 +204,7 @@ export default function ModalShell({
   // onBlur bubbles like a native focusout, so this catches it wherever inside
   // the panel it happens and pulls focus back in.
   const handleFocusLeavingPanel = (e: FocusEvent<HTMLDivElement>): void => {
-    if (!open) return;
+    if (!openRef.current) return;
     const next = e.relatedTarget as HTMLElement | null;
     // Focus already landed somewhere sensible: still inside this panel, or
     // inside another dialog stacked on top of it (a confirm over the dice
