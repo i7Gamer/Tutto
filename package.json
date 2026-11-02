@@ -72,6 +72,9 @@
     "yaml": "^2.9.1"
   },
   "overrides": {
-    "shell-quote": "^1.11.0"
+    "shell-quote": "^1.11.0",
+    "minimatch": "^11.0.4",
+    "filelist": "^2.0.2",
+    "glob": "^14.0.3"
   }
 }
